@@ -16,16 +16,7 @@ credential path that is still wired end to end:
 - showing with the retained `v3` and split-PRF `v4` layouts
 - the SmallWood-style proof stack used by those flows
 
-The protocol framing in this repo follows the current paper source in
-`Spruce_Latex`, especially:
-
-- `sections/01_intro.tex`
-- `sections/04_arc_construction.tex`
-- `sections/06_parameters.tex`
-- `appendix/C_smallwood_details.tex`
-- `appendix/D_extended_parameters.tex`
-- `appendix/E_prf_and_misc.tex`
-
+The protocol framing in this repo follows the current paper source.
 The code remains the source of truth for live defaults and supported behavior.
 
 ## Reading Order
