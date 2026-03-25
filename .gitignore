@@ -1,0 +1,9 @@
+# Transient documentation sync artifacts (do not track)
+out/doc_sync_audit_*.md
+out/doc_sync_logs_*/
+
+# Local cleanup scratch artifacts
+out/repo_cleanup_sift_*.tmp
+
+# Local protocol working docs
+local_docs/

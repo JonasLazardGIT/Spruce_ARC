@@ -1,0 +1,8 @@
+./bounds.go
+./challenge.go
+./commit.go
+./helpers.go
+./params.go
+./state.go
+./target.go
+./types.go

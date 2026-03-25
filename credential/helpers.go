@@ -1,0 +1,66 @@
+package credential
+
+import (
+	"fmt"
+
+	vsishash "vSIS-Signature/vSIS-HASH"
+
+	"github.com/tuneinsight/lattigo/v4/ring"
+)
+
+func CenterBounded(v, bound int64) int64 {
+	mod := 2*bound + 1
+	w := (v + bound) % mod
+	if w < 0 {
+		w += mod
+	}
+	return w - bound
+}
+
+func HashMessage(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	m1, m2, r0, r1 *ring.Poly,
+) ([]int64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if len(B) != 4 {
+		return nil, fmt.Errorf("b must contain 4 polynomials, got %d", len(B))
+	}
+	if m1 == nil || m2 == nil || r0 == nil || r1 == nil {
+		return nil, fmt.Errorf("nil input polynomial")
+	}
+
+	clone := func(p *ring.Poly) *ring.Poly {
+		cp := ringQ.NewPoly()
+		ring.Copy(p, cp)
+		return cp
+	}
+
+	mCombined := clone(m1)
+	ringQ.Add(mCombined, m2, mCombined)
+
+	mPoly := clone(mCombined)
+	x0 := clone(r0)
+	x1 := clone(r1)
+
+	tNTT, err := vsishash.ComputeBBSHash(ringQ, B, mPoly, x0, x1)
+	if err != nil {
+		return nil, err
+	}
+	tCoeff := ringQ.NewPoly()
+	ringQ.InvNTT(tNTT, tCoeff)
+
+	q := int64(ringQ.Modulus[0])
+	half := q / 2
+	out := make([]int64, ringQ.N)
+	for i, c := range tCoeff.Coeffs[0] {
+		v := int64(c)
+		if v > half {
+			v -= q
+		}
+		out[i] = v
+	}
+	return out, nil
+}

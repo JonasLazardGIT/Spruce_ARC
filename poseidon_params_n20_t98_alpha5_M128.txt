@@ -1,0 +1,4 @@
+Params: n=20, t=98, alpha=5, M=128, R_F=8, R_P=10
+Modulus = 1038337
+Number of S-boxes: 883
+Number of round constants: 1764
