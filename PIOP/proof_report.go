@@ -9,28 +9,42 @@ import (
 
 // ProofReport captures proof size and soundness metrics for a built proof.
 type ProofReport struct {
-	ProofBytes int
-	ProofKB    float64
-	Soundness  SoundnessBudget
-	Packing    ProofPackingAudit
-	Geometry   WitnessGeometrySnapshot
-	Split      *SplitProofReport
-	NCols      int
-	PCSNCols   int
-	LVCSNCols  int
-	Ell        int
-	EllPrime   int
-	Rho        int
-	Theta      int
-	Eta        int
-	DQ         int
-	Lambda     int
-	Kappa      [4]int
+	ProofBytes      int
+	ProofKB         float64
+	Soundness       SoundnessBudget
+	PaperTranscript PaperTranscriptReport
+	Derived         *DerivedGrindingReport
+	Packing         ProofPackingAudit
+	Geometry        WitnessGeometrySnapshot
+	Split           *SplitProofReport
+	NCols           int
+	PCSNCols        int
+	LVCSNCols       int
+	Ell             int
+	EllPrime        int
+	Rho             int
+	Theta           int
+	Eta             int
+	DQ              int
+	Lambda          int
+	Kappa           [4]int
 }
 
 type SplitProofReport struct {
 	PostSign *ProofReport `json:"post_sign,omitempty"`
 	PRF      *ProofReport `json:"prf,omitempty"`
+}
+
+// DerivedGrindingReport records the minimal extra grinding needed to bring a
+// split proof back to a target theorem-level soundness.
+type DerivedGrindingReport struct {
+	TargetBits       float64 `json:"target_bits"`
+	RawCombinedTotal float64 `json:"raw_combined_total"`
+	RawCombinedBits  float64 `json:"raw_combined_bits"`
+	DerivedKappa     [4]int  `json:"derived_kappa"`
+	DerivedTotal     float64 `json:"derived_total"`
+	DerivedTotalBits float64 `json:"derived_total_bits"`
+	Achievable       bool    `json:"achievable"`
 }
 
 // BuildProofReport derives proof size + soundness metrics for a given proof/options.
@@ -78,23 +92,25 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 			dQ = split.PRF.DQ
 		}
 		return ProofReport{
-			ProofBytes: size.Total,
-			ProofKB:    float64(size.Total) / 1024.0,
-			Soundness:  soundness,
-			Packing:    packing,
-			Geometry:   BuildWitnessGeometrySnapshotFromProof(proof),
-			Split:      &split,
-			NCols:      reportOpts.NCols,
-			PCSNCols:   0,
-			LVCSNCols:  0,
-			Ell:        reportOpts.Ell,
-			EllPrime:   reportOpts.EllPrime,
-			Rho:        reportOpts.Rho,
-			Theta:      reportOpts.Theta,
-			Eta:        reportOpts.Eta,
-			DQ:         dQ,
-			Lambda:     reportOpts.Lambda,
-			Kappa:      reportOpts.Kappa,
+			ProofBytes:      size.Total,
+			ProofKB:         float64(size.Total) / 1024.0,
+			Soundness:       soundness,
+			PaperTranscript: mergeSplitPaperTranscriptReports(split),
+			Derived:         deriveGrindingReportForSplit(split, 128),
+			Packing:         packing,
+			Geometry:        BuildWitnessGeometrySnapshotFromProof(proof),
+			Split:           &split,
+			NCols:           reportOpts.NCols,
+			PCSNCols:        0,
+			LVCSNCols:       0,
+			Ell:             reportOpts.Ell,
+			EllPrime:        reportOpts.EllPrime,
+			Rho:             reportOpts.Rho,
+			Theta:           reportOpts.Theta,
+			Eta:             reportOpts.Eta,
+			DQ:              dQ,
+			Lambda:          reportOpts.Lambda,
+			Kappa:           reportOpts.Kappa,
 		}, nil
 	}
 	reportOpts.Kappa = proof.Kappa
@@ -169,20 +185,41 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		ProofBytes: size.Total,
 		ProofKB:    float64(size.Total) / 1024.0,
 		Soundness:  sb,
-		Packing:    packing,
-		Geometry:   geometry,
-		NCols:      ncols,
-		PCSNCols:   lvcsNCols,
-		LVCSNCols:  lvcsNCols,
-		Ell:        ell,
-		EllPrime:   ellPrime,
-		Rho:        rho,
-		Theta:      theta,
-		Eta:        eta,
-		DQ:         dQ,
-		Lambda:     reportOpts.Lambda,
-		Kappa:      reportOpts.Kappa,
+		PaperTranscript: buildPaperTranscriptReportLeaf(proof, q, paperTranscriptParams{
+			Lambda:   reportOpts.Lambda,
+			Eta:      eta,
+			Ell:      ell,
+			EllPrime: ellPrime,
+			Rho:      rho,
+			Theta:    theta,
+			DQ:       dQ,
+			DDECS:    lvcsNCols + ell - 1,
+		}),
+		Packing:   packing,
+		Geometry:  geometry,
+		NCols:     ncols,
+		PCSNCols:  lvcsNCols,
+		LVCSNCols: lvcsNCols,
+		Ell:       ell,
+		EllPrime:  ellPrime,
+		Rho:       rho,
+		Theta:     theta,
+		Eta:       eta,
+		DQ:        dQ,
+		Lambda:    reportOpts.Lambda,
+		Kappa:     reportOpts.Kappa,
 	}, nil
+}
+
+func mergeSplitPaperTranscriptReports(split SplitProofReport) PaperTranscriptReport {
+	out := PaperTranscriptReport{}
+	if split.PostSign != nil {
+		out = mergePaperTranscriptReports(out, split.PostSign.PaperTranscript)
+	}
+	if split.PRF != nil {
+		out = mergePaperTranscriptReports(out, split.PRF.PaperTranscript)
+	}
+	return out
 }
 
 func probabilityBits(p float64) float64 {
@@ -199,14 +236,15 @@ func probabilityBits(p float64) float64 {
 func aggregateSplitSoundness(opts SimOpts, split SplitProofReport) SoundnessBudget {
 	opts.applyDefaults()
 	sb := SoundnessBudget{
-		QueryCaps:          opts.ROQueryCaps,
-		CollisionSpaceBits: fsCollisionSpaceBits(opts.Lambda, 0),
-		WitnessSupportCols: opts.NCols,
+		QueryCaps: opts.ROQueryCaps,
 	}
 	children := []*ProofReport{split.PostSign, split.PRF}
 	for _, child := range children {
 		if child == nil {
 			continue
+		}
+		if sb.WitnessSupportCols == 0 || (child.Soundness.WitnessSupportCols > 0 && child.Soundness.WitnessSupportCols < sb.WitnessSupportCols) {
+			sb.WitnessSupportCols = child.Soundness.WitnessSupportCols
 		}
 		if child.DQ > sb.DQ {
 			sb.DQ = child.DQ
@@ -217,8 +255,12 @@ func aggregateSplitSoundness(opts SimOpts, split SplitProofReport) SoundnessBudg
 		if child.Soundness.CommittedCols > sb.CommittedCols {
 			sb.CommittedCols = child.Soundness.CommittedCols
 		}
+		if sb.CollisionSpaceBits == 0 || (child.Soundness.CollisionSpaceBits > 0 && child.Soundness.CollisionSpaceBits < sb.CollisionSpaceBits) {
+			sb.CollisionSpaceBits = child.Soundness.CollisionSpaceBits
+		}
 		sb.NRows += child.Soundness.NRows
 		sb.M += child.Soundness.M
+		sb.Collision += child.Soundness.Collision
 		for i := 0; i < 4; i++ {
 			sb.Eps[i] += child.Soundness.Eps[i]
 			sb.TheoremTerms[i] += child.Soundness.TheoremTerms[i]
@@ -233,14 +275,7 @@ func aggregateSplitSoundness(opts SimOpts, split SplitProofReport) SoundnessBudg
 	}
 	sb.Eq8Total = sb.Eps[0] + sb.Eps[1] + sb.Eps[2] + sb.Eps[3]
 	sb.Eq8TotalBits = probabilityBits(sb.Eq8Total)
-	querySquares := 0.0
-	for _, cap := range opts.ROQueryCaps {
-		if cap > 0 {
-			querySquares += float64(cap) * float64(cap)
-		}
-	}
-	if querySquares > 0 {
-		sb.Collision = querySquares * math.Pow(2, -float64(sb.CollisionSpaceBits))
+	if sb.Collision > 0 {
 		if sb.Collision > 1 {
 			sb.Collision = 1
 		}
@@ -254,4 +289,60 @@ func aggregateSplitSoundness(opts SimOpts, split SplitProofReport) SoundnessBudg
 	}
 	sb.TotalBits = probabilityBits(sb.Total)
 	return sb
+}
+
+func deriveGrindingReportForSplit(split SplitProofReport, targetBits float64) *DerivedGrindingReport {
+	children := []*ProofReport{split.PostSign, split.PRF}
+	var rawTerms [4]float64
+	collision := 0.0
+	for _, child := range children {
+		if child == nil {
+			continue
+		}
+		collision += child.Soundness.Collision
+		for i := 0; i < 4; i++ {
+			queryCap := child.Soundness.QueryCaps[i+1]
+			rawTerm, _ := theoremTerm(queryCap, child.Soundness.Eps[i], 0)
+			rawTerms[i] += rawTerm
+		}
+	}
+	target := math.Pow(2, -targetBits)
+	out := &DerivedGrindingReport{
+		TargetBits:       targetBits,
+		RawCombinedTotal: collision,
+		Achievable:       true,
+	}
+	for _, term := range rawTerms {
+		out.RawCombinedTotal += term
+	}
+	out.RawCombinedBits = probabilityBits(out.RawCombinedTotal)
+	if collision > target {
+		out.Achievable = false
+		out.DerivedTotal = collision
+		out.DerivedTotalBits = probabilityBits(collision)
+		return out
+	}
+	currentTerms := rawTerms
+	out.DerivedTotal = collision
+	for _, term := range currentTerms {
+		out.DerivedTotal += term
+	}
+	for out.DerivedTotal > target {
+		bestIdx := 0
+		bestTerm := currentTerms[0]
+		for i := 1; i < len(currentTerms); i++ {
+			if currentTerms[i] > bestTerm {
+				bestTerm = currentTerms[i]
+				bestIdx = i
+			}
+		}
+		out.DerivedKappa[bestIdx]++
+		currentTerms[bestIdx] *= 0.5
+		out.DerivedTotal = collision
+		for _, term := range currentTerms {
+			out.DerivedTotal += term
+		}
+	}
+	out.DerivedTotalBits = probabilityBits(out.DerivedTotal)
+	return out
 }

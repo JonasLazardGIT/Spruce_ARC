@@ -74,6 +74,9 @@ func replayPRFRowCount(layout *PRFLayout) int {
 		}
 		return len(seen)
 	}
+	if layout.WitnessRows > 0 {
+		return layout.WitnessRows
+	}
 	return layout.LenKey + len(layout.SBoxSlots)
 }
 

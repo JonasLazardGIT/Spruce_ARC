@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"flag"
 	"fmt"
-	"log"
+	"io"
 	"math"
 	"math/big"
 	"os"
@@ -21,6 +21,95 @@ import (
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
+
+type lineCategory int
+
+const (
+	categoryStatus lineCategory = iota
+	categorySoundness
+	categoryGeometry
+	categoryTranscript
+	categoryWarning
+)
+
+const (
+	ansiReset   = "\033[0m"
+	ansiCyan    = "\033[36m"
+	ansiYellow  = "\033[33m"
+	ansiGreen   = "\033[32m"
+	ansiMagenta = "\033[35m"
+	ansiRed     = "\033[31m"
+)
+
+type cliRenderer struct {
+	out          io.Writer
+	err          io.Writer
+	colorEnabled bool
+}
+
+var cli = newCLIRenderer(os.Stdout, os.Stderr)
+
+func newCLIRenderer(out, err io.Writer) cliRenderer {
+	return cliRenderer{
+		out:          out,
+		err:          err,
+		colorEnabled: stdoutSupportsColor(),
+	}
+}
+
+func stdoutSupportsColor() bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	term := os.Getenv("TERM")
+	if term == "" || term == "dumb" {
+		return false
+	}
+	info, statErr := os.Stdout.Stat()
+	if statErr != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+func styleMessage(enabled bool, category lineCategory, msg string) string {
+	if !enabled {
+		return msg
+	}
+	return colorForCategory(category) + msg + ansiReset
+}
+
+func colorForCategory(category lineCategory) string {
+	switch category {
+	case categoryStatus:
+		return ansiCyan
+	case categorySoundness:
+		return ansiYellow
+	case categoryGeometry:
+		return ansiGreen
+	case categoryTranscript:
+		return ansiMagenta
+	case categoryWarning:
+		return ansiRed
+	default:
+		return ""
+	}
+}
+
+func (r cliRenderer) printf(category lineCategory, prefix, format string, args ...interface{}) {
+	msg := prefix + fmt.Sprintf(format, args...)
+	fmt.Fprintln(r.out, styleMessage(r.colorEnabled, category, msg))
+}
+
+func (r cliRenderer) errorf(prefix, format string, args ...interface{}) {
+	msg := prefix + fmt.Sprintf(format, args...)
+	fmt.Fprintln(r.err, styleMessage(r.colorEnabled, categoryWarning, msg))
+}
+
+func (r cliRenderer) fatalf(prefix, format string, args ...interface{}) {
+	r.errorf(prefix, format, args...)
+	os.Exit(1)
+}
 
 func main() {
 	const (
@@ -53,19 +142,22 @@ func main() {
 		effectivePostNLeaves = splitDefaults.PostSignNLeaves
 	}
 
-	log.Printf("[showing-cli] starting showing demo")
+	if wd, err := os.Getwd(); err == nil {
+		cli.printf(categoryStatus, "[showing-cli] ", "cwd=%s", wd)
+	}
+	cli.printf(categoryStatus, "[showing-cli] ", "starting showing demo")
 	ringQ, err := credential.LoadDefaultRing()
 	if err != nil {
-		log.Fatalf("load ring: %v", err)
+		cli.fatalf("[showing-cli] ", "load ring: %v", err)
 	}
 	statePath := filepath.Join("credential", "keys", "credential_state.json")
 	state, err := credential.LoadState(statePath)
 	if err != nil {
-		log.Fatalf("load credential state: %v", err)
+		cli.fatalf("[showing-cli] ", "load credential state: %v", err)
 	}
 	params, err := loadPRFParamsFromState(state)
 	if err != nil {
-		log.Fatalf("load prf params: %v", err)
+		cli.fatalf("[showing-cli] ", "load prf params: %v", err)
 	}
 	opts := PIOP.SimOpts{
 		Credential:          true,
@@ -85,78 +177,78 @@ func main() {
 		PRFLVCSNCols:        effectivePRFLVCS,
 		PRFNLeaves:          effectivePRFNLeaves,
 	}
-	log.Printf("[showing-cli] production showing profile (ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d prf_group_rounds=%d)",
+	cli.printf(categoryStatus, "[showing-cli] ", "production showing profile (ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d prf_group_rounds=%d)",
 		opts.Ell, opts.Eta, opts.EllPrime, opts.Rho, opts.Theta, opts.NCols, effectivePostLVCS, opts.PRFGroupRounds)
 	if opts.PRFGroupRounds <= 0 {
-		log.Fatalf("invalid fixed PRFGroupRounds=%d", opts.PRFGroupRounds)
+		cli.fatalf("[showing-cli] ", "invalid fixed PRFGroupRounds=%d", opts.PRFGroupRounds)
 	}
 	if opts.NCols < 2*params.LenKey {
-		log.Fatalf("production NCols=%d is too small for PRF key width %d", opts.NCols, 2*params.LenKey)
+		cli.fatalf("[showing-cli] ", "production NCols=%d is too small for PRF key width %d", opts.NCols, 2*params.LenKey)
 	}
 	if opts.NCols%2 != 0 {
-		log.Fatalf("production NCols=%d must be even", opts.NCols)
+		cli.fatalf("[showing-cli] ", "production NCols=%d must be even", opts.NCols)
 	}
 	opts.LVCSNCols = effectivePostLVCS
 	if opts.LVCSNCols < opts.NCols {
-		log.Fatalf("production LVCSNCols=%d must be >= NCols=%d", opts.LVCSNCols, opts.NCols)
+		cli.fatalf("[showing-cli] ", "production LVCSNCols=%d must be >= NCols=%d", opts.LVCSNCols, opts.NCols)
 	}
 	// Clamp ℓ so grouped PRF degree stays below the ring degree.
 	if opts.PRFGroupRounds > 1 {
 		prfDeg, derr := prf.MaxConstraintDegreeGrouped(params, opts.PRFGroupRounds)
 		if derr != nil {
-			log.Fatalf("compute grouped PRF degree: %v", derr)
+			cli.fatalf("[showing-cli] ", "compute grouped PRF degree: %v", derr)
 		}
 		maxEll := maxEllForGroupedPRF(int(ringQ.N), opts.NCols, int(prfDeg))
 		if maxEll <= 0 {
-			log.Fatalf("invalid grouped PRF parameters: N=%d ncols=%d prfDeg=%d g=%d", ringQ.N, opts.NCols, prfDeg, opts.PRFGroupRounds)
+			cli.fatalf("[showing-cli] ", "invalid grouped PRF parameters: N=%d ncols=%d prfDeg=%d g=%d", ringQ.N, opts.NCols, prfDeg, opts.PRFGroupRounds)
 		}
 		if opts.Ell > maxEll {
-			log.Printf("[showing-cli] warning: clamping ℓ from %d to %d for PRFGroupRounds=%d (avoids degree wrap-around)", opts.Ell, maxEll, opts.PRFGroupRounds)
+			cli.printf(categoryWarning, "[showing-cli] ", "warning: clamping ℓ from %d to %d for PRFGroupRounds=%d (avoids degree wrap-around)", opts.Ell, maxEll, opts.PRFGroupRounds)
 			opts.Ell = maxEll
 		}
 	}
 	omega, err := deriveOmegaForOpts(ringQ, opts)
 	if err != nil {
-		log.Fatalf("derive omega: %v", err)
+		cli.fatalf("[showing-cli] ", "derive omega: %v", err)
 	}
 	ncols := len(omega)
 
 	// Build public matrices.
 	B, err := loadBFromState(ringQ, state)
 	if err != nil {
-		log.Fatalf("load B: %v", err)
+		cli.fatalf("[showing-cli] ", "load B: %v", err)
 	}
 	wit, err := buildWitnessFromState(ringQ, state)
 	if err != nil {
-		log.Fatalf("build witness: %v", err)
+		cli.fatalf("[showing-cli] ", "build witness: %v", err)
 	}
 	if wit.CoeffNativeShowing == nil {
-		log.Fatalf("missing coeff-native showing witness in credential state")
+		cli.fatalf("[showing-cli] ", "missing coeff-native showing witness in credential state")
 	}
 	A, err := buildSignatureMatrix(ringQ, state, showingSignatureComponentCount(wit))
 	if err != nil {
-		log.Fatalf("build A: %v", err)
+		cli.fatalf("[showing-cli] ", "build A: %v", err)
 	}
 
 	// Active showing uses the semantic coeff-native PRF key witness directly.
 	key, err := prfKeyFromSemanticWitness(wit.CoeffNativeShowing)
 	if err != nil {
-		log.Fatalf("prf key: %v", err)
+		cli.fatalf("[showing-cli] ", "prf key: %v", err)
 	}
 	nonce, noncePublic := sampleNonce(params.LenNonce, ncols, ringQ.Modulus[0])
 	tag, err := prf.Tag(key, nonce, params)
 	if err != nil {
-		log.Fatalf("prf tag: %v", err)
+		cli.fatalf("[showing-cli] ", "prf tag: %v", err)
 	}
 	tagPublic := lanesFromElems(tag, ncols)
 
 	x0, err := prf.ConcatKeyNonce(key, nonce, params)
 	if err != nil {
-		log.Fatalf("concat key/nonce: %v", err)
+		cli.fatalf("[showing-cli] ", "concat key/nonce: %v", err)
 	}
 	sboxes, _, err := prf.TraceSBoxOutputsGrouped(x0, params, opts.PRFGroupRounds)
 	if err != nil {
-		log.Fatalf("prf sbox trace: %v", err)
+		cli.fatalf("[showing-cli] ", "prf sbox trace: %v", err)
 	}
 	sboxRows := elemsToPolys(ringQ, sboxes)
 	if wit.Extras == nil {
@@ -172,11 +264,11 @@ func main() {
 		BoundB: showingDefaultBoundB,
 	}
 
-	log.Printf("[showing-cli] building proof")
+	cli.printf(categoryStatus, "[showing-cli] ", "building proof")
 	proofStart := time.Now()
 	proof, err := PIOP.BuildShowingCombined(pub, wit, opts)
 	if err != nil {
-		log.Fatalf("build showing: %v", err)
+		cli.fatalf("[showing-cli] ", "build showing: %v", err)
 	}
 	proofDur := time.Since(proofStart)
 
@@ -184,13 +276,12 @@ func main() {
 	ok, err := PIOP.VerifyWithConstraints(proof, PIOP.ConstraintSet{PRFLayout: proof.PRFLayout}, pub, opts, PIOP.FSModeCredential)
 	verifyDur := time.Since(verifyStart)
 	if err != nil || !ok {
-		log.Fatalf("verify showing failed: ok=%v err=%v", ok, err)
+		cli.fatalf("[showing-cli] ", "verify showing failed: ok=%v err=%v", ok, err)
 	}
-	log.Printf("[showing-cli] showing proof verified")
+	cli.printf(categoryStatus, "[showing-cli] ", "showing proof verified")
 	printLogicalWitnessRowBreakdown("[showing-cli] ", proof)
 	printCommittedWitnessRowBreakdown("[showing-cli] ", proof)
 	printProofReport("[showing-cli] ", proof, opts, pub.BoundB, ringQ, proofDur, verifyDur)
-	printTranscriptBreakdown("[showing-cli] ", proof)
 }
 
 func maxEllForGroupedPRF(ringN, ncols, prfDegree int) int {
@@ -520,21 +611,28 @@ func printWitnessGeometry(prefix string, geom PIOP.WitnessGeometrySnapshot) {
 	if geom.ActualWitnessPolys <= 0 {
 		return
 	}
-	log.Printf("%sGeometry: witness_polys=%d post_sign=%d prf=%d replay_post=%d replay_prf=%d blocks=%d rows_per_block=%d witness_rows=%d mask_rows=%d block_slack=%d post_prefix_slack=%d occupancy=%.1f%% replay_to_witness_prf=%.2fx",
-		prefix,
+	cli.printf(categoryGeometry, prefix, "%s", formatWitnessGeometrySummary(geom))
+}
+
+func formatWitnessGeometrySummary(geom PIOP.WitnessGeometrySnapshot) string {
+	line := fmt.Sprintf(
+		"Geometry: witness=%d (post=%d prf=%d) committed=%d mask=%d blocks=%dx%d occupancy=%.1f%%",
 		geom.ActualWitnessPolys,
 		geom.ActualPostSignWitnessPolys,
 		geom.ActualPRFWitnessPolys,
-		geom.ReplayPostSignRows,
-		geom.ReplayPRFRows,
-		geom.PCSBlockCount,
-		geom.RowsPerBlock,
 		geom.WitnessRowsCommitted,
 		geom.MaskRowsCommitted,
-		geom.FinalBlockSlack,
-		geom.PostSignPrefixSlack,
+		geom.PCSBlockCount,
+		geom.RowsPerBlock,
 		geom.OccupancyPct,
-		geom.ReplayToWitnessExpansion)
+	)
+	if geom.FinalBlockSlack > 0 || geom.PostSignPrefixSlack > 0 {
+		line += fmt.Sprintf(" slack=%d/%d", geom.FinalBlockSlack, geom.PostSignPrefixSlack)
+	}
+	if geom.ActualPRFWitnessPolys > 0 || geom.ReplayPRFRows > 0 {
+		line += fmt.Sprintf(" prf_replay=%.2fx", geom.ReplayToWitnessExpansion)
+	}
+	return line
 }
 
 func printCommittedWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
@@ -555,8 +653,7 @@ func printCommittedWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
 		coeffPct := 100.0 * float64(breakdown.CoeffNativeRows) / float64(breakdown.TotalRows)
 		sharedPct := 100.0 * float64(breakdown.SharedRows) / float64(breakdown.TotalRows)
 		prfPct := 100.0 * float64(breakdown.PRFRows) / float64(breakdown.TotalRows)
-		log.Printf("%sWitness rows: coeff_native=%d (%.1f%%), shared=%d (%.1f%%), prf=%d (%.1f%%), total=%d, mask=%d",
-			prefix,
+		cli.printf(categoryGeometry, prefix, "Witness rows: coeff_native=%d (%.1f%%), shared=%d (%.1f%%), prf=%d (%.1f%%), total=%d, mask=%d",
 			breakdown.CoeffNativeRows,
 			coeffPct,
 			breakdown.SharedRows,
@@ -569,8 +666,7 @@ func printCommittedWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
 	}
 	coeffPct := 100.0 * float64(breakdown.CoeffNativeRows) / float64(breakdown.TotalRows)
 	prfPct := 100.0 * float64(breakdown.PRFRows) / float64(breakdown.TotalRows)
-	log.Printf("%sWitness rows: coeff_native=%d (%.1f%%), prf=%d (%.1f%%), total=%d, mask=%d",
-		prefix,
+	cli.printf(categoryGeometry, prefix, "Witness rows: coeff_native=%d (%.1f%%), prf=%d (%.1f%%), total=%d, mask=%d",
 		breakdown.CoeffNativeRows,
 		coeffPct,
 		breakdown.PRFRows,
@@ -594,8 +690,7 @@ func printLogicalWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
 		return
 	}
 	if proof != nil && proof.RowLayout.CoeffNativeSig.Model == PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3 {
-		log.Printf("%sWitness logical rows: sig_primary_limb=%d, post_sign_scalar_projection=%d, post_sign_scalar_certificate=%d, prf_grouped_nonlinear=%d, total=%d",
-			prefix,
+		cli.printf(categoryGeometry, prefix, "Witness logical rows: sig_primary_limb=%d, post_sign_scalar_projection=%d, post_sign_scalar_certificate=%d, prf_grouped_nonlinear=%d, total=%d",
 			breakdown.SigCoreRows,
 			breakdown.PostSignProjectionRows,
 			breakdown.PostSignCertificateRows,
@@ -603,8 +698,7 @@ func printLogicalWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
 			breakdown.TotalRows)
 		return
 	}
-	log.Printf("%sWitness logical rows: sig_semantic=%d, sig_shortness=%d, non_sig=%d, prf=%d, total=%d",
-		prefix,
+	cli.printf(categoryGeometry, prefix, "Witness logical rows: sig_semantic=%d, sig_shortness=%d, non_sig=%d, prf=%d, total=%d",
 		breakdown.SigSemanticRows,
 		breakdown.SigShortnessRows,
 		breakdown.NonSigRows,
@@ -612,79 +706,72 @@ func printLogicalWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
 		breakdown.TotalRows)
 }
 
-func printTranscriptBreakdown(prefix string, proof *PIOP.Proof) {
-	if proof == nil {
-		return
-	}
-	if proof.ShowingSplit != nil {
-		if proof.ShowingSplit.PostSign != nil && proof.ShowingSplit.PostSign.Proof != nil {
-			printTranscriptBreakdown(prefix+"[post_sign] ", proof.ShowingSplit.PostSign.Proof)
+func printPaperTranscriptBreakdown(prefix string, rep PIOP.ProofReport) {
+	if rep.Split != nil {
+		if rep.Split.PostSign != nil {
+			printPaperTranscriptBreakdown(prefix+"[post_sign] ", *rep.Split.PostSign)
 		}
-		if proof.ShowingSplit.PRF != nil && proof.ShowingSplit.PRF.Proof != nil {
-			printTranscriptBreakdown(prefix+"[prf] ", proof.ShowingSplit.PRF.Proof)
+		if rep.Split.PRF != nil {
+			printPaperTranscriptBreakdown(prefix+"[prf] ", *rep.Split.PRF)
 		}
 	}
-	rep := PIOP.MeasureProofSize(proof)
-	if rep.Total == 0 {
-		log.Printf("%sproof size breakdown unavailable (total=0)", prefix)
+	if rep.PaperTranscript.OptimizedBytes == 0 {
+		cli.printf(categoryWarning, prefix, "paper transcript breakdown unavailable (total=0)")
 		return
 	}
-	keys := make([]string, 0, len(rep.Parts))
-	for k := range rep.Parts {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool { return rep.Parts[keys[i]] > rep.Parts[keys[j]] })
-	log.Printf("%sTranscript size breakdown (bytes, percent of total=%d):", prefix, rep.Total)
-	for _, k := range keys {
-		v := rep.Parts[k]
-		pct := 100.0 * float64(v) / float64(rep.Total)
-		log.Printf("%s  %-14s %8d  (%5.1f%%)", prefix, k, v, pct)
-	}
-}
-
-func init() {
-	// Ensure we run from repo root for relative paths.
-	if wd, err := os.Getwd(); err == nil {
-		log.Printf("[showing-cli] cwd=%s", wd)
+	cli.printf(categoryTranscript, prefix, "Paper transcript breakdown (optimized, bytes, total=%d):", rep.PaperTranscript.OptimizedBytes)
+	for _, row := range orderedPaperTranscriptRows(rep.PaperTranscript) {
+		cli.printf(categoryTranscript, prefix, "  %-10s %8d  (%5.1f%%, %.0fb)", row.Label, row.Bytes, row.Percent, row.Bits)
 	}
 }
 
 func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, boundB int64, ringQ *ring.Ring, proveDur, verifyDur time.Duration) {
 	rep, err := PIOP.BuildProofReport(proof, opts, ringQ)
 	if err != nil {
-		log.Printf("%sreport: %v", prefix, err)
+		cli.printf(categoryWarning, prefix, "report: %v", err)
 		return
 	}
 	sigBase, sigL, _, sigErr := PIOP.ResolveSignatureBoundShapeForOpts(ringQ.Modulus[0], opts)
 	nonW, nonL, _, nonErr := PIOP.ResolveNonSigBoundShape(boundB)
-	fmt.Printf("%sProof size≈%.2f KB (%.0f bytes)\n", prefix, rep.ProofKB, float64(rep.ProofBytes))
-	fmt.Printf("%sProver time≈%s\n", prefix, proveDur)
-	fmt.Printf("%sVerifier time≈%s\n", prefix, verifyDur)
-	fmt.Printf("%sSoundness Eq.(8): %s %s %s %s eq8_total=%.2f\n",
-		prefix,
+	if rep.PaperTranscript.OptimizedBytes > 0 {
+		cli.printf(categoryTranscript, prefix, "%s", formatPaperTranscriptSummary(rep))
+		cli.printf(categoryTranscript, prefix, "%s", formatPaperTranscriptReductionSummary(rep))
+	}
+	cli.printf(categoryTranscript, prefix, "Current verifier payload≈%.2f KB (%.0f bytes)", rep.ProofKB, float64(rep.ProofBytes))
+	printPaperTranscriptBreakdown(prefix, rep)
+	cli.printf(categoryStatus, prefix, "Prover time≈%s", proveDur)
+	cli.printf(categoryStatus, prefix, "Verifier time≈%s", verifyDur)
+	cli.printf(categorySoundness, prefix, "Soundness Eq.(8): %s %s %s %s eq8_total=%.2f",
 		formatSoundnessComponent("eps1", rep.Soundness.RawBits[0], rep.Soundness.Bits[0]),
 		formatSoundnessComponent("eps2", rep.Soundness.RawBits[1], rep.Soundness.Bits[1]),
 		formatSoundnessComponent("eps3", rep.Soundness.RawBits[2], rep.Soundness.Bits[2]),
 		formatSoundnessComponent("eps4", rep.Soundness.RawBits[3], rep.Soundness.Bits[3]),
 		displayBits(rep.Soundness.Eq8TotalBits))
-	fmt.Printf("%sSoundness Thm.9: collision=%.2f round={%.2f,%.2f,%.2f,%.2f} total=%.2f qcaps=%v\n",
-		prefix,
+	cli.printf(categorySoundness, prefix, "Soundness Thm.9: collision=%.2f round={%.2f,%.2f,%.2f,%.2f} total=%.2f qcaps=%v",
 		rep.Soundness.CollisionBits,
 		rep.Soundness.TheoremBits[0], rep.Soundness.TheoremBits[1], rep.Soundness.TheoremBits[2], rep.Soundness.TheoremBits[3],
 		displayBits(rep.Soundness.TotalBits),
 		rep.Soundness.QueryCaps)
+	if rep.Derived != nil {
+		if rep.Derived.Achievable {
+			cli.printf(categorySoundness, prefix, "Derived grinding to 128 bits: kappa=%v total=%.2f (raw=%.2f)",
+				rep.Derived.DerivedKappa,
+				displayBits(rep.Derived.DerivedTotalBits),
+				displayBits(rep.Derived.RawCombinedBits))
+		} else {
+			cli.printf(categorySoundness, prefix, "Derived grinding to 128 bits: not achievable (collision floor=%.2f)",
+				displayBits(rep.Soundness.CollisionBits))
+		}
+	}
 	if rep.Split != nil {
-		fmt.Printf("%sParams: NCols(s)=%d pcs_ncols=split ddecs=split ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d dQ=split collision_bits=%d\n",
-			prefix, rep.NCols, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta, rep.Soundness.CollisionSpaceBits)
+		cli.printf(categoryGeometry, prefix, "Params: split proof NCols(s)=%d ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d dQ=split", rep.NCols, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta)
 	} else {
-		fmt.Printf("%sParams: NCols(s)=%d pcs_ncols=%d ddecs=%d ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d dQ=%d collision_bits=%d\n",
-			prefix, rep.NCols, rep.PCSNCols, rep.Soundness.DDECS, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta, rep.DQ, rep.Soundness.CollisionSpaceBits)
+		cli.printf(categoryGeometry, prefix, "Params: NCols(s)=%d pcs_ncols=%d ddecs=%d ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d dQ=%d collision_bits=%d", rep.NCols, rep.PCSNCols, rep.Soundness.DDECS, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta, rep.DQ, rep.Soundness.CollisionSpaceBits)
 	}
 	printWitnessGeometry(prefix, rep.Geometry)
 	if rep.Split != nil {
 		if rep.Split.PostSign != nil {
-			fmt.Printf("%sSlice post_sign: bytes=%d soundness=%.2f dQ=%d pcs_ncols=%d witness=%d rows=%d mask=%d\n",
-				prefix,
+			cli.printf(categoryGeometry, prefix, "Slice post_sign: bytes=%d soundness=%.2f dQ=%d pcs_ncols=%d witness=%d rows=%d mask=%d",
 				rep.Split.PostSign.ProofBytes,
 				displayBits(rep.Split.PostSign.Soundness.TotalBits),
 				rep.Split.PostSign.DQ,
@@ -695,8 +782,7 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 			printWitnessGeometry(prefix+"[post_sign] ", rep.Split.PostSign.Geometry)
 		}
 		if rep.Split.PRF != nil {
-			fmt.Printf("%sSlice prf:       bytes=%d soundness=%.2f dQ=%d pcs_ncols=%d witness=%d rows=%d mask=%d\n",
-				prefix,
+			cli.printf(categoryGeometry, prefix, "Slice prf:       bytes=%d soundness=%.2f dQ=%d pcs_ncols=%d witness=%d rows=%d mask=%d",
 				rep.Split.PRF.ProofBytes,
 				displayBits(rep.Split.PRF.Soundness.TotalBits),
 				rep.Split.PRF.DQ,
@@ -708,14 +794,12 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 		}
 	}
 	if sigErr == nil && nonErr == nil {
-		fmt.Printf("%sLinf chain: sig(R=%d,L=%d) nonSig(W=%d,L=%d)\n",
-			prefix, sigBase, sigL, nonW, nonL)
+		cli.printf(categoryGeometry, prefix, "Linf chain: sig(R=%d,L=%d) nonSig(W=%d,L=%d)", sigBase, sigL, nonW, nonL)
 	} else {
-		log.Printf("%sLinf chain shape resolution warning: sigErr=%v nonSigErr=%v", prefix, sigErr, nonErr)
+		cli.printf(categoryWarning, prefix, "Linf chain shape resolution warning: sigErr=%v nonSigErr=%v", sigErr, nonErr)
 	}
-	printPackingAudit(prefix, rep.Packing)
-	fmt.Printf("%sTable row: %.2f %.3f %.2f %d %d %d %d %d %d\n",
-		prefix, rep.ProofKB, proveDur.Seconds(), rep.Soundness.TotalBits,
+	cli.printf(categoryGeometry, prefix, "Table row: %.2f %.3f %.2f %d %d %d %d %d %d",
+		rep.ProofKB, proveDur.Seconds(), rep.Soundness.TotalBits,
 		rep.NCols, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta)
 }
 
@@ -733,28 +817,61 @@ func formatSoundnessComponent(label string, rawBits, bits float64) string {
 	return fmt.Sprintf("%s=%.2f", label, bits)
 }
 
-func printPackingAudit(prefix string, audit PIOP.ProofPackingAudit) {
-	fmt.Printf("%sPacking: modulus_ceiling=%d bits max_field_width=%d bits\n",
-		prefix, audit.ModulusCeilingBits, audit.MaxFieldBitWidth)
-	fmt.Printf("%s  VTargets: width=%d max=%d bytes=%d\n",
-		prefix, audit.VTargets.BitWidth, audit.VTargets.MaxValue, audit.VTargets.Bytes)
-	fmt.Printf("%s  QR:       width=%d max=%d bytes=%d\n",
-		prefix, audit.QR.BitWidth, audit.QR.MaxValue, audit.QR.Bytes)
-	fmt.Printf("%s  BarSets:  width=%d max=%d bytes=%d\n",
-		prefix, audit.BarSets.BitWidth, audit.BarSets.MaxValue, audit.BarSets.Bytes)
-	fmt.Printf("%s  RowOpen:  P=%db/%d (omit=%d) M=%db/%d (omit=%d) total=%d\n",
-		prefix,
-		audit.RowOpening.Pvals.BitWidth, audit.RowOpening.Pvals.MaxValue, audit.RowOpening.Pvals.OmittedCols,
-		audit.RowOpening.Mvals.BitWidth, audit.RowOpening.Mvals.MaxValue, audit.RowOpening.Mvals.OmittedCols,
-		audit.RowOpening.TotalBytes)
-	fmt.Printf("%s  QOpen:    P=%db/%d (omit=%d) M=%db/%d (omit=%d) total=%d\n",
-		prefix,
-		audit.QOpening.Pvals.BitWidth, audit.QOpening.Pvals.MaxValue, audit.QOpening.Pvals.OmittedCols,
-		audit.QOpening.Mvals.BitWidth, audit.QOpening.Mvals.MaxValue, audit.QOpening.Mvals.OmittedCols,
-		audit.QOpening.TotalBytes)
-	fmt.Printf("%s  PCSOpen:  P=%db/%d (omit=%d) M=%db/%d (omit=%d) total=%d\n",
-		prefix,
-		audit.PCSOpening.Pvals.BitWidth, audit.PCSOpening.Pvals.MaxValue, audit.PCSOpening.Pvals.OmittedCols,
-		audit.PCSOpening.Mvals.BitWidth, audit.PCSOpening.Mvals.MaxValue, audit.PCSOpening.Mvals.OmittedCols,
-		audit.PCSOpening.TotalBytes)
+func formatPaperTranscriptSummary(rep PIOP.ProofReport) string {
+	return fmt.Sprintf("Paper transcript≈%.2f KB (%d bytes, optimized)",
+		float64(rep.PaperTranscript.OptimizedBytes)/1024.0,
+		rep.PaperTranscript.OptimizedBytes)
+}
+
+func formatPaperTranscriptReductionSummary(rep PIOP.ProofReport) string {
+	return fmt.Sprintf("Paper reductions: R saved=%.0fb Q saved=%.0fb",
+		rep.PaperTranscript.R.NaiveBits-rep.PaperTranscript.R.OptimizedBits,
+		rep.PaperTranscript.Q.NaiveBits-rep.PaperTranscript.Q.OptimizedBits)
+}
+
+type paperTranscriptBreakdownRow struct {
+	Label   string
+	Bytes   int
+	Bits    float64
+	Percent float64
+	order   int
+}
+
+func orderedPaperTranscriptRows(rep PIOP.PaperTranscriptReport) []paperTranscriptBreakdownRow {
+	total := rep.OptimizedBytes
+	rows := []paperTranscriptBreakdownRow{}
+	add := func(label string, bucket PIOP.PaperTranscriptBucket, order int) {
+		if bucket.OptimizedBytes <= 0 {
+			return
+		}
+		pct := 0.0
+		if total > 0 {
+			pct = 100.0 * float64(bucket.OptimizedBytes) / float64(total)
+		}
+		rows = append(rows, paperTranscriptBreakdownRow{
+			Label:   label,
+			Bytes:   bucket.OptimizedBytes,
+			Bits:    bucket.OptimizedBits,
+			Percent: pct,
+			order:   order,
+		})
+	}
+	add("Counters", rep.Counters, 0)
+	add("SaltRoot", rep.SaltRoot, 1)
+	add("ExtraHash", rep.ExtraHash, 2)
+	add("R", rep.R, 3)
+	add("Q", rep.Q, 4)
+	add("VTargets", rep.VTargets, 5)
+	add("BarSets", rep.BarSets, 6)
+	add("Pdecs", rep.Pdecs, 7)
+	add("Mdecs", rep.Mdecs, 8)
+	add("Auth", rep.Auth, 9)
+	add("Tapes", rep.Tapes, 10)
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Bytes != rows[j].Bytes {
+			return rows[i].Bytes > rows[j].Bytes
+		}
+		return rows[i].order < rows[j].order
+	})
+	return rows
 }

@@ -1,0 +1,141 @@
+Conference’17, July 2017, Washington, DC, USA
+
+
+Algorithm 8 LVCS.CommitStep2({𝑅𝑘 }𝑘<𝜂 ) → accept/reject (veri-               C.5     What DECS/LVCS/PCS bind in
+fier)                                                                                ARC-SPRUCE
+ 1: for each mask row 𝑅𝑘 do                                                  At a high level, the SmallWood stack provides a single commitment
+ 2:    Reject if deg(𝑅𝑘 ) > 𝑑 (degree guard before openings).                that simultaneously binds all witness rows used in a statement, and
+ 3: return accept.                                                           it enforces that every opened value is consistent with a low-degree
+                                                                             polynomial view of those rows. In ARC-SPRUCE this binding is
+                                                                             used in three complementary ways:
+                                                                              • Row binding and low degree (DECS). DECS ensures that the
+Algorithm 9 LVCS.EvalInitMany(ringQ, ProverKey, {Coeffs𝑘 }𝑘<𝑚 )                  prover cannot answer openings using high-degree “fake” vectors:
+→ {¯𝑣𝑘 }𝑘<𝑚 (prover)                                                             each committed row must correspond to a degree-≤ 𝑠 + ℓ − 1
+Require: Linear forms Coeffs𝑘 ∈ F𝑞𝑟 for 𝑘 = 0, . . . , 𝑚 − 1.                    polynomial that matches the packed values on Ω and the masked
+ 1: Let ℓ ← |mask 𝑗 |.                                                           tails on Ω ′ .
+ 2: for 𝑘 = 0 to 𝑚 − 1 do                                                     • Linear linking across subsystems (LVCS). LVCS is used to
+ 3:     Initialize 𝑣¯𝑘 ← 0 ∈ F𝑞ℓ .                                               request openings of verifier-chosen linear combinations of rows.
+                    Í −1
+ 4:     Set 𝑣¯𝑘 ← 𝑟𝑗=0   Coeffs𝑘 [ 𝑗] · mask 𝑗 ∈ F𝑞ℓ .                           This is what couples different parts of the statement: the same
+                                                                                 opened evaluations are reused to recompute commitment residu-
+ 5: return {¯
+            𝑣𝑘 }𝑘<𝑚 .
+                                                                                 als, centering residuals, the rational-hash residual, the signature
+                                                                                 residual, and the PRF checkpoint residuals.
+                                                                              • No witness splitting (single PCS commitment). Because all
+Algorithm 10 LVCS.ChooseE(ℓ, 𝑛 cols ) → 𝐸 (verifier)                             rows live under one commitment, the prover cannot use incon-
+                                                                                 sistent witnesses for different checks. For instance, in showings
+Require: Ring size 𝑁 ; packed domain size 𝑛 cols = |Ω|; masked slab              the same signed 𝑀2 row that appears in the hash/signature re-
+    indices [𝑛 cols, 𝑛 cols + ℓ).                                                lation is also the row that key-binding constraints connect to
+ 1: Sample 𝐸 ⊂ {𝑛 cols +ℓ, . . . , 𝑁 −1} uniformly without replacement
+                                                                                 the committed PRF key lanes; this prevents “mix-and-match” of
+    with |𝐸| = ℓ.                                                                (𝑚 2, 𝑢) with an unrelated PRF witness.
+ 2: return 𝐸.
+                                                                             This is exactly the binding invariant emphasized in the previous
+                                                                             paper’s SmallWood appendix: the verifier’s checks are expressed as
+                                                                             residual functions of opened row evaluations, so all constraints are
+Algorithm 11 LVCS.EvalFinish(ProverKey, 𝐸) → Opening (prover)                evaluated against a single coherent row assignment.
+ 1: open ← ProverKey.DecsProver.EvalOpen(𝐸).
+                                                                             C.6 Openings we request in issuance vs showing
+ 2: return Opening{DECSOpen = open}.
+                                                                             Both proofs in ARC-SPRUCE follow the same pattern: the prover
+                                                                             commits to all witness rows as polynomials, the verifier derives
+                                                                             Fiat–Shamir challenges, and the prover opens the committed rows
+Algorithm 12 LVCS.EvalStep2({¯𝑣𝑘 }, 𝐸, open, 𝐶, 𝑣 targets ) (verifier)       at verifier-chosen points. The verifier then recomputes residuals
+                                                             𝑛               for each constraint family from these openings and checks that all
+Require: Coeffs 𝐶 ∈ F𝑚×𝑟  𝑞    , public prefixes 𝑣 targets ∈ (F𝑞 cols )𝑚 .   residuals vanish.
+ 1: Split open into mask openings for [𝑛 cols , 𝑛 cols + ℓ) and tail open-
+    ings at 𝐸.                                                                  Issuance (pre-sign). The witness consists of the base rows 𝑀1, 𝑀2, 𝑅𝑈0 , 𝑅𝑈1 , 𝑅,
+                                                                                                                                                               ¯ 𝑅0 , 𝑅1
+ 2: Verify the DECS openings (degree soundness and Merkle au-                while the target 𝑇 and issuer challenges (𝑟 0𝐼 , 𝑟 1𝐼 ) are public. The veri-
+    thentication); reject on failure.                                        fier requests openings sufficient to replay: (i) the linear commitment
+ 3: for each 𝑘 < 𝑚 and each masked index 𝑖 < ℓ do                            constraints linking com to (𝑀1, 𝑀2, 𝑅𝑈0 , 𝑅𝑈1 , 𝑅),   ¯ (ii) the centering
+                   Í −1                                            ?
+ 4:       Check 𝑟𝑗=0    𝐶 [𝑘, 𝑗] · maskOpen.Pvals[𝑖] [ 𝑗] = 𝑣¯𝑘 [𝑖]          constraints linking (𝑅0, 𝑅1 ) to the holder/issuer randomness and
+    (mod 𝑞).                                                                 carries (𝐾0, 𝐾1 ), and (iii) the cleared-denominator hash constraint
+ 5: Reconstruct each batched polynomial 𝑄 𝑘 (𝑋 ) from its Ω-prefix
+                                                                             linking 𝑇 to (𝑀1, 𝑀2, 𝑅0, 𝑅1 ), together with packing and member-
+    𝑣 targets [𝑘] and mask tail 𝑣¯𝑘 .                                        ship checks. Because all of these residuals are evaluated from the
+ 6: Check tail consistency of 𝑄 𝑘 against the opened linear combi-
+                                                                             same opened rows, the proof binds the target 𝑇 to the commitment
+    nations at points in 𝐸.                                                  opening and the centered randomness.
+ 7: return accept.                                                              Showing (post-sign). The witness extends issuance with the hash
+                                                                             target 𝑇 , the signature preimage rows 𝑈 , and the PRF witness block
+                                                                             (key lanes and checkpointed S-box outputs). The verifier requests
+C.4     LVCS and PCS/PIOP                                                    openings sufficient to replay: (i) the signature residual 𝐴 · 𝑈 −𝑇 , (ii)
+LVCS provides linear opening queries to committed rows and is                the bilinear cleared-denominator hash residual linking 𝑇 to the base
+used to implement the polynomial oracle interface needed by PIOPs.           rows, and (iii) the PRF key-binding, checkpoint, and tag-binding
+SmallWood combines LVCS with DECS (for degree enforcement)                   residuals (Section 5.5). The key point is that the PRF key lanes
+to obtain a hash-based PCS.                                                  are tied back to the signed 𝑀2 row via selector constraints, so the
+ARC-SPRUCE: Post-Quantum Blind Signatures and Anonymous Rate-Limited Credentials from Lattices                       Conference’17, July 2017, Washington, DC, USA
+
+
+opened values jointly bind tag = F(𝑚 2, nonce) to the same 𝑚 2 that                 encodings inherited from the previous paper), those relations ap-
+appears in the signature relation.                                                  pear as 𝐹 agg and are enforced through the Ω-sum checks of the
+                                                                                    PIOP.
+   Internal Ω-sum check. Even when an application’s aggregated
+family is empty (𝐹 agg = ∅), PACS/PIOP still enforces the masked
+Ω-sum test on the batch polynomials 𝑄, which is the mechanism
+that ties the verifier’s spot-check openings to correctness on the                  Algorithm 16 PACS.ToNIZK (Fiat–Shamir wrapper with grinding)
+full packing domain Ω.
+                                                                                                      $
+                                                                                      1: Sample salt ← {0, 1} 2𝜆 .
+C.7     PACS/PIOP interface (used by our                                              2: Derive challenges by hashing the transcript with grinding coun-
+        statements)                                                                     ters to obtain required prefix properties.
+SmallWood’s PACS/PIOP layer checks that constraint polynomials                        3: Output PCS/LVCS/DECS openings and any required batched
+vanish on Ω (and at random points outside Ω), by committing to                          values; the verifier recomputes challenges and checks.
+witness rows and mask polynomials and then opening them at
+verifier-chosen coordinates. The following algorithms summarize
+the high-level structure used in our proofs.
+                                                                                    D     Extended Parameters and Benchmarks
+Algorithm 13 PACS.PIOPCommitOracleProver (params)                               →
+                                                                                    This appendix provides extended parameter discussion and addi-
+pcsCom
+                                                                                    tional benchmark data.
+ 1: Interpolate witness rows into 𝑃 1 , . . . , 𝑃𝑛 ∈ F𝑞 [𝑋 ] ≤𝑠+ℓ ′ −1 with
+    ℓ ′ random blind evaluations outside Ω.
+ 2: Sample mask polynomials 𝑀1 , . . . , 𝑀𝜌 ∈ F𝑞 [𝑋 ] ≤𝑑𝑄 such that                 D.1     Admissibility checklist
+    Í
+      𝜔 ∈Ω 𝑀𝑖 (𝜔) = 0 for all 𝑖.                                                    A parameter tuple is admissible for ARC-SPRUCE if it simultane-
+ 3: Commit to 𝑃 ∥𝑀 via PCS (implemented through LVCS/DECS);                         ously satisfies:
+    obtain pcsCom.
+ 4: return pcsCom.                                                                  (1) Bound vs. modulus: 𝛽 msg ≪ 𝑞 so membership checks on
+                                                                                        [−𝛽 msg, 𝛽 msg ] do not wrap modulo 𝑞.
+                                                                                    (2) Sampler hiding and shortness: Gaussian widths exceed the
+                                                                                        required smoothing threshold and the signature bound 𝛽 sig
+Algorithm 14 PACS.PIOPBatchCombineProver (pcsCom, Γ ′ ) → 𝑄                             holds with overwhelming probability.
+ 1: Using 𝑃, 𝑀, form batched polynomials                                            (3) Rational-hash guard: denominator invertibility succeeds with
+                              ∑︁                          ∑︁                            negligible failure probability under the holder randomness dis-
+        𝑄𝑖 (𝑋 ) = 𝑀𝑖 (𝑋 ) +        Γ𝑖,𝑗
+                                     ′
+                                        (𝑋 ) 𝐹 𝑗 (𝑋 ) +         ′
+                                                               𝛾𝑖,𝑢 𝐹𝑢′ (𝑋 ),           tribution.
+                               𝑗                          𝑢
+                                                                                    (4) SmallWood degree/soundness: the DECS/LVCS degree bounds
+    where 𝐹 𝑗 and 𝐹𝑢′ are the parallel and aggregated constraint                        and PIOP soundness parameters meet the target security 𝜆.
+    polynomials evaluated on 𝑃.                                                     (5) PRF entropy: truncation length ℓtag yields at least 𝜆 bits of tag
+ 2: return 𝑄 = (𝑄 1 , . . . , 𝑄 𝜌 ).                                                    entropy.
+
+
+                                                                                    D.2     Smoothing and sampler budgets
+Algorithm 15 PACS.PIOPOpenAndCheck(pcsCom, 𝑄) (verifier)                            Let 𝜂𝜀 (Λ) denote the smoothing parameter of a lattice Λ. A sufficient
+ 1: Sample a query set 𝐸 ′ ⊂ 𝑆 with |𝐸 ′ | = ℓ ′ (Fiat–Shamir in NIZK).             condition for statistical hiding in Gaussian preimage sampling is
+ 2: Verify PCS openings of 𝑃 and 𝑀 at 𝐸 ′ (via LVCS/DECS); reject                   to choose Gaussian widths above a floor 𝜎min ≥ 𝜂𝜀 (Λ⊥ (𝐴)), with
+    on failure.                                                                     slack (Appendix B). For the ambient lattice Z2𝑁 one may use the
+ 3: Check that each 𝑄 𝑖 (𝑒) matches its definition from 𝑀𝑖 (𝑒) and                  classical bound
+    the constraint evaluations at 𝑒 ∈ 𝐸 ′ .
+ 4: Check the masked Ω-sum test 𝜔 ∈Ω 𝑄 𝑖 (𝜔) = 0 for all 𝑖.
+                                    Í                                                                                 √︃               
+ 5: return accept/reject.
+                                                                                                      𝜂𝜀 (Z2𝑁 ) =       ln 4𝑁 (1 + 2𝜆 ) /𝜋 .
+
+
+                                                                                    In our tuning, trapdoor quality 𝛼 and acceptance parameters are
+C.8     Fiat–Shamir compilation                                                     chosen so that the output shortness bound 𝛽 sig holds with over-
+SmallWood compiles the interactive protocol to a NIZK using Fiat–                   whelming probability.
+Shamir with grinding to obtain challenges with all-zero prefixes,
+as in [FR25]. Our ARC instantiation is dominated by parallel con-
+straints, but the PACS/PIOP reminder here is stated for general                     D.3     Example lattice parameters
+(𝐹 par, 𝐹 agg ) statements. In particular, if the application introduces            Table 2 records one concrete instantiation used for the proof sizes
+global coupling across the packing domain (as in the proof-friendly                 in Table 1.
+

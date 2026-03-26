@@ -1,0 +1,502 @@
+   Assuming that DΓ and DΓ ′ are the uniform distributions, this interactive proof achieves round-by-round
+soundness with the following soundness errors:
+                                N                         dQ              ncols +ℓ−1
+                                                                                  
+                             ddecs +2          1           ℓ′                   ℓ
+                       ε1 =            , ε2 =      , ε3 = |F| , ε4 =          N
+                                                                                      ,                 (8)
+                              |F|η            |F|ρ
+                                                                                  
+                                                            ′            ℓ      ℓ
+
+where ε1 corresponds to degree-enforcing soundness error (arising in the DECS commitment), ε2 corresponds
+to the first-round soundness error of the PIOP (batching of constraints), ε3 corresponds to the second-
+round soundness error of the PIOP (evaluation queries), and ε4 corresponds to the PCS/LVCS opening
+soundness error. To achieve a λ-bit security, one shall constrain the chosen parameters to ensure that these
+soundness errors are at most 2−λ (see Table 1 below for an exhaustive list of the SmallWood parameters).
+To further reduce the proof size, we employ the technique of grinding [Sta21]. Concretely, for parameters
+κ1 , κ2 , κ3 , κ4 ∈ N, we embed a κi -bit proof-of-work into the i-th Fiat-Shamir hash computation, for each
+i ∈ {1, 2, 3, 4}. This relaxation allows each individual soundness error εi to satisfy the bound εi ≤ 2−λ+κi ,
+rather than the stricter original constraint.
+     To achieve strong concrete security, SmallWood-ARK employs a random salt. During proof generation,
+the prover begins by selecting a random salt salt ∈ {0, 1}2λ . This salt is then used as auxiliary input both
+when hashing the leaves of the Merkle tree in the PCS and when deriving the first Fiat-Shamir hash.
+
+Application of the Fiat-Shamir Transform. Our concrete application of the Fiat-Shamir transform
+with grinding is illustrated in Figure 8. In each challenge round, the challenge is derived by first hashing the
+                                                                                                            (in)
+previous Fiat-Shamir output hi−1 together with the prover’s latest message msgi , collectively denoted hi .
+Grinding is then applied as follows: a counter ctri is initialized to zero, and one computes
+                                           (in)
+                               XOFi : (hi         , ctri ) 7→ (hi , v) ∈ {0, 1}2λ × {0, 1}κi .
+If the extracted value v equals the all-zero string 0κi , then hi is accepted as the output hash. Otherwise, the
+counter ctri is incremented and the process is repeated. Once grinding succeeds, the resulting hi is used to
+derive the i-th challenge chali via a XOF, and it also serves as input to the next Fiat-Shamir round. In this
+iterative definition, we define h0 := salt. When SmallWood is used as the basis of a signature scheme, the
+final hash may additionally absorb the message to be signed.
+
+
+          ...                                              ...
+                     msg                                                 msg
+                  −−−−−−i−−→                                          −−−−−−i−−→
+                                                                                       (in)
+                                                                                   1. hi = (hi−1 , msgi )
+                                                                                                         (in)
+                               chali ← $           =⇒                              2. (hi , 0κi ) = XOF(hi , ctri )
+                                                                                   3. chali = XOF(hi )
+                     chal                                                chal
+                  ←−−−−−i−−−                                          ←−−−−−i−−−
+          ...                                              ...
+
+
+                Fig. 8: Illustration of our concrete Fiat-Shamir transformation with grinding.
+
+
+  The following diagram summarizes the four sequential applications of the Fiat-Shamir transform to the
+SmallWood interactive proof (Figure 7):
+                                 (in)
+                                h1      = (salt, root)                   → h1 →               Γ
+                                 (in)
+                                h2 = (h1 , R)                            → h2 →               Γ′
+                                 (in)
+                                h3 = (h2 , Q1 , Q2 )                     → h3 →               E′
+                                 (in)
+                                h4 = (h3 , {vk }, {v̄k }, msg)           → h4 →               E
+
+                                                                 24
+ The arrows in the leftmost column represent the hash derivation with grinding (through XOF1 , . . . , XOF4 ),
+while those in the rightmost column correspond to the derivation of the challenges (through XOF′1 , . . . ,
+XOF′4 ). Here, msg is an optional input message (when SmallWood-ARK is used as a signature scheme) which
+may be set to the empty string.
+   We note that the four counters ctr1 , ctr2 , ctr3 , ctr4 are included in the proof to enable efficient verification.
+Rather than recomputing the proof-of-work, the verifier simply checks that the corresponding hash output
+contains the required all-zero prefix.
+
+Summary of Parameters. The different parameters of the scheme are summarized in Table 1. Besides the
+parameters of the PACS statement, which are given as input of the scheme, the parameters are either chosen
+(to satisfy the target soundness while, e.g., reducing the proof size) or defined from the other parameters.
+This is depicted in the last column of the table. For the basic version of SmallWood-ARK, we use the uniform
+distribution over D(Fη×n ) for the DECS and the number of evaluation set for the PACS PIOP has cardinality
+|S| = |F| − s.
+
+
+
+                                    Table 1: Parameters of SmallWood-ARK.
+     Parameters of the PACS Statement:
+     F            Base field
+     s            Number of columns in the witness matrix (packing factor)
+     n            Number of rows in the witness matrix
+     d            Maximal degree of parallel polynomial constraints
+     m1           Number of parallel polynomial constraints
+     m2           Number of aggregated parallel polynomial constraints
+     Parameters of the PACS PIOP:
+     ℓ′           Number of oracle queries (polynomial evaluations)                        chosen
+     ρ            Number of parallel repetitions                                           chosen
+     dQ           Degree of Q                                                              (3)
+     Parameters of the PCS:
+     npcs         Number of committed polynomials                                          npcs = n + ρ
+     {dj }1≤j≤n   Degrees of the PIOP witness polynomials P1 , . . . , Pn                  dj = ℓ′ + s − 1
+     {dj }n<j≤n+ρ Degrees of the PIOP masking polynomials M1 , . . . , Mρ                  dj = dQ
+     µ            Number of coefficient rows in the matrices {Aj }                         chosen
+     {νj }        Number of columns of the matrices {Aj }                                  νj = ⌈(dj + 1 − ℓ′ )/µ⌉
+     β            Stacking factor (number of (µ + ℓ′ )-row layers in A)                    chosen
+     Parameters of the LVCS:
+     nrows        Number of committed row vectors                                                    · (µ + ℓ′ )
+                                                                                           nrows = β P
+     ncols        Size of committed row vectors                                            ncols = ⌈( j νj )/β⌉
+     m            Number of LVCS queries                                                   m = β · ℓ′
+     ℓ            Number of DECS evaluation queries                                        chosen
+     Parameters of the DECS:
+     ndecs                Number of committed polynomials                                  ndecs = nrows
+     ddecs                Degree of committed polynomials                                  ddecs = ncols + ℓ − 1
+     N                    Size of the evaluation domain (number of Merkle leaves)          chosen
+     η                    Number of parallel repetitions of the degree-enforcing round     chosen
+     κ1 , κ 2 , κ 3 , κ 4 Grinding parameters                                              chosen
+
+
+
+
+Proof Composition and Size. A naive SmallWood-ARK proof is composed of the salt (salt), the grinding
+counters (ctr1 , ctr2 , ctr3 , ctr4 ) and the prover-to-verifier messages (see Figure 7). We obtain the following
+
+
+                                                           25
+(naive) proof size:
+                                                                                                              Xnpcs 
+    |πnaive | =     128              4λ + η · (ddecs + 1) · log2 |F| + ρ · dQ · log2 |F| + ℓ′ ·
+                                 + |{z}                                                                             νi · log2 |F|
+                    |{z}                     |        {z           }   |      {z       }                        i=1
+                  ctr1 ,...,ctr4  salt, root          R                       Q
+                                                                                           |                       {z           }
+                                                                                                                   (e)   (e)
+                                                                                                               {v1 ,...,vβ }e∈E ′
+
+                  + m · ℓ · log2 |F| + ℓ · nrows · log2 |F| + ℓ · η · log2 |F| + 2λ · nodes(ℓ, N ) + |{z}
+                                                                                                     ℓ·λ ,
+                    |      {z      }   |        {z        }   |       {z     }   |      {z      }
+                           v̄1 ,...,v̄m                 Pdecs |E                     Mdecs |E               auth               tapes
+
+
+where nodes(ℓ, N ) denotes the average number of nodes in the authentication paths for the opening of ℓ
+leaves in a Merkle tree of size N (omitting the root). This can be optimized, as some elements of the proof
+are redundant. Specifically:
+(1) The ℓ evaluations of R (specifically, R|E ) can be inferred from the evaluations of Pdecs |E and Mdecs |E .
+    Therefore, only ddecs + 1 − ℓ additional evaluations of R are needed in the proof to fully reconstruct R.
+(2) The ℓ′ evaluations of Q (specifically, Q|E ′ ) can be inferred from the evaluations of Ppiop |E ′ and Mpiop |E ′
+                                   (e)
+    (which are derived from the {vk } per the PCS definition). Therefore, only dQ −ℓ′ additional evaluations
+    of Q are needed in the proof to fully reconstruct Q.        P
+(3) The vector polynomial Q = (Q1 , . . . , Qρ ) must satisfy ω∈Ω Qi (ω) = 0 for all i ∈ [1, ρ] for the proof
+    to be accepted. We can thus skip one additional coefficient (or evaluation) per Qi and reconstruct them
+    from this constraint.
+                                                                         (e)      (e)
+(4) For each evaluation point e ∈ E, the LVCS linear combinations v1 , . . . , vβ and the DECS evaluations
+    Pdecs (e) and Mdecs (e) must satisfy m linear relations for the proof to be accepted (see the LVCS verifi-
+    cation). Consequently, m coefficients from Pdecs (e) and Mdecs (e) can be omitted and later reconstructed
+                                                     (e)      (e)
+    using the remaining entries and the vectors v1 , . . . , vβ .
+The redundancy described above can be eliminated from the proof, resulting in a more compact proof π. In
+doing so, an additional Fiat-Shamir hash (specifically, h3 ) is required to enable the verifier to derive the set
+E ′ (which is necessary for reconstructing Q). The resulting proof has the following size:
+                                                                             
+                          |π| = |πnaive | + 2λ − η · ℓ + ρ · (ℓ′ + 1) + m · ℓ   · log2 |F| .
+                                                  |{z} | {z } | {z }
+                                                                   (1)        (2), (3)      (4)
+
+
+
+Security. The following theorems state the straightline-extractable knowledge soundness and zero-knowledge
+security of SmallWood-ARK according to Definition 3.
+Theorem 9. Let DΓ and DΓ ′ be the uniform distributions over Fη×ndecs and Fm1 ·s+m2 . In the Random
+Oracle Model (ROM), where Hash, XOFi and XOF′i for i ∈ {1, 2, 3, 4} are modeled as independent random
+oracles, SmallWood-ARK is (t, ε)-straightline-extractable knowledge sound with
+                           Q20 + Q21 + Q22 + Q23 + Q24   Q1 · ε1   Q2 · ε2   Q3 · ε3   Q4 · ε4
+                      ε≤                 2λ
+                                                       +   κ
+                                                                 +    κ
+                                                                           +    κ
+                                                                                     +         ,
+                                       2                  2  1      2  2      2  3      2κ4
+ for ε1 , ε2 , ε3 , ε4 given in Equation (8), and t ≥ Q0 + Q1 + Q2 + Q3 + Q4 , for every Q0 , . . . , Q4 ∈ N
+(representing the numbers of queries made by the adversary to the random oracles Hash, XOF1 , . . . , XOF4 ).
+Proof. We show that if an adversary A can produce a valid SmallWood-ARK proof π for a statement x, then
+one can extract a valid witness w from the random oracle queries Q made by A, unless a failure event Fail
+occurs, implying ε ≤ Pr[Fail]. This event shall be the union of five events Fail0 , . . . , Fail4 such that
+                                                              Q20 + Q21 + Q22 + Q23 + Q24
+                                               Pr[Fail0 ] ≤                                                                            (9)
+                                                                          22λ
+and
+                                                                                                  Qi · εi
+                                          Pr[Faili | (¬ Fail0 ) ∧ . . . ∧ (¬ Faili−1 )] ≤
+                                                                                                   2κi
+
+                                                                         26
+for every i ∈ {1, 2, 3, 4}, thus implying
+
+                                             Q20 + Q21 + Q22 + Q23 + Q24   Q1 · ε1   Q2 · ε2   Q3 · ε3   Q4 · ε4
+   Pr[Fail] = Pr[Fail0 ∨ . . . ∨ Fail4 ] ≤                               +         +         +         +         .
+                                                         22λ                2κ1       2κ2       2κ3       2κ4
+ We will successively introduce each of the five failure events, showing that one of them should be satisfied
+for the proof to be valid in case of extraction failure, and proving the above inequalities.
+       Without loss of generality, all the random oracle queries involved in the verification of the forged proof π
+are in Q. We denote Q0 ⊆ Q the set of queries made to Hash (the hash function involved in the DECS) and
+Qi ⊆ Q the set of queries made to XOFi (the XOF for the i-th Fiat-Shamir challenge) such that Q0 = |Q0 |,
+. . . , Q4 = |Q4 |.
+Failure event 0. We first denote Fail0 the event that a collision occurs in Q, namely two different queries to
+a random oracle leads to the same answer. This occurs with probability:
+
+                                                      Q20 + Q21 + Q22 + Q23 + Q24
+                                       Pr[Fail0 ] ≤                               .
+                                                                  22λ
+
+Failure event 1. Each valid query q1 = (salt, root) ∈ Q1 defines a partial DECS commitment. A valid query
+q1 is one for which the output (h1 , v) of XOF1 satisfies v = 0 (i.e., it verifies the proof of work) and such
+that root is the root of a (partial) Merkle tree defined by queries from Q0 . We only assume the Merkle tree
+to be partial, meaning that at least one leaf of the right format is among the queries in Q0 as well as all the
+                                                        (q )     (q1 )
+nodes from this leaf to the root. We then define (Pdecs1 , Mdecs       ) as the polynomials interpolated from all the
+Merkle leaves of the right format in Q0 which are correctly incoming the root in q1 . The answer of the query
+q1 further determines a random DECS challenge Γ (through the application of XOF′1 to the answer h1 to
+                                                     (q )    (q1 )
+q1 ). From this challenge and the polynomials (Pdecs1 , Mdecs      ), one can derive the DECS commitment answer
+R(q1 ) .
+     Informally, the failure event Fail1 occurs if there exists a valid query q1 ∈ Q1 such that one can produce
+a valid DECS commitment which opens to evaluations that interpolate to a polynomial of degree strictly
+greater than the prescribed bound ddecs . Specifically, this happens when there exists an evaluation set E ⊆ E
+of size |E| ≥ ddecs + 2 for which:
+                                             (q )      (q )
+ – the pair of evaluation vectors (Pdecs1 |E , Mdecs
+                                                  1
+                                                     |E ) interpolates to a vector polynomial of degree strictly
+   greater than ddecs , yet
+ – the corresponding committed values R(q1 ) |E interpolate to a vector polynomial of degree at most ddecs .
+
+This constitutes a soundness violation of the DECS. By the soundness guarantee of the DECS (see Theo-
+rem 1), and assuming no hash collisions occurred (i.e., ¬Fail0 ), this event occurs with probability at most ε1
+for any individual valid query q1 . Furthermore, due to the proof-of-work mechanism, each query q1 is only
+valid with probability at most 2−κ1 . Therefore, the overall probability of Fail1 satisfies:
+
+                                                                        Q1 · ε1
+                                                Pr[Fail1 | ¬Fail0 ] ≤           .
+                                                                         2κ1
+
+Failure event 2. A query q2 ∈ Q2 is said to be valid if the output (h2 , v) of XOF2 satisfies v = 0 (i.e., it meets
+the proof-of-work condition), and the input to XOF2 is of the correct format (h1 , R), where h1 is the output
+of a valid query from Q1 . Each such valid query defines a complete DECS commitment.
+    Assuming that neither Fail0 nor Fail1 occur, it follows that, for each valid q2 , the DECS opening corre-
+                                           (q )    (q2 )                                               (q )
+sponds to a pair of vector polynomials (Pdecs2 , Mdecs   ) of degree at most ddecs . The polynomial Pdecs2 further
+                                (q )
+defines a witness polynomial Ppiop2 for the PIOP protocol, along with its associated masking polynomial
+   (q )
+    2
+Mpiop .
+
+
+                                                              27
+   We now describe the extractor. It proceeds by scanning Q for valid queries q2 . For each such query, it
+                                                   (q )
+checks whether the associated witness polynomial Ppiop2 satisfies all the PACS constraints. If it does, the
+                                                       (q )
+extractor outputs a valid witness by evaluating Ppiop2 on the designated witness support Ω.
+    Back to our failure event: by assumption, the extraction fails, implying that for all valid queries q2 , the
+              (q )
+polynomial Ppiop2 does not satisfy the full set of PACS constraints. The response of query q2 determines
+a random batching challenge Γ ′ (through the application of XOF′2 to the answer h2 to q2 ), as used in the
+PIOP protocol. The event Fail2 occurs if, despite the PACS constraints being violated, there exist a vector
+polynomial Q (of prescribed degrees dQ ) that satisfies the PACS verification equations (see Equation (4))
+                   (q )   (q2 )
+with respect to Ppiop2 , Mpiop  .
+    By the soundness of the PACS protocol, and under the assumption that no earlier failure events occurred,
+this happens with probability at most ε2 for any valid query q2 , over the randomness of Γ ′ . Since each such
+query is only valid with probability at most 2−κ2 due to the proof-of-work, we conclude:
+
+                                                                           Q2 · ε2
+                                     Pr[Fail2 | (¬Fail0 ) ∧ (¬Fail1 )] ≤           .
+                                                                            2κ2
+
+Failure event 3. A query q3 ∈ Q3 is considered valid if the output (h3 , v) of XOF3 satisfies v = 0 (i.e., it
+passes the proof-of-work check), and the input to XOF3 is of the expected format (h2 , Q), where h2 is the
+output of a valid query q2 ∈ Q2 . Let us denote by Q(q3 ) the vector polynomial associated with the query q3 .
+    Assuming that Fail0 , Fail1 , and Fail2 do not occur, it follows that for each valid query q3 ∈ Q3 (with
+                                                                                                (q )       (q2 )
+underlying q2 ∈ Q2 ), the polynomial Q(q3 ) , together with the committed polynomials Ppiop2 and Mpiop           , do
+not satisfy the PACS verification equations globally.
+    Let E ′ be the random evaluation set determined by q3 (through the application of XOF′3 to the answer
+h3 to q3 ) which corresponds to the second challenge of the PIOP. The failure event Fail3 occurs if, despite
+the above polynomials not satisfying all the PACS constraints, their evaluations on the specific challenge set
+E ′ do satisfy the PACS verification equations (see Equation (4)).
+    According to the soundness of the PACS protocol, and conditioned on the non-occurrence of previous
+failure events, the probability of this happening for a single valid query q3 is at most ε3 , over the randomness
+of E ′ . Taking into account the proof-of-work condition (which restricts valid queries to probability at most
+2−κ3 ), we obtain:
+                                                                               Q3 · ε3
+                               Pr[Fail3 | (¬Fail0 ) ∧ (¬Fail1 ) ∧ (¬Fail2 )] ≤         .
+                                                                                2κ3
+
+Failure event 4. A query q4 ∈ Q4 is considered valid if the output (h4 , v) of XOF4 satisfies v = 0 (i.e., it
+passes the proof-of-work condition), and the input to XOF4 is of the expected format (h3 , {vk }, {v̄k }, msg),
+                                                                           (q )         (q )
+where h3 is the output of a valid query q3 ∈ Q3 . We denote by {vk 4 } and {v̄k 4 } the two sets of vectors
+associated with the query q4 .
+    Assuming that Fail0 , Fail1 , Fail2 , and Fail3 do not occur, it follows that for each valid q4 , the vector pairs
+   (q4 )   (q )
+{vk }, {v̄k 4 } do not form a valid LVCS statement. In particular, there exists at least one evaluation point
+e ∈ E ′ at which the corresponding opening of the PCS must be incorrect.
+    The query q4 further determines the random evaluation set E (through the application of XOF′4 to the
+answer h4 to q4 ), which constitutes the final Fiat-Shamir challenge of the LVCS protocol and is used to
+verify the DECS opening. The failure event Fail4 occurs if, despite the underlying vectors being invalid, the
+opening nevertheless passes the LVCS verification on the randomly chosen evaluation set E.
+    By the soundness of the LVCS scheme, and conditioned on the non-occurrence of the prior failure events,
+the probability of this happening for a single valid query q4 is at most ε4 , over the randomness of E.
+Accounting for the proof-of-work filter, which ensures that a query is only valid with probability at most
+2−κ4 , we conclude:
+                                                                                    Q4 · ε4
+                        Pr[Fail4 | (¬Fail0 ) ∧ (¬Fail1 ) ∧ (¬Fail2 ) ∧ (¬Fail3 )] ≤          .
+                                                                                     2κ4
+
+                                                          28
+    We have shown that if no valid witness can be extracted from the set of random oracle queries Q (as
+described above), then one of the five failure events Fail0 , . . . , Fail4 must occur in order for the forged proof π
+to pass the verification. It follows that the knowledge soundness error satisfies ε ≤ Pr[Fail], which concludes
+the proof.                                                                                                          □
+
+Theorem 10. In the Random Oracle Model (ROM), where Hash, XOFi and XOF′i for i ∈ {1, 2, 3, 4} are
+modeled as independent random oracles, SmallWood-ARK is (t, ξ)-zero-knowledge, with
+                                                         
+                                                  1    1
+                                        ξ ≤Q·       +
+                                                 2λ   22λ
+
+and t ≥ Q, for every Q ∈ N (representing the number of RO queries made by the adversary).
+
+Proof. The zero-knowledge property of SmallWood-ARK follows naturally in the ROM from the zero-knowledge
+properties of the PACS PIOP and SmallWood-PCS, together with the ability to program the random oracles
+used in the Fiat–Shamir transform.
+   In detail, the zero-knowledge simulator for SmallWood-ARK proceeds as follows:
+
+ 1. Invoke the zero-knowledge simulator of the PACS PIOP (Theorem 8) to obtain a perfect simulation of
+    the transcript:
+                                      Γ ′ , Q1 , Q2 , E ′ , Ppiop|E′ , Mpiop|E′ .
+
+
+ 2. Run the zero-knowledge simulator of SmallWood-PCS on input E ′ , Ppiop|E′ , Mpiop|E′ to obtain a simulated
+    output:
+                                    {vk }, {v̄k }, E, Pdecs |E , comdecs , πdecs ,
+    where:
+                              comdecs = (root, Γ, R) ,    πdecs = (Mdecs |E , auth, tapes) .
+    By the zero-knowledge property of SmallWood-PCS (Theorems 2, 4 and 6), this simulation is ξpcs -
+    indistinguishable from a real transcript, with
+
+                                                                        Q
+                                               ξpcs = ξlvcs = ξdecs ≤      .
+                                                                        2λ
+
+
+ 3. Using the simulated values, program the random oracles as follows:
+     – Sample a random salt: salt ← {0, 1}2λ .
+     – Sample h1 ← {0, 1}2λ and program XOF1 and XOF′1 such that: XOF1 (salt, root) = h1 , and XOF1 (h1 ) =
+       Γ.
+     – Sample h2 ← {0, 1}2λ and program XOF2 and XOF′2 such that: XOF2 (h1 , R) = h2 , and XOF2 (h2 ) =
+       Γ ′.
+     – Sample h3 ← {0, 1}2λ and program XOF3 and XOF′3 such that: XOF3 (h2 , Q1 , Q2 ) = h3 , and
+       XOF3 (h3 ) = E ′ .
+     – Sample h4 ← {0, 1}2λ and program XOF4 and XOF′4 such that: XOF4 (h3 , {vk }, {v̄k }, msg) = h4 and
+       XOF4 (h4 ) = E.
+ 4. At each step, if the simulator must program the random oracle on a query that has already been made, it
+    aborts. Since each programming step involves fresh randomness over {0, 1}2λ , the probability of a collision
+    with any previous query is at most Q/22λ . We note that the above description omits the proof-of-work
+    filtering for simplicity; handling it in the simulation is straightforward.
+ 5. If no oracle programming conflict occurs, the simulator returns a valid SmallWood-ARK proof by assem-
+    bling the simulated components into the expected format.
+
+
+                                                         29
+   The resulting simulated proof is ξ-indistinguishable from a real SmallWood-ARK proof, with total distin-
+guishing advantage bounded by:
+                                                                    
+                                                Q            1    1
+                                    ξ ≤ ξpcs + 2λ = Q ·        +       .
+                                               2            2λ   22λ
+                                                                                                                        □
+
+5.4   SmallWood for Small Fields
+It can be observed from the soundness analysis and the scheme parameters that, in its basic form, SmallWood-
+ARK is particularly well-suited for large fields, typically those of size significantly greater than 2λ (e.g. fields of
+size 22λ ). In such settings, the soundness error ε3 can be made negligible by opening just a single polynomial
+evaluation from the PCS, i.e., by setting the parameter ℓ′ = 1. This is desirable, as ℓ′ has a substantial
+impact on the overall proof size. However, for smaller fields, achieving negligible ε3 may require a larger
+value of ℓ′ , resulting in a heavier proof. To address this, we introduce below a variant of SmallWood-ARK
+specifically tailored for a “small” base field F.
+    In this variant, the PACS statement remains unchanged from the original formulation, with the underlying
+witness matrix still defined over the base field F (see Section 5.1). However, the witness vector polynomial P
+and the masking vector polynomial M are now defined over an extension field K of F. Let θ denote the
+extension degree of K over F. The size of K is chosen such that only a single polynomial evaluation needs
+to be opened, i.e., ℓ′ = 1. Such a choice also implies that the dimension ρ of the vector Q can be set to 1
+while ensuring a negligible soundness error ε2 = 1/|K|ρ . In consequence, only a single masking polynomial is
+needed. We therefore simplify the notation and write Q and M instead of Q and M . In the first step of this
+                                                                                              ′
+adapted PACS PIOP, the prover constructs random polynomials P1 , . . . , Pn ∈ K[X](≤ℓ +s−1) such that their
+evaluations Pi (ωk ) = wi,k belong to the small field F ⊆ K for all i ∈ [1, n] and k ∈ [1, s]. The remainder of
+the PACS PIOP follows the original protocol (see Figure 6), with the base field F replaced by K, and with
+the evaluation set S redefined as K \ Ω.
+    The SmallWood-PCS scheme is then adapted to leverage the fact that, although the committed polyno-
+mials P1 , . . . , Pn are defined over K[X], they admit s evaluations (on the witness support Ω) in the small
+field F ⊆ K. To exploit this, we commit these K[X] polynomials using SmallWood-LVCS over the small field F.
+Specifically, we adapt the construction of the matrices Aj to commit K[X] polynomials while defining their
+entries over F. Let ϕ be the F-linear field embedding isomorphism from Fθ to K. Recall that the witness sup-
+port is given by Ω = {ω1 , . . . , ωs } ⊆ K, and choose an additional distinct evaluation point ωs+1 ∈ K \ Ω for
+teh randomness support. To commit a witness polynomial Pj , we adapt the matrix Aj from SmallWood-PCS
+(see Section 4.2) as a single column of dimension s + θ, defined as Aj = (a1 , . . . , as+θ )T with
+
+                (a1 , . . . , as ) = (Pj (ω1 ), . . . , Pj (ωs ))   and   (as+1 , . . . , as+θ ) = ϕ−1 (Pj (ωs+1 )) .
+
+For any evaluation point e ∈ K, there exists a vector ve ∈ Ks+θ such that ve · Aj = Pj (e). Since each
+Pj is encoded as a single-column matrix, no extra randomness is required to mask the result of the linear
+combination ve · Aj , which directly yields the desired evaluation. In this version of SmallWood-PCS, the
+number of columns ncols in the global LVCS matrix is a free parameter from which the remaining parameters
+are derived. Specifically, we obtain ⌈n/ncols ⌉ layers of s+θ rows to commit P1 , . . . , Pn . The first layer consists
+of (A1 | · · · | Ancols ), the second of (Ancols +1 | · · · | A2ncols ), and so forth.
+    Next, we commit the masking polynomial M . Unlike the witness polynomials, M consists purely of
+random coefficients (or evaluations) over the large field K, and has dQ + 1 coefficients (with dQ ≫ s). The
+polynomial M is committed as in the original SmallWood-PCS, except that each row over K is split into θ
+                                     (K)
+rows over F using ϕ−1 . Let An+1 be the matrix that SmallWood-PCS would produce to commit M , with
+entries in K. This matrix has µ + 1 rows, where µ = ⌈dQ /ncols ⌉, and each row lies in Kncols . We define An+1
+                                                                       (K)
+as the matrix obtained by applying ϕ−1 to each row of An+1 , thereby yielding θ rows over Fncols . As a result,
+An+1 has ⌈1 + dQ /ncols ⌉ · θ rows and ncols columns. Evaluations of M are obtained via linear combinations as
+in the original scheme, with the application of ϕ embedded into the coefficients of the linear combinations.
+
+
+                                                                    30
+    The global matrix A is thus composed of the witness matrices A1 , . . . , An organized into ⌈n/ncols ⌉ layers
+of s + θ rows, and the matrix An+1 forming an additional layer of ⌈1 + dQ /ncols ⌉ · θ rows. The total number
+of rows is therefore                                                  
+                                            n                     dQ
+                                 nrows =           · (s + θ) +         +1 ·θ .                               (10)
+                                           ncols                 ncols
+To perform a single linear combination over the rows of A with coefficients in K, we require θ LVCS queries,
+one for each coordinate in the ϕ−1 -representation.
+                                                 l Hence,  m the total number of LVCS queries equals the
+number of layers in A multiplied by θ, i.e., m = nncols + 1 · θ.
+
+
+
+                         Table 2: Parameters of SmallWood-ARK in the small-field setting.
+      Parameters of the PACS Statement:
+      F            Base field
+      K            Extension field
+      θ            Extension degree of K over F
+      s            Number of columns in the witness matrix (packing factor)
+      n            Number of rows in the witness matrix
+      d            Maximal degree of parallel polynomial constraints
+      m1           Number of parallel polynomial constraints
+      m2           Number of aggregated parallel polynomial constraints
+      Parameters of the PACS PIOP:
+      ℓ′           Number of oracle queries (polynomial evaluations)                                  ℓ′ = 1
+      ρ            Number of parallel repetitions                                                     ρ=1
+      dQ           Degree of Q                                                                        (3)
+      Parameters of the PCS / LVCS:
+      ncols        Size of committed row vectors                                                      chosen
+      nrows        Number of committed row vectors                                                    (10)
+      m            Number of LVCS queries                                                             m = ⌈1 + n/ncols ⌉ · θ
+      ℓ            Number of DECS evaluation queries                                                  chosen
+      Parameters of the DECS:
+      ndecs                Number of committed polynomials                                            ndecs = nrows
+      ddecs                Degree of committed polynomials                                            ddecs = ncols + ℓ − 1
+      N                    Size of the evaluation domain (number of Merkle leaves)                    chosen
+      η                    Number of parallel repetitions of the degree-enforcing round               chosen
+      κ1 , κ 2 , κ 3 , κ 4 Grinding parameters                                                        chosen
+
+
+
+   Table 2 summarizes the parameters of SmallWood-ARK in the small-field setting. We also provide the
+corresponding proof size formula below. For the naive proof size, we obtain:
+
+    |πnaive | =      128
+                     |{z}          + |{z}
+                                      4λ + η · (ddecs + 1) · log2 |F| + dQ · θ · log2 |F| + (n + ncols ) · θ · log2 |F|
+                                           |           {z           }   |      {z       }   |           {z            }
+                  ctr1 ,...,ctr4     salt, root            R                                   Q               (e)   (e)
+                                                                                                             v1 ,...,vm
+
+                  + m · ℓ · log2 |F| + ℓ · nrows · log2 |F| + ℓ · η · log2 |F| + 2λ · nodes(ℓ, N ) + |{z}
+                                                                                                     ℓ·λ ,
+                    |      {z      }   |        {z        }   |       {z     }   |      {z      }
+                             v̄1 ,...,v̄m             Pdecs |E                      Mdecs |E          auth                 tapes
+
+
+while for the optimized proof size, we get:
+                                                                                      
+                                     |π| = |πnaive | + 2λ −       η · ℓ + |{z}
+                                                                           2θ + m
+                                                                                | {z } · log2 |F| .
+                                                                                   · ℓ
+                                                                  |{z}
+                                                                  (1)     (2),(3)      (4)
+
+
+
+                                                                     31
+
