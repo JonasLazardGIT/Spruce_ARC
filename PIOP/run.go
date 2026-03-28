@@ -17,6 +17,163 @@ const (
 	CoeffNativeSigModelLiteralPackedAggregatedV3 = "literal_packed_aggregated_v3"
 )
 
+const (
+	ShowingPresetSoundnessBalanced = "soundness_balanced"
+	ShowingPresetTranscriptFirst   = "transcript_first"
+	ShowingPresetProductionBalance = "production_balance"
+	ShowingPresetCustom            = "custom"
+)
+
+type PRFCompanionMode string
+
+const (
+	PRFCompanionModeCurrent     PRFCompanionMode = "current"
+	PRFCompanionModeOutputAudit PRFCompanionMode = "output_audit"
+	PRFCompanionModeDirectAuth  PRFCompanionMode = "direct_auth"
+)
+
+func normalizePRFCompanionMode(mode PRFCompanionMode) PRFCompanionMode {
+	switch mode {
+	case PRFCompanionModeCurrent, PRFCompanionModeOutputAudit, PRFCompanionModeDirectAuth:
+		return mode
+	case "":
+		return ""
+	default:
+		return PRFCompanionModeOutputAudit
+	}
+}
+
+func normalizeShowingPreset(preset string) string {
+	switch preset {
+	case "", ShowingPresetSoundnessBalanced:
+		return ShowingPresetSoundnessBalanced
+	case ShowingPresetTranscriptFirst:
+		return ShowingPresetTranscriptFirst
+	case ShowingPresetProductionBalance:
+		return ShowingPresetProductionBalance
+	default:
+		return ShowingPresetSoundnessBalanced
+	}
+}
+
+func showingPresetLVCSNCols(preset string) int {
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetSoundnessBalanced:
+		return 96
+	case ShowingPresetProductionBalance:
+		return 28
+	default:
+		return 128
+	}
+}
+
+func showingPresetSigShortnessProfile(preset string) string {
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetProductionBalance:
+		return SigShortnessProfileR12L3Default
+	default:
+		return SigShortnessProfileR7L4Experimental
+	}
+}
+
+func showingPresetTheta(preset string) int {
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetSoundnessBalanced:
+		return 5
+	default:
+		return 6
+	}
+}
+
+func showingPresetRho(preset string) int {
+	return 2
+}
+
+func showingPresetEllPrime(preset string) int {
+	return 2
+}
+
+func showingPresetEta(preset string) int {
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetSoundnessBalanced:
+		return 63
+	default:
+		return 31
+	}
+}
+
+func showingPresetNLeaves(preset string) int {
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetSoundnessBalanced:
+		return 4096
+	default:
+		return 2048
+	}
+}
+
+func showingPresetKappa(preset string) [4]int {
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetSoundnessBalanced:
+		return [4]int{0, 0, 0, 5}
+	default:
+		return [4]int{}
+	}
+}
+
+func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
+	if !opts.Credential || resolveCoeffNativeSigModel(opts) != CoeffNativeSigModelLiteralPackedAggregatedV3 {
+		return ""
+	}
+	if sigShortnessRawOverrideActive(opts) {
+		return ShowingPresetCustom
+	}
+	resolved := opts
+	resolved.applyDefaults()
+	switch {
+	case resolved.SigShortnessProfile == SigShortnessProfileR7L4Experimental &&
+		resolved.LVCSNCols == 96 &&
+		resolved.PostSignLVCSNCols == 96 &&
+		resolved.PRFLVCSNCols == 96 &&
+		resolved.Theta == 5 &&
+		resolved.Rho == 2 &&
+		resolved.EllPrime == 2 &&
+		resolved.Eta == 63 &&
+		resolved.NLeaves == 4096 &&
+		resolved.PostSignNLeaves == 4096 &&
+		resolved.PRFNLeaves == 4096 &&
+		resolved.Kappa == [4]int{0, 0, 0, 5}:
+		return ShowingPresetSoundnessBalanced
+	case resolved.SigShortnessProfile == SigShortnessProfileR7L4Experimental &&
+		resolved.LVCSNCols == 128 &&
+		resolved.PostSignLVCSNCols == 128 &&
+		resolved.PRFLVCSNCols == 128 &&
+		resolved.Theta == 6 &&
+		resolved.Rho == 2 &&
+		resolved.EllPrime == 2 &&
+		resolved.Eta == 31 &&
+		resolved.NLeaves == 2048 &&
+		resolved.PostSignNLeaves == 2048 &&
+		resolved.PRFNLeaves == 2048 &&
+		resolved.Kappa == [4]int{}:
+		return ShowingPresetTranscriptFirst
+	case resolved.SigShortnessProfile == SigShortnessProfileR12L3Default &&
+		resolved.LVCSNCols == 28 &&
+		resolved.PostSignLVCSNCols == 28 &&
+		resolved.PRFLVCSNCols == 28 &&
+		resolved.Theta == 6 &&
+		resolved.Rho == 2 &&
+		resolved.EllPrime == 2 &&
+		resolved.Eta == 31 &&
+		resolved.NLeaves == 2048 &&
+		resolved.PostSignNLeaves == 2048 &&
+		resolved.PRFNLeaves == 2048 &&
+		resolved.Kappa == [4]int{}:
+		return ShowingPresetProductionBalance
+	default:
+		return ShowingPresetCustom
+	}
+}
+
 // SimOpts carries the proving and reporting knobs used by the retained
 // issuance and showing flows.
 type SimOpts struct {
@@ -45,6 +202,12 @@ type SimOpts struct {
 	SigShortnessL int
 	// SigShortnessRadix overrides the balanced signature shortness radix.
 	SigShortnessRadix int
+	// SigShortnessProfile selects the production shortness profile for the
+	// literal-packed coeff-native showing path.
+	SigShortnessProfile string
+	// ShowingPreset selects a coherent showing-time transcript preset for the
+	// retained credential flow.
+	ShowingPreset string
 	// CoeffNativeSigModel selects the coeff-native post-sign model.
 	CoeffNativeSigModel string
 	CoeffPacking        bool
@@ -52,37 +215,126 @@ type SimOpts struct {
 	DomainMode DomainMode
 	// PRFGroupRounds controls grouped PRF checkpointing in showing mode.
 	PRFGroupRounds int
-	Mutate         func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
-	Credential     bool
+	// PRFCompanionMode selects the live one-root PRF companion route.
+	PRFCompanionMode PRFCompanionMode
+	// PRFCheckpointSamples controls the number of transcript-selected checkpoint
+	// audits in output-audit and direct-auth modes.
+	PRFCheckpointSamples int
+	// EnablePackedPRFWitnessRows gates the experimental row-major PRF packing
+	// path. The retained verifier model still uses the unpacked layout by
+	// default.
+	EnablePackedPRFWitnessRows bool
+	// EnablePRFCompanion emits and verifies the Phase-2 authenticated packed
+	// coordinate bridge for packed PRF witness rows.
+	EnablePRFCompanion bool
+	Mutate             func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
+	Credential         bool
 }
 
 func defaultSimOpts() SimOpts {
 	return SimOpts{
-		Rho:               7,
-		EllPrime:          10,
-		Ell:               26,
-		Eta:               7,
-		NLeaves:           0,
-		Theta:             1,
-		Kappa:             [4]int{0, 0, 0, 0},
-		ROQueryCaps:       [5]int{1, 1, 1, 1, 1},
-		NCols:             8,
-		PCSNCols:          0,
-		LVCSNCols:         0,
-		DQOverride:        0,
-		Lambda:            256,
-		ChainW:            4,
-		ChainL:            0,
-		SigShortnessL:     0,
-		SigShortnessRadix: 0,
-		CoeffPacking:      false,
-		DomainMode:        DomainModeExplicit,
-		PRFGroupRounds:    1,
+		Rho:                  7,
+		EllPrime:             10,
+		Ell:                  26,
+		Eta:                  7,
+		NLeaves:              0,
+		Theta:                1,
+		Kappa:                [4]int{0, 0, 0, 0},
+		ROQueryCaps:          [5]int{1, 1, 1, 1, 1},
+		NCols:                8,
+		PCSNCols:             0,
+		LVCSNCols:            0,
+		DQOverride:           0,
+		Lambda:               256,
+		ChainW:               4,
+		ChainL:               0,
+		SigShortnessL:        0,
+		SigShortnessRadix:    0,
+		SigShortnessProfile:  "",
+		ShowingPreset:        "",
+		CoeffPacking:         false,
+		DomainMode:           DomainModeExplicit,
+		PRFGroupRounds:       1,
+		PRFCheckpointSamples: 8,
 	}
 }
 
 func (o *SimOpts) applyDefaults() {
 	def := defaultSimOpts()
+	if o.NLeaves < 0 {
+		o.NLeaves = 0
+	}
+	if o.PostSignNLeaves < 0 {
+		o.PostSignNLeaves = 0
+	}
+	if o.PRFNLeaves < 0 {
+		o.PRFNLeaves = 0
+	}
+	if o.PCSNCols < 0 {
+		o.PCSNCols = 0
+	}
+	if o.LVCSNCols < 0 {
+		o.LVCSNCols = 0
+	}
+	if o.PostSignLVCSNCols < 0 {
+		o.PostSignLVCSNCols = 0
+	}
+	if o.PRFLVCSNCols < 0 {
+		o.PRFLVCSNCols = 0
+	}
+	if o.DQOverride < 0 {
+		o.DQOverride = 0
+	}
+	if o.ChainL < 0 {
+		o.ChainL = 0
+	}
+	if o.SigShortnessL < 0 {
+		o.SigShortnessL = 0
+	}
+	if o.SigShortnessRadix < 0 {
+		o.SigShortnessRadix = 0
+	}
+	if o.Credential && resolveCoeffNativeSigModel(*o) == CoeffNativeSigModelLiteralPackedAggregatedV3 {
+		o.ShowingPreset = normalizeShowingPreset(o.ShowingPreset)
+		if !sigShortnessRawOverrideActive(*o) && o.SigShortnessProfile == "" {
+			o.SigShortnessProfile = showingPresetSigShortnessProfile(o.ShowingPreset)
+		}
+		if o.Theta <= 0 {
+			o.Theta = showingPresetTheta(o.ShowingPreset)
+		}
+		if o.Rho <= 0 {
+			o.Rho = showingPresetRho(o.ShowingPreset)
+		}
+		if o.EllPrime <= 0 {
+			o.EllPrime = showingPresetEllPrime(o.ShowingPreset)
+		}
+		if o.Eta <= 0 {
+			o.Eta = showingPresetEta(o.ShowingPreset)
+		}
+		presetNLeaves := showingPresetNLeaves(o.ShowingPreset)
+		if o.NLeaves <= 0 {
+			o.NLeaves = presetNLeaves
+		}
+		if o.PostSignNLeaves <= 0 {
+			o.PostSignNLeaves = presetNLeaves
+		}
+		if o.PRFNLeaves <= 0 {
+			o.PRFNLeaves = presetNLeaves
+		}
+		presetLVCS := showingPresetLVCSNCols(o.ShowingPreset)
+		if o.LVCSNCols <= 0 {
+			o.LVCSNCols = presetLVCS
+		}
+		if o.PostSignLVCSNCols <= 0 {
+			o.PostSignLVCSNCols = presetLVCS
+		}
+		if o.PRFLVCSNCols <= 0 {
+			o.PRFLVCSNCols = presetLVCS
+		}
+		if o.Kappa == [4]int{} {
+			o.Kappa = showingPresetKappa(o.ShowingPreset)
+		}
+	}
 	if o.Rho <= 0 {
 		o.Rho = def.Rho
 	}
@@ -94,9 +346,6 @@ func (o *SimOpts) applyDefaults() {
 	}
 	if o.Eta <= 0 {
 		o.Eta = def.Eta
-	}
-	if o.NLeaves < 0 {
-		o.NLeaves = 0
 	}
 	if o.Theta <= 0 {
 		o.Theta = def.Theta
@@ -114,48 +363,32 @@ func (o *SimOpts) applyDefaults() {
 	if o.NCols <= 0 {
 		o.NCols = def.NCols
 	}
-	if o.PCSNCols < 0 {
-		o.PCSNCols = 0
-	}
-	if o.LVCSNCols < 0 {
-		o.LVCSNCols = 0
-	}
-	if o.PostSignLVCSNCols < 0 {
-		o.PostSignLVCSNCols = 0
-	}
-	if o.PostSignNLeaves < 0 {
-		o.PostSignNLeaves = 0
-	}
-	if o.PRFLVCSNCols < 0 {
-		o.PRFLVCSNCols = 0
-	}
-	if o.PRFNLeaves < 0 {
-		o.PRFNLeaves = 0
-	}
-	if o.DQOverride < 0 {
-		o.DQOverride = 0
-	}
 	if o.Lambda <= 0 {
 		o.Lambda = def.Lambda
 	}
 	if o.ChainW <= 0 {
 		o.ChainW = def.ChainW
 	}
-	if o.ChainL < 0 {
-		o.ChainL = 0
-	}
-	if o.SigShortnessL < 0 {
-		o.SigShortnessL = 0
-	}
-	if o.SigShortnessRadix < 0 {
-		o.SigShortnessRadix = 0
-	}
+	o.ShowingPreset = normalizeShowingPreset(o.ShowingPreset)
+	o.SigShortnessProfile = normalizeSigShortnessProfile(o.SigShortnessProfile)
 	if o.PRFGroupRounds <= 0 {
 		o.PRFGroupRounds = def.PRFGroupRounds
 	}
+	if o.PRFCheckpointSamples <= 0 {
+		o.PRFCheckpointSamples = def.PRFCheckpointSamples
+	}
+	o.PRFCompanionMode = normalizePRFCompanionMode(o.PRFCompanionMode)
 	if o.DomainMode != DomainModeExplicit {
 		o.DomainMode = DomainModeExplicit
 	}
+}
+
+// ResolveSimOptsDefaults returns a copy of opts with the internal default and
+// preset resolution applied. This is intended for reporting/CLI callers that
+// need the resolved view without mutating the original struct in-place.
+func ResolveSimOptsDefaults(opts SimOpts) SimOpts {
+	opts.applyDefaults()
+	return opts
 }
 
 // CoeffNativeSigLayout captures the coeff-native post-sign witness partition
@@ -163,6 +396,9 @@ func (o *SimOpts) applyDefaults() {
 type CoeffNativeSigLayout struct {
 	Enabled bool
 	Model   string
+	// SemanticRewrite marks the phase-1 ARC-faithful showing path where the
+	// packed signature rows are committed alongside explicit signed base rows.
+	SemanticRewrite bool
 
 	// Signature witness rows for the active coeff-native post-sign model.
 	// On the live semantic rewrite path these are scalar coefficient rows in
@@ -231,9 +467,6 @@ type RowLayout struct {
 	SigCount int
 	MsgCount int
 	RndCount int
-	// ShowingPRFOnly marks a split PRF slice that intentionally omits all
-	// post-sign witness families.
-	ShowingPRFOnly bool
 	// Explicit base indices for semantic witness rows.
 	// When false, the standard issuance row order is used.
 	HasExplicitBaseIdx bool
@@ -378,6 +611,8 @@ type Proof struct {
 	MaskEvalCols  int
 	// Optional PRF layout metadata for showing proofs.
 	PRFLayout *PRFLayout
+	// Optional Phase-2 PRF companion proof metadata.
+	PRFCompanion *PRFCompanionProof
 }
 
 type fsRoundResult struct {
@@ -536,6 +771,7 @@ type SoundnessBudget struct {
 	Eps                [4]float64
 	RawBits            [4]float64
 	Bits               [4]float64
+	Clamped            [4]bool
 	Grinding           [4]float64
 	GrindingBits       [4]float64
 	TheoremTerms       [4]float64
@@ -1353,6 +1589,7 @@ func computeSoundnessBudget(
 	rawBits1 := float64(eta)*math.Log2(qf) - logComb2Stable(float64(nLeaves), ddecs+2)
 	sb.RawBits[0] = rawBits1
 	sb.Bits[0], sb.Eps[0] = clampBitsToProbability(rawBits1)
+	sb.Clamped[0] = rawBits1 < 0
 
 	rhoEff := o.Rho
 	if rhoEff < 1 {
@@ -1366,6 +1603,7 @@ func computeSoundnessBudget(
 	}
 	sb.RawBits[1] = rawBits2
 	sb.Bits[1], sb.Eps[1] = clampBitsToProbability(rawBits2)
+	sb.Clamped[1] = rawBits2 < 0
 
 	if ellPrime < 1 {
 		ellPrime = 1
@@ -1391,12 +1629,14 @@ func computeSoundnessBudget(
 	}
 	sb.RawBits[2] = rawBits3
 	sb.Bits[2], sb.Eps[2] = clampBitsToProbability(rawBits3)
+	sb.Clamped[2] = rawBits3 < 0
 
 	logCombCols := logComb2Stable(float64(ncolsLVCS+ell-1), ell)
 	logCombLeaves := logComb2Stable(float64(nLeaves), ell)
 	rawBits4 := logCombLeaves - logCombCols
 	sb.RawBits[3] = rawBits4
 	sb.Bits[3], sb.Eps[3] = clampBitsToProbability(rawBits4)
+	sb.Clamped[3] = rawBits4 < 0
 
 	sb.Eq8Total = sb.Eps[0] + sb.Eps[1] + sb.Eps[2] + sb.Eps[3]
 	if sb.Eq8Total <= 0 {

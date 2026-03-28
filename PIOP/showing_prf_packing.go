@@ -27,6 +27,14 @@ func remapPRFLayout(layout *PRFLayout, remap []int) (*PRFLayout, error) {
 		}
 		out.StartIdx = remap[out.StartIdx]
 	}
+	if out.KeyBind {
+		if out.M2RowIdx < 0 || out.M2RowIdx >= len(remap) || remap[out.M2RowIdx] < 0 {
+			out.KeyBind = false
+			out.M2RowIdx = -1
+		} else {
+			out.M2RowIdx = remap[out.M2RowIdx]
+		}
+	}
 	for i := range out.KeySlots {
 		slot, err := remapSlot(out.KeySlots[i])
 		if err != nil {

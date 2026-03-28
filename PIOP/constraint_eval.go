@@ -37,6 +37,8 @@ type EvalKInput struct {
 	Ring             *ring.Ring
 	Fpar             []*ring.Poly
 	Fagg             []*ring.Poly
+	FparCoeffs       [][]uint64
+	FaggCoeffs       [][]uint64
 	FparOverrideIdxs []int
 	BoundRows        []int
 	CarryRows        []int
@@ -72,6 +74,10 @@ type ConstraintReplay struct {
 	CarryRows  []int
 	BoundB     int64
 	CarryBound int64
+	Fpar       []*ring.Poly
+	Fagg       []*ring.Poly
+	FparCoeffs [][]uint64
+	FaggCoeffs [][]uint64
 }
 
 func composeEvaluators(a, b ConstraintEvaluator) ConstraintEvaluator {
@@ -183,7 +189,10 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 				return false, fmt.Errorf("missing K polys at row %d", i)
 			}
 			lhs := evalKPolyAtK(in.K, in.QK[i], e)
-			rhs := evalKPolyAtK(in.K, in.MK[i], e)
+			rhsMask := evalKPolyAtK(in.K, in.MK[i], e)
+			rhs := rhsMask
+			rhsPar := in.K.Zero()
+			rhsAgg := in.K.Zero()
 			if i < len(in.GammaPrimeK) {
 				rowGamma := in.GammaPrimeK[i]
 				for j, val := range fpar {
@@ -191,7 +200,9 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 						continue
 					}
 					g := evalKScalarPolyAtK(in.K, rowGamma[j], e)
-					rhs = in.K.Add(rhs, in.K.Mul(g, val))
+					term := in.K.Mul(g, val)
+					rhsPar = in.K.Add(rhsPar, term)
+					rhs = in.K.Add(rhs, term)
 				}
 			}
 			if i < len(in.GammaAggK) {
@@ -201,7 +212,9 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 						continue
 					}
 					g := in.K.Phi(rowGamma[j])
-					rhs = in.K.Add(rhs, in.K.Mul(g, val))
+					term := in.K.Mul(g, val)
+					rhsAgg = in.K.Add(rhsAgg, term)
+					rhs = in.K.Add(rhs, term)
 				}
 			}
 			if !elemEqual(in.K, lhs, rhs) {
@@ -215,6 +228,7 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 					}
 					fmt.Printf("[PIOP_DEBUG_EQ4_K] mismatch kp=%d row=%d witnessCount=%d theta=%d fpar=%d fagg=%d gammaPrime=%d gammaAgg=%d\n",
 						kpIdx, i, in.WitnessCount, in.K.Theta, len(fpar), len(fagg), gammaPrimeLen, gammaAggLen)
+					fmt.Printf("[PIOP_DEBUG_EQ4_K] lhs!=rhs with mask/par/agg components\n")
 					if len(in.Fpar) > 0 {
 						limit := len(fpar)
 						if limit > len(in.Fpar) {
@@ -223,8 +237,7 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 						if limit > gammaPrimeLen {
 							limit = gammaPrimeLen
 						}
-						mism := 0
-						for j := 0; j < limit && mism < 8; j++ {
+						for j := 0; j < limit; j++ {
 							if in.Fpar[j] == nil || in.Ring == nil {
 								continue
 							}
@@ -233,7 +246,23 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 							polyVal := in.K.EvalFPolyAtK(tmp.Coeffs[0], e)
 							if !elemEqual(in.K, polyVal, fpar[j]) {
 								fmt.Printf("[PIOP_DEBUG_EQ4_K] fpar[%d] poly!=eval\n", j)
-								mism++
+								break
+							}
+						}
+					}
+					if len(in.FparCoeffs) > 0 {
+						limit := len(fpar)
+						if limit > len(in.FparCoeffs) {
+							limit = len(in.FparCoeffs)
+						}
+						for j := 0; j < limit; j++ {
+							if len(in.FparCoeffs[j]) == 0 {
+								continue
+							}
+							coeffVal := in.K.EvalFPolyAtK(in.FparCoeffs[j], e)
+							if !elemEqual(in.K, coeffVal, fpar[j]) {
+								fmt.Printf("[PIOP_DEBUG_EQ4_K] fparCoeff[%d] coeff!=eval\n", j)
+								break
 							}
 						}
 					}
@@ -245,8 +274,7 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 						if limit > gammaAggLen {
 							limit = gammaAggLen
 						}
-						mism := 0
-						for j := 0; j < limit && mism < 8; j++ {
+						for j := 0; j < limit; j++ {
 							if in.Fagg[j] == nil || in.Ring == nil {
 								continue
 							}
@@ -255,10 +283,27 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 							polyVal := in.K.EvalFPolyAtK(tmp.Coeffs[0], e)
 							if !elemEqual(in.K, polyVal, fagg[j]) {
 								fmt.Printf("[PIOP_DEBUG_EQ4_K] fagg[%d] poly!=eval\n", j)
-								mism++
+								break
 							}
 						}
 					}
+					if len(in.FaggCoeffs) > 0 {
+						limit := len(fagg)
+						if limit > len(in.FaggCoeffs) {
+							limit = len(in.FaggCoeffs)
+						}
+						for j := 0; j < limit; j++ {
+							if len(in.FaggCoeffs[j]) == 0 {
+								continue
+							}
+							coeffVal := in.K.EvalFPolyAtK(in.FaggCoeffs[j], e)
+							if !elemEqual(in.K, coeffVal, fagg[j]) {
+								fmt.Printf("[PIOP_DEBUG_EQ4_K] faggCoeff[%d] coeff!=eval\n", j)
+								break
+							}
+						}
+					}
+					fmt.Printf("[PIOP_DEBUG_EQ4_K] lhs=%v rhsMask=%v rhsPar=%v rhsAgg=%v rhs=%v\n", lhs, rhsMask, rhsPar, rhsAgg, rhs)
 				}
 				return false, fmt.Errorf("eq4 K-point mismatch at kp=%d row=%d", kpIdx, i)
 			}
@@ -593,8 +638,9 @@ func (cfg SigCoeffBoundsConfig) sigCoeffBoundsEvaluator(evalPoint func(evalIdx u
 		if cfg.PackedRowsPerGroup != wantRowsPer {
 			return nil, nil, fmt.Errorf("invalid packed chain rows-per-group=%d want %d", cfg.PackedRowsPerGroup, wantRowsPer)
 		}
+		includePackedReconstruction := !rowLayoutCoeffNativeUsesLiteralPackedV3(cfg.Layout) || rowLayoutCoeffNativeUsesSemanticRewrite(cfg.Layout)
 		wantConstraints := cfg.Spec.L
-		if !rowLayoutCoeffNativeUsesLiteralPackedV3(cfg.Layout) {
+		if includePackedReconstruction {
 			var err error
 			wantConstraints, err = signaturePackedChainConstraintCountPerGroupForOpts(cfg.Spec, SimOpts{}, cfg.PackedGroupSize)
 			if err != nil {
@@ -619,7 +665,7 @@ func (cfg SigCoeffBoundsConfig) sigCoeffBoundsEvaluator(evalPoint func(evalIdx u
 		_ = lambdas
 		for g := 0; g < cfg.PackedGroupCount; g++ {
 			base := cfg.PackedChainBase + g*cfg.PackedRowsPerGroup
-			if !rowLayoutCoeffNativeUsesLiteralPackedV3(cfg.Layout) {
+			if includePackedReconstruction {
 				if cfg.PackedSourceCount > 0 && g >= cfg.PackedSourceCount {
 					return nil, nil, fmt.Errorf("packed source group %d out of range (count=%d)", g, cfg.PackedSourceCount)
 				}
@@ -680,8 +726,9 @@ func (cfg SigCoeffBoundsConfig) SigCoeffBoundsKEvaluator(K *kf.Field) (KConstrai
 		if cfg.PackedRowsPerGroup != wantRowsPer {
 			return nil, nil, fmt.Errorf("invalid packed chain rows-per-group=%d want %d", cfg.PackedRowsPerGroup, wantRowsPer)
 		}
+		includePackedReconstruction := !rowLayoutCoeffNativeUsesLiteralPackedV3(cfg.Layout) || rowLayoutCoeffNativeUsesSemanticRewrite(cfg.Layout)
 		wantConstraints := cfg.Spec.L
-		if !rowLayoutCoeffNativeUsesLiteralPackedV3(cfg.Layout) {
+		if includePackedReconstruction {
 			var err error
 			wantConstraints, err = signaturePackedChainConstraintCountPerGroupForOpts(cfg.Spec, SimOpts{}, cfg.PackedGroupSize)
 			if err != nil {
@@ -702,7 +749,7 @@ func (cfg SigCoeffBoundsConfig) SigCoeffBoundsKEvaluator(K *kf.Field) (KConstrai
 		_ = lambdas
 		for g := 0; g < cfg.PackedGroupCount; g++ {
 			base := cfg.PackedChainBase + g*cfg.PackedRowsPerGroup
-			if !rowLayoutCoeffNativeUsesLiteralPackedV3(cfg.Layout) {
+			if includePackedReconstruction {
 				if cfg.PackedSourceCount > 0 && g >= cfg.PackedSourceCount {
 					return nil, nil, fmt.Errorf("packed source group %d out of range (count=%d)", g, cfg.PackedSourceCount)
 				}

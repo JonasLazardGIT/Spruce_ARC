@@ -51,6 +51,43 @@ func thetaPolyFromNTT(ringQ *ring.Ring, pNTT *ring.Poly, omega []uint64) (*ring.
 	return out, nil
 }
 
+// thetaPolyFromNTTBlock interpolates the block-th public Θ polynomial from a
+// flattened NTT-head representation whose first blocks*|Ω| entries encode the
+// explicit-domain values block by block.
+func thetaPolyFromNTTBlock(ringQ *ring.Ring, pNTT *ring.Poly, omega []uint64, block, blocks int) (*ring.Poly, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if pNTT == nil {
+		return nil, nil
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega")
+	}
+	if blocks <= 0 {
+		return nil, fmt.Errorf("invalid blocks=%d", blocks)
+	}
+	if block < 0 || block >= blocks {
+		return nil, fmt.Errorf("invalid block index %d (blocks=%d)", block, blocks)
+	}
+	ncols := len(omega)
+	start := block * ncols
+	end := start + ncols
+	if len(pNTT.Coeffs) == 0 || len(pNTT.Coeffs[0]) < end {
+		return nil, fmt.Errorf("public poly too short for block slice [%d,%d)", start, end)
+	}
+	q := ringQ.Modulus[0]
+	head := append([]uint64(nil), pNTT.Coeffs[0][start:end]...)
+	for i := range head {
+		head[i] %= q
+	}
+	coeffs := Interpolate(omega, head, q)
+	out := ringQ.NewPoly()
+	copy(out.Coeffs[0], coeffs)
+	ringQ.NTT(out, out)
+	return out, nil
+}
+
 // thetaCoeffFromNTT interpolates a public Θ polynomial and returns its coefficients.
 func thetaCoeffFromNTT(ringQ *ring.Ring, pNTT *ring.Poly, omega []uint64) ([]uint64, error) {
 	if ringQ == nil {
@@ -104,4 +141,22 @@ func thetaPolyFromValues(ringQ *ring.Ring, vals []int64, omega []uint64) (*ring.
 	copy(out.Coeffs[0], coeffs)
 	ringQ.NTT(out, out)
 	return out, nil
+}
+
+func nttPolyFromFormalCoeffsIfFits(ringQ *ring.Ring, coeffs []uint64) *ring.Poly {
+	if ringQ == nil {
+		return nil
+	}
+	q := ringQ.Modulus[0]
+	trimmed := trimPoly(append([]uint64(nil), coeffs...), q)
+	if len(trimmed) == 0 {
+		trimmed = []uint64{0}
+	}
+	if len(trimmed) > int(ringQ.N) {
+		return nil
+	}
+	out := ringQ.NewPoly()
+	copy(out.Coeffs[0], trimmed)
+	ringQ.NTT(out, out)
+	return out
 }

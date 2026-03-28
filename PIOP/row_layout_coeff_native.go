@@ -25,7 +25,7 @@ func rowLayoutCoeffNativeIsBlocked(layout RowLayout) bool {
 }
 
 func rowLayoutCoeffNativeUsesSemanticRewrite(layout RowLayout) bool {
-	return false
+	return layout.CoeffNativeSig.SemanticRewrite
 }
 
 func rowLayoutCoeffNativeUsesLiteralPacked(layout RowLayout) bool {
@@ -211,6 +211,9 @@ func rowLayoutCoeffNativePackedSigLimbIndex(layout RowLayout, comp, block, lane 
 		return -1
 	}
 	group := comp*cfg.PackedSigBlocks + block
+	if rowLayoutCoeffNativeUsesSemanticRewrite(layout) {
+		group = block*cfg.PackedSigComponents + comp
+	}
 	return layout.PackedSigChainBase + group*layout.PackedSigChainRowsPerGroup + lane
 }
 

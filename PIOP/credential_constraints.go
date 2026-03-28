@@ -693,36 +693,13 @@ func buildCredentialConstraintSetPostFromRows(ringQ *ring.Ring, bound int64, pub
 		}
 	}
 
-	thetaPolyFromNTTBlock := func(pNTT *ring.Poly, block int) (*ring.Poly, error) {
-		if pNTT == nil {
-			return nil, nil
-		}
-		if block < 0 || block >= blocks {
-			return nil, fmt.Errorf("invalid block index %d (blocks=%d)", block, blocks)
-		}
-		start := block * ncols
-		end := start + ncols
-		if len(pNTT.Coeffs) == 0 || len(pNTT.Coeffs[0]) < end {
-			return nil, fmt.Errorf("public poly too short for block slice [%d,%d)", start, end)
-		}
-		head := append([]uint64(nil), pNTT.Coeffs[0][start:end]...)
-		for i := range head {
-			head[i] %= q
-		}
-		coeffs := Interpolate(omega, head, q)
-		out := ringQ.NewPoly()
-		copy(out.Coeffs[0], coeffs)
-		ringQ.NTT(out, out)
-		return out, nil
-	}
-
 	thetaABlocks := make([][][]*ring.Poly, blocks)
 	for b := 0; b < blocks; b++ {
 		thetaABlocks[b] = make([][]*ring.Poly, len(pub.A))
 		for i := range pub.A {
 			thetaABlocks[b][i] = make([]*ring.Poly, len(pub.A[i]))
 			for j := range pub.A[i] {
-				theta, terr := thetaPolyFromNTTBlock(pub.A[i][j], b)
+				theta, terr := thetaPolyFromNTTBlock(ringQ, pub.A[i][j], omega, b, blocks)
 				if terr != nil {
 					return ConstraintSet{}, fmt.Errorf("theta A[%d][%d] block %d: %w", i, j, b, terr)
 				}
@@ -802,6 +779,13 @@ func buildCredentialConstraintSetPostFromRows(ringQ *ring.Ring, bound int64, pub
 	for b := 0; b < blocks; b++ {
 		uBlock := uRows
 		tBlock := tNTT
+		if rowLayoutCoeffNativeUsesSemanticRewrite(layout) && layout.SigExtraTBase >= 0 {
+			tPos := layout.SigExtraTBase + b
+			if tPos < 0 || tPos >= len(rowsNTT) {
+				return ConstraintSet{}, fmt.Errorf("signature T block %d row %d out of range (rows=%d)", b, tPos, len(rowsNTT))
+			}
+			tBlock = rowsNTT[tPos]
+		}
 		if b > 0 {
 			uBase := layout.SigExtraUBase + (b-1)*uCount
 			uEnd := uBase + uCount
@@ -809,7 +793,9 @@ func buildCredentialConstraintSetPostFromRows(ringQ *ring.Ring, bound int64, pub
 				return ConstraintSet{}, fmt.Errorf("signature U block %d rows [%d,%d) out of range (rows=%d)", b, uBase, uEnd, len(rowsNTT))
 			}
 			uBlock = rowsNTT[uBase:uEnd]
-			if layout.SigDerivedT {
+			if rowLayoutCoeffNativeUsesSemanticRewrite(layout) && layout.SigExtraTBase >= 0 {
+				// semantic-rewrite T blocks are already wired above
+			} else if layout.SigDerivedT {
 				if b >= len(thetaTBlocks) || thetaTBlocks[b] == nil {
 					return ConstraintSet{}, fmt.Errorf("missing derived public T block %d", b)
 				}
@@ -826,7 +812,6 @@ func buildCredentialConstraintSetPostFromRows(ringQ *ring.Ring, bound int64, pub
 		if err != nil {
 			return ConstraintSet{}, fmt.Errorf("signature residuals block %d: %w", b, err)
 		}
-		sigRes = append(sigRes, res...)
 		if domainMode == DomainModeExplicit {
 			tCoeff, terr := toFormalCoeffs(tBlock)
 			if terr != nil {
@@ -845,8 +830,12 @@ func buildCredentialConstraintSetPostFromRows(ringQ *ring.Ring, bound int64, pub
 					}
 					acc = polyAdd(acc, polyMul(aCoeff, uCoeff, q))
 				}
-				sigResCoeffs = append(sigResCoeffs, polySub(acc, tCoeff))
+				resCoeff := polySub(acc, tCoeff)
+				sigResCoeffs = append(sigResCoeffs, resCoeff)
+				sigRes = append(sigRes, nttPolyFromFormalCoeffsIfFits(ringQ, resCoeff))
 			}
+		} else {
+			sigRes = append(sigRes, res...)
 		}
 	}
 	hashRes, err := BuildHashConstraintsNTT(ringQ, thetaB, m1NTT, m2NTT, r0NTT, r1NTT, tNTT)
@@ -891,6 +880,7 @@ func buildCredentialConstraintSetPostFromRows(ringQ *ring.Ring, bound int64, pub
 		num = polyAdd(num, polyMul(bCoeff[2], r0Coeff, q))
 		den := polySub(bCoeff[3], r1Coeff)
 		hashResCoeffs = [][]uint64{polySub(polyMul(den, tCoeff, q), num)}
+		hashRes = []*ring.Poly{nttPolyFromFormalCoeffsIfFits(ringQ, hashResCoeffs[0])}
 	}
 
 	if ncols%2 != 0 {
@@ -1024,6 +1014,8 @@ func buildCredentialConstraintSetPostFromRows(ringQ *ring.Ring, bound int64, pub
 		}
 		m1PackCoeff := trimPoly(polyMul(selCoeff, m1Coeff, q), q)
 		m2PackCoeff := trimPoly(polyMul(oneMinusSelCoeff, m2Coeff, q), q)
+		m1Pack = nttPolyFromFormalCoeffsIfFits(ringQ, m1PackCoeff)
+		m2Pack = nttPolyFromFormalCoeffsIfFits(ringQ, m2PackCoeff)
 		fparIntCoeffs = append(fparIntCoeffs, sigResCoeffs...)
 		fparIntCoeffs = append(fparIntCoeffs, hashResCoeffs...)
 		fparIntCoeffs = append(fparIntCoeffs, m1PackCoeff, m2PackCoeff)

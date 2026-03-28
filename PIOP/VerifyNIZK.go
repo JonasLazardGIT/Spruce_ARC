@@ -165,6 +165,29 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		return false, false, false, fmt.Errorf("VerifyNIZK: FS round 1: %w", err)
 	}
 	seed2 := h2
+	if proof.PRFCompanion != nil {
+		if proof.PRFCompanion.Layout == nil {
+			return false, false, false, errors.New("VerifyNIZK: missing prf companion layout")
+		}
+		companionWitnessRows := proof.RowLayout.SigCount
+		if companionWitnessRows <= 0 {
+			companionWitnessRows = proof.MaskRowOffset
+		}
+		if err := ValidatePRFCompanionLayout(proof.PRFCompanion.Layout, companionWitnessRows); err != nil {
+			return false, false, false, fmt.Errorf("VerifyNIZK: invalid prf companion layout: %w", err)
+		}
+		expectedCoordDigest := buildPRFCompanionCoordDigest(
+			proof.PRFCompanion.Layout,
+			seed2,
+			proof.PRFCompanion.BridgeChecks,
+			len(proof.PRFCompanion.BridgeChecks),
+			proof.PRFCompanion.Mode,
+			proof.PRFCompanion.CheckpointSamples,
+		)
+		if !bytes.Equal(expectedCoordDigest, proof.PRFCompanion.CoordDigest) {
+			return false, false, false, errors.New("VerifyNIZK: prf companion digest mismatch")
+		}
+	}
 
 	if proof.QRoot == ([16]byte{}) {
 		return false, false, false, errors.New("VerifyNIZK: missing QRoot commitment")
@@ -239,6 +262,9 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		gammaAggBytes,
 		proof.QRoot[:],
 	}
+	if proof.PRFCompanion != nil && len(proof.PRFCompanion.CoordDigest) > 0 {
+		transcript3 = append(transcript3, proof.PRFCompanion.CoordDigest)
+	}
 	if len(proof.LabelsDigest) > 0 {
 		transcript3 = append(transcript3, proof.LabelsDigest)
 	}
@@ -311,6 +337,9 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 			bytesFromUint64Matrix(coeffMatrix),
 			bytesFromUint64Matrix(barSets),
 			bytesFromUint64Matrix(vTargets),
+		}
+		if proof.PRFCompanion != nil && prfCompanionHasOpeningPayload(proof.PRFCompanion) {
+			transcript4 = append(transcript4, prfCompanionOpeningPayloadBytes(proof.PRFCompanion))
 		}
 	}
 	transcriptForRound3 := transcript4
@@ -530,6 +559,10 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 				GammaAggK:    proof.GammaAggK,
 				WitnessCount: witnessCount,
 				Ring:         ringQ,
+				Fpar:         replay.Fpar,
+				Fagg:         replay.Fagg,
+				FparCoeffs:   replay.FparCoeffs,
+				FaggCoeffs:   replay.FaggCoeffs,
 				BoundRows:    replay.BoundRows,
 				CarryRows:    replay.CarryRows,
 				BoundB:       replay.BoundB,

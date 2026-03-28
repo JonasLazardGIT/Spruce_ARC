@@ -112,11 +112,6 @@ func BuildShowingRowDependencyMap(layout RowLayout, prfLayout *PRFLayout) RowDep
 		return prfLayout.StartIdx - uBase
 	}
 
-	if layout.ShowingPRFOnly {
-		addPRFFamily(RowFamilyPRFGrouped)
-		return finalizeRowDependencyMap(acc)
-	}
-
 	if rowLayoutHasCoeffNativeSig(layout) {
 		if !rowLayoutCoeffNativeUsesLiteralPacked(layout) {
 			return finalizeRowDependencyMap(acc)
@@ -185,6 +180,35 @@ func addCoeffNativeLiteralPackedRows(
 	addRange func(string, int, int),
 ) {
 	cfg := layout.CoeffNativeSig
+	if rowLayoutCoeffNativeUsesSemanticRewrite(layout) {
+		for _, idx := range rowLayoutPostSignCoreRows(layout) {
+			add(RowFamilyPostSignCore, idx)
+		}
+		addRange(RowFamilyPostSignCore, rowLayoutPostSignUBase(layout), layout.SigUCount)
+		if layout.SigBlocks > 1 {
+			addRange(RowFamilyPostSignCore, layout.SigExtraUBase, (layout.SigBlocks-1)*layout.SigUCount)
+		}
+		if layout.SigExtraTBase >= 0 && layout.SigBlocks > 0 {
+			addRange(RowFamilyPostSignCore, layout.SigExtraTBase, layout.SigBlocks)
+		}
+		addRange(RowFamilySigPrimaryLimb, layout.PackedSigChainBase, layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup)
+		for _, idx := range postSignBoundRowIndices(layout) {
+			add(RowFamilyNonSigBoundChain, idx)
+		}
+		if rowsPer := inferNonSigBoundRowsPer(layout); rowsPer > 0 {
+			addRange(RowFamilyNonSigBoundChain, layout.MsgChainBase, 2*rowsPer)
+			addRange(RowFamilyNonSigBoundChain, layout.RndChainBase, 2*rowsPer)
+		}
+		if layout.NonSigBlocks > 0 {
+			if layout.NonSigBlocks > 1 {
+				addRange(RowFamilyNonSigBoundChain, layout.MsgExtraNTTBase, (layout.NonSigBlocks-1)*layout.MsgCompCount)
+				addRange(RowFamilyNonSigBoundChain, layout.RndExtraNTTBase, (layout.NonSigBlocks-1)*layout.RndCompCount)
+			}
+			addRange(RowFamilyNonSigBoundChain, layout.MsgCoeffBase, layout.NonSigBlocks*layout.MsgCompCount)
+			addRange(RowFamilyNonSigBoundChain, layout.RndCoeffBase, layout.NonSigBlocks*layout.RndCompCount)
+		}
+		return
+	}
 	addRange(RowFamilySigPrimaryLimb, layout.PackedSigChainBase, layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup)
 	if rowLayoutCoeffNativeUsesCompressedNonSigScalars(layout) {
 		add(RowFamilyPostSignScalarProjection, cfg.PostSignMsgSumRow)

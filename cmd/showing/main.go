@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"vSIS-Signature/PIOP"
@@ -115,27 +116,79 @@ func main() {
 	const (
 		showingDefaultBoundB     = int64(8)
 		productionPRFGroupRounds = 2
-		productionTheta          = 6
 		productionNCols          = 16
-		productionLVCSNCols      = 24
 		productionEll            = 18
-		productionEta            = 31
-		productionEllPrime       = 2
-		productionRho            = 2
-		productionNLeaves        = 2048
 	)
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
+	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default; transcript_first keeps the paper-transcript minimum; production_balance keeps the old shipped geometry)")
+	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
+	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
+	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override for soundness research")
+	etaOverride := flag.Int("eta", 0, "optional eta override for soundness research")
+	thetaOverride := flag.Int("theta", 0, "optional theta override for soundness research")
+	rhoOverride := flag.Int("rho", 0, "optional rho override for soundness research")
+	ellPrimeOverride := flag.Int("ell-prime", 0, "optional ell-prime override for soundness research")
+	kappa1Override := flag.Int("kappa1", -1, "optional round-1 grinding override for soundness research (large values are infeasible)")
+	kappa2Override := flag.Int("kappa2", -1, "optional round-2 grinding override for soundness research")
+	kappa3Override := flag.Int("kappa3", -1, "optional round-3 grinding override for soundness research")
+	kappa4Override := flag.Int("kappa4", -1, "optional round-4 grinding override for soundness research")
+	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (r7_l4_experimental, r12_l3_default, r13_l3_legacy)")
+	sigShortnessRadix := flag.Int("sig-shortness-radix", 0, "optional raw signature shortness radix override for transcript research")
+	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override for transcript research")
+	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth is research-only scaffolding; current remains regression-only)")
+	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
 	flag.Parse()
 
 	resolvedModel := *coeffModel
 	if resolvedModel == "" {
 		resolvedModel = PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3
 	}
-	effectivePostLVCS := productionLVCSNCols
-	effectivePostNLeaves := productionNLeaves
-	effectivePRFLVCS := productionLVCSNCols
-	effectivePRFNLeaves := productionNLeaves
+	effectiveNCols := productionNCols
+	if *ncolsOverride > 0 {
+		effectiveNCols = *ncolsOverride
+	}
+	effectivePostLVCS := 0
+	effectivePostNLeaves := 0
+	effectivePRFLVCS := 0
+	effectivePRFNLeaves := 0
+	if *lvcsNColsOverride > 0 {
+		effectivePostLVCS = *lvcsNColsOverride
+		effectivePRFLVCS = *lvcsNColsOverride
+	}
+	if *nLeavesOverride > 0 {
+		effectivePostNLeaves = *nLeavesOverride
+		effectivePRFNLeaves = *nLeavesOverride
+	}
+	effectiveEta := 0
+	if *etaOverride > 0 {
+		effectiveEta = *etaOverride
+	}
+	effectiveTheta := 0
+	if *thetaOverride > 0 {
+		effectiveTheta = *thetaOverride
+	}
+	effectiveRho := 0
+	if *rhoOverride > 0 {
+		effectiveRho = *rhoOverride
+	}
+	effectiveEllPrime := 0
+	if *ellPrimeOverride > 0 {
+		effectiveEllPrime = *ellPrimeOverride
+	}
+	effectiveKappa := [4]int{0, 0, 0, 0}
+	if *kappa1Override >= 0 {
+		effectiveKappa[0] = *kappa1Override
+	}
+	if *kappa2Override >= 0 {
+		effectiveKappa[1] = *kappa2Override
+	}
+	if *kappa3Override >= 0 {
+		effectiveKappa[2] = *kappa3Override
+	}
+	if *kappa4Override >= 0 {
+		effectiveKappa[3] = *kappa4Override
+	}
 
 	if wd, err := os.Getwd(); err == nil {
 		cli.printf(categoryStatus, "[showing-cli] ", "cwd=%s", wd)
@@ -155,25 +208,84 @@ func main() {
 		cli.fatalf("[showing-cli] ", "load prf params: %v", err)
 	}
 	opts := PIOP.SimOpts{
-		Credential:          true,
-		Theta:               productionTheta,
-		EllPrime:            productionEllPrime,
-		Rho:                 productionRho,
-		NCols:               productionNCols,
-		Ell:                 productionEll,
-		Eta:                 productionEta,
-		DomainMode:          PIOP.DomainModeExplicit,
-		NLeaves:             effectivePostNLeaves,
-		PRFGroupRounds:      productionPRFGroupRounds,
-		CoeffPacking:        true,
-		CoeffNativeSigModel: resolvedModel,
-		PostSignLVCSNCols:   effectivePostLVCS,
-		PostSignNLeaves:     effectivePostNLeaves,
-		PRFLVCSNCols:        effectivePRFLVCS,
-		PRFNLeaves:          effectivePRFNLeaves,
+		Credential:           true,
+		Theta:                effectiveTheta,
+		EllPrime:             effectiveEllPrime,
+		Rho:                  effectiveRho,
+		NCols:                effectiveNCols,
+		Ell:                  productionEll,
+		Eta:                  effectiveEta,
+		DomainMode:           PIOP.DomainModeExplicit,
+		NLeaves:              effectivePostNLeaves,
+		Kappa:                effectiveKappa,
+		PRFGroupRounds:       productionPRFGroupRounds,
+		CoeffPacking:         true,
+		CoeffNativeSigModel:  resolvedModel,
+		ShowingPreset:        *showingPreset,
+		SigShortnessProfile:  *sigShortnessProfile,
+		SigShortnessRadix:    *sigShortnessRadix,
+		SigShortnessL:        *sigShortnessDigits,
+		PostSignLVCSNCols:    effectivePostLVCS,
+		PostSignNLeaves:      effectivePostNLeaves,
+		PRFLVCSNCols:         effectivePRFLVCS,
+		PRFNLeaves:           effectivePRFNLeaves,
+		PRFCompanionMode:     PIOP.PRFCompanionMode(*prfCompanionMode),
+		PRFCheckpointSamples: *prfCheckpointSamples,
 	}
-	cli.printf(categoryStatus, "[showing-cli] ", "production showing profile (ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d prf_group_rounds=%d)",
-		opts.Ell, opts.Eta, opts.EllPrime, opts.Rho, opts.Theta, opts.NCols, effectivePostLVCS, opts.PRFGroupRounds)
+	opts = PIOP.ResolveSimOptsDefaults(opts)
+	effectivePostLVCS = opts.PostSignLVCSNCols
+	effectivePRFLVCS = opts.PRFLVCSNCols
+	effectivePostNLeaves = opts.PostSignNLeaves
+	effectivePRFNLeaves = opts.PRFNLeaves
+	resolvedShowingPreset := PIOP.ResolveShowingPresetLabelForOpts(opts)
+	resolvedSigProfile := PIOP.ResolveSignatureShortnessProfileLabelForOpts(opts)
+	sigBase, sigL, sigRowsPer, sigDegree, sigMetricErr := PIOP.ResolveSignatureShortnessMetricsForOpts(ringQ.Modulus[0], opts)
+	if sigMetricErr != nil {
+		cli.fatalf("[showing-cli] ", "resolve signature shortness profile: %v", sigMetricErr)
+	}
+	baselineOpts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+		Credential:           true,
+		NCols:                effectiveNCols,
+		Ell:                  productionEll,
+		DomainMode:           PIOP.DomainModeExplicit,
+		PRFGroupRounds:       productionPRFGroupRounds,
+		CoeffPacking:         true,
+		CoeffNativeSigModel:  resolvedModel,
+		ShowingPreset:        *showingPreset,
+		PRFCompanionMode:     PIOP.PRFCompanionMode(*prfCompanionMode),
+		PRFCheckpointSamples: *prfCheckpointSamples,
+	})
+	cli.printf(categoryStatus, "[showing-cli] ", "production showing profile (preset=%s ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d nleaves=%d kappa={%d,%d,%d,%d} prf_group_rounds=%d prf_mode=%s prf_samples=%d sig_profile=%s sig_R=%d sig_L=%d sig_rows=%d sig_deg=%d)",
+		resolvedShowingPreset, opts.Ell, opts.Eta, opts.EllPrime, opts.Rho, opts.Theta, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], opts.PRFGroupRounds, opts.PRFCompanionMode, opts.PRFCheckpointSamples, resolvedSigProfile, sigBase, sigL, sigRowsPer, sigDegree)
+	if opts.NCols != baselineOpts.NCols ||
+		effectivePostLVCS != baselineOpts.PostSignLVCSNCols ||
+		effectivePRFLVCS != baselineOpts.PRFLVCSNCols ||
+		opts.NLeaves != baselineOpts.NLeaves ||
+		effectivePostNLeaves != baselineOpts.PostSignNLeaves ||
+		effectivePRFNLeaves != baselineOpts.PRFNLeaves ||
+		opts.Eta != baselineOpts.Eta ||
+		opts.Theta != baselineOpts.Theta ||
+		opts.Rho != baselineOpts.Rho ||
+		opts.EllPrime != baselineOpts.EllPrime ||
+		opts.Kappa != baselineOpts.Kappa ||
+		opts.PRFCompanionMode != baselineOpts.PRFCompanionMode ||
+		opts.PRFCheckpointSamples != baselineOpts.PRFCheckpointSamples ||
+		resolvedShowingPreset != baselineOpts.ShowingPreset ||
+		*sigShortnessProfile != "" || *sigShortnessRadix > 0 || *sigShortnessDigits > 0 {
+		cli.printf(categoryWarning, "[showing-cli] ", "warning: transcript/soundness research overrides active (preset=%s ncols=%d lvcs_ncols=%d nleaves=%d eta=%d theta=%d rho=%d ell'=%d kappa={%d,%d,%d,%d} sig_profile=%s sig_R=%d sig_L=%d)",
+			resolvedShowingPreset, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Eta, opts.Theta, opts.Rho, opts.EllPrime, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], resolvedSigProfile, sigBase, sigL)
+	}
+	for i, kappa := range opts.Kappa {
+		if kappa >= 32 {
+			cli.printf(categoryWarning, "[showing-cli] ", "warning: kappa%d=%d implies infeasible grinding in live proving; use large κ only for theorem-floor analysis, not production runs", i+1, kappa)
+		}
+	}
+	switch opts.PRFCompanionMode {
+	case PIOP.PRFCompanionModeDirectAuth:
+		cli.printf(categoryWarning, "[showing-cli] ", "warning: direct_auth is research-only; the live proof still keeps the PRF bridge inside Q until a new bridge object lands")
+	case PIOP.PRFCompanionModeCurrent:
+		cli.printf(categoryWarning, "[showing-cli] ", "warning: current is regression-only; output_audit is the live production baseline")
+	}
 	if opts.PRFGroupRounds <= 0 {
 		cli.fatalf("[showing-cli] ", "invalid fixed PRFGroupRounds=%d", opts.PRFGroupRounds)
 	}
@@ -226,7 +338,7 @@ func main() {
 	}
 
 	// Active showing uses the semantic coeff-native PRF key witness directly.
-	key, err := prfKeyFromSemanticWitness(wit.CoeffNativeShowing)
+	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "prf key: %v", err)
 	}
@@ -237,23 +349,10 @@ func main() {
 	}
 	tagPublic := lanesFromElems(tag, ncols)
 
-	x0, err := prf.ConcatKeyNonce(key, nonce, params)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "concat key/nonce: %v", err)
-	}
-	sboxes, _, err := prf.TraceSBoxOutputsGrouped(x0, params, opts.PRFGroupRounds)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "prf sbox trace: %v", err)
-	}
-	sboxRows := elemsToPolys(ringQ, sboxes)
-	if wit.Extras == nil {
-		wit.Extras = map[string]interface{}{}
-	}
-	wit.Extras["prf_sbox"] = sboxRows
-
 	pub := PIOP.PublicInputs{
 		A:      A,
 		B:      B,
+		T:      append([]int64(nil), state.T...),
 		Tag:    tagPublic,
 		Nonce:  noncePublic,
 		BoundB: showingDefaultBoundB,
@@ -268,7 +367,11 @@ func main() {
 	proofDur := time.Since(proofStart)
 
 	verifyStart := time.Now()
-	ok, err := PIOP.VerifyWithConstraints(proof, PIOP.ConstraintSet{PRFLayout: proof.PRFLayout}, pub, opts, PIOP.FSModeCredential)
+	verifySet := PIOP.ConstraintSet{PRFLayout: proof.PRFLayout}
+	if proof.PRFCompanion != nil {
+		verifySet.PRFCompanionLayout = proof.PRFCompanion.Layout
+	}
+	ok, err := PIOP.VerifyWithConstraints(proof, verifySet, pub, opts, PIOP.FSModeCredential)
 	verifyDur := time.Since(verifyStart)
 	if err != nil || !ok {
 		cli.fatalf("[showing-cli] ", "verify showing failed: ok=%v err=%v", ok, err)
@@ -359,65 +462,7 @@ func buildWitnessFromState(r *ring.Ring, st credential.State) (PIOP.WitnessInput
 	if err != nil {
 		return PIOP.WitnessInputs{}, err
 	}
-	if coeffNative != nil {
-		return PIOP.WitnessInputs{
-			CoeffNativeShowing: coeffNative,
-		}, nil
-	}
-
-	m1 := polysFromInt64(r, st.M1)
-	m2 := polysFromInt64(r, st.M2)
-	r0 := polysFromInt64(r, st.R0)
-	r1 := polysFromInt64(r, st.R1)
-	k0 := polysFromInt64(r, st.K0)
-	k1 := polysFromInt64(r, st.K1)
-	base := r.NewPoly()
-
-	t := st.T
-	if len(t) == 0 {
-		return PIOP.WitnessInputs{}, fmt.Errorf("missing T in state")
-	}
-	sigS1 := append([]int64(nil), st.SigS1...)
-	sigS2 := append([]int64(nil), st.SigS2...)
-	var uRows []*ring.Poly
-	if len(sigS1) > 0 && len(sigS2) > 0 {
-		uRows = []*ring.Poly{polyFromInt64(r, sigS1), polyFromInt64(r, sigS2)}
-	} else {
-		return PIOP.WitnessInputs{}, fmt.Errorf("missing sig_s1/sig_s2 in credential state")
-	}
-
-	// Ensure required base rows exist (zero-fill if state omitted them).
-	if len(m1) == 0 {
-		m1 = []*ring.Poly{base}
-	}
-	if len(m2) == 0 {
-		m2 = []*ring.Poly{base}
-	}
-	if len(r0) == 0 {
-		r0 = []*ring.Poly{base}
-	}
-	if len(r1) == 0 {
-		r1 = []*ring.Poly{base}
-	}
-	if len(k0) == 0 {
-		k0 = []*ring.Poly{base}
-	}
-	if len(k1) == 0 {
-		k1 = []*ring.Poly{base}
-	}
-
 	return PIOP.WitnessInputs{
-		M1:                 m1,
-		M2:                 m2,
-		RU0:                []*ring.Poly{base},
-		RU1:                []*ring.Poly{base},
-		R:                  []*ring.Poly{base},
-		R0:                 r0,
-		R1:                 r1,
-		K0:                 k0,
-		K1:                 k1,
-		T:                  t,
-		U:                  uRows,
 		CoeffNativeShowing: coeffNative,
 	}, nil
 }
@@ -426,18 +471,31 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State) 
 	if r == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
-	if st.CoeffNativeShowing == nil {
-		return nil, nil
+	if len(st.SigS1) == 0 || len(st.SigS2) == 0 {
+		return nil, fmt.Errorf("missing sig_s1/sig_s2 in credential state")
 	}
-	if err := st.CoeffNativeShowing.Validate(int(r.N)); err != nil {
-		return nil, fmt.Errorf("invalid coeff-native showing payload in state: %w", err)
+	if len(st.M1) == 0 || len(st.M2) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.T) == 0 {
+		return nil, fmt.Errorf("missing signed base rows in credential state")
+	}
+	legacyNCols := 0
+	if st.CoeffNativeShowing != nil {
+		legacyNCols = st.CoeffNativeShowing.NCols
+	}
+	packedNCols, err := PIOP.ResolvePackedNCols(st.PackedNCols, legacyNCols, int(r.N))
+	if err != nil {
+		return nil, fmt.Errorf("resolve packed ncols: %w", err)
 	}
 	wit := &PIOP.CoeffNativeShowingWitness{
-		Sig:    credentialPolysFromInt64(r, st.CoeffNativeShowing.Sig),
-		U:      append([]int64(nil), st.CoeffNativeShowing.U...),
-		X0:     append([]int64(nil), st.CoeffNativeShowing.X0...),
-		X1:     st.CoeffNativeShowing.X1,
-		PRFKey: append([]int64(nil), st.CoeffNativeShowing.PRFKey...),
+		Sig: []*ring.Poly{
+			polyFromInt64(r, st.SigS1),
+			polyFromInt64(r, st.SigS2),
+		},
+		M1:          polyFromInt64(r, st.M1[0]),
+		M2:          polyFromInt64(r, st.M2[0]),
+		R0:          polyFromInt64(r, st.R0[0]),
+		R1:          polyFromInt64(r, st.R1[0]),
+		T:           polyFromInt64(r, st.T),
+		PackedNCols: packedNCols,
 	}
 	if err := wit.Validate(int(r.N)); err != nil {
 		return nil, fmt.Errorf("invalid coeff-native showing witness: %w", err)
@@ -452,18 +510,15 @@ func showingSignatureComponentCount(wit PIOP.WitnessInputs) int {
 	return len(wit.U)
 }
 
-func prfKeyFromSemanticWitness(wit *PIOP.CoeffNativeShowingWitness) ([]prf.Elem, error) {
+func prfKeyFromSignedWitness(ringQ *ring.Ring, wit *PIOP.CoeffNativeShowingWitness, lenKey int) ([]prf.Elem, error) {
 	if wit == nil {
 		return nil, fmt.Errorf("missing coeff-native showing witness")
 	}
-	if len(wit.PRFKey) == 0 {
-		return nil, fmt.Errorf("missing coeff-native semantic prf key witness")
+	key, err := PIOP.ExtractSignedPRFKeyElems(ringQ, wit.M2, wit.PackedNCols, lenKey)
+	if err != nil {
+		return nil, err
 	}
-	out := make([]prf.Elem, len(wit.PRFKey))
-	for i := range wit.PRFKey {
-		out[i] = prf.Elem(wit.PRFKey[i])
-	}
-	return out, nil
+	return key, nil
 }
 
 func credentialPolysFromInt64(r *ring.Ring, vec [][]int64) []*ring.Poly {
@@ -700,7 +755,7 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 		cli.printf(categoryWarning, prefix, "report: %v", err)
 		return
 	}
-	sigBase, sigL, _, sigErr := PIOP.ResolveSignatureBoundShapeForOpts(ringQ.Modulus[0], opts)
+	sigBase, sigL, sigRowsPer, sigDegree, sigErr := PIOP.ResolveSignatureShortnessMetricsForOpts(ringQ.Modulus[0], opts)
 	nonW, nonL, _, nonErr := PIOP.ResolveNonSigBoundShape(boundB)
 	if rep.PaperTranscript.OptimizedBytes > 0 {
 		cli.printf(categoryTranscript, prefix, "%s", formatPaperTranscriptSummary(rep))
@@ -708,6 +763,7 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 	}
 	cli.printf(categoryTranscript, prefix, "Current verifier payload≈%.2f KB (%.0f bytes)", rep.ProofKB, float64(rep.ProofBytes))
 	printPaperTranscriptBreakdown(prefix, rep)
+	printTranscriptOptimizationFocus(prefix, rep)
 	cli.printf(categoryStatus, prefix, "Prover time≈%s", proveDur)
 	cli.printf(categoryStatus, prefix, "Verifier time≈%s", verifyDur)
 	cli.printf(categorySoundness, prefix, "Soundness Eq.(8): %s %s %s %s eq8_total=%.2f",
@@ -721,10 +777,15 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 		rep.Soundness.TheoremBits[0], rep.Soundness.TheoremBits[1], rep.Soundness.TheoremBits[2], rep.Soundness.TheoremBits[3],
 		displayBits(rep.Soundness.TotalBits),
 		rep.Soundness.QueryCaps)
-	cli.printf(categoryGeometry, prefix, "Params: NCols(s)=%d pcs_ncols=%d ddecs=%d ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d dQ=%d collision_bits=%d", rep.NCols, rep.PCSNCols, rep.Soundness.DDECS, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta, rep.DQ, rep.Soundness.CollisionSpaceBits)
+	if note := formatSoundnessNotes(rep); note != "" {
+		cli.printf(categorySoundness, prefix, "%s", note)
+	}
+	cli.printf(categoryGeometry, prefix, "Params: NCols(s)=%d pcs_ncols=%d nleaves=%d ddecs=%d ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d κ={%d,%d,%d,%d} dQ=%d collision_bits=%d",
+		rep.NCols, rep.PCSNCols, rep.NLeaves, rep.Soundness.DDECS, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta,
+		rep.Kappa[0], rep.Kappa[1], rep.Kappa[2], rep.Kappa[3], rep.DQ, rep.Soundness.CollisionSpaceBits)
 	printWitnessGeometry(prefix, rep.Geometry)
 	if sigErr == nil && nonErr == nil {
-		cli.printf(categoryGeometry, prefix, "Linf chain: sig(R=%d,L=%d) nonSig(W=%d,L=%d)", sigBase, sigL, nonW, nonL)
+		cli.printf(categoryGeometry, prefix, "Linf chain: sig(profile=%s,R=%d,L=%d,rows=%d,deg=%d) nonSig(W=%d,L=%d)", rep.TranscriptFocus.SigShortnessProfile, sigBase, sigL, sigRowsPer, sigDegree, nonW, nonL)
 	} else {
 		cli.printf(categoryWarning, prefix, "Linf chain shape resolution warning: sigErr=%v nonSigErr=%v", sigErr, nonErr)
 	}
@@ -742,9 +803,25 @@ func displayBits(bits float64) float64 {
 
 func formatSoundnessComponent(label string, rawBits, bits float64) string {
 	if rawBits < bits {
-		return fmt.Sprintf("%s=%.2f (raw %.2f)", label, bits, rawBits)
+		return fmt.Sprintf("%s=%.2f (clamped from raw %.2f)", label, bits, rawBits)
 	}
 	return fmt.Sprintf("%s=%.2f", label, bits)
+}
+
+func formatSoundnessNotes(rep PIOP.ProofReport) string {
+	var notes []string
+	for i := 0; i < len(rep.Soundness.Clamped); i++ {
+		if rep.Soundness.Clamped[i] {
+			notes = append(notes, fmt.Sprintf("eps%d raw term is negative and is paper-clamped to 0 before theorem-level grinding", i+1))
+		}
+	}
+	for _, kappa := range rep.Kappa {
+		if kappa > 0 {
+			notes = append(notes, "Thm.9 round bits already include grinding κ; large κ improves theorem terms but increases prover work exponentially")
+			break
+		}
+	}
+	return strings.Join(notes, "; ")
 }
 
 func formatPaperTranscriptSummary(rep PIOP.ProofReport) string {
@@ -757,6 +834,57 @@ func formatPaperTranscriptReductionSummary(rep PIOP.ProofReport) string {
 	return fmt.Sprintf("Paper reductions: R saved=%.0fb Q saved=%.0fb",
 		rep.PaperTranscript.R.NaiveBits-rep.PaperTranscript.R.OptimizedBits,
 		rep.PaperTranscript.Q.NaiveBits-rep.PaperTranscript.Q.OptimizedBits)
+}
+
+func printTranscriptOptimizationFocus(prefix string, rep PIOP.ProofReport) {
+	if line := formatTranscriptOptimizationSummary(rep); line != "" {
+		cli.printf(categoryGeometry, prefix, "%s", line)
+	}
+	if line := formatTranscriptBucketFocusSummary(rep); line != "" {
+		cli.printf(categoryTranscript, prefix, "%s", line)
+	}
+}
+
+func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
+	focus := rep.TranscriptFocus
+	if focus.NRows <= 0 {
+		return ""
+	}
+	layout := "unpacked"
+	if focus.PRFPacked {
+		layout = "packed"
+	}
+	return fmt.Sprintf(
+		"Transcript focus: preset=%s lvcs=%d nleaves=%d rowsBlock=%d maskChunks=%d witness=%d nrows=%d m=%d pcols=%d omitP=%d prf_scalars=%d prf_rows=%d (%s) entries=%d",
+		focus.ShowingPreset,
+		focus.LVCSNCols,
+		focus.NLeaves,
+		focus.RowsBlock,
+		focus.MaskChunks,
+		focus.WitnessRows,
+		focus.NRows,
+		focus.M,
+		focus.PCols,
+		focus.OmitP,
+		focus.PRFLogicalScalars,
+		focus.PRFPackedRows,
+		layout,
+		focus.RowOpeningEntries,
+	)
+}
+
+func formatTranscriptBucketFocusSummary(rep PIOP.ProofReport) string {
+	focus := rep.TranscriptFocus
+	if focus.PdecsBytes <= 0 && focus.VTargetsBytes <= 0 && focus.BarSetsBytes <= 0 && focus.QBytes <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Bucket focus: Pdecs=%d VTargets=%d BarSets=%d Q=%d",
+		focus.PdecsBytes,
+		focus.VTargetsBytes,
+		focus.BarSetsBytes,
+		focus.QBytes,
+	)
 }
 
 type paperTranscriptBreakdownRow struct {

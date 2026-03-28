@@ -83,36 +83,40 @@ type MaskingFSInput struct {
 	Opts  SimOpts
 	Omega []uint64
 	// OmegaWitness is the witness packing domain Ω_s.
-	OmegaWitness     []uint64
-	DomainPoints     []uint64
-	Root             [16]byte
-	PK               *lvcs.ProverKey
-	OracleLayout     lvcs.OracleLayout
-	RowLayout        RowLayout
-	FparInt          []*ring.Poly
-	FparNorm         []*ring.Poly
-	FaggInt          []*ring.Poly
-	FaggNorm         []*ring.Poly
-	FparIntCoeffs    [][]uint64
-	FparNormCoeffs   [][]uint64
-	FaggIntCoeffs    [][]uint64
-	FaggNormCoeffs   [][]uint64
-	RowInputs        []lvcs.RowInput
-	WitnessPolys     []*ring.Poly // layout base (w1)
-	MaskPolys        []*ring.Poly // independent masks (optional; can be empty)
-	MaskPolyCoeffs   [][]uint64   // formal coeff rows for independent masks
-	MaskPolysK       []*KPoly     // independent K masks (theta>1)
-	MaskRowOffset    int
-	MaskRowCount     int
-	PCSGeometry      PCSGeometry
-	MaskDegreeTarget int
-	MaskDegreeBound  int
-	Personalization  string // FS personalization label (e.g., FSModeCredential)
-	NCols            int    // witness packing width s
-	PCSNCols         int    // PCS row width; 0 => LVCSNCols => NCols
-	LVCSNCols        int    // LVCS row width; 0 => NCols
-	DecsParams       decs.Params
-	LabelsDigest     []byte // hash of public labels included in FS binding
+	OmegaWitness       []uint64
+	DomainPoints       []uint64
+	Root               [16]byte
+	PK                 *lvcs.ProverKey
+	OracleLayout       lvcs.OracleLayout
+	RowLayout          RowLayout
+	FparInt            []*ring.Poly
+	FparNorm           []*ring.Poly
+	FaggInt            []*ring.Poly
+	FaggNorm           []*ring.Poly
+	FparIntCoeffs      [][]uint64
+	FparNormCoeffs     [][]uint64
+	FaggIntCoeffs      [][]uint64
+	FaggNormCoeffs     [][]uint64
+	PRFCompanionLayout *PRFCompanionLayout
+	PRFCompanionRows   []lvcs.RowInput
+	PRFTagPublic       [][]int64
+	PRFNoncePublic     [][]int64
+	RowInputs          []lvcs.RowInput
+	WitnessPolys       []*ring.Poly // layout base (w1)
+	MaskPolys          []*ring.Poly // independent masks (optional; can be empty)
+	MaskPolyCoeffs     [][]uint64   // formal coeff rows for independent masks
+	MaskPolysK         []*KPoly     // independent K masks (theta>1)
+	MaskRowOffset      int
+	MaskRowCount       int
+	PCSGeometry        PCSGeometry
+	MaskDegreeTarget   int
+	MaskDegreeBound    int
+	Personalization    string // FS personalization label (e.g., FSModeCredential)
+	NCols              int    // witness packing width s
+	PCSNCols           int    // PCS row width; 0 => LVCSNCols => NCols
+	LVCSNCols          int    // LVCS row width; 0 => NCols
+	DecsParams         decs.Params
+	LabelsDigest       []byte // hash of public labels included in FS binding
 	// Small-field (theta>1) parameters
 	SmallFieldChi     []uint64
 	SmallFieldOmegaS1 []uint64
@@ -138,36 +142,51 @@ func alignConstraintCoeffOverrides(polys []*ring.Poly, coeffs [][]uint64) [][]ui
 	return out
 }
 
+func copyInt64Matrix(src [][]int64) [][]int64 {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([][]int64, len(src))
+	for i := range src {
+		out[i] = append([]int64(nil), src[i]...)
+	}
+	return out
+}
+
 // RunMaskingFS executes the masking, commitment, Fiat-Shamir, and opening
 // stages from explicit row and constraint inputs.
 func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 	o := in.Opts
 	o.applyDefaults()
 	args := maskFSArgs{
-		ringQ:          in.RingQ,
-		omega:          in.Omega,
-		domainPoints:   in.DomainPoints,
-		q:              in.RingQ.Modulus[0],
-		rho:            o.Rho,
-		ell:            o.Ell,
-		ellPrime:       o.EllPrime,
-		opts:           o,
-		ncols:          in.NCols,
-		witnessNCols:   in.NCols,
-		root:           in.Root,
-		PK:             in.PK,
-		w1:             in.WitnessPolys,
-		origW1Len:      len(in.WitnessPolys),
-		FparInt:        in.FparInt,
-		FparNorm:       in.FparNorm,
-		FaggInt:        in.FaggInt,
-		FaggNorm:       in.FaggNorm,
-		FparIntCoeffs:  in.FparIntCoeffs,
-		FparNormCoeffs: in.FparNormCoeffs,
-		FaggIntCoeffs:  in.FaggIntCoeffs,
-		FaggNormCoeffs: in.FaggNormCoeffs,
-		FparAll:        append(append([]*ring.Poly{}, in.FparInt...), in.FparNorm...),
-		FaggAll:        append(append([]*ring.Poly{}, in.FaggInt...), in.FaggNorm...),
+		ringQ:              in.RingQ,
+		omega:              in.Omega,
+		domainPoints:       in.DomainPoints,
+		q:                  in.RingQ.Modulus[0],
+		rho:                o.Rho,
+		ell:                o.Ell,
+		ellPrime:           o.EllPrime,
+		opts:               o,
+		ncols:              in.NCols,
+		witnessNCols:       in.NCols,
+		root:               in.Root,
+		PK:                 in.PK,
+		w1:                 in.WitnessPolys,
+		origW1Len:          len(in.WitnessPolys),
+		FparInt:            in.FparInt,
+		FparNorm:           in.FparNorm,
+		FaggInt:            in.FaggInt,
+		FaggNorm:           in.FaggNorm,
+		FparIntCoeffs:      in.FparIntCoeffs,
+		FparNormCoeffs:     in.FparNormCoeffs,
+		FaggIntCoeffs:      in.FaggIntCoeffs,
+		FaggNormCoeffs:     in.FaggNormCoeffs,
+		prfCompanionLayout: in.PRFCompanionLayout,
+		prfCompanionRows:   append([]lvcs.RowInput(nil), in.PRFCompanionRows...),
+		prfTagPublic:       copyInt64Matrix(in.PRFTagPublic),
+		prfNoncePublic:     copyInt64Matrix(in.PRFNoncePublic),
+		FparAll:            append(append([]*ring.Poly{}, in.FparInt...), in.FparNorm...),
+		FaggAll:            append(append([]*ring.Poly{}, in.FaggInt...), in.FaggNorm...),
 		FparAllCoeffs: append(
 			alignConstraintCoeffOverrides(in.FparInt, in.FparIntCoeffs),
 			alignConstraintCoeffOverrides(in.FparNorm, in.FparNormCoeffs)...,
@@ -199,6 +218,9 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		decsParams:    in.DecsParams,
 		ncolsOverride: in.NCols,
 		labelsDigest:  append([]byte(nil), in.LabelsDigest...),
+	}
+	if in.PRFCompanionLayout != nil {
+		args.prfCompanionBridgeChecks = prfCompanionBridgeChecks
 	}
 	if args.witnessNCols <= 0 {
 		args.witnessNCols = len(in.Omega)

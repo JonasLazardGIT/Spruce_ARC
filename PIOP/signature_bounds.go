@@ -18,8 +18,17 @@ const (
 
 	signatureRadixOverrideEnv = "SPRUCE_SIGNATURE_RADIX_OVERRIDE"
 
-	signaturePackedV2Radix = 13
-	signaturePackedV2L     = 3
+	SigShortnessProfileR12L3Default = "r12_l3_default"
+	SigShortnessProfileR13L3Legacy  = "r13_l3_legacy"
+	SigShortnessProfileR7L4Experimental = "r7_l4_experimental"
+	SigShortnessProfileCustomBalanced   = "custom_balanced"
+
+	signaturePackedDefaultRadix = 12
+	signaturePackedDefaultL     = 3
+	signaturePackedLegacyRadix  = 13
+	signaturePackedLegacyL      = 3
+	signaturePackedExperimentalRadix = 7
+	signaturePackedExperimentalL     = 4
 )
 
 var (
@@ -30,10 +39,11 @@ var (
 )
 
 type signatureChainSpecCacheKey struct {
-	Q     uint64
-	Model string
-	L     int
-	Radix int
+	Q       uint64
+	Model   string
+	L       int
+	Radix   int
+	Profile string
 }
 
 type signatureChainSpecCacheValue struct {
@@ -47,6 +57,33 @@ func signatureDefaultCaps(L int) []int {
 
 func signaturePackedV2Caps() []int {
 	return []int{6, 6, 4}
+}
+
+func normalizeSigShortnessProfile(profile string) string {
+	switch profile {
+	case "", SigShortnessProfileR12L3Default:
+		return SigShortnessProfileR12L3Default
+	case SigShortnessProfileR13L3Legacy:
+		return SigShortnessProfileR13L3Legacy
+	case SigShortnessProfileR7L4Experimental:
+		return SigShortnessProfileR7L4Experimental
+	default:
+		return SigShortnessProfileR12L3Default
+	}
+}
+
+func sigShortnessRawOverrideActive(opts SimOpts) bool {
+	return opts.SigShortnessL > 0 || opts.SigShortnessRadix > 0
+}
+
+// ResolveSignatureShortnessProfileLabelForOpts returns the effective reporting
+// label for the selected shortness shape. Raw radix/digit overrides are
+// reported as custom_balanced even when the base profile is a named default.
+func ResolveSignatureShortnessProfileLabelForOpts(opts SimOpts) string {
+	if sigShortnessRawOverrideActive(opts) {
+		return SigShortnessProfileCustomBalanced
+	}
+	return normalizeSigShortnessProfile(opts.SigShortnessProfile)
 }
 
 func normalizeChainCaps(label string, caps []int, L int) ([]int, error) {
@@ -203,11 +240,51 @@ func signatureBoundShapeForOpts(q uint64, opts SimOpts) (base int, L int, beta u
 		if err != nil {
 			return 0, 0, 0, nil, err
 		}
-		caps = signaturePackedV2Caps()
-		if err := validateChainCapsSigned("production signature bound v2", balancedDigitMax(signaturePackedV2Radix), caps); err != nil {
-			return 0, 0, 0, nil, err
+		profile := normalizeSigShortnessProfile(opts.SigShortnessProfile)
+		if profile == SigShortnessProfileR13L3Legacy {
+			if opts.SigShortnessL > 0 || opts.SigShortnessRadix > 0 {
+				return 0, 0, 0, nil, fmt.Errorf("signature shortness profile %q cannot be combined with raw shortness overrides", profile)
+			}
+			caps = signaturePackedV2Caps()
+			if err := validateChainCapsSigned("production signature bound legacy", balancedDigitMax(signaturePackedLegacyRadix), caps); err != nil {
+				return 0, 0, 0, nil, err
+			}
+			return signaturePackedLegacyRadix, signaturePackedLegacyL, beta, caps, nil
 		}
-		return signaturePackedV2Radix, signaturePackedV2L, beta, caps, nil
+		if sigShortnessRawOverrideActive(opts) {
+			L = signaturePackedDefaultL
+			switch profile {
+			case SigShortnessProfileR7L4Experimental:
+				L = signaturePackedExperimentalL
+			}
+			if opts.SigShortnessL > 0 {
+				L = opts.SigShortnessL
+			}
+			if L <= 0 {
+				return 0, 0, 0, nil, fmt.Errorf("invalid signature shortness L=%d", L)
+			}
+			if opts.SigShortnessRadix > 0 {
+				base = opts.SigShortnessRadix
+				if base < 2 || uint64(base) >= q {
+					return 0, 0, 0, nil, fmt.Errorf("invalid signature shortness radix=%d for q=%d", base, q)
+				}
+				if signedBalancedCapacity(uint64(base), L) < beta {
+					return 0, 0, 0, nil, fmt.Errorf("signature shortness radix=%d does not cover beta=%d with L=%d", base, beta, L)
+				}
+			} else {
+				base, err = minimalBalancedRadixForBeta(beta, q, L)
+				if err != nil {
+					return 0, 0, 0, nil, err
+				}
+			}
+			return base, L, beta, nil, nil
+		}
+		switch profile {
+		case SigShortnessProfileR7L4Experimental:
+			return signaturePackedExperimentalRadix, signaturePackedExperimentalL, beta, nil, nil
+		default:
+			return signaturePackedDefaultRadix, signaturePackedDefaultL, beta, nil, nil
+		}
 	default:
 		return 0, 0, 0, nil, fmt.Errorf("unsupported coeff-native signature model %q", model)
 	}
@@ -305,10 +382,11 @@ func signatureChainSpecForLayoutAndOpts(q uint64, layout RowLayout, opts SimOpts
 
 func signatureChainSpecForOpts(q uint64, opts SimOpts) (LinfSpec, error) {
 	key := signatureChainSpecCacheKey{
-		Q:     q,
-		Model: resolveCoeffNativeSigModel(opts),
-		L:     opts.SigShortnessL,
-		Radix: opts.SigShortnessRadix,
+		Q:       q,
+		Model:   resolveCoeffNativeSigModel(opts),
+		L:       opts.SigShortnessL,
+		Radix:   opts.SigShortnessRadix,
+		Profile: normalizeSigShortnessProfile(opts.SigShortnessProfile),
 	}
 	if cached, ok := signatureChainSpecCache.Load(key); ok {
 		out := cached.(signatureChainSpecCacheValue)

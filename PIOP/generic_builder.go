@@ -96,6 +96,8 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		} else {
 			useShowingRows := false
 			if wit.Extras != nil {
+				// Legacy non-companion PRF path only. The live companion route is
+				// driven by coeff-native showing rows and grouped witness rebuild.
 				_, useShowingRows = wit.Extras["prf_sbox"]
 			}
 			if opts.CoeffPacking && wit.CoeffNativeShowing != nil {
@@ -114,11 +116,13 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 					groupRounds = 1
 				}
 				var prfLayout *PRFLayout
-				rows, rowInputs, rowLayout, prfLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, _, err = BuildCredentialRowsShowing(ringQ, pub, wit, params.LenKey, params.LenNonce, params.RF, params.RP, groupRounds, opts)
+				var prfCompanionLayout *PRFCompanionLayout
+				rows, rowInputs, rowLayout, prfLayout, prfCompanionLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, _, err = BuildCredentialRowsShowing(ringQ, pub, wit, params.LenKey, params.LenNonce, params.RF, params.RP, groupRounds, opts)
 				if err != nil {
 					return nil, fmt.Errorf("build showing rows: %w", err)
 				}
 				set.PRFLayout = prfLayout
+				set.PRFCompanionLayout = prfCompanionLayout
 			} else {
 				rows, rowInputs, rowLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, err = buildCredentialRows(ringQ, wit, opts)
 			}
@@ -128,6 +132,9 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		}
 		if cerr := ValidateRowDependencyClosure(rowLayout, set.PRFLayout, witnessCount); cerr != nil {
 			return nil, fmt.Errorf("row dependency closure: %w", cerr)
+		}
+		if cerr := ValidatePRFCompanionLayout(set.PRFCompanionLayout, witnessCount); cerr != nil {
+			return nil, fmt.Errorf("prf companion layout: %w", cerr)
 		}
 		var root [16]byte
 		var pk *lvcs.ProverKey
@@ -155,6 +162,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		// Preserve the base witness polynomials (without PACS masks).
 		origWitnessCount := witnessCount
 		witnessPolys := rows[:origWitnessCount]
+		companionRowInputs := append([]lvcs.RowInput(nil), rowInputs[:origWitnessCount]...)
 
 		// Small-field params (theta>1) if needed.
 		var sfK *kf.Field
@@ -293,7 +301,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		// Rebuild constraints to match paper-defined F_j(P,Theta). In θ>1 mode the
 		// committed oracle rows are transposed into the §5.4 layer layout, so
 		// semantic constraint rebuilding must use the semantic witness polynomials.
-		skipConstraintRebuild := prepared != nil && prepared.skipConstraintRebuild && rowLayoutHasCoeffNativeSig(rowLayout)
+		skipConstraintRebuild := prepared != nil && prepared.skipConstraintRebuild && rowLayoutHasCoeffNativeSig(rowLayout) && !rowLayoutCoeffNativeUsesSemanticRewrite(rowLayout)
 		if !skipConstraintRebuild {
 			constraintRows := pk.RowPolys
 			if opts.Theta > 1 {
@@ -309,6 +317,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				}
 			}
 			if opts.Credential && len(constraintRows) > 0 {
+				rebuiltEmpty := len(set.FparInt)+len(set.FparNorm)+len(set.FaggInt)+len(set.FaggNorm) == 0
 				// Rebuild pre-sign constraints when their publics are present.
 				if len(pub.Ac) > 0 && len(pub.Com) > 0 && len(pub.RI0) > 0 && len(pub.RI1) > 0 && len(pub.B) > 0 && len(pub.T) > 0 {
 					csRows, cerr := buildCredentialConstraintSetPreFromRows(ringQ, pub.BoundB, pub, rowLayout, constraintRows, omegaWitness, opts.DomainMode)
@@ -362,98 +371,52 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 						}
 					}
 				}
-				// Rebuild post-sign constraints only for rows that actually carry the
-				// post-sign slice. A split PRF-only child still shares the same
-				// public inputs, so gating only on A/B presence is incorrect.
-				if !rowLayout.ShowingPRFOnly && len(pub.A) > 0 && len(pub.B) > 0 {
-					postRows, cerr := buildCredentialConstraintSetPostFromRows(ringQ, pub.BoundB, pub, rowLayout, constraintRows, omegaWitness, opts.DomainMode, opts)
+				// Rebuild post-sign constraints only when the public signature/hash
+				// statement is present.
+				if len(pub.A) > 0 && len(pub.B) > 0 {
+					postRows, cerr := rebuildPostSignConstraintSetWithBridges(ringQ, pub, rowLayout, constraintRows, omegaWitness, opts, root)
 					if cerr != nil {
-						return nil, fmt.Errorf("rebuild post-sign constraints from rows: %w", cerr)
+						return nil, cerr
 					}
-					if len(set.FparInt) < len(postRows.FparInt) {
-						return nil, fmt.Errorf("constraint set too small for post-sign prefix: have %d want >=%d", len(set.FparInt), len(postRows.FparInt))
+					if rebuiltEmpty {
+						set.FparInt = append([]*ring.Poly{}, postRows.FparInt...)
+						set.FparIntCoeffs = append([][]uint64{}, postRows.FparIntCoeffs...)
+					} else if rowLayoutCoeffNativeUsesSemanticRewrite(rowLayout) {
+						if err := replaceShowingPostSignPrefix(&set, postRows); err != nil {
+							return nil, fmt.Errorf("replace semantic post-sign prefix: %w", err)
+						}
+					} else {
+						if len(set.FparInt) < len(postRows.FparInt) {
+							return nil, fmt.Errorf("constraint set too small for post-sign prefix: have %d want >=%d", len(set.FparInt), len(postRows.FparInt))
+						}
+						copy(set.FparInt[:len(postRows.FparInt)], postRows.FparInt)
+						if len(set.FparIntCoeffs) < len(set.FparInt) {
+							expanded := make([][]uint64, len(set.FparInt))
+							copy(expanded, set.FparIntCoeffs)
+							set.FparIntCoeffs = expanded
+						}
+						for i := 0; i < len(postRows.FparInt); i++ {
+							set.FparIntCoeffs[i] = nil
+						}
+						if len(postRows.FparIntCoeffs) > 0 {
+							copy(set.FparIntCoeffs[:len(postRows.FparInt)], postRows.FparIntCoeffs)
+						}
 					}
-					copy(set.FparInt[:len(postRows.FparInt)], postRows.FparInt)
-					if len(set.FparIntCoeffs) < len(set.FparInt) {
-						expanded := make([][]uint64, len(set.FparInt))
-						copy(expanded, set.FparIntCoeffs)
-						set.FparIntCoeffs = expanded
+					set.FparNorm = append([]*ring.Poly{}, postRows.FparNorm...)
+					set.FparNormCoeffs = append([][]uint64{}, postRows.FparNormCoeffs...)
+					set.FaggInt = append([]*ring.Poly{}, postRows.FaggInt...)
+					set.FaggIntCoeffs = append([][]uint64{}, postRows.FaggIntCoeffs...)
+					set.FaggNorm = append([]*ring.Poly{}, postRows.FaggNorm...)
+					set.FaggNormCoeffs = append([][]uint64{}, postRows.FaggNormCoeffs...)
+					if postRows.ParallelAlgDeg > set.ParallelAlgDeg {
+						set.ParallelAlgDeg = postRows.ParallelAlgDeg
 					}
-					for i := 0; i < len(postRows.FparInt); i++ {
-						set.FparIntCoeffs[i] = nil
-					}
-					if len(postRows.FparIntCoeffs) > 0 {
-						copy(set.FparIntCoeffs[:len(postRows.FparInt)], postRows.FparIntCoeffs)
-					}
-					set.FparNorm = postRows.FparNorm
-					set.FparNormCoeffs = postRows.FparNormCoeffs
-					set.FaggInt = postRows.FaggInt
-					set.FaggIntCoeffs = postRows.FaggIntCoeffs
-					set.FaggNorm = postRows.FaggNorm
-					set.FaggNormCoeffs = postRows.FaggNormCoeffs
-
-					if !rowLayoutHasCoeffNativeSig(rowLayout) {
-						// Non-signature coefficient bounds: append replayable NTT↔coef bridge
-						// families (message/randomness/x1-like rows) once root is known.
-						nonSigBridge, nonSigBridgeCoeffs, nonSigErr := buildPostSignNonSigBridgeConstraintsFormal(
-							ringQ,
-							constraintRows,
-							omegaWitness,
-							rowLayout,
-							root,
-							signatureNTTBridgeChecks,
-						)
-						if nonSigErr != nil {
-							return nil, fmt.Errorf("post-sign non-signature bridge: %w", nonSigErr)
-						}
-						if len(nonSigBridge) > 0 {
-							if opts.DomainMode != DomainModeExplicit {
-								nonSigBridgeCoeffs = make([][]uint64, len(nonSigBridge))
-							}
-							if len(set.FaggNormCoeffs) < len(set.FaggNorm) {
-								expanded := make([][]uint64, len(set.FaggNorm))
-								copy(expanded, set.FaggNormCoeffs)
-								set.FaggNormCoeffs = expanded
-							}
-							set.FaggNorm = append(set.FaggNorm, nonSigBridge...)
-							set.FaggNormCoeffs = append(set.FaggNormCoeffs, nonSigBridgeCoeffs...)
-							if set.AggregatedAlgDeg < 2 {
-								set.AggregatedAlgDeg = 2
-							}
-						}
-
-						var (
-							bridge       []*ring.Poly
-							bridgeCoeffs [][]uint64
-							berr         error
-						)
-						if opts.DomainMode == DomainModeExplicit {
-							bridge, bridgeCoeffs, berr = buildSignatureNTTBridgeConstraintsFormal(ringQ, constraintRows, omegaWitness, rowLayout, root, signatureNTTBridgeChecks)
-						} else {
-							bridge, berr = buildSignatureNTTBridgeConstraints(ringQ, constraintRows, omegaWitness, rowLayout, root, signatureNTTBridgeChecks)
-							if len(bridge) > 0 {
-								bridgeCoeffs = make([][]uint64, len(bridge))
-							}
-						}
-						if berr != nil {
-							return nil, fmt.Errorf("signature NTT bridge: %w", berr)
-						}
-						if len(bridge) > 0 {
-							if len(set.FaggNormCoeffs) < len(set.FaggNorm) {
-								expanded := make([][]uint64, len(set.FaggNorm))
-								copy(expanded, set.FaggNormCoeffs)
-								set.FaggNormCoeffs = expanded
-							}
-							set.FaggNorm = append(set.FaggNorm, bridge...)
-							set.FaggNormCoeffs = append(set.FaggNormCoeffs, bridgeCoeffs...)
-							if set.AggregatedAlgDeg < 2 {
-								set.AggregatedAlgDeg = 2
-							}
-						}
+					if postRows.AggregatedAlgDeg > set.AggregatedAlgDeg {
+						set.AggregatedAlgDeg = postRows.AggregatedAlgDeg
 					}
 				}
 
-				// Rebuild PRF constraints when layout + tag are present.
+				// Rebuild PRF constraints when legacy layout + tag are present.
 				if set.PRFLayout != nil && len(pub.Tag) > 0 {
 					params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
 					if perr != nil {
@@ -514,24 +477,28 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 
 		// Assemble MaskingFSInput and run.
 		mfsIn := MaskingFSInput{
-			RingQ:          ringQ,
-			Opts:           opts,
-			Omega:          omega,
-			OmegaWitness:   omegaWitness,
-			DomainPoints:   domainPoints,
-			Root:           root,
-			PK:             pk,
-			OracleLayout:   oracleLayout,
-			RowLayout:      rowLayout,
-			FparInt:        set.FparInt,
-			FparNorm:       set.FparNorm,
-			FaggInt:        set.FaggInt,
-			FaggNorm:       set.FaggNorm,
-			FparIntCoeffs:  set.FparIntCoeffs,
-			FparNormCoeffs: set.FparNormCoeffs,
-			FaggIntCoeffs:  set.FaggIntCoeffs,
-			FaggNormCoeffs: set.FaggNormCoeffs,
-			RowInputs:      rowInputs,
+			RingQ:              ringQ,
+			Opts:               opts,
+			Omega:              omega,
+			OmegaWitness:       omegaWitness,
+			DomainPoints:       domainPoints,
+			Root:               root,
+			PK:                 pk,
+			OracleLayout:       oracleLayout,
+			RowLayout:          rowLayout,
+			FparInt:            set.FparInt,
+			FparNorm:           set.FparNorm,
+			FaggInt:            set.FaggInt,
+			FaggNorm:           set.FaggNorm,
+			FparIntCoeffs:      set.FparIntCoeffs,
+			FparNormCoeffs:     set.FparNormCoeffs,
+			FaggIntCoeffs:      set.FaggIntCoeffs,
+			FaggNormCoeffs:     set.FaggNormCoeffs,
+			PRFCompanionLayout: set.PRFCompanionLayout,
+			PRFCompanionRows:   companionRowInputs,
+			PRFTagPublic:       copyInt64Matrix(pub.Tag),
+			PRFNoncePublic:     copyInt64Matrix(pub.Nonce),
+			RowInputs:          rowInputs,
 			// Theta>1 derives row heads from PK and layout on Ω.
 			WitnessPolys:      witnessPolys,
 			MaskPolys:         maskPolys,
@@ -559,6 +526,9 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		}
 		proof.LabelsDigest = labelsDigest
 		proof.PRFLayout = set.PRFLayout
+		if proof.PRFCompanion != nil && proof.PRFCompanion.Layout == nil {
+			proof.PRFCompanion.Layout = clonePRFCompanionLayout(set.PRFCompanionLayout)
+		}
 		return proof, nil
 	}
 	return nil, fmt.Errorf("unsupported non-credential BuildWithConstraints path")
@@ -576,6 +546,9 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 	if opts.Credential {
 		if set.PRFLayout == nil && proof.PRFLayout != nil {
 			set.PRFLayout = clonePRFLayout(proof.PRFLayout)
+		}
+		if set.PRFCompanionLayout == nil && proof.PRFCompanion != nil {
+			set.PRFCompanionLayout = clonePRFCompanionLayout(proof.PRFCompanion.Layout)
 		}
 		labels := BuildPublicLabels(pub)
 		digest := computeLabelsDigest(labels)
@@ -669,6 +642,9 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		if witnessRows > 0 {
 			if err := ValidateRowDependencyClosure(proof.RowLayout, proof.PRFLayout, witnessRows); err != nil {
 				return false, fmt.Errorf("replay row dependency closure: %w", err)
+			}
+			if err := ValidatePRFCompanionLayout(set.PRFCompanionLayout, witnessRows); err != nil {
+				return false, fmt.Errorf("replay prf companion layout: %w", err)
 			}
 		}
 
@@ -801,12 +777,14 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			carryBound         int64
 			postBoundsEval     ConstraintEvaluator
 			postBoundsEvalK    KConstraintEvaluator
-			splitPostBounds    bool
+			deferPostBounds    bool
 			postBoundsComposed bool
 			nonSigBridgeEval   ConstraintEvaluator
 			nonSigBridgeEvalK  KConstraintEvaluator
 			sigChainEval       ConstraintEvaluator
 			sigChainEvalK      KConstraintEvaluator
+			prfCompanionEval   ConstraintEvaluator
+			prfCompanionEvalK  KConstraintEvaluator
 			sigChainEnd        int
 			boundChainEnd      int
 		)
@@ -822,9 +800,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		}
 		// Build post-sign evaluator when A is present.
 		if len(pub.A) > 0 {
-			if proof.RowLayout.ShowingPRFOnly {
-				// Split PRF-only slices intentionally omit all post-sign replay families.
-			} else if rowLayoutHasCoeffNativeSig(proof.RowLayout) {
+			if rowLayoutHasCoeffNativeSig(proof.RowLayout) {
 				cfgLayout := proof.RowLayout.CoeffNativeSig
 				if !rowLayoutCoeffNativeUsesLiteralPacked(proof.RowLayout) {
 					return false, fmt.Errorf("unsupported active coeff-native model %q; only the literal-packed protocol remains", cfgLayout.Model)
@@ -832,22 +808,69 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				if cfgLayout.PackedSigComponents <= 0 || cfgLayout.PackedSigBlocks <= 0 || cfgLayout.PackedSigBlockWidth <= 0 {
 					return false, fmt.Errorf("invalid literal packed coeff-native layout: comps=%d blocks=%d width=%d", cfgLayout.PackedSigComponents, cfgLayout.PackedSigBlocks, cfgLayout.PackedSigBlockWidth)
 				}
-				cfgPacked, cerr := buildLiteralPackedPostSignConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints)
-				if cerr != nil {
-					return false, cerr
-				}
-				eval = cfgPacked.LiteralPackedPostSignEvaluator()
-				if proof.Theta > 1 && K != nil {
-					ek, err := cfgPacked.LiteralPackedPostSignKEvaluator(K)
-					if err != nil {
-						return false, err
-					}
-					evalK = ek
-				}
 				postBoundRows := postSignBoundRowIndices(proof.RowLayout)
 				boundRows = append([]int(nil), postBoundRows...)
 				boundB = pub.BoundB
-				if pub.BoundB > 0 {
+				if rowLayoutCoeffNativeUsesSemanticRewrite(proof.RowLayout) {
+					cfgPost, cerr := newSemanticRewritePostSignConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, pub.BoundB)
+					if cerr != nil {
+						return false, cerr
+					}
+					eval = cfgPost.CoreEvaluator()
+					if proof.Theta > 1 && K != nil {
+						ek, err := cfgPost.CoreKEvaluator(K)
+						if err != nil {
+							return false, err
+						}
+						evalK = ek
+					}
+					postBoundsEval = cfgPost.BoundsEvaluator()
+					if proof.Theta > 1 && K != nil {
+						bk, berr := cfgPost.BoundsKEvaluator(K)
+						if berr != nil {
+							return false, berr
+						}
+						postBoundsEvalK = bk
+					}
+					deferPostBounds = true
+					rowCount = proof.RowLayout.SigCount
+					if rowCount <= 0 {
+						rowCount = literalPackedPostSignReplayRowCount(proof.RowLayout)
+					}
+					haveCred = true
+					if !rowLayoutCoeffNativeUsesSemanticRewrite(proof.RowLayout) && hasPostSignNonSigFamilies(proof.RowLayout) && (proof.DomainMode == DomainModeExplicit || opts.DomainMode == DomainModeExplicit) {
+						fams := postSignNonSigFamilies(proof.RowLayout)
+						cfgNonSigBridge := NonSigNTTBridgeConfig{
+							Ring:         ringQ,
+							Omega:        omegaWitness,
+							DomainPoints: domainPoints,
+							Layout:       proof.RowLayout,
+							Families:     fams,
+							Root:         proof.Root,
+							BridgeChecks: signatureNTTBridgeChecks,
+						}
+						nonSigBridgeEval = cfgNonSigBridge.NonSigBridgeEvaluator()
+						if proof.Theta > 1 && K != nil {
+							ek, err := cfgNonSigBridge.NonSigBridgeKEvaluator(K)
+							if err != nil {
+								return false, err
+							}
+							nonSigBridgeEvalK = ek
+						}
+					}
+				} else if pub.BoundB > 0 {
+					cfgPacked, cerr := buildLiteralPackedPostSignConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, opts)
+					if cerr != nil {
+						return false, cerr
+					}
+					eval = cfgPacked.LiteralPackedPostSignEvaluator()
+					if proof.Theta > 1 && K != nil {
+						ek, err := cfgPacked.LiteralPackedPostSignKEvaluator(K)
+						if err != nil {
+							return false, err
+						}
+						evalK = ek
+					}
 					if rowLayoutCoeffNativeUsesCompressedNonSigScalars(proof.RowLayout) {
 						specCert, err := v3NonSigScalarCertSpec(ringQ.Modulus[0], pub.BoundB)
 						if err != nil {
@@ -875,7 +898,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 							}
 							postBoundsEvalK = bk
 						}
-						splitPostBounds = true
+						deferPostBounds = true
 						if end := cfgLayout.UScalarCertBase + cfgLayout.UScalarCertCount*cfgLayout.NonSigCertRowsPerScalar; cfgLayout.UScalarCertBase >= 0 && end > boundChainEnd {
 							boundChainEnd = end
 						}
@@ -922,7 +945,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 							}
 							postBoundsEvalK = bk
 						}
-						splitPostBounds = true
+						deferPostBounds = true
 						msgEnd := proof.RowLayout.MsgRangeBase + cfgLayout.UCount*rowsPerBound
 						rndEnd := proof.RowLayout.RndRangeBase + cfgLayout.X0Count*rowsPerBound
 						x1End := proof.RowLayout.X1RangeBase + rowsPerBound
@@ -936,12 +959,27 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 							boundChainEnd = x1End
 						}
 					}
+					rowCount = literalPackedPostSignReplayRowCount(proof.RowLayout)
+					if boundChainEnd > rowCount {
+						rowCount = boundChainEnd
+					}
+					haveCred = true
+				} else {
+					cfgPacked, cerr := buildLiteralPackedPostSignConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, opts)
+					if cerr != nil {
+						return false, cerr
+					}
+					eval = cfgPacked.LiteralPackedPostSignEvaluator()
+					if proof.Theta > 1 && K != nil {
+						ek, err := cfgPacked.LiteralPackedPostSignKEvaluator(K)
+						if err != nil {
+							return false, err
+						}
+						evalK = ek
+					}
+					rowCount = literalPackedPostSignReplayRowCount(proof.RowLayout)
+					haveCred = true
 				}
-				rowCount = literalPackedPostSignReplayRowCount(proof.RowLayout)
-				if boundChainEnd > rowCount {
-					rowCount = boundChainEnd
-				}
-				haveCred = true
 				if proof.RowLayout.PackedSigChainRowsPerGroup > 0 && proof.RowLayout.PackedSigChainBase >= 0 {
 					spec, err := signatureChainSpecForLayoutAndOpts(ringQ.Modulus[0], proof.RowLayout, opts)
 					if err != nil {
@@ -1126,7 +1164,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				}
 				evalK = composeKEvaluators(evalK, ek)
 			}
-			if splitPostBounds && postBoundsEval != nil {
+			if deferPostBounds && postBoundsEval != nil {
 				eval = composeEvaluators(eval, postBoundsEval)
 				if proof.Theta > 1 && K != nil && postBoundsEvalK != nil {
 					evalK = composeKEvaluators(evalK, postBoundsEvalK)
@@ -1149,12 +1187,43 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				return false, fmt.Errorf("grouped PRF count: %w", cerr)
 			}
 			traceRows := set.PRFLayout.StartIdx + set.PRFLayout.LenKey + sboxCount
+			if set.PRFLayout.PackedRows && set.PRFLayout.WitnessRows > 0 {
+				traceRows = set.PRFLayout.StartIdx + set.PRFLayout.WitnessRows
+			}
 			if traceRows > rowCount {
 				rowCount = traceRows
 			}
 			havePRF = true
 		}
-		if splitPostBounds && postBoundsEval != nil && !postBoundsComposed {
+		if set.PRFCompanionLayout != nil && proof.PRFCompanion != nil {
+			cfgCompanion := PRFCompanionBridgeConfig{
+				Ring:         ringQ,
+				Layout:       set.PRFCompanionLayout,
+				DomainPoints: domainPoints,
+				OmegaWitness: omegaWitness,
+				Seed2:        append([]byte(nil), proof.Digests[1]...),
+				BridgeChecks: copyMatrix(proof.PRFCompanion.BridgeChecks),
+			}
+			if err := cfgCompanion.verifyDigest(proof.PRFCompanion); err != nil {
+				return false, err
+			}
+			if proof.PRFCompanion.BridgeInQ {
+				prfCompanionEval = cfgCompanion.Evaluator()
+				if proof.Theta > 1 && K != nil {
+					ek, err := cfgCompanion.KEvaluator(K)
+					if err != nil {
+						return false, err
+					}
+					prfCompanionEvalK = ek
+				}
+			}
+			traceRows := set.PRFCompanionLayout.StartRow + set.PRFCompanionLayout.PackedRows
+			if traceRows > rowCount {
+				rowCount = traceRows
+			}
+			havePRF = true
+		}
+		if deferPostBounds && postBoundsEval != nil && !postBoundsComposed {
 			eval = composeEvaluators(eval, postBoundsEval)
 			if proof.Theta > 1 && K != nil && postBoundsEvalK != nil {
 				evalK = composeKEvaluators(evalK, postBoundsEvalK)
@@ -1181,6 +1250,12 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				rowCount = sigChainEnd
 			}
 		}
+		if prfCompanionEval != nil {
+			eval = composeEvaluators(eval, prfCompanionEval)
+			if proof.Theta > 1 && K != nil && prfCompanionEvalK != nil {
+				evalK = composeKEvaluators(evalK, prfCompanionEvalK)
+			}
+		}
 		if !haveCred && !havePRF {
 			return false, fmt.Errorf("no evaluators available for replay")
 		}
@@ -1192,10 +1267,31 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			CarryRows:  carryRows,
 			BoundB:     boundB,
 			CarryBound: carryBound,
+			Fpar:       append(append([]*ring.Poly{}, set.FparInt...), set.FparNorm...),
+			Fagg:       append(append([]*ring.Poly{}, set.FaggInt...), set.FaggNorm...),
+			FparCoeffs: append(append([][]uint64{}, set.FparIntCoeffs...), set.FparNormCoeffs...),
+			FaggCoeffs: append(append([][]uint64{}, set.FaggIntCoeffs...), set.FaggNormCoeffs...),
 		}
 
 		okLin, okEq4, okSum, err := VerifyNIZKWithReplay(proof, replay)
-		return okLin && okEq4 && okSum, err
+		if err != nil || !(okLin && okEq4 && okSum) {
+			return okLin && okEq4 && okSum, err
+		}
+		if set.PRFCompanionLayout != nil && proof.PRFCompanion != nil {
+			if !proof.PRFCompanion.BridgeInQ {
+				if err := verifyPRFCompanionBridgeFromOpening(ringQ, set.PRFCompanionLayout, proof, omegaWitness, domainPoints); err != nil {
+					return false, err
+				}
+			}
+			params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+			if perr != nil {
+				return false, fmt.Errorf("load prf params: %w", perr)
+			}
+			if cerr := verifyPRFCompanionOpenings(set.PRFCompanionLayout, proof, params, pub.Tag, pub.Nonce); cerr != nil {
+				return false, cerr
+			}
+		}
+		return true, nil
 	}
 	return false, fmt.Errorf("unsupported non-credential VerifyWithConstraints path")
 }

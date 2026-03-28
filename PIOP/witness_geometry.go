@@ -56,7 +56,10 @@ type WitnessGeometrySnapshot struct {
 	ReplayToWitnessExpansion   float64 `json:"replay_to_witness_expansion"`
 }
 
-func replayPRFRowCount(layout *PRFLayout) int {
+func replayPRFRowCount(layout *PRFLayout, companion *PRFCompanionLayout) int {
+	if companion != nil {
+		return companion.PackedRows
+	}
 	if layout == nil {
 		return 0
 	}
@@ -100,7 +103,7 @@ func inferNonSigBoundRowsPerForWitnessGeometry(layout RowLayout) int {
 
 // LogicalWitnessBreakdownFromLayout reports the replay-facing logical witness
 // families implied by the given row/prf layout.
-func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout) LogicalWitnessBreakdown {
+func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, prfCompanionLayout *PRFCompanionLayout) LogicalWitnessBreakdown {
 	out := LogicalWitnessBreakdown{}
 	if layout.CoeffNativeSig.Enabled {
 		cfg := layout.CoeffNativeSig
@@ -123,10 +126,14 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout) L
 			out.NonSigRows = 0
 		}
 		if rowsPer := inferNonSigBoundRowsPerForWitnessGeometry(layout); rowsPer > 0 {
-			out.NonSigRows += rowsPer * (cfg.UCount + cfg.X0Count + 1)
+			if rowLayoutCoeffNativeUsesSemanticRewrite(layout) {
+				out.NonSigRows += rowsPer * len(postSignBoundRowIndices(layout))
+			} else {
+				out.NonSigRows += rowsPer * (cfg.UCount + cfg.X0Count + 1)
+			}
 		}
 	}
-	out.PRFRows = replayPRFRowCount(prfLayout)
+	out.PRFRows = replayPRFRowCount(prfLayout, prfCompanionLayout)
 	out.TotalRows = out.SigSemanticRows + out.SigShortnessRows + out.NonSigRows + out.PRFRows
 	return out
 }
@@ -137,7 +144,11 @@ func LogicalWitnessRowBreakdownFromProof(proof *Proof) LogicalWitnessBreakdown {
 	if proof == nil {
 		return LogicalWitnessBreakdown{}
 	}
-	out := LogicalWitnessBreakdownFromLayout(proof.RowLayout, proof.PRFLayout)
+	var companionLayout *PRFCompanionLayout
+	if proof.PRFCompanion != nil {
+		companionLayout = proof.PRFCompanion.Layout
+	}
+	out := LogicalWitnessBreakdownFromLayout(proof.RowLayout, proof.PRFLayout, companionLayout)
 	if out.TotalRows == 0 && proof.MaskRowOffset > 0 {
 		out.TotalRows = proof.MaskRowOffset
 	}
@@ -169,6 +180,7 @@ func slackFor(count, width int) int {
 func BuildWitnessGeometrySnapshotFromLayout(
 	layout RowLayout,
 	prfLayout *PRFLayout,
+	prfCompanionLayout *PRFCompanionLayout,
 	pcsGeometry PCSGeometry,
 	witnessCount int,
 	maskRowsCommitted int,
@@ -190,14 +202,25 @@ func BuildWitnessGeometrySnapshotFromLayout(
 		actualWitness = 0
 	}
 	postSignWitness := actualWitness
-	if prfLayout != nil && prfLayout.StartIdx >= 0 {
+	if prfCompanionLayout != nil && prfCompanionLayout.StartRow >= 0 {
+		postSignWitness = prfCompanionLayout.StartRow
+		if postSignWitness > actualWitness {
+			postSignWitness = actualWitness
+		}
+	} else if prfLayout != nil && prfLayout.StartIdx >= 0 {
 		postSignWitness = prfLayout.StartIdx
 		if postSignWitness > actualWitness {
 			postSignWitness = actualWitness
 		}
 	}
 	prfWitness := 0
-	if prfLayout != nil {
+	if prfCompanionLayout != nil {
+		if prfCompanionLayout.PackedRows > 0 {
+			prfWitness = prfCompanionLayout.PackedRows
+		} else if actualWitness > postSignWitness {
+			prfWitness = actualWitness - postSignWitness
+		}
+	} else if prfLayout != nil {
 		if prfLayout.WitnessRows > 0 {
 			prfWitness = prfLayout.WitnessRows
 		} else if actualWitness > postSignWitness {
@@ -233,7 +256,7 @@ func BuildWitnessGeometrySnapshotFromLayout(
 	if blockCount > 0 && committedCols > 0 {
 		blockCapacity = blockCount * committedCols
 	}
-	replayPRF := replayPRFRowCount(prfLayout)
+	replayPRF := replayPRFRowCount(prfLayout, prfCompanionLayout)
 	out.ActualWitnessPolys = actualWitness
 	out.ActualPostSignWitnessPolys = postSignWitness
 	out.ActualPRFWitnessPolys = prfWitness
@@ -268,6 +291,12 @@ func BuildWitnessGeometrySnapshotFromProof(proof *Proof) WitnessGeometrySnapshot
 	return BuildWitnessGeometrySnapshotFromLayout(
 		proof.RowLayout,
 		proof.PRFLayout,
+		func() *PRFCompanionLayout {
+			if proof.PRFCompanion != nil {
+				return proof.PRFCompanion.Layout
+			}
+			return nil
+		}(),
 		proof.PCSGeometry,
 		proof.MaskRowOffset,
 		proof.MaskRowCount,

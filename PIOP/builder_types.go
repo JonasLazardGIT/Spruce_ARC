@@ -22,14 +22,17 @@ type PublicInputs struct {
 	Extras map[string]interface{}
 }
 
-// CoeffNativeShowingWitness holds the semantic post-sign witness used by the
-// coeff-native showing layouts.
+// CoeffNativeShowingWitness holds the retained literal-packed post-sign
+// witness. Unlike the legacy semantic payload, it carries the signed base rows
+// directly so PRF key material can be derived from M2 by construction.
 type CoeffNativeShowingWitness struct {
-	Sig    []*ring.Poly
-	U      []int64
-	X0     []int64
-	X1     int64
-	PRFKey []int64
+	Sig         []*ring.Poly
+	M1          *ring.Poly
+	M2          *ring.Poly
+	R0          *ring.Poly
+	R1          *ring.Poly
+	T           *ring.Poly
+	PackedNCols int
 }
 
 // Validate checks the coeff-native showing witness before row packing.
@@ -40,15 +43,25 @@ func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
 	if len(wit.Sig) == 0 {
 		return fmt.Errorf("missing coeff-native signature witness rows")
 	}
-	if len(wit.U) == 0 {
-		return fmt.Errorf("missing coeff-native message witness scalars")
+	if wit.M1 == nil {
+		return fmt.Errorf("missing signed M1 witness row")
 	}
-	if len(wit.X0) == 0 {
-		return fmt.Errorf("missing coeff-native numerator-randomness witness scalars")
+	if wit.M2 == nil {
+		return fmt.Errorf("missing signed M2 witness row")
 	}
-	if len(wit.PRFKey) == 0 {
-		return fmt.Errorf("missing coeff-native prf key witness scalars")
+	if wit.R0 == nil {
+		return fmt.Errorf("missing signed R0 witness row")
 	}
+	if wit.R1 == nil {
+		return fmt.Errorf("missing signed R1 witness row")
+	}
+	if wit.T == nil {
+		return fmt.Errorf("missing signed T witness row")
+	}
+	if wit.PackedNCols <= 0 {
+		return fmt.Errorf("invalid coeff-native packed ncols=%d", wit.PackedNCols)
+	}
+	rows := []*ring.Poly{wit.M1, wit.M2, wit.R0, wit.R1, wit.T}
 	for i, poly := range wit.Sig {
 		if poly == nil {
 			return fmt.Errorf("nil coeff-native signature row %d", i)
@@ -57,6 +70,14 @@ func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
 			if len(poly.Coeffs) == 0 || len(poly.Coeffs[0]) != ringN {
 				return fmt.Errorf("coeff-native signature row %d width=%d want ringN=%d", i, len(poly.Coeffs[0]), ringN)
 			}
+		}
+	}
+	for i, poly := range rows {
+		if len(poly.Coeffs) == 0 {
+			return fmt.Errorf("nil coeff-native base row %d", i)
+		}
+		if ringN > 0 && len(poly.Coeffs[0]) != ringN {
+			return fmt.Errorf("coeff-native base row %d width=%d want ringN=%d", i, len(poly.Coeffs[0]), ringN)
 		}
 	}
 	return nil
@@ -98,7 +119,8 @@ type ConstraintSet struct {
 	ParallelAlgDeg   int
 	AggregatedAlgDeg int
 
-	PRFLayout *PRFLayout
+	PRFLayout          *PRFLayout
+	PRFCompanionLayout *PRFCompanionLayout
 }
 
 // PRFSlot identifies one logical PRF lane packed into a committed witness row.

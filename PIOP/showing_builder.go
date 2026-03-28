@@ -23,22 +23,23 @@ func BuildCredentialRowsShowing(
 	rowInputs []lvcs.RowInput,
 	layout RowLayout,
 	prfLayout *PRFLayout,
+	prfCompanionLayout *PRFCompanionLayout,
 	decsParams decs.Params,
 	maskRowOffset, maskRowCount, witnessCount, startIdx, ncols int,
 	err error,
 ) {
 	if ringQ == nil {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("nil ring")
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("nil ring")
 	}
 	opts.applyDefaults()
 	if !opts.CoeffPacking {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("showing requires coeff packing")
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("showing requires coeff packing")
 	}
 	if wit.CoeffNativeShowing == nil {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("showing requires WitnessInputs.CoeffNativeShowing")
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("showing requires WitnessInputs.CoeffNativeShowing")
 	}
 	if len(pub.A) == 0 || len(pub.B) == 0 {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("showing requires non-empty post-sign public inputs A and B")
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("showing requires non-empty post-sign public inputs A and B")
 	}
 	return buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		ringQ, pub, wit, prfParamsLenKey, prfParamsLenNonce, prfRF, prfRP, prfGroupRounds, opts,
@@ -54,6 +55,13 @@ func BuildShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*P
 	}
 	if wit.CoeffNativeShowing == nil {
 		return nil, fmt.Errorf("showing requires WitnessInputs.CoeffNativeShowing")
+	}
+	// The live one-root showing path is the PRF companion route. The legacy
+	// one-root PRF replay is no longer selectable here.
+	opts.EnablePackedPRFWitnessRows = true
+	opts.EnablePRFCompanion = true
+	if normalizePRFCompanionMode(opts.PRFCompanionMode) == "" {
+		opts.PRFCompanionMode = PRFCompanionModeOutputAudit
 	}
 	ringQ, omega, ncols, err := loadParamsAndOmega(opts)
 	if err != nil {
@@ -107,7 +115,7 @@ func BuildShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*P
 		groupRounds = 1
 	}
 	// Build rows/layout with showing builder.
-	rows, rowInputs, layout, prfLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, ncols, err := BuildCredentialRowsShowing(ringQ, pub, wit, params.LenKey, params.LenNonce, params.RF, params.RP, groupRounds, opts)
+	rows, rowInputs, layout, prfLayout, prfCompanionLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, ncols, err := BuildCredentialRowsShowing(ringQ, pub, wit, params.LenKey, params.LenNonce, params.RF, params.RP, groupRounds, opts)
 	if err != nil {
 		return nil, fmt.Errorf("build showing rows: %w", err)
 	}
@@ -133,13 +141,17 @@ func BuildShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*P
 	if err != nil {
 		return nil, fmt.Errorf("build post-sign constraint set: %w", err)
 	}
-	// PRF constraints (System A, nonlinear-only witness).
-	if prfLayout == nil {
-		return nil, fmt.Errorf("missing showing PRF layout")
-	}
-	prfSet, err := BuildPRFConstraintSetSBox(ringQ, params, rowsNTT, prfLayout, pub.Tag, pub.Nonce, omegaWitness)
-	if err != nil {
-		return nil, fmt.Errorf("build prf constraint set: %w", err)
+	var prfSet ConstraintSet
+	switch {
+	case prfCompanionLayout != nil:
+		prfSet = ConstraintSet{PRFCompanionLayout: prfCompanionLayout}
+	case prfLayout != nil:
+		prfSet, err = BuildPRFConstraintSetSBox(ringQ, params, rowsNTT, prfLayout, pub.Tag, pub.Nonce, omegaWitness)
+		if err != nil {
+			return nil, fmt.Errorf("build prf constraint set: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("missing showing PRF metadata")
 	}
 	parDeg := postSet.ParallelAlgDeg
 	if prfSet.ParallelAlgDeg > parDeg {
@@ -150,17 +162,18 @@ func BuildShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*P
 		aggDeg = prfSet.AggregatedAlgDeg
 	}
 	set := ConstraintSet{
-		FparInt:          append(append([]*ring.Poly{}, postSet.FparInt...), prfSet.FparInt...),
-		FparIntCoeffs:    append(append([][]uint64{}, postSet.FparIntCoeffs...), prfSet.FparIntCoeffs...),
-		FparNorm:         postSet.FparNorm,
-		FparNormCoeffs:   postSet.FparNormCoeffs,
-		FaggInt:          postSet.FaggInt,
-		FaggIntCoeffs:    postSet.FaggIntCoeffs,
-		FaggNorm:         postSet.FaggNorm,
-		FaggNormCoeffs:   postSet.FaggNormCoeffs,
-		ParallelAlgDeg:   parDeg,
-		AggregatedAlgDeg: aggDeg,
-		PRFLayout:        prfLayout,
+		FparInt:            append(append([]*ring.Poly{}, postSet.FparInt...), prfSet.FparInt...),
+		FparIntCoeffs:      append(append([][]uint64{}, postSet.FparIntCoeffs...), prfSet.FparIntCoeffs...),
+		FparNorm:           postSet.FparNorm,
+		FparNormCoeffs:     postSet.FparNormCoeffs,
+		FaggInt:            postSet.FaggInt,
+		FaggIntCoeffs:      postSet.FaggIntCoeffs,
+		FaggNorm:           postSet.FaggNorm,
+		FaggNormCoeffs:     postSet.FaggNormCoeffs,
+		ParallelAlgDeg:     parDeg,
+		AggregatedAlgDeg:   aggDeg,
+		PRFLayout:          prfLayout,
+		PRFCompanionLayout: prfCompanionLayout,
 	}
 	prepared := &preparedCredentialBuild{
 		rows:                  rows,

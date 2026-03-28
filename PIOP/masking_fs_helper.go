@@ -4,10 +4,12 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"path/filepath"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
 	kf "vSIS-Signature/internal/kfield"
+	"vSIS-Signature/prf"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -100,20 +102,25 @@ type maskFSArgs struct {
 	x1RangeOffset  int
 
 	// Constraints
-	FparInt        []*ring.Poly
-	FparNorm       []*ring.Poly
-	FaggInt        []*ring.Poly
-	FaggNorm       []*ring.Poly
-	FparIntCoeffs  [][]uint64
-	FparNormCoeffs [][]uint64
-	FaggIntCoeffs  [][]uint64
-	FaggNormCoeffs [][]uint64
-	FparAll        []*ring.Poly
-	FaggAll        []*ring.Poly
-	FparAllCoeffs  [][]uint64
-	FaggAllCoeffs  [][]uint64
-	parallelDeg    int
-	aggDeg         int
+	FparInt                  []*ring.Poly
+	FparNorm                 []*ring.Poly
+	FaggInt                  []*ring.Poly
+	FaggNorm                 []*ring.Poly
+	FparIntCoeffs            [][]uint64
+	FparNormCoeffs           [][]uint64
+	FaggIntCoeffs            [][]uint64
+	FaggNormCoeffs           [][]uint64
+	FparAll                  []*ring.Poly
+	FaggAll                  []*ring.Poly
+	FparAllCoeffs            [][]uint64
+	FaggAllCoeffs            [][]uint64
+	prfCompanionLayout       *PRFCompanionLayout
+	prfCompanionRows         []lvcs.RowInput
+	prfCompanionBridgeChecks int
+	prfTagPublic             [][]int64
+	prfNoncePublic           [][]int64
+	parallelDeg              int
+	aggDeg                   int
 
 	// Mask configuration
 	maskDegreeTarget      int
@@ -287,6 +294,15 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	if err := stage("RunMaskFS.Round2GammaPrime", func() error {
 		totalParallel := len(args.FparAll)
 		totalAgg := len(args.FaggAll)
+		companionMode := normalizePRFCompanionMode(args.opts.PRFCompanionMode)
+		if companionMode == "" && args.prfCompanionLayout != nil {
+			companionMode = PRFCompanionModeCurrent
+		}
+		checkpointSamples := args.opts.PRFCheckpointSamples
+		bridgeInQ := true
+		if args.prfCompanionLayout != nil && bridgeInQ {
+			totalAgg += args.prfCompanionBridgeChecks
+		}
 		transcript2 := [][]byte{args.root[:], gammaBytes, rTranscript}
 		if len(args.labelsDigest) > 0 {
 			transcript2 = append(transcript2, args.labelsDigest)
@@ -311,6 +327,47 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		}
 		proof.GammaPrime = copyTensor3(GammaPrime)
 		proof.GammaAgg = copyMatrix(GammaAgg)
+		if args.prfCompanionLayout != nil {
+			bridge, berr := buildPRFCompanionBridgeFamiliesFormal(
+				ringQ,
+				args.omegaWitness,
+				args.prfCompanionLayout,
+				args.prfCompanionRows,
+				args.w1[:args.origW1Len],
+				seed2,
+				args.prfCompanionBridgeChecks,
+				companionMode,
+				checkpointSamples,
+			)
+			if berr != nil {
+				return fmt.Errorf("build prf companion bridge: %w", berr)
+			}
+			if bridge != nil {
+				if bridgeInQ {
+					args.FaggNorm = append(args.FaggNorm, bridge.Families...)
+					args.FaggNormCoeffs = append(args.FaggNormCoeffs, bridge.Coeffs...)
+					args.FaggAll = append(args.FaggAll, bridge.Families...)
+					args.FaggAllCoeffs = append(args.FaggAllCoeffs, bridge.Coeffs...)
+				}
+				proof.PRFCompanion = &PRFCompanionProof{
+					Mode:              companionMode,
+					CheckpointSamples: checkpointSamples,
+					BridgeInQ:         bridgeInQ,
+					Layout:            clonePRFCompanionLayout(args.prfCompanionLayout),
+					BridgeChecks:      copyMatrix(bridge.BridgeChecks),
+					CoordDigest:       append([]byte(nil), bridge.CoordDigest...),
+				}
+			}
+			if bridgeInQ {
+				gotAgg := 0
+				if len(proof.GammaAgg) > 0 {
+					gotAgg = len(proof.GammaAgg[0])
+				}
+				if gotAgg != len(args.FaggAll) {
+					return fmt.Errorf("companion agg dimension mismatch: gammaAgg=%d families=%d", gotAgg, len(args.FaggAll))
+				}
+			}
+		}
 		return nil
 	}); err != nil {
 		return out, err
@@ -478,6 +535,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			gammaAggBytes = bytesFromKScalarMat(GammaAggK)
 		}
 		round3Material := [][]byte{args.root[:], gammaBytes, gammaPrimeBytes, gammaAggBytes, proof.QRoot[:]}
+		if proof.PRFCompanion != nil && len(proof.PRFCompanion.CoordDigest) > 0 {
+			round3Material = append(round3Material, proof.PRFCompanion.CoordDigest)
+		}
 		if len(args.labelsDigest) > 0 {
 			round3Material = append(round3Material, args.labelsDigest)
 		}
@@ -583,6 +643,39 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		return out, err
 	}
 
+	if err := stage("RunMaskFS.PRFCompanionOpenings", func() error {
+		if proof.PRFCompanion == nil || args.prfCompanionLayout == nil {
+			return nil
+		}
+		params, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+		if err != nil {
+			return fmt.Errorf("load prf params: %w", err)
+		}
+		payload, _, err := buildPRFCompanionOpeningPayload(
+			args.prfCompanionLayout,
+			proof.PRFCompanion.Mode,
+			proof.PRFCompanion.CheckpointSamples,
+			args.w1[:args.origW1Len],
+			ringQ,
+			args.omegaWitness,
+			params,
+			proof.Digests[2],
+			proof.PRFCompanion.CoordDigest,
+			args.prfTagPublic,
+			args.prfNoncePublic,
+		)
+		if err != nil {
+			return fmt.Errorf("build prf companion openings: %w", err)
+		}
+		proof.PRFCompanion.Legacy = clonePRFCompanionLegacyPayload(payload.Legacy)
+		proof.PRFCompanion.CheckpointAudits = clonePRFCheckpointAuditOpenings(payload.CheckpointAudits)
+		proof.PRFCompanion.TagFinal = clonePRFCompanionOpening(payload.TagFinal)
+		proof.PRFCompanion.KeyTrunc = clonePRFCompanionOpening(payload.KeyTrunc)
+		return nil
+	}); err != nil {
+		return out, err
+	}
+
 	// Round 4: tail sampling and openings (use same FS state) – only for θ>1
 	if err := stage("RunMaskFS.Round4TailOpen", func() error {
 		if proof.Theta <= 1 {
@@ -608,6 +701,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			bytesFromUint64Matrix(coeffMatrix),
 			bytesFromUint64Matrix(barSets),
 			bytesFromUint64Matrix(vTargets),
+		}
+		if proof.PRFCompanion != nil && prfCompanionHasOpeningPayload(proof.PRFCompanion) {
+			transcript4 = append(transcript4, prfCompanionOpeningPayloadBytes(proof.PRFCompanion))
 		}
 		proof.TailTranscript = flattenBytes(transcript4)
 		round4 := fsRound(fs, proof, 3, "TailPoints", transcript4...)

@@ -85,6 +85,9 @@ func hasPostSignNonSigFamilies(layout RowLayout) bool {
 
 func postSignBoundRowIndices(layout RowLayout) []int {
 	if rowLayoutHasCoeffNativeSig(layout) {
+		if rowLayoutCoeffNativeUsesSemanticRewrite(layout) {
+			return rowLayoutPostSignBoundRows(layout)
+		}
 		if rowLayoutCoeffNativeUsesCompressedNonSigScalars(layout) {
 			return uniqueNonNegativeIndices([]int{
 				rowLayoutCoeffNativePostSignMsgSumIndex(layout),

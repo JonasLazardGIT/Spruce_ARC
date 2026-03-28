@@ -13,6 +13,7 @@ type ProofReport struct {
 	ProofKB         float64
 	Soundness       SoundnessBudget
 	PaperTranscript PaperTranscriptReport
+	TranscriptFocus TranscriptOptimizationReport
 	Packing         ProofPackingAudit
 	Geometry        WitnessGeometrySnapshot
 	NCols           int
@@ -24,8 +25,44 @@ type ProofReport struct {
 	Theta           int
 	Eta             int
 	DQ              int
+	NLeaves         int
+	FieldModulus    uint64
 	Lambda          int
 	Kappa           [4]int
+}
+
+// TranscriptOptimizationReport surfaces the geometry and bucket counters that
+// dominate the current paper transcript optimization pass.
+type TranscriptOptimizationReport struct {
+	ShowingPreset       string `json:"showing_preset"`
+	PRFPacked           bool   `json:"prf_packed"`
+	PRFMode             string `json:"prf_mode"`
+	PRFAuditSamples     int    `json:"prf_audit_samples"`
+	PRFBridgeInQ        bool   `json:"prf_bridge_in_q"`
+	PRFLogicalScalars   int    `json:"prf_logical_scalars"`
+	PRFPackedRows       int    `json:"prf_packed_rows"`
+	PRFDataRows         int    `json:"prf_data_rows"`
+	PRFHelperRows       int    `json:"prf_helper_rows"`
+	PRFTotalRows        int    `json:"prf_total_rows"`
+	PRFSignedKeySource  string `json:"prf_signed_key_source"`
+	SigShortnessProfile string `json:"sig_shortness_profile"`
+	SigShortnessRadix   int    `json:"sig_shortness_radix"`
+	SigShortnessDigits  int    `json:"sig_shortness_digits"`
+	SigShortnessDegree  int    `json:"sig_shortness_degree"`
+	LVCSNCols           int    `json:"lvcs_ncols"`
+	NLeaves             int    `json:"nleaves"`
+	WitnessRows         int    `json:"witness_rows"`
+	RowsBlock           int    `json:"rows_block"`
+	MaskChunks          int    `json:"mask_chunks"`
+	NRows               int    `json:"nrows"`
+	M                   int    `json:"m"`
+	PCols               int    `json:"pcols"`
+	OmitP               int    `json:"omit_p"`
+	RowOpeningEntries   int    `json:"row_opening_entries"`
+	PdecsBytes          int    `json:"pdecs_bytes"`
+	VTargetsBytes       int    `json:"vtargets_bytes"`
+	BarSetsBytes        int    `json:"barsets_bytes"`
+	QBytes              int    `json:"q_bytes"`
 }
 
 // BuildProofReport derives proof size + soundness metrics for a given proof/options.
@@ -110,32 +147,100 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 	if err != nil {
 		return ProofReport{}, fmt.Errorf("packing audit: %w", err)
 	}
+	paperTranscript := buildPaperTranscriptReportLeaf(proof, q, paperTranscriptParams{
+		Lambda:   reportOpts.Lambda,
+		Eta:      eta,
+		Ell:      ell,
+		EllPrime: ellPrime,
+		Rho:      rho,
+		Theta:    theta,
+		DQ:       dQ,
+		DDECS:    lvcsNCols + ell - 1,
+	})
 	return ProofReport{
-		ProofBytes: size.Total,
-		ProofKB:    float64(size.Total) / 1024.0,
-		Soundness:  sb,
-		PaperTranscript: buildPaperTranscriptReportLeaf(proof, q, paperTranscriptParams{
-			Lambda:   reportOpts.Lambda,
-			Eta:      eta,
-			Ell:      ell,
-			EllPrime: ellPrime,
-			Rho:      rho,
-			Theta:    theta,
-			DQ:       dQ,
-			DDECS:    lvcsNCols + ell - 1,
-		}),
-		Packing:   packing,
-		Geometry:  geometry,
-		NCols:     ncols,
-		PCSNCols:  lvcsNCols,
-		LVCSNCols: lvcsNCols,
-		Ell:       ell,
-		EllPrime:  ellPrime,
-		Rho:       rho,
-		Theta:     theta,
-		Eta:       eta,
-		DQ:        dQ,
-		Lambda:    reportOpts.Lambda,
-		Kappa:     reportOpts.Kappa,
+		ProofBytes:      size.Total,
+		ProofKB:         float64(size.Total) / 1024.0,
+		Soundness:       sb,
+		PaperTranscript: paperTranscript,
+		Packing:         packing,
+		Geometry:        geometry,
+		TranscriptFocus: buildTranscriptOptimizationReport(proof, paperTranscript, packing, sb, geometry, lvcsNCols, dQ, reportOpts, q),
+		NCols:           ncols,
+		PCSNCols:        lvcsNCols,
+		LVCSNCols:       lvcsNCols,
+		Ell:             ell,
+		EllPrime:        ellPrime,
+		Rho:             rho,
+		Theta:           theta,
+		Eta:             eta,
+		DQ:              dQ,
+		NLeaves:         nLeaves,
+		FieldModulus:    q,
+		Lambda:          reportOpts.Lambda,
+		Kappa:           reportOpts.Kappa,
 	}, nil
+}
+
+func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport, packing ProofPackingAudit, sb SoundnessBudget, geometry WitnessGeometrySnapshot, lvcsNCols int, dQ int, opts SimOpts, q uint64) TranscriptOptimizationReport {
+	out := TranscriptOptimizationReport{
+		NRows:             sb.NRows,
+		M:                 sb.M,
+		PCols:             packing.RowOpening.Pvals.EncodedCols,
+		OmitP:             packing.RowOpening.Pvals.OmittedCols,
+		RowOpeningEntries: packing.RowOpening.EntryCount,
+		PdecsBytes:        paper.Pdecs.OptimizedBytes,
+		VTargetsBytes:     paper.VTargets.OptimizedBytes,
+		BarSetsBytes:      paper.BarSets.OptimizedBytes,
+		QBytes:            paper.Q.OptimizedBytes,
+	}
+	out.LVCSNCols = lvcsNCols
+	out.NLeaves = proof.NLeavesUsed
+	if out.NLeaves <= 0 {
+		out.NLeaves = opts.NLeaves
+	}
+	out.WitnessRows = geometry.ActualWitnessPolys
+	out.ShowingPreset = ResolveShowingPresetLabelForOpts(opts)
+	if out.LVCSNCols > 0 {
+		out.RowsBlock = ceilDiv(out.WitnessRows, out.LVCSNCols)
+		if dQ > 0 {
+			out.MaskChunks = dQ/out.LVCSNCols + 1
+		}
+	}
+	out.SigShortnessProfile = ResolveSignatureShortnessProfileLabelForOpts(opts)
+	if base, L, _, degree, err := ResolveSignatureShortnessMetricsForOpts(q, opts); err == nil {
+		out.SigShortnessRadix = base
+		out.SigShortnessDigits = L
+		out.SigShortnessDegree = degree
+	}
+	if out.PCols == 0 && packing.PCSOpening.Pvals.EncodedCols > 0 {
+		out.PCols = packing.PCSOpening.Pvals.EncodedCols
+		out.OmitP = packing.PCSOpening.Pvals.OmittedCols
+		out.RowOpeningEntries = packing.PCSOpening.EntryCount
+	}
+	if proof == nil {
+		return out
+	}
+	if proof.PRFCompanion != nil && proof.PRFCompanion.Layout != nil {
+		out.PRFPacked = true
+		out.PRFMode = string(prfCompanionModeDefault(proof.PRFCompanion.Mode))
+		out.PRFAuditSamples = proof.PRFCompanion.CheckpointSamples
+		out.PRFBridgeInQ = proof.PRFCompanion.BridgeInQ
+		out.PRFLogicalScalars = proof.PRFCompanion.Layout.PackedLogicalCount
+		out.PRFPackedRows = proof.PRFCompanion.Layout.PackedRows
+		out.PRFDataRows = proof.PRFCompanion.Layout.DataRows
+		out.PRFHelperRows = proof.PRFCompanion.Layout.HelperRows
+		out.PRFTotalRows = proof.PRFCompanion.Layout.PackedRows
+		if proof.PRFCompanion.Layout.KeySource == KeySourceSignedSecret {
+			out.PRFSignedKeySource = "signed_m2"
+		}
+		return out
+	}
+	if proof.PRFLayout == nil {
+		return out
+	}
+	out.PRFPacked = proof.PRFLayout.PackedRows
+	out.PRFLogicalScalars = prfLogicalScalarCount(proof.PRFLayout)
+	out.PRFPackedRows = proof.PRFLayout.WitnessRows
+	out.PRFTotalRows = proof.PRFLayout.WitnessRows
+	return out
 }

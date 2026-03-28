@@ -8,19 +8,15 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-// CoeffNativeShowingState persists the paper-level witness objects used by the
-// coeff-native post-sign statement.
+// CoeffNativeShowingState is retained only as a compatibility shim for older
+// credential-state JSON files. Production showing derives its semantic witness
+// directly from the top-level signed state.
 type CoeffNativeShowingState struct {
-	Sig    [][]int64 `json:"sig"`
-	U      []int64   `json:"u"`
-	X0     []int64   `json:"x0"`
-	X1     int64     `json:"x1"`
-	PRFKey []int64   `json:"prf_key"`
-	NCols  int       `json:"ncols"`
+	NCols int `json:"ncols"`
 }
 
-// Validate checks that the persisted coeff-native semantic payload is
-// structurally usable by the showing compiler.
+// Validate checks the legacy packed-width metadata before using it as a
+// fallback when PackedNCols is absent from the top-level state.
 func (st *CoeffNativeShowingState) Validate(ringN int) error {
 	if st == nil {
 		return fmt.Errorf("nil coeff-native showing state")
@@ -34,25 +30,6 @@ func (st *CoeffNativeShowingState) Validate(ringN int) error {
 		}
 		if ringN%st.NCols != 0 {
 			return fmt.Errorf("coeff-native ncols=%d does not divide ringN=%d", st.NCols, ringN)
-		}
-	}
-	if len(st.Sig) == 0 {
-		return fmt.Errorf("missing coeff-native signature witness rows")
-	}
-	if len(st.U) == 0 {
-		return fmt.Errorf("missing coeff-native message witness scalars")
-	}
-	if len(st.X0) == 0 {
-		return fmt.Errorf("missing coeff-native numerator-randomness witness scalars")
-	}
-	if len(st.PRFKey) == 0 {
-		return fmt.Errorf("missing coeff-native prf key witness scalars")
-	}
-	if ringN > 0 {
-		for i := range st.Sig {
-			if len(st.Sig[i]) != ringN {
-				return fmt.Errorf("coeff-native sig[%d] width=%d want ringN=%d", i, len(st.Sig[i]), ringN)
-			}
 		}
 	}
 	return nil
@@ -76,6 +53,9 @@ type State struct {
 	// Showing-signature rows s1 and s2 are the bounded rows.
 	SigS1 []int64   `json:"sig_s1,omitempty"`
 	SigS2 []int64   `json:"sig_s2,omitempty"`
+	// PackedNCols fixes the issuance/showing witness packing width used when
+	// extracting the signed PRF key from M2.
+	PackedNCols int `json:"packed_ncols,omitempty"`
 	Com   [][]int64 `json:"com"`
 	RI0   [][]int64 `json:"ri0"`
 	RI1   [][]int64 `json:"ri1"`

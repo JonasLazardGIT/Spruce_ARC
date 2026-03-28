@@ -2,6 +2,7 @@ package PIOP
 
 import (
 	"fmt"
+	"path/filepath"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
@@ -50,7 +51,7 @@ type LiteralPackedPostSignConfig struct {
 	DomainPoints  []uint64
 }
 
-func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitness, omega []uint64, ncols int, model string) (*literalPackedPolyWitness, error) {
+func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitness, omega []uint64, ncols int, model string, opts SimOpts) (*literalPackedPolyWitness, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -68,18 +69,12 @@ func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitne
 	}
 	q := ringQ.Modulus[0]
 	blocks := int(ringQ.N) / ncols
-	sumScalars := func(vals []int64) uint64 {
-		sum := int64(0)
-		for _, v := range vals {
-			sum += v
-		}
-		return liftToField(q, sum)
-	}
 	out := &literalPackedPolyWitness{
 		Sig:      make([][]*ring.Poly, len(cn.Sig)),
 		SigLimbs: make([][][]*ring.Poly, len(cn.Sig)),
 	}
-	spec, err := signatureChainSpecForOpts(q, SimOpts{CoeffNativeSigModel: model})
+	opts.CoeffNativeSigModel = model
+	spec, err := signatureChainSpecForOpts(q, opts)
 	if err != nil {
 		return nil, fmt.Errorf("signature chain spec: %w", err)
 	}
@@ -96,6 +91,7 @@ func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitne
 			for i := range sigHead {
 				sigHead[i] %= q
 			}
+			out.Sig[comp][block] = BuildThetaPrime(ringQ, sigHead, omega)
 			out.SigLimbs[comp][block] = make([]*ring.Poly, spec.L)
 			limbHeads := make([][]uint64, spec.L)
 			for lane := 0; lane < spec.L; lane++ {
@@ -116,15 +112,6 @@ func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitne
 			}
 		}
 	}
-	for _, v := range cn.U {
-		out.U = append(out.U, BuildThetaPrime(ringQ, repeatFieldValue(liftToField(q, v), ncols), omega))
-	}
-	out.USum = BuildThetaPrime(ringQ, repeatFieldValue(sumScalars(cn.U), ncols), omega)
-	for _, v := range cn.X0 {
-		out.X0 = append(out.X0, BuildThetaPrime(ringQ, repeatFieldValue(liftToField(q, v), ncols), omega))
-	}
-	out.X0Sum = BuildThetaPrime(ringQ, repeatFieldValue(sumScalars(cn.X0), ncols), omega)
-	out.X1 = BuildThetaPrime(ringQ, repeatFieldValue(liftToField(q, cn.X1), ncols), omega)
 	return out, nil
 }
 
@@ -202,14 +189,14 @@ func scaleKElemByBase(K *kf.Field, src kf.Elem, scalar uint64) kf.Elem {
 	return out
 }
 
-func buildLiteralPackedCompileContext(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, wit *literalPackedPolyWitness, omega []uint64) (*literalPackedCompileContext, error) {
+func buildLiteralPackedCompileContext(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, wit *literalPackedPolyWitness, omega []uint64, opts SimOpts) (*literalPackedCompileContext, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
 	if wit == nil {
 		return nil, fmt.Errorf("nil literal packed witness")
 	}
-	cfg, err := buildLiteralPackedPostSignConfig(ringQ, pub, layout, omega, nil)
+	cfg, err := buildLiteralPackedPostSignConfig(ringQ, pub, layout, omega, nil, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -469,6 +456,9 @@ func coeffsToNTTIfFits(ringQ *ring.Ring, coeffs []uint64) *ring.Poly {
 func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 	cfg := layout.CoeffNativeSig
 	rowCount := 0
+	if idxT := rowLayoutPostSignT(layout); idxT >= 0 && idxT+1 > rowCount {
+		rowCount = idxT + 1
+	}
 	if cfg.PackedSigBase >= 0 {
 		if end := cfg.PackedSigBase + cfg.PackedSigCount; end > rowCount {
 			rowCount = end
@@ -494,6 +484,11 @@ func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 	}
 	if cfg.X1Slot.Row+1 > rowCount {
 		rowCount = cfg.X1Slot.Row + 1
+	}
+	if layout.SigExtraTBase >= 0 && layout.SigBlocks > 0 {
+		if end := layout.SigExtraTBase + layout.SigBlocks; end > rowCount {
+			rowCount = end
+		}
 	}
 	if cfg.PostSignMsgSumRow >= 0 && cfg.PostSignMsgSumRow+1 > rowCount {
 		rowCount = cfg.PostSignMsgSumRow + 1
@@ -522,20 +517,29 @@ func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 		return rowCount
 	}
 	if rowsPer := inferNonSigBoundRowsPer(layout); rowsPer > 0 {
-		if end := layout.MsgRangeBase + cfg.UCount*rowsPer; end > rowCount {
-			rowCount = end
-		}
-		if end := layout.RndRangeBase + cfg.X0Count*rowsPer; end > rowCount {
-			rowCount = end
-		}
-		if end := layout.X1RangeBase + rowsPer; end > rowCount {
-			rowCount = end
+		if rowLayoutCoeffNativeUsesSemanticRewrite(layout) {
+			if end := layout.MsgChainBase + 2*rowsPer; layout.MsgChainBase >= 0 && end > rowCount {
+				rowCount = end
+			}
+			if end := layout.RndChainBase + 2*rowsPer; layout.RndChainBase >= 0 && end > rowCount {
+				rowCount = end
+			}
+		} else {
+			if end := layout.MsgRangeBase + cfg.UCount*rowsPer; end > rowCount {
+				rowCount = end
+			}
+			if end := layout.RndRangeBase + cfg.X0Count*rowsPer; end > rowCount {
+				rowCount = end
+			}
+			if end := layout.X1RangeBase + rowsPer; end > rowCount {
+				rowCount = end
+			}
 		}
 	}
 	return rowCount
 }
 
-func buildLiteralPackedPostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, omegaWitness, domainPoints []uint64) (LiteralPackedPostSignConfig, error) {
+func buildLiteralPackedPostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, omegaWitness, domainPoints []uint64, opts SimOpts) (LiteralPackedPostSignConfig, error) {
 	if ringQ == nil {
 		return LiteralPackedPostSignConfig{}, fmt.Errorf("nil ring")
 	}
@@ -543,7 +547,7 @@ func buildLiteralPackedPostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		return LiteralPackedPostSignConfig{}, fmt.Errorf("literal packed post-sign config requires literal packed coeff-native layout")
 	}
 	cfg := layout.CoeffNativeSig
-	sigSpec, err := signatureChainSpecForLayoutAndOpts(ringQ.Modulus[0], layout, SimOpts{})
+	sigSpec, err := signatureChainSpecForLayoutAndOpts(ringQ.Modulus[0], layout, opts)
 	if err != nil {
 		return LiteralPackedPostSignConfig{}, fmt.Errorf("signature chain spec: %w", err)
 	}
@@ -1055,12 +1059,15 @@ func literalPackedWitnessFromRowsNTT(layout RowLayout, rowsNTT []*ring.Poly) (*l
 	return out, nil
 }
 
-func buildSigShortnessPackedMembershipFormalCoeffs(r *ring.Ring, packedRows [][]*ring.Poly, spec LinfSpec) ([]*ring.Poly, [][]uint64, error) {
+func buildSigShortnessPackedMembershipFormalCoeffs(r *ring.Ring, packedSourceRows []*ring.Poly, packedRows [][]*ring.Poly, spec LinfSpec) ([]*ring.Poly, [][]uint64, error) {
 	if r == nil {
 		return nil, nil, fmt.Errorf("nil ring")
 	}
 	if len(packedRows) == 0 {
 		return nil, nil, fmt.Errorf("missing packed signature limb rows")
+	}
+	if len(packedSourceRows) > 0 && len(packedSourceRows) != len(packedRows) {
+		return nil, nil, fmt.Errorf("packed signature source rows=%d want %d", len(packedSourceRows), len(packedRows))
 	}
 	toFormal := func(pNTT *ring.Poly) fpoly.Poly {
 		if pNTT == nil {
@@ -1088,6 +1095,17 @@ func buildSigShortnessPackedMembershipFormalCoeffs(r *ring.Ring, packedRows [][]
 		if len(packedRows[g]) != spec.L {
 			return nil, nil, fmt.Errorf("packed limb group %d row count=%d want %d", g, len(packedRows[g]), spec.L)
 		}
+		if len(packedSourceRows) > 0 {
+			sourceCoeff := append([]uint64(nil), toFormal(packedSourceRows[g]).Coeffs...)
+			reconCoeff := []uint64{0}
+			for i := 0; i < spec.L; i++ {
+				digitCoeff := append([]uint64(nil), toFormal(packedRows[g][i]).Coeffs...)
+				reconCoeff = polyAddMod(reconCoeff, polyScale(digitCoeff, spec.RPows[i]%spec.Q, spec.Q), spec.Q)
+			}
+			reconConstraint := trimPoly(polySubMod(sourceCoeff, reconCoeff, spec.Q), spec.Q)
+			outCoeffs = append(outCoeffs, append([]uint64(nil), reconConstraint...))
+			outPolys = append(outPolys, toNTTIfFits(reconConstraint))
+		}
 		for i := 0; i < spec.L; i++ {
 			cMem := fpoly.New(spec.Q, spec.PDi[i]).Compose(toFormal(packedRows[g][i]))
 			outCoeffs = append(outCoeffs, append([]uint64(nil), cMem.Coeffs...))
@@ -1103,37 +1121,37 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	wit WitnessInputs,
 	prfParamsLenKey, prfParamsLenNonce, prfRF, prfRP, prfGroupRounds int,
 	opts SimOpts,
-) (rows []*ring.Poly, rowInputs []lvcs.RowInput, layout RowLayout, prfLayout *PRFLayout, decsParams decs.Params, maskRowOffset, maskRowCount, witnessCount, startIdx, ncols int, err error) {
+) (rows []*ring.Poly, rowInputs []lvcs.RowInput, layout RowLayout, prfLayout *PRFLayout, prfCompanionLayout *PRFCompanionLayout, decsParams decs.Params, maskRowOffset, maskRowCount, witnessCount, startIdx, ncols int, err error) {
 	if ringQ == nil {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("nil ring")
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("nil ring")
 	}
 	opts.applyDefaults()
 	if opts.DomainMode != DomainModeExplicit {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed aggregated mode requires explicit domain mode")
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed aggregated mode requires explicit domain mode")
 	}
 	if opts.NCols <= 0 {
 		opts.NCols = int(ringQ.N)
 	}
 	ncols = opts.NCols
 	if ncols <= 0 || ringQ.N%ncols != 0 {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed showing requires ringN %% ncols == 0 (ringN=%d ncols=%d)", ringQ.N, ncols)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed showing requires ringN %% ncols == 0 (ringN=%d ncols=%d)", ringQ.N, ncols)
 	}
 	if wit.CoeffNativeShowing == nil {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed showing requires WitnessInputs.CoeffNativeShowing")
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed showing requires WitnessInputs.CoeffNativeShowing")
 	}
 	model := resolveCoeffNativeSigModel(opts)
 	if !coeffNativeSigModelUsesLiteralPacked(model) {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("unsupported literal packed coeff-native model %q", model)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("unsupported literal packed coeff-native model %q", model)
 	}
 	cn := wit.CoeffNativeShowing
 	if err := cn.Validate(int(ringQ.N)); err != nil {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("invalid coeff-native semantic witness: %w", err)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("invalid coeff-native semantic witness: %w", err)
 	}
 	if len(pub.A) == 0 || len(pub.A[0]) == 0 {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed showing requires non-empty A")
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed showing requires non-empty A")
 	}
 	if len(cn.Sig) != len(pub.A[0]) {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed signature witness rows=%d want %d", len(cn.Sig), len(pub.A[0]))
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed signature witness rows=%d want %d", len(cn.Sig), len(pub.A[0]))
 	}
 	blocks := int(ringQ.N) / ncols
 	var explicitOmega []uint64
@@ -1144,7 +1162,7 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		}
 		derivedOmega, derr := deriveExplicitWitnessOmega(ringQ.Modulus[0], nLeaves, ncols, opts.LVCSNCols, opts.Ell)
 		if derr != nil {
-			return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed explicit omega: %w", derr)
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed explicit omega: %w", derr)
 		}
 		explicitOmega = derivedOmega
 	}
@@ -1172,126 +1190,156 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		}
 		return head
 	}
-	appendBoundChainFromValues := func(values []uint64, spec LinfSpec) (int, error) {
-		if len(values) == 0 {
-			return -1, nil
-		}
-		R := int64(spec.R)
-		q := ringQ.Modulus[0]
-		base := len(rows)
-		for _, value := range values {
-			mHead := make([]uint64, ncols)
-			dHeads := make([][]uint64, spec.L)
-			for i := 0; i < spec.L; i++ {
-				dHeads[i] = make([]uint64, ncols)
-			}
-			av := centeredLift(value, q)
-			absA := av
-			if absA < 0 {
-				absA = -absA
-			}
-			remaining := absA
-			digits := make([]int64, spec.L)
-			for i := 0; i < spec.L; i++ {
-				if i == spec.L-1 {
-					digits[i] = remaining
-					remaining = 0
-					continue
-				}
-				digit := remaining % R
-				remaining /= R
-				if i == 0 {
-					lo := int64(spec.LSDLo)
-					hi := int64(spec.LSDHi)
-					for digit > hi {
-						digit -= R
-						remaining++
-					}
-					for digit < lo {
-						digit += R
-						remaining--
-					}
-				}
-				digits[i] = digit
-			}
-			for j := 0; j < ncols; j++ {
-				mHead[j] = liftToField(q, absA)
-				for i := 0; i < spec.L; i++ {
-					dHeads[i][j] = liftToField(q, digits[i])
-				}
-			}
-			rows = append(rows, makeRowFromHead(mHead))
-			for i := 0; i < spec.L; i++ {
-				rows = append(rows, makeRowFromHead(dHeads[i]))
-			}
-		}
-		return base, nil
-	}
-	appendSignedScalarCertRows := func(values []int64, spec LinfSpec) (int, error) {
-		if len(values) == 0 {
-			return -1, nil
-		}
-		base := len(rows)
-		for _, value := range values {
-			digits, err := decomposeLinfDigitsSigned(value, spec)
-			if err != nil {
-				return -1, err
-			}
-			for digit := 0; digit < spec.L; digit++ {
-				rows = append(rows, makeRowFromHead(constantHead(digits[digit])))
-			}
-		}
-		return base, nil
-	}
-
-	packedWitness, err := buildLiteralPackedPolyWitness(ringQ, cn, explicitOmega, ncols, model)
+	packedWitness, err := buildLiteralPackedPolyWitness(ringQ, cn, explicitOmega, ncols, model, opts)
 	if err != nil {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed witness: %w", err)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed witness: %w", err)
 	}
 	packedSigBase, packedSigCount := -1, 0
-	uBase, x0Base, x1Row := -1, -1, -1
 	postSignMsgSumRow, postSignRndSumRow, postSignX1Row := -1, -1, -1
 	uScalarCertBase, x0ScalarCertBase, x1ScalarCertBase := -1, -1, -1
 	uScalarCertCount, x0ScalarCertCount, x1ScalarCertCount := 0, 0, 0
 	nonSigCertRowsPerScalar, nonSigCertRadix, nonSigCertDigits := 0, 0, 0
-	uCount := len(cn.U)
-	x0Count := len(cn.X0)
-	scalarBundleBase, scalarBundleCount := -1, 0
-	var uSlots, x0Slots []PRFSlot
-	x1Slot := PRFSlot{Row: -1, Col: -1}
-	compressedNonSigV3 := model == CoeffNativeSigModelLiteralPackedAggregatedV3 && v3NonSigScalarCertEnabled(pub.BoundB)
+	msgChainBase, rndChainBase := -1, -1
+	nonSigBoundRowsPer := 0
+	msgExtraNTTBase, msgCoeffBase := -1, -1
+	rndExtraNTTBase, rndCoeffBase := -1, -1
+	msgCompCount, rndCompCount := 0, 0
 	if model != CoeffNativeSigModelLiteralPackedAggregatedV3 {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("unsupported literal packed coeff-native model %q", model)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("unsupported literal packed coeff-native model %q", model)
 	}
-	// V3 commits only the primary shortness limbs; semantic S is derived
-	// inside the post-sign compiler/evaluator.
-	if compressedNonSigV3 {
-		msgSum := int64(0)
-		for _, v := range cn.U {
-			msgSum += v
+	if cn.PackedNCols != ncols {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native packed ncols=%d want %d", cn.PackedNCols, ncols)
+	}
+
+	packedSigBase = len(rows)
+	for block := 0; block < blocks; block++ {
+		for comp := 0; comp < len(packedWitness.Sig); comp++ {
+			coeff := ringQ.NewPoly()
+			ringQ.InvNTT(packedWitness.Sig[comp][block], coeff)
+			rows = append(rows, coeff)
 		}
-		postSignMsgSumRow = len(rows)
-		rows = append(rows, makeRowFromHead(constantHead(msgSum)))
-		rndSum := int64(0)
-		for _, v := range cn.X0 {
-			rndSum += v
+	}
+	packedSigCount = blocks * len(cn.Sig)
+
+	// These rows are the live semantic-rewrite U rows. They look duplicative
+	// next to the packed signature source block, but the current post-sign replay
+	// consumes them via IdxUBase/SigExtraUBase. Do not remove them without
+	// rewriting the semantic-rewrite evaluator/constraint surface.
+	sigEvalBase := len(rows)
+	sigEvalNTT := make([]*ring.Poly, len(cn.Sig))
+	for comp := range cn.Sig {
+		sigEvalNTT[comp] = ringQ.NewPoly()
+		ring.Copy(cn.Sig[comp], sigEvalNTT[comp])
+		ringQ.NTT(sigEvalNTT[comp], sigEvalNTT[comp])
+	}
+	for block := 0; block < blocks; block++ {
+		start := block * ncols
+		end := start + ncols
+		for comp := 0; comp < len(cn.Sig); comp++ {
+			head := append([]uint64(nil), sigEvalNTT[comp].Coeffs[0][start:end]...)
+			rows = append(rows, makeRowFromHead(head))
 		}
-		postSignRndSumRow = len(rows)
-		rows = append(rows, makeRowFromHead(constantHead(rndSum)))
-		postSignX1Row = len(rows)
-		x1Row = postSignX1Row
-		rows = append(rows, makeRowFromHead(constantHead(cn.X1)))
-	} else {
-		uBase = len(rows)
-		for _, v := range cn.U {
-			rows = append(rows, makeRowFromHead(constantHead(v)))
+	}
+
+	baseRowFromSource := func(src *ring.Poly) (*ring.Poly, []uint64, error) {
+		if src == nil {
+			return nil, nil, fmt.Errorf("nil semantic rewrite source row")
 		}
-		x0Base = len(rows)
-		for _, v := range cn.X0 {
-			rows = append(rows, makeRowFromHead(constantHead(v)))
+		fullNTT := ringQ.NewPoly()
+		ring.Copy(src, fullNTT)
+		ringQ.NTT(fullNTT, fullNTT)
+		if ncols > len(fullNTT.Coeffs[0]) {
+			return nil, nil, fmt.Errorf("semantic rewrite base row ncols=%d exceeds row width=%d", ncols, len(fullNTT.Coeffs[0]))
 		}
-		x1Row = len(rows)
-		rows = append(rows, makeRowFromHead(constantHead(cn.X1)))
+		head0 := append([]uint64(nil), fullNTT.Coeffs[0][:ncols]...)
+		return makeRowFromHead(head0), head0, nil
+	}
+
+	idxM1 := len(rows)
+	m1Base, m1Head, berr := baseRowFromSource(cn.M1)
+	if berr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("semantic rewrite M1 base row: %w", berr)
+	}
+	rows = append(rows, m1Base)
+	idxM2 := len(rows)
+	m2Base, m2Head, berr := baseRowFromSource(cn.M2)
+	if berr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("semantic rewrite M2 base row: %w", berr)
+	}
+	rows = append(rows, m2Base)
+	idxR0 := len(rows)
+	r0Base, r0Head, berr := baseRowFromSource(cn.R0)
+	if berr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("semantic rewrite R0 base row: %w", berr)
+	}
+	rows = append(rows, r0Base)
+	idxR1 := len(rows)
+	r1Base, r1Head, berr := baseRowFromSource(cn.R1)
+	if berr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("semantic rewrite R1 base row: %w", berr)
+	}
+	rows = append(rows, r1Base)
+	sigExtraTBase := len(rows)
+	tNTT := ringQ.NewPoly()
+	ring.Copy(cn.T, tNTT)
+	ringQ.NTT(tNTT, tNTT)
+	for block := 0; block < blocks; block++ {
+		start := block * ncols
+		end := start + ncols
+		head := append([]uint64(nil), tNTT.Coeffs[0][start:end]...)
+		rows = append(rows, makeRowFromHead(head))
+	}
+	idxT := sigExtraTBase
+
+	if pub.BoundB > 0 {
+		specBound, berr := nonSigBoundLinfSpec(ringQ.Modulus[0], pub.BoundB)
+		if berr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("semantic rewrite non-sign bound chain spec: %w", berr)
+		}
+		nonSigBoundRowsPer = nonSigChainRowsPer(specBound)
+		if nonSigBoundRowsPer <= 1 {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("semantic rewrite non-sign bound rowsPer=%d", nonSigBoundRowsPer)
+		}
+		appendNonSigChainRows := func(sourceHeads [][]uint64) error {
+			q := ringQ.Modulus[0]
+			for _, head := range sourceHeads {
+				magHead := make([]uint64, ncols)
+				digitHeads := make([][]uint64, specBound.L)
+				for i := 0; i < specBound.L; i++ {
+					digitHeads[i] = make([]uint64, ncols)
+				}
+				for col := 0; col < ncols; col++ {
+					a := int64(head[col] % q)
+					if a > int64(q)/2 {
+						a -= int64(q)
+					}
+					if a < 0 {
+						a = -a
+					}
+					digits, err := decomposeLinfDigitsAbs(a, specBound)
+					if err != nil {
+						return fmt.Errorf("semantic rewrite non-sign digit decomposition: %w", err)
+					}
+					magHead[col] = liftToField(q, a)
+					for i := 0; i < specBound.L; i++ {
+						digitHeads[i][col] = liftToField(q, digits[i])
+					}
+				}
+				rows = append(rows, makeRowFromHead(magHead))
+				for i := 0; i < specBound.L; i++ {
+					rows = append(rows, makeRowFromHead(digitHeads[i]))
+				}
+			}
+			return nil
+		}
+		msgChainBase = len(rows)
+		if err := appendNonSigChainRows([][]uint64{m1Head, m2Head}); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+		}
+		rndChainBase = len(rows)
+		if err := appendNonSigChainRows([][]uint64{r0Head, r1Head}); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+		}
 	}
 
 	packedSigChainBase := -1
@@ -1301,14 +1349,14 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	sigSignedChain := false
 	spec, serr := signatureChainSpecForOpts(ringQ.Modulus[0], opts)
 	if serr != nil {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature chain spec: %w", serr)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature chain spec: %w", serr)
 	}
 	if !signatureSpecNoWrapOK(spec) {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature chain spec violates no-wrap bound: maxAbs=%d q=%d", spec.MaxAbs, spec.Q)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature chain spec violates no-wrap bound: maxAbs=%d q=%d", spec.MaxAbs, spec.Q)
 	}
 	packedSigChainBase = len(rows)
-	for comp := 0; comp < len(packedWitness.SigLimbs); comp++ {
-		for block := 0; block < len(packedWitness.SigLimbs[comp]); block++ {
+	for block := 0; block < blocks; block++ {
+		for comp := 0; comp < len(packedWitness.SigLimbs); comp++ {
 			for lane := 0; lane < len(packedWitness.SigLimbs[comp][block]); lane++ {
 				coeff := ringQ.NewPoly()
 				ringQ.InvNTT(packedWitness.SigLimbs[comp][block][lane], coeff)
@@ -1321,126 +1369,81 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	packedSigChainRowsPerGroup = spec.L
 	sigSignedChain = true
 
-	msgChainBase, rndChainBase := -1, -1
-	msgRangeBase, rndRangeBase, x1RangeBase := -1, -1, -1
-	nonSigBoundRowsPer := 0
-	if compressedNonSigV3 {
-		specCert, serr := v3NonSigScalarCertSpec(ringQ.Modulus[0], pub.BoundB)
-		if serr != nil {
-			return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("v3 non-sign scalar cert spec: %w", serr)
-		}
-		uScalarCertBase, err = appendSignedScalarCertRows(cn.U, specCert)
-		if err != nil {
-			return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("append v3 U scalar cert rows: %w", err)
-		}
-		x0ScalarCertBase, err = appendSignedScalarCertRows(cn.X0, specCert)
-		if err != nil {
-			return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("append v3 X0 scalar cert rows: %w", err)
-		}
-		x1ScalarCertBase, err = appendSignedScalarCertRows([]int64{cn.X1}, specCert)
-		if err != nil {
-			return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("append v3 X1 scalar cert rows: %w", err)
-		}
-		uScalarCertCount = len(cn.U)
-		x0ScalarCertCount = len(cn.X0)
-		x1ScalarCertCount = 1
-		nonSigCertRowsPerScalar = specCert.L
-		nonSigCertRadix = int(specCert.R)
-		nonSigCertDigits = specCert.L
-	} else if pub.BoundB > 0 {
-		specBound, serr := nonSigBoundLinfSpec(ringQ.Modulus[0], pub.BoundB)
-		if serr != nil {
-			return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("bound chain spec: %w", serr)
-		}
-		nonSigBoundRowsPer = nonSigChainRowsPer(specBound)
-		if uCount > 0 {
-			uVals := make([]uint64, uCount)
-			for i, v := range cn.U {
-				uVals[i] = liftToField(ringQ.Modulus[0], v)
-			}
-			msgRangeBase, err = appendBoundChainFromValues(uVals, specBound)
-			if err != nil {
-				return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, err
-			}
-			msgChainBase = msgRangeBase
-		}
-		if x0Count > 0 {
-			x0Vals := make([]uint64, x0Count)
-			for i, v := range cn.X0 {
-				x0Vals[i] = liftToField(ringQ.Modulus[0], v)
-			}
-			rndRangeBase, err = appendBoundChainFromValues(x0Vals, specBound)
-			if err != nil {
-				return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, err
-			}
-			rndChainBase = rndRangeBase
-		}
-		x1RangeBase, err = appendBoundChainFromValues([]uint64{liftToField(ringQ.Modulus[0], cn.X1)}, specBound)
-		if err != nil {
-			return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, err
-		}
-	}
-
-	inputLen := prfParamsLenKey + prfParamsLenNonce
-	R := prfRF + prfRP
 	if prfGroupRounds <= 0 {
 		prfGroupRounds = 1
 	}
-	if len(cn.PRFKey) != prfParamsLenKey {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native semantic prf key len=%d want %d", len(cn.PRFKey), prfParamsLenKey)
-	}
-	if len(wit.Extras) == 0 {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("missing PRF witness in Extras (need prf_sbox)")
-	}
-	sboxAny, ok := wit.Extras["prf_sbox"]
-	if !ok {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("missing prf_sbox in witness Extras")
-	}
-	sboxPolys, ok := sboxAny.([]*ring.Poly)
-	if !ok {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("prf_sbox has wrong type")
-	}
-	sboxNeeded := 0
-	scheduleParams := &prf.Params{RF: prfRF, RP: prfRP}
-	for round := 0; round < R; round++ {
-		if !prf.ShouldCheckpointRound(scheduleParams, round, prfGroupRounds) {
-			continue
-		}
-		full := round < prfRF/2 || round >= prfRF/2+prfRP
-		if full {
-			sboxNeeded += inputLen
-		} else {
-			sboxNeeded++
-		}
-	}
-	if len(sboxPolys) != sboxNeeded {
-		return nil, nil, RowLayout{}, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("prf_sbox len=%d want %d", len(sboxPolys), sboxNeeded)
+	keyScalars, err := ExtractSignedPRFKeyScalars(ringQ, cn.M2, cn.PackedNCols, prfParamsLenKey)
+	if err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("extract signed prf key: %w", err)
 	}
 	startIdx = len(rows)
-	prfPackedRows := false
-	var prfKeySlots, prfSBoxSlots []PRFSlot
-	for _, v := range cn.PRFKey {
-		rows = append(rows, makeRowFromHead(constantHead(v)))
+	companionMode := normalizePRFCompanionMode(opts.PRFCompanionMode)
+	if companionMode == "" && opts.EnablePRFCompanion {
+		companionMode = PRFCompanionModeCurrent
 	}
-	rows = append(rows, sboxPolys...)
+	// Legacy non-companion PRF witness path only. The live companion modes
+	// rebuild grouped PRF witness rows from signed M2 + public nonce and do not
+	// depend on prf_sbox extras.
+	useLegacyPRF := companionMode == ""
+	prfPackedRows := opts.EnablePackedPRFWitnessRows && useLegacyPRF
+	var sboxPolys []*ring.Poly
+	if useLegacyPRF {
+		if len(wit.Extras) == 0 {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("missing legacy non-companion PRF witness in Extras (need prf_sbox)")
+		}
+		sboxAny, ok := wit.Extras["prf_sbox"]
+		if !ok {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("missing legacy prf_sbox in witness Extras")
+		}
+		var okCast bool
+		sboxPolys, okCast = sboxAny.([]*ring.Poly)
+		if !okCast {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("legacy prf_sbox has wrong type")
+		}
+		sboxNeeded := groupedPRFSBoxCount(prfParamsLenKey, prfParamsLenNonce, prfRF, prfRP, prfGroupRounds)
+		if len(sboxPolys) != sboxNeeded {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("prf_sbox len=%d want %d", len(sboxPolys), sboxNeeded)
+		}
+	}
+	var prfKeySlots, prfSBoxSlots []PRFSlot
+	livePRFWitnessRows := 0
+	if useLegacyPRF && prfPackedRows {
+		packedPRFRows, keySlots, sboxSlots, perr := packPRFWitnessRows(ringQ, ncols, startIdx, keyScalars, sboxPolys, makeRowFromHead)
+		if perr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack prf witness rows: %w", perr)
+		}
+		rows = append(rows, packedPRFRows...)
+		prfKeySlots = keySlots
+		prfSBoxSlots = sboxSlots
+		livePRFWitnessRows = len(packedPRFRows)
+	} else if useLegacyPRF {
+		for _, v := range keyScalars {
+			rows = append(rows, makeRowFromHead(constantHead(v)))
+		}
+		rows = append(rows, sboxPolys...)
+		livePRFWitnessRows = len(keyScalars) + len(sboxPolys)
+	}
 
 	layout.HasExplicitBaseIdx = true
-	layout.IdxM1 = -1
-	layout.IdxM2 = -1
+	layout.IdxM1 = idxM1
+	layout.IdxM2 = idxM2
 	layout.IdxRU0 = -1
 	layout.IdxRU1 = -1
 	layout.IdxR = -1
-	layout.IdxR0 = -1
-	layout.IdxR1 = -1
+	layout.IdxR0 = idxR0
+	layout.IdxR1 = idxR1
 	layout.IdxK0 = -1
 	layout.IdxK1 = -1
-	layout.IdxT = -1
-	layout.IdxUBase = -1
+	layout.IdxT = idxT
+	layout.IdxUBase = sigEvalBase
 	layout.SigBlocks = blocks
 	layout.SigUCount = len(cn.Sig)
 	layout.SigExtraUBase = -1
-	layout.SigExtraTBase = -1
-	layout.SigDerivedT = true
+	if blocks > 1 {
+		layout.SigExtraUBase = sigEvalBase + len(cn.Sig)
+	}
+	layout.SigExtraTBase = sigExtraTBase
+	layout.SigDerivedT = false
 	layout.SigCoeffBase = -1
 	layout.ChainBase = -1
 	layout.ChainRowsPerSig = 0
@@ -1451,21 +1454,34 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.SigSignedChain = sigSignedChain
 	layout.MsgChainBase = msgChainBase
 	layout.RndChainBase = rndChainBase
-	layout.MsgRangeBase = msgRangeBase
-	layout.RndRangeBase = rndRangeBase
-	layout.X1RangeBase = x1RangeBase
+	layout.MsgRangeBase = -1
+	layout.RndRangeBase = -1
+	layout.X1RangeBase = -1
 	layout.NonSigBoundRowsPer = nonSigBoundRowsPer
-	layout.SigPrimaryLimbRows = 0
+	layout.SigPrimaryLimbRows = packedSigChainGroupCount * packedSigChainRowsPerGroup
 	layout.ScalarBundleRows = 0
-	layout.SigBoundSliceRows = 0
+	layout.SigBoundSliceRows = layout.SigPrimaryLimbRows
 	layout.PostSignScalarProjectionRows = 0
 	layout.PostSignScalarCertificateRows = 0
-	layout.PRFScalarBundleRows = 0
-	layout.PRFGroupedNonlinearRows = 0
+	layout.PRFScalarBundleRows = len(rows) - startIdx
+	if useLegacyPRF {
+		layout.PRFGroupedNonlinearRows = len(keyScalars) + len(sboxPolys)
+	}
 	layout.SigCount = len(rows)
+	layout.NonSigBlocks = blocks
+	layout.MsgCompCount = msgCompCount
+	layout.MsgExtraNTTBase = msgExtraNTTBase
+	layout.MsgCoeffBase = msgCoeffBase
+	layout.RndCompCount = rndCompCount
+	layout.RndExtraNTTBase = rndExtraNTTBase
+	layout.RndCoeffBase = rndCoeffBase
+	layout.X1CompCount = 0
+	layout.X1ExtraNTTBase = -1
+	layout.X1CoeffBase = -1
 	layout.CoeffNativeSig = CoeffNativeSigLayout{
 		Enabled:                 true,
 		Model:                   model,
+		SemanticRewrite:         true,
 		SigBase:                 packedSigBase,
 		SigCount:                packedSigCount,
 		SigBlocks:               blocks,
@@ -1474,11 +1490,11 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		SigCoeffCount:           int(ringQ.N),
 		OutputBlocks:            blocks,
 		OutputBlockWidth:        ncols,
-		UBase:                   uBase,
-		UCount:                  uCount,
-		X0Base:                  x0Base,
-		X0Count:                 x0Count,
-		X1Row:                   x1Row,
+		UBase:                   -1,
+		UCount:                  0,
+		X0Base:                  -1,
+		X0Count:                 0,
+		X1Row:                   -1,
 		W1SigBase:               packedSigBase,
 		W1SigCount:              packedSigCount,
 		PackedSigBase:           packedSigBase,
@@ -1486,11 +1502,11 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		PackedSigBlocks:         blocks,
 		PackedSigComponents:     len(cn.Sig),
 		PackedSigBlockWidth:     ncols,
-		ScalarBundleBase:        scalarBundleBase,
-		ScalarBundleCount:       scalarBundleCount,
-		USlots:                  clonePRFSlots(uSlots),
-		X0Slots:                 clonePRFSlots(x0Slots),
-		X1Slot:                  x1Slot,
+		ScalarBundleBase:        -1,
+		ScalarBundleCount:       0,
+		USlots:                  nil,
+		X0Slots:                 nil,
+		X1Slot:                  PRFSlot{Row: -1, Col: -1},
 		PostSignMsgSumRow:       postSignMsgSumRow,
 		PostSignRndSumRow:       postSignRndSumRow,
 		PostSignX1Row:           postSignX1Row,
@@ -1504,39 +1520,90 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		NonSigCertRadix:         nonSigCertRadix,
 		NonSigCertDigits:        nonSigCertDigits,
 	}
-	if model == CoeffNativeSigModelLiteralPackedAggregatedV3 {
-		layout.SigPrimaryLimbRows = packedSigChainGroupCount * packedSigChainRowsPerGroup
-		if compressedNonSigV3 {
-			layout.PostSignScalarProjectionRows = 3
-			layout.PostSignScalarCertificateRows = nonSigCertRowsPerScalar * (uCount + x0Count + 1)
-			layout.SigBoundSliceRows = layout.PostSignScalarCertificateRows
-		} else {
-			layout.PostSignScalarProjectionRows = 0
-			layout.PostSignScalarCertificateRows = 0
-			layout.ScalarBundleRows = scalarBundleCount
-			layout.SigBoundSliceRows = layout.SigPrimaryLimbRows
-			if rowsPer := nonSigBoundRowsPer; rowsPer > 0 {
-				layout.SigBoundSliceRows += rowsPer * (uCount + x0Count + 1)
-			}
+
+	if useLegacyPRF {
+		prfLayout = &PRFLayout{
+			Mode:        PRFLayoutModeSBox,
+			StartIdx:    startIdx,
+			LenKey:      prfParamsLenKey,
+			LenNonce:    prfParamsLenNonce,
+			RF:          prfRF,
+			RP:          prfRP,
+			LenTag:      len(pub.Tag),
+			GroupRounds: prfGroupRounds,
+			PackedRows:  prfPackedRows,
+			KeySlots:    clonePRFSlots(prfKeySlots),
+			SBoxSlots:   clonePRFSlots(prfSBoxSlots),
+			WitnessRows: livePRFWitnessRows,
+			KeyBind:     true,
+			M2RowIdx:    idxM2,
 		}
 	}
-
-	prfLayout = &PRFLayout{
-		Mode:        PRFLayoutModeSBox,
-		StartIdx:    startIdx,
-		LenKey:      prfParamsLenKey,
-		LenNonce:    prfParamsLenNonce,
-		RF:          prfRF,
-		RP:          prfRP,
-		LenTag:      len(pub.Tag),
-		GroupRounds: prfGroupRounds,
-		PackedRows:  prfPackedRows,
-		KeySlots:    clonePRFSlots(prfKeySlots),
-		SBoxSlots:   clonePRFSlots(prfSBoxSlots),
-		WitnessRows: len(cn.PRFKey) + len(sboxPolys),
-		KeyBind:     false,
-		M2RowIdx:    -1,
+	if companionMode != "" {
+		companionStart := len(rows)
+		keyElems := make([]prf.Elem, len(keyScalars))
+		for i := range keyScalars {
+			keyElems[i] = prf.Elem(liftToField(ringQ.Modulus[0], keyScalars[i]))
+		}
+		nonceElems := make([]prf.Elem, len(pub.Nonce))
+		for i := range pub.Nonce {
+			if len(pub.Nonce[i]) == 0 {
+				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("public nonce lane %d is empty", i)
+			}
+			nonceElems[i] = prf.Elem(liftToField(ringQ.Modulus[0], pub.Nonce[i][0]))
+		}
+		params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+		if perr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("load prf params for companion witness: %w", perr)
+		}
+		groupedWitness, gwerr := prf.TraceGroupedWitness(keyElems, nonceElems, params, prfGroupRounds)
+		if gwerr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("trace grouped prf witness: %w", gwerr)
+		}
+		packed, perr := packPRFCompanionWitnessRows(ringQ, ncols, companionStart, companionMode, keyElems, groupedWitness, makeRowFromHead)
+		if perr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack prf companion rows: %w", perr)
+		}
+		rows = append(rows, packed.Rows...)
+		signedKeyCoeffs := make([]int, prfParamsLenKey)
+		for i := 0; i < prfParamsLenKey; i++ {
+			signedKeyCoeffs[i] = 8 + i
+		}
+		rowSemantics := make([]RowSemantics, len(packed.Rows))
+		for i := range rowSemantics {
+			rowSemantics[i] = CoeffPackedRow
+		}
+		dataRows := ceilDiv(len(packed.CheckpointSlots), ncols)
+		helperRows := maxInt(len(packed.Rows)-dataRows, 0)
+		helperFamilies := []string{"final_tag_state"}
+		if companionMode == PRFCompanionModeCurrent {
+			dataRows = ceilDiv(len(packed.KeySlots)+len(packed.CheckpointSlots), ncols)
+			helperRows = maxInt(len(packed.Rows)-dataRows, 0)
+			helperFamilies = []string{"checkpoint_inputs", "final_tag_state"}
+		}
+		prfCompanionLayout = &PRFCompanionLayout{
+			StartRow:             companionStart,
+			PackWidth:            ncols,
+			KeySource:            KeySourceSignedSecret,
+			KeySlots:             packed.KeySlots,
+			CheckpointSlots:      packed.CheckpointSlots,
+			CheckpointInputSlots: packed.CheckpointInputSlots,
+			FinalTagSlots:        packed.FinalTagSlots,
+			HelperFamilies:       helperFamilies,
+			SignedKeyMapping:     SignedKeyExtraction{M2Row: idxM2, Coeffs: signedKeyCoeffs},
+			PackedRows:           len(packed.Rows),
+			PackedLogicalCount:   packed.TotalLogicalScalars,
+			HelperRowCount:       helperRows,
+			DataRows:             dataRows,
+			HelperRows:           helperRows,
+			KeyCount:             len(packed.KeySlots),
+			CheckpointCount:      len(packed.CheckpointSlots),
+			TagCount:             len(pub.Tag),
+			RowSemantics:         rowSemantics,
+		}
 	}
+	layout.PRFScalarBundleRows = len(rows) - startIdx
+	layout.SigCount = len(rows)
 
 	witnessCount = len(rows)
 	rowInputs = buildRowInputs(ringQ, rows, ncols)
@@ -1554,7 +1621,7 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		maxDegree = ncols + opts.Ell - 1
 	}
 	decsParams = decs.Params{Degree: maxDegree, Eta: opts.Eta, NonceBytes: 16}
-	return rows, rowInputs, layout, prfLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, startIdx, ncols, nil
+	return rows, rowInputs, layout, prfLayout, prfCompanionLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, startIdx, ncols, nil
 }
 
 func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, bound int64, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, domainMode DomainMode, opts SimOpts) (ConstraintSet, error) {
@@ -1566,168 +1633,15 @@ func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, 
 	if domainMode != DomainModeExplicit {
 		return ConstraintSet{}, fmt.Errorf("literal packed aggregated mode requires explicit domain mode")
 	}
+	baseLayout := layout
+	baseLayout.CoeffNativeSig.Enabled = false
+	baseSet, err := buildCredentialConstraintSetPostFromRows(ringQ, bound, pub, baseLayout, rowsNTT, omega, domainMode, opts)
+	if err != nil {
+		return ConstraintSet{}, err
+	}
 	q := ringQ.Modulus[0]
-	wit, err := literalPackedWitnessFromRowsNTT(layout, rowsNTT)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("literal packed witness from rows: %w", err)
-	}
-	compileCtx, err := buildLiteralPackedCompileContext(ringQ, pub, layout, wit, omega)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("literal packed compile context: %w", err)
-	}
 	if cfg.Model != CoeffNativeSigModelLiteralPackedAggregatedV3 {
 		return ConstraintSet{}, fmt.Errorf("unsupported literal packed coeff-native model %q", cfg.Model)
-	}
-	fparInt := []*ring.Poly{}
-	fparIntCoeffs := [][]uint64{}
-	faggInt := make([]*ring.Poly, 0, cfg.OutputBlocks*len(pub.A)*cfg.OutputBlockWidth)
-	faggIntCoeffs := make([][]uint64, 0, cfg.OutputBlocks*len(pub.A)*cfg.OutputBlockWidth)
-	for outRow := 0; outRow < len(pub.A); outRow++ {
-		for outBlock := 0; outBlock < cfg.PackedSigBlocks; outBlock++ {
-			for outCoord := 0; outCoord < cfg.PackedSigBlockWidth; outCoord++ {
-				var (
-					coeffs []uint64
-					aerr   error
-				)
-				coeffs, aerr = buildLiteralPackedAggregatedConstraintFormalCoeffsV3(compileCtx, outRow, outBlock, outCoord)
-				if aerr != nil {
-					return ConstraintSet{}, fmt.Errorf("literal packed aggregated row (%d,%d,%d): %w", outRow, outBlock, outCoord, aerr)
-				}
-				faggInt = append(faggInt, coeffsToNTTIfFits(ringQ, coeffs))
-				faggIntCoeffs = append(faggIntCoeffs, coeffs)
-			}
-		}
-	}
-	parallelDeg := 1
-	var fparBounds []*ring.Poly
-	var fparBoundsCoeffs [][]uint64
-	if rowLayoutCoeffNativeUsesCompressedNonSigScalars(layout) {
-		specCert, serr := v3NonSigScalarCertSpec(q, bound)
-		if serr != nil {
-			return ConstraintSet{}, fmt.Errorf("v3 non-sign scalar cert spec: %w", serr)
-		}
-		cfgCert := PostSignScalarCertConfig{
-			Ring:              ringQ,
-			Spec:              specCert,
-			MsgSumRow:         cfg.PostSignMsgSumRow,
-			RndSumRow:         cfg.PostSignRndSumRow,
-			X1Row:             cfg.PostSignX1Row,
-			UScalarCertBase:   cfg.UScalarCertBase,
-			UScalarCertCount:  cfg.UScalarCertCount,
-			X0ScalarCertBase:  cfg.X0ScalarCertBase,
-			X0ScalarCertCount: cfg.X0ScalarCertCount,
-			X1ScalarCertBase:  cfg.X1ScalarCertBase,
-			X1ScalarCertCount: cfg.X1ScalarCertCount,
-			RowsPerScalar:     cfg.NonSigCertRowsPerScalar,
-		}
-		certPolys, certCoeffs, err := buildPostSignScalarCertFormalCoeffs(ringQ, rowsNTT, cfgCert)
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("v3 post-sign scalar cert: %w", err)
-		}
-		fparBounds = append(fparBounds, certPolys...)
-		fparBoundsCoeffs = append(fparBoundsCoeffs, certCoeffs...)
-		for i := 0; i < specCert.L; i++ {
-			if deg := maxDegreeFromCoeffs(specCert.PDi[i]); deg > parallelDeg {
-				parallelDeg = deg
-			}
-		}
-	} else if rowsPer := inferNonSigBoundRowsPer(layout); rowsPer > 0 {
-		specBound, serr := nonSigBoundLinfSpec(q, bound)
-		if serr != nil {
-			return ConstraintSet{}, fmt.Errorf("post-sign bound chain spec: %w", serr)
-		}
-		P := make([]*ring.Poly, 0, cfg.UCount+cfg.X0Count+1)
-		cd := ChainDecomp{M: make([]*ring.Poly, 0, cfg.UCount+cfg.X0Count+1), D: make([][]*ring.Poly, 0, cfg.UCount+cfg.X0Count+1)}
-		mulNTTPoly := func(a, b *ring.Poly) *ring.Poly {
-			out := ringQ.NewPoly()
-			for i := 0; i < ringQ.N; i++ {
-				out.Coeffs[0][i] = lvcs.MulMod64(a.Coeffs[0][i]%q, b.Coeffs[0][i]%q, q)
-			}
-			return out
-		}
-		appendBoundFamily := func(base int, srcRows []int, label string) error {
-			for t, srcIdx := range srcRows {
-				if srcIdx < 0 || srcIdx >= len(rowsNTT) {
-					return fmt.Errorf("%s source row idx %d out of range (rows=%d)", label, srcIdx, len(rowsNTT))
-				}
-				chainBase := base + t*rowsPer
-				if chainBase < 0 || chainBase+rowsPer > len(rowsNTT) {
-					return fmt.Errorf("%s chain rows [%d,%d) out of range (rows=%d)", label, chainBase, chainBase+rowsPer, len(rowsNTT))
-				}
-				P = append(P, rowsNTT[srcIdx])
-				cd.M = append(cd.M, rowsNTT[chainBase])
-				digits := make([]*ring.Poly, specBound.L)
-				for i := 0; i < specBound.L; i++ {
-					digits[i] = rowsNTT[chainBase+1+i]
-				}
-				cd.D = append(cd.D, digits)
-			}
-			return nil
-		}
-		if rowLayoutCoeffNativeUsesLiteralPackedV3(layout) && cfg.ScalarBundleCount > 0 {
-			selectorTheta, selectorCoeff, err := buildOmegaDeltaSelectors(ringQ, omega)
-			if err != nil {
-				return ConstraintSet{}, fmt.Errorf("v3 bound selectors: %w", err)
-			}
-			appendSlotBoundFamily := func(base int, slots []PRFSlot, label string) error {
-				for t, slot := range slots {
-					if slot.Row < 0 || slot.Row >= len(rowsNTT) {
-						return fmt.Errorf("%s slot row %d out of range (rows=%d)", label, slot.Row, len(rowsNTT))
-					}
-					if slot.Col < 0 || slot.Col >= len(selectorTheta) {
-						return fmt.Errorf("%s slot col %d out of range", label, slot.Col)
-					}
-					chainBase := base + t*rowsPer
-					if chainBase < 0 || chainBase+rowsPer > len(rowsNTT) {
-						return fmt.Errorf("%s chain rows [%d,%d) out of range (rows=%d)", label, chainBase, chainBase+rowsPer, len(rowsNTT))
-					}
-					P = append(P, mulNTTPoly(rowsNTT[slot.Row], selectorTheta[slot.Col]))
-					cd.M = append(cd.M, rowsNTT[chainBase])
-					digits := make([]*ring.Poly, specBound.L)
-					for i := 0; i < specBound.L; i++ {
-						digits[i] = rowsNTT[chainBase+1+i]
-					}
-					cd.D = append(cd.D, digits)
-					_ = selectorCoeff
-				}
-				return nil
-			}
-			if err := appendSlotBoundFamily(layout.MsgRangeBase, cfg.USlots, "literal packed v3 msg bound chain"); err != nil {
-				return ConstraintSet{}, err
-			}
-			if err := appendSlotBoundFamily(layout.RndRangeBase, cfg.X0Slots, "literal packed v3 rnd bound chain"); err != nil {
-				return ConstraintSet{}, err
-			}
-			if err := appendSlotBoundFamily(layout.X1RangeBase, []PRFSlot{cfg.X1Slot}, "literal packed v3 x1 bound chain"); err != nil {
-				return ConstraintSet{}, err
-			}
-		} else {
-			uRows := make([]int, cfg.UCount)
-			for i := range uRows {
-				uRows[i] = rowLayoutCoeffNativeUIndex(layout, i)
-			}
-			if err := appendBoundFamily(layout.MsgRangeBase, uRows, "literal packed msg bound chain"); err != nil {
-				return ConstraintSet{}, err
-			}
-			x0Rows := make([]int, cfg.X0Count)
-			for i := range x0Rows {
-				x0Rows[i] = rowLayoutCoeffNativeX0Index(layout, i)
-			}
-			if err := appendBoundFamily(layout.RndRangeBase, x0Rows, "literal packed rnd bound chain"); err != nil {
-				return ConstraintSet{}, err
-			}
-			if err := appendBoundFamily(layout.X1RangeBase, []int{rowLayoutCoeffNativeX1Index(layout)}, "literal packed x1 bound chain"); err != nil {
-				return ConstraintSet{}, err
-			}
-		}
-		boundPolys, boundCoeffs := buildFparLinfChainComposeFormalCoeffs(ringQ, P, cd, specBound)
-		fparBounds = append(fparBounds, boundPolys...)
-		fparBoundsCoeffs = append(fparBoundsCoeffs, boundCoeffs...)
-		for i := 0; i < specBound.L; i++ {
-			if deg := maxDegreeFromCoeffs(specBound.PDi[i]); deg > parallelDeg {
-				parallelDeg = deg
-			}
-		}
 	}
 	if layout.PackedSigChainBase >= 0 && layout.PackedSigChainRowsPerGroup > 0 {
 		specSig, serr := signatureChainSpecForLayoutAndOpts(q, layout, opts)
@@ -1745,8 +1659,15 @@ func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, 
 		if layout.PackedSigChainGroupCount != wantGroupCount {
 			return ConstraintSet{}, fmt.Errorf("signature shortness group count=%d want %d", layout.PackedSigChainGroupCount, wantGroupCount)
 		}
+		if cfg.PackedSigBase+cfg.PackedSigCount > len(rowsNTT) {
+			return ConstraintSet{}, fmt.Errorf("packed signature source rows [%d,%d) out of range (rows=%d)", cfg.PackedSigBase, cfg.PackedSigBase+cfg.PackedSigCount, len(rowsNTT))
+		}
 		if layout.PackedSigChainBase+layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup > len(rowsNTT) {
 			return ConstraintSet{}, fmt.Errorf("signature shortness rows [%d,%d) out of range (rows=%d)", layout.PackedSigChainBase, layout.PackedSigChainBase+layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup, len(rowsNTT))
+		}
+		packedSourceRows := make([]*ring.Poly, layout.PackedSigChainGroupCount)
+		for g := 0; g < layout.PackedSigChainGroupCount; g++ {
+			packedSourceRows[g] = rowsNTT[cfg.PackedSigBase+g]
 		}
 		packedRows := make([][]*ring.Poly, layout.PackedSigChainGroupCount)
 		for g := 0; g < layout.PackedSigChainGroupCount; g++ {
@@ -1755,28 +1676,19 @@ func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, 
 				packedRows[g][i] = rowsNTT[layout.PackedSigChainBase+g*layout.PackedSigChainRowsPerGroup+i]
 			}
 		}
-		chainPolys, chainCoeffs, err := buildSigShortnessPackedMembershipFormalCoeffs(ringQ, packedRows, specSig)
+		chainPolys, chainCoeffs, err := buildSigShortnessPackedMembershipFormalCoeffs(ringQ, packedSourceRows, packedRows, specSig)
 		if err != nil {
 			return ConstraintSet{}, fmt.Errorf("literal packed signature shortness: %w", err)
 		}
-		fparBounds = append(fparBounds, chainPolys...)
-		fparBoundsCoeffs = append(fparBoundsCoeffs, chainCoeffs...)
+		baseSet.FparNorm = append(baseSet.FparNorm, chainPolys...)
+		baseSet.FparNormCoeffs = append(baseSet.FparNormCoeffs, chainCoeffs...)
 		deg, derr := signatureShortnessMaxDegree(specSig, opts)
 		if derr != nil {
 			return ConstraintSet{}, fmt.Errorf("signature shortness degree: %w", derr)
 		}
-		if deg > parallelDeg {
-			parallelDeg = deg
+		if deg > baseSet.ParallelAlgDeg {
+			baseSet.ParallelAlgDeg = deg
 		}
 	}
-	return ConstraintSet{
-		FparInt:          fparInt,
-		FparNorm:         fparBounds,
-		FaggInt:          faggInt,
-		FparIntCoeffs:    fparIntCoeffs,
-		FparNormCoeffs:   fparBoundsCoeffs,
-		FaggIntCoeffs:    faggIntCoeffs,
-		ParallelAlgDeg:   parallelDeg,
-		AggregatedAlgDeg: 2,
-	}, nil
+	return baseSet, nil
 }
