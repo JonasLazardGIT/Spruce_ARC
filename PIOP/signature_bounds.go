@@ -26,7 +26,7 @@ var (
 	productionSignatureCoeffLinfBetaOnce  sync.Once
 	productionSignatureCoeffLinfBetaValue uint64
 	productionSignatureCoeffLinfBetaErr   error
-	signatureChainSpecCache              sync.Map
+	signatureChainSpecCache               sync.Map
 )
 
 type signatureChainSpecCacheKey struct {
@@ -198,7 +198,7 @@ func signatureBoundShapeForOptsV1(q uint64, opts SimOpts) (base int, L int, beta
 func signatureBoundShapeForOpts(q uint64, opts SimOpts) (base int, L int, beta uint64, caps []int, err error) {
 	model := resolveCoeffNativeSigModel(opts)
 	switch model {
-	case CoeffNativeSigModelLiteralPackedAggregatedV3, CoeffNativeSigModelLiteralPackedAggregatedV4SplitPRF:
+	case CoeffNativeSigModelLiteralPackedAggregatedV3:
 		beta, err = productionSignatureCoeffLinfBeta()
 		if err != nil {
 			return 0, 0, 0, nil, err

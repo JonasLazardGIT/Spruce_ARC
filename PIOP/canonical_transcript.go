@@ -74,25 +74,6 @@ func BuildPaperTranscriptReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (P
 	if proof.Lambda > 0 {
 		reportOpts.Lambda = proof.Lambda
 	}
-	if proof.ShowingSplit != nil {
-		postOpts, prfOpts := resolveShowingSplitSliceOpts(reportOpts)
-		out := PaperTranscriptReport{}
-		if proof.ShowingSplit.PostSign != nil && proof.ShowingSplit.PostSign.Proof != nil {
-			child, err := BuildPaperTranscriptReport(proof.ShowingSplit.PostSign.Proof, postOpts, ringQ)
-			if err != nil {
-				return PaperTranscriptReport{}, err
-			}
-			out = mergePaperTranscriptReports(out, child)
-		}
-		if proof.ShowingSplit.PRF != nil && proof.ShowingSplit.PRF.Proof != nil {
-			child, err := BuildPaperTranscriptReport(proof.ShowingSplit.PRF.Proof, prfOpts, ringQ)
-			if err != nil {
-				return PaperTranscriptReport{}, err
-			}
-			out = mergePaperTranscriptReports(out, child)
-		}
-		return out, nil
-	}
 	reportOpts.Kappa = proof.Kappa
 	if proof.Theta > 0 {
 		reportOpts.Theta = proof.Theta

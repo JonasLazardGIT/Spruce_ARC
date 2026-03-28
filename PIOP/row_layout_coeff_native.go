@@ -9,7 +9,7 @@ func resolveCoeffNativeSigModel(opts SimOpts) string {
 
 func coeffNativeSigModelUsesLiteralPacked(model string) bool {
 	switch model {
-	case CoeffNativeSigModelLiteralPackedAggregatedV3, CoeffNativeSigModelLiteralPackedAggregatedV4SplitPRF:
+	case CoeffNativeSigModelLiteralPackedAggregatedV3:
 		return true
 	default:
 		return false

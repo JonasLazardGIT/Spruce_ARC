@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	CoeffNativeSigModelLiteralPackedAggregatedV3         = "literal_packed_aggregated_v3"
-	CoeffNativeSigModelLiteralPackedAggregatedV4SplitPRF = "literal_packed_aggregated_v4_split_prf"
+	CoeffNativeSigModelLiteralPackedAggregatedV3 = "literal_packed_aggregated_v3"
 )
 
 // SimOpts carries the proving and reporting knobs used by the retained
@@ -379,23 +378,6 @@ type Proof struct {
 	MaskEvalCols  int
 	// Optional PRF layout metadata for showing proofs.
 	PRFLayout *PRFLayout
-	// ShowingSplit carries the post-sign and PRF slices for the split v4 model.
-	ShowingSplit *ShowingSplitProof
-}
-
-// ShowingProofSlice records one independently committed slice inside the split
-// showing proof. The proof payload is reused directly so existing prove/verify
-// machinery can operate on each slice without a parallel proof format.
-type ShowingProofSlice struct {
-	Name  string
-	Proof *Proof
-}
-
-// ShowingSplitProof groups the post-sign and PRF slices of the versioned split
-// showing model.
-type ShowingSplitProof struct {
-	PostSign *ShowingProofSlice
-	PRF      *ShowingProofSlice
 }
 
 type fsRoundResult struct {
@@ -1602,16 +1584,6 @@ func estimateProofSize(proof *Proof) int {
 	if proof == nil {
 		return 0
 	}
-	if proof.ShowingSplit != nil {
-		sum := 0
-		if proof.ShowingSplit.PostSign != nil {
-			sum += estimateProofSize(proof.ShowingSplit.PostSign.Proof)
-		}
-		if proof.ShowingSplit.PRF != nil {
-			sum += estimateProofSize(proof.ShowingSplit.PRF.Proof)
-		}
-		return sum
-	}
 	proof.syncPCSCompat()
 	proof.ensureQRPacked()
 	proof.ensureVTargetsPacked()
@@ -1641,25 +1613,6 @@ func estimateProofSize(proof *Proof) int {
 func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 	if proof == nil {
 		return map[string]int{}, 0
-	}
-	if proof.ShowingSplit != nil {
-		sizes := make(map[string]int)
-		total := 0
-		if proof.ShowingSplit.PostSign != nil {
-			childSizes, childTotal := proofSizeBreakdown(proof.ShowingSplit.PostSign.Proof)
-			total += childTotal
-			for k, v := range childSizes {
-				sizes[k] += v
-			}
-		}
-		if proof.ShowingSplit.PRF != nil {
-			childSizes, childTotal := proofSizeBreakdown(proof.ShowingSplit.PRF.Proof)
-			total += childTotal
-			for k, v := range childSizes {
-				sizes[k] += v
-			}
-		}
-		return sizes, total
 	}
 	proof.syncPCSCompat()
 	proof.ensureQRPacked()

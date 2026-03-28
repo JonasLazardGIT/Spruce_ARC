@@ -264,49 +264,6 @@ func BuildWitnessGeometrySnapshotFromProof(proof *Proof) WitnessGeometrySnapshot
 	if proof == nil {
 		return WitnessGeometrySnapshot{}
 	}
-	if proof.ShowingSplit != nil {
-		var postGeom, prfGeom WitnessGeometrySnapshot
-		if proof.ShowingSplit.PostSign != nil {
-			postGeom = BuildWitnessGeometrySnapshotFromProof(proof.ShowingSplit.PostSign.Proof)
-		}
-		if proof.ShowingSplit.PRF != nil {
-			prfGeom = BuildWitnessGeometrySnapshotFromProof(proof.ShowingSplit.PRF.Proof)
-		}
-		out := WitnessGeometrySnapshot{
-			WitnessSupportCols:         maxGeometryInt(postGeom.WitnessSupportCols, prfGeom.WitnessSupportCols),
-			ActualWitnessPolys:         postGeom.ActualWitnessPolys + prfGeom.ActualWitnessPolys,
-			ActualPostSignWitnessPolys: postGeom.ActualWitnessPolys,
-			ActualPRFWitnessPolys:      prfGeom.ActualWitnessPolys,
-			ReplayPostSignRows:         postGeom.ReplayPostSignRows,
-			ReplayPRFRows:              prfGeom.ReplayPRFRows,
-			PCSBlockCount:              postGeom.PCSBlockCount + prfGeom.PCSBlockCount,
-			WitnessRowsCommitted:       postGeom.WitnessRowsCommitted + prfGeom.WitnessRowsCommitted,
-			MaskRowsCommitted:          postGeom.MaskRowsCommitted + prfGeom.MaskRowsCommitted,
-			TotalRowsCommitted:         postGeom.TotalRowsCommitted + prfGeom.TotalRowsCommitted,
-			BlockCapacity:              postGeom.BlockCapacity + prfGeom.BlockCapacity,
-			FinalBlockSlack:            postGeom.FinalBlockSlack + prfGeom.FinalBlockSlack,
-			PostSignPrefixSlack:        postGeom.PostSignPrefixSlack,
-		}
-		if postGeom.WitnessSupportCols == prfGeom.WitnessSupportCols {
-			out.WitnessSupportCols = postGeom.WitnessSupportCols
-		}
-		if postGeom.RowsPerBlock == prfGeom.RowsPerBlock {
-			out.RowsPerBlock = postGeom.RowsPerBlock
-		}
-		if postGeom.CommittedCols == prfGeom.CommittedCols {
-			out.CommittedCols = postGeom.CommittedCols
-		}
-		if postGeom.LeafCount == prfGeom.LeafCount {
-			out.LeafCount = postGeom.LeafCount
-		}
-		if out.BlockCapacity > 0 {
-			out.OccupancyPct = 100.0 * float64(out.ActualWitnessPolys) / float64(out.BlockCapacity)
-		}
-		if out.ReplayPRFRows > 0 {
-			out.ReplayToWitnessExpansion = float64(out.ActualPRFWitnessPolys) / float64(out.ReplayPRFRows)
-		}
-		return out
-	}
 	committedCols := resolveProofPCSNCols(proof, proof.LVCSNColsUsed)
 	return BuildWitnessGeometrySnapshotFromLayout(
 		proof.RowLayout,

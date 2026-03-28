@@ -55,9 +55,6 @@ func BuildShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*P
 	if wit.CoeffNativeShowing == nil {
 		return nil, fmt.Errorf("showing requires WitnessInputs.CoeffNativeShowing")
 	}
-	if resolveCoeffNativeSigModel(opts) == CoeffNativeSigModelLiteralPackedAggregatedV4SplitPRF {
-		return buildShowingSplitCombined(pub, wit, opts)
-	}
 	ringQ, omega, ncols, err := loadParamsAndOmega(opts)
 	if err != nil {
 		return nil, fmt.Errorf("load params: %w", err)

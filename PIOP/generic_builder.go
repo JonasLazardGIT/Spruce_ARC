@@ -570,46 +570,6 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 	if proof == nil {
 		return false, fmt.Errorf("nil proof")
 	}
-	if proof.ShowingSplit != nil {
-		postOpts, prfOpts := resolveShowingSplitSliceOpts(opts)
-		if proof.ShowingSplit.PostSign == nil || proof.ShowingSplit.PostSign.Proof == nil {
-			return false, fmt.Errorf("missing split post-sign proof")
-		}
-		if proof.ShowingSplit.PRF == nil || proof.ShowingSplit.PRF.Proof == nil {
-			return false, fmt.Errorf("missing split prf proof")
-		}
-		ok, err := VerifyWithConstraints(proof.ShowingSplit.PostSign.Proof, ConstraintSet{}, pub, postOpts, personalization)
-		if err != nil || !ok {
-			if err == nil {
-				err = fmt.Errorf("split post-sign verifier rejected proof")
-			} else {
-				err = fmt.Errorf("split post-sign verify: %w", err)
-			}
-			return false, err
-		}
-		prfSet := ConstraintSet{}
-		if proof.ShowingSplit.PRF.Proof.PRFLayout != nil {
-			prfWitnessRows := proof.ShowingSplit.PRF.Proof.RowLayout.SigCount
-			if prfWitnessRows <= 0 {
-				prfWitnessRows = proof.ShowingSplit.PRF.Proof.MaskRowOffset
-			}
-			if err := ValidateRowDependencyClosure(proof.ShowingSplit.PRF.Proof.RowLayout, proof.ShowingSplit.PRF.Proof.PRFLayout, prfWitnessRows); err != nil {
-				pl := proof.ShowingSplit.PRF.Proof.PRFLayout
-				return false, fmt.Errorf("split prf metadata closure before verify: %w (start=%d witness_rows=%d lenkey=%d lennonce=%d group=%d)", err, pl.StartIdx, pl.WitnessRows, pl.LenKey, pl.LenNonce, pl.GroupRounds)
-			}
-			prfSet.PRFLayout = clonePRFLayout(proof.ShowingSplit.PRF.Proof.PRFLayout)
-		}
-		ok, err = VerifyWithConstraints(proof.ShowingSplit.PRF.Proof, prfSet, pub, prfOpts, personalization)
-		if err != nil || !ok {
-			if err == nil {
-				err = fmt.Errorf("split prf verifier rejected proof")
-			} else {
-				err = fmt.Errorf("split prf verify: %w", err)
-			}
-			return false, err
-		}
-		return true, nil
-	}
 	if personalization == "" {
 		personalization = FSModeCredential
 	}

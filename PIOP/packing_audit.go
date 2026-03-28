@@ -54,63 +54,6 @@ func BuildProofPackingAudit(proof *Proof, q uint64) (ProofPackingAudit, error) {
 	if proof == nil {
 		return ProofPackingAudit{}, fmt.Errorf("nil proof")
 	}
-	if proof.ShowingSplit != nil {
-		audit := ProofPackingAudit{
-			ModulusCeilingBits: packedwidth.ModulusCeiling(q),
-		}
-		merge := func(child ProofPackingAudit) {
-			audit.VTargets.Bytes += child.VTargets.Bytes
-			audit.QR.Bytes += child.QR.Bytes
-			audit.BarSets.Bytes += child.BarSets.Bytes
-			audit.RowOpening.TotalBytes += child.RowOpening.TotalBytes
-			audit.QOpening.TotalBytes += child.QOpening.TotalBytes
-			audit.PCSOpening.TotalBytes += child.PCSOpening.TotalBytes
-			if child.VTargets.MaxValue > audit.VTargets.MaxValue {
-				audit.VTargets.MaxValue = child.VTargets.MaxValue
-			}
-			if child.QR.MaxValue > audit.QR.MaxValue {
-				audit.QR.MaxValue = child.QR.MaxValue
-			}
-			if child.BarSets.MaxValue > audit.BarSets.MaxValue {
-				audit.BarSets.MaxValue = child.BarSets.MaxValue
-			}
-			audit.VTargets.BitWidth = maxPackingWidth(audit.VTargets.BitWidth, child.VTargets.BitWidth)
-			audit.QR.BitWidth = maxPackingWidth(audit.QR.BitWidth, child.QR.BitWidth)
-			audit.BarSets.BitWidth = maxPackingWidth(audit.BarSets.BitWidth, child.BarSets.BitWidth)
-			audit.RowOpening.Pvals.BitWidth = maxPackingWidth(audit.RowOpening.Pvals.BitWidth, child.RowOpening.Pvals.BitWidth)
-			audit.RowOpening.Mvals.BitWidth = maxPackingWidth(audit.RowOpening.Mvals.BitWidth, child.RowOpening.Mvals.BitWidth)
-			audit.QOpening.Pvals.BitWidth = maxPackingWidth(audit.QOpening.Pvals.BitWidth, child.QOpening.Pvals.BitWidth)
-			audit.QOpening.Mvals.BitWidth = maxPackingWidth(audit.QOpening.Mvals.BitWidth, child.QOpening.Mvals.BitWidth)
-			audit.PCSOpening.Pvals.BitWidth = maxPackingWidth(audit.PCSOpening.Pvals.BitWidth, child.PCSOpening.Pvals.BitWidth)
-			audit.PCSOpening.Mvals.BitWidth = maxPackingWidth(audit.PCSOpening.Mvals.BitWidth, child.PCSOpening.Mvals.BitWidth)
-		}
-		if proof.ShowingSplit.PostSign != nil && proof.ShowingSplit.PostSign.Proof != nil {
-			child, err := BuildProofPackingAudit(proof.ShowingSplit.PostSign.Proof, q)
-			if err != nil {
-				return ProofPackingAudit{}, err
-			}
-			merge(child)
-		}
-		if proof.ShowingSplit.PRF != nil && proof.ShowingSplit.PRF.Proof != nil {
-			child, err := BuildProofPackingAudit(proof.ShowingSplit.PRF.Proof, q)
-			if err != nil {
-				return ProofPackingAudit{}, err
-			}
-			merge(child)
-		}
-		audit.MaxFieldBitWidth = maxPackingWidth(
-			audit.VTargets.BitWidth,
-			audit.QR.BitWidth,
-			audit.BarSets.BitWidth,
-			audit.RowOpening.Pvals.BitWidth,
-			audit.RowOpening.Mvals.BitWidth,
-			audit.QOpening.Pvals.BitWidth,
-			audit.QOpening.Mvals.BitWidth,
-			audit.PCSOpening.Pvals.BitWidth,
-			audit.PCSOpening.Mvals.BitWidth,
-		)
-		return audit, nil
-	}
 	proof.syncPCSCompat()
 	proof.ensureQRPacked()
 	proof.ensureVTargetsPacked()

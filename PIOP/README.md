@@ -7,7 +7,7 @@ stack:
 
 - issuance / pre-sign proving
 - showing in the one-root `v3` layout
-- showing in the split-PRF `v4` layout
+- showing in the retained one-root coeff-native layout
 
 ## Main Responsibilities
 
@@ -33,7 +33,7 @@ stack:
 - replay-based verification
 - only the retained showing layouts:
   `literal_packed_aggregated_v3`
-  and `literal_packed_aggregated_v4_split_prf`
+  and the retained `literal_packed_aggregated_v3`
 - coeff-native showing witness at the caller boundary
 - grouped PRF checkpoints in the showing statement
 

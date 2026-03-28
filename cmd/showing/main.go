@@ -125,22 +125,17 @@ func main() {
 		productionNLeaves        = 2048
 	)
 
-	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3 or literal_packed_aggregated_v4_split_prf)")
+	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
 	flag.Parse()
 
 	resolvedModel := *coeffModel
 	if resolvedModel == "" {
 		resolvedModel = PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3
 	}
-	splitDefaults := PIOP.DefaultShowingSplitGeometry()
 	effectivePostLVCS := productionLVCSNCols
 	effectivePostNLeaves := productionNLeaves
-	effectivePRFLVCS := splitDefaults.PRFLVCSNCols
-	effectivePRFNLeaves := splitDefaults.PRFNLeaves
-	if resolvedModel == PIOP.CoeffNativeSigModelLiteralPackedAggregatedV4SplitPRF {
-		effectivePostLVCS = splitDefaults.PostSignLVCSNCols
-		effectivePostNLeaves = splitDefaults.PostSignNLeaves
-	}
+	effectivePRFLVCS := productionLVCSNCols
+	effectivePRFNLeaves := productionNLeaves
 
 	if wd, err := os.Getwd(); err == nil {
 		cli.printf(categoryStatus, "[showing-cli] ", "cwd=%s", wd)
@@ -636,15 +631,6 @@ func formatWitnessGeometrySummary(geom PIOP.WitnessGeometrySnapshot) string {
 }
 
 func printCommittedWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
-	if proof != nil && proof.ShowingSplit != nil {
-		if proof.ShowingSplit.PostSign != nil && proof.ShowingSplit.PostSign.Proof != nil {
-			printCommittedWitnessRowBreakdown(prefix+"[post_sign] ", proof.ShowingSplit.PostSign.Proof)
-		}
-		if proof.ShowingSplit.PRF != nil && proof.ShowingSplit.PRF.Proof != nil {
-			printCommittedWitnessRowBreakdown(prefix+"[prf] ", proof.ShowingSplit.PRF.Proof)
-		}
-		return
-	}
 	breakdown := committedWitnessRowBreakdownFromProof(proof)
 	if breakdown.TotalRows == 0 {
 		return
@@ -676,15 +662,6 @@ func printCommittedWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
 }
 
 func printLogicalWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
-	if proof != nil && proof.ShowingSplit != nil {
-		if proof.ShowingSplit.PostSign != nil && proof.ShowingSplit.PostSign.Proof != nil {
-			printLogicalWitnessRowBreakdown(prefix+"[post_sign] ", proof.ShowingSplit.PostSign.Proof)
-		}
-		if proof.ShowingSplit.PRF != nil && proof.ShowingSplit.PRF.Proof != nil {
-			printLogicalWitnessRowBreakdown(prefix+"[prf] ", proof.ShowingSplit.PRF.Proof)
-		}
-		return
-	}
 	breakdown := logicalWitnessRowBreakdownFromProof(proof)
 	if breakdown.TotalRows == 0 {
 		return
@@ -707,14 +684,6 @@ func printLogicalWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
 }
 
 func printPaperTranscriptBreakdown(prefix string, rep PIOP.ProofReport) {
-	if rep.Split != nil {
-		if rep.Split.PostSign != nil {
-			printPaperTranscriptBreakdown(prefix+"[post_sign] ", *rep.Split.PostSign)
-		}
-		if rep.Split.PRF != nil {
-			printPaperTranscriptBreakdown(prefix+"[prf] ", *rep.Split.PRF)
-		}
-	}
 	if rep.PaperTranscript.OptimizedBytes == 0 {
 		cli.printf(categoryWarning, prefix, "paper transcript breakdown unavailable (total=0)")
 		return
@@ -752,47 +721,8 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 		rep.Soundness.TheoremBits[0], rep.Soundness.TheoremBits[1], rep.Soundness.TheoremBits[2], rep.Soundness.TheoremBits[3],
 		displayBits(rep.Soundness.TotalBits),
 		rep.Soundness.QueryCaps)
-	if rep.Derived != nil {
-		if rep.Derived.Achievable {
-			cli.printf(categorySoundness, prefix, "Derived grinding to 128 bits: kappa=%v total=%.2f (raw=%.2f)",
-				rep.Derived.DerivedKappa,
-				displayBits(rep.Derived.DerivedTotalBits),
-				displayBits(rep.Derived.RawCombinedBits))
-		} else {
-			cli.printf(categorySoundness, prefix, "Derived grinding to 128 bits: not achievable (collision floor=%.2f)",
-				displayBits(rep.Soundness.CollisionBits))
-		}
-	}
-	if rep.Split != nil {
-		cli.printf(categoryGeometry, prefix, "Params: split proof NCols(s)=%d ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d dQ=split", rep.NCols, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta)
-	} else {
-		cli.printf(categoryGeometry, prefix, "Params: NCols(s)=%d pcs_ncols=%d ddecs=%d ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d dQ=%d collision_bits=%d", rep.NCols, rep.PCSNCols, rep.Soundness.DDECS, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta, rep.DQ, rep.Soundness.CollisionSpaceBits)
-	}
+	cli.printf(categoryGeometry, prefix, "Params: NCols(s)=%d pcs_ncols=%d ddecs=%d ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d dQ=%d collision_bits=%d", rep.NCols, rep.PCSNCols, rep.Soundness.DDECS, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta, rep.DQ, rep.Soundness.CollisionSpaceBits)
 	printWitnessGeometry(prefix, rep.Geometry)
-	if rep.Split != nil {
-		if rep.Split.PostSign != nil {
-			cli.printf(categoryGeometry, prefix, "Slice post_sign: bytes=%d soundness=%.2f dQ=%d pcs_ncols=%d witness=%d rows=%d mask=%d",
-				rep.Split.PostSign.ProofBytes,
-				displayBits(rep.Split.PostSign.Soundness.TotalBits),
-				rep.Split.PostSign.DQ,
-				rep.Split.PostSign.LVCSNCols,
-				rep.Split.PostSign.Geometry.ActualWitnessPolys,
-				rep.Split.PostSign.Geometry.WitnessRowsCommitted,
-				rep.Split.PostSign.Geometry.MaskRowsCommitted)
-			printWitnessGeometry(prefix+"[post_sign] ", rep.Split.PostSign.Geometry)
-		}
-		if rep.Split.PRF != nil {
-			cli.printf(categoryGeometry, prefix, "Slice prf:       bytes=%d soundness=%.2f dQ=%d pcs_ncols=%d witness=%d rows=%d mask=%d",
-				rep.Split.PRF.ProofBytes,
-				displayBits(rep.Split.PRF.Soundness.TotalBits),
-				rep.Split.PRF.DQ,
-				rep.Split.PRF.LVCSNCols,
-				rep.Split.PRF.Geometry.ActualWitnessPolys,
-				rep.Split.PRF.Geometry.WitnessRowsCommitted,
-				rep.Split.PRF.Geometry.MaskRowsCommitted)
-			printWitnessGeometry(prefix+"[prf] ", rep.Split.PRF.Geometry)
-		}
-	}
 	if sigErr == nil && nonErr == nil {
 		cli.printf(categoryGeometry, prefix, "Linf chain: sig(R=%d,L=%d) nonSig(W=%d,L=%d)", sigBase, sigL, nonW, nonL)
 	} else {
