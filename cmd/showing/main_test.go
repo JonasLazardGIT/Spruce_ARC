@@ -35,6 +35,72 @@ func TestFormatPaperTranscriptReductionSummaryShowsRSavedAndQSaved(t *testing.T)
 	}
 }
 
+func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T) {
+	line := formatTranscriptOptimizationSummary(PIOP.ProofReport{
+		TranscriptFocus: PIOP.TranscriptOptimizationReport{
+			ShowingPreset:     PIOP.ShowingPresetTranscriptFirst,
+			LVCSNCols:         128,
+			NLeaves:           2048,
+			WitnessRows:       859,
+			RowsBlock:         7,
+			MaskChunks:        2,
+			PRFPacked:         true,
+			PRFLogicalScalars: 165,
+			PRFPackedRows:     11,
+			NRows:             560,
+			M:                 288,
+			PCols:             272,
+			OmitP:             288,
+			RowOpeningEntries: 36,
+		},
+	})
+	if !strings.Contains(line, "preset=transcript_first lvcs=128 nleaves=2048 rowsBlock=7 maskChunks=2 witness=859 nrows=560 m=288 pcols=272 omitP=288") {
+		t.Fatalf("missing nrows/m/pcols summary: %q", line)
+	}
+	if !strings.Contains(line, "prf_scalars=165 prf_rows=11 (packed)") {
+		t.Fatalf("missing packed PRF summary: %q", line)
+	}
+}
+
+func TestFormatSoundnessComponentShowsClampReason(t *testing.T) {
+	line := formatSoundnessComponent("eps1", -336.91, 0)
+	if !strings.Contains(line, "eps1=0.00 (clamped from raw -336.91)") {
+		t.Fatalf("missing clamp wording: %q", line)
+	}
+}
+
+func TestFormatSoundnessNotesExplainsRawClampAndGrinding(t *testing.T) {
+	line := formatSoundnessNotes(PIOP.ProofReport{
+		Soundness: PIOP.SoundnessBudget{
+			Clamped: [4]bool{true, false, false, false},
+		},
+		Kappa: [4]int{128, 0, 0, 58},
+	})
+	if !strings.Contains(line, "eps1 raw term is negative and is paper-clamped to 0") {
+		t.Fatalf("missing raw-clamp explanation: %q", line)
+	}
+	if !strings.Contains(line, "Thm.9 round bits already include grinding") {
+		t.Fatalf("missing grinding explanation: %q", line)
+	}
+}
+
+func TestFormatTranscriptBucketFocusSummaryShowsDominantPaperBuckets(t *testing.T) {
+	line := formatTranscriptBucketFocusSummary(PIOP.ProofReport{
+		TranscriptFocus: PIOP.TranscriptOptimizationReport{
+			PdecsBytes:    15000,
+			VTargetsBytes: 11800,
+			BarSetsBytes:  8900,
+			QBytes:        9000,
+		},
+	})
+	if !strings.Contains(line, "Pdecs=15000") || !strings.Contains(line, "VTargets=11800") {
+		t.Fatalf("missing dominant bucket summary: %q", line)
+	}
+	if !strings.Contains(line, "BarSets=8900") || !strings.Contains(line, "Q=9000") {
+		t.Fatalf("missing bucket fields: %q", line)
+	}
+}
+
 func TestOrderedPaperTranscriptRowsSortsByOptimizedBytesAndOmitsZero(t *testing.T) {
 	rows := orderedPaperTranscriptRows(PIOP.PaperTranscriptReport{
 		OptimizedBytes: 100,
