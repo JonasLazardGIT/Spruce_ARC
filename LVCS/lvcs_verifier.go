@@ -117,10 +117,13 @@ func (v *VerifierState) EvalStep2(
 	}
 
 	mod := v.RingQ.Modulus[0]
+	interpPlan, err := getInterpolationPlan(v.points[:ncols+ell], ncols, ell, mod)
+	if err != nil {
+		return false
+	}
 	Qcoefs := make([][]uint64, m)
 	for k := 0; k < m; k++ {
-		var err error
-		Qcoefs[k], err = interpolateRowExplicitCoeffs(vTargets[k], bar[k], ncols, ell, v.points, mod)
+		Qcoefs[k], err = interpolateRowCoeffsWithPlan(vTargets[k], bar[k], interpPlan)
 		if err != nil {
 			return false
 		}

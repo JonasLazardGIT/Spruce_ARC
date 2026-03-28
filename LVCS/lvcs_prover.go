@@ -138,6 +138,11 @@ func CommitInitWithParamsAndPoints(
 		return
 	}
 
+	interpPlan, err := getInterpolationPlan(points[:ncols+ell], ncols, ell, q0)
+	if err != nil {
+		return
+	}
+
 	// 1a) ensure tail materialisation ̄r_j ∈ F_q^ℓ
 	for j, in := range rows {
 		if in.Poly != nil || len(in.PolyCoeffs) > 0 {
@@ -236,7 +241,7 @@ func CommitInitWithParamsAndPoints(
 			err = fmt.Errorf("CommitInitWithParams: tail length mismatch for row %d", j)
 			return
 		}
-		rowCoeffPolys[j], err = interpolateRowExplicitCoeffs(row.Head, row.Tail, ncols, ell, points, q0)
+		rowCoeffPolys[j], err = interpolateRowCoeffsWithPlan(row.Head, row.Tail, interpPlan)
 		if err != nil {
 			return
 		}

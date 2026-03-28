@@ -2,6 +2,8 @@ package PIOP
 
 import (
 	"fmt"
+	"runtime"
+	"sync"
 
 	kf "vSIS-Signature/internal/kfield"
 
@@ -16,8 +18,7 @@ type smallFieldParams struct {
 	Rows    [][]uint64
 }
 
-// buildSmallFieldWitnessRows projects witness polynomials into theta>1 small-field rows.
-func buildSmallFieldWitnessRows(
+func buildSmallFieldWitnessRowsReference(
 	ringQ *ring.Ring,
 	omega []uint64,
 	ncols int,
@@ -91,6 +92,132 @@ func buildSmallFieldWitnessRows(
 			rows = append(rows, row)
 		}
 	}
+	return rows, nil
+}
+
+func buildSmallFieldWitnessRows(
+	ringQ *ring.Ring,
+	omega []uint64,
+	ncols int,
+	K *kf.Field,
+	omegaS1 kf.Elem,
+	witnessPolys []*ring.Poly,
+) ([][]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if K == nil {
+		return nil, fmt.Errorf("nil K field")
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega")
+	}
+	if ncols <= 0 {
+		return nil, fmt.Errorf("invalid ncols=%d", ncols)
+	}
+	s := len(omega)
+	if ncols < s {
+		return nil, fmt.Errorf("invalid lvcs ncols=%d (must be >= witness ncols=%d)", ncols, s)
+	}
+	if len(witnessPolys) == 0 {
+		return nil, fmt.Errorf("empty witness polynomial set")
+	}
+	q := ringQ.Modulus[0]
+	theta := K.Theta
+	blocks := ceilDiv(len(witnessPolys), ncols)
+	if blocks <= 0 {
+		blocks = 1
+	}
+
+	coeffs := make([][]uint64, len(witnessPolys))
+	for i, poly := range witnessPolys {
+		if poly != nil {
+			coeffs[i] = poly.Coeffs[0]
+		}
+	}
+
+	yVals := make([]kf.Elem, len(witnessPolys))
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 2 || len(witnessPolys) < 32 {
+		for i := range witnessPolys {
+			if coeffs[i] == nil {
+				yVals[i] = K.Zero()
+				continue
+			}
+			yVals[i] = K.EvalFPolyAtK(coeffs[i], omegaS1)
+		}
+	} else {
+		if workers > len(witnessPolys) {
+			workers = len(witnessPolys)
+		}
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for worker := 0; worker < workers; worker++ {
+			start := worker
+			go func() {
+				defer wg.Done()
+				for i := start; i < len(witnessPolys); i += workers {
+					if coeffs[i] == nil {
+						yVals[i] = K.Zero()
+						continue
+					}
+					yVals[i] = K.EvalFPolyAtK(coeffs[i], omegaS1)
+				}
+			}()
+		}
+		wg.Wait()
+	}
+
+	omegaMod := make([]uint64, s)
+	for i := range omega {
+		omegaMod[i] = omega[i] % q
+	}
+	totalRows := blocks * (s + theta)
+	rows := make([][]uint64, totalRows)
+	fillBlock := func(block int) {
+		baseRow := block * (s + theta)
+		for j := 0; j < s; j++ {
+			row := make([]uint64, ncols)
+			for t := 0; t < ncols; t++ {
+				idx := block*ncols + t
+				if idx < len(coeffs) && coeffs[idx] != nil {
+					row[t] = EvalPoly(coeffs[idx], omegaMod[j], q)
+				}
+			}
+			rows[baseRow+j] = row
+		}
+		for coord := 0; coord < theta; coord++ {
+			row := make([]uint64, ncols)
+			for t := 0; t < ncols; t++ {
+				idx := block*ncols + t
+				if idx < len(yVals) {
+					row[t] = yVals[idx].Limb[coord] % q
+				}
+			}
+			rows[baseRow+s+coord] = row
+		}
+	}
+	if workers < 2 || blocks < 2 {
+		for block := 0; block < blocks; block++ {
+			fillBlock(block)
+		}
+		return rows, nil
+	}
+	if workers > blocks {
+		workers = blocks
+	}
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for worker := 0; worker < workers; worker++ {
+		start := worker
+		go func() {
+			defer wg.Done()
+			for block := start; block < blocks; block += workers {
+				fillBlock(block)
+			}
+		}()
+	}
+	wg.Wait()
 	return rows, nil
 }
 

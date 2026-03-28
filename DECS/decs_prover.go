@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"runtime"
+	"sync"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 	"github.com/tuneinsight/lattigo/v4/utils"
@@ -103,6 +105,7 @@ func NewProverWithParamsAndPointsFormalChecked(ringQ *ring.Ring, coeffs [][]uint
 func (pr *Prover) CommitInit() ([16]byte, error) {
 	r := pr.rowCount()
 	N := pr.nLeaves
+	q := pr.ringQ.Modulus[0]
 
 	// sampler
 	if pr.PFormal != nil {
@@ -155,26 +158,56 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 	} else if len(pr.nonceSeed) != pr.params.NonceBytes {
 		return [16]byte{}, fmt.Errorf("decs: nonce seed length mismatch: got=%d want=%d", len(pr.nonceSeed), pr.params.NonceBytes)
 	}
-	for i := 0; i < N; i++ {
-		// pack P and M evaluations as uint32 (q < 2^32), index as uint16
+	buildLeaf := func(i int) []byte {
 		buf := make([]byte, 4*(r+pr.params.Eta)+2+pr.params.NonceBytes)
 		off := 0
-		for j := 0; j < r; j++ {
-			binary.LittleEndian.PutUint32(buf[off:], uint32(pr.evalP(i, j)))
-			off += 4
+		x := pr.points[i] % q
+		if pr.PFormal != nil {
+			for j := 0; j < r; j++ {
+				binary.LittleEndian.PutUint32(buf[off:], uint32(evalPoly(pr.PFormal[j], x, q)))
+				off += 4
+			}
+			for k := 0; k < pr.params.Eta; k++ {
+				binary.LittleEndian.PutUint32(buf[off:], uint32(evalPoly(pr.MFormal[k], x, q)))
+				off += 4
+			}
+		} else {
+			for j := 0; j < r; j++ {
+				binary.LittleEndian.PutUint32(buf[off:], uint32(evalPoly(pr.P[j].Coeffs[0], x, q)))
+				off += 4
+			}
+			for k := 0; k < pr.params.Eta; k++ {
+				binary.LittleEndian.PutUint32(buf[off:], uint32(evalPoly(pr.M[k].Coeffs[0], x, q)))
+				off += 4
+			}
 		}
-		for k := 0; k < pr.params.Eta; k++ {
-			binary.LittleEndian.PutUint32(buf[off:], uint32(pr.evalM(i, k)))
-			off += 4
-		}
-		// index as uint16
 		binary.LittleEndian.PutUint16(buf[off:], uint16(i))
 		off += 2
 		rho := deriveNonce(pr.nonceSeed, i, pr.params.NonceBytes)
 		copy(buf[off:], rho)
-
-		// store the raw buffer; BuildMerkleTree will hash it
-		leaves[i] = append([]byte(nil), buf...)
+		return buf
+	}
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 2 || N < 128 {
+		for i := 0; i < N; i++ {
+			leaves[i] = buildLeaf(i)
+		}
+	} else {
+		if workers > N {
+			workers = N
+		}
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for worker := 0; worker < workers; worker++ {
+			start := worker
+			go func() {
+				defer wg.Done()
+				for i := start; i < N; i += workers {
+					leaves[i] = buildLeaf(i)
+				}
+			}()
+		}
+		wg.Wait()
 	}
 
 	// 1d) Merkle tree
