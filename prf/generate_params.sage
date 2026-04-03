@@ -6,9 +6,9 @@ from sage.rings.polynomial.polynomial_gf2x import GF2X_BuildIrred_list
 from sage.combinat.subset import powerset
 
 if len(sys.argv) < 8:
-    # Default to the paper's example params: field=GF(p), s_box=x^alpha, n=20 bits (q=0xFD801),
-    # t=98 (lenkey=90, lennonce=8), alpha=5, security=128, modulus=0xFD801.
-    sys.argv = [sys.argv[0], "1", "0", "20", "98", "5", "128", "0xFD801"]
+    # Default to the shipped cubic profile on the shared protocol field.
+    # q = 1_054_721 = 0x101801, t = 20, alpha = 3, security = 128.
+    sys.argv = [sys.argv[0], "1", "0", "21", "20", "3", "128", "0x101801", "8", "12", "7"]
 
 # GF(p), n = 255, t = 3, alpha=5: sage generate_params_poseidon.sage 1 0 255 3 5 128 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
 # GF(p), n = 255, t = 5, alpha=5: sage generate_params_poseidon.sage 1 0 255 5 5 128 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
@@ -36,11 +36,11 @@ ALPHA = int(sys.argv[5])
 SECURITY_LEVEL = int(sys.argv[6])
 R_F_FIXED = 0
 R_P_FIXED = 0
-# Example lengths from Spruce-And-AC §B.6 (for now parameters):
-# lenkey = 90, lennonce = 8, lentag = 2 => t = 98
-DEFAULT_LENKEY = 90
-DEFAULT_LENNONCE = 8
-DEFAULT_LENTAG = 2
+# Shipped SPRUCE profile:
+# lenkey = 8, lennonce = 12, lentag = 7 => t = 20
+DEFAULT_LENKEY = 8
+DEFAULT_LENNONCE = 12
+DEFAULT_LENTAG = 7
 LENKEY = DEFAULT_LENKEY
 LENNONCE = DEFAULT_LENNONCE
 LENTAG = DEFAULT_LENTAG
@@ -594,7 +594,7 @@ if True:
         "cExt": [[int(x) for x in row] for row in cext],
         "cInt": [int(x) for x in cint],
     }
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
     out_path = os.path.join(script_dir, "prf_params.json")
     with open(out_path, "w") as jf:
         json.dump(json_out, jf, indent=2)

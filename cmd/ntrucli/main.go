@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -9,17 +10,23 @@ import (
 	"path/filepath"
 
 	ntru "vSIS-Signature/ntru"
+	ntrurio "vSIS-Signature/ntru/io"
 	"vSIS-Signature/ntru/keys"
 	"vSIS-Signature/ntru/signverify"
+	vsishash "vSIS-Signature/vSIS-HASH"
+
+	"github.com/tuneinsight/lattigo/v4/ring"
+	"github.com/tuneinsight/lattigo/v4/utils"
 )
 
 func usage() {
-	fmt.Println(`usage: ntru <gen|sign|verify|bundle-sign|bundle-verify> [options]
+	fmt.Println(`usage: ntru <gen|sign|verify|calibrate-beta|bundle-sign|bundle-verify> [options]
 
 Subcommands:
   gen            Generate an NTRU keypair and write ./ntru_keys/{public,private}.json
   sign           Sign a message and write ./ntru_keys/signature.json
   verify         Verify ./ntru_keys/signature.json against ./ntru_keys/public.json
+  calibrate-beta Measure production beta on a deterministic signature batch
   bundle-sign    Sign a message against a bundle directory
   bundle-verify  Verify a bundle signature`)
 	os.Exit(1)
@@ -36,6 +43,8 @@ func main() {
 		runSign(os.Args[2:])
 	case "verify":
 		runVerify()
+	case "calibrate-beta":
+		runCalibrateBeta(os.Args[2:])
 	case "bundle-sign":
 		runBundleSign(os.Args[2:])
 	case "bundle-verify":
@@ -57,6 +66,9 @@ func runGen() {
 	if err != nil {
 		log.Fatalf("params: %v", err)
 	}
+	if err := regenerateBMatrix(pp); err != nil {
+		log.Fatalf("generate B matrix: %v", err)
+	}
 	kg := ntru.KeygenOpts{
 		Prec:      512,
 		MaxTrials: 10000,
@@ -65,7 +77,35 @@ func runGen() {
 	if _, _, err := generateKeypairAnnulusWithRetry(par, kg, 4); err != nil {
 		log.Fatalf("gen: %v", err)
 	}
+	fmt.Println("B matrix written to ./Parameters/Bmatrix.json")
 	fmt.Println("keys written to ./ntru_keys")
+}
+
+func regenerateBMatrix(pp *ntrurio.SystemParams) error {
+	if pp == nil {
+		return fmt.Errorf("nil params")
+	}
+	ringQ, err := ring.NewRing(pp.N, []uint64{pp.Q})
+	if err != nil {
+		return err
+	}
+	prng, err := utils.NewPRNG()
+	if err != nil {
+		return err
+	}
+	B, err := vsishash.GenerateB(ringQ, prng)
+	if err != nil {
+		return err
+	}
+	coeffs := make([][]uint64, len(B))
+	for i := range B {
+		coeffs[i] = make([]uint64, len(B[i].Coeffs[0]))
+		copy(coeffs[i], B[i].Coeffs[0])
+	}
+	if err := os.MkdirAll("Parameters", 0o755); err != nil {
+		return err
+	}
+	return ntrurio.SaveBMatrixCoeffs(filepath.Join("Parameters", "Bmatrix.json"), coeffs)
 }
 
 func generateKeypairAnnulusWithRetry(par ntru.Params, kg ntru.KeygenOpts, attempts int) (*keys.PublicKey, *keys.PrivateKey, error) {
@@ -133,6 +173,58 @@ func runVerify() {
 		log.Fatalf("verify failed: %v", err)
 	}
 	fmt.Println("signature verified")
+}
+
+func runCalibrateBeta(args []string) {
+	fs := flag.NewFlagSet("calibrate-beta", flag.ExitOnError)
+	samples := fs.Int("samples", 64, "number of deterministic targets to sign")
+	maxTrials := fs.Int("max-trials", 2048, "signer max trials per target")
+	paramsPath := fs.String("params", "Parameters/Parameters.json", "params JSON path")
+	bFile := fs.String("bfile", "Parameters/Bmatrix.json", "B-matrix JSON path")
+	publicPath := fs.String("public", "ntru_keys/public.json", "public key path")
+	privatePath := fs.String("private", "ntru_keys/private.json", "private key path")
+	updateParams := fs.Bool("update-params", false, "write measured beta/bound back into params JSON")
+	fs.Parse(args)
+
+	opts := shippedSamplerOpts()
+	opts.AutoTuneAlpha = true
+	opts.AutoTuneAlphaMargin = 1.00
+	report, err := signverify.CalibrateMeasuredBeta(signverify.SignPaths{
+		ParamsPath:    *paramsPath,
+		BFile:         *bFile,
+		PublicKeyPath: *publicPath,
+		PrivatePath:   *privatePath,
+	}, *samples, *maxTrials, opts)
+	if err != nil {
+		log.Fatalf("calibrate-beta: %v", err)
+	}
+	fmt.Printf("calibrate-beta: samples=%d alpha=%.6f batch_max=%d batch_max_index=%d\n", report.Samples, report.Alpha, report.BatchMax, report.BatchMaxIndex)
+	fmt.Printf("calibrate-beta: per_sample=%v\n", report.PerSample)
+	if *updateParams {
+		if err := updateParamsBeta(*paramsPath, uint64(report.BatchMax)); err != nil {
+			log.Fatalf("update params beta: %v", err)
+		}
+		fmt.Printf("calibrate-beta: updated %s beta=%d bound=%d\n", *paramsPath, report.BatchMax, report.BatchMax)
+	}
+}
+
+func updateParamsBeta(path string, beta uint64) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return err
+	}
+	payload["beta"] = beta
+	payload["bound"] = beta
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o644)
 }
 
 func runBundleSign(args []string) {

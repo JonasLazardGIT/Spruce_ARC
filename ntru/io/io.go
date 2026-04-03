@@ -113,3 +113,22 @@ func LoadBMatrixCoeffs(path string) ([][]uint64, error) {
 	}
 	return tmp.B, nil
 }
+
+func SaveBMatrixCoeffs(path string, coeffs [][]uint64) error {
+	if len(coeffs) != 4 {
+		return fmt.Errorf("b has %d rows, want 4", len(coeffs))
+	}
+	for i := range coeffs {
+		if len(coeffs[i]) != 1024 {
+			return fmt.Errorf("b[%d] has length %d, want 1024", i, len(coeffs[i]))
+		}
+	}
+	payload := struct {
+		B [][]uint64 `json:"B"`
+	}{B: coeffs}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}

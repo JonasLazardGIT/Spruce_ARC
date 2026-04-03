@@ -68,18 +68,13 @@ func showingPresetLVCSNCols(preset string) int {
 }
 
 func showingPresetSigShortnessProfile(preset string) string {
-	switch normalizeShowingPreset(preset) {
-	case ShowingPresetProductionBalance:
-		return SigShortnessProfileR12L3Default
-	default:
-		return SigShortnessProfileR7L4Experimental
-	}
+	return SigShortnessProfileR11L4Production
 }
 
 func showingPresetTheta(preset string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
-		return 5
+		return 3
 	default:
 		return 6
 	}
@@ -96,7 +91,7 @@ func showingPresetEllPrime(preset string) int {
 func showingPresetEta(preset string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
-		return 63
+		return 43
 	default:
 		return 31
 	}
@@ -130,20 +125,20 @@ func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
 	resolved := opts
 	resolved.applyDefaults()
 	switch {
-	case resolved.SigShortnessProfile == SigShortnessProfileR7L4Experimental &&
+	case resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
 		resolved.LVCSNCols == 96 &&
 		resolved.PostSignLVCSNCols == 96 &&
 		resolved.PRFLVCSNCols == 96 &&
-		resolved.Theta == 5 &&
+		resolved.Theta == 3 &&
 		resolved.Rho == 2 &&
 		resolved.EllPrime == 2 &&
-		resolved.Eta == 63 &&
+		resolved.Eta == 43 &&
 		resolved.NLeaves == 4096 &&
 		resolved.PostSignNLeaves == 4096 &&
 		resolved.PRFNLeaves == 4096 &&
 		resolved.Kappa == [4]int{0, 0, 0, 5}:
 		return ShowingPresetSoundnessBalanced
-	case resolved.SigShortnessProfile == SigShortnessProfileR7L4Experimental &&
+	case resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
 		resolved.LVCSNCols == 128 &&
 		resolved.PostSignLVCSNCols == 128 &&
 		resolved.PRFLVCSNCols == 128 &&
@@ -156,7 +151,7 @@ func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
 		resolved.PRFNLeaves == 2048 &&
 		resolved.Kappa == [4]int{}:
 		return ShowingPresetTranscriptFirst
-	case resolved.SigShortnessProfile == SigShortnessProfileR12L3Default &&
+	case resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
 		resolved.LVCSNCols == 28 &&
 		resolved.PostSignLVCSNCols == 28 &&
 		resolved.PRFLVCSNCols == 28 &&
@@ -568,19 +563,23 @@ type Proof struct {
 	R                [][]uint64
 	// Q commitment (paper Fig. 6, Step 6): Merkle root, degree-check R polynomials,
 	// and an opening that reveals Q on Ω and at queried tail points.
-	QRoot         [16]byte
-	QR            [][]uint64
-	QRBits        []byte
-	QRRows        int
-	QRCols        int
-	QRBitWidth    uint8
-	QDegreeBound  int
-	QOpening      *decs.DECSOpening
-	MKData        []KPolySnapshot
-	QKData        []KPolySnapshot
-	RowLayout     RowLayout
-	MaskRowOffset int
-	MaskRowCount  int
+	QRoot          [16]byte
+	QR             [][]uint64
+	QRBits         []byte
+	QRRows         int
+	QRCols         int
+	QRBitWidth     uint8
+	QDegreeBound   int
+	QOpening       *decs.DECSOpening
+	qCoeffDebug    [][]uint64
+	maskCoeffDebug [][]uint64
+	fparCoeffDebug [][]uint64
+	faggCoeffDebug [][]uint64
+	MKData         []KPolySnapshot
+	QKData         []KPolySnapshot
+	RowLayout      RowLayout
+	MaskRowOffset  int
+	MaskRowCount   int
 	// RowDegreeBound records the DECS/LVCS degree used for the committed row
 	// oracle. This can exceed the Q/mask degree bound when explicit-domain row
 	// interpolation over LVCSNCols imposes a larger floor.

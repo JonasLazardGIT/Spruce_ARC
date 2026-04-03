@@ -1,6 +1,9 @@
 package lvcs
 
 import (
+	"fmt"
+	"os"
+
 	decs "vSIS-Signature/DECS"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -66,10 +69,17 @@ func (v *VerifierState) EvalStep2(
 	C [][]uint64, // coefficient matrix
 	vTargets [][]uint64, // public v_k on Ω
 ) bool {
+	debug := os.Getenv("LVCS_DEBUG_EVALSTEP2") == "1"
 	if open == nil {
+		if debug {
+			fmt.Println("[LVCS_DEBUG_EVALSTEP2] nil opening")
+		}
 		return false
 	}
 	if len(bar) == 0 || len(bar[0]) == 0 {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] empty bar rows=%d\n", len(bar))
+		}
 		return false
 	}
 	m := len(bar)
@@ -79,59 +89,101 @@ func (v *VerifierState) EvalStep2(
 	maskStart := ncols
 	maskEnd := ncols + ell
 	if maskEnd > N {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] maskEnd=%d > N=%d\n", maskEnd, N)
+		}
 		return false
 	}
 	if len(E) != ell {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] len(E)=%d want ell=%d\n", len(E), ell)
+		}
 		return false
 	}
 	tailSeen := make(map[int]struct{}, len(E))
 	for _, idx := range E {
 		if idx < maskEnd || idx >= N {
+			if debug {
+				fmt.Printf("[LVCS_DEBUG_EVALSTEP2] tail idx %d outside [%d,%d)\n", idx, maskEnd, N)
+			}
 			return false
 		}
 		if _, dup := tailSeen[idx]; dup {
+			if debug {
+				fmt.Printf("[LVCS_DEBUG_EVALSTEP2] duplicate tail idx %d\n", idx)
+			}
 			return false
 		}
 		tailSeen[idx] = struct{}{}
 	}
 	if len(C) != m {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] len(C)=%d want m=%d\n", len(C), m)
+		}
 		return false
 	}
 	if len(vTargets) != m {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] len(vTargets)=%d want m=%d\n", len(vTargets), m)
+		}
 		return false
 	}
 	for k := 0; k < m; k++ {
 		if len(bar[k]) != ell {
+			if debug {
+				fmt.Printf("[LVCS_DEBUG_EVALSTEP2] len(bar[%d])=%d want ell=%d\n", k, len(bar[k]), ell)
+			}
 			return false
 		}
 		if len(C[k]) != v.r {
+			if debug {
+				fmt.Printf("[LVCS_DEBUG_EVALSTEP2] len(C[%d])=%d want r=%d\n", k, len(C[k]), v.r)
+			}
 			return false
 		}
 		if len(vTargets[k]) != ncols {
+			if debug {
+				fmt.Printf("[LVCS_DEBUG_EVALSTEP2] len(vTargets[%d])=%d want ncols=%d\n", k, len(vTargets[k]), ncols)
+			}
 			return false
 		}
 	}
 
 	if open.EntryCount() != len(E)+ell {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] open entries=%d want %d\n", open.EntryCount(), len(E)+ell)
+		}
 		return false
 	}
 
 	mod := v.RingQ.Modulus[0]
 	interpPlan, err := getInterpolationPlan(v.points[:ncols+ell], ncols, ell, mod)
 	if err != nil {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] interpolation plan error: %v\n", err)
+		}
 		return false
 	}
 	Qcoefs := make([][]uint64, m)
 	for k := 0; k < m; k++ {
 		Qcoefs[k], err = interpolateRowCoeffsWithPlan(vTargets[k], bar[k], interpPlan)
 		if err != nil {
+			if debug {
+				fmt.Printf("[LVCS_DEBUG_EVALSTEP2] interpolate row %d: %v\n", k, err)
+			}
 			return false
 		}
 	}
 	if !prepareOpeningForEvalStep2(open, C, bar, ncols, maskEnd, v.points, Qcoefs, mod) {
+		if debug {
+			fmt.Println("[LVCS_DEBUG_EVALSTEP2] prepareOpeningForEvalStep2 rejected")
+		}
 		return false
 	}
 	if err := decs.EnsureMerkleDecoded(open); err != nil {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] merkle decode: %v\n", err)
+		}
 		return false
 	}
 	maskOpen := &decs.DECSOpening{
@@ -191,12 +243,21 @@ func (v *VerifierState) EvalStep2(
 	}
 
 	if len(maskOpen.Indices) != ell {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] maskOpen len=%d want ell=%d\n", len(maskOpen.Indices), ell)
+		}
 		return false
 	}
 	if len(tailOpen.Indices) != len(E) {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] tailOpen len=%d want %d\n", len(tailOpen.Indices), len(E))
+		}
 		return false
 	}
 	if !equalSets(tailOpen.Indices, E) {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] tailOpen indices mismatch got=%v want=%v\n", tailOpen.Indices, E)
+		}
 		return false
 	}
 
@@ -210,16 +271,28 @@ func (v *VerifierState) EvalStep2(
 	}
 	if len(v.RFormal) > 0 {
 		if !decv.VerifyEvalAtFormal(v.Root, v.Gamma, v.RFormal, maskOpen, maskIdx) {
+			if debug {
+				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAtFormal(mask) rejected")
+			}
 			return false
 		}
 		if !decv.VerifyEvalAtFormal(v.Root, v.Gamma, v.RFormal, tailOpen, E) {
+			if debug {
+				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAtFormal(tail) rejected")
+			}
 			return false
 		}
 	} else {
 		if !decv.VerifyEvalAt(v.Root, v.Gamma, v.R, maskOpen, maskIdx) {
+			if debug {
+				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAt(mask) rejected")
+			}
 			return false
 		}
 		if !decv.VerifyEvalAt(v.Root, v.Gamma, v.R, tailOpen, E) {
+			if debug {
+				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAt(tail) rejected")
+			}
 			return false
 		}
 	}
@@ -235,6 +308,9 @@ func (v *VerifierState) EvalStep2(
 				sum = MulAddMod64(sum, C[k][j], maskOpen.Pvals[t][j], mod)
 			}
 			if sum != bar[k][maskedPos] {
+				if debug {
+					fmt.Printf("[LVCS_DEBUG_EVALSTEP2] mask linear mismatch t=%d idx=%d k=%d got=%d want=%d\n", t, idx, k, sum, bar[k][maskedPos])
+				}
 				return false
 			}
 		}
@@ -252,6 +328,9 @@ func (v *VerifierState) EvalStep2(
 				rhs = MulAddMod64(rhs, C[k][j], tailOpen.Pvals[t][j], mod)
 			}
 			if lhs != rhs {
+				if debug {
+					fmt.Printf("[LVCS_DEBUG_EVALSTEP2] tail linear mismatch t=%d idx=%d k=%d lhs=%d rhs=%d\n", t, idx, k, lhs, rhs)
+				}
 				return false
 			}
 		}

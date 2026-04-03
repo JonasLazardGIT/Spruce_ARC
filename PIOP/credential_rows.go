@@ -88,14 +88,31 @@ func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts) (row
 		rows = append(rows, wit.U...)
 	}
 
-	// Default-safe non-signature coefficient-bound scaffolding for pre-sign:
-	// append extra NTT blocks (b>=1) and coefficient rows (all b>=0) for
-	// message/randomness/carry families, mirroring showing-mode discipline.
-	//
-	// Families over base row layout:
-	//   - message:    rows 0,1
-	//   - randomness: rows 2..6
-	//   - carry:      rows 7,8
+	if opts.DomainMode == DomainModeExplicit {
+		pcsNCols := resolvePCSNCols(opts, ncols)
+		omegaWitness, omegaErr := deriveExplicitWitnessOmega(ringQ.Modulus[0], opts.NLeaves, ncols, pcsNCols, opts.Ell)
+		if omegaErr != nil {
+			err = fmt.Errorf("derive explicit witness omega: %w", omegaErr)
+			return
+		}
+		normalized := make([]*ring.Poly, len(rows))
+		for i, row := range rows {
+			if row == nil {
+				err = fmt.Errorf("nil credential row %d", i)
+				return
+			}
+			rowNTT := ringQ.NewPoly()
+			ring.Copy(row, rowNTT)
+			ringQ.NTT(rowNTT, rowNTT)
+			head := append([]uint64(nil), rowNTT.Coeffs[0][:len(omegaWitness)]...)
+			thetaNTT := BuildThetaPrime(ringQ, head, omegaWitness)
+			thetaCoeff := ringQ.NewPoly()
+			ringQ.InvNTT(thetaNTT, thetaCoeff)
+			normalized[i] = thetaCoeff
+		}
+		rows = normalized
+	}
+
 	nonSigBlocks := 0
 	msgCompCount := 0
 	msgExtraNTTBase := -1
@@ -106,100 +123,6 @@ func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts) (row
 	x1CompCount := 0
 	x1ExtraNTTBase := -1
 	x1CoeffBase := -1
-
-	if len(rows) >= 9 && ncols > 0 && ringQ.N%ncols == 0 {
-		blocks := ringQ.N / ncols
-		if blocks > 0 {
-			var explicitOmega []uint64
-			if opts.DomainMode == DomainModeExplicit {
-				nLeaves := opts.NLeaves
-				if nLeaves <= 0 {
-					nLeaves = int(ringQ.N)
-				}
-				derivedOmega, _, derr := deriveExplicitDomain(ringQ.Modulus[0], nLeaves, ncols, opts.Ell)
-				if derr != nil {
-					err = fmt.Errorf("pre-sign non-signature bounds explicit omega: %w", derr)
-					return
-				}
-				explicitOmega = derivedOmega
-			}
-			polyFromHead := func(head []uint64) *ring.Poly {
-				if opts.DomainMode == DomainModeExplicit {
-					pNTT := BuildThetaPrime(ringQ, head, explicitOmega)
-					coeff := ringQ.NewPoly()
-					ringQ.InvNTT(pNTT, coeff)
-					return coeff
-				}
-				pNTT := ringQ.NewPoly()
-				q := ringQ.Modulus[0]
-				for i := 0; i < ncols && i < len(head); i++ {
-					pNTT.Coeffs[0][i] = head[i] % q
-				}
-				out := ringQ.NewPoly()
-				ringQ.InvNTT(pNTT, out)
-				return out
-			}
-			baseRowCount := len(rows)
-			type familySpec struct {
-				count        int
-				block0Base   int
-				extraNTTBase *int
-				coeffBase    *int
-				componentOut *int
-			}
-			families := []familySpec{
-				{count: 2, block0Base: 0, extraNTTBase: &msgExtraNTTBase, coeffBase: &msgCoeffBase, componentOut: &msgCompCount},
-				{count: 5, block0Base: 2, extraNTTBase: &rndExtraNTTBase, coeffBase: &rndCoeffBase, componentOut: &rndCompCount},
-				{count: 2, block0Base: 7, extraNTTBase: &x1ExtraNTTBase, coeffBase: &x1CoeffBase, componentOut: &x1CompCount},
-			}
-			for _, fam := range families {
-				if fam.block0Base < 0 || fam.block0Base+fam.count > baseRowCount {
-					continue
-				}
-				*fam.componentOut = fam.count
-				fullNTT := make([]*ring.Poly, fam.count)
-				coeffSrc := make([][]uint64, fam.count)
-				for j := 0; j < fam.count; j++ {
-					src := rows[fam.block0Base+j]
-					fullNTT[j] = ringQ.NewPoly()
-					ring.Copy(src, fullNTT[j])
-					ringQ.NTT(fullNTT[j], fullNTT[j])
-					coeffSrc[j] = append([]uint64(nil), src.Coeffs[0]...)
-				}
-
-				// Normalize block-0 rows to the same head-as-Ω representation used
-				// for extra NTT blocks, so replayed NTT↔coef bridge identities
-				// reference a coherent row encoding in explicit-domain mode.
-				for j := 0; j < fam.count; j++ {
-					head0 := append([]uint64(nil), fullNTT[j].Coeffs[0][:ncols]...)
-					rows[fam.block0Base+j] = polyFromHead(head0)
-				}
-
-				*fam.extraNTTBase = len(rows)
-				for b := 1; b < blocks; b++ {
-					start := b * ncols
-					end := start + ncols
-					for j := 0; j < fam.count; j++ {
-						head := append([]uint64(nil), fullNTT[j].Coeffs[0][start:end]...)
-						rows = append(rows, polyFromHead(head))
-					}
-				}
-
-				*fam.coeffBase = len(rows)
-				for b := 0; b < blocks; b++ {
-					start := b * ncols
-					end := start + ncols
-					for j := 0; j < fam.count; j++ {
-						head := append([]uint64(nil), coeffSrc[j][start:end]...)
-						rows = append(rows, polyFromHead(head))
-					}
-				}
-			}
-			if msgCompCount+rndCompCount+x1CompCount > 0 {
-				nonSigBlocks = blocks
-			}
-		}
-	}
 
 	// Build row inputs (heads) in evaluation domain (Ω).
 	rowInputs = buildRowInputs(ringQ, rows, ncols)

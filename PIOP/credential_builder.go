@@ -26,6 +26,14 @@ func (b *credentialBuilder) Build(pub PublicInputs, wit WitnessInputs, _ MaskCon
 	if err != nil {
 		return nil, fmt.Errorf("load params/omega: %w", err)
 	}
+	witnessNCols := b.opts.NCols
+	if witnessNCols <= 0 {
+		witnessNCols = ncols
+	}
+	if len(omega) < witnessNCols {
+		return nil, fmt.Errorf("witness omega len=%d < witness ncols=%d", len(omega), witnessNCols)
+	}
+	omegaWitness := append([]uint64(nil), omega[:witnessNCols]...)
 	if b.opts.DomainMode == DomainModeExplicit {
 		nLeaves := b.opts.NLeaves
 		if nLeaves <= 0 {
@@ -39,9 +47,12 @@ func (b *credentialBuilder) Build(pub PublicInputs, wit WitnessInputs, _ MaskCon
 		if derr != nil {
 			return nil, fmt.Errorf("explicit domain: %w", derr)
 		}
-		omega = derivedOmega
+		if len(derivedOmega) < witnessNCols {
+			return nil, fmt.Errorf("explicit domain omega len=%d < witness ncols=%d", len(derivedOmega), witnessNCols)
+		}
+		omegaWitness = append([]uint64(nil), derivedOmega[:witnessNCols]...)
 	}
-	cs, err := BuildCredentialConstraintSetPre(ringQ, pub.BoundB, pub, wit, omega)
+	cs, err := BuildCredentialConstraintSetPre(ringQ, pub.BoundB, pub, wit, omegaWitness)
 	if err != nil {
 		return nil, fmt.Errorf("build credential constraint set: %w", err)
 	}

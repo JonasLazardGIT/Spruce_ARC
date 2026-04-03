@@ -99,7 +99,7 @@ The current command path is:
 
 ## Retained Showing Layouts
 
-Only two showing layouts remain in the shipped code:
+Only one retained showing layout remains on the current runtime path:
 
 ### `literal_packed_aggregated_v3`
 
@@ -109,18 +109,9 @@ It uses:
 
 - a coeff-native semantic showing witness at the caller boundary
 - literal-packed signature rows in the committed witness
-- fixed packed signature shortness with radix `13`, `L = 3`, caps `[6,6,4]`
+- the retained coeff-native one-root layout used by the current runtime
 - grouped PRF nonlinear witness rows
 - one shared SmallWood commitment/oracle for post-sign and PRF rows
-
-### `literal_packed_aggregated_v4_split_prf`
-
-This is the retained split-PRF prototype layout.
-
-It keeps the same witness semantics and verifier model, but separates the
-post-sign and PRF slices into distinct proof slices under one transcript. The
-post-sign slice and PRF slice use different LVCS/DECS geometry while keeping
-the same high-level statement.
 
 ## Current Live Defaults
 
@@ -129,8 +120,8 @@ the same high-level statement.
 The shipped code uses:
 
 - ring degree `N = 1024`
-- modulus `q = 12289`
-- exact modulus width ceiling `k = 14`
+- modulus `q = 1054721`
+- exact modulus width ceiling `k = 21`
 
 These values come from:
 
@@ -139,7 +130,11 @@ These values come from:
 
 ### Issuance defaults
 
-The retained issuance flow uses:
+The retained issuance proof relation is still the same paper-level pre-sign
+statement, but the `q = 1054721` migration branch is currently blocked before a
+fully re-landed end-to-end issuance baseline.
+
+The intended issuance parameters on this branch are:
 
 - `Theta = 4`
 - `Ell = 25`
@@ -156,21 +151,25 @@ from `credential/params.json`.
 
 ### Showing defaults
 
-The retained showing flow uses:
+The retained showing flow keeps the same one-root coeff-native `v3` path.
 
-- `Theta = 6`
+The migrated parameter target uses:
+
+- `Theta = 5`
 - `Ell = 18`
-- `Eta = 31`
+- `Eta = 63`
 - `EllPrime = 2`
 - `Rho = 2`
 - witness support width `NCols = 16`
 - grouped PRF checkpointing with `PRFGroupRounds = 2`
+- `LVCSNCols = 96`
+- `NLeaves = 4096`
+- `Kappa = {0,0,0,5}`
 
-Per layout:
+The field/PRF migration branch does not yet complete end-to-end because:
 
-- `v3`: `LVCSNCols = 24`, `NLeaves = 2048`
-- `v4 split` post-sign: `LVCSNCols = 32`, `NLeaves = 1536`
-- `v4 split` PRF: `LVCSNCols = 28`, `NLeaves = 2048`
+- regenerated signatures exceed the preserved showing bound `beta = 745`
+- issuance pre-sign verification is not yet replay-clean again under the new field
 
 ## Proof-Stack Mapping
 

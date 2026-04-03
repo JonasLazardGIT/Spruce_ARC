@@ -15,11 +15,11 @@ import (
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
+	"vSIS-Signature/internal/domain"
 	"vSIS-Signature/issuance"
 	"vSIS-Signature/ntru"
 	ntrurio "vSIS-Signature/ntru/io"
 	"vSIS-Signature/ntru/keys"
-	"vSIS-Signature/ntru/signverify"
 	"vSIS-Signature/prf"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -35,7 +35,17 @@ func main() {
 		log.Fatalf("load ring: %v", err)
 	}
 	bound := int64(8)
-	opts := PIOP.SimOpts{Credential: true, Theta: 4, EllPrime: 2, Rho: 2, NCols: 4, Ell: 25, Eta: 19}
+	opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+		Credential: true,
+		Theta:      4,
+		EllPrime:   2,
+		Rho:        2,
+		NCols:      4,
+		Ell:        25,
+		Eta:        19,
+		DomainMode: PIOP.DomainModeExplicit,
+		NLeaves:    2048,
+	})
 	prfParams, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
 	if err != nil {
 		log.Fatalf("load prf params: %v", err)
@@ -46,6 +56,10 @@ func main() {
 	if opts.NCols%2 != 0 {
 		opts.NCols++
 	}
+	opts.ShowingPreset = PIOP.ShowingPresetCustom
+	opts.LVCSNCols = opts.NCols
+	opts.PostSignLVCSNCols = opts.NCols
+	opts.PRFLVCSNCols = opts.NCols
 	lenM1, lenM2, lenRU0, lenRU1, lenR := 1, 1, 1, 1, 1
 	cols := lenM1 + lenM2 + lenRU0 + lenRU1 + lenR
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -54,18 +68,17 @@ func main() {
 		for i := 0; i < cols; i++ {
 			mat[i] = make([]*ring.Poly, cols)
 			for j := 0; j < cols; j++ {
-				p := ringQ.NewPoly()
-				for k := 0; k < ringQ.N; k++ {
-					p.Coeffs[0][k] = uint64(rng.Int63()) % ringQ.Modulus[0]
+				if i == j {
+					mat[i][j] = polyConstNTT(ringQ, 1)
+					continue
 				}
-				ringQ.NTT(p, p)
-				mat[i][j] = p
+				mat[i][j] = ringQ.NewPoly()
 			}
 		}
 		return mat
 	}
 	Ac := sampleMatrix()
-	if err := saveAcJSON("credential/Ac.json", Ac); err != nil {
+	if err := saveAcJSON("credential/Ac.json", ringQ, Ac); err != nil {
 		log.Printf("[issuance-cli] warning: could not save Ac.json: %v", err)
 	}
 	if err := saveParamsJSON("credential/params.json", "credential/Ac.json", "Parameters/Bmatrix.json", bound, lenM1, lenM2, lenRU0, lenRU1, lenR); err != nil {
@@ -91,9 +104,14 @@ func main() {
 	ru1 := sampleBoundedEval(ringQ, params.BoundB, rng)
 	rPoly := sampleBoundedEval(ringQ, params.BoundB, rng)
 
-	ri0 := makePolyConstNTT(ringQ, 1)
-	ri1 := makePolyConstNTT(ringQ, 1)
-	ch := issuance.Challenge{RI0: []*ring.Poly{ri0}, RI1: []*ring.Poly{ri1}}
+	omega, err := deriveOmegaForIssuanceOpts(ringQ, opts)
+	if err != nil {
+		log.Fatalf("derive omega: %v", err)
+	}
+	ch, err := issuance.SampleChallenge(ringQ, omega, params.BoundB, rng)
+	if err != nil {
+		log.Fatalf("sample issuer challenge: %v", err)
+	}
 
 	inputs := issuance.Inputs{
 		M1:  []*ring.Poly{m1},
@@ -102,13 +120,13 @@ func main() {
 		RU1: []*ring.Poly{ru1},
 		R:   []*ring.Poly{rPoly},
 	}
-	com, err := issuance.PrepareCommit(params, inputs)
+	com, err := issuance.PrepareCommit(params, inputs, omega)
 	if err != nil {
 		log.Fatalf("prepare commit: %v", err)
 	}
 	log.Printf("[issuance-cli] Com rows=%d", len(com))
 
-	state, err := issuance.ApplyChallenge(params, inputs, ch)
+	state, err := issuance.ApplyChallenge(params, inputs, ch, omega)
 	if err != nil {
 		log.Fatalf("apply challenge: %v", err)
 	}
@@ -140,14 +158,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("sign target: %v", err)
 	}
-	log.Printf("[issuance-cli] signature trials_used=%d rejected=%v", sig.Signature.TrialsUsed, sig.Signature.Rejected)
-
-	coeffNativeShowing, err := buildCoeffNativeShowingState(ringQ, state.B, opts.NCols, bound, prfParams, rng)
+	par, err := ntrurio.LoadParams(filepath.Join("Parameters", "Parameters.json"), true)
 	if err != nil {
-		log.Fatalf("build coeff-native showing state: %v", err)
+		log.Fatalf("load signature bound: %v", err)
 	}
-	log.Printf("[issuance-cli] coeff-native showing payload prepared (sig_components=%d prf_key=%d ncols=%d)",
-		len(coeffNativeShowing.Sig), len(coeffNativeShowing.PRFKey), coeffNativeShowing.NCols)
+	sigState := credential.State{
+		SigS1: append([]int64(nil), sig.Signature.S1...),
+		SigS2: append([]int64(nil), sig.Signature.S2...),
+	}
+	_, _, maxSig := sigState.SignatureCoordLinf()
+	if uint64(maxSig) > par.Beta {
+		log.Fatalf("signature shortness blocker: max(|s1|,|s2|)=%d exceeds beta=%d under q=%d", maxSig, par.Beta, par.Q)
+	}
+	log.Printf("[issuance-cli] signature trials_used=%d rejected=%v", sig.Signature.TrialsUsed, sig.Signature.Rejected)
 
 	if err := copySignature("ntru_keys/signature.json", "credential/keys/signature.json"); err != nil {
 		log.Printf("[issuance-cli] warning: copy signature to credential/keys failed: %v", err)
@@ -155,7 +178,7 @@ func main() {
 		log.Printf("[issuance-cli] signature copied to credential/keys/signature.json")
 	}
 
-	if err := saveCredentialState(params, inputs, state, ch, sig, coeffNativeShowing, "credential/keys/credential_state.json"); err != nil {
+	if err := saveCredentialState(params, inputs, state, ch, sig, opts.NCols, "credential/keys/credential_state.json"); err != nil {
 		log.Printf("[issuance-cli] warning: save credential state failed: %v", err)
 	} else {
 		log.Printf("[issuance-cli] credential state saved to credential/keys/credential_state.json")
@@ -164,22 +187,6 @@ func main() {
 	_ = copyFile("ntru_keys/private.json", "credential/ntru_keys/private.json")
 
 	fmt.Println("[issuance-cli] done")
-}
-
-// makePolyConstNTT returns an NTT-domain constant polynomial.
-func makePolyConstNTT(r *ring.Ring, v int64) *ring.Poly {
-	p := r.NewPoly()
-	q := int64(r.Modulus[0])
-	var coeff uint64
-	if v >= 0 {
-		coeff = uint64(v % q)
-	} else {
-		coeff = uint64((v+q)%q) % uint64(q)
-	}
-	for i := 0; i < r.N; i++ {
-		p.Coeffs[0][i] = coeff
-	}
-	return p
 }
 
 func copySignature(src, dst string) error {
@@ -202,6 +209,21 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0o644)
+}
+
+func polyConstNTT(r *ring.Ring, v int64) *ring.Poly {
+	p := r.NewPoly()
+	q := int64(r.Modulus[0])
+	var coeff uint64
+	if v >= 0 {
+		coeff = uint64(v % q)
+	} else {
+		coeff = uint64((v+q)%q) % uint64(q)
+	}
+	for i := 0; i < r.N; i++ {
+		p.Coeffs[0][i] = coeff
+	}
+	return p
 }
 
 func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, ringQ *ring.Ring, proveDur, verifyDur time.Duration) {
@@ -305,7 +327,7 @@ func saveCredentialState(
 	st *issuance.State,
 	ch issuance.Challenge,
 	sig *keys.Signature,
-	coeffNativeShowing *credential.CoeffNativeShowingState,
+	packedNCols int,
 	path string,
 ) error {
 	if p == nil || st == nil {
@@ -352,6 +374,9 @@ func saveCredentialState(
 		BPath:         p.BPath,
 		AcPath:        p.AcPath,
 		PRFParamsPath: filepath.Join("prf", "prf_params.json"),
+		PackedNCols:   packedNCols,
+		B:             polyVec(st.B, true),
+		Ac:            matrixToInt64Local(p.Ac, r),
 	}
 	// If signature is present, persist showing-signature rows (s1,s2).
 	// Showing-time coefficient bounds are enforced on s1/s2.
@@ -361,20 +386,6 @@ func saveCredentialState(
 		}
 		if len(sig.Signature.S2) > 0 {
 			state.SigS2 = append([]int64(nil), sig.Signature.S2...)
-		}
-	}
-	if coeffNativeShowing != nil {
-		sigCopy := make([][]int64, len(coeffNativeShowing.Sig))
-		for i := range coeffNativeShowing.Sig {
-			sigCopy[i] = append([]int64(nil), coeffNativeShowing.Sig[i]...)
-		}
-		state.CoeffNativeShowing = &credential.CoeffNativeShowingState{
-			Sig:    sigCopy,
-			U:      append([]int64(nil), coeffNativeShowing.U...),
-			X0:     append([]int64(nil), coeffNativeShowing.X0...),
-			X1:     coeffNativeShowing.X1,
-			PRFKey: append([]int64(nil), coeffNativeShowing.PRFKey...),
-			NCols:  coeffNativeShowing.NCols,
 		}
 	}
 	// Embed NTRU keys if available.
@@ -391,6 +402,24 @@ func saveCredentialState(
 	return credential.SaveState(path, r, state)
 }
 
+func matrixToInt64Local(mat [][]*ring.Poly, ringQ *ring.Ring) [][][]int64 {
+	if len(mat) == 0 {
+		return nil
+	}
+	rows := len(mat)
+	out := make([][][]int64, rows)
+	for i := 0; i < rows; i++ {
+		out[i] = make([][]int64, len(mat[i]))
+		for j := range mat[i] {
+			cp := ringQ.NewPoly()
+			ring.Copy(mat[i][j], cp)
+			ringQ.InvNTT(cp, cp)
+			out[i][j] = polyToInt64Local(cp, ringQ)
+		}
+	}
+	return out
+}
+
 // polyToInt64Local converts poly coeffs to centered int64.
 func polyToInt64Local(p *ring.Poly, ringQ *ring.Ring) []int64 {
 	out := make([]int64, ringQ.N)
@@ -404,123 +433,6 @@ func polyToInt64Local(p *ring.Poly, ringQ *ring.Ring) []int64 {
 		out[i] = v
 	}
 	return out
-}
-
-func buildCoeffNativeShowingState(
-	ringQ *ring.Ring,
-	B []*ring.Poly,
-	ncols int,
-	bound int64,
-	prfParams *prf.Params,
-	rng *rand.Rand,
-) (*credential.CoeffNativeShowingState, error) {
-	if ringQ == nil {
-		return nil, fmt.Errorf("nil ring")
-	}
-	if len(B) != 4 {
-		return nil, fmt.Errorf("need 4 B polynomials, got %d", len(B))
-	}
-	if rng == nil {
-		return nil, fmt.Errorf("nil rng")
-	}
-	if ncols <= 0 {
-		ncols = int(ringQ.N)
-	}
-	if bound <= 0 {
-		return nil, fmt.Errorf("invalid bound %d", bound)
-	}
-	if prfParams == nil {
-		return nil, fmt.Errorf("nil prf params")
-	}
-	if prfParams.LenKey <= 0 {
-		return nil, fmt.Errorf("invalid prf key length %d", prfParams.LenKey)
-	}
-	par, err := ntrurio.LoadParams(filepath.Join("Parameters", "Parameters.json"), true /* allowMismatch */)
-	if err != nil {
-		return nil, fmt.Errorf("load params for coeff-native showing bound: %w", err)
-	}
-	if par.Beta == 0 {
-		return nil, fmt.Errorf("missing beta in Parameters/Parameters.json")
-	}
-	maxSigAbs := func(rows ...[]int64) int64 {
-		var maxAbs int64
-		for _, row := range rows {
-			for _, v := range row {
-				av := v
-				if av < 0 {
-					av = -av
-				}
-				if av > maxAbs {
-					maxAbs = av
-				}
-			}
-		}
-		return maxAbs
-	}
-	sampleScalar := func() int64 {
-		mod := 2*bound + 1
-		return rng.Int63n(mod) - bound
-	}
-	prfKey := make([]int64, prfParams.LenKey)
-	for i := range prfKey {
-		prfKey[i] = rng.Int63n(int64(ringQ.Modulus[0]))
-	}
-	for attempt := 0; attempt < 64; attempt++ {
-		u0 := sampleScalar()
-		u1 := sampleScalar()
-		x0 := sampleScalar()
-		x1 := sampleScalar()
-		target, err := buildCoeffNativeShowingTarget(ringQ, B, u0, u1, x0, x1)
-		if err != nil {
-			continue
-		}
-		sig, err := signverify.SignTarget(target, 2048, ntru.SamplerOpts{})
-		if err != nil {
-			return nil, fmt.Errorf("sign coeff-native target: %w", err)
-		}
-		if maxAbs := maxSigAbs(sig.Signature.S1, sig.Signature.S2); uint64(maxAbs) > par.Beta {
-			continue
-		}
-		out := &credential.CoeffNativeShowingState{
-			Sig: [][]int64{
-				append([]int64(nil), sig.Signature.S1...),
-				append([]int64(nil), sig.Signature.S2...),
-			},
-			U:      []int64{u0, u1},
-			X0:     []int64{x0},
-			X1:     x1,
-			PRFKey: append([]int64(nil), prfKey...),
-			NCols:  ncols,
-		}
-		if err := out.Validate(int(ringQ.N)); err != nil {
-			return nil, err
-		}
-		return out, nil
-	}
-	return nil, fmt.Errorf("failed to sample coeff-native semantic witness with invertible denominator and |sig|<=%d", par.Beta)
-}
-
-func buildCoeffNativeShowingTarget(ringQ *ring.Ring, B []*ring.Poly, u0Scalar, u1Scalar, x0Scalar, x1Scalar int64) ([]int64, error) {
-	if ringQ == nil {
-		return nil, fmt.Errorf("nil ring")
-	}
-	if len(B) != 4 {
-		return nil, fmt.Errorf("need 4 B polynomials, got %d", len(B))
-	}
-	m1Poly := coeffPolyFromConstantNTTValue(ringQ, u0Scalar)
-	m2Poly := coeffPolyFromConstantNTTValue(ringQ, u1Scalar)
-	x0Poly := coeffPolyFromConstantNTTValue(ringQ, x0Scalar)
-	x1Poly := coeffPolyFromConstantNTTValue(ringQ, x1Scalar)
-	return credential.HashMessage(ringQ, B, m1Poly, m2Poly, x0Poly, x1Poly)
-}
-
-// coeffPolyFromConstantNTTValue returns a coefficient-domain polynomial whose
-// NTT/evaluation representation is the constant value v on every slot.
-func coeffPolyFromConstantNTTValue(r *ring.Ring, v int64) *ring.Poly {
-	pNTT := makePolyConstNTT(r, v)
-	p := r.NewPoly()
-	r.InvNTT(pNTT, p)
-	return p
 }
 
 // saveParamsJSON writes params.json pointing to Ac/B and lengths.
@@ -556,9 +468,12 @@ func saveParamsJSON(path, acPath, bPath string, bound int64, lenM1, lenM2, lenRU
 }
 
 // saveAcJSON writes Ac (NTT) into coeff-domain JSON for reuse.
-func saveAcJSON(path string, Ac [][]*ring.Poly) error {
+func saveAcJSON(path string, ringQ *ring.Ring, Ac [][]*ring.Poly) error {
 	if len(Ac) == 0 {
 		return fmt.Errorf("empty Ac")
+	}
+	if ringQ == nil {
+		return fmt.Errorf("nil ring")
 	}
 	rows := len(Ac)
 	cols := len(Ac[0])
@@ -566,11 +481,9 @@ func saveAcJSON(path string, Ac [][]*ring.Poly) error {
 	for i := 0; i < rows; i++ {
 		acOut[i] = make([][]uint64, cols)
 		for j := 0; j < cols; j++ {
-			p := Ac[i][j]
-			cp := p.CopyNew()
-			// Inverse NTT to coeff
-			// We need ring; assume modulus same; use default ring from lengths.
-			// Here we assume cp already coeff (since sampled in NTT); so just copy coeffs.
+			cp := ringQ.NewPoly()
+			ring.Copy(Ac[i][j], cp)
+			ringQ.InvNTT(cp, cp)
 			acOut[i][j] = make([]uint64, len(cp.Coeffs[0]))
 			copy(acOut[i][j], cp.Coeffs[0])
 		}
@@ -677,4 +590,33 @@ func loadKeyCoeffs(path string) ([][]int64, error) {
 		return nil, fmt.Errorf("private key has no coefficient data")
 	}
 	return out, nil
+}
+
+func deriveOmegaForIssuanceOpts(ringQ *ring.Ring, opts PIOP.SimOpts) ([]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	ncols := opts.NCols
+	if ncols <= 0 || ncols > ringQ.N {
+		return nil, fmt.Errorf("invalid ncols=%d", ncols)
+	}
+	nLeaves := opts.NLeaves
+	if nLeaves <= 0 {
+		nLeaves = int(ringQ.N)
+	}
+	lvcsNCols := opts.LVCSNCols
+	if lvcsNCols <= 0 {
+		lvcsNCols = ncols
+	}
+	if lvcsNCols < ncols {
+		return nil, fmt.Errorf("invalid lvcs ncols=%d < witness ncols=%d", lvcsNCols, ncols)
+	}
+	dom, err := domain.NewDomain(ringQ.Modulus[0], nLeaves, lvcsNCols, opts.Ell, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(dom.Omega) < ncols {
+		return nil, fmt.Errorf("derived omega len=%d < witness ncols=%d", len(dom.Omega), ncols)
+	}
+	return append([]uint64(nil), dom.Omega[:ncols]...), nil
 }

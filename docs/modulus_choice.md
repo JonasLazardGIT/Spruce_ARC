@@ -32,9 +32,9 @@ translation layers between the signature path, the proof system, and the PRF.
 From `Parameters/Parameters.json`:
 
 - ring degree `N = 1024`
-- modulus `q = 12289`
-- modulus width ceiling `k = 14`
-- signature coefficient bound `beta = 745`
+- modulus `q = 1054721`
+- modulus width ceiling `k = 21`
+- retained signature coefficient bound `beta = 745`
 
 From `credential/params.json`:
 
@@ -42,18 +42,46 @@ From `credential/params.json`:
 
 From `prf/prf_params.json`:
 
-- the PRF also uses `q = 12289`
-- exponent `d = 5`
+- the PRF also uses `q = 1054721`
+- exponent `d = 3`
 - `LenKey = 8`
 - `LenNonce = 12`
 - `LenTag = 7`
 - `RF = 8`
-- `RP = 18`
+- `RP = 19`
 
-## Why The 14-Bit Ceiling Matters
+## Migration Status
 
-The current modulus sits below `2^14`, so packed proof objects stay within a
-14-bit field-width ceiling on the shipped path.
+The field and PRF migration is configured in code, but the end-to-end adoption
+is not complete yet.
+
+Two blockers remain on the current branch:
+
+- regenerated NTRU signatures under `q = 1054721` no longer fit the preserved
+  showing bound `beta = 745`
+- issuance pre-sign proof replay is not yet verifying again under the migrated
+  field
+
+So this note describes the selected target field and why it was chosen, but not
+yet a fully re-landed end-to-end proving baseline.
+
+## Why The Wider Field Was Chosen
+
+The new modulus is close to `2^20`, but not chosen only for width.
+
+It was selected because:
+
+- `q = 1054721` is prime
+- `q ≡ 1 mod 2048`, so the current `N = 1024` power-of-two NTT structure stays valid
+- `q ≡ 2 mod 3`, so `gcd(3, q-1) = 1` and the paper rule selects a cubic PRF
+
+The older near-`2^20` candidate `1038337` does not satisfy the cubic PRF
+condition.
+
+## Why The Wider Field Still Hurts Packing
+
+Moving from the old 14-bit regime to the current 21-bit regime increases the
+encoded width of many packed field elements.
 
 That matters because:
 
@@ -66,45 +94,32 @@ That matters because:
 The current choice therefore helps the proof system in two ways at once:
 
 - it keeps the arithmetic native to the same field across all subsystems
-- it keeps packed proof payloads compact
+- but it does not keep packed proof payloads as compact as the old 14-bit field
 
 ## How `beta` And Signature Shortness Fit Together
 
-The shipped showing path uses a fixed signed shortness chain:
-
-- radix `R = 13`
-- length `L = 3`
-- caps `[6, 6, 4]`
-
-That gives a representable signed range of:
-
-- `6 + 13*6 + 13^2*4 = 760`
-
-which comfortably covers the live signature bound:
+The retained showing path still keeps the old signature coefficient target:
 
 - `beta = 745`
 
-while still remaining well below `q / 2 = 6144`.
-
-That is the key no-wrap property the code needs:
-
-- the shortness gadget must cover the live signature bound
-- its signed decomposition must still behave cleanly modulo `q`
-
-So the modulus and the shortness gadget are not independent knobs. The chosen
-`q` is part of why the shipped `R = 13`, `L = 3`, caps `[6,6,4]` profile is
-compact and safe.
+Under the new field, regenerated signatures currently exceed that retained
+bound, so the migration is intentionally blocked until the signature-bound
+decision is resolved. The modulus and the showing shortness gadget are therefore
+still coupled design choices, not independent knobs.
 
 ## Why The PRF Shares The Same Modulus
 
-The PRF is proved inside the showing statement, so the cheapest design is to
-keep it in the same field as the rest of the proof system.
+The PRF is proved inside the showing statement, so the cheapest design is still
+to keep it in the same field as the rest of the proof system.
 
 That means:
 
 - key lanes are represented directly over `F_q`
 - checkpointed S-box outputs are replayed over the same field
 - no cross-field encoding is needed before building the proof
+
+With the new modulus, the paper rule now selects the cubic S-box, so the PRF is
+not only field-aligned but also paper-aligned on exponent choice.
 
 The PRF is therefore not a bolt-on subsystem. It is chosen so the showing proof
 can express:
@@ -120,28 +135,9 @@ inside one coherent field arithmetic model.
 The modulus choice interacts with proof geometry indirectly through packing and
 soundness.
 
-For showing, the shipped defaults are:
-
-- shared:
-  `NCols = 16`, `Theta = 6`, `Ell = 18`, `Eta = 31`, `EllPrime = 2`, `Rho = 2`
-- one-root `v3`:
-  `LVCSNCols = 24`, `NLeaves = 2048`
-- split `v4`:
-  post-sign `32 / 1536`
-  and PRF `28 / 2048`
-
-Those geometry choices were made under the current field and packing budget.
-The field width constrains how expensive packed openings become, while the
-SmallWood degree and soundness terms constrain how narrow or wide the committed
-row layout can be without hurting the proof.
-
-In practice, the current modulus supports a compact packed proof profile while
-still leaving enough room for:
-
-- the signature equation
-- the fixed shortness gadget
-- the grouped PRF checkpoints
-- the explicit-domain DECS/LVCS proof stack
+For showing, the currently retained preset structure still exists, but the
+field migration does not yet have a fully re-landed end-to-end baseline because
+of the blockers above.
 
 ## If `q` Changes
 

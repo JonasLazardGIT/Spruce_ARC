@@ -1,6 +1,9 @@
 package prf
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // A minimal sanity test with tiny parameters (not from the paper).
 func TestPRFSanity(t *testing.T) {
@@ -46,5 +49,39 @@ func TestPRFSanity(t *testing.T) {
 	const expected = Elem(42)
 	if tag[0] != expected {
 		t.Fatalf("tag[0]=%d want %d", tag[0], expected)
+	}
+}
+
+func TestShippedCubicPRFDeterministicTag(t *testing.T) {
+	p, err := LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+	if err != nil {
+		t.Fatalf("load params: %v", err)
+	}
+	if p.Q != 1054721 {
+		t.Fatalf("q=%d want 1054721", p.Q)
+	}
+	if p.D != 3 {
+		t.Fatalf("d=%d want 3", p.D)
+	}
+	key := make([]Elem, p.LenKey)
+	nonce := make([]Elem, p.LenNonce)
+	for i := range key {
+		key[i] = Elem(i + 1)
+	}
+	for i := range nonce {
+		nonce[i] = Elem(100 + i)
+	}
+	tag, err := Tag(key, nonce, p)
+	if err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	want := []Elem{707839, 233902, 921093, 744925, 647362, 935104, 130251}
+	if len(tag) != len(want) {
+		t.Fatalf("tag length=%d want %d", len(tag), len(want))
+	}
+	for i := range want {
+		if tag[i] != want[i] {
+			t.Fatalf("tag[%d]=%d want %d", i, tag[i], want[i])
+		}
 	}
 }

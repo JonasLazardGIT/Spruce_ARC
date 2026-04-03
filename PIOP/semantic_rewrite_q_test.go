@@ -451,11 +451,11 @@ func TestSemanticRewriteConstraintFamiliesOnOmega(t *testing.T) {
 	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
 }
 
-func TestSemanticRewriteConstraintFamiliesOnOmegaLegacyShortnessProfile(t *testing.T) {
+func TestSemanticRewriteConstraintFamiliesOnOmegaProductionShortnessProfile(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
 	}
-	fx := buildSemanticRewriteFixtureWithShortnessProfile(t, SigShortnessProfileR13L3Legacy)
+	fx := buildSemanticRewriteFixtureWithShortnessProfile(t, SigShortnessProfileR11L4Production)
 	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root)
 	if err != nil {
 		t.Fatalf("rebuild semantic post-sign set: %v", err)
@@ -466,26 +466,11 @@ func TestSemanticRewriteConstraintFamiliesOnOmegaLegacyShortnessProfile(t *testi
 	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
 }
 
-func TestSemanticRewriteConstraintFamiliesOnOmegaExperimentalShortnessProfile(t *testing.T) {
+func TestSemanticRewriteConstraintFamiliesOnOmegaCustomBalanced75(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
 	}
-	fx := buildSemanticRewriteFixtureWithShortnessProfile(t, SigShortnessProfileR7L4Experimental)
-	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root)
-	if err != nil {
-		t.Fatalf("rebuild semantic post-sign set: %v", err)
-	}
-	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparInt", postSet.FparInt, postSet.FparIntCoeffs)
-	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparNorm", postSet.FparNorm, postSet.FparNormCoeffs)
-	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggInt", postSet.FaggInt, postSet.FaggIntCoeffs)
-	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
-}
-
-func TestSemanticRewriteConstraintFamiliesOnOmegaCustomBalanced55(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration-like fixture")
-	}
-	fx := buildSemanticRewriteFixtureWithShortness(t, "", 5, 5)
+	fx := buildSemanticRewriteFixtureWithShortness(t, "", 7, 5)
 	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root)
 	if err != nil {
 		t.Fatalf("rebuild semantic post-sign set: %v", err)

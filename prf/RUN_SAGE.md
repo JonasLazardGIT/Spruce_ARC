@@ -1,87 +1,83 @@
-# Running `generate_params_poseidon.sage` for the PRF (Spruce-And-AC §B.6)
+# Running `generate_params.sage` for the PRF
 
-This note explains how to produce the Poseidon2-like parameters (MDS matrices and round constants) required by the PRF `F(k, n)` from §B.6 and export them into a JSON blob that the Go PRF package can consume.
+This note explains how to produce the Poseidon2-like parameters (MDS matrices
+and round constants) required by the PRF `F(k, n)` and export them into the
+JSON blob consumed by the Go PRF package.
 
-## What we need from the paper
-- Field modulus `q`: use the protocol field (same as PCS), `q = 1_038_337 = 0xFD801`.
-- S-box exponent `d`: smallest `d ≥ 3` with `gcd(d, q−1) = 1`. For `q = 1_038_337`, `q−1 = 1_038_336`, so `d = 5` is the first valid choice (3 and 4 share factors with `q−1`).
-- Width `t = lenkey + lennonce`:
-  - `lenkey` = number of `m2` slots in showing (e.g., 256 if you use half of a 512-slot packing).
-  - `lennonce`: protocol choice (pick per spec; ensure `lentag` security: `lentag ≥ ceil(λ / log2 q)` ⇒ with q≈2^20, `lentag ≥ 7` for 128-bit).
-- Rounds `RF/RP`: choose per Poseidon2 guidance; the Sage script can compute minimal secure values for given `(q, t, alpha=d, security_level)`.
+## Shipped Profile
 
-## Sage script CLI
-The script expects:
-```
-sage prf/generate_params_poseidon.sage <field> <s_box> <field_bits> <num_cells> <alpha> <security_level> <modulus_hex> [lenkey lennonce lentag] [fixed] [nochecks]
-```
-- `field=1` for GF(p) (our case), `s_box=0` for x^alpha.
-- `field_bits` = bitlength of q (for q=1_038_337, use 20).
-- `num_cells` = t (lenkey + lennonce).
-- `alpha` = d (use 5 for q above).
-- `security_level` = e.g., 128.
-- `modulus_hex` = modulus in hex (0xFD801).
-- Optional `lenkey lennonce lentag` override the defaults; must satisfy `lenkey + lennonce = num_cells`.
-- `fixed` forces the paper example rounds `RF=8`, `RP=10` (otherwise the script computes round counts).
-- `nochecks` disables the expensive MDS trail checks (useful for quick iteration).
+- Field modulus `q`: `1_054_721 = 0x101801`
+- S-box exponent `d`: `3`
+- Width `t = lenkey + lennonce = 20`
+- `lenkey = 8`
+- `lennonce = 12`
+- `lentag = 7`
 
-### Example command (paper “for now” parameters)
-The paper provides example lengths `lenkey=90`, `lennonce=8`, `lentag=2` (so `t=98`) and round counts `RF=8`, `RP=10`. To generate params for that instantiation on the paper’s field:
-```
-sage prf/generate_params_poseidon.sage 1 0 20 98 5 128 0xFD801 90 8 2 fixed
-```
-The script will write `prf_params.json` alongside the `.txt`.
+The paper rule is: choose the smallest `d >= 3` such that `gcd(d, q-1) = 1`.
+For `q = 1_054_721`, that gives the cubic PRF because `gcd(3, q-1) = 1`.
 
-### Faster iteration (skip expensive checks)
-If you only need parameters quickly (e.g., for dev tests), add `nochecks`:
-```
-sage prf/generate_params_poseidon.sage 1 0 20 98 5 128 0xFD801 90 8 2 fixed nochecks
+## Round Sweep
+
+To confirm the round counts for the shipped profile:
+
+```bash
+sage prf/sweep_rounds.sage 21 0x101801 3 128 20 20 7
 ```
 
-## Round sweep helper
-To get a compact grid of `(RF, RP, t)` candidates without running heavy MDS generation, use:
-```
-sage prf/sweep_rounds.sage 20 0xFD801 5 128 16 28 7
-```
-Arguments:
-- `field_bits` (e.g., `20` for `q=0xFD801`).
-- `modulus_hex` (e.g., `0xFD801`).
-- `alpha` (e.g., `5`).
-- `security` (e.g., `128`).
-- `t_min`, `t_max` (inclusive sweep range).
-- Optional `lentag` to check the truncation bound `t-lentag > λ/log2(q)` (prints `ok`/`fail`).
+At the current target this yields:
 
-## Exporting JSON for Go
-The script now dumps a machine-readable `prf_params.json` (ME=MI by default) after running. Steps:
-1. Run the Sage command above from repo root.
-2. Copy `prf/prf_params.json` into `prf/testdata/` (or embed in Go).
-3. Load it in Go via a `LoadParamsFromJSON` helper and validate.
+- `RF = 8`
+- `RP = 19`
 
-## Loading in Go
-Add a loader to `prf/params.go`:
-```go
-type ParamsJSON struct {
-    Q uint64 `json:"q"`
-    D uint64 `json:"d"`
-    LenKey, LenNonce, LenTag int `json:"lenkey","lennonce","lentag"`
-    RF, RP int `json:"RF","RP"`
-    ME, MI [][]uint64 `json:"ME","MI"`
-    CExt [][]uint64 `json:"cExt"`
-    CInt []uint64   `json:"cInt"`
-}
+## Regenerate The Shipped Parameters
+
+From the repository root run:
+
+```bash
+sage prf/generate_params.sage 1 0 21 20 3 128 0x101801 8 12 7
 ```
-Convert to `Params` and call `Validate()`.
 
-## Sanity/KATs
-- After exporting params, generate a KAT in Sage:
-  - pick `k, n`, compute `tag = F(k,n)` using the same permutation and feed-forward.
-  - dump to `prf/testdata/kat.json` (`key`, `nonce`, `tag` as hex/ints).
-- Add a Go test that loads params and KAT and checks `Tag(key, nonce)` matches.
+This writes `prf/prf_params.json`.
+
+## Faster Iteration
+
+If you only need parameters quickly, skip the expensive checks:
+
+```bash
+sage prf/generate_params.sage 1 0 21 20 3 128 0x101801 8 12 7 nochecks
+```
+
+## CLI Arguments
+
+The generator expects:
+
+```bash
+sage prf/generate_params.sage <field> <s_box> <field_bits> <num_cells> <alpha> <security_level> <modulus_hex> [lenkey lennonce lentag] [fixed] [nochecks]
+```
+
+- `field = 1` for `GF(p)`
+- `s_box = 0` for `x^alpha`
+- `field_bits = 21` for `q = 0x101801`
+- `num_cells = t`
+- `alpha = d`
+- `security_level = 128`
+- `modulus_hex = 0x101801`
+- optional `lenkey lennonce lentag` must satisfy `lenkey + lennonce = t`
+- `fixed` forces paper/example rounds instead of the swept rounds
+- `nochecks` disables the expensive MDS trail checks
+
+## Exported JSON
+
+The script writes a machine-readable `prf/prf_params.json`. After regenerating:
+
+1. load it in Go via `prf.LoadParamsFromFile`
+2. validate it in tests
+3. keep one deterministic `(key, nonce) -> tag` regression under the shipped
+   cubic profile
 
 ## Notes
-- The paper fixes `q` and the rule for `d`; the numeric `d=5` follows from that rule.
-- Lengths (`lenkey=90`, `lennonce=8`, `lentag=2`, `t=98`) and `RF=8`, `RP=10` are paper example (“for now”) parameters; you may choose different values to match your packing/security, but then adjust the Sage CLI accordingly.
-- The script sets `LENKEY/LENNONCE/LENTAG`; if you change `num_cells`, ensure `LENKEY+LENNONCE = t`.
- - The script prints two quick sanity checks:
-   - Truncation bound: `t - lentag > λ / log2(q)`.
-   - Permutation heuristic: `t * log2(q) / 3` (warns if below `λ`).
+
+- If `t` changes, keep `lenkey + lennonce = t`.
+- The script prints two quick sanity checks:
+  - truncation bound: `t - lentag > lambda / log2(q)`
+  - permutation heuristic: `t * log2(q) / 3`

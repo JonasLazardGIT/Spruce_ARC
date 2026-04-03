@@ -51,14 +51,14 @@ type State struct {
 	// Hash target and showing-signature rows.
 	T []int64 `json:"t"`
 	// Showing-signature rows s1 and s2 are the bounded rows.
-	SigS1 []int64   `json:"sig_s1,omitempty"`
-	SigS2 []int64   `json:"sig_s2,omitempty"`
+	SigS1 []int64 `json:"sig_s1,omitempty"`
+	SigS2 []int64 `json:"sig_s2,omitempty"`
 	// PackedNCols fixes the issuance/showing witness packing width used when
 	// extracting the signed PRF key from M2.
-	PackedNCols int `json:"packed_ncols,omitempty"`
-	Com   [][]int64 `json:"com"`
-	RI0   [][]int64 `json:"ri0"`
-	RI1   [][]int64 `json:"ri1"`
+	PackedNCols int       `json:"packed_ncols,omitempty"`
+	Com         [][]int64 `json:"com"`
+	RI0         [][]int64 `json:"ri0"`
+	RI1         [][]int64 `json:"ri1"`
 	// Paths to public parameters.
 	BPath  string `json:"b_path"`
 	AcPath string `json:"ac_path"`
@@ -96,6 +96,31 @@ func polysToInt64(vec []*ring.Poly, ringQ *ring.Ring) [][]int64 {
 		out[i] = polyToInt64(p, ringQ)
 	}
 	return out
+}
+
+func maxAbsInt64Slice(vals []int64) int64 {
+	var m int64
+	for _, v := range vals {
+		if v < 0 {
+			v = -v
+		}
+		if v > m {
+			m = v
+		}
+	}
+	return m
+}
+
+// SignatureCoordLinf returns the separate and joint infinity norms of the
+// top-level signed rows that issuance persists and showing later checks.
+func (st State) SignatureCoordLinf() (maxS1 int64, maxS2 int64, maxSig int64) {
+	maxS1 = maxAbsInt64Slice(st.SigS1)
+	maxS2 = maxAbsInt64Slice(st.SigS2)
+	maxSig = maxS1
+	if maxS2 > maxSig {
+		maxSig = maxS2
+	}
+	return maxS1, maxS2, maxSig
 }
 
 // polyFromInt64 builds a coeff-domain poly from centered coeffs in [-q/2,q/2].

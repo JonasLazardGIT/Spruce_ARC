@@ -245,16 +245,55 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 	if maxIdx >= len(rowsNTT) {
 		return ConstraintSet{}, fmt.Errorf("rows length %d <= required pre-sign max index %d", len(rowsNTT), maxIdx)
 	}
+	headThetaNTT := func(p *ring.Poly) (*ring.Poly, error) {
+		if p == nil {
+			return nil, fmt.Errorf("nil row poly")
+		}
+		if domainMode != DomainModeExplicit {
+			return p, nil
+		}
+		cp := ringQ.NewPoly()
+		ring.Copy(p, cp)
+		head := append([]uint64(nil), cp.Coeffs[0][:ncols]...)
+		return BuildThetaPrime(ringQ, head, omega), nil
+	}
 
-	m1NTT := rowsNTT[m1Idx]
-	m2NTT := rowsNTT[m2Idx]
-	ru0NTT := rowsNTT[ru0Idx]
-	ru1NTT := rowsNTT[ru1Idx]
-	rNTT := rowsNTT[rIdx]
-	r0NTT := rowsNTT[r0Idx]
-	r1NTT := rowsNTT[r1Idx]
-	k0NTT := rowsNTT[k0Idx]
-	k1NTT := rowsNTT[k1Idx]
+	m1NTT, err := headThetaNTT(rowsNTT[m1Idx])
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("m1 theta row: %w", err)
+	}
+	m2NTT, err := headThetaNTT(rowsNTT[m2Idx])
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("m2 theta row: %w", err)
+	}
+	ru0NTT, err := headThetaNTT(rowsNTT[ru0Idx])
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("ru0 theta row: %w", err)
+	}
+	ru1NTT, err := headThetaNTT(rowsNTT[ru1Idx])
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("ru1 theta row: %w", err)
+	}
+	rNTT, err := headThetaNTT(rowsNTT[rIdx])
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("r theta row: %w", err)
+	}
+	r0NTT, err := headThetaNTT(rowsNTT[r0Idx])
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("r0 theta row: %w", err)
+	}
+	r1NTT, err := headThetaNTT(rowsNTT[r1Idx])
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("r1 theta row: %w", err)
+	}
+	k0NTT, err := headThetaNTT(rowsNTT[k0Idx])
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("k0 theta row: %w", err)
+	}
+	k1NTT, err := headThetaNTT(rowsNTT[k1Idx])
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("k1 theta row: %w", err)
+	}
 
 	// Interpolate public polynomials over Ω so constraint evaluation at K-points
 	// uses Θ(X) (degree < ncols), not full ring polynomials.
@@ -555,14 +594,22 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 		if idx < 0 || idx >= len(rowsNTT) {
 			return ConstraintSet{}, fmt.Errorf("pre-sign bound row idx %d out of range (rows=%d)", idx, len(rowsNTT))
 		}
-		boundedRows = append(boundedRows, rowsNTT[idx])
+		row, rerr := headThetaNTT(rowsNTT[idx])
+		if rerr != nil {
+			return ConstraintSet{}, fmt.Errorf("bound theta row %d: %w", idx, rerr)
+		}
+		boundedRows = append(boundedRows, row)
 	}
 	carryRows := make([]*ring.Poly, 0, len(carryIdxs))
 	for _, idx := range carryIdxs {
 		if idx < 0 || idx >= len(rowsNTT) {
 			return ConstraintSet{}, fmt.Errorf("pre-sign carry row idx %d out of range (rows=%d)", idx, len(rowsNTT))
 		}
-		carryRows = append(carryRows, rowsNTT[idx])
+		row, rerr := headThetaNTT(rowsNTT[idx])
+		if rerr != nil {
+			return ConstraintSet{}, fmt.Errorf("carry theta row %d: %w", idx, rerr)
+		}
+		carryRows = append(carryRows, row)
 	}
 	if bound > int64(^uint(0)>>1) {
 		return ConstraintSet{}, fmt.Errorf("bound too large for membership spec: %d", bound)
@@ -1104,31 +1151,45 @@ func BuildCredentialConstraintSetPre(ringQ *ring.Ring, bound int64, pub PublicIn
 		ringQ.NTT(cp, cp)
 		return cp
 	}
+	headThetaNTT := func(p *ring.Poly) (*ring.Poly, []uint64) {
+		if p == nil {
+			return nil, nil
+		}
+		ntt := ensureNTT(p)
+		head := append([]uint64(nil), ntt.Coeffs[0][:len(omega)]...)
+		return ntt, head
+	}
 
 	// Basic bound sanity on witness row heads used by constraint composition.
-	// These pre-sign constraints are built over the packed row-head encoding, so
-	// we enforce bounds on the first |Ω| NTT slots of each witness row.
+	// These pre-sign constraints are built over the same explicit-domain Θ rows
+	// that buildCredentialRows commits, so we enforce bounds on those row heads.
 	allWits := []*ring.Poly{wit.M1[0], wit.M2[0], wit.RU0[0], wit.RU1[0], wit.R[0], wit.R0[0], wit.R1[0], wit.K0[0], wit.K1[0]}
 	nttWits := make([]*ring.Poly, len(allWits))
+	omegaHeads := make([][]uint64, len(allWits))
 	for i := range allWits {
-		nttWits[i] = ensureNTT(allWits[i])
+		nttWits[i], omegaHeads[i] = headThetaNTT(allWits[i])
 	}
 	q := ringQ.Modulus[0]
 	qInt := int64(q)
 	half := qInt / 2
-	for idx, pNTT := range nttWits {
-		if pNTT == nil {
+	carryBound := int64(1)
+	for idx, head := range omegaHeads {
+		if nttWits[idx] == nil {
 			return ConstraintSet{}, fmt.Errorf("nil witness poly %d", idx)
 		}
-		for j := 0; j < len(omega); j++ {
-			cv := int64(pNTT.Coeffs[0][j] % q)
+		rowBound := bound
+		if idx >= 7 {
+			rowBound = carryBound
+		}
+		for j := 0; j < len(head); j++ {
+			cv := int64(head[j] % q)
 			if cv > half {
 				cv -= qInt
 			}
 			if cv < -half {
 				cv += qInt
 			}
-			if cv > bound || cv < -bound {
+			if cv > rowBound || cv < -rowBound {
 				return ConstraintSet{}, fmt.Errorf("bound check failed: witness poly %d out of range on Ω (slot %d)", idx, j)
 			}
 		}
@@ -1155,9 +1216,10 @@ func BuildCredentialConstraintSetPre(ringQ *ring.Ring, bound int64, pub PublicIn
 }
 
 // BuildPRFConstraintSet constructs the parallel constraints for tag = F(m2, nonce)
-// using the Poseidon2-like params in prfParams. This follows the degree-5
-// arithmetization (no quadraticization), introducing degree-5 constraints for
-// each round/lanes transition and linear constraints for the feed-forward/tag.
+// using the Poseidon2-like params in prfParams. This follows the native
+// x^d arithmetization selected by the shipped PRF parameters, introducing
+// degree-d constraints for each round/lanes transition and linear constraints
+// for the feed-forward/tag.
 //
 // Inputs:
 //   - ringQ: PCS ring

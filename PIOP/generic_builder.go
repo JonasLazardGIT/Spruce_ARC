@@ -320,9 +320,9 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				rebuiltEmpty := len(set.FparInt)+len(set.FparNorm)+len(set.FaggInt)+len(set.FaggNorm) == 0
 				// Rebuild pre-sign constraints when their publics are present.
 				if len(pub.Ac) > 0 && len(pub.Com) > 0 && len(pub.RI0) > 0 && len(pub.RI1) > 0 && len(pub.B) > 0 && len(pub.T) > 0 {
-					csRows, cerr := buildCredentialConstraintSetPreFromRows(ringQ, pub.BoundB, pub, rowLayout, constraintRows, omegaWitness, opts.DomainMode)
+					csRows, cerr := BuildCredentialConstraintSetPre(ringQ, pub.BoundB, pub, wit, omegaWitness)
 					if cerr != nil {
-						return nil, fmt.Errorf("rebuild credential constraints from rows: %w", cerr)
+						return nil, fmt.Errorf("rebuild credential constraints from witness: %w", cerr)
 					}
 					if len(set.FparInt) < len(csRows.FparInt) {
 						return nil, fmt.Errorf("constraint set too small: have %d want >=%d", len(set.FparInt), len(csRows.FparInt))
@@ -342,34 +342,10 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 					}
 					set.FparNormCoeffs = csRows.FparNormCoeffs
 
-					// Pre-sign non-signature NTT↔coef bridge is enabled only in
-					// explicit-domain mode. In the row-polynomial mode, aggregated degree=2 can
-					// exceed the ring-backed dQ budget.
-					if opts.DomainMode == DomainModeExplicit {
-						preBridge, preBridgeCoeffs, preBridgeErr := buildPreSignNonSigBridgeConstraintsFormal(
-							ringQ,
-							constraintRows,
-							omegaWitness,
-							rowLayout,
-							root,
-							signatureNTTBridgeChecks,
-						)
-						if preBridgeErr != nil {
-							return nil, fmt.Errorf("pre-sign non-signature bridge: %w", preBridgeErr)
-						}
-						if len(preBridge) > 0 {
-							if len(set.FaggNormCoeffs) < len(set.FaggNorm) {
-								expanded := make([][]uint64, len(set.FaggNorm))
-								copy(expanded, set.FaggNormCoeffs)
-								set.FaggNormCoeffs = expanded
-							}
-							set.FaggNorm = append(set.FaggNorm, preBridge...)
-							set.FaggNormCoeffs = append(set.FaggNormCoeffs, preBridgeCoeffs...)
-							if set.AggregatedAlgDeg < 2 {
-								set.AggregatedAlgDeg = 2
-							}
-						}
-					}
+					// The paper-aligned pre-sign credential path does not retain the
+					// extra non-signature NTT↔coefficient bridge families. Those
+					// bridges are showing-side scaffolding, not part of the issuance
+					// relation itself.
 				}
 				// Rebuild post-sign constraints only when the public signature/hash
 				// statement is present.
@@ -1106,44 +1082,8 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			}
 			haveCred = true
 
-			if hasPreSignNonSigFamilies(proof.RowLayout) && (proof.DomainMode == DomainModeExplicit || opts.DomainMode == DomainModeExplicit) {
-				fams := preSignNonSigFamilies(proof.RowLayout)
-				cfgNonSigBridge := NonSigNTTBridgeConfig{
-					Ring:         ringQ,
-					Omega:        omegaWitness,
-					DomainPoints: domainPoints,
-					Layout:       proof.RowLayout,
-					Families:     fams,
-					Root:         proof.Root,
-					BridgeChecks: signatureNTTBridgeChecks,
-				}
-				nonSigBridgeEval = cfgNonSigBridge.NonSigBridgeEvaluator()
-				if proof.Theta > 1 && K != nil {
-					ek, err := cfgNonSigBridge.NonSigBridgeKEvaluator(K)
-					if err != nil {
-						return false, err
-					}
-					nonSigBridgeEvalK = ek
-				}
-				for _, fam := range fams {
-					if fam.Blocks <= 0 || fam.ComponentCount <= 0 {
-						continue
-					}
-					for b := 0; b < fam.Blocks; b++ {
-						nIdx := fam.Block0Base + fam.ComponentCount - 1
-						if b > 0 {
-							nIdx = fam.ExtraNTTBase + (b-1)*fam.ComponentCount + (fam.ComponentCount - 1)
-						}
-						cIdx := fam.CoeffBase + b*fam.ComponentCount + (fam.ComponentCount - 1)
-						if nIdx+1 > rowCount {
-							rowCount = nIdx + 1
-						}
-						if cIdx+1 > rowCount {
-							rowCount = cIdx + 1
-						}
-					}
-				}
-			}
+			// The retained paper-aligned pre-sign credential relation does not
+			// replay the legacy non-signature NTT/coeff bridge families.
 		}
 		// Build PRF evaluator when layout is present.
 		if set.PRFLayout != nil && len(pub.Tag) > 0 {

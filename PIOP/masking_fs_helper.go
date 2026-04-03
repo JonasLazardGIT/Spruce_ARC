@@ -395,26 +395,97 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 
 	// Masks and Q/QK generation.
 	if err := stage("RunMaskFS.BuildQAndMasks", func() error {
-		if proof.Theta > 1 {
-			// Base-field masks (used by Q and the ΣΩ check) must be committed inside the main
-			// oracle so the verifier can read them from RowOpening at tail indices.
-			if len(args.independentMasks) != args.rho {
-				return fmt.Errorf("expected %d committed base-field masks, got %d", args.rho, len(args.independentMasks))
-			}
-			out.M = clonePolys(args.independentMasks)
-			if len(args.independentMaskCoeffs) > 0 {
-				out.MCoeffs = copyMatrix(args.independentMaskCoeffs)
-			} else {
-				out.MCoeffs = make([][]uint64, len(out.M))
-				for i := range out.M {
-					coeff := ringQ.NewPoly()
-					if out.M[i] != nil {
-						ringQ.InvNTT(out.M[i], coeff)
-						out.MCoeffs[i] = trimCoeffsCopy(coeff.Coeffs[0], q)
-					}
+		// Base-field masks (used by Q and the ΣΩ check) must be committed inside the main
+		// oracle so the verifier can read them from RowOpening at tail indices.
+		if len(args.independentMasks) != args.rho {
+			return fmt.Errorf("expected %d committed base-field masks, got %d", args.rho, len(args.independentMasks))
+		}
+		out.M = clonePolys(args.independentMasks)
+		if len(args.independentMaskCoeffs) > 0 {
+			out.MCoeffs = copyMatrix(args.independentMaskCoeffs)
+		} else {
+			out.MCoeffs = make([][]uint64, len(out.M))
+			for i := range out.M {
+				coeff := ringQ.NewPoly()
+				if out.M[i] != nil {
+					ringQ.InvNTT(out.M[i], coeff)
+					out.MCoeffs[i] = trimCoeffsCopy(coeff.Coeffs[0], q)
 				}
 			}
+		}
 
+		qLayout := BuildQLayout{
+			WitnessPolys: args.w1[:args.origW1Len],
+			MaskPolys:    out.M,
+		}
+		maskCoeffs := make([][]uint64, len(out.M))
+		for i := range out.M {
+			switch {
+			case i < len(out.MCoeffs) && len(out.MCoeffs[i]) > 0:
+				maskCoeffs[i] = append([]uint64(nil), out.MCoeffs[i]...)
+			case out.M[i] != nil:
+				coeff := ringQ.NewPoly()
+				ringQ.InvNTT(out.M[i], coeff)
+				maskCoeffs[i] = trimCoeffsCopy(coeff.Coeffs[0], q)
+			default:
+				return fmt.Errorf("missing mask coefficients for row %d", i)
+			}
+		}
+		qLayout.MaskCoeffs = maskCoeffs
+		proof.maskCoeffDebug = copyMatrix(maskCoeffs)
+		proof.fparCoeffDebug = copyMatrix(args.FparAllCoeffs)
+		proof.faggCoeffDebug = copyMatrix(args.FaggAllCoeffs)
+		if proof.Theta <= 1 {
+			totalRows := args.maskRowOffset + args.maskRowCount
+			fullRows := make([][]uint64, totalRows)
+			copy(fullRows, args.rows)
+			for i := 0; i < len(maskCoeffs) && i < args.maskRowCount; i++ {
+				row := make([]uint64, len(args.omega))
+				for j, w := range args.omega {
+					row[j] = EvalPoly(maskCoeffs[i], w%q, q)
+				}
+				fullRows[args.maskRowOffset+i] = row
+			}
+			args.rows = fullRows
+		}
+		qCoeffs, qErr := BuildQCoeffsChecked(
+			ringQ,
+			qLayout,
+			args.FparInt,
+			args.FparNorm,
+			args.FaggInt,
+			args.FaggNorm,
+			args.FparIntCoeffs,
+			args.FparNormCoeffs,
+			args.FaggIntCoeffs,
+			args.FaggNormCoeffs,
+			GammaPrime,
+			GammaAgg,
+		)
+		if qErr != nil {
+			return qErr
+		}
+		out.QCoeffs = qCoeffs
+		proof.qCoeffDebug = copyMatrix(qCoeffs)
+		if deg := maxDegreeFromCoeffRows(qCoeffs); deg > qDecsParams.Degree {
+			qDecsParams.Degree = deg
+		}
+		proof.QDegreeBound = qDecsParams.Degree
+		qDomainPoints = domainPoints
+		if len(qDomainPoints) == 0 {
+			return fmt.Errorf("explicit-domain mode requires non-empty Q domain points")
+		}
+		qProver, qErr = decs.NewProverWithParamsAndPointsFormalChecked(ringQ, qCoeffs, qDecsParams, qDomainPoints)
+		if qErr != nil {
+			return fmt.Errorf("build q prover: %w", qErr)
+		}
+		qRoot, qErr := qProver.CommitInit()
+		if qErr != nil {
+			return fmt.Errorf("commit Q: %w", qErr)
+		}
+		proof.QRoot = qRoot
+
+		if proof.Theta > 1 {
 			// Small-field branch: use K-masks for QK (paper §4.2 / §6.2).
 			MK := args.independentMasksK
 			if len(MK) == 0 {
@@ -429,60 +500,6 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			}
 			out.MK = MK
 			proof.MKData = snapshotKPolys(MK)
-			// Q and QK
-			qLayout := BuildQLayout{
-				WitnessPolys: args.w1[:args.origW1Len],
-				MaskPolys:    out.M,
-			}
-			maskCoeffs := make([][]uint64, len(out.M))
-			for i := range out.M {
-				switch {
-				case i < len(out.MCoeffs) && len(out.MCoeffs[i]) > 0:
-					maskCoeffs[i] = append([]uint64(nil), out.MCoeffs[i]...)
-				case out.M[i] != nil:
-					coeff := ringQ.NewPoly()
-					ringQ.InvNTT(out.M[i], coeff)
-					maskCoeffs[i] = trimCoeffsCopy(coeff.Coeffs[0], q)
-				default:
-					return fmt.Errorf("missing mask coefficients for row %d", i)
-				}
-			}
-			qLayout.MaskCoeffs = maskCoeffs
-			qCoeffs, qErr := BuildQCoeffsChecked(
-				ringQ,
-				qLayout,
-				args.FparInt,
-				args.FparNorm,
-				args.FaggInt,
-				args.FaggNorm,
-				args.FparIntCoeffs,
-				args.FparNormCoeffs,
-				args.FaggIntCoeffs,
-				args.FaggNormCoeffs,
-				GammaPrime,
-				GammaAgg,
-			)
-			if qErr != nil {
-				return qErr
-			}
-			out.QCoeffs = qCoeffs
-			if deg := maxDegreeFromCoeffRows(qCoeffs); deg > qDecsParams.Degree {
-				qDecsParams.Degree = deg
-			}
-			proof.QDegreeBound = qDecsParams.Degree
-			qDomainPoints = domainPoints
-			if len(qDomainPoints) == 0 {
-				return fmt.Errorf("explicit-domain mode requires non-empty Q domain points")
-			}
-			qProver, qErr = decs.NewProverWithParamsAndPointsFormalChecked(ringQ, qCoeffs, qDecsParams, qDomainPoints)
-			if qErr != nil {
-				return fmt.Errorf("build q prover: %w", qErr)
-			}
-			qRoot, qErr := qProver.CommitInit()
-			if qErr != nil {
-				return fmt.Errorf("commit Q: %w", qErr)
-			}
-			proof.QRoot = qRoot
 			out.QK = BuildQK(
 				ringQ,
 				args.opts.DomainMode,
@@ -517,6 +534,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	var barSets [][]uint64
 	var vTargets [][]uint64
 	var gammaQ [][]uint64
+	var gammaPrimeBytes []byte
 	// Round 3 eval points (no proof population; outputs for caller)
 	if err := stage("RunMaskFS.Round3Eval", func() error {
 		ellPrime := args.ellPrime
@@ -528,7 +546,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			args.omega = append([]uint64(nil), args.omega[:args.ncolsOverride]...)
 		}
 		gammaBytes = bytesFromUint64Matrix(Gamma)
-		gammaPrimeBytes := bytesFromUint64Tensor3(GammaPrime)
+		gammaPrimeBytes = bytesFromUint64Tensor3(GammaPrime)
 		gammaAggBytes := bytesFromUint64Matrix(GammaAgg)
 		if proof.Theta > 1 {
 			gammaPrimeBytes = bytesFromKScalarTensor3(GammaPrimeK)
@@ -635,8 +653,48 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			out.barSetsBitWidth = proof.BarSetsBitWidth
 			out.evalReqs = evalReqs
 		} else {
-			evalPointBytes := sampleEvalPoints(ringQ, ellPrime, args.omega, seed3)
-			out.evalPoints = decodeUint64Slice(evalPointBytes)
+			points := sampleDistinctFieldElemsAvoid(ellPrime, q, newFSRNG("EvalPoints", seed3), args.omega)
+			coeffMatrix = make([][]uint64, ellPrime)
+			coeffRNG := newFSRNG("EvalCoeffs", seed3, []byte{1})
+			maskStart := args.maskRowOffset
+			maskEnd := args.maskRowOffset + args.maskRowCount
+			rRows := len(args.rows)
+			if maskStart < 0 || maskEnd < maskStart || maskEnd > rRows {
+				return fmt.Errorf("invalid mask layout offset=%d count=%d rows=%d", args.maskRowOffset, args.maskRowCount, rRows)
+			}
+			evalReqs := make([]lvcs.EvalRequest, 0, ellPrime)
+			for i := 0; i < ellPrime; i++ {
+				row := make([]uint64, rRows)
+				for j := 0; j < rRows; j++ {
+					if j >= maskStart && j < maskEnd {
+						row[j] = 0
+					} else {
+						row[j] = coeffRNG.nextU64() % q
+					}
+				}
+				coeffMatrix[i] = row
+				evalReqs = append(evalReqs, lvcs.EvalRequest{
+					Point:  points[i],
+					Coeffs: append([]uint64(nil), row...),
+				})
+			}
+			bs, evalErr := lvcs.EvalInitManyChecked(ringQ, args.PK, evalReqs)
+			if evalErr != nil {
+				return fmt.Errorf("EvalInitMany: %w", evalErr)
+			}
+			barSets = bs
+			vTargets = computeVTargets(q, args.rows, coeffMatrix)
+			proof.setBarSets(barSets)
+			proof.setVTargets(vTargets)
+			proof.CoeffMatrix = copyMatrix(coeffMatrix)
+			out.barSets = barSets
+			out.coeffMatrix = coeffMatrix
+			out.vTargets = vTargets
+			out.vTargetsPacked = append([]byte(nil), proof.VTargetsBits...)
+			out.barSetsRows = proof.BarSetsRows
+			out.barSetsCols = proof.BarSetsCols
+			out.barSetsBitWidth = proof.BarSetsBitWidth
+			out.evalPoints = append([]uint64(nil), points...)
 		}
 		return nil
 	}); err != nil {
@@ -679,7 +737,66 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	// Round 4: tail sampling and openings (use same FS state) – only for θ>1
 	if err := stage("RunMaskFS.Round4TailOpen", func() error {
 		if proof.Theta <= 1 {
-			return fmt.Errorf("runMaskFS currently supports theta>1 only")
+			transcript4 := [][]byte{
+				args.root[:],
+				gammaBytes,
+				gammaPrimeBytes,
+				proof.QRoot[:],
+				proof.QRBytes(),
+				encodeUint64Slice(out.evalPoints),
+				bytesFromUint64Matrix(coeffMatrix),
+				bytesFromUint64Matrix(barSets),
+				bytesFromUint64Matrix(vTargets),
+			}
+			if proof.PRFCompanion != nil && prfCompanionHasOpeningPayload(proof.PRFCompanion) {
+				transcript4 = append(transcript4, prfCompanionOpeningPayloadBytes(proof.PRFCompanion))
+			}
+			proof.TailTranscript = flattenBytes(transcript4)
+			round4 := fsRound(fs, proof, 3, "TailPoints", transcript4...)
+			tailRNG := round4.RNG
+			tailStart := args.ncols + args.ell
+			tailDomainSize := int(ringQ.N)
+			if domainPoints != nil {
+				tailDomainSize = len(domainPoints)
+			}
+			tailLen := tailDomainSize - tailStart
+			if tailLen < args.ell {
+				return fmt.Errorf("insufficient tail: tailLen=%d ell=%d", tailLen, args.ell)
+			}
+			E := sampleDistinctIndices(tailStart, tailLen, args.ell, tailRNG)
+			proof.Tail = append([]int(nil), E...)
+
+			maskIdx := make([]int, args.ell)
+			for i := 0; i < args.ell; i++ {
+				maskIdx[i] = args.ncols + i
+			}
+			openMask := lvcs.EvalFinish(args.PK, maskIdx)
+			openTail := lvcs.EvalFinish(args.PK, E)
+			combinedOpen := combineOpenings(openMask.DECSOpen, openTail.DECSOpen)
+			proof.PCSOpening = cloneDECSOpening(combinedOpen)
+			proof.PCSOpening.R = len(args.rowInputs)
+			proof.PCSOpening.Eta = args.decsParams.Eta
+			proof.RowOpening = proof.PCSOpening
+
+			qPrefix := args.witnessNCols + args.ell
+			qIdx := make([]int, 0, qPrefix+args.ell)
+			for i := 0; i < qPrefix; i++ {
+				qIdx = append(qIdx, i)
+			}
+			qIdx = append(qIdx, E...)
+			qOpen := qProver.EvalOpen(qIdx)
+			out.qOpeningRaw = cloneDECSOpening(qOpen)
+			proof.QOpening = cloneDECSOpening(qOpen)
+			if !args.opts.Credential {
+				maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
+				decs.PackOpening(proof.QOpening)
+			}
+
+			out.openMask = openMask
+			out.openTail = openTail
+			out.combinedOpen = combinedOpen
+			out.tailIndices = append([]int(nil), E...)
+			return nil
 		}
 		tailStart := args.ncols + args.ell
 		tailDomainSize := int(ringQ.N)
@@ -736,8 +853,10 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		qOpen := qProver.EvalOpen(qIdx)
 		out.qOpeningRaw = cloneDECSOpening(qOpen)
 		proof.QOpening = cloneDECSOpening(qOpen)
-		maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
-		decs.PackOpening(proof.QOpening)
+		if !args.opts.Credential {
+			maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
+			decs.PackOpening(proof.QOpening)
+		}
 
 		out.openMask = openMask
 		out.openTail = openTail

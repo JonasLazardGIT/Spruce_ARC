@@ -133,7 +133,7 @@ func main() {
 	kappa2Override := flag.Int("kappa2", -1, "optional round-2 grinding override for soundness research")
 	kappa3Override := flag.Int("kappa3", -1, "optional round-3 grinding override for soundness research")
 	kappa4Override := flag.Int("kappa4", -1, "optional round-4 grinding override for soundness research")
-	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (r7_l4_experimental, r12_l3_default, r13_l3_legacy)")
+	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (r11_l4_production default; r7_l4_experimental, r12_l3_default, r13_l3_legacy remain research/legacy)")
 	sigShortnessRadix := flag.Int("sig-shortness-radix", 0, "optional raw signature shortness radix override for transcript research")
 	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override for transcript research")
 	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth is research-only scaffolding; current remains regression-only)")
@@ -473,6 +473,14 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State) 
 	}
 	if len(st.SigS1) == 0 || len(st.SigS2) == 0 {
 		return nil, fmt.Errorf("missing sig_s1/sig_s2 in credential state")
+	}
+	par, err := ntrurio.LoadParams(filepath.Join("Parameters", "Parameters.json"), true)
+	if err != nil {
+		return nil, fmt.Errorf("load signature bound: %w", err)
+	}
+	_, _, maxSig := st.SignatureCoordLinf()
+	if uint64(maxSig) > par.Beta {
+		return nil, fmt.Errorf("signature shortness blocker: max(|sig_s1|,|sig_s2|)=%d exceeds beta=%d under q=%d", maxSig, par.Beta, par.Q)
 	}
 	if len(st.M1) == 0 || len(st.M2) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.T) == 0 {
 		return nil, fmt.Errorf("missing signed base rows in credential state")

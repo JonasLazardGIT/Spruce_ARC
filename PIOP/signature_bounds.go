@@ -18,15 +18,18 @@ const (
 
 	signatureRadixOverrideEnv = "SPRUCE_SIGNATURE_RADIX_OVERRIDE"
 
-	SigShortnessProfileR12L3Default = "r12_l3_default"
-	SigShortnessProfileR13L3Legacy  = "r13_l3_legacy"
+	SigShortnessProfileR11L4Production  = "r11_l4_production"
+	SigShortnessProfileR12L3Default     = "r12_l3_default"
+	SigShortnessProfileR13L3Legacy      = "r13_l3_legacy"
 	SigShortnessProfileR7L4Experimental = "r7_l4_experimental"
 	SigShortnessProfileCustomBalanced   = "custom_balanced"
 
-	signaturePackedDefaultRadix = 12
-	signaturePackedDefaultL     = 3
-	signaturePackedLegacyRadix  = 13
-	signaturePackedLegacyL      = 3
+	signaturePackedProductionRadix   = 11
+	signaturePackedProductionL       = 4
+	signaturePackedDefaultRadix      = 12
+	signaturePackedDefaultL          = 3
+	signaturePackedLegacyRadix       = 13
+	signaturePackedLegacyL           = 3
 	signaturePackedExperimentalRadix = 7
 	signaturePackedExperimentalL     = 4
 )
@@ -59,16 +62,48 @@ func signaturePackedV2Caps() []int {
 	return []int{6, 6, 4}
 }
 
+func sigShortnessProfileDigits(profile string) int {
+	switch normalizeSigShortnessProfile(profile) {
+	case SigShortnessProfileR11L4Production:
+		return signaturePackedProductionL
+	case SigShortnessProfileR7L4Experimental:
+		return signaturePackedExperimentalL
+	case SigShortnessProfileR13L3Legacy:
+		return signaturePackedLegacyL
+	case SigShortnessProfileR12L3Default:
+		fallthrough
+	default:
+		return signaturePackedDefaultL
+	}
+}
+
+func sigShortnessFixedShape(profile string) (base int, L int, caps []int, ok bool) {
+	switch normalizeSigShortnessProfile(profile) {
+	case SigShortnessProfileR11L4Production:
+		return signaturePackedProductionRadix, signaturePackedProductionL, nil, true
+	case SigShortnessProfileR12L3Default:
+		return signaturePackedDefaultRadix, signaturePackedDefaultL, nil, true
+	case SigShortnessProfileR13L3Legacy:
+		return signaturePackedLegacyRadix, signaturePackedLegacyL, signaturePackedV2Caps(), true
+	case SigShortnessProfileR7L4Experimental:
+		return signaturePackedExperimentalRadix, signaturePackedExperimentalL, nil, true
+	default:
+		return 0, 0, nil, false
+	}
+}
+
 func normalizeSigShortnessProfile(profile string) string {
 	switch profile {
-	case "", SigShortnessProfileR12L3Default:
+	case "", SigShortnessProfileR11L4Production:
+		return SigShortnessProfileR11L4Production
+	case SigShortnessProfileR12L3Default:
 		return SigShortnessProfileR12L3Default
 	case SigShortnessProfileR13L3Legacy:
 		return SigShortnessProfileR13L3Legacy
 	case SigShortnessProfileR7L4Experimental:
 		return SigShortnessProfileR7L4Experimental
 	default:
-		return SigShortnessProfileR12L3Default
+		return SigShortnessProfileR11L4Production
 	}
 }
 
@@ -245,18 +280,9 @@ func signatureBoundShapeForOpts(q uint64, opts SimOpts) (base int, L int, beta u
 			if opts.SigShortnessL > 0 || opts.SigShortnessRadix > 0 {
 				return 0, 0, 0, nil, fmt.Errorf("signature shortness profile %q cannot be combined with raw shortness overrides", profile)
 			}
-			caps = signaturePackedV2Caps()
-			if err := validateChainCapsSigned("production signature bound legacy", balancedDigitMax(signaturePackedLegacyRadix), caps); err != nil {
-				return 0, 0, 0, nil, err
-			}
-			return signaturePackedLegacyRadix, signaturePackedLegacyL, beta, caps, nil
 		}
 		if sigShortnessRawOverrideActive(opts) {
-			L = signaturePackedDefaultL
-			switch profile {
-			case SigShortnessProfileR7L4Experimental:
-				L = signaturePackedExperimentalL
-			}
+			L = sigShortnessProfileDigits(profile)
 			if opts.SigShortnessL > 0 {
 				L = opts.SigShortnessL
 			}
@@ -279,12 +305,20 @@ func signatureBoundShapeForOpts(q uint64, opts SimOpts) (base int, L int, beta u
 			}
 			return base, L, beta, nil, nil
 		}
-		switch profile {
-		case SigShortnessProfileR7L4Experimental:
-			return signaturePackedExperimentalRadix, signaturePackedExperimentalL, beta, nil, nil
-		default:
-			return signaturePackedDefaultRadix, signaturePackedDefaultL, beta, nil, nil
+		base, L, caps, ok := sigShortnessFixedShape(profile)
+		if !ok {
+			return 0, 0, 0, nil, fmt.Errorf("unsupported signature shortness profile %q", profile)
 		}
+		if base < 2 || uint64(base) >= q {
+			return 0, 0, 0, nil, fmt.Errorf("signature shortness profile %q has invalid radix=%d for q=%d", profile, base, q)
+		}
+		if signedBalancedCapacity(uint64(base), L) < beta {
+			return 0, 0, 0, nil, fmt.Errorf("signature shortness profile %q with radix=%d L=%d does not cover beta=%d", profile, base, L, beta)
+		}
+		if err := validateChainCapsSigned("production signature bound "+profile, balancedDigitMax(base), caps); err != nil {
+			return 0, 0, 0, nil, err
+		}
+		return base, L, beta, caps, nil
 	default:
 		return 0, 0, 0, nil, fmt.Errorf("unsupported coeff-native signature model %q", model)
 	}
