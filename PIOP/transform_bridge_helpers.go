@@ -27,6 +27,79 @@ func buildTransformBridgeHFromCoeffs(omega, nttPoints []uint64, q uint64) ([][]u
 	return out, nil
 }
 
+// buildTransformBridgeHFromNTTMatrix builds the transform-bridge H rows by
+// computing the NTT matrix entries directly from basis vectors. For each
+// NTT output index t and coefficient index k (0 <= k < |Ω|), it sets:
+//   H_{t,k} = NTT(e_k)[t]
+// and interpolates H_t(X) over Ω so that H_t(ω_k) = H_{t,k}.
+//
+// It also returns blockFactors[t][b] = NTT(e_{b*|Ω|})[t] / NTT(e_0)[t],
+// which scales the block-b source rows to account for the full NTT matrix.
+func buildTransformBridgeHFromNTTMatrix(ringQ *ring.Ring, omega []uint64, count int) ([][]uint64, [][]uint64, error) {
+	if ringQ == nil {
+		return nil, nil, fmt.Errorf("nil ring")
+	}
+	if len(omega) == 0 {
+		return nil, nil, fmt.Errorf("empty omega")
+	}
+	if count <= 0 {
+		return nil, nil, fmt.Errorf("invalid H row count=%d", count)
+	}
+	if count > int(ringQ.N) {
+		return nil, nil, fmt.Errorf("H row count=%d exceeds ring dimension %d", count, ringQ.N)
+	}
+	ncols := len(omega)
+	q := ringQ.Modulus[0]
+	if count%ncols != 0 {
+		return nil, nil, fmt.Errorf("H row count=%d not divisible by ncols=%d", count, ncols)
+	}
+	blocks := count / ncols
+
+	// weights[t][k] = NTT(e_k)[t] for 0<=k<ncols, 0<=t<count
+	weights := make([][]uint64, count)
+	for t := 0; t < count; t++ {
+		weights[t] = make([]uint64, ncols)
+	}
+	for k := 0; k < ncols; k++ {
+		basis := ringQ.NewPoly()
+		basis.Coeffs[0][k] = 1
+		ntt := ringQ.NewPoly()
+		ringQ.NTT(basis, ntt)
+		for t := 0; t < count; t++ {
+			weights[t][k] = ntt.Coeffs[0][t] % q
+		}
+	}
+
+	hCoeffs := make([][]uint64, count)
+	blockFactors := make([][]uint64, count)
+	// Precompute NTT(e_{b*ncols}) for block scaling.
+	blockWeights := make([][]uint64, blocks)
+	for b := 0; b < blocks; b++ {
+		basis := ringQ.NewPoly()
+		basis.Coeffs[0][b*ncols] = 1
+		ntt := ringQ.NewPoly()
+		ringQ.NTT(basis, ntt)
+		vec := make([]uint64, count)
+		for t := 0; t < count; t++ {
+			vec[t] = ntt.Coeffs[0][t] % q
+		}
+		blockWeights[b] = vec
+	}
+	for t := 0; t < count; t++ {
+		hCoeffs[t] = Interpolate(omega, weights[t], q)
+		w0 := weights[t][0] % q
+		if w0 == 0 {
+			return nil, nil, fmt.Errorf("ntt matrix weight zero at t=%d,k=0", t)
+		}
+		blockFactors[t] = make([]uint64, blocks)
+		for b := 0; b < blocks; b++ {
+			wb := blockWeights[b][t] % q
+			blockFactors[t][b] = modMul(wb, modInv(w0, q), q)
+		}
+	}
+	return hCoeffs, blockFactors, nil
+}
+
 func buildTransformBridgeHFromEvals(omega, nttPoints []uint64, q uint64) ([][]uint64, error) {
 	if len(omega) == 0 {
 		return nil, fmt.Errorf("empty omega")

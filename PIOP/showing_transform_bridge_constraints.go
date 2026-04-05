@@ -544,22 +544,17 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("lagrange basis: %w", err)
 	}
-	nttPoints, err := nttDomainPoints(ringQ)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("ntt points: %w", err)
-	}
 	required := blocks * ncols
-	if len(nttPoints) < required {
-		return ConstraintSet{}, fmt.Errorf("ntt points len=%d < required=%d", len(nttPoints), required)
-	}
-	nttPoints = nttPoints[:required]
-	transformHCoeff, err := buildTransformBridgeHFromCoeffs(omega, nttPoints, q)
+	transformHCoeff, blockFactors, err := buildTransformBridgeHFromNTTMatrix(ringQ, omega, required)
 	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("transform H coeff: %w", err)
+		return ConstraintSet{}, fmt.Errorf("transform H matrix: %w", err)
 	}
-	transformHEval, err := buildTransformBridgeHFromEvals(omega, nttPoints[:ncols], q)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("transform H eval: %w", err)
+	if len(blockFactors) < required {
+		return ConstraintSet{}, fmt.Errorf("block factors len=%d < required=%d", len(blockFactors), required)
+	}
+	transformHEval := transformHCoeff
+	if len(transformHEval) > ncols {
+		transformHEval = transformHEval[:ncols]
 	}
 	hThetaCoeff := make([]*ring.Poly, len(transformHCoeff))
 	for j := range transformHCoeff {
@@ -597,11 +592,6 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 					return ConstraintSet{}, fmt.Errorf("signature bridge index t=%d out of range (len=%d)", t, len(hThetaCoeff))
 				}
 				left := ringQ.NewPoly()
-				w := nttPoints[t] % q
-				wBlock := uint64(1)
-				for i := 0; i < ncols; i++ {
-					wBlock = modMul(wBlock, w, q)
-				}
 				factor := uint64(1)
 				for bSrc := 0; bSrc < blocks; bSrc++ {
 					srcIdx, err := sigSourceRow(bSrc, comp)
@@ -613,11 +603,11 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 					}
 					tmp := ringQ.NewPoly()
 					ringQ.MulCoeffs(rowsNTT[srcIdx], hThetaCoeff[t], tmp)
+					factor = blockFactors[t][bSrc]
 					if factor != 1 {
 						ringQ.MulScalar(tmp, factor, tmp)
 					}
 					ringQ.Add(left, tmp, left)
-					factor = modMul(factor, wBlock, q)
 				}
 				right := ringQ.NewPoly()
 				ringQ.MulCoeffs(rowsNTT[hatIdx], lagrangeTheta[j], right)
@@ -631,7 +621,6 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 						return ConstraintSet{}, fmt.Errorf("sig bridge hat coeffs: %w", err)
 					}
 					leftCoeff := []uint64{0}
-					factorCoeff := uint64(1)
 					for bSrc := 0; bSrc < blocks; bSrc++ {
 						srcIdx, err := sigSourceRow(bSrc, comp)
 						if err != nil {
@@ -642,11 +631,11 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 							return ConstraintSet{}, fmt.Errorf("sig bridge src coeffs: %w", err)
 						}
 						term := polyMul(transformHCoeff[t], srcCoeff, q)
+						factorCoeff := blockFactors[t][bSrc]
 						if factorCoeff != 1 {
 							term = scalePoly(term, factorCoeff, q)
 						}
 						leftCoeff = polyAdd(leftCoeff, term)
-						factorCoeff = modMul(factorCoeff, wBlock, q)
 					}
 					rightCoeff := polyMul(lagrangeBasis[j], hatCoeff, q)
 					bridgeCoeff := polySub(leftCoeff, rightCoeff)

@@ -28,7 +28,7 @@ type transformBridgePostSignConfig struct {
 	LagrangeBasis   [][]uint64
 	TransformH      [][]uint64
 	TransformHEval  [][]uint64
-	NTTPoints       []uint64
+	BlockFactors    [][]uint64
 
 	Decode1        []uint64
 	Decode2        []uint64
@@ -105,22 +105,17 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	if err != nil {
 		return nil, fmt.Errorf("lagrange basis: %w", err)
 	}
-	nttPoints, err := nttDomainPoints(ringQ)
-	if err != nil {
-		return nil, fmt.Errorf("ntt points: %w", err)
-	}
 	required := blocks * len(omegaWitness)
-	if len(nttPoints) < required {
-		return nil, fmt.Errorf("ntt points len=%d < required=%d", len(nttPoints), required)
-	}
-	nttPoints = nttPoints[:required]
-	transformHCoeff, err := buildTransformBridgeHFromCoeffs(omegaWitness, nttPoints, q)
+	transformHCoeff, blockFactors, err := buildTransformBridgeHFromNTTMatrix(ringQ, omegaWitness, required)
 	if err != nil {
-		return nil, fmt.Errorf("transform H coeff: %w", err)
+		return nil, fmt.Errorf("transform H matrix: %w", err)
 	}
-	transformHEval, err := buildTransformBridgeHFromEvals(omegaWitness, nttPoints[:len(omegaWitness)], q)
-	if err != nil {
-		return nil, fmt.Errorf("transform H eval: %w", err)
+	if len(blockFactors) < required {
+		return nil, fmt.Errorf("block factors len=%d < required=%d", len(blockFactors), required)
+	}
+	transformHEval := transformHCoeff
+	if len(transformHEval) > len(omegaWitness) {
+		transformHEval = transformHEval[:len(omegaWitness)]
 	}
 	decode1, decode2, err := buildCarrierDecodePolys(bound, q)
 	if err != nil {
@@ -160,7 +155,7 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		LagrangeBasis:   lagrangeBasis,
 		TransformH:      transformHCoeff,
 		TransformHEval:  transformHEval,
-		NTTPoints:       append([]uint64(nil), nttPoints...),
+		BlockFactors:    blockFactors,
 		Decode1:         decode1,
 		Decode2:         decode2,
 		MembershipPoly:  membershipPoly,
@@ -339,15 +334,9 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 				}
 				for j := 0; j < len(lagrangeVals); j++ {
 					t := b*len(lagrangeVals) + j
-					if t < 0 || t >= len(cfg.NTTPoints) || t >= len(hVals) {
+					if t < 0 || t >= len(cfg.BlockFactors) || t >= len(hVals) {
 						return nil, nil, fmt.Errorf("signature bridge index t=%d out of range", t)
 					}
-					w := cfg.NTTPoints[t] % q
-					wBlock := uint64(1)
-					for i := 0; i < len(lagrangeVals); i++ {
-						wBlock = modMul(wBlock, w, q)
-					}
-					factor := uint64(1)
 					left := uint64(0)
 					for bSrc := 0; bSrc < blocks; bSrc++ {
 						srcIdx := cfg.Layout.CoeffNativeSig.PackedSigBase + bSrc*cfg.Layout.CoeffNativeSig.PackedSigComponents + comp
@@ -355,12 +344,12 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 						if err != nil {
 							return nil, nil, err
 						}
+						factor := cfg.BlockFactors[t][bSrc] % q
 						term := modMul(srcVal, hVals[t], q)
 						if factor != 1 {
 							term = modMul(term, factor, q)
 						}
 						left = modAdd(left, term, q)
-						factor = modMul(factor, wBlock, q)
 					}
 					right := modMul(hatVal, lagrangeVals[j], q)
 					fagg = append(fagg, modSub(left, right, q))
@@ -550,16 +539,9 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 				}
 				for j := 0; j < len(lagrangeVals); j++ {
 					t := b*len(lagrangeVals) + j
-					if t < 0 || t >= len(cfg.NTTPoints) || t >= len(hVals) {
+					if t < 0 || t >= len(cfg.BlockFactors) || t >= len(hVals) {
 						return nil, nil, fmt.Errorf("signature bridge index t=%d out of range", t)
 					}
-					w := cfg.NTTPoints[t] % cfg.Ring.Modulus[0]
-					wElem := K.EmbedF(w)
-					wBlock := K.One()
-					for i := 0; i < len(lagrangeVals); i++ {
-						wBlock = K.Mul(wBlock, wElem)
-					}
-					factor := K.One()
 					left := K.Zero()
 					for bSrc := 0; bSrc < blocks; bSrc++ {
 						srcIdx := cfg.Layout.CoeffNativeSig.PackedSigBase + bSrc*cfg.Layout.CoeffNativeSig.PackedSigComponents + comp
@@ -567,12 +549,12 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 						if err != nil {
 							return nil, nil, err
 						}
+						factor := K.EmbedF(cfg.BlockFactors[t][bSrc] % K.Q)
 						term := K.Mul(srcVal, hVals[t])
 						if !elemEqual(K, factor, K.One()) {
 							term = K.Mul(term, factor)
 						}
 						left = K.Add(left, term)
-						factor = K.Mul(factor, wBlock)
 					}
 					right := K.Mul(hatVal, lagrangeVals[j])
 					fagg = append(fagg, K.Sub(left, right))

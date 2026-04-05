@@ -246,13 +246,13 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	bound := p.BoundB
 	q := int64(r.Modulus[0])
 	delta := int64(2*bound + 1)
-	ncols := len(omega)
-	ru0Head := headFromCoeffPoly(r, in.RU0[0], omega)
-	ru1Head := headFromCoeffPoly(r, in.RU1[0], omega)
 	m1 := in.M1[0]
 	m2 := in.M2[0]
-	ri0Head := append([]uint64(nil), ch.RI0[0].Coeffs[0][:ncols]...)
-	ri1Head := append([]uint64(nil), ch.RI1[0].Coeffs[0][:ncols]...)
+	// Convert issuer randomness from NTT to coeff domain.
+	ri0Coeff := r.NewPoly()
+	ri1Coeff := r.NewPoly()
+	r.InvNTT(ch.RI0[0], ri0Coeff)
+	r.InvNTT(ch.RI1[0], ri1Coeff)
 
 	centered := func(v uint64) int64 {
 		x := int64(v % uint64(q))
@@ -261,45 +261,40 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 		}
 		return x
 	}
-	sumCarryHead := func(ruHead, riHead []uint64) (rHead []uint64, kHead []uint64, err error) {
-		if len(ruHead) != ncols || len(riHead) != ncols {
-			return nil, nil, fmt.Errorf("sumCarryHead length mismatch")
+	sumCarryCoeff := func(ruPoly, riPoly *ring.Poly) (rPoly *ring.Poly, kPoly *ring.Poly, err error) {
+		if ruPoly == nil || riPoly == nil {
+			return nil, nil, fmt.Errorf("nil ru/ri poly")
 		}
-		rHead = make([]uint64, ncols)
-		kHead = make([]uint64, ncols)
-		for i := 0; i < ncols; i++ {
-			ruVal := centered(ruHead[i])
-			riVal := centered(riHead[i])
+		rPoly = r.NewPoly()
+		kPoly = r.NewPoly()
+		for i := 0; i < len(ruPoly.Coeffs[0]) && i < len(riPoly.Coeffs[0]); i++ {
+			ruVal := centered(ruPoly.Coeffs[0][i])
+			riVal := centered(riPoly.Coeffs[0][i])
 			c := credential.CenterBounded(ruVal+riVal, bound)
 			diff := ruVal + riVal - c
 			kVal := diff / delta
 			if c < 0 {
-				rHead[i] = uint64(c + q)
+				rPoly.Coeffs[0][i] = uint64(c + q)
 			} else {
-				rHead[i] = uint64(c)
+				rPoly.Coeffs[0][i] = uint64(c)
 			}
 			if kVal < 0 {
-				kHead[i] = uint64(kVal + q)
+				kPoly.Coeffs[0][i] = uint64(kVal + q)
 			} else {
-				kHead[i] = uint64(kVal)
+				kPoly.Coeffs[0][i] = uint64(kVal)
 			}
 		}
-		return rHead, kHead, nil
+		return rPoly, kPoly, nil
 	}
 
-	r0Head, k0Head, err := sumCarryHead(ru0Head, ri0Head)
+	r0, k0, err := sumCarryCoeff(in.RU0[0], ri0Coeff)
 	if err != nil {
 		return nil, err
 	}
-	r1Head, k1Head, err := sumCarryHead(ru1Head, ri1Head)
+	r1, k1, err := sumCarryCoeff(in.RU1[0], ri1Coeff)
 	if err != nil {
 		return nil, err
 	}
-
-	r0 := coeffPolyFromHead(r, r0Head, omega)
-	r1 := coeffPolyFromHead(r, r1Head, omega)
-	k0 := coeffPolyFromHead(r, k0Head, omega)
-	k1 := coeffPolyFromHead(r, k1Head, omega)
 
 	B, err := loadB(r, p.BPath)
 	if err != nil {
@@ -308,28 +303,41 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	if len(B) != 4 {
 		return nil, fmt.Errorf("B length=%d want 4", len(B))
 	}
-	m1Head := headFromCoeffPoly(r, m1, omega)
-	m2Head := headFromCoeffPoly(r, m2, omega)
-	r0HeadHash := headFromCoeffPoly(r, r0, omega)
-	r1HeadHash := headFromCoeffPoly(r, r1, omega)
-	tHead := make([]uint64, ncols)
-	for i := 0; i < ncols; i++ {
-		b0 := B[0].Coeffs[0][i] % uint64(q)
-		b1 := B[1].Coeffs[0][i] % uint64(q)
-		b2 := B[2].Coeffs[0][i] % uint64(q)
-		b3 := B[3].Coeffs[0][i] % uint64(q)
-		mCombined := (m1Head[i] + m2Head[i]) % uint64(q)
-		num := b0
-		num = (num + (b1*mCombined)%uint64(q)) % uint64(q)
-		num = (num + (b2*r0HeadHash[i])%uint64(q)) % uint64(q)
-		den := (b3 + uint64(q) - r1HeadHash[i]%uint64(q)) % uint64(q)
-		denInv, ok := modInverseUint64(den, uint64(q))
-		if !ok {
-			return nil, fmt.Errorf("hash denominator not invertible at omega slot %d", i)
+	// Compute T in coefficient domain via NTT equation.
+	mCombined := r.NewPoly()
+	ring.Copy(m1, mCombined)
+	r.Add(mCombined, m2, mCombined)
+	mCombinedNTT := r.NewPoly()
+	r.NTT(mCombined, mCombinedNTT)
+	r0NTT := r.NewPoly()
+	r1NTT := r.NewPoly()
+	r.NTT(r0, r0NTT)
+	r.NTT(r1, r1NTT)
+	num := r.NewPoly()
+	tmp := r.NewPoly()
+	ring.Copy(B[0], num)
+	r.MulCoeffs(B[1], mCombinedNTT, tmp)
+	r.Add(num, tmp, num)
+	r.MulCoeffs(B[2], r0NTT, tmp)
+	r.Add(num, tmp, num)
+	den := r.NewPoly()
+	r.Sub(B[3], r1NTT, den)
+	denInv := r.NewPoly()
+	for i := 0; i < len(den.Coeffs[0]); i++ {
+		denVal := den.Coeffs[0][i] % uint64(q)
+		if denVal == 0 {
+			return nil, fmt.Errorf("hash denominator not invertible at idx %d", i)
 		}
-		tHead[i] = (num * denInv) % uint64(q)
+		inv, ok := modInverseUint64(denVal, uint64(q))
+		if !ok {
+			return nil, fmt.Errorf("hash denominator not invertible at idx %d", i)
+		}
+		denInv.Coeffs[0][i] = inv
 	}
-	tPoly := coeffPolyFromHead(r, tHead, omega)
+	tNTT := r.NewPoly()
+	r.MulCoeffs(num, denInv, tNTT)
+	tPoly := r.NewPoly()
+	r.InvNTT(tNTT, tPoly)
 	tCoeff := coeffPolyToInt64(r, tPoly)
 
 	log.Printf("[issuance] derived R0/R1 and T; bound=%d delta=%d", bound, delta)

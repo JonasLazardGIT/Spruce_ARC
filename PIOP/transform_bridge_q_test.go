@@ -349,20 +349,20 @@ func buildTransformBridgeFixtureWithShortness(t *testing.T, sigShortnessProfile 
 		"prf_sbox": elemsToPolysTest(ringQ, sboxes),
 	}
 
-	boundB := maxAbsFromOmegaRows(ringQ, omegaWitness, state.M1)
-	if v := maxAbsFromOmegaRows(ringQ, omegaWitness, state.M2); v > boundB {
+	boundB := maxAbsFromRows(state.M1)
+	if v := maxAbsFromRows(state.M2); v > boundB {
 		boundB = v
 	}
-	if v := maxAbsFromOmegaRows(ringQ, omegaWitness, state.R0); v > boundB {
+	if v := maxAbsFromRows(state.R0); v > boundB {
 		boundB = v
 	}
-	if v := maxAbsFromOmegaRows(ringQ, omegaWitness, state.R1); v > boundB {
+	if v := maxAbsFromRows(state.R1); v > boundB {
 		boundB = v
 	}
-	if boundB > 4 {
-		t.Fatalf("fixture boundB=%d exceeds 4; regenerate low-alphabet fixture", boundB)
+	if boundB > 1 {
+		t.Fatalf("fixture boundB=%d exceeds 1; regenerate ternary fixture", boundB)
 	}
-	boundB = 4
+	boundB = 1
 	pub := PublicInputs{
 		A:      A,
 		B:      B,
@@ -566,6 +566,21 @@ func TestTransformBridgeConstraintFamiliesOnOmegaCustomBalanced75(t *testing.T) 
 		t.Skip("integration-like fixture")
 	}
 	fx := buildTransformBridgeFixtureWithShortness(t, "", 7, 5)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
+	if err != nil {
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
+	}
+	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparInt", postSet.FparInt, postSet.FparIntCoeffs)
+	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparNorm", postSet.FparNorm, postSet.FparNormCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggInt", postSet.FaggInt, postSet.FaggIntCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
+}
+
+func TestTransformBridgeFixtureOmegaVanishing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration-like fixture")
+	}
+	fx := buildTransformBridgeFixture(t)
 	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
 	if err != nil {
 		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)

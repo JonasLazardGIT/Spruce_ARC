@@ -325,10 +325,13 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	var m1Head []uint64
 	var berr error
 	if opts.DomainMode == DomainModeExplicit {
-		if len(explicitOmega) == 0 {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("explicit omega missing for carrier M1 head")
+		if len(cn.M1.Coeffs) == 0 || len(cn.M1.Coeffs[0]) < ncols {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M1 head width=%d want >=%d", len(cn.M1.Coeffs[0]), ncols)
 		}
-		m1Head, berr = rowHeadOnOmega(ringQ, explicitOmega, cn.M1, ncols)
+		m1Head = append([]uint64(nil), cn.M1.Coeffs[0][:ncols]...)
+		for i := range m1Head {
+			m1Head[i] %= q
+		}
 	} else {
 		m1Head, berr = nttHead(cn.M1)
 	}
@@ -337,7 +340,13 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	}
 	var m2Head []uint64
 	if opts.DomainMode == DomainModeExplicit {
-		m2Head, berr = rowHeadOnOmega(ringQ, explicitOmega, cn.M2, ncols)
+		if len(cn.M2.Coeffs) == 0 || len(cn.M2.Coeffs[0]) < ncols {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M2 head width=%d want >=%d", len(cn.M2.Coeffs[0]), ncols)
+		}
+		m2Head = append([]uint64(nil), cn.M2.Coeffs[0][:ncols]...)
+		for i := range m2Head {
+			m2Head[i] %= q
+		}
 	} else {
 		m2Head, berr = nttHead(cn.M2)
 	}
@@ -346,7 +355,13 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	}
 	var r0Head []uint64
 	if opts.DomainMode == DomainModeExplicit {
-		r0Head, berr = rowHeadOnOmega(ringQ, explicitOmega, cn.R0, ncols)
+		if len(cn.R0.Coeffs) == 0 || len(cn.R0.Coeffs[0]) < ncols {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R0 head width=%d want >=%d", len(cn.R0.Coeffs[0]), ncols)
+		}
+		r0Head = append([]uint64(nil), cn.R0.Coeffs[0][:ncols]...)
+		for i := range r0Head {
+			r0Head[i] %= q
+		}
 	} else {
 		r0Head, berr = nttHead(cn.R0)
 	}
@@ -355,7 +370,13 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	}
 	var r1Head []uint64
 	if opts.DomainMode == DomainModeExplicit {
-		r1Head, berr = rowHeadOnOmega(ringQ, explicitOmega, cn.R1, ncols)
+		if len(cn.R1.Coeffs) == 0 || len(cn.R1.Coeffs[0]) < ncols {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R1 head width=%d want >=%d", len(cn.R1.Coeffs[0]), ncols)
+		}
+		r1Head = append([]uint64(nil), cn.R1.Coeffs[0][:ncols]...)
+		for i := range r1Head {
+			r1Head[i] %= q
+		}
 	} else {
 		r1Head, berr = nttHead(cn.R1)
 	}

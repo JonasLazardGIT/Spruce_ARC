@@ -37,7 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load ring: %v", err)
 	}
-	bound := int64(8)
+	bound := int64(1)
 	opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
 		Credential: true,
 		Theta:      1,
@@ -104,13 +104,30 @@ func main() {
 	if err != nil {
 		log.Fatalf("derive omega: %v", err)
 	}
-	// Keep fixture rows in the low alphabet for every explicit-domain Ω by
-	// sampling the zero polynomial (0 is in {-4..3}) for all non-sign rows.
+	rng := rand.New(rand.NewSource(*seed))
+	q := ringQ.Modulus[0]
+	sampleTernaryPoly := func(ncols int) *ring.Poly {
+		p := ringQ.NewPoly()
+		if ncols > len(p.Coeffs[0]) {
+			ncols = len(p.Coeffs[0])
+		}
+		for i := 0; i < ncols; i++ {
+			v := int64(rng.Intn(3) - 1) // {-1,0,1}
+			if v < 0 {
+				p.Coeffs[0][i] = q - uint64(-v)%q
+			} else {
+				p.Coeffs[0][i] = uint64(v) % q
+			}
+		}
+		return p
+	}
+	// Keep fixture rows in the low alphabet for every explicit-domain Ω.
+	// M1/M2 remain zeroed to satisfy half-packing constraints on Ω.
 	m1 := ringQ.NewPoly()
 	m2 := ringQ.NewPoly()
-	ru0 := ringQ.NewPoly()
-	ru1 := ringQ.NewPoly()
-	rPoly := ringQ.NewPoly()
+	ru0 := sampleTernaryPoly(len(omega))
+	ru1 := sampleTernaryPoly(len(omega))
+	rPoly := sampleTernaryPoly(len(omega))
 	ch := issuance.Challenge{
 		RI0: []*ring.Poly{ringQ.NewPoly()},
 		RI1: []*ring.Poly{ringQ.NewPoly()},
