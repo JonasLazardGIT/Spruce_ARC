@@ -23,8 +23,8 @@ type PublicInputs struct {
 }
 
 // CoeffNativeShowingWitness holds the retained literal-packed post-sign
-// witness. Unlike the legacy semantic payload, it carries the signed base rows
-// directly so PRF key material can be derived from M2 by construction.
+// witness. It carries the signed base rows directly so PRF key material can be
+// derived from M2 by construction.
 type CoeffNativeShowingWitness struct {
 	Sig         []*ring.Poly
 	M1          *ring.Poly

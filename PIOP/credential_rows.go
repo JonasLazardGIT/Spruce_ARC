@@ -95,22 +95,12 @@ func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts) (row
 			err = fmt.Errorf("derive explicit witness omega: %w", omegaErr)
 			return
 		}
-		normalized := make([]*ring.Poly, len(rows))
-		for i, row := range rows {
-			if row == nil {
-				err = fmt.Errorf("nil credential row %d", i)
-				return
-			}
-			rowNTT := ringQ.NewPoly()
-			ring.Copy(row, rowNTT)
-			ringQ.NTT(rowNTT, rowNTT)
-			head := append([]uint64(nil), rowNTT.Coeffs[0][:len(omegaWitness)]...)
-			thetaNTT := BuildThetaPrime(ringQ, head, omegaWitness)
-			thetaCoeff := ringQ.NewPoly()
-			ringQ.InvNTT(thetaNTT, thetaCoeff)
-			normalized[i] = thetaCoeff
+		rowInputs, err = buildRowInputsExplicit(ringQ, rows, omegaWitness, ncols)
+		if err != nil {
+			return
 		}
-		rows = normalized
+	} else {
+		rowInputs = buildRowInputs(ringQ, rows, ncols)
 	}
 
 	nonSigBlocks := 0
@@ -124,8 +114,12 @@ func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts) (row
 	x1ExtraNTTBase := -1
 	x1CoeffBase := -1
 
-	// Build row inputs (heads) in evaluation domain (Ω).
-	rowInputs = buildRowInputs(ringQ, rows, ncols)
+	// Row inputs already derived above.
+	for i := range rowInputs {
+		if i < len(rows) {
+			rowInputs[i].Poly = rows[i]
+		}
+	}
 
 	// Layout: we only set counts; range/chain bases unused for credential mode.
 	witnessCount = len(rows)
@@ -144,8 +138,15 @@ func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts) (row
 		IdxR1:              6,
 		IdxK0:              7,
 		IdxK1:              8,
-		IdxT:               -1,
-		IdxUBase:           -1,
+		IdxCarrierM:        -1,
+		IdxCarrierCtr:      -1,
+		IdxSigHatBase:      -1,
+		SigHatExtraBase:    -1,
+		IdxTHatBase:        -1,
+		IdxMHat1:           -1,
+		IdxMHat2:           -1,
+		IdxRHat0:           -1,
+		IdxRHat1:           -1,
 		NonSigBlocks:       nonSigBlocks,
 		MsgCompCount:       msgCompCount,
 		MsgExtraNTTBase:    msgExtraNTTBase,

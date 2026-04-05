@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -114,7 +115,6 @@ func (r cliRenderer) fatalf(prefix, format string, args ...interface{}) {
 
 func main() {
 	const (
-		showingDefaultBoundB     = int64(8)
 		productionPRFGroupRounds = 2
 		productionNCols          = 16
 		productionEll            = 18
@@ -136,7 +136,7 @@ func main() {
 	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (r11_l4_production default; r7_l4_experimental, r12_l3_default, r13_l3_legacy remain research/legacy)")
 	sigShortnessRadix := flag.Int("sig-shortness-radix", 0, "optional raw signature shortness radix override for transcript research")
 	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override for transcript research")
-	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth is research-only scaffolding; current remains regression-only)")
+	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth is research-only scaffolding)")
 	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
 	flag.Parse()
 
@@ -202,6 +202,10 @@ func main() {
 	state, err := credential.LoadState(statePath)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "load credential state: %v", err)
+	}
+	boundB, err := loadCredentialBoundB(filepath.Join("credential", "params.json"))
+	if err != nil {
+		cli.fatalf("[showing-cli] ", "load credential params: %v", err)
 	}
 	params, err := loadPRFParamsFromState(state)
 	if err != nil {
@@ -283,8 +287,8 @@ func main() {
 	switch opts.PRFCompanionMode {
 	case PIOP.PRFCompanionModeDirectAuth:
 		cli.printf(categoryWarning, "[showing-cli] ", "warning: direct_auth is research-only; the live proof still keeps the PRF bridge inside Q until a new bridge object lands")
-	case PIOP.PRFCompanionModeCurrent:
-		cli.printf(categoryWarning, "[showing-cli] ", "warning: current is regression-only; output_audit is the live production baseline")
+	case "current":
+		cli.fatalf("[showing-cli] ", "prf companion mode %q is no longer supported", opts.PRFCompanionMode)
 	}
 	if opts.PRFGroupRounds <= 0 {
 		cli.fatalf("[showing-cli] ", "invalid fixed PRFGroupRounds=%d", opts.PRFGroupRounds)
@@ -337,8 +341,8 @@ func main() {
 		cli.fatalf("[showing-cli] ", "build A: %v", err)
 	}
 
-	// Active showing uses the semantic coeff-native PRF key witness directly.
-	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey)
+	// Active showing uses the coeff-native PRF key witness directly.
+	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey, omega)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "prf key: %v", err)
 	}
@@ -355,7 +359,7 @@ func main() {
 		T:      append([]int64(nil), state.T...),
 		Tag:    tagPublic,
 		Nonce:  noncePublic,
-		BoundB: showingDefaultBoundB,
+		BoundB: boundB,
 	}
 
 	cli.printf(categoryStatus, "[showing-cli] ", "building proof")
@@ -429,6 +433,23 @@ func loadPRFParamsFromState(st credential.State) (*prf.Params, error) {
 		}
 	}
 	return prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+}
+
+func loadCredentialBoundB(path string) (int64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	var payload struct {
+		BoundB int64 `json:"BoundB"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return 0, err
+	}
+	if payload.BoundB <= 0 {
+		return 0, fmt.Errorf("invalid BoundB=%d in %s", payload.BoundB, path)
+	}
+	return payload.BoundB, nil
 }
 
 func buildSignatureMatrix(r *ring.Ring, st credential.State, uCount int) ([][]*ring.Poly, error) {
@@ -518,15 +539,14 @@ func showingSignatureComponentCount(wit PIOP.WitnessInputs) int {
 	return len(wit.U)
 }
 
-func prfKeyFromSignedWitness(ringQ *ring.Ring, wit *PIOP.CoeffNativeShowingWitness, lenKey int) ([]prf.Elem, error) {
+func prfKeyFromSignedWitness(ringQ *ring.Ring, wit *PIOP.CoeffNativeShowingWitness, lenKey int, omega []uint64) ([]prf.Elem, error) {
 	if wit == nil {
 		return nil, fmt.Errorf("missing coeff-native showing witness")
 	}
-	key, err := PIOP.ExtractSignedPRFKeyElems(ringQ, wit.M2, wit.PackedNCols, lenKey)
-	if err != nil {
-		return nil, err
+	if len(omega) > 0 {
+		return PIOP.ExtractSignedPRFKeyElemsFromM2OnOmega(ringQ, wit.M2, omega, wit.PackedNCols, lenKey)
 	}
-	return key, nil
+	return PIOP.ExtractSignedPRFKeyElems(ringQ, wit.M2, wit.PackedNCols, lenKey)
 }
 
 func credentialPolysFromInt64(r *ring.Ring, vec [][]int64) []*ring.Poly {
@@ -738,8 +758,8 @@ func printLogicalWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
 			breakdown.TotalRows)
 		return
 	}
-	cli.printf(categoryGeometry, prefix, "Witness logical rows: sig_semantic=%d, sig_shortness=%d, non_sig=%d, prf=%d, total=%d",
-		breakdown.SigSemanticRows,
+	cli.printf(categoryGeometry, prefix, "Witness logical rows: sig_replay=%d, sig_shortness=%d, non_sig=%d, prf=%d, total=%d",
+		breakdown.SigReplayRows,
 		breakdown.SigShortnessRows,
 		breakdown.NonSigRows,
 		breakdown.PRFRows,
@@ -764,7 +784,6 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 		return
 	}
 	sigBase, sigL, sigRowsPer, sigDegree, sigErr := PIOP.ResolveSignatureShortnessMetricsForOpts(ringQ.Modulus[0], opts)
-	nonW, nonL, _, nonErr := PIOP.ResolveNonSigBoundShape(boundB)
 	if rep.PaperTranscript.OptimizedBytes > 0 {
 		cli.printf(categoryTranscript, prefix, "%s", formatPaperTranscriptSummary(rep))
 		cli.printf(categoryTranscript, prefix, "%s", formatPaperTranscriptReductionSummary(rep))
@@ -792,10 +811,10 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 		rep.NCols, rep.PCSNCols, rep.NLeaves, rep.Soundness.DDECS, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta,
 		rep.Kappa[0], rep.Kappa[1], rep.Kappa[2], rep.Kappa[3], rep.DQ, rep.Soundness.CollisionSpaceBits)
 	printWitnessGeometry(prefix, rep.Geometry)
-	if sigErr == nil && nonErr == nil {
-		cli.printf(categoryGeometry, prefix, "Linf chain: sig(profile=%s,R=%d,L=%d,rows=%d,deg=%d) nonSig(W=%d,L=%d)", rep.TranscriptFocus.SigShortnessProfile, sigBase, sigL, sigRowsPer, sigDegree, nonW, nonL)
+	if sigErr == nil {
+		cli.printf(categoryGeometry, prefix, "Linf chain: sig(profile=%s,R=%d,L=%d,rows=%d,deg=%d) nonSig=carriers", rep.TranscriptFocus.SigShortnessProfile, sigBase, sigL, sigRowsPer, sigDegree)
 	} else {
-		cli.printf(categoryWarning, prefix, "Linf chain shape resolution warning: sigErr=%v nonSigErr=%v", sigErr, nonErr)
+		cli.printf(categoryWarning, prefix, "Linf chain shape resolution warning: sigErr=%v", sigErr)
 	}
 	cli.printf(categoryGeometry, prefix, "Table row: %.2f %.3f %.2f %d %d %d %d %d %d",
 		rep.ProofKB, proveDur.Seconds(), rep.Soundness.TotalBits,

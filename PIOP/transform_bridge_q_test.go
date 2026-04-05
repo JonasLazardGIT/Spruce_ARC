@@ -16,7 +16,7 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-type semanticRewriteFixture struct {
+type transformBridgeFixture struct {
 	ringQ        *ring.Ring
 	pub          PublicInputs
 	wit          WitnessInputs
@@ -28,6 +28,7 @@ type semanticRewriteFixture struct {
 	rowInputs    []decsRowInput
 	layout       RowLayout
 	prfLayout    *PRFLayout
+	prfCompanion *PRFCompanionLayout
 	decsParams   decs.Params
 	maskRowOff   int
 	maskRowCount int
@@ -41,7 +42,7 @@ type decsRowInput struct {
 	PolyCoeffs []uint64
 }
 
-func semanticRewriteRepoRoot(t *testing.T) string {
+func transformBridgeRepoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
@@ -50,7 +51,7 @@ func semanticRewriteRepoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), ".."))
 }
 
-func semanticRewriteChdir(t *testing.T, dir string) {
+func transformBridgeChdir(t *testing.T, dir string) {
 	t.Helper()
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -200,16 +201,59 @@ func lanesFromElemsTest(vals []prf.Elem, ncols int) [][]int64 {
 	return out
 }
 
+func maxAbsFromRows(rows [][]int64) int64 {
+	var max int64
+	for _, row := range rows {
+		for _, v := range row {
+			if v < 0 {
+				v = -v
+			}
+			if v > max {
+				max = v
+			}
+		}
+	}
+	return max
+}
+
+func maxAbsFromOmegaRows(r *ring.Ring, omega []uint64, rows [][]int64) int64 {
+	if r == nil {
+		return 0
+	}
+	q := int64(r.Modulus[0])
+	var max int64
+	for _, row := range rows {
+		p := polyFromInt64Test(r, row)
+		head, err := rowHeadOnOmega(r, omega, p, len(omega))
+		if err != nil {
+			continue
+		}
+		for _, hv := range head {
+			v := int64(hv % uint64(q))
+			if v > q/2 {
+				v -= q
+			}
+			if v < 0 {
+				v = -v
+			}
+			if v > max {
+				max = v
+			}
+		}
+	}
+	return max
+}
+
 func convertRowInputs(inputs []decsRowInput) []decsRowInput {
 	out := make([]decsRowInput, len(inputs))
 	copy(out, inputs)
 	return out
 }
 
-func buildSemanticRewriteFixtureWithShortness(t *testing.T, sigShortnessProfile string, sigShortnessRadix int, sigShortnessDigits int) semanticRewriteFixture {
+func buildTransformBridgeFixtureWithShortness(t *testing.T, sigShortnessProfile string, sigShortnessRadix int, sigShortnessDigits int) transformBridgeFixture {
 	t.Helper()
-	root := semanticRewriteRepoRoot(t)
-	semanticRewriteChdir(t, root)
+	root := transformBridgeRepoRoot(t)
+	transformBridgeChdir(t, root)
 
 	state, err := credential.LoadState(filepath.Join(root, "credential", "keys", "credential_state.json"))
 	if err != nil {
@@ -232,7 +276,7 @@ func buildSemanticRewriteFixtureWithShortness(t *testing.T, sigShortnessProfile 
 		Ell:                 18,
 		Eta:                 31,
 		DomainMode:          DomainModeExplicit,
-		NLeaves:             2048,
+		NLeaves:             4096,
 		PRFGroupRounds:      2,
 		CoeffPacking:        true,
 		CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
@@ -240,10 +284,18 @@ func buildSemanticRewriteFixtureWithShortness(t *testing.T, sigShortnessProfile 
 		SigShortnessProfile: sigShortnessProfile,
 		SigShortnessRadix:   sigShortnessRadix,
 		SigShortnessL:       sigShortnessDigits,
-		PostSignNLeaves:     2048,
-		PRFNLeaves:          2048,
+		PostSignNLeaves:     4096,
+		PRFNLeaves:          4096,
 	}
+	opts.LVCSNCols = 96
+	opts.PostSignLVCSNCols = 96
+	opts.PRFLVCSNCols = 96
 	opts.applyDefaults()
+	opts.EnablePackedPRFWitnessRows = true
+	opts.EnablePRFCompanion = true
+	if normalizePRFCompanionMode(opts.PRFCompanionMode) == "" {
+		opts.PRFCompanionMode = PRFCompanionModeOutputAudit
+	}
 
 	omegaLVCS, domainPoints, err := func() ([]uint64, []uint64, error) {
 		_, _, ncols, err := loadParamsAndOmega(opts)
@@ -275,7 +327,7 @@ func buildSemanticRewriteFixtureWithShortness(t *testing.T, sigShortnessProfile 
 	if err != nil {
 		t.Fatalf("load B: %v", err)
 	}
-	key, err := ExtractSignedPRFKeyElems(ringQ, cnWit.M2, cnWit.PackedNCols, params.LenKey)
+	key, err := ExtractSignedPRFKeyElemsFromM2OnOmega(ringQ, cnWit.M2, omegaWitness, cnWit.PackedNCols, params.LenKey)
 	if err != nil {
 		t.Fatalf("extract signed PRF key: %v", err)
 	}
@@ -297,16 +349,30 @@ func buildSemanticRewriteFixtureWithShortness(t *testing.T, sigShortnessProfile 
 		"prf_sbox": elemsToPolysTest(ringQ, sboxes),
 	}
 
+	boundB := maxAbsFromOmegaRows(ringQ, omegaWitness, state.M1)
+	if v := maxAbsFromOmegaRows(ringQ, omegaWitness, state.M2); v > boundB {
+		boundB = v
+	}
+	if v := maxAbsFromOmegaRows(ringQ, omegaWitness, state.R0); v > boundB {
+		boundB = v
+	}
+	if v := maxAbsFromOmegaRows(ringQ, omegaWitness, state.R1); v > boundB {
+		boundB = v
+	}
+	if boundB > 4 {
+		t.Fatalf("fixture boundB=%d exceeds 4; regenerate low-alphabet fixture", boundB)
+	}
+	boundB = 4
 	pub := PublicInputs{
 		A:      A,
 		B:      B,
 		T:      append([]int64(nil), state.T...),
 		Tag:    tagPublic,
 		Nonce:  noncePublic,
-		BoundB: 8,
+		BoundB: boundB,
 	}
 
-	rows, rowInputs, layout, prfLayout, _, decsParams, maskRowOffset, maskRowCount, witnessCount, _, _, err := BuildCredentialRowsShowing(
+	rows, rowInputs, layout, prfLayout, prfCompanion, decsParams, maskRowOffset, maskRowCount, witnessCount, _, _, err := BuildCredentialRowsShowing(
 		ringQ,
 		pub,
 		wit,
@@ -340,7 +406,7 @@ func buildSemanticRewriteFixtureWithShortness(t *testing.T, sigShortnessProfile 
 		}
 	}
 
-	return semanticRewriteFixture{
+	return transformBridgeFixture{
 		ringQ:        ringQ,
 		pub:          pub,
 		wit:          wit,
@@ -352,6 +418,7 @@ func buildSemanticRewriteFixtureWithShortness(t *testing.T, sigShortnessProfile 
 		rowInputs:    outInputs,
 		layout:       layout,
 		prfLayout:    prfLayout,
+		prfCompanion: prfCompanion,
 		decsParams:   decsParams,
 		maskRowOff:   maskRowOffset,
 		maskRowCount: maskRowCount,
@@ -360,14 +427,14 @@ func buildSemanticRewriteFixtureWithShortness(t *testing.T, sigShortnessProfile 
 	}
 }
 
-func buildSemanticRewriteFixtureWithShortnessProfile(t *testing.T, sigShortnessProfile string) semanticRewriteFixture {
+func buildTransformBridgeFixtureWithShortnessProfile(t *testing.T, sigShortnessProfile string) transformBridgeFixture {
 	t.Helper()
-	return buildSemanticRewriteFixtureWithShortness(t, sigShortnessProfile, 0, 0)
+	return buildTransformBridgeFixtureWithShortness(t, sigShortnessProfile, 0, 0)
 }
 
-func buildSemanticRewriteFixture(t *testing.T) semanticRewriteFixture {
+func buildTransformBridgeFixture(t *testing.T) transformBridgeFixture {
 	t.Helper()
-	return buildSemanticRewriteFixtureWithShortnessProfile(t, "")
+	return buildTransformBridgeFixtureWithShortnessProfile(t, "")
 }
 
 func evalPolyOnOmegaTest(ringQ *ring.Ring, omega []uint64, poly *ring.Poly) ([]uint64, error) {
@@ -436,59 +503,87 @@ func assertConstraintBucketVanishesOnOmega(t *testing.T, ringQ *ring.Ring, omega
 	}
 }
 
-func TestSemanticRewriteConstraintFamiliesOnOmega(t *testing.T) {
+func assertConstraintBucketSumsToZeroOnOmega(t *testing.T, ringQ *ring.Ring, omega []uint64, bucket string, polys []*ring.Poly, coeffs [][]uint64) {
+	t.Helper()
+	if ringQ == nil {
+		t.Fatalf("nil ring")
+	}
+	q := ringQ.Modulus[0]
+	tmp := ringQ.NewPoly()
+	for i := range polys {
+		var coeffVals []uint64
+		if i < len(coeffs) && len(coeffs[i]) > 0 {
+			coeffVals = coeffs[i]
+		} else if polys[i] != nil {
+			ringQ.InvNTT(polys[i], tmp)
+			coeffVals = append([]uint64(nil), tmp.Coeffs[0]...)
+		}
+		if len(coeffVals) == 0 {
+			continue
+		}
+		sum := uint64(0)
+		for _, w := range omega {
+			sum = modAdd(sum, EvalPoly(coeffVals, w%q, q)%q, q)
+		}
+		if sum%q != 0 {
+			t.Fatalf("%s[%d] omega-sum nonzero: %d", bucket, i, sum%q)
+		}
+	}
+}
+
+func TestTransformBridgeConstraintFamiliesOnOmega(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
 	}
-	fx := buildSemanticRewriteFixture(t)
-	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root)
+	fx := buildTransformBridgeFixture(t)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
 	if err != nil {
-		t.Fatalf("rebuild semantic post-sign set: %v", err)
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
 	}
 	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparInt", postSet.FparInt, postSet.FparIntCoeffs)
 	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparNorm", postSet.FparNorm, postSet.FparNormCoeffs)
-	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggInt", postSet.FaggInt, postSet.FaggIntCoeffs)
-	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggInt", postSet.FaggInt, postSet.FaggIntCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
 }
 
-func TestSemanticRewriteConstraintFamiliesOnOmegaProductionShortnessProfile(t *testing.T) {
+func TestTransformBridgeConstraintFamiliesOnOmegaProductionShortnessProfile(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
 	}
-	fx := buildSemanticRewriteFixtureWithShortnessProfile(t, SigShortnessProfileR11L4Production)
-	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root)
+	fx := buildTransformBridgeFixtureWithShortnessProfile(t, SigShortnessProfileR11L4Production)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
 	if err != nil {
-		t.Fatalf("rebuild semantic post-sign set: %v", err)
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
 	}
 	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparInt", postSet.FparInt, postSet.FparIntCoeffs)
 	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparNorm", postSet.FparNorm, postSet.FparNormCoeffs)
-	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggInt", postSet.FaggInt, postSet.FaggIntCoeffs)
-	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggInt", postSet.FaggInt, postSet.FaggIntCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
 }
 
-func TestSemanticRewriteConstraintFamiliesOnOmegaCustomBalanced75(t *testing.T) {
+func TestTransformBridgeConstraintFamiliesOnOmegaCustomBalanced75(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
 	}
-	fx := buildSemanticRewriteFixtureWithShortness(t, "", 7, 5)
-	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root)
+	fx := buildTransformBridgeFixtureWithShortness(t, "", 7, 5)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
 	if err != nil {
-		t.Fatalf("rebuild semantic post-sign set: %v", err)
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
 	}
 	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparInt", postSet.FparInt, postSet.FparIntCoeffs)
 	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparNorm", postSet.FparNorm, postSet.FparNormCoeffs)
-	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggInt", postSet.FaggInt, postSet.FaggIntCoeffs)
-	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggInt", postSet.FaggInt, postSet.FaggIntCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
 }
 
-func TestSemanticRewriteQPrefixZero(t *testing.T) {
+func TestTransformBridgeQPrefixZero(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
 	}
-	fx := buildSemanticRewriteFixture(t)
-	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root)
+	fx := buildTransformBridgeFixture(t)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
 	if err != nil {
-		t.Fatalf("rebuild semantic post-sign set: %v", err)
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
 	}
 	totalParallel := len(postSet.FparInt) + len(postSet.FparNorm)
 	totalAgg := len(postSet.FaggInt) + len(postSet.FaggNorm)
@@ -537,26 +632,28 @@ func TestSemanticRewriteQPrefixZero(t *testing.T) {
 	}
 }
 
-func TestSemanticRewriteCombinedReplayDebug(t *testing.T) {
+func TestTransformBridgeCombinedReplayDebug(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
 	}
-	fx := buildSemanticRewriteFixture(t)
-	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root)
+	fx := buildTransformBridgeFixture(t)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
 	if err != nil {
-		t.Fatalf("rebuild semantic post-sign set: %v", err)
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
 	}
 	set := ConstraintSet{
-		FparInt:          append([]*ring.Poly{}, postSet.FparInt...),
-		FparIntCoeffs:    append([][]uint64{}, postSet.FparIntCoeffs...),
-		FparNorm:         postSet.FparNorm,
-		FparNormCoeffs:   postSet.FparNormCoeffs,
-		FaggInt:          postSet.FaggInt,
-		FaggIntCoeffs:    postSet.FaggIntCoeffs,
-		FaggNorm:         postSet.FaggNorm,
-		FaggNormCoeffs:   postSet.FaggNormCoeffs,
-		ParallelAlgDeg:   postSet.ParallelAlgDeg,
-		AggregatedAlgDeg: postSet.AggregatedAlgDeg,
+		FparInt:            append([]*ring.Poly{}, postSet.FparInt...),
+		FparIntCoeffs:      append([][]uint64{}, postSet.FparIntCoeffs...),
+		FparNorm:           postSet.FparNorm,
+		FparNormCoeffs:     postSet.FparNormCoeffs,
+		FaggInt:            postSet.FaggInt,
+		FaggIntCoeffs:      postSet.FaggIntCoeffs,
+		FaggNorm:           postSet.FaggNorm,
+		FaggNormCoeffs:     postSet.FaggNormCoeffs,
+		ParallelAlgDeg:     postSet.ParallelAlgDeg,
+		AggregatedAlgDeg:   postSet.AggregatedAlgDeg,
+		PRFLayout:          fx.prfLayout,
+		PRFCompanionLayout: fx.prfCompanion,
 	}
 	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
 	if err != nil {

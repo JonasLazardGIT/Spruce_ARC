@@ -187,6 +187,11 @@ func BuildQCoeffsChecked(
 			if g == 0 {
 				continue
 			}
+			if len(FaggCoeffs[j]) > len(qiCoeffs) {
+				resized := make([]uint64, len(FaggCoeffs[j]))
+				copy(resized, qiCoeffs)
+				qiCoeffs = resized
+			}
 			for k := range FaggCoeffs[j] {
 				qiCoeffs[k] = modAdd(qiCoeffs[k], modMul(g, FaggCoeffs[j][k], q), q)
 			}

@@ -296,7 +296,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		totalAgg := len(args.FaggAll)
 		companionMode := normalizePRFCompanionMode(args.opts.PRFCompanionMode)
 		if companionMode == "" && args.prfCompanionLayout != nil {
-			companionMode = PRFCompanionModeCurrent
+			companionMode = PRFCompanionModeOutputAudit
 		}
 		checkpointSamples := args.opts.PRFCheckpointSamples
 		bridgeInQ := true
@@ -725,7 +725,6 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if err != nil {
 			return fmt.Errorf("build prf companion openings: %w", err)
 		}
-		proof.PRFCompanion.Legacy = clonePRFCompanionLegacyPayload(payload.Legacy)
 		proof.PRFCompanion.CheckpointAudits = clonePRFCheckpointAuditOpenings(payload.CheckpointAudits)
 		proof.PRFCompanion.TagFinal = clonePRFCompanionOpening(payload.TagFinal)
 		proof.PRFCompanion.KeyTrunc = clonePRFCompanionOpening(payload.KeyTrunc)

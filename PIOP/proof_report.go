@@ -44,7 +44,6 @@ type TranscriptOptimizationReport struct {
 	PRFDataRows         int    `json:"prf_data_rows"`
 	PRFHelperRows       int    `json:"prf_helper_rows"`
 	PRFTotalRows        int    `json:"prf_total_rows"`
-	PRFSignedKeySource  string `json:"prf_signed_key_source"`
 	SigShortnessProfile string `json:"sig_shortness_profile"`
 	SigShortnessRadix   int    `json:"sig_shortness_radix"`
 	SigShortnessDigits  int    `json:"sig_shortness_digits"`
@@ -230,9 +229,6 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 		out.PRFDataRows = proof.PRFCompanion.Layout.DataRows
 		out.PRFHelperRows = proof.PRFCompanion.Layout.HelperRows
 		out.PRFTotalRows = proof.PRFCompanion.Layout.PackedRows
-		if proof.PRFCompanion.Layout.KeySource == KeySourceSignedSecret {
-			out.PRFSignedKeySource = "signed_m2"
-		}
 		return out
 	}
 	if proof.PRFLayout == nil {

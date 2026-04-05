@@ -27,14 +27,13 @@ const (
 type PRFCompanionMode string
 
 const (
-	PRFCompanionModeCurrent     PRFCompanionMode = "current"
 	PRFCompanionModeOutputAudit PRFCompanionMode = "output_audit"
 	PRFCompanionModeDirectAuth  PRFCompanionMode = "direct_auth"
 )
 
 func normalizePRFCompanionMode(mode PRFCompanionMode) PRFCompanionMode {
 	switch mode {
-	case PRFCompanionModeCurrent, PRFCompanionModeOutputAudit, PRFCompanionModeDirectAuth:
+	case PRFCompanionModeOutputAudit, PRFCompanionModeDirectAuth:
 		return mode
 	case "":
 		return ""
@@ -391,13 +390,8 @@ func ResolveSimOptsDefaults(opts SimOpts) SimOpts {
 type CoeffNativeSigLayout struct {
 	Enabled bool
 	Model   string
-	// SemanticRewrite marks the phase-1 ARC-faithful showing path where the
-	// packed signature rows are committed alongside explicit signed base rows.
-	SemanticRewrite bool
 
 	// Signature witness rows for the active coeff-native post-sign model.
-	// On the live semantic rewrite path these are scalar coefficient rows in
-	// component-major, coefficient-minor order.
 	SigBase   int
 	SigCount  int
 	SigBlocks int
@@ -409,17 +403,17 @@ type CoeffNativeSigLayout struct {
 	PackedSigComponents int
 	PackedSigBlockWidth int
 	// ScalarBundle rows pack independent scalar witness values into the Ω slots
-	// of one or more committed rows. V3 uses these slots for U/X0/X1.
+	// of one or more committed rows. Legacy layouts used these for U/X0/X1.
 	ScalarBundleBase  int
 	ScalarBundleCount int
 	USlots            []PRFSlot
 	X0Slots           []PRFSlot
 	X1Slot            PRFSlot
-	// Replay-facing projection rows for the compressed v3 non-sign scalar path.
+	// Replay-facing projection rows for the legacy compressed non-sign scalar path.
 	PostSignMsgSumRow int
 	PostSignRndSumRow int
 	PostSignX1Row     int
-	// Signed-digit certificate rows for the compressed v3 non-sign scalar path.
+	// Signed-digit certificate rows for the legacy compressed non-sign scalar path.
 	UScalarCertBase         int
 	UScalarCertCount        int
 	X0ScalarCertBase        int
@@ -429,18 +423,11 @@ type CoeffNativeSigLayout struct {
 	NonSigCertRowsPerScalar int
 	NonSigCertRadix         int
 	NonSigCertDigits        int
-	// Semantic rewrite metadata for scalar signature rows.
+	// Signature component metadata for scalar signature rows.
 	SigComponentCount int
 	SigCoeffCount     int
 	OutputBlocks      int
 	OutputBlockWidth  int
-
-	// Paper-level message/randomness witness rows, column-constant on Ω.
-	UBase   int
-	UCount  int
-	X0Base  int
-	X0Count int
-	X1Row   int
 
 	// Retained row-count metadata used by the current witness geometry and
 	// replay-accounting helpers.
@@ -462,7 +449,7 @@ type RowLayout struct {
 	SigCount int
 	MsgCount int
 	RndCount int
-	// Explicit base indices for semantic witness rows.
+	// Explicit base indices for post-sign witness rows.
 	// When false, the standard issuance row order is used.
 	HasExplicitBaseIdx bool
 	IdxM1              int
@@ -474,8 +461,15 @@ type RowLayout struct {
 	IdxR1              int
 	IdxK0              int
 	IdxK1              int
-	IdxT               int
-	IdxUBase           int
+	IdxCarrierM        int
+	IdxCarrierCtr      int
+	IdxSigHatBase      int
+	SigHatExtraBase    int
+	IdxTHatBase        int
+	IdxMHat1           int
+	IdxMHat2           int
+	IdxRHat0           int
+	IdxRHat1           int
 	ChainBase          int
 	ChainRowsPerSig    int
 	PackedSigChainBase int
@@ -502,12 +496,9 @@ type RowLayout struct {
 	PRFScalarBundleRows           int
 	PRFGroupedNonlinearRows       int
 	// Signature packing metadata for showing.
-	SigBlocks     int
-	SigUCount     int
-	SigExtraUBase int
-	SigExtraTBase int
-	SigDerivedT   bool
-	SigCoeffBase  int
+	SigBlocks    int
+	SigUCount    int
+	SigCoeffBase int
 	// Non-signature coefficient-bound metadata for showing.
 	NonSigBlocks    int
 	MsgCompCount    int

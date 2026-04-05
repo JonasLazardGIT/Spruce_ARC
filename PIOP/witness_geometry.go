@@ -23,7 +23,7 @@ type CommittedWitnessBreakdown struct {
 type LogicalWitnessBreakdown struct {
 	SigCoreRows             int `json:"sig_core_rows"`
 	SigProductRows          int `json:"sig_product_rows"`
-	SigSemanticRows         int `json:"sig_semantic_rows"`
+	SigReplayRows           int `json:"sig_replay_rows"`
 	SigShortnessRows        int `json:"sig_shortness_rows"`
 	PostSignProjectionRows  int `json:"post_sign_scalar_projection_rows"`
 	PostSignCertificateRows int `json:"post_sign_scalar_certificate_rows"`
@@ -107,34 +107,29 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 	out := LogicalWitnessBreakdown{}
 	if layout.CoeffNativeSig.Enabled {
 		cfg := layout.CoeffNativeSig
-		out.SigCoreRows = layout.SigPrimaryLimbRows
-		out.SigSemanticRows = out.SigCoreRows
-		if layout.ChainRowsPerSig > 0 && cfg.W1SigCount > 0 {
-			out.SigShortnessRows = layout.ChainRowsPerSig * cfg.W1SigCount
-		}
-		if cfg.Model == CoeffNativeSigModelLiteralPackedAggregatedV3 {
-			out.PostSignProjectionRows = layout.PostSignScalarProjectionRows
-			out.PostSignCertificateRows = layout.PostSignScalarCertificateRows
-			out.NonSigRows = out.PostSignProjectionRows + out.PostSignCertificateRows
-			if out.NonSigRows == 0 {
-				out.NonSigRows = cfg.UCount + cfg.X0Count
-				if cfg.X1Row >= 0 {
+		if rowLayoutCoeffNativeUsesTransformBridge(layout) {
+			sigHatCount := layout.SigBlocks * layout.SigUCount
+			out.SigCoreRows = cfg.PackedSigCount + sigHatCount + layout.SigBlocks
+			out.SigReplayRows = out.SigCoreRows
+			out.NonSigRows = 0
+			if layout.IdxCarrierM >= 0 {
+				out.NonSigRows++
+			}
+			if layout.IdxCarrierCtr >= 0 {
+				out.NonSigRows++
+			}
+			for _, idx := range []int{layout.IdxMHat1, layout.IdxMHat2, layout.IdxRHat0, layout.IdxRHat1} {
+				if idx >= 0 {
 					out.NonSigRows++
 				}
 			}
-		} else {
-			out.NonSigRows = 0
 		}
-		if rowsPer := inferNonSigBoundRowsPerForWitnessGeometry(layout); rowsPer > 0 {
-			if rowLayoutCoeffNativeUsesSemanticRewrite(layout) {
-				out.NonSigRows += rowsPer * len(postSignBoundRowIndices(layout))
-			} else {
-				out.NonSigRows += rowsPer * (cfg.UCount + cfg.X0Count + 1)
-			}
+		if layout.ChainRowsPerSig > 0 && cfg.W1SigCount > 0 {
+			out.SigShortnessRows = layout.ChainRowsPerSig * cfg.W1SigCount
 		}
 	}
 	out.PRFRows = replayPRFRowCount(prfLayout, prfCompanionLayout)
-	out.TotalRows = out.SigSemanticRows + out.SigShortnessRows + out.NonSigRows + out.PRFRows
+	out.TotalRows = out.SigReplayRows + out.SigShortnessRows + out.NonSigRows + out.PRFRows
 	return out
 }
 

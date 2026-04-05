@@ -16,30 +16,14 @@ func rowLayoutPostSignR0(layout RowLayout) int { return resolveRowLayoutIdx(layo
 func rowLayoutPostSignR1(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxR1, 6) }
 func rowLayoutPreSignK0(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxK0, 7) }
 func rowLayoutPreSignK1(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxK1, 8) }
-func rowLayoutPostSignT(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxT, 9) }
-func rowLayoutPostSignUBase(layout RowLayout) int {
-	return resolveRowLayoutIdx(layout, layout.IdxUBase, 10)
-}
-
-func rowLayoutPostSignCoreRows(layout RowLayout) []int {
-	return uniqueNonNegativeIndices([]int{
-		rowLayoutPostSignM1(layout),
-		rowLayoutPostSignM2(layout),
-		rowLayoutPostSignR(layout),
-		rowLayoutPostSignR0(layout),
-		rowLayoutPostSignR1(layout),
-		rowLayoutPostSignT(layout),
-	})
-}
-
-func rowLayoutPostSignBoundRows(layout RowLayout) []int {
-	return uniqueNonNegativeIndices([]int{
-		rowLayoutPostSignM1(layout),
-		rowLayoutPostSignM2(layout),
-		rowLayoutPostSignR0(layout),
-		rowLayoutPostSignR1(layout),
-	})
-}
+func rowLayoutPostSignCarrierM(layout RowLayout) int    { return resolveRowLayoutIdx(layout, layout.IdxCarrierM, -1) }
+func rowLayoutPostSignCarrierCtr(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxCarrierCtr, -1) }
+func rowLayoutPostSignSigHatBase(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxSigHatBase, -1) }
+func rowLayoutPostSignTHatBase(layout RowLayout) int    { return resolveRowLayoutIdx(layout, layout.IdxTHatBase, -1) }
+func rowLayoutPostSignMHat1(layout RowLayout) int       { return resolveRowLayoutIdx(layout, layout.IdxMHat1, -1) }
+func rowLayoutPostSignMHat2(layout RowLayout) int       { return resolveRowLayoutIdx(layout, layout.IdxMHat2, -1) }
+func rowLayoutPostSignRHat0(layout RowLayout) int       { return resolveRowLayoutIdx(layout, layout.IdxRHat0, -1) }
+func rowLayoutPostSignRHat1(layout RowLayout) int       { return resolveRowLayoutIdx(layout, layout.IdxRHat1, -1) }
 
 func rowLayoutPreSignBoundRows(layout RowLayout) []int {
 	return uniqueNonNegativeIndices([]int{

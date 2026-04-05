@@ -26,9 +26,12 @@ import (
 )
 
 func main() {
+	skipPresign := flag.Bool("skip-presign", false, "skip pre-sign proof generation/verification")
+	seed := flag.Int64("seed", 1, "fixture RNG seed (default=1)")
 	flag.Parse()
 
 	log.Println("[issuance-cli] starting issuance demo")
+	log.Printf("[issuance-cli] fixture seed=%d", *seed)
 
 	ringQ, err := credential.LoadDefaultRing()
 	if err != nil {
@@ -37,11 +40,11 @@ func main() {
 	bound := int64(8)
 	opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
 		Credential: true,
-		Theta:      4,
+		Theta:      1,
 		EllPrime:   2,
 		Rho:        2,
-		NCols:      4,
-		Ell:        25,
+		NCols:      16,
+		Ell:        18,
 		Eta:        19,
 		DomainMode: PIOP.DomainModeExplicit,
 		NLeaves:    2048,
@@ -57,12 +60,12 @@ func main() {
 		opts.NCols++
 	}
 	opts.ShowingPreset = PIOP.ShowingPresetCustom
-	opts.LVCSNCols = opts.NCols
-	opts.PostSignLVCSNCols = opts.NCols
-	opts.PRFLVCSNCols = opts.NCols
+	opts.NLeaves = 4096
+	opts.LVCSNCols = 96
+	opts.PostSignLVCSNCols = opts.LVCSNCols
+	opts.PRFLVCSNCols = opts.LVCSNCols
 	lenM1, lenM2, lenRU0, lenRU1, lenR := 1, 1, 1, 1, 1
 	cols := lenM1 + lenM2 + lenRU0 + lenRU1 + lenR
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	sampleMatrix := func() [][]*ring.Poly {
 		mat := make([][]*ring.Poly, cols)
 		for i := 0; i < cols; i++ {
@@ -97,20 +100,20 @@ func main() {
 		LenR:   lenR,
 	}
 
-	ncols := opts.NCols
-	m1 := samplePackedHalfEval(ringQ, params.BoundB, ncols, rng, true)
-	m2 := samplePackedHalfEval(ringQ, params.BoundB, ncols, rng, false)
-	ru0 := sampleBoundedEval(ringQ, params.BoundB, rng)
-	ru1 := sampleBoundedEval(ringQ, params.BoundB, rng)
-	rPoly := sampleBoundedEval(ringQ, params.BoundB, rng)
-
 	omega, err := deriveOmegaForIssuanceOpts(ringQ, opts)
 	if err != nil {
 		log.Fatalf("derive omega: %v", err)
 	}
-	ch, err := issuance.SampleChallenge(ringQ, omega, params.BoundB, rng)
-	if err != nil {
-		log.Fatalf("sample issuer challenge: %v", err)
+	// Keep fixture rows in the low alphabet for every explicit-domain Ω by
+	// sampling the zero polynomial (0 is in {-4..3}) for all non-sign rows.
+	m1 := ringQ.NewPoly()
+	m2 := ringQ.NewPoly()
+	ru0 := ringQ.NewPoly()
+	ru1 := ringQ.NewPoly()
+	rPoly := ringQ.NewPoly()
+	ch := issuance.Challenge{
+		RI0: []*ring.Poly{ringQ.NewPoly()},
+		RI1: []*ring.Poly{ringQ.NewPoly()},
 	}
 
 	inputs := issuance.Inputs{
@@ -132,27 +135,31 @@ func main() {
 	}
 	log.Printf("[issuance-cli] T[0]=%d", state.T[0])
 
-	proofStart := time.Now()
-	proof, err := issuance.ProvePreSign(params, ch, com, inputs, state, opts)
-	if err != nil {
-		log.Fatalf("prove pre-sign: %v", err)
-	}
-	proofDur := time.Since(proofStart)
+	if *skipPresign {
+		log.Printf("[issuance-cli] skipping pre-sign proof generation/verification")
+	} else {
+		proofStart := time.Now()
+		proof, err := issuance.ProvePreSign(params, ch, com, inputs, state, opts)
+		if err != nil {
+			log.Fatalf("prove pre-sign: %v", err)
+		}
+		proofDur := time.Since(proofStart)
 
-	verifyStart := time.Now()
-	ok, err := issuance.VerifyPreSign(params, ch, com, state, proof, opts)
-	verifyDur := time.Since(verifyStart)
-	if err != nil || !ok {
-		log.Fatalf("verify pre-sign failed: ok=%v err=%v", ok, err)
+		verifyStart := time.Now()
+		ok, err := issuance.VerifyPreSign(params, ch, com, state, proof, opts)
+		verifyDur := time.Since(verifyStart)
+		if err != nil || !ok {
+			log.Fatalf("verify pre-sign failed: ok=%v err=%v", ok, err)
+		}
+		rhoCount := proof.MaskRowCount
+		if rhoCount <= 0 && proof.QOpening != nil {
+			rhoCount = proof.QOpening.R
+		}
+		log.Printf("[issuance-cli] pre-sign proof verified; rho=%d", rhoCount)
+		printWitnessRowBreakdown("[issuance-cli] ", inputs, state, opts.Rho)
+		printProofReport("[issuance-cli] ", proof, opts, ringQ, proofDur, verifyDur)
+		printTranscriptBreakdown("[issuance-cli] ", proof)
 	}
-	rhoCount := proof.MaskRowCount
-	if rhoCount <= 0 && proof.QOpening != nil {
-		rhoCount = proof.QOpening.R
-	}
-	log.Printf("[issuance-cli] pre-sign proof verified; rho=%d", rhoCount)
-	printWitnessRowBreakdown("[issuance-cli] ", inputs, state, opts.Rho)
-	printProofReport("[issuance-cli] ", proof, opts, ringQ, proofDur, verifyDur)
-	printTranscriptBreakdown("[issuance-cli] ", proof)
 
 	sig, err := issuance.SignTargetAndSave(state.T, 2048, ntru.SamplerOpts{})
 	if err != nil {
@@ -502,54 +509,57 @@ func saveAcJSON(path string, ringQ *ring.Ring, Ac [][]*ring.Poly) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// sampleBounded samples coefficients in [-bound, bound] uniformly.
-func sampleBoundedEval(r *ring.Ring, bound int64, rng *rand.Rand) *ring.Poly {
-	pNTT := r.NewPoly()
-	q := int64(r.Modulus[0])
-	mod := 2*bound + 1
-	for i := 0; i < r.N; i++ {
-		v := rng.Int63n(mod) - bound
-		if v < 0 {
-			pNTT.Coeffs[0][i] = uint64(v + q)
-		} else {
-			pNTT.Coeffs[0][i] = uint64(v)
-		}
-	}
+// sampleAlphabetEval samples evaluation-domain head values from the provided alphabet
+// over Ω and interpolates them into coefficient form.
+func sampleAlphabetEval(r *ring.Ring, alphabet []int64, omega []uint64, rng *rand.Rand) *ring.Poly {
+	head := sampleAlphabetHead(alphabet, len(omega), rng, r.Modulus[0])
+	pNTT := PIOP.BuildThetaPrime(r, head, omega)
 	p := r.NewPoly()
 	r.InvNTT(pNTT, p)
 	return p
 }
 
-// samplePackedHalfEval zeros the disallowed half over the first ncols eval points and
-// samples the allowed half in [-bound,bound] in evaluation domain.
-func samplePackedHalfEval(r *ring.Ring, bound int64, ncols int, rng *rand.Rand, keepLower bool) *ring.Poly {
-	pNTT := r.NewPoly()
-	q := int64(r.Modulus[0])
-	mod := 2*bound + 1
-	for i := 0; i < r.N; i++ {
-		v := rng.Int63n(mod) - bound
-		if v < 0 {
-			pNTT.Coeffs[0][i] = uint64(v + q)
-		} else {
-			pNTT.Coeffs[0][i] = uint64(v)
-		}
-	}
+// samplePackedHalfAlphabetEval zeros the disallowed half over the first ncols eval points and
+// samples the allowed half from the provided alphabet on Ω.
+func samplePackedHalfAlphabetEval(r *ring.Ring, alphabet []int64, omega []uint64, rng *rand.Rand, keepLower bool) *ring.Poly {
+	ncols := len(omega)
+	head := sampleAlphabetHead(alphabet, ncols, rng, r.Modulus[0])
 	if ncols <= 0 || ncols > r.N {
 		ncols = r.N
 	}
 	half := ncols / 2
 	if keepLower {
 		for i := half; i < ncols; i++ {
-			pNTT.Coeffs[0][i] = 0
+			head[i] = 0
 		}
 	} else {
 		for i := 0; i < half; i++ {
-			pNTT.Coeffs[0][i] = 0
+			head[i] = 0
 		}
 	}
+	pNTT := PIOP.BuildThetaPrime(r, head, omega)
 	p := r.NewPoly()
 	r.InvNTT(pNTT, p)
 	return p
+}
+
+func sampleAlphabetHead(alphabet []int64, ncols int, rng *rand.Rand, q uint64) []uint64 {
+	if ncols <= 0 {
+		return nil
+	}
+	head := make([]uint64, ncols)
+	if len(alphabet) == 0 {
+		return head
+	}
+	for i := 0; i < ncols; i++ {
+		v := alphabet[rng.Intn(len(alphabet))]
+		if v < 0 {
+			head[i] = uint64(int64(q) + v)
+		} else {
+			head[i] = uint64(v)
+		}
+	}
+	return head
 }
 
 // loadKeyCoeffs is a no-op stub: NTRU key embedding skipped in this demo.

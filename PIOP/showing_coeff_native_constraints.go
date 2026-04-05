@@ -15,9 +15,11 @@ func buildCredentialConstraintSetPostCoeffNative(
 	omega []uint64,
 	domainMode DomainMode,
 	opts SimOpts,
+	prfLayout *PRFLayout,
+	prfCompanionLayout *PRFCompanionLayout,
 ) (ConstraintSet, error) {
 	if !rowLayoutCoeffNativeUsesLiteralPacked(layout) {
 		return ConstraintSet{}, fmt.Errorf("unsupported coeff-native showing model %q; only the literal-packed protocol remains", layout.CoeffNativeSig.Model)
 	}
-	return buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ, bound, pub, layout, rowsNTT, omega, domainMode, opts)
+	return buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ, bound, pub, layout, rowsNTT, omega, domainMode, opts, prfLayout, prfCompanionLayout)
 }

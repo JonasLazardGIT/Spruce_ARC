@@ -3,20 +3,15 @@ package PIOP
 import (
 	"fmt"
 	"sort"
-
-	"vSIS-Signature/prf"
 )
 
 const (
 	RowFamilyPostSignCore              = "post_sign_core"
-	RowFamilySigCoeffBounds            = "sig_coeff_bounds_chain"
-	RowFamilySigProduct                = "sig_product"
-	RowFamilyNonSigBoundChain          = "non_sig_bound_chain"
-	RowFamilyPRFGrouped                = "prf_grouped"
+	RowFamilyPostSignCarriers          = "post_sign_carriers"
+	RowFamilySigTransformAlias         = "sig_transform_alias"
+	RowFamilyNonSigTransformAlias      = "nonsig_transform_alias"
+	RowFamilyReplayImage               = "replay_image"
 	RowFamilySigPrimaryLimb            = "sig_primary_limb"
-	RowFamilyPostSignScalarProjection  = "post_sign_scalar_projection"
-	RowFamilyPostSignScalarCertificate = "post_sign_scalar_certificate"
-	RowFamilyPRFGroupedNonlinear       = "prf_grouped_nonlinear"
 )
 
 // RowDependencyMap records which committed row indices are consumed by each
@@ -26,16 +21,14 @@ type RowDependencyMap map[string][]int
 // BuildShowingRowDependencyMap returns the deterministic row-index footprint
 // for the main showing verifier families.
 func BuildShowingRowDependencyMap(layout RowLayout, prfLayout *PRFLayout) RowDependencyMap {
+	_ = prfLayout
 	acc := map[string]map[int]struct{}{
 		RowFamilyPostSignCore:              {},
-		RowFamilySigCoeffBounds:            {},
-		RowFamilySigProduct:                {},
-		RowFamilyNonSigBoundChain:          {},
-		RowFamilyPRFGrouped:                {},
+		RowFamilyPostSignCarriers:          {},
+		RowFamilySigTransformAlias:         {},
+		RowFamilyNonSigTransformAlias:      {},
+		RowFamilyReplayImage:               {},
 		RowFamilySigPrimaryLimb:            {},
-		RowFamilyPostSignScalarProjection:  {},
-		RowFamilyPostSignScalarCertificate: {},
-		RowFamilyPRFGroupedNonlinear:       {},
 	}
 
 	add := func(name string, idx int) {
@@ -53,124 +46,13 @@ func BuildShowingRowDependencyMap(layout RowLayout, prfLayout *PRFLayout) RowDep
 			add(name, start+i)
 		}
 	}
-	addPRFFamily := func(prfFamily string) {
-		if prfLayout == nil {
-			return
-		}
-		if prfLayout.PackedRows {
-			seen := make(map[int]struct{}, len(prfLayout.KeySlots)+len(prfLayout.SBoxSlots))
-			for _, slot := range prfLayout.KeySlots {
-				if slot.Row >= 0 {
-					seen[slot.Row] = struct{}{}
-				}
-			}
-			for _, slot := range prfLayout.SBoxSlots {
-				if slot.Row >= 0 {
-					seen[slot.Row] = struct{}{}
-				}
-			}
-			for idx := range seen {
-				add(prfFamily, idx)
-			}
-			return
-		}
-		if prfLayout.StartIdx >= 0 && prfLayout.WitnessRows > 0 {
-			addRange(prfFamily, prfLayout.StartIdx, prfLayout.WitnessRows)
-			return
-		}
-		groupRounds := prfLayout.GroupRounds
-		if groupRounds <= 0 {
-			groupRounds = 1
-		}
-		t := prfLayout.LenKey + prfLayout.LenNonce
-		rounds := prfLayout.RF + prfLayout.RP
-		scheduleParams := &prf.Params{RF: prfLayout.RF, RP: prfLayout.RP}
-		sboxCount := 0
-		for round := 0; round < rounds; round++ {
-			if !prf.ShouldCheckpointRound(scheduleParams, round, groupRounds) {
-				continue
-			}
-			full := round < prfLayout.RF/2 || round >= prfLayout.RF/2+prfLayout.RP
-			if full {
-				sboxCount += t
-			} else {
-				sboxCount++
-			}
-		}
-		if prfLayout.StartIdx >= 0 {
-			addRange(prfFamily, prfLayout.StartIdx, prfLayout.LenKey+sboxCount)
-		}
-	}
-	resolveCoreUCount := func() int {
-		if layout.SigUCount > 0 {
-			return layout.SigUCount
-		}
-		uBase := rowLayoutPostSignUBase(layout)
-		if uBase < 0 || prfLayout == nil || prfLayout.StartIdx <= uBase {
-			return 0
-		}
-		return prfLayout.StartIdx - uBase
-	}
-
 	if rowLayoutHasCoeffNativeSig(layout) {
 		if !rowLayoutCoeffNativeUsesLiteralPacked(layout) {
 			return finalizeRowDependencyMap(acc)
 		}
 		addCoeffNativeLiteralPackedRows(layout, add, addRange)
-		if prfLayout != nil {
-			prfFamily := RowFamilyPRFGrouped
-			if rowLayoutCoeffNativeUsesLiteralPackedV3(layout) {
-				prfFamily = RowFamilyPRFGroupedNonlinear
-			}
-			addPRFFamily(prfFamily)
-		}
 		return finalizeRowDependencyMap(acc)
 	}
-
-	// Post-sign core rows used by signature/hash/packing constraints.
-	for _, idx := range rowLayoutPostSignCoreRows(layout) {
-		add(RowFamilyPostSignCore, idx)
-	}
-	if coreUCount := resolveCoreUCount(); coreUCount > 0 {
-		addRange(RowFamilyPostSignCore, rowLayoutPostSignUBase(layout), coreUCount)
-	}
-	if layout.SigBlocks > 1 {
-		addRange(RowFamilyPostSignCore, layout.SigExtraUBase, (layout.SigBlocks-1)*layout.SigUCount)
-		if !layout.SigDerivedT {
-			addRange(RowFamilyPostSignCore, layout.SigExtraTBase, layout.SigBlocks-1)
-		}
-	}
-
-	// Signature coefficient bounds chain rows.
-	coefCount := 0
-	if layout.SigBlocks > 0 && layout.SigUCount > 0 {
-		coefCount = layout.SigBlocks * layout.SigUCount
-	}
-	if coefCount > 0 {
-		addRange(RowFamilySigCoeffBounds, layout.SigCoeffBase, coefCount)
-		if layout.ChainRowsPerSig > 0 {
-			addRange(RowFamilySigCoeffBounds, layout.ChainBase, coefCount*layout.ChainRowsPerSig)
-		}
-	}
-
-	// Non-signature bound chain rows.
-	for _, idx := range postSignBoundRowIndices(layout) {
-		add(RowFamilyNonSigBoundChain, idx)
-	}
-	if rowsPer := inferNonSigBoundRowsPer(layout); rowsPer > 0 {
-		addRange(RowFamilyNonSigBoundChain, layout.MsgChainBase, 2*rowsPer)
-		addRange(RowFamilyNonSigBoundChain, layout.RndChainBase, 2*rowsPer)
-	}
-
-	// Grouped PRF witness rows.
-	if prfLayout != nil {
-		prfFamily := RowFamilyPRFGrouped
-		if rowLayoutCoeffNativeUsesLiteralPackedV3(layout) {
-			prfFamily = RowFamilyPRFGroupedNonlinear
-		}
-		addPRFFamily(prfFamily)
-	}
-
 	return finalizeRowDependencyMap(acc)
 }
 
@@ -180,69 +62,24 @@ func addCoeffNativeLiteralPackedRows(
 	addRange func(string, int, int),
 ) {
 	cfg := layout.CoeffNativeSig
-	if rowLayoutCoeffNativeUsesSemanticRewrite(layout) {
-		for _, idx := range rowLayoutPostSignCoreRows(layout) {
-			add(RowFamilyPostSignCore, idx)
+	if rowLayoutCoeffNativeUsesTransformBridge(layout) {
+		addRange(RowFamilyPostSignCore, cfg.PackedSigBase, cfg.PackedSigCount)
+		if layout.SigBlocks > 0 && layout.SigUCount > 0 && layout.IdxSigHatBase >= 0 {
+			addRange(RowFamilySigTransformAlias, layout.IdxSigHatBase, layout.SigBlocks*layout.SigUCount)
 		}
-		addRange(RowFamilyPostSignCore, rowLayoutPostSignUBase(layout), layout.SigUCount)
-		if layout.SigBlocks > 1 {
-			addRange(RowFamilyPostSignCore, layout.SigExtraUBase, (layout.SigBlocks-1)*layout.SigUCount)
-		}
-		if layout.SigExtraTBase >= 0 && layout.SigBlocks > 0 {
-			addRange(RowFamilyPostSignCore, layout.SigExtraTBase, layout.SigBlocks)
+		add(RowFamilyPostSignCarriers, layout.IdxCarrierM)
+		add(RowFamilyPostSignCarriers, layout.IdxCarrierCtr)
+		add(RowFamilyNonSigTransformAlias, layout.IdxMHat1)
+		add(RowFamilyNonSigTransformAlias, layout.IdxMHat2)
+		add(RowFamilyNonSigTransformAlias, layout.IdxRHat0)
+		add(RowFamilyNonSigTransformAlias, layout.IdxRHat1)
+		if layout.IdxTHatBase >= 0 && layout.SigBlocks > 0 {
+			addRange(RowFamilyReplayImage, layout.IdxTHatBase, layout.SigBlocks)
 		}
 		addRange(RowFamilySigPrimaryLimb, layout.PackedSigChainBase, layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup)
-		for _, idx := range postSignBoundRowIndices(layout) {
-			add(RowFamilyNonSigBoundChain, idx)
-		}
-		if rowsPer := inferNonSigBoundRowsPer(layout); rowsPer > 0 {
-			addRange(RowFamilyNonSigBoundChain, layout.MsgChainBase, 2*rowsPer)
-			addRange(RowFamilyNonSigBoundChain, layout.RndChainBase, 2*rowsPer)
-		}
-		if layout.NonSigBlocks > 0 {
-			if layout.NonSigBlocks > 1 {
-				addRange(RowFamilyNonSigBoundChain, layout.MsgExtraNTTBase, (layout.NonSigBlocks-1)*layout.MsgCompCount)
-				addRange(RowFamilyNonSigBoundChain, layout.RndExtraNTTBase, (layout.NonSigBlocks-1)*layout.RndCompCount)
-			}
-			addRange(RowFamilyNonSigBoundChain, layout.MsgCoeffBase, layout.NonSigBlocks*layout.MsgCompCount)
-			addRange(RowFamilyNonSigBoundChain, layout.RndCoeffBase, layout.NonSigBlocks*layout.RndCompCount)
-		}
 		return
 	}
 	addRange(RowFamilySigPrimaryLimb, layout.PackedSigChainBase, layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup)
-	if rowLayoutCoeffNativeUsesCompressedNonSigScalars(layout) {
-		add(RowFamilyPostSignScalarProjection, cfg.PostSignMsgSumRow)
-		add(RowFamilyPostSignScalarProjection, cfg.PostSignRndSumRow)
-		add(RowFamilyPostSignScalarProjection, cfg.PostSignX1Row)
-		if cfg.UScalarCertBase >= 0 && cfg.UScalarCertCount > 0 && cfg.NonSigCertRowsPerScalar > 0 {
-			addRange(RowFamilyPostSignScalarCertificate, cfg.UScalarCertBase, cfg.UScalarCertCount*cfg.NonSigCertRowsPerScalar)
-		}
-		if cfg.X0ScalarCertBase >= 0 && cfg.X0ScalarCertCount > 0 && cfg.NonSigCertRowsPerScalar > 0 {
-			addRange(RowFamilyPostSignScalarCertificate, cfg.X0ScalarCertBase, cfg.X0ScalarCertCount*cfg.NonSigCertRowsPerScalar)
-		}
-		if cfg.X1ScalarCertBase >= 0 && cfg.X1ScalarCertCount > 0 && cfg.NonSigCertRowsPerScalar > 0 {
-			addRange(RowFamilyPostSignScalarCertificate, cfg.X1ScalarCertBase, cfg.X1ScalarCertCount*cfg.NonSigCertRowsPerScalar)
-		}
-	} else if cfg.ScalarBundleCount > 0 {
-		addRange(RowFamilyPostSignCore, cfg.ScalarBundleBase, cfg.ScalarBundleCount)
-	} else {
-		addRange(RowFamilyPostSignCore, cfg.UBase, cfg.UCount)
-		addRange(RowFamilyPostSignCore, cfg.X0Base, cfg.X0Count)
-		add(RowFamilyPostSignCore, cfg.X1Row)
-	}
-
-	if rowsPer := inferNonSigBoundRowsPer(layout); rowsPer > 0 {
-		if cfg.ScalarBundleCount > 0 {
-			addRange(RowFamilyNonSigBoundChain, cfg.ScalarBundleBase, cfg.ScalarBundleCount)
-		} else {
-			addRange(RowFamilyNonSigBoundChain, cfg.UBase, cfg.UCount)
-			addRange(RowFamilyNonSigBoundChain, cfg.X0Base, cfg.X0Count)
-			add(RowFamilyNonSigBoundChain, cfg.X1Row)
-		}
-		addRange(RowFamilyNonSigBoundChain, layout.MsgRangeBase, cfg.UCount*rowsPer)
-		addRange(RowFamilyNonSigBoundChain, layout.RndRangeBase, cfg.X0Count*rowsPer)
-		addRange(RowFamilyNonSigBoundChain, layout.X1RangeBase, rowsPer)
-	}
 }
 
 func finalizeRowDependencyMap(acc map[string]map[int]struct{}) RowDependencyMap {

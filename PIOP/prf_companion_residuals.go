@@ -9,23 +9,12 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-var prfCompanionLegacyOpeningLabels = []string{
-	"key_prf",
-	"key_sig",
-	"cp_in",
-	"cp_z",
-	"cp_wire",
-	"tag_final",
-	"key_trunc",
-}
-
 const prfCompanionOpeningGroupRounds = 2
 
 type prfCompanionOpeningSource uint8
 
 const (
 	prfCompanionPackedSource prfCompanionOpeningSource = iota
-	prfCompanionSignedExtractorSource
 )
 
 type prfCompanionOpeningTerm struct {
@@ -59,7 +48,6 @@ type prfCompanionOpeningPlan struct {
 }
 
 type prfCompanionOpeningPayload struct {
-	Legacy           *PRFCompanionLegacyPayload
 	CheckpointAudits []PRFCheckpointAuditOpening
 	TagFinal         PRFCompanionOpening
 	KeyTrunc         PRFCompanionOpening
@@ -75,9 +63,6 @@ func prfCompanionModeDefault(mode PRFCompanionMode) PRFCompanionMode {
 
 func prfCompanionOpeningLabels(mode PRFCompanionMode, checkpointSamples int) []string {
 	mode = prfCompanionModeDefault(mode)
-	if mode == PRFCompanionModeCurrent {
-		return append([]string(nil), prfCompanionLegacyOpeningLabels...)
-	}
 	if checkpointSamples <= 0 {
 		checkpointSamples = 1
 	}
@@ -265,35 +250,6 @@ func descriptorFromPackedSlots(
 	return buildDescriptor(label, buildPackedTerms(layout, slotWeights, q), 0, maskSlot, q), nil
 }
 
-func descriptorFromSignedKey(
-	label string,
-	layout *PRFCompanionLayout,
-	tau uint64,
-	maskSlot int,
-	q uint64,
-	limit int,
-) (prfCompanionOpeningDescriptor, error) {
-	if layout == nil {
-		return prfCompanionOpeningDescriptor{}, fmt.Errorf("nil layout")
-	}
-	if limit <= 0 || limit > len(layout.SignedKeyMapping.Coeffs) {
-		limit = len(layout.SignedKeyMapping.Coeffs)
-	}
-	weights := make([]uint64, layout.PackWidth)
-	pow := uint64(1)
-	for i := 0; i < limit; i++ {
-		coeff := layout.SignedKeyMapping.Coeffs[i]
-		weights[coeff] = modAdd(weights[coeff], pow, q)
-		pow = modMul(pow, tau%q, q)
-	}
-	return buildDescriptor(label, []prfCompanionOpeningTerm{{
-		Source:            prfCompanionSignedExtractorSource,
-		Row:               layout.SignedKeyMapping.M2Row,
-		RowMixCoeff:       1,
-		CoordinateWeights: weights,
-	}}, 0, maskSlot, q), nil
-}
-
 func extractCheckpointWires(grouped *prf.GroupedWitness) []prf.LinearForm {
 	out := make([]prf.LinearForm, len(grouped.Checkpoints))
 	for i := range grouped.Checkpoints {
@@ -302,7 +258,7 @@ func extractCheckpointWires(grouped *prf.GroupedWitness) []prf.LinearForm {
 	return out
 }
 
-func descriptorFromCheckpointWireLegacy(
+func descriptorFromCheckpointWire(
 	label string,
 	layout *PRFCompanionLayout,
 	wire prf.LinearForm,
@@ -334,55 +290,6 @@ func descriptorFromCheckpointWireLegacy(
 		appendSlotWeight(slotWeights, layout.PackWidth, slot.Row, slot.Coeff, uint64(coeff)%q, q)
 	}
 	return buildDescriptor(label, buildPackedTerms(layout, slotWeights, q), uint64(wire.Const)%q, maskSlot, q), nil
-}
-
-func descriptorFromCheckpointWireSignedOutput(
-	label string,
-	layout *PRFCompanionLayout,
-	wire prf.LinearForm,
-	maskSlot int,
-	q uint64,
-) (prfCompanionOpeningDescriptor, error) {
-	if layout == nil {
-		return prfCompanionOpeningDescriptor{}, fmt.Errorf("nil layout")
-	}
-	if len(layout.CheckpointSlots) == 0 {
-		return prfCompanionOpeningDescriptor{}, fmt.Errorf("missing companion checkpoint slots")
-	}
-	terms := make([]prfCompanionOpeningTerm, 0)
-	signedWeights := make([]uint64, layout.PackWidth)
-	for i, coeff := range wire.KeyCoeffs {
-		if i >= len(layout.SignedKeyMapping.Coeffs) || coeff == 0 {
-			continue
-		}
-		signedCoeff := layout.SignedKeyMapping.Coeffs[i]
-		signedWeights[signedCoeff] = modAdd(signedWeights[signedCoeff], uint64(coeff)%q, q)
-	}
-	hasSigned := false
-	for _, v := range signedWeights {
-		if v%q != 0 {
-			hasSigned = true
-			break
-		}
-	}
-	if hasSigned {
-		terms = append(terms, prfCompanionOpeningTerm{
-			Source:            prfCompanionSignedExtractorSource,
-			Row:               layout.SignedKeyMapping.M2Row,
-			RowMixCoeff:       1,
-			CoordinateWeights: signedWeights,
-		})
-	}
-	slotWeights := make(map[int][]uint64)
-	for i, coeff := range wire.CheckpointCoeffs {
-		if i >= len(layout.CheckpointSlots) || coeff == 0 {
-			continue
-		}
-		slot := layout.CheckpointSlots[i]
-		appendSlotWeight(slotWeights, layout.PackWidth, slot.Row, slot.Coeff, uint64(coeff)%q, q)
-	}
-	terms = append(terms, buildPackedTerms(layout, slotWeights, q)...)
-	return buildDescriptor(label, terms, uint64(wire.Const)%q, maskSlot, q), nil
 }
 
 func sampleDistinctCheckpointIndices(rng *fsRNG, checkpointCount int, want int) []int {
@@ -447,65 +354,6 @@ func buildPRFCompanionOpeningPlan(
 	}
 	descriptors := make([]prfCompanionOpeningDescriptor, 0)
 	audits := make([]prfCompanionAuditPlan, 0)
-	if mode == PRFCompanionModeCurrent {
-		tauKey := nextNonZeroChallenge(rng, q)
-		tauCP := nextNonZeroChallenge(rng, q)
-		keyPRF, err := descriptorFromPackedSlots("key_prf", layout, layout.KeySlots, tauKey, len(descriptors), q)
-		if err != nil {
-			return nil, err
-		}
-		descriptors = append(descriptors, keyPRF)
-		keySig, err := descriptorFromSignedKey("key_sig", layout, tauKey, len(descriptors), q, params.LenKey)
-		if err != nil {
-			return nil, err
-		}
-		descriptors = append(descriptors, keySig)
-		if len(layout.CheckpointInputSlots) == 0 || len(layout.CheckpointSlots) == 0 {
-			return nil, fmt.Errorf("missing legacy checkpoint companion slots")
-		}
-		checkpoint := int(tauCP % uint64(len(layout.CheckpointSlots)))
-		cpIn, err := descriptorFromPackedSlots("cp_in", layout, []CoeffSlot{layout.CheckpointInputSlots[checkpoint]}, 1, len(descriptors), q)
-		if err != nil {
-			return nil, err
-		}
-		descriptors = append(descriptors, cpIn)
-		cpZ, err := descriptorFromPackedSlots("cp_z", layout, []CoeffSlot{layout.CheckpointSlots[checkpoint]}, 1, len(descriptors), q)
-		if err != nil {
-			return nil, err
-		}
-		descriptors = append(descriptors, cpZ)
-		cpWire, err := descriptorFromCheckpointWireLegacy("cp_wire", layout, checkpointWires[checkpoint], len(descriptors), q)
-		if err != nil {
-			return nil, err
-		}
-		descriptors = append(descriptors, cpWire)
-		tagFinal, err := descriptorFromPackedSlots("tag_final", layout, layout.FinalTagSlots, tauTag, len(descriptors), q)
-		if err != nil {
-			return nil, err
-		}
-		descriptors = append(descriptors, tagFinal)
-		keyTruncSlots := cloneCoeffSlots(layout.KeySlots)
-		if len(keyTruncSlots) > params.LenTag {
-			keyTruncSlots = keyTruncSlots[:params.LenTag]
-		}
-		keyTrunc, err := descriptorFromPackedSlots("key_trunc", layout, keyTruncSlots, tauTag, len(descriptors), q)
-		if err != nil {
-			return nil, err
-		}
-		descriptors = append(descriptors, keyTrunc)
-		masks := make([]uint64, len(descriptors))
-		for i := range masks {
-			masks[i] = rng.nextU64() % q
-		}
-		return &prfCompanionOpeningPlan{
-			Mode:        mode,
-			Descriptors: descriptors,
-			Masks:       masks,
-			PublicTag:   publicTag,
-			Checkpoint:  checkpoint,
-			Q:          q,
-		}, nil
-	}
 	if checkpointSamples <= 0 {
 		checkpointSamples = 1
 	}
@@ -518,7 +366,7 @@ func buildPRFCompanionOpeningPlan(
 			return nil, err
 		}
 		descriptors = append(descriptors, zDesc)
-		wireDesc, err := descriptorFromCheckpointWireSignedOutput(wireLabel, layout, checkpointWires[checkpoint], len(descriptors), q)
+		wireDesc, err := descriptorFromCheckpointWire(wireLabel, layout, checkpointWires[checkpoint], len(descriptors), q)
 		if err != nil {
 			return nil, err
 		}
@@ -534,7 +382,11 @@ func buildPRFCompanionOpeningPlan(
 		return nil, err
 	}
 	descriptors = append(descriptors, tagFinal)
-	keyTrunc, err := descriptorFromSignedKey("key_trunc", layout, tauTag, len(descriptors), q, params.LenTag)
+	limit := params.LenTag
+	if limit <= 0 || limit > len(layout.KeySlots) {
+		limit = len(layout.KeySlots)
+	}
+	keyTrunc, err := descriptorFromPackedSlots("key_trunc", layout, layout.KeySlots[:limit], tauTag, len(descriptors), q)
 	if err != nil {
 		return nil, err
 	}
@@ -557,7 +409,6 @@ func evalPRFCompanionDescriptor(
 	desc prfCompanionOpeningDescriptor,
 	layout *PRFCompanionLayout,
 	packedHeads [][]uint64,
-	m2Head []uint64,
 	q uint64,
 ) (uint64, error) {
 	acc := desc.Constant % q
@@ -571,11 +422,6 @@ func evalPRFCompanionDescriptor(
 				return 0, fmt.Errorf("descriptor %s row=%d outside packed companion window", desc.Label, term.Row)
 			}
 			head = packedHeads[rel]
-		case prfCompanionSignedExtractorSource:
-			if term.Row != layout.SignedKeyMapping.M2Row {
-				return 0, fmt.Errorf("descriptor %s signed row=%d want %d", desc.Label, term.Row, layout.SignedKeyMapping.M2Row)
-			}
-			head = m2Head
 		default:
 			return 0, fmt.Errorf("descriptor %s has unknown source %d", desc.Label, term.Source)
 		}
@@ -622,13 +468,9 @@ func buildPRFCompanionOpeningPayload(
 	if err != nil {
 		return nil, nil, err
 	}
-	m2Head, err := rowHeadOnOmega(ringQ, omegaWitness, rows[layout.SignedKeyMapping.M2Row], layout.PackWidth)
-	if err != nil {
-		return nil, nil, fmt.Errorf("m2 row head on omega: %w", err)
-	}
 	openings := make(map[string]PRFCompanionOpening, len(plan.Descriptors))
 	for i, desc := range plan.Descriptors {
-		raw, err := evalPRFCompanionDescriptor(desc, layout, packedHeads, m2Head, plan.Q)
+		raw, err := evalPRFCompanionDescriptor(desc, layout, packedHeads, plan.Q)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -644,16 +486,6 @@ func buildPRFCompanionOpeningPayload(
 	payload := &prfCompanionOpeningPayload{
 		TagFinal: clonePRFCompanionOpening(openings["tag_final"]),
 		KeyTrunc: clonePRFCompanionOpening(openings["key_trunc"]),
-	}
-	if plan.Mode == PRFCompanionModeCurrent {
-		payload.Legacy = &PRFCompanionLegacyPayload{
-			KeyPRF:         clonePRFCompanionOpening(openings["key_prf"]),
-			KeySig:         clonePRFCompanionOpening(openings["key_sig"]),
-			CheckpointIn:   clonePRFCompanionOpening(openings["cp_in"]),
-			CheckpointZ:    clonePRFCompanionOpening(openings["cp_z"]),
-			CheckpointWire: clonePRFCompanionOpening(openings["cp_wire"]),
-		}
-		return payload, plan, nil
 	}
 	payload.CheckpointAudits = make([]PRFCheckpointAuditOpening, len(plan.Audits))
 	for i := range plan.Audits {
@@ -706,55 +538,6 @@ func verifyPRFCompanionOpenings(
 	)
 	if err != nil {
 		return err
-	}
-	if mode == PRFCompanionModeCurrent {
-		if proof.PRFCompanion.Legacy == nil {
-			return fmt.Errorf("missing legacy prf companion payload")
-		}
-		if len(plan.Descriptors) < 7 {
-			return fmt.Errorf("legacy companion opening plan incomplete")
-		}
-		keyPRF, err := recoverPRFCompanionOpening("key_prf", proof.PRFCompanion.Legacy.KeyPRF, plan.Masks[0], plan.Q)
-		if err != nil {
-			return err
-		}
-		keySig, err := recoverPRFCompanionOpening("key_sig", proof.PRFCompanion.Legacy.KeySig, plan.Masks[1], plan.Q)
-		if err != nil {
-			return err
-		}
-		cpIn, err := recoverPRFCompanionOpening("cp_in", proof.PRFCompanion.Legacy.CheckpointIn, plan.Masks[2], plan.Q)
-		if err != nil {
-			return err
-		}
-		cpZ, err := recoverPRFCompanionOpening("cp_z", proof.PRFCompanion.Legacy.CheckpointZ, plan.Masks[3], plan.Q)
-		if err != nil {
-			return err
-		}
-		cpWire, err := recoverPRFCompanionOpening("cp_wire", proof.PRFCompanion.Legacy.CheckpointWire, plan.Masks[4], plan.Q)
-		if err != nil {
-			return err
-		}
-		tagFinal, err := recoverPRFCompanionOpening("tag_final", proof.PRFCompanion.TagFinal, plan.Masks[5], plan.Q)
-		if err != nil {
-			return err
-		}
-		keyTrunc, err := recoverPRFCompanionOpening("key_trunc", proof.PRFCompanion.KeyTrunc, plan.Masks[6], plan.Q)
-		if err != nil {
-			return err
-		}
-		if keyPRF != keySig {
-			return fmt.Errorf("prf companion key binding failed")
-		}
-		if cpIn != cpWire {
-			return fmt.Errorf("prf companion checkpoint wiring failed")
-		}
-		if cpZ != powMod(cpIn, uint64(params.D), plan.Q) {
-			return fmt.Errorf("prf companion checkpoint power failed")
-		}
-		if modAdd(tagFinal, keyTrunc, plan.Q) != plan.PublicTag {
-			return fmt.Errorf("prf companion tag binding failed")
-		}
-		return nil
 	}
 	if len(proof.PRFCompanion.CheckpointAudits) != len(plan.Audits) {
 		return fmt.Errorf("checkpoint audit count=%d want %d", len(proof.PRFCompanion.CheckpointAudits), len(plan.Audits))

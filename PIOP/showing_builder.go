@@ -119,6 +119,9 @@ func BuildShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*P
 	if err != nil {
 		return nil, fmt.Errorf("build showing rows: %w", err)
 	}
+	if prfLayout != nil {
+		return nil, fmt.Errorf("legacy PRF layout is no longer supported for showing")
+	}
 	if ncols != witnessNCols {
 		witnessNCols = ncols
 		if len(omega) < witnessNCols {
@@ -137,22 +140,14 @@ func BuildShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*P
 	// BuildWithConstraints rebuilds constraints from committed row-polynomials
 	// before masking; this pre-pass keeps the retained explicit-domain path
 	// on the cheaper witness-row route.
-	postSet, err := buildCredentialConstraintSetPostFromRows(ringQ, pub.BoundB, pub, layout, rowsNTT, omegaWitness, opts.DomainMode, opts)
+	postSet, err := buildCredentialConstraintSetPostFromRows(ringQ, pub.BoundB, pub, layout, rowsNTT, omegaWitness, opts.DomainMode, opts, prfLayout, prfCompanionLayout)
 	if err != nil {
 		return nil, fmt.Errorf("build post-sign constraint set: %w", err)
 	}
-	var prfSet ConstraintSet
-	switch {
-	case prfCompanionLayout != nil:
-		prfSet = ConstraintSet{PRFCompanionLayout: prfCompanionLayout}
-	case prfLayout != nil:
-		prfSet, err = BuildPRFConstraintSetSBox(ringQ, params, rowsNTT, prfLayout, pub.Tag, pub.Nonce, omegaWitness)
-		if err != nil {
-			return nil, fmt.Errorf("build prf constraint set: %w", err)
-		}
-	default:
-		return nil, fmt.Errorf("missing showing PRF metadata")
+	if prfCompanionLayout == nil {
+		return nil, fmt.Errorf("missing showing PRF companion metadata")
 	}
+	prfSet := ConstraintSet{PRFCompanionLayout: prfCompanionLayout}
 	parDeg := postSet.ParallelAlgDeg
 	if prfSet.ParallelAlgDeg > parDeg {
 		parDeg = prfSet.ParallelAlgDeg

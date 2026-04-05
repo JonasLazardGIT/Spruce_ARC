@@ -10,7 +10,7 @@ import (
 )
 
 // buildRowInputs constructs LVCS row heads from row polynomials by evaluating
-// them on Ω (NTT form) and truncating to ncols.
+// them on the implicit NTT domain and truncating to ncols.
 func buildRowInputs(ringQ *ring.Ring, rows []*ring.Poly, ncols int) []lvcs.RowInput {
 	rowInputs := make([]lvcs.RowInput, len(rows))
 	tmp := ringQ.NewPoly()
@@ -24,6 +24,35 @@ func buildRowInputs(ringQ *ring.Ring, rows []*ring.Poly, ncols int) []lvcs.RowIn
 		rowInputs[i] = lvcs.RowInput{Head: headCopy}
 	}
 	return rowInputs
+}
+
+// buildRowInputsExplicit constructs LVCS row heads by evaluating the row
+// polynomials on the explicit Ω domain.
+func buildRowInputsExplicit(ringQ *ring.Ring, rows []*ring.Poly, omega []uint64, ncols int) ([]lvcs.RowInput, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("empty rows")
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega")
+	}
+	if ncols <= 0 {
+		return nil, fmt.Errorf("invalid ncols=%d", ncols)
+	}
+	if len(omega) < ncols {
+		return nil, fmt.Errorf("omega len=%d < ncols=%d", len(omega), ncols)
+	}
+	rowInputs := make([]lvcs.RowInput, len(rows))
+	for i, row := range rows {
+		head, err := rowHeadOnOmega(ringQ, omega, row, ncols)
+		if err != nil {
+			return nil, fmt.Errorf("row %d head on omega: %w", i, err)
+		}
+		rowInputs[i] = lvcs.RowInput{Head: head}
+	}
+	return rowInputs, nil
 }
 
 func rowOracleDegreeFloor(ringQ *ring.Ring, rows []lvcs.RowInput, ell int) int {

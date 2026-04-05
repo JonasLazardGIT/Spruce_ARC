@@ -5,10 +5,10 @@ import (
 	"log"
 	"math/rand"
 
+	lvcs "vSIS-Signature/LVCS"
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
-	lvcs "vSIS-Signature/LVCS"
 	"vSIS-Signature/ntru"
 	ntrurio "vSIS-Signature/ntru/io"
 	"vSIS-Signature/ntru/keys"
@@ -77,25 +77,35 @@ func headEncodedPublicNTT(r *ring.Ring, head []uint64) *ring.Poly {
 	return out
 }
 
-func coeffPolyFromHead(r *ring.Ring, head []uint64) *ring.Poly {
+func coeffPolyFromHead(r *ring.Ring, head []uint64, omega []uint64) *ring.Poly {
+	if len(omega) == len(head) {
+		pNTT := PIOP.BuildThetaPrime(r, head, omega)
+		out := r.NewPoly()
+		r.InvNTT(pNTT, out)
+		return out
+	}
 	pNTT := headEncodedPublicNTT(r, head)
 	out := r.NewPoly()
 	r.InvNTT(pNTT, out)
 	return out
 }
 
-func headFromCoeffPoly(r *ring.Ring, p *ring.Poly, ncols int) []uint64 {
-	pNTT := r.NewPoly()
-	ring.Copy(p, pNTT)
-	r.NTT(pNTT, pNTT)
-	if ncols <= 0 || ncols > len(pNTT.Coeffs[0]) {
-		ncols = len(pNTT.Coeffs[0])
+func coeffPolyFromNTTHead(r *ring.Ring, head []uint64) *ring.Poly {
+	pNTT := headEncodedPublicNTT(r, head)
+	out := r.NewPoly()
+	r.InvNTT(pNTT, out)
+	return out
+}
+
+func headFromCoeffPoly(r *ring.Ring, p *ring.Poly, omega []uint64) []uint64 {
+	if r == nil || p == nil || len(omega) == 0 {
+		return nil
 	}
-	head := make([]uint64, ncols)
-	copy(head, pNTT.Coeffs[0][:ncols])
 	q := r.Modulus[0]
-	for i := range head {
-		head[i] %= q
+	coeff := append([]uint64(nil), p.Coeffs[0]...)
+	head := make([]uint64, len(omega))
+	for i, w := range omega {
+		head[i] = PIOP.EvalPoly(coeff, w%q, q)
 	}
 	return head
 }
@@ -112,7 +122,7 @@ func modInverseUint64(x, q uint64) (uint64, bool) {
 		return 0, false
 	}
 	var t, newT int64 = 0, 1
-	var r0, newR int64 = int64(q), int64(x%q)
+	var r0, newR int64 = int64(q), int64(x % q)
 	for newR != 0 {
 		quot := r0 / newR
 		t, newT = newT, t-quot*newT
@@ -142,9 +152,9 @@ func coeffPolyToInt64(r *ring.Ring, p *ring.Poly) []int64 {
 }
 
 // PrepareCommit computes the public commitment rows for the credential pre-sign
-// statement in the explicit-domain head encoding that the verifier replays.
+// statement using explicit-domain heads over Ω.
 // Inputs are provided in coefficient form; the committed witness heads are the
-// first |Ω| entries of their NTT representation.
+// evaluations of each witness row on Ω.
 func PrepareCommit(p *credential.Params, in Inputs, omega []uint64) (commitment.Vector, error) {
 	log.Printf("[issuance] preparing commitment")
 	if p == nil || p.RingQ == nil {
@@ -162,25 +172,26 @@ func PrepareCommit(p *credential.Params, in Inputs, omega []uint64) (commitment.
 	}
 	ncols := len(omega)
 	q := p.RingQ.Modulus[0]
-	vecNTT := make([]*ring.Poly, len(blocks))
+	vecHead := make([][]uint64, len(blocks))
 	for i, blk := range blocks {
-		ntt := p.RingQ.NewPoly()
-		ring.Copy(blk[0], ntt)
-		p.RingQ.NTT(ntt, ntt)
-		vecNTT[i] = ntt
+		head := headFromCoeffPoly(p.RingQ, blk[0], omega)
+		if len(head) != ncols {
+			return nil, fmt.Errorf("head length=%d want %d for block %s", len(head), ncols, names[i])
+		}
+		vecHead[i] = head
 	}
 	com := make(commitment.Vector, len(p.Ac))
 	for i := range p.Ac {
-		if len(p.Ac[i]) != len(vecNTT) {
-			return nil, fmt.Errorf("Ac row %d length=%d want %d", i, len(p.Ac[i]), len(vecNTT))
+		if len(p.Ac[i]) != len(vecHead) {
+			return nil, fmt.Errorf("Ac row %d length=%d want %d", i, len(p.Ac[i]), len(vecHead))
 		}
 		head := make([]uint64, ncols)
 		for j := range p.Ac[i] {
-			if p.Ac[i][j] == nil || vecNTT[j] == nil {
+			if p.Ac[i][j] == nil || vecHead[j] == nil {
 				return nil, fmt.Errorf("nil Ac/vector poly at row=%d col=%d", i, j)
 			}
 			for k := 0; k < ncols; k++ {
-				head[k] = lvcs.MulAddMod64(head[k], p.Ac[i][j].Coeffs[0][k]%q, vecNTT[j].Coeffs[0][k]%q, q)
+				head[k] = lvcs.MulAddMod64(head[k], p.Ac[i][j].Coeffs[0][k]%q, vecHead[j][k]%q, q)
 			}
 		}
 		com[i] = headEncodedPublicNTT(p.RingQ, head)
@@ -236,10 +247,10 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	q := int64(r.Modulus[0])
 	delta := int64(2*bound + 1)
 	ncols := len(omega)
-	ru0Head := headFromCoeffPoly(r, in.RU0[0], ncols)
-	ru1Head := headFromCoeffPoly(r, in.RU1[0], ncols)
-	m1Head := headFromCoeffPoly(r, in.M1[0], ncols)
-	m2Head := headFromCoeffPoly(r, in.M2[0], ncols)
+	ru0Head := headFromCoeffPoly(r, in.RU0[0], omega)
+	ru1Head := headFromCoeffPoly(r, in.RU1[0], omega)
+	m1 := in.M1[0]
+	m2 := in.M2[0]
 	ri0Head := append([]uint64(nil), ch.RI0[0].Coeffs[0][:ncols]...)
 	ri1Head := append([]uint64(nil), ch.RI1[0].Coeffs[0][:ncols]...)
 
@@ -285,10 +296,10 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 		return nil, err
 	}
 
-	r0 := coeffPolyFromHead(r, r0Head)
-	r1 := coeffPolyFromHead(r, r1Head)
-	k0 := coeffPolyFromHead(r, k0Head)
-	k1 := coeffPolyFromHead(r, k1Head)
+	r0 := coeffPolyFromHead(r, r0Head, omega)
+	r1 := coeffPolyFromHead(r, r1Head, omega)
+	k0 := coeffPolyFromHead(r, k0Head, omega)
+	k1 := coeffPolyFromHead(r, k1Head, omega)
 
 	B, err := loadB(r, p.BPath)
 	if err != nil {
@@ -297,6 +308,10 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	if len(B) != 4 {
 		return nil, fmt.Errorf("B length=%d want 4", len(B))
 	}
+	m1Head := headFromCoeffPoly(r, m1, omega)
+	m2Head := headFromCoeffPoly(r, m2, omega)
+	r0HeadHash := headFromCoeffPoly(r, r0, omega)
+	r1HeadHash := headFromCoeffPoly(r, r1, omega)
 	tHead := make([]uint64, ncols)
 	for i := 0; i < ncols; i++ {
 		b0 := B[0].Coeffs[0][i] % uint64(q)
@@ -306,15 +321,15 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 		mCombined := (m1Head[i] + m2Head[i]) % uint64(q)
 		num := b0
 		num = (num + (b1*mCombined)%uint64(q)) % uint64(q)
-		num = (num + (b2*r0Head[i])%uint64(q)) % uint64(q)
-		den := (b3 + uint64(q) - r1Head[i]%uint64(q)) % uint64(q)
+		num = (num + (b2*r0HeadHash[i])%uint64(q)) % uint64(q)
+		den := (b3 + uint64(q) - r1HeadHash[i]%uint64(q)) % uint64(q)
 		denInv, ok := modInverseUint64(den, uint64(q))
 		if !ok {
 			return nil, fmt.Errorf("hash denominator not invertible at omega slot %d", i)
 		}
 		tHead[i] = (num * denInv) % uint64(q)
 	}
-	tPoly := coeffPolyFromHead(r, tHead)
+	tPoly := coeffPolyFromHead(r, tHead, omega)
 	tCoeff := coeffPolyToInt64(r, tPoly)
 
 	log.Printf("[issuance] derived R0/R1 and T; bound=%d delta=%d", bound, delta)
@@ -356,7 +371,7 @@ func ProvePreSign(p *credential.Params, ch Challenge, com commitment.Vector, in 
 	}
 	opts.Credential = true
 	if opts.Theta == 0 {
-		opts.Theta = 2
+		opts.Theta = 1
 	}
 	if opts.NCols == 0 {
 		opts.NCols = p.RingQ.N

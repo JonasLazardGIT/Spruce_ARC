@@ -14,7 +14,7 @@ import (
 )
 
 type prfCompanionFixture struct {
-	base         semanticRewriteFixture
+	base         transformBridgeFixture
 	params       *prf.Params
 	opts         SimOpts
 	rows         []*ring.Poly
@@ -28,7 +28,7 @@ type prfCompanionFixture struct {
 
 func buildPRFCompanionFixture(t *testing.T) prfCompanionFixture {
 	t.Helper()
-	base := buildSemanticRewriteFixture(t)
+	base := buildTransformBridgeFixture(t)
 	params, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
 	if err != nil {
 		t.Fatalf("load prf params: %v", err)
@@ -97,34 +97,28 @@ func TestPRFCompanionLayoutEmission(t *testing.T) {
 	if fx.companion.PackWidth != fx.opts.NCols {
 		t.Fatalf("pack width=%d want %d", fx.companion.PackWidth, fx.opts.NCols)
 	}
-	if fx.companion.KeySource != KeySourceSignedSecret {
-		t.Fatalf("key source=%d want signed secret", fx.companion.KeySource)
+	if fx.companion.KeySource != KeySourceIndependentWitness {
+		t.Fatalf("key source=%d want independent witness", fx.companion.KeySource)
 	}
-	if fx.companion.SignedKeyMapping.M2Row != fx.layout.IdxM2 {
-		t.Fatalf("signed key M2 row=%d want %d", fx.companion.SignedKeyMapping.M2Row, fx.layout.IdxM2)
-	}
-	if len(fx.companion.KeySlots) != 0 {
-		t.Fatalf("key slots=%d want 0", len(fx.companion.KeySlots))
+	if len(fx.companion.KeySlots) != fx.params.LenKey {
+		t.Fatalf("key slots=%d want %d", len(fx.companion.KeySlots), fx.params.LenKey)
 	}
 	wantCheckpoints := groupedPRFSBoxCount(fx.params.LenKey, fx.params.LenNonce, fx.params.RF, fx.params.RP, fx.opts.PRFGroupRounds)
 	if len(fx.companion.CheckpointSlots) != wantCheckpoints {
 		t.Fatalf("checkpoint slots=%d want %d", len(fx.companion.CheckpointSlots), wantCheckpoints)
 	}
-	if len(fx.companion.CheckpointInputSlots) != 0 {
-		t.Fatalf("checkpoint input slots=%d want 0", len(fx.companion.CheckpointInputSlots))
-	}
 	if len(fx.companion.FinalTagSlots) != fx.params.LenTag {
 		t.Fatalf("final tag slots=%d want %d", len(fx.companion.FinalTagSlots), fx.params.LenTag)
 	}
-	wantLogical := len(fx.companion.CheckpointSlots) + len(fx.companion.FinalTagSlots)
+	wantLogical := len(fx.companion.KeySlots) + len(fx.companion.CheckpointSlots) + len(fx.companion.FinalTagSlots)
 	if fx.companion.PackedLogicalCount != wantLogical {
 		t.Fatalf("packed logical count=%d want %d", fx.companion.PackedLogicalCount, wantLogical)
 	}
 	if fx.companion.PackedRows != ceilDiv(wantLogical, fx.opts.NCols) {
 		t.Fatalf("packed rows=%d want %d", fx.companion.PackedRows, ceilDiv(wantLogical, fx.opts.NCols))
 	}
-	if fx.companion.DataRows != ceilDiv(len(fx.companion.CheckpointSlots), fx.opts.NCols) {
-		t.Fatalf("data rows=%d want %d", fx.companion.DataRows, ceilDiv(len(fx.companion.CheckpointSlots), fx.opts.NCols))
+	if fx.companion.DataRows != ceilDiv(len(fx.companion.KeySlots)+len(fx.companion.CheckpointSlots), fx.opts.NCols) {
+		t.Fatalf("data rows=%d want %d", fx.companion.DataRows, ceilDiv(len(fx.companion.KeySlots)+len(fx.companion.CheckpointSlots), fx.opts.NCols))
 	}
 	if fx.companion.HelperRows != fx.companion.PackedRows-fx.companion.DataRows {
 		t.Fatalf("helper rows=%d want %d", fx.companion.HelperRows, fx.companion.PackedRows-fx.companion.DataRows)
@@ -136,34 +130,41 @@ func TestPRFCompanionLayoutEmission(t *testing.T) {
 	}
 }
 
-func TestPRFCompanionSignedKeyAlignment(t *testing.T) {
+func TestPRFCompanionKeyAlignment(t *testing.T) {
 	fx := buildPRFCompanionFixture(t)
 	if fx.companion == nil {
 		t.Fatal("missing companion layout")
 	}
-	m2Head, err := rowHeadOnOmega(
+	if fx.layout.IdxCarrierM < 0 {
+		t.Fatalf("missing carrier M row for key binding")
+	}
+	if len(fx.companion.KeySlots) == 0 {
+		t.Fatalf("missing key slots in companion layout")
+	}
+	keyScalars, err := ExtractSignedPRFKeyScalarsFromCarrierOnOmega(
 		fx.base.ringQ,
+		fx.rows[fx.layout.IdxCarrierM],
 		fx.base.omegaWitness,
-		fx.rows[fx.companion.SignedKeyMapping.M2Row],
 		fx.companion.PackWidth,
+		fx.params.LenKey,
+		fx.base.pub.BoundB,
 	)
 	if err != nil {
-		t.Fatalf("extract signed m2 head: %v", err)
+		t.Fatalf("extract signed prf key from carrier: %v", err)
 	}
-	keySig := make([]uint64, len(fx.companion.SignedKeyMapping.Coeffs))
-	for i, coeff := range fx.companion.SignedKeyMapping.Coeffs {
-		keySig[i] = m2Head[coeff] % fx.base.ringQ.Modulus[0]
+	if len(keyScalars) != len(fx.companion.KeySlots) {
+		t.Fatalf("key lengths differ: extracted=%d slots=%d", len(keyScalars), len(fx.companion.KeySlots))
 	}
-	keyScalars, err := ExtractSignedPRFKeyScalars(fx.base.ringQ, fx.base.wit.CoeffNativeShowing.M2, fx.base.wit.CoeffNativeShowing.PackedNCols, fx.params.LenKey)
-	if err != nil {
-		t.Fatalf("extract signed prf key: %v", err)
-	}
-	if len(keyScalars) != len(keySig) {
-		t.Fatalf("key lengths differ: extracted=%d signed=%d", len(keyScalars), len(keySig))
-	}
-	for i := range keyScalars {
-		if got, want := liftToField(fx.base.ringQ.Modulus[0], keyScalars[i]), keySig[i]%fx.base.ringQ.Modulus[0]; got != want {
-			t.Fatalf("key lane %d mismatch: extracted=%d signed=%d", i, got, want)
+	q := fx.base.ringQ.Modulus[0]
+	for i, slot := range fx.companion.KeySlots {
+		head, err := rowHeadOnOmega(fx.base.ringQ, fx.base.omegaWitness, fx.rows[slot.Row], fx.companion.PackWidth)
+		if err != nil {
+			t.Fatalf("extract key head row %d: %v", slot.Row, err)
+		}
+		got := head[slot.Coeff] % q
+		want := liftToField(q, keyScalars[i]) % q
+		if got != want {
+			t.Fatalf("key lane %d mismatch: got=%d want=%d", i, got, want)
 		}
 	}
 }
@@ -551,7 +552,6 @@ func TestPRFCompanionOpeningPayloadRoundTrip(t *testing.T) {
 			CoordDigest:       append([]byte(nil), bridge.CoordDigest...),
 		},
 	}
-	proof.PRFCompanion.Legacy = clonePRFCompanionLegacyPayload(payload.Legacy)
 	proof.PRFCompanion.CheckpointAudits = clonePRFCheckpointAuditOpenings(payload.CheckpointAudits)
 	proof.PRFCompanion.TagFinal = clonePRFCompanionOpening(payload.TagFinal)
 	proof.PRFCompanion.KeyTrunc = clonePRFCompanionOpening(payload.KeyTrunc)

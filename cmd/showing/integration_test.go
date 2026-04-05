@@ -36,6 +36,60 @@ func chdirForShowingTest(t *testing.T, dir string) {
 	})
 }
 
+func maxAbsFromRows(rows [][]int64) int64 {
+	var max int64
+	for _, row := range rows {
+		for _, v := range row {
+			if v < 0 {
+				v = -v
+			}
+			if v > max {
+				max = v
+			}
+		}
+	}
+	return max
+}
+
+func maxAbsFromHeadRows(r *ring.Ring, rows [][]int64, omega []uint64, ncols int) int64 {
+	if r == nil {
+		return 0
+	}
+	q := int64(r.Modulus[0])
+	if ncols <= 0 || ncols > r.N {
+		ncols = r.N
+	}
+	if len(omega) == 0 {
+		return 0
+	}
+	if ncols > len(omega) {
+		ncols = len(omega)
+	}
+	var max int64
+	for _, row := range rows {
+		coeffs := make([]uint64, len(row))
+		for i := 0; i < len(row); i++ {
+			v := row[i] % q
+			if v < 0 {
+				v += q
+			}
+			coeffs[i] = uint64(v)
+		}
+		for i := 0; i < ncols; i++ {
+			v := int64(PIOP.EvalPoly(coeffs, omega[i]%uint64(q), uint64(q)))
+			if v > q/2 {
+				v -= q
+			}
+			if v < 0 {
+				v = -v
+			}
+			if v > max {
+				max = v
+			}
+		}
+	}
+	return max
+}
 func buildShowingProofForTestConfigWithResearchKnobs(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, showingPreset string, sigShortnessProfile string, sigShortnessRadix int, sigShortnessDigits int, ncols int, lvcsNCols int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
 	return buildShowingProofForTestConfigWithResearchKnobsAndMutator(t, model, packedPRF, companion, companionMode, checkpointSamples, showingPreset, sigShortnessProfile, sigShortnessRadix, sigShortnessDigits, ncols, lvcsNCols, nil)
@@ -60,6 +114,9 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 	}
 	if ncols <= 0 {
 		ncols = 16
+	}
+	if lvcsNCols <= 0 {
+		lvcsNCols = ncols
 	}
 	postLVCS := 0
 	postNLeaves := 0
@@ -107,6 +164,7 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 	if mutateOpts != nil {
 		mutateOpts(&opts)
 	}
+	opts = PIOP.ResolveSimOptsDefaults(opts)
 
 	wit, err := buildWitnessFromState(ringQ, state)
 	if err != nil {
@@ -120,7 +178,11 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 	if err != nil {
 		t.Fatalf("load B: %v", err)
 	}
-	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey)
+	omega, err := deriveOmegaForOpts(ringQ, opts)
+	if err != nil {
+		t.Fatalf("derive omega: %v", err)
+	}
+	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey, omega)
 	if err != nil {
 		t.Fatalf("prf key: %v", err)
 	}
@@ -145,13 +207,28 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 		wit.Extras["prf_sbox"] = elemsToPolys(ringQ, sboxes)
 	}
 
+	boundB := maxAbsFromHeadRows(ringQ, state.M1, omega, opts.NCols)
+	if v := maxAbsFromHeadRows(ringQ, state.M2, omega, opts.NCols); v > boundB {
+		boundB = v
+	}
+	if v := maxAbsFromHeadRows(ringQ, state.R0, omega, opts.NCols); v > boundB {
+		boundB = v
+	}
+	if v := maxAbsFromHeadRows(ringQ, state.R1, omega, opts.NCols); v > boundB {
+		boundB = v
+	}
+	if boundB > 4 {
+		t.Fatalf("fixture boundB=%d exceeds 4; regenerate low-alphabet fixture", boundB)
+	}
+	boundB = 4
+
 	pub := PIOP.PublicInputs{
 		A:      A,
 		B:      B,
 		T:      append([]int64(nil), state.T...),
 		Tag:    tagPublic,
 		Nonce:  noncePublic,
-		BoundB: 8,
+		BoundB: boundB,
 	}
 	proof, err := PIOP.BuildShowingCombined(pub, wit, opts)
 	if err != nil {
@@ -237,9 +314,6 @@ func TestShowingV3TranscriptRegression(t *testing.T) {
 	if len(proof.PRFCompanion.Layout.KeySlots) != 0 {
 		t.Fatalf("expected no packed key slots in live output-audit mode")
 	}
-	if len(proof.PRFCompanion.Layout.CheckpointInputSlots) != 0 {
-		t.Fatalf("expected no committed checkpoint-input slots in live output-audit mode")
-	}
 	wantPRFLogicalScalars := 166
 	if proof.PRFCompanion.Layout.PackedLogicalCount != wantPRFLogicalScalars {
 		t.Fatalf("prf logical scalars=%d want %d", proof.PRFCompanion.Layout.PackedLogicalCount, wantPRFLogicalScalars)
@@ -271,11 +345,14 @@ func TestShowingV3TranscriptRegression(t *testing.T) {
 	if !rep.TranscriptFocus.PRFBridgeInQ {
 		t.Fatalf("expected output_audit to keep PRF bridge inside Q")
 	}
-	if proof.PRFCompanion.Layout.SignedKeyMapping.M2Row < 0 {
-		t.Fatalf("missing signed M2 row binding in companion layout")
+	if proof.PRFCompanion.Layout.KeySource != PIOP.KeySourceIndependentWitness {
+		t.Fatalf("companion key source=%d want independent witness", proof.PRFCompanion.Layout.KeySource)
 	}
-	if proof.RowLayout.IdxM2 < 0 || proof.RowLayout.IdxT < 0 {
-		t.Fatalf("missing signed base rows in showing layout: %+v", proof.RowLayout)
+	if proof.RowLayout.IdxCarrierM < 0 || proof.RowLayout.IdxCarrierCtr < 0 {
+		t.Fatalf("missing carrier rows in showing layout: %+v", proof.RowLayout)
+	}
+	if proof.RowLayout.IdxSigHatBase < 0 || proof.RowLayout.IdxTHatBase < 0 {
+		t.Fatalf("missing transform-domain rows in showing layout: %+v", proof.RowLayout)
 	}
 	if rep.LVCSNCols != 96 {
 		t.Fatalf("LVCSNCols=%d want 96", rep.LVCSNCols)
@@ -307,11 +384,12 @@ func TestShowingV3TranscriptRegression(t *testing.T) {
 	if rep.Geometry.ActualWitnessPolys != 859 || rep.Geometry.ActualPostSignWitnessPolys != 848 || rep.Geometry.ActualPRFWitnessPolys != 11 {
 		t.Fatalf("unexpected witness geometry: %+v", rep.Geometry)
 	}
-	if proof.RowLayout.MsgChainBase < 0 || proof.RowLayout.RndChainBase < 0 || proof.RowLayout.NonSigBoundRowsPer != 3 {
-		t.Fatalf("expected live semantic-rewrite non-sign chain rows, got MsgChainBase=%d RndChainBase=%d RowsPer=%d", proof.RowLayout.MsgChainBase, proof.RowLayout.RndChainBase, proof.RowLayout.NonSigBoundRowsPer)
+	if proof.RowLayout.MsgChainBase >= 0 || proof.RowLayout.RndChainBase >= 0 || proof.RowLayout.NonSigBoundRowsPer != 0 {
+		t.Fatalf("expected compressed carriers (no non-sig chain rows), got MsgChainBase=%d RndChainBase=%d RowsPer=%d", proof.RowLayout.MsgChainBase, proof.RowLayout.RndChainBase, proof.RowLayout.NonSigBoundRowsPer)
 	}
-	if proof.RowLayout.IdxUBase != proof.RowLayout.CoeffNativeSig.PackedSigBase+proof.RowLayout.CoeffNativeSig.PackedSigCount {
-		t.Fatalf("phase-2 investigation regression: IdxUBase=%d packedSigEnd=%d", proof.RowLayout.IdxUBase, proof.RowLayout.CoeffNativeSig.PackedSigBase+proof.RowLayout.CoeffNativeSig.PackedSigCount)
+	packedSigEnd := proof.RowLayout.CoeffNativeSig.PackedSigBase + proof.RowLayout.CoeffNativeSig.PackedSigCount
+	if proof.RowLayout.IdxSigHatBase != packedSigEnd {
+		t.Fatalf("sig-hat base=%d want packedSigEnd=%d", proof.RowLayout.IdxSigHatBase, packedSigEnd)
 	}
 	if rep.PaperTranscript.VTargets.OptimizedBytes != 13618 {
 		t.Fatalf("VTargets=%d want 13618", rep.PaperTranscript.VTargets.OptimizedBytes)
@@ -346,10 +424,10 @@ func TestShowingV3TranscriptRegression(t *testing.T) {
 		rep.TranscriptFocus.PCols,
 	)
 	if rep.PaperTranscript.OptimizedBytes >= 116000 {
-		t.Fatalf("paper transcript=%d bytes exceeds semantic-rewrite baseline guardrail", rep.PaperTranscript.OptimizedBytes)
+		t.Fatalf("paper transcript=%d bytes exceeds transform-bridge baseline guardrail", rep.PaperTranscript.OptimizedBytes)
 	}
 	if rep.PaperTranscript.Pdecs.OptimizedBytes >= 50000 {
-		t.Fatalf("Pdecs=%d bytes exceeds semantic-rewrite baseline bound", rep.PaperTranscript.Pdecs.OptimizedBytes)
+		t.Fatalf("Pdecs=%d bytes exceeds transform-bridge baseline bound", rep.PaperTranscript.Pdecs.OptimizedBytes)
 	}
 	if rep.Soundness.TotalBits < 100 {
 		t.Fatalf("unexpected soundness-balanced theorem floor: total=%.2f bits=%v theorem=%v", rep.Soundness.TotalBits, rep.Soundness.Bits, rep.Soundness.TheoremBits)
@@ -641,35 +719,6 @@ func TestShowingPRFCompanionDirectAuthNoQReductionYet(t *testing.T) {
 	}
 	if repDirect.TranscriptFocus.PCols != repOutput.TranscriptFocus.PCols {
 		t.Fatalf("direct_auth pcols=%d want output_audit pcols=%d", repDirect.TranscriptFocus.PCols, repOutput.TranscriptFocus.PCols)
-	}
-}
-
-func TestShowingPRFCompanionCurrentRegressionMode(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test")
-	}
-	proof, _, _, opts, _, pub := buildShowingProofForTestConfig(t, PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3, true, true, PIOP.PRFCompanionModeCurrent, 8)
-	if proof.PRFCompanion == nil || proof.PRFCompanion.Layout == nil {
-		t.Fatalf("missing PRF companion proof")
-	}
-	if proof.PRFCompanion.Mode != PIOP.PRFCompanionModeCurrent {
-		t.Fatalf("proof prf mode=%q want current", proof.PRFCompanion.Mode)
-	}
-	if !proof.PRFCompanion.BridgeInQ {
-		t.Fatalf("current mode should keep PRF bridge inside Q")
-	}
-	if len(proof.PRFCompanion.Layout.KeySlots) == 0 {
-		t.Fatalf("current mode should retain packed key slots")
-	}
-	if len(proof.PRFCompanion.Layout.CheckpointInputSlots) == 0 {
-		t.Fatalf("current mode should retain packed checkpoint-input slots")
-	}
-	ok, err := PIOP.VerifyWithConstraints(proof, PIOP.ConstraintSet{PRFLayout: proof.PRFLayout, PRFCompanionLayout: proof.PRFCompanion.Layout}, pub, opts, PIOP.FSModeCredential)
-	if err != nil {
-		t.Fatalf("verify current-mode showing: %v", err)
-	}
-	if !ok {
-		t.Fatalf("verify current-mode showing returned ok=false")
 	}
 }
 

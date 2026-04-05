@@ -17,8 +17,7 @@ const (
 type KeySource uint8
 
 const (
-	KeySourceSignedSecret KeySource = iota
-	KeySourceIndependentWitness
+	KeySourceIndependentWitness KeySource = iota
 )
 
 type CoeffSlot struct {
@@ -26,30 +25,23 @@ type CoeffSlot struct {
 	Coeff int
 }
 
-type SignedKeyExtraction struct {
-	M2Row  int
-	Coeffs []int
-}
-
 type PRFCompanionLayout struct {
-	StartRow             int
-	PackWidth            int
-	KeySource            KeySource
-	KeySlots             []CoeffSlot
-	CheckpointSlots      []CoeffSlot
-	CheckpointInputSlots []CoeffSlot
-	FinalTagSlots        []CoeffSlot
-	HelperFamilies       []string
-	SignedKeyMapping     SignedKeyExtraction
-	PackedRows           int
-	PackedLogicalCount   int
-	HelperRowCount       int
-	DataRows             int
-	HelperRows           int
-	KeyCount             int
-	CheckpointCount      int
-	TagCount             int
-	RowSemantics         []RowSemantics
+	StartRow           int
+	PackWidth          int
+	KeySource          KeySource
+	KeySlots           []CoeffSlot
+	CheckpointSlots    []CoeffSlot
+	FinalTagSlots      []CoeffSlot
+	HelperFamilies     []string
+	PackedRows         int
+	PackedLogicalCount int
+	HelperRowCount     int
+	DataRows           int
+	HelperRows         int
+	KeyCount           int
+	CheckpointCount    int
+	TagCount           int
+	RowSemantics       []RowSemantics
 }
 
 type PRFCompanionOpening struct {
@@ -62,14 +54,6 @@ type PRFCheckpointAuditOpening struct {
 	Wire PRFCompanionOpening
 }
 
-type PRFCompanionLegacyPayload struct {
-	KeyPRF         PRFCompanionOpening
-	KeySig         PRFCompanionOpening
-	CheckpointIn   PRFCompanionOpening
-	CheckpointZ    PRFCompanionOpening
-	CheckpointWire PRFCompanionOpening
-}
-
 type PRFCompanionProof struct {
 	Mode              PRFCompanionMode
 	CheckpointSamples int
@@ -80,7 +64,6 @@ type PRFCompanionProof struct {
 	CheckpointAudits  []PRFCheckpointAuditOpening
 	TagFinal          PRFCompanionOpening
 	KeyTrunc          PRFCompanionOpening
-	Legacy            *PRFCompanionLegacyPayload
 	CoordDigest       []byte
 }
 
@@ -100,14 +83,6 @@ func cloneCoeffSlots(src []CoeffSlot) []CoeffSlot {
 	return out
 }
 
-func cloneSignedKeyExtraction(src SignedKeyExtraction) SignedKeyExtraction {
-	out := src
-	if len(src.Coeffs) > 0 {
-		out.Coeffs = append([]int(nil), src.Coeffs...)
-	}
-	return out
-}
-
 func clonePRFCompanionLayout(src *PRFCompanionLayout) *PRFCompanionLayout {
 	if src == nil {
 		return nil
@@ -115,12 +90,10 @@ func clonePRFCompanionLayout(src *PRFCompanionLayout) *PRFCompanionLayout {
 	out := *src
 	out.KeySlots = cloneCoeffSlots(src.KeySlots)
 	out.CheckpointSlots = cloneCoeffSlots(src.CheckpointSlots)
-	out.CheckpointInputSlots = cloneCoeffSlots(src.CheckpointInputSlots)
 	out.FinalTagSlots = cloneCoeffSlots(src.FinalTagSlots)
 	if len(src.HelperFamilies) > 0 {
 		out.HelperFamilies = append([]string(nil), src.HelperFamilies...)
 	}
-	out.SignedKeyMapping = cloneSignedKeyExtraction(src.SignedKeyMapping)
 	if len(src.RowSemantics) > 0 {
 		out.RowSemantics = append([]RowSemantics(nil), src.RowSemantics...)
 	}
@@ -141,19 +114,6 @@ func clonePRFCheckpointAuditOpenings(src []PRFCheckpointAuditOpening) []PRFCheck
 	return out
 }
 
-func clonePRFCompanionLegacyPayload(src *PRFCompanionLegacyPayload) *PRFCompanionLegacyPayload {
-	if src == nil {
-		return nil
-	}
-	out := *src
-	out.KeyPRF = clonePRFCompanionOpening(src.KeyPRF)
-	out.KeySig = clonePRFCompanionOpening(src.KeySig)
-	out.CheckpointIn = clonePRFCompanionOpening(src.CheckpointIn)
-	out.CheckpointZ = clonePRFCompanionOpening(src.CheckpointZ)
-	out.CheckpointWire = clonePRFCompanionOpening(src.CheckpointWire)
-	return &out
-}
-
 func clonePRFCompanionProof(src *PRFCompanionProof) *PRFCompanionProof {
 	if src == nil {
 		return nil
@@ -165,7 +125,6 @@ func clonePRFCompanionProof(src *PRFCompanionProof) *PRFCompanionProof {
 	out.CheckpointAudits = clonePRFCheckpointAuditOpenings(src.CheckpointAudits)
 	out.TagFinal = clonePRFCompanionOpening(src.TagFinal)
 	out.KeyTrunc = clonePRFCompanionOpening(src.KeyTrunc)
-	out.Legacy = clonePRFCompanionLegacyPayload(src.Legacy)
 	out.CoordDigest = append([]byte(nil), src.CoordDigest...)
 	return &out
 }
@@ -181,15 +140,6 @@ func prfCompanionOrderedOpenings(proof *PRFCompanionProof) []*PRFCompanionOpenin
 		return nil
 	}
 	openings := make([]*PRFCompanionOpening, 0)
-	if proof.Legacy != nil {
-		openings = append(openings,
-			&proof.Legacy.KeyPRF,
-			&proof.Legacy.KeySig,
-			&proof.Legacy.CheckpointIn,
-			&proof.Legacy.CheckpointZ,
-			&proof.Legacy.CheckpointWire,
-		)
-	}
 	for i := range proof.CheckpointAudits {
 		openings = append(openings, &proof.CheckpointAudits[i].Z, &proof.CheckpointAudits[i].Wire)
 	}
@@ -309,25 +259,12 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 			return err
 		}
 	}
-	for _, slot := range layout.CheckpointInputSlots {
-		if err := checkSlot("checkpoint_input", slot); err != nil {
-			return err
-		}
-	}
 	for _, slot := range layout.FinalTagSlots {
 		if err := checkSlot("final_tag", slot); err != nil {
 			return err
 		}
 	}
-	if layout.SignedKeyMapping.M2Row < 0 || layout.SignedKeyMapping.M2Row >= witnessRows {
-		return fmt.Errorf("companion signed key M2 row=%d out of range for witness rows=%d", layout.SignedKeyMapping.M2Row, witnessRows)
-	}
-	for _, coeff := range layout.SignedKeyMapping.Coeffs {
-		if coeff < 0 || coeff >= layout.PackWidth {
-			return fmt.Errorf("companion signed key coeff=%d outside [0,%d)", coeff, layout.PackWidth)
-		}
-	}
-	wantLogical := len(layout.KeySlots) + len(layout.CheckpointSlots) + len(layout.CheckpointInputSlots) + len(layout.FinalTagSlots)
+	wantLogical := len(layout.KeySlots) + len(layout.CheckpointSlots) + len(layout.FinalTagSlots)
 	if layout.PackedLogicalCount != wantLogical {
 		return fmt.Errorf("companion packed logical count=%d want %d", layout.PackedLogicalCount, wantLogical)
 	}
@@ -380,20 +317,10 @@ func prfCompanionLayoutDigest(layout *PRFCompanionLayout) []byte {
 		writeInt(slot.Row)
 		writeInt(slot.Coeff)
 	}
-	writeInt(len(layout.CheckpointInputSlots))
-	for _, slot := range layout.CheckpointInputSlots {
-		writeInt(slot.Row)
-		writeInt(slot.Coeff)
-	}
 	writeInt(len(layout.FinalTagSlots))
 	for _, slot := range layout.FinalTagSlots {
 		writeInt(slot.Row)
 		writeInt(slot.Coeff)
-	}
-	writeInt(layout.SignedKeyMapping.M2Row)
-	writeInt(len(layout.SignedKeyMapping.Coeffs))
-	for _, coeff := range layout.SignedKeyMapping.Coeffs {
-		writeInt(coeff)
 	}
 	writeInt(layout.DataRows)
 	writeInt(layout.HelperRows)
