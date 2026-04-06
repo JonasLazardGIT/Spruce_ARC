@@ -41,11 +41,14 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 		return ConstraintSet{}, fmt.Errorf("nil ring")
 	}
 	opts.applyDefaults()
+	if domainMode != DomainModeExplicit {
+		return ConstraintSet{}, fmt.Errorf("transform-bridge showing requires explicit domain mode")
+	}
 	if len(omega) == 0 {
 		return ConstraintSet{}, fmt.Errorf("empty omega")
 	}
-	if len(pub.A) == 0 || len(pub.A[0]) == 0 {
-		return ConstraintSet{}, fmt.Errorf("missing A for signature constraint")
+	if len(pub.A) != 1 || len(pub.A[0]) == 0 {
+		return ConstraintSet{}, fmt.Errorf("direct T-hat bridge expects one public A row, got %d", len(pub.A))
 	}
 	if len(pub.B) < 4 {
 		return ConstraintSet{}, fmt.Errorf("missing B for hash constraint")
@@ -58,17 +61,23 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if bound <= 0 {
 		return ConstraintSet{}, fmt.Errorf("transform-bridge requires positive bound")
 	}
-	blocks := layout.SigBlocks
-	if blocks <= 0 {
-		blocks = 1
+	sourceBlocks := layout.SigBlocks
+	if sourceBlocks <= 0 {
+		sourceBlocks = 1
 	}
-	uCount := len(pub.A[0])
-	if uCount <= 0 {
-		return ConstraintSet{}, fmt.Errorf("empty A columns")
+	replayTHatCount := rowLayoutReplayTHatCount(layout)
+	if replayTHatCount <= 0 {
+		replayTHatCount = 1
 	}
-	if layout.SigUCount != 0 && layout.SigUCount != uCount {
-		return ConstraintSet{}, fmt.Errorf("signature component mismatch: SigUCount=%d want %d", layout.SigUCount, uCount)
+	cfg := layout.CoeffNativeSig
+	componentCount := cfg.SigComponentCount
+	if componentCount <= 0 {
+		componentCount = len(pub.A[0])
 	}
+	if componentCount != len(pub.A[0]) {
+		return ConstraintSet{}, fmt.Errorf("signature component mismatch: layout=%d want %d", componentCount, len(pub.A[0]))
+	}
+
 	carrierMIdx := rowLayoutPostSignCarrierM(layout)
 	carrierCtrIdx := rowLayoutPostSignCarrierCtr(layout)
 	if carrierMIdx < 0 || carrierCtrIdx < 0 {
@@ -77,378 +86,125 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if carrierMIdx >= len(rowsNTT) || carrierCtrIdx >= len(rowsNTT) {
 		return ConstraintSet{}, fmt.Errorf("carrier row index out of range (rows=%d)", len(rowsNTT))
 	}
-	if layout.IdxSigHatBase < 0 || layout.IdxTHatBase < 0 {
-		return ConstraintSet{}, fmt.Errorf("missing transform-domain signature aliases")
-	}
-	if layout.IdxMHat1 < 0 || layout.IdxMHat2 < 0 || layout.IdxRHat0 < 0 || layout.IdxRHat1 < 0 {
-		return ConstraintSet{}, fmt.Errorf("missing transform-domain non-sign aliases")
-	}
-	cfg := layout.CoeffNativeSig
-	if cfg.PackedSigBase < 0 || cfg.PackedSigCount <= 0 {
-		return ConstraintSet{}, fmt.Errorf("missing packed signature rows")
+	if layout.IdxMHatSigma < 0 || layout.IdxRHat0 < 0 || layout.IdxRHat1 < 0 || layout.IdxTHatBase < 0 {
+		return ConstraintSet{}, fmt.Errorf("missing transform-domain replay rows")
 	}
 
-	thetaABlocks := make([][][]*ring.Poly, blocks)
-	for b := 0; b < blocks; b++ {
-		thetaABlocks[b] = make([][]*ring.Poly, len(pub.A))
-		for i := range pub.A {
-			thetaABlocks[b][i] = make([]*ring.Poly, len(pub.A[i]))
-			for j := range pub.A[i] {
-				theta, terr := thetaPolyFromNTTBlock(ringQ, pub.A[i][j], omega, b, blocks)
-				if terr != nil {
-					return ConstraintSet{}, fmt.Errorf("theta A[%d][%d] block %d: %w", i, j, b, terr)
-				}
-				thetaABlocks[b][i][j] = theta
-			}
-		}
+	specSig, err := signatureChainSpecForLayoutAndOpts(q, layout, opts)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("signature chain spec: %w", err)
 	}
-	thetaB := make([]*ring.Poly, len(pub.B))
+
+	thetaB := make([][]uint64, len(pub.B))
 	for i := range pub.B {
 		theta, terr := thetaPolyFromNTT(ringQ, pub.B[i], omega)
 		if terr != nil {
 			return ConstraintSet{}, fmt.Errorf("theta B[%d]: %w", i, terr)
 		}
-		thetaB[i] = theta
+		coeff, cerr := coeffFromNTTPoly(ringQ, theta)
+		if cerr != nil {
+			return ConstraintSet{}, fmt.Errorf("theta B[%d] coeffs: %w", i, cerr)
+		}
+		thetaB[i] = trimPoly(coeff, q)
+	}
+	aHeads := make([][][]uint64, replayTHatCount)
+	for b := 0; b < replayTHatCount; b++ {
+		aHeads[b] = make([][]uint64, componentCount)
+		for comp := 0; comp < componentCount; comp++ {
+			head, herr := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omega, b, sourceBlocks)
+			if herr != nil {
+				return ConstraintSet{}, fmt.Errorf("theta A head block %d comp %d: %w", b, comp, herr)
+			}
+			aHeads[b][comp] = head
+		}
 	}
 
-	decode1, decode2, err := buildCarrierDecodePolys(bound, q)
+	msgDecode1, msgDecode2, err := buildPackedMessageCarrierDecodePolys(bound, q)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("message carrier decode polys: %w", err)
+	}
+	ctrDecode1, ctrDecode2, err := buildCarrierDecodePolys(bound, q)
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("carrier decode polys: %w", err)
 	}
-	membershipPoly, err := buildCarrierMembershipPoly(bound, q)
+	msgMembershipPoly, err := buildPackedMessageCarrierMembershipPoly(bound, q)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("message carrier membership poly: %w", err)
+	}
+	ctrMembershipPoly, err := buildCarrierMembershipPoly(bound, q)
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("carrier membership poly: %w", err)
 	}
-	carrierMCoeff, err := coeffFromNTTPoly(ringQ, rowsNTT[carrierMIdx])
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("carrier M coeffs: %w", err)
-	}
-	carrierCtrCoeff, err := coeffFromNTTPoly(ringQ, rowsNTT[carrierCtrIdx])
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("carrier ctr coeffs: %w", err)
-	}
-	carrierMCoeff = trimPoly(carrierMCoeff, q)
-	carrierCtrCoeff = trimPoly(carrierCtrCoeff, q)
-	decode1Poly := fpoly.New(q, decode1)
-	decode2Poly := fpoly.New(q, decode2)
-	carrierMPoly := fpoly.New(q, carrierMCoeff)
-	carrierCtrPoly := fpoly.New(q, carrierCtrCoeff)
-	m1Comp := decode1Poly.Compose(carrierMPoly)
-	m2Comp := decode2Poly.Compose(carrierMPoly)
-	r0Comp := decode1Poly.Compose(carrierCtrPoly)
-	r1Comp := decode2Poly.Compose(carrierCtrPoly)
-	m1CompCoeffs := trimPoly(m1Comp.Coeffs, q)
-	m2CompCoeffs := trimPoly(m2Comp.Coeffs, q)
-	r0CompCoeffs := trimPoly(r0Comp.Coeffs, q)
-	r1CompCoeffs := trimPoly(r1Comp.Coeffs, q)
-	membership := fpoly.New(q, membershipPoly)
-	memMComp := membership.Compose(carrierMPoly)
-	memCtrComp := membership.Compose(carrierCtrPoly)
-	memMCoeffs := trimPoly(memMComp.Coeffs, q)
-	memCtrCoeffs := trimPoly(memCtrComp.Coeffs, q)
-	if domainMode != DomainModeExplicit {
-		m1CompCoeffs = reducePolyModXN1(m1CompCoeffs, int(ringQ.N), q)
-		m2CompCoeffs = reducePolyModXN1(m2CompCoeffs, int(ringQ.N), q)
-		r0CompCoeffs = reducePolyModXN1(r0CompCoeffs, int(ringQ.N), q)
-		r1CompCoeffs = reducePolyModXN1(r1CompCoeffs, int(ringQ.N), q)
-		memMCoeffs = reducePolyModXN1(memMCoeffs, int(ringQ.N), q)
-		memCtrCoeffs = reducePolyModXN1(memCtrCoeffs, int(ringQ.N), q)
-	}
-	m1NTTCoeffs := m1CompCoeffs
-	if domainMode == DomainModeExplicit {
-		m1NTTCoeffs = reducePolyModXN1(append([]uint64(nil), m1CompCoeffs...), int(ringQ.N), q)
-	}
-	m1NTT := nttPolyFromFormalCoeffsIfFits(ringQ, m1NTTCoeffs)
-	if m1NTT == nil {
-		m1NTT = ringQ.NewPoly()
-		copy(m1NTT.Coeffs[0], m1NTTCoeffs)
-		ringQ.NTT(m1NTT, m1NTT)
-	}
-	m2NTTCoeffs := m2CompCoeffs
-	if domainMode == DomainModeExplicit {
-		m2NTTCoeffs = reducePolyModXN1(append([]uint64(nil), m2CompCoeffs...), int(ringQ.N), q)
-	}
-	m2NTT := nttPolyFromFormalCoeffsIfFits(ringQ, m2NTTCoeffs)
-	if m2NTT == nil {
-		m2NTT = ringQ.NewPoly()
-		copy(m2NTT.Coeffs[0], m2NTTCoeffs)
-		ringQ.NTT(m2NTT, m2NTT)
-	}
-	r0NTTCoeffs := r0CompCoeffs
-	if domainMode == DomainModeExplicit {
-		r0NTTCoeffs = reducePolyModXN1(append([]uint64(nil), r0CompCoeffs...), int(ringQ.N), q)
-	}
-	r0NTT := nttPolyFromFormalCoeffsIfFits(ringQ, r0NTTCoeffs)
-	if r0NTT == nil {
-		r0NTT = ringQ.NewPoly()
-		copy(r0NTT.Coeffs[0], r0NTTCoeffs)
-		ringQ.NTT(r0NTT, r0NTT)
-	}
-	r1NTTCoeffs := r1CompCoeffs
-	if domainMode == DomainModeExplicit {
-		r1NTTCoeffs = reducePolyModXN1(append([]uint64(nil), r1CompCoeffs...), int(ringQ.N), q)
-	}
-	r1NTT := nttPolyFromFormalCoeffsIfFits(ringQ, r1NTTCoeffs)
-	if r1NTT == nil {
-		r1NTT = ringQ.NewPoly()
-		copy(r1NTT.Coeffs[0], r1NTTCoeffs)
-		ringQ.NTT(r1NTT, r1NTT)
-	}
-
-	sigHatRow := func(block, comp int) (int, error) {
-		if block < 0 || block >= blocks {
-			return -1, fmt.Errorf("invalid signature block %d", block)
+	getRowCoeff := func(idx int) ([]uint64, error) {
+		if idx < 0 || idx >= len(rowsNTT) {
+			return nil, fmt.Errorf("row idx %d out of range (rows=%d)", idx, len(rowsNTT))
 		}
-		if comp < 0 || comp >= uCount {
-			return -1, fmt.Errorf("invalid signature component %d", comp)
-		}
-		if block == 0 {
-			return layout.IdxSigHatBase + comp, nil
-		}
-		if layout.SigHatExtraBase < 0 {
-			return -1, fmt.Errorf("missing SigHatExtraBase for block %d", block)
-		}
-		return layout.SigHatExtraBase + (block-1)*uCount + comp, nil
-	}
-	sigSourceRow := func(block, comp int) (int, error) {
-		if block < 0 || block >= blocks {
-			return -1, fmt.Errorf("invalid signature block %d", block)
-		}
-		if comp < 0 || comp >= uCount {
-			return -1, fmt.Errorf("invalid signature component %d", comp)
-		}
-		idx := cfg.PackedSigBase + block*cfg.PackedSigComponents + comp
-		return idx, nil
-	}
-
-	toFormalCoeffs := func(p *ring.Poly) ([]uint64, error) {
-		coeff, cerr := coeffFromNTTPoly(ringQ, p)
-		if cerr != nil {
-			return nil, cerr
-		}
-		if len(coeff) == 0 {
-			return []uint64{0}, nil
+		coeff, err := coeffFromNTTPoly(ringQ, rowsNTT[idx])
+		if err != nil {
+			return nil, err
 		}
 		return trimPoly(coeff, q), nil
 	}
-	polyAdd := func(a, b []uint64) []uint64 {
-		n := len(a)
-		if len(b) > n {
-			n = len(b)
-		}
-		if n == 0 {
-			return []uint64{0}
-		}
-		out := make([]uint64, n)
-		for i := 0; i < n; i++ {
-			av := uint64(0)
-			if i < len(a) {
-				av = a[i] % q
-			}
-			bv := uint64(0)
-			if i < len(b) {
-				bv = b[i] % q
-			}
-			out[i] = modAdd(av, bv, q)
-		}
-		return trimPoly(out, q)
-	}
-	polySub := func(a, b []uint64) []uint64 {
-		n := len(a)
-		if len(b) > n {
-			n = len(b)
-		}
-		if n == 0 {
-			return []uint64{0}
-		}
-		out := make([]uint64, n)
-		for i := 0; i < n; i++ {
-			av := uint64(0)
-			if i < len(a) {
-				av = a[i] % q
-			}
-			bv := uint64(0)
-			if i < len(b) {
-				bv = b[i] % q
-			}
-			out[i] = modSub(av, bv, q)
-		}
-		return trimPoly(out, q)
-	}
-	var getRowCoeff func(idx int) ([]uint64, error)
-	if domainMode == DomainModeExplicit {
-		coeffCache := map[int][]uint64{}
-		getRowCoeff = func(idx int) ([]uint64, error) {
-			if coeff, ok := coeffCache[idx]; ok {
-				return coeff, nil
-			}
-			if idx < 0 || idx >= len(rowsNTT) {
-				return nil, fmt.Errorf("row coeff idx %d out of range (rows=%d)", idx, len(rowsNTT))
-			}
-			coeff, err := toFormalCoeffs(rowsNTT[idx])
-			if err != nil {
-				return nil, err
-			}
-			coeffCache[idx] = coeff
-			return coeff, nil
-		}
-	}
 
-	var sigRes []*ring.Poly
-	var sigResCoeffs [][]uint64
-
-	for b := 0; b < blocks; b++ {
-		uBlock := make([]*ring.Poly, uCount)
-		for j := 0; j < uCount; j++ {
-			idx, err := sigHatRow(b, j)
-			if err != nil {
-				return ConstraintSet{}, err
-			}
-			if idx < 0 || idx >= len(rowsNTT) {
-				return ConstraintSet{}, fmt.Errorf("sig hat row %d out of range", idx)
-			}
-			uBlock[j] = rowsNTT[idx]
-		}
-		tRow := layout.IdxTHatBase + b
-		if tRow < 0 || tRow >= len(rowsNTT) {
-			return ConstraintSet{}, fmt.Errorf("T-hat row %d out of range", tRow)
-		}
-		tBlock := rowsNTT[tRow]
-		if domainMode == DomainModeExplicit {
-			if getRowCoeff == nil {
-				return ConstraintSet{}, fmt.Errorf("missing explicit coeff cache for signature residuals")
-			}
-			tCoeff, terr := getRowCoeff(tRow)
-			if terr != nil {
-				return ConstraintSet{}, fmt.Errorf("signature block %d T coeffs: %w", b, terr)
-			}
-			for i := 0; i < len(thetaABlocks[b]); i++ {
-				acc := []uint64{0}
-				for j := 0; j < uCount; j++ {
-					uIdx, err := sigHatRow(b, j)
-					if err != nil {
-						return ConstraintSet{}, err
-					}
-					aCoeff, aerr := toFormalCoeffs(thetaABlocks[b][i][j])
-					if aerr != nil {
-						return ConstraintSet{}, fmt.Errorf("signature block %d A[%d][%d] coeffs: %w", b, i, j, aerr)
-					}
-					uCoeff, uerr := getRowCoeff(uIdx)
-					if uerr != nil {
-						return ConstraintSet{}, fmt.Errorf("signature block %d U[%d] coeffs: %w", b, j, uerr)
-					}
-					acc = polyAdd(acc, polyMul(aCoeff, uCoeff, q))
-				}
-				resCoeff := polySub(acc, tCoeff)
-				sigResCoeffs = append(sigResCoeffs, resCoeff)
-				sigRes = append(sigRes, nttPolyFromFormalCoeffsIfFits(ringQ, resCoeff))
-			}
-		} else {
-			res, err := BuildSignatureConstraintNTT(ringQ, thetaABlocks[b], uBlock, tBlock)
-			if err != nil {
-				return ConstraintSet{}, fmt.Errorf("signature residuals block %d: %w", b, err)
-			}
-			sigRes = append(sigRes, res...)
-		}
-	}
-
-	mHat1 := rowsNTT[layout.IdxMHat1]
-	mHat2 := rowsNTT[layout.IdxMHat2]
-	rHat0 := rowsNTT[layout.IdxRHat0]
-	rHat1 := rowsNTT[layout.IdxRHat1]
-	tHat0 := rowsNTT[layout.IdxTHatBase]
-	var hashRes []*ring.Poly
-	var hashResCoeffs [][]uint64
-	if domainMode == DomainModeExplicit {
-		if getRowCoeff == nil {
-			return ConstraintSet{}, fmt.Errorf("missing explicit coeff cache for hash residuals")
-		}
-		if len(thetaB) != 4 {
-			return ConstraintSet{}, fmt.Errorf("theta B length=%d want 4", len(thetaB))
-		}
-		bCoeff := make([][]uint64, 4)
-		for i := 0; i < 4; i++ {
-			coeff, cerr := toFormalCoeffs(thetaB[i])
-			if cerr != nil {
-				return ConstraintSet{}, fmt.Errorf("hash B[%d] coeffs: %w", i, cerr)
-			}
-			bCoeff[i] = coeff
-		}
-		m1Coeff, m1Err := getRowCoeff(layout.IdxMHat1)
-		if m1Err != nil {
-			return ConstraintSet{}, fmt.Errorf("mhat1 coeffs: %w", m1Err)
-		}
-		m2Coeff, m2Err := getRowCoeff(layout.IdxMHat2)
-		if m2Err != nil {
-			return ConstraintSet{}, fmt.Errorf("mhat2 coeffs: %w", m2Err)
-		}
-		r0Coeff, r0Err := getRowCoeff(layout.IdxRHat0)
-		if r0Err != nil {
-			return ConstraintSet{}, fmt.Errorf("rhat0 coeffs: %w", r0Err)
-		}
-		r1Coeff, r1Err := getRowCoeff(layout.IdxRHat1)
-		if r1Err != nil {
-			return ConstraintSet{}, fmt.Errorf("rhat1 coeffs: %w", r1Err)
-		}
-		tCoeff, tErr := getRowCoeff(layout.IdxTHatBase)
-		if tErr != nil {
-			return ConstraintSet{}, fmt.Errorf("t-hat coeffs: %w", tErr)
-		}
-		mCombined := polyAdd(m1Coeff, m2Coeff)
-		num := polyAdd(bCoeff[0], polyMul(bCoeff[1], mCombined, q))
-		num = polyAdd(num, polyMul(bCoeff[2], r0Coeff, q))
-		den := polySub(bCoeff[3], r1Coeff)
-		resCoeff := polySub(polyMul(den, tCoeff, q), num)
-		hashResCoeffs = [][]uint64{resCoeff}
-		hashRes = []*ring.Poly{nttPolyFromFormalCoeffsIfFits(ringQ, resCoeff)}
-	} else {
-		var err error
-		hashRes, err = BuildHashConstraintsNTT(ringQ, thetaB, mHat1, mHat2, rHat0, rHat1, tHat0)
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("hash residuals: %w", err)
-		}
-	}
-
-	selNTT, oneMinusSel, err := buildPackingSelectorNTT(ringQ, omega)
+	carrierMCoeff, err := getRowCoeff(carrierMIdx)
 	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("packing selector: %w", err)
+		return ConstraintSet{}, fmt.Errorf("carrier M coeffs: %w", err)
 	}
-	m1Pack := ringQ.NewPoly()
-	m2Pack := ringQ.NewPoly()
-	ringQ.MulCoeffs(selNTT, m1NTT, m1Pack)
-	ringQ.MulCoeffs(oneMinusSel, m2NTT, m2Pack)
-	var m1PackCoeff, m2PackCoeff []uint64
-	if domainMode == DomainModeExplicit {
-		selCoeff, serr := buildPackingSelectorCoeff(ringQ, omega)
-		if serr != nil {
-			return ConstraintSet{}, fmt.Errorf("packing selector coeffs: %w", serr)
-		}
-		oneMinusSelCoeff := polySub([]uint64{1}, selCoeff)
-		m1PackCoeff = polyMul(selCoeff, m1CompCoeffs, q)
-		m2PackCoeff = polyMul(oneMinusSelCoeff, m2CompCoeffs, q)
-		m1Pack = nttPolyFromFormalCoeffsIfFits(ringQ, m1PackCoeff)
-		m2Pack = nttPolyFromFormalCoeffsIfFits(ringQ, m2PackCoeff)
+	carrierCtrCoeff, err := getRowCoeff(carrierCtrIdx)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("carrier ctr coeffs: %w", err)
 	}
+	msgDecode1Poly := fpoly.New(q, msgDecode1)
+	msgDecode2Poly := fpoly.New(q, msgDecode2)
+	ctrDecode1Poly := fpoly.New(q, ctrDecode1)
+	ctrDecode2Poly := fpoly.New(q, ctrDecode2)
+	carrierMPoly := fpoly.New(q, carrierMCoeff)
+	carrierCtrPoly := fpoly.New(q, carrierCtrCoeff)
+	m1CompCoeffs := trimPoly(msgDecode1Poly.Compose(carrierMPoly).Coeffs, q)
+	m2CompCoeffs := trimPoly(msgDecode2Poly.Compose(carrierMPoly).Coeffs, q)
+	r0CompCoeffs := trimPoly(ctrDecode1Poly.Compose(carrierCtrPoly).Coeffs, q)
+	r1CompCoeffs := trimPoly(ctrDecode2Poly.Compose(carrierCtrPoly).Coeffs, q)
+	mSigmaCompCoeffs := polyAdd(m1CompCoeffs, m2CompCoeffs, q)
+	msgMembership := fpoly.New(q, msgMembershipPoly)
+	ctrMembership := fpoly.New(q, ctrMembershipPoly)
+	memMCoeffs := trimPoly(msgMembership.Compose(carrierMPoly).Coeffs, q)
+	memCtrCoeffs := trimPoly(ctrMembership.Compose(carrierCtrPoly).Coeffs, q)
 
+	packSelCoeff, err := buildPackingSelectorCoeff(ringQ, omega)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("packing selector coeffs: %w", err)
+	}
+	oneMinusSelCoeff := polySub([]uint64{1}, packSelCoeff, q)
+	m1PackCoeff := polyMul(packSelCoeff, m1CompCoeffs, q)
+	m2PackCoeff := polyMul(oneMinusSelCoeff, m2CompCoeffs, q)
+	m1Pack := nttPolyFromFormalCoeffsIfFits(ringQ, m1PackCoeff)
+	m2Pack := nttPolyFromFormalCoeffsIfFits(ringQ, m2PackCoeff)
 	carrierMemM := nttPolyFromFormalCoeffsIfFits(ringQ, memMCoeffs)
-	if carrierMemM == nil && domainMode != DomainModeExplicit {
-		carrierMemM, err = evalPolyOnNTT(ringQ, membershipPoly, rowsNTT[carrierMIdx])
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("carrier membership M: %w", err)
-		}
-	}
 	carrierMemCtr := nttPolyFromFormalCoeffsIfFits(ringQ, memCtrCoeffs)
-	if carrierMemCtr == nil && domainMode != DomainModeExplicit {
-		carrierMemCtr, err = evalPolyOnNTT(ringQ, membershipPoly, rowsNTT[carrierCtrIdx])
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("carrier membership ctr: %w", err)
-		}
+
+	mSigmaHatCoeff, err := getRowCoeff(layout.IdxMHatSigma)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("m-hat-sigma coeffs: %w", err)
 	}
+	r0HatCoeff, err := getRowCoeff(layout.IdxRHat0)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("rhat0 coeffs: %w", err)
+	}
+	r1HatCoeff, err := getRowCoeff(layout.IdxRHat1)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("rhat1 coeffs: %w", err)
+	}
+	tHat0Coeff, err := getRowCoeff(layout.IdxTHatBase)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("t-hat coeffs: %w", err)
+	}
+	hashResCoeff := buildTransformHashResidualCombinedCoeffs(q, thetaB, mSigmaHatCoeff, r0HatCoeff, r1HatCoeff, tHat0Coeff)
+	hashRes := nttPolyFromFormalCoeffsIfFits(ringQ, hashResCoeff)
 
 	var keyBindRes []*ring.Poly
 	var keyBindCoeffs [][]uint64
 	if prfCompanionLayout != nil {
-		selectorTheta, selectorCoeff, err := buildOmegaDeltaSelectors(ringQ, omega)
+		_, selectorCoeff, err := buildOmegaDeltaSelectors(ringQ, omega)
 		if err != nil {
 			return ConstraintSet{}, fmt.Errorf("delta selectors: %w", err)
 		}
@@ -459,261 +215,123 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 			if half < keyCount {
 				return ConstraintSet{}, fmt.Errorf("key binding requires ncols/2 >= lenkey; got ncols=%d lenkey=%d", ncols, keyCount)
 			}
-			if domainMode == DomainModeExplicit {
-				if getRowCoeff == nil {
-					return ConstraintSet{}, fmt.Errorf("missing explicit coeff cache for key binding")
+			for i := 0; i < keyCount; i++ {
+				col := half + i
+				if col < 0 || col >= len(selectorCoeff) {
+					return ConstraintSet{}, fmt.Errorf("key binding selector col=%d out of range", col)
 				}
-				for i := 0; i < keyCount; i++ {
-					col := half + i
-					if col < 0 || col >= len(selectorCoeff) {
-						return ConstraintSet{}, fmt.Errorf("key binding selector col=%d out of range", col)
-					}
-					selCoeff := selectorCoeff[col]
-					if i >= len(keySlots) {
-						return ConstraintSet{}, fmt.Errorf("key slot %d out of range (%d)", i, len(keySlots))
-					}
-					slot := keySlots[i]
-					if slot.Row < 0 || slot.Row >= len(rowsNTT) {
-						return ConstraintSet{}, fmt.Errorf("key slot row %d out of range", slot.Row)
-					}
-					if slot.Coeff < 0 || slot.Coeff >= len(selectorCoeff) {
-						return ConstraintSet{}, fmt.Errorf("key slot col %d out of range", slot.Coeff)
-					}
-					if slot.Coeff != col {
-						return ConstraintSet{}, fmt.Errorf("key slot col %d mismatch for key %d (want %d)", slot.Coeff, i, col)
-					}
-					keyCoeff, err := getRowCoeff(slot.Row)
-					if err != nil {
-						return ConstraintSet{}, fmt.Errorf("key row coeffs: %w", err)
-					}
-					keyExtract := polyMul(selCoeff, keyCoeff, q)
-					m2Extract := polyMul(selCoeff, m2CompCoeffs, q)
-					resCoeff := polySub(keyExtract, m2Extract)
-					keyBindCoeffs = append(keyBindCoeffs, resCoeff)
-					keyBindRes = append(keyBindRes, nttPolyFromFormalCoeffsIfFits(ringQ, resCoeff))
+				if i >= len(keySlots) {
+					return ConstraintSet{}, fmt.Errorf("key slot %d out of range (%d)", i, len(keySlots))
 				}
-			} else {
-				for i := 0; i < keyCount; i++ {
-					col := half + i
-					if col < 0 || col >= len(selectorTheta) {
-						return ConstraintSet{}, fmt.Errorf("key binding selector col=%d out of range", col)
-					}
-					if i >= len(keySlots) {
-						return ConstraintSet{}, fmt.Errorf("key slot %d out of range (%d)", i, len(keySlots))
-					}
-					slot := keySlots[i]
-					if slot.Row < 0 || slot.Row >= len(rowsNTT) {
-						return ConstraintSet{}, fmt.Errorf("key slot row %d out of range", slot.Row)
-					}
-					if slot.Coeff < 0 || slot.Coeff >= len(selectorTheta) {
-						return ConstraintSet{}, fmt.Errorf("key slot col %d out of range", slot.Coeff)
-					}
-					if slot.Coeff != col {
-						return ConstraintSet{}, fmt.Errorf("key slot col %d mismatch for key %d (want %d)", slot.Coeff, i, col)
-					}
-					keyRow := ringQ.NewPoly()
-					ringQ.MulCoeffs(rowsNTT[slot.Row], selectorTheta[slot.Coeff], keyRow)
-					m2Extract := ringQ.NewPoly()
-					ringQ.MulCoeffs(selectorTheta[col], m2NTT, m2Extract)
-					res := ringQ.NewPoly()
-					ringQ.Sub(keyRow, m2Extract, res)
-					keyBindRes = append(keyBindRes, res)
+				slot := keySlots[i]
+				if slot.Coeff != col {
+					return ConstraintSet{}, fmt.Errorf("key slot col %d mismatch for key %d (want %d)", slot.Coeff, i, col)
 				}
-			}
-		}
-	}
-
-	fparInt := append(sigRes, hashRes...)
-	fparInt = append(fparInt, m1Pack, m2Pack)
-	fparInt = append(fparInt, carrierMemM, carrierMemCtr)
-	fparInt = append(fparInt, keyBindRes...)
-	var fparIntCoeffs [][]uint64
-	if domainMode == DomainModeExplicit {
-		fparIntCoeffs = append(fparIntCoeffs, sigResCoeffs...)
-		fparIntCoeffs = append(fparIntCoeffs, hashResCoeffs...)
-		fparIntCoeffs = append(fparIntCoeffs, m1PackCoeff, m2PackCoeff)
-		fparIntCoeffs = append(fparIntCoeffs, memMCoeffs, memCtrCoeffs)
-		fparIntCoeffs = append(fparIntCoeffs, keyBindCoeffs...)
-		if len(fparIntCoeffs) != len(fparInt) {
-			return ConstraintSet{}, fmt.Errorf("transform-bridge formal coeff mismatch: coeffs=%d polys=%d", len(fparIntCoeffs), len(fparInt))
-		}
-	}
-
-	// Aggregated transform-bridge constraints.
-	lagrangeBasis, err := buildLagrangeBasisCoeffs(omega, q)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("lagrange basis: %w", err)
-	}
-	required := blocks * ncols
-	transformHCoeff, blockFactors, err := buildTransformBridgeHFromNTTMatrix(ringQ, omega, required)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("transform H matrix: %w", err)
-	}
-	if len(blockFactors) < required {
-		return ConstraintSet{}, fmt.Errorf("block factors len=%d < required=%d", len(blockFactors), required)
-	}
-	transformHEval := transformHCoeff
-	if len(transformHEval) > ncols {
-		transformHEval = transformHEval[:ncols]
-	}
-	hThetaCoeff := make([]*ring.Poly, len(transformHCoeff))
-	for j := range transformHCoeff {
-		p := ringQ.NewPoly()
-		copy(p.Coeffs[0], transformHCoeff[j])
-		ringQ.NTT(p, p)
-		hThetaCoeff[j] = p
-	}
-	hThetaEval := make([]*ring.Poly, len(transformHEval))
-	for j := range transformHEval {
-		p := ringQ.NewPoly()
-		copy(p.Coeffs[0], transformHEval[j])
-		ringQ.NTT(p, p)
-		hThetaEval[j] = p
-	}
-	lagrangeTheta := make([]*ring.Poly, len(lagrangeBasis))
-	for j := range lagrangeBasis {
-		p := ringQ.NewPoly()
-		copy(p.Coeffs[0], lagrangeBasis[j])
-		ringQ.NTT(p, p)
-		lagrangeTheta[j] = p
-	}
-
-	var faggNorm []*ring.Poly
-	var faggNormCoeffs [][]uint64
-	for b := 0; b < blocks; b++ {
-		for comp := 0; comp < uCount; comp++ {
-			hatIdx, err := sigHatRow(b, comp)
-			if err != nil {
-				return ConstraintSet{}, err
-			}
-			for j := 0; j < ncols; j++ {
-				t := b*ncols + j
-				if t < 0 || t >= len(hThetaCoeff) {
-					return ConstraintSet{}, fmt.Errorf("signature bridge index t=%d out of range (len=%d)", t, len(hThetaCoeff))
-				}
-				left := ringQ.NewPoly()
-				factor := uint64(1)
-				for bSrc := 0; bSrc < blocks; bSrc++ {
-					srcIdx, err := sigSourceRow(bSrc, comp)
-					if err != nil {
-						return ConstraintSet{}, err
-					}
-					if srcIdx < 0 || srcIdx >= len(rowsNTT) {
-						return ConstraintSet{}, fmt.Errorf("signature bridge row out of range (src=%d)", srcIdx)
-					}
-					tmp := ringQ.NewPoly()
-					ringQ.MulCoeffs(rowsNTT[srcIdx], hThetaCoeff[t], tmp)
-					factor = blockFactors[t][bSrc]
-					if factor != 1 {
-						ringQ.MulScalar(tmp, factor, tmp)
-					}
-					ringQ.Add(left, tmp, left)
-				}
-				right := ringQ.NewPoly()
-				ringQ.MulCoeffs(rowsNTT[hatIdx], lagrangeTheta[j], right)
-				ringQ.Sub(left, right, left)
-				if domainMode == DomainModeExplicit {
-					if getRowCoeff == nil {
-						return ConstraintSet{}, fmt.Errorf("missing explicit coeff cache for signature bridge")
-					}
-					hatCoeff, err := getRowCoeff(hatIdx)
-					if err != nil {
-						return ConstraintSet{}, fmt.Errorf("sig bridge hat coeffs: %w", err)
-					}
-					leftCoeff := []uint64{0}
-					for bSrc := 0; bSrc < blocks; bSrc++ {
-						srcIdx, err := sigSourceRow(bSrc, comp)
-						if err != nil {
-							return ConstraintSet{}, err
-						}
-						srcCoeff, err := getRowCoeff(srcIdx)
-						if err != nil {
-							return ConstraintSet{}, fmt.Errorf("sig bridge src coeffs: %w", err)
-						}
-						term := polyMul(transformHCoeff[t], srcCoeff, q)
-						factorCoeff := blockFactors[t][bSrc]
-						if factorCoeff != 1 {
-							term = scalePoly(term, factorCoeff, q)
-						}
-						leftCoeff = polyAdd(leftCoeff, term)
-					}
-					rightCoeff := polyMul(lagrangeBasis[j], hatCoeff, q)
-					bridgeCoeff := polySub(leftCoeff, rightCoeff)
-					faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
-					faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
-				} else {
-					faggNorm = append(faggNorm, left)
-				}
-			}
-		}
-	}
-	// Non-sign transform bridges: decoded rows -> hats.
-	nonSigPairs := []struct {
-		src *ring.Poly
-		hat *ring.Poly
-	}{
-		{src: m1NTT, hat: mHat1},
-		{src: m2NTT, hat: mHat2},
-		{src: r0NTT, hat: rHat0},
-		{src: r1NTT, hat: rHat1},
-	}
-	for _, pair := range nonSigPairs {
-		for j := 0; j < ncols; j++ {
-			left := ringQ.NewPoly()
-			ringQ.MulCoeffs(pair.src, hThetaEval[j], left)
-			right := ringQ.NewPoly()
-			ringQ.MulCoeffs(pair.hat, lagrangeTheta[j], right)
-			ringQ.Sub(left, right, left)
-			if domainMode == DomainModeExplicit {
-				if getRowCoeff == nil {
-					return ConstraintSet{}, fmt.Errorf("missing explicit coeff cache for non-sign bridge")
-				}
-				var srcCoeff []uint64
-				hatIdx := -1
-				switch pair.hat {
-				case mHat1:
-					srcCoeff = m1CompCoeffs
-					hatIdx = layout.IdxMHat1
-				case mHat2:
-					srcCoeff = m2CompCoeffs
-					hatIdx = layout.IdxMHat2
-				case rHat0:
-					srcCoeff = r0CompCoeffs
-					hatIdx = layout.IdxRHat0
-				case rHat1:
-					srcCoeff = r1CompCoeffs
-					hatIdx = layout.IdxRHat1
-				default:
-					srcCoeff = []uint64{0}
-				}
-				if hatIdx < 0 {
-					return ConstraintSet{}, fmt.Errorf("non-sig hat row missing for coeffs")
-				}
-				hatCoeff, err := getRowCoeff(hatIdx)
+				keyCoeff, err := getRowCoeff(slot.Row)
 				if err != nil {
-					return ConstraintSet{}, fmt.Errorf("non-sig hat coeffs: %w", err)
+					return ConstraintSet{}, fmt.Errorf("key row coeffs: %w", err)
 				}
-				leftCoeff := polyMul(transformHEval[j], srcCoeff, q)
-				rightCoeff := polyMul(lagrangeBasis[j], hatCoeff, q)
-				bridgeCoeff := polySub(leftCoeff, rightCoeff)
-				faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
-				faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
-			} else {
-				faggNorm = append(faggNorm, left)
+				selCoeff := selectorCoeff[col]
+				keyExtract := polyMul(selCoeff, keyCoeff, q)
+				m2Extract := polyMul(selCoeff, m2CompCoeffs, q)
+				resCoeff := polySub(keyExtract, m2Extract, q)
+				keyBindCoeffs = append(keyBindCoeffs, resCoeff)
+				keyBindRes = append(keyBindRes, nttPolyFromFormalCoeffsIfFits(ringQ, resCoeff))
 			}
+		}
+	}
+
+	fparInt := []*ring.Poly{hashRes, m1Pack, m2Pack, carrierMemM, carrierMemCtr}
+	fparInt = append(fparInt, keyBindRes...)
+	fparIntCoeffs := [][]uint64{hashResCoeff, m1PackCoeff, m2PackCoeff, memMCoeffs, memCtrCoeffs}
+	fparIntCoeffs = append(fparIntCoeffs, keyBindCoeffs...)
+	if len(fparIntCoeffs) != len(fparInt) {
+		return ConstraintSet{}, fmt.Errorf("transform-bridge formal coeff mismatch: coeffs=%d polys=%d", len(fparIntCoeffs), len(fparInt))
+	}
+
+	bridgeBasis, err := newTransformBridgeBasisCache(ringQ, omega, replayTHatCount*ncols, sourceBlocks)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("transform-bridge basis: %w", err)
+	}
+	faggNorm := make([]*ring.Poly, 0, replayTHatCount*ncols+3*ncols)
+	faggNormCoeffs := make([][]uint64, 0, replayTHatCount*ncols+3*ncols)
+	for b := 0; b < replayTHatCount; b++ {
+		tCoeff, err := getRowCoeff(layout.IdxTHatBase + b)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("t-hat block %d coeffs: %w", b, err)
+		}
+		for j := 0; j < ncols; j++ {
+			t := b*ncols + j
+			leftCoeff := []uint64{0}
+			for comp := 0; comp < componentCount; comp++ {
+				aScale := aHeads[b][comp][j] % q
+				if aScale == 0 {
+					continue
+				}
+				for bSrc := 0; bSrc < sourceBlocks; bSrc++ {
+					blockScale := bridgeBasis.BlockFactors[t][bSrc] % q
+					for lane := 0; lane < specSig.L; lane++ {
+						limbIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, bSrc, lane)
+						if limbIdx < 0 {
+							return ConstraintSet{}, fmt.Errorf("missing limb row for comp=%d block=%d lane=%d", comp, bSrc, lane)
+						}
+						limbCoeff, err := getRowCoeff(limbIdx)
+						if err != nil {
+							return ConstraintSet{}, fmt.Errorf("limb coeffs (comp=%d block=%d lane=%d): %w", comp, bSrc, lane, err)
+						}
+						scale := modMul(aScale, modMul(blockScale, specSig.RPows[lane]%q, q), q)
+						term := polyMul(bridgeBasis.TransformH[t], limbCoeff, q)
+						if scale != 1 {
+							term = scalePoly(term, scale, q)
+						}
+						leftCoeff = polyAdd(leftCoeff, term, q)
+					}
+				}
+			}
+			rightCoeff := polyMul(bridgeBasis.LagrangeBasis[j], tCoeff, q)
+			bridgeCoeff := polySub(leftCoeff, rightCoeff, q)
+			faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
+			faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
+		}
+	}
+	for _, pair := range []struct {
+		srcCoeff []uint64
+		hatIdx   int
+	}{
+		{srcCoeff: mSigmaCompCoeffs, hatIdx: layout.IdxMHatSigma},
+		{srcCoeff: r0CompCoeffs, hatIdx: layout.IdxRHat0},
+		{srcCoeff: r1CompCoeffs, hatIdx: layout.IdxRHat1},
+	} {
+		hatCoeff, err := getRowCoeff(pair.hatIdx)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("non-sign hat coeffs: %w", err)
+		}
+		for j := 0; j < ncols; j++ {
+			bridgeCoeff := buildTransformBridgeResidualCoeff(q, bridgeBasis.TransformHEval[j], bridgeBasis.LagrangeBasis[j], pair.srcCoeff, hatCoeff)
+			faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
+			faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
 		}
 	}
 	_ = prfLayout
 
 	parallelDeg := 2
-	if deg := maxDegreeFromCoeffs(decode1); deg > parallelDeg {
+	if deg := maxDegreeFromCoeffs(msgDecode1); deg > parallelDeg {
 		parallelDeg = deg
 	}
-	if deg := maxDegreeFromCoeffs(membershipPoly); deg > parallelDeg {
+	if deg := maxDegreeFromCoeffs(ctrDecode1); deg > parallelDeg {
+		parallelDeg = deg
+	}
+	if deg := maxDegreeFromCoeffs(msgMembershipPoly); deg > parallelDeg {
+		parallelDeg = deg
+	}
+	if deg := maxDegreeFromCoeffs(ctrMembershipPoly); deg > parallelDeg {
 		parallelDeg = deg
 	}
 	aggDeg := 1
-	if deg := maxDegreeFromCoeffs(decode1); deg > aggDeg {
+	if deg := maxDegreeFromCoeffs(msgDecode1); deg > aggDeg {
+		aggDeg = deg
+	}
+	if deg := maxDegreeFromCoeffs(ctrDecode1); deg > aggDeg {
 		aggDeg = deg
 	}
 

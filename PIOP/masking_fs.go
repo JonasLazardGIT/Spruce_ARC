@@ -232,9 +232,6 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 	if lvcsNCols <= 0 {
 		lvcsNCols = resolvePCSNCols(o, args.witnessNCols)
 	}
-	if o.Theta == 1 && lvcsNCols != args.witnessNCols {
-		return nil, fmt.Errorf("unsupported lvcs decoupling for theta==1 (lvcsNCols=%d, ncols=%d)", lvcsNCols, args.witnessNCols)
-	}
 	if lvcsNCols < args.witnessNCols {
 		return nil, fmt.Errorf("invalid lvcs ncols=%d (must be >= witness ncols=%d)", lvcsNCols, args.witnessNCols)
 	}

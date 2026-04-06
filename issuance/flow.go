@@ -34,9 +34,9 @@ type Challenge struct {
 	RI1 []*ring.Poly
 }
 
-// SampleChallenge samples bounded issuer randomness on the public Ω head and
+// SampleChallenge samples bounded issuer randomness in coefficient form and
 // stores it as a public NTT row. The holder and verifier both derive the same
-// low-degree Θ polynomial from that head during proof construction.
+// low-degree Θ polynomial from that row during proof construction.
 func SampleChallenge(r *ring.Ring, omega []uint64, bound int64, rng *rand.Rand) (Challenge, error) {
 	if r == nil {
 		return Challenge{}, fmt.Errorf("nil ring")
@@ -154,7 +154,7 @@ func coeffPolyToInt64(r *ring.Ring, p *ring.Poly) []int64 {
 // PrepareCommit computes the public commitment rows for the credential pre-sign
 // statement using explicit-domain heads over Ω.
 // Inputs are provided in coefficient form; the committed witness heads are the
-// evaluations of each witness row on Ω.
+// coefficient slots (not evaluations) to match carrier-compressed rows.
 func PrepareCommit(p *credential.Params, in Inputs, omega []uint64) (commitment.Vector, error) {
 	log.Printf("[issuance] preparing commitment")
 	if p == nil || p.RingQ == nil {
@@ -163,22 +163,37 @@ func PrepareCommit(p *credential.Params, in Inputs, omega []uint64) (commitment.
 	if len(omega) == 0 {
 		return nil, fmt.Errorf("missing omega")
 	}
-	blocks := [][]*ring.Poly{in.M1, in.M2, in.RU0, in.RU1, in.R}
-	names := []string{"M1", "M2", "RU0", "RU1", "R"}
-	for i, b := range blocks {
-		if len(b) == 0 {
-			return nil, fmt.Errorf("missing block %s", names[i])
-		}
-	}
 	ncols := len(omega)
 	q := p.RingQ.Modulus[0]
-	vecHead := make([][]uint64, len(blocks))
-	for i, blk := range blocks {
-		head := headFromCoeffPoly(p.RingQ, blk[0], omega)
-		if len(head) != ncols {
-			return nil, fmt.Errorf("head length=%d want %d for block %s", len(head), ncols, names[i])
+	first := func(rows []*ring.Poly) *ring.Poly {
+		if len(rows) == 0 {
+			return nil
 		}
-		vecHead[i] = head
+		return rows[0]
+	}
+	surface, err := PIOP.DerivePreSignCarrierAndAliasRows(p.RingQ, p.BoundB, omega, PIOP.DomainModeExplicit, PIOP.PreSignRawRows{
+		M1:  first(in.M1),
+		M2:  first(in.M2),
+		RU0: first(in.RU0),
+		RU1: first(in.RU1),
+		R:   first(in.R),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("derive canonical pre-sign commit rows: %w", err)
+	}
+	headFromCoeffs := func(coeffs []uint64) []uint64 {
+		head := make([]uint64, ncols)
+		for i, w := range omega {
+			head[i] = PIOP.EvalPoly(coeffs, w%q, q)
+		}
+		return head
+	}
+	vecHead := [][]uint64{
+		headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasM1]),
+		headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasM2]),
+		headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasRU0]),
+		headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasRU1]),
+		headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasR]),
 	}
 	com := make(commitment.Vector, len(p.Ac))
 	for i := range p.Ac {
@@ -248,12 +263,6 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	delta := int64(2*bound + 1)
 	m1 := in.M1[0]
 	m2 := in.M2[0]
-	// Convert issuer randomness from NTT to coeff domain.
-	ri0Coeff := r.NewPoly()
-	ri1Coeff := r.NewPoly()
-	r.InvNTT(ch.RI0[0], ri0Coeff)
-	r.InvNTT(ch.RI1[0], ri1Coeff)
-
 	centered := func(v uint64) int64 {
 		x := int64(v % uint64(q))
 		if x > q/2 {
@@ -287,11 +296,11 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 		return rPoly, kPoly, nil
 	}
 
-	r0, k0, err := sumCarryCoeff(in.RU0[0], ri0Coeff)
+	r0, k0, err := sumCarryCoeff(in.RU0[0], ch.RI0[0])
 	if err != nil {
 		return nil, err
 	}
-	r1, k1, err := sumCarryCoeff(in.RU1[0], ri1Coeff)
+	r1, k1, err := sumCarryCoeff(in.RU1[0], ch.RI1[0])
 	if err != nil {
 		return nil, err
 	}
@@ -303,42 +312,37 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	if len(B) != 4 {
 		return nil, fmt.Errorf("B length=%d want 4", len(B))
 	}
-	// Compute T in coefficient domain via NTT equation.
-	mCombined := r.NewPoly()
-	ring.Copy(m1, mCombined)
-	r.Add(mCombined, m2, mCombined)
-	mCombinedNTT := r.NewPoly()
-	r.NTT(mCombined, mCombinedNTT)
-	r0NTT := r.NewPoly()
-	r1NTT := r.NewPoly()
-	r.NTT(r0, r0NTT)
-	r.NTT(r1, r1NTT)
-	num := r.NewPoly()
-	tmp := r.NewPoly()
-	ring.Copy(B[0], num)
-	r.MulCoeffs(B[1], mCombinedNTT, tmp)
-	r.Add(num, tmp, num)
-	r.MulCoeffs(B[2], r0NTT, tmp)
-	r.Add(num, tmp, num)
-	den := r.NewPoly()
-	r.Sub(B[3], r1NTT, den)
-	denInv := r.NewPoly()
-	for i := 0; i < len(den.Coeffs[0]); i++ {
-		denVal := den.Coeffs[0][i] % uint64(q)
-		if denVal == 0 {
-			return nil, fmt.Errorf("hash denominator not invertible at idx %d", i)
-		}
-		inv, ok := modInverseUint64(denVal, uint64(q))
-		if !ok {
-			return nil, fmt.Errorf("hash denominator not invertible at idx %d", i)
-		}
-		denInv.Coeffs[0][i] = inv
+	surface, err := PIOP.DerivePreSignCarrierAndAliasRows(r, bound, omega, PIOP.DomainModeExplicit, PIOP.PreSignRawRows{
+		M1: m1,
+		M2: m2,
+		R0: r0,
+		R1: r1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("derive canonical pre-sign target rows: %w", err)
 	}
-	tNTT := r.NewPoly()
-	r.MulCoeffs(num, denInv, tNTT)
-	tPoly := r.NewPoly()
-	r.InvNTT(tNTT, tPoly)
-	tCoeff := coeffPolyToInt64(r, tPoly)
+	polyFromCoeffs := func(coeffs []uint64) *ring.Poly {
+		p := r.NewPoly()
+		copy(p.Coeffs[0], coeffs)
+		return p
+	}
+	polyFromAliasOmega := func(coeffs []uint64) *ring.Poly {
+		head := headFromCoeffPoly(r, polyFromCoeffs(coeffs), omega)
+		p := r.NewPoly()
+		copy(p.Coeffs[0], head)
+		return p
+	}
+	tCoeff, err := credential.HashMessage(
+		r,
+		B,
+		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasM1]),
+		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasM2]),
+		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasR0]),
+		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasR1]),
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	log.Printf("[issuance] derived R0/R1 and T; bound=%d delta=%d", bound, delta)
 	return &State{

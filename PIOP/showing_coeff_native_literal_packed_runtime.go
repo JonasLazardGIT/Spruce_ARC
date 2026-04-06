@@ -12,8 +12,10 @@ import (
 )
 
 type literalPackedPolyWitness struct {
-	Sig      [][]*ring.Poly
-	SigLimbs [][][]*ring.Poly
+	Sig          [][]*ring.Poly
+	SigHeads     [][][]uint64
+	SigLimbs     [][][]*ring.Poly
+	SigLimbHeads [][][][]uint64
 }
 
 func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitness, omega []uint64, ncols int, model string, opts SimOpts) (*literalPackedPolyWitness, error) {
@@ -35,8 +37,10 @@ func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitne
 	q := ringQ.Modulus[0]
 	blocks := int(ringQ.N) / ncols
 	out := &literalPackedPolyWitness{
-		Sig:      make([][]*ring.Poly, len(cn.Sig)),
-		SigLimbs: make([][][]*ring.Poly, len(cn.Sig)),
+		Sig:          make([][]*ring.Poly, len(cn.Sig)),
+		SigHeads:     make([][][]uint64, len(cn.Sig)),
+		SigLimbs:     make([][][]*ring.Poly, len(cn.Sig)),
+		SigLimbHeads: make([][][][]uint64, len(cn.Sig)),
 	}
 	opts.CoeffNativeSigModel = model
 	spec, err := signatureChainSpecForOpts(q, opts)
@@ -48,7 +52,9 @@ func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitne
 			return nil, fmt.Errorf("signature component %d width=%d want ringN=%d", comp, len(cn.Sig[comp].Coeffs[0]), ringQ.N)
 		}
 		out.Sig[comp] = make([]*ring.Poly, blocks)
+		out.SigHeads[comp] = make([][]uint64, blocks)
 		out.SigLimbs[comp] = make([][]*ring.Poly, blocks)
+		out.SigLimbHeads[comp] = make([][][]uint64, blocks)
 		for block := 0; block < blocks; block++ {
 			start := block * ncols
 			end := start + ncols
@@ -56,8 +62,10 @@ func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitne
 			for i := range sigHead {
 				sigHead[i] %= q
 			}
+			out.SigHeads[comp][block] = append([]uint64(nil), sigHead...)
 			out.Sig[comp][block] = BuildThetaPrime(ringQ, sigHead, omega)
 			out.SigLimbs[comp][block] = make([]*ring.Poly, spec.L)
+			out.SigLimbHeads[comp][block] = make([][]uint64, spec.L)
 			limbHeads := make([][]uint64, spec.L)
 			for lane := 0; lane < spec.L; lane++ {
 				limbHeads[lane] = make([]uint64, ncols)
@@ -73,9 +81,145 @@ func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitne
 				}
 			}
 			for lane := 0; lane < spec.L; lane++ {
+				out.SigLimbHeads[comp][block][lane] = append([]uint64(nil), limbHeads[lane]...)
 				out.SigLimbs[comp][block][lane] = BuildThetaPrime(ringQ, limbHeads[lane], omega)
 			}
 		}
+	}
+	return out, nil
+}
+
+func reconstructPackedSigHeadsFromLimbHeads(sigLimbHeads [][][][]uint64, spec LinfSpec, q uint64) [][][]uint64 {
+	if len(sigLimbHeads) == 0 {
+		return nil
+	}
+	out := make([][][]uint64, len(sigLimbHeads))
+	for comp := range sigLimbHeads {
+		out[comp] = make([][]uint64, len(sigLimbHeads[comp]))
+		for block := range sigLimbHeads[comp] {
+			ncols := 0
+			if len(sigLimbHeads[comp][block]) > 0 {
+				ncols = len(sigLimbHeads[comp][block][0])
+			}
+			head := make([]uint64, ncols)
+			for lane := 0; lane < len(sigLimbHeads[comp][block]) && lane < len(spec.RPows); lane++ {
+				for col := 0; col < ncols; col++ {
+					head[col] = modAdd(head[col], modMul(spec.RPows[lane]%q, sigLimbHeads[comp][block][lane][col]%q, q), q)
+				}
+			}
+			out[comp][block] = head
+		}
+	}
+	return out
+}
+
+func buildSigHatHeadsFromPackedSigHeads(ringQ *ring.Ring, sigHeads [][][]uint64, ncols int) ([][][]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if ncols <= 0 || int(ringQ.N)%ncols != 0 {
+		return nil, fmt.Errorf("invalid ncols=%d for ringN=%d", ncols, ringQ.N)
+	}
+	if len(sigHeads) == 0 {
+		return nil, fmt.Errorf("empty signature heads")
+	}
+	blocks := int(ringQ.N) / ncols
+	q := ringQ.Modulus[0]
+	out := make([][][]uint64, blocks)
+	for block := 0; block < blocks; block++ {
+		out[block] = make([][]uint64, len(sigHeads))
+	}
+	for comp := range sigHeads {
+		if len(sigHeads[comp]) != blocks {
+			return nil, fmt.Errorf("signature head block count=%d want %d", len(sigHeads[comp]), blocks)
+		}
+		coeff := ringQ.NewPoly()
+		for block := 0; block < blocks; block++ {
+			if len(sigHeads[comp][block]) != ncols {
+				return nil, fmt.Errorf("signature head width=%d want %d", len(sigHeads[comp][block]), ncols)
+			}
+			start := block * ncols
+			for col := 0; col < ncols; col++ {
+				coeff.Coeffs[0][start+col] = sigHeads[comp][block][col] % q
+			}
+		}
+		coeffNTT := ringQ.NewPoly()
+		ringQ.NTT(coeff, coeffNTT)
+		for block := 0; block < blocks; block++ {
+			start := block * ncols
+			end := start + ncols
+			out[block][comp] = append([]uint64(nil), coeffNTT.Coeffs[0][start:end]...)
+		}
+	}
+	return out, nil
+}
+
+func buildTHatHeadsFromSigHatHeads(ringQ *ring.Ring, pub PublicInputs, omega []uint64, sigHatHeads [][][]uint64, replayTHatCount int, sourceBlocks int) ([][]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if len(pub.A) != 1 || len(pub.A[0]) == 0 {
+		return nil, fmt.Errorf("direct T-hat expects one public A row, got %d", len(pub.A))
+	}
+	if replayTHatCount <= 0 {
+		return nil, fmt.Errorf("invalid replay T-hat count=%d", replayTHatCount)
+	}
+	if sourceBlocks <= 0 {
+		return nil, fmt.Errorf("invalid source blocks=%d", sourceBlocks)
+	}
+	ncols := len(omega)
+	q := ringQ.Modulus[0]
+	out := make([][]uint64, replayTHatCount)
+	for block := 0; block < replayTHatCount; block++ {
+		tHead := make([]uint64, ncols)
+		for comp := 0; comp < len(pub.A[0]); comp++ {
+			aHead, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omega, block, sourceBlocks)
+			if err != nil {
+				return nil, fmt.Errorf("theta A head block %d comp %d: %w", block, comp, err)
+			}
+			for k := 0; k < ncols; k++ {
+				tHead[k] = modAdd(tHead[k], modMul(aHead[k]%q, sigHatHeads[block][comp][k]%q, q), q)
+			}
+		}
+		out[block] = tHead
+	}
+	return out, nil
+}
+
+func buildTHatHeadsFromPublicT(ringQ *ring.Ring, publicT []int64, ncols, replayTHatCount int) ([][]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if replayTHatCount <= 0 {
+		return nil, fmt.Errorf("invalid replay T-hat count=%d", replayTHatCount)
+	}
+	if ncols <= 0 || ncols > int(ringQ.N) {
+		return nil, fmt.Errorf("invalid ncols=%d for ringN=%d", ncols, ringQ.N)
+	}
+	pCoeff := ringQ.NewPoly()
+	q := int64(ringQ.Modulus[0])
+	limit := len(publicT)
+	if limit > len(pCoeff.Coeffs[0]) {
+		limit = len(pCoeff.Coeffs[0])
+	}
+	for i := 0; i < limit; i++ {
+		v := publicT[i] % q
+		if v < 0 {
+			v += q
+		}
+		pCoeff.Coeffs[0][i] = uint64(v)
+	}
+	pNTT := ringQ.NewPoly()
+	ring.Copy(pCoeff, pNTT)
+	ringQ.NTT(pNTT, pNTT)
+	out := make([][]uint64, replayTHatCount)
+	for block := 0; block < replayTHatCount; block++ {
+		start := block * ncols
+		end := start + ncols
+		if end > len(pNTT.Coeffs[0]) {
+			return nil, fmt.Errorf("public T too short for block slice [%d,%d)", start, end)
+		}
+		out[block] = append([]uint64(nil), pNTT.Coeffs[0][start:end]...)
 	}
 	return out, nil
 }
@@ -161,13 +305,9 @@ func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 	}
 	cfg := layout.CoeffNativeSig
 	rowCount := 0
-	if cfg.PackedSigBase >= 0 {
-		if end := cfg.PackedSigBase + cfg.PackedSigCount; end > rowCount {
-			rowCount = end
-		}
-	}
-	if idx := rowLayoutPostSignSigHatBase(layout); idx >= 0 && layout.SigBlocks > 0 && layout.SigUCount > 0 {
-		if end := idx + layout.SigBlocks*layout.SigUCount; end > rowCount {
+	componentCount := cfg.SigComponentCount
+	if idx := rowLayoutPostSignSigHatBase(layout); idx >= 0 && layout.SigBlocks > 0 && componentCount > 0 {
+		if end := idx + layout.SigBlocks*componentCount; end > rowCount {
 			rowCount = end
 		}
 	}
@@ -177,13 +317,13 @@ func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 	if idx := rowLayoutPostSignCarrierCtr(layout); idx >= 0 && idx+1 > rowCount {
 		rowCount = idx + 1
 	}
-	for _, idx := range []int{rowLayoutPostSignMHat1(layout), rowLayoutPostSignMHat2(layout), rowLayoutPostSignRHat0(layout), rowLayoutPostSignRHat1(layout)} {
+	for _, idx := range []int{rowLayoutPostSignMHatSigma(layout), rowLayoutPostSignRHat0(layout), rowLayoutPostSignRHat1(layout)} {
 		if idx >= 0 && idx+1 > rowCount {
 			rowCount = idx + 1
 		}
 	}
-	if idx := rowLayoutPostSignTHatBase(layout); idx >= 0 && layout.SigBlocks > 0 {
-		if end := idx + layout.SigBlocks; end > rowCount {
+	if idx := rowLayoutPostSignTHatBase(layout); idx >= 0 && rowLayoutReplayTHatCount(layout) > 0 {
+		if end := idx + rowLayoutReplayTHatCount(layout); end > rowCount {
 			rowCount = end
 		}
 	}
@@ -266,7 +406,6 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed witness: %w", err)
 	}
-	packedSigBase, packedSigCount := -1, 0
 	if model != CoeffNativeSigModelLiteralPackedAggregatedV3 {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("unsupported literal packed coeff-native model %q", model)
 	}
@@ -274,36 +413,13 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native packed ncols=%d want %d", cn.PackedNCols, ncols)
 	}
 
-	packedSigBase = len(rows)
-	for block := 0; block < blocks; block++ {
-		for comp := 0; comp < len(packedWitness.Sig); comp++ {
-			coeff := ringQ.NewPoly()
-			ringQ.InvNTT(packedWitness.Sig[comp][block], coeff)
-			rows = append(rows, coeff)
-		}
+	spec, serr := signatureChainSpecForOpts(ringQ.Modulus[0], opts)
+	if serr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature chain spec: %w", serr)
 	}
-	packedSigCount = blocks * len(cn.Sig)
-
-	// Transform-domain signature alias rows Ŝ (one per block/component).
-	sigHatBase := len(rows)
-	sigEvalNTT := make([]*ring.Poly, len(cn.Sig))
-	for comp := range cn.Sig {
-		sigEvalNTT[comp] = ringQ.NewPoly()
-		ring.Copy(cn.Sig[comp], sigEvalNTT[comp])
-		ringQ.NTT(sigEvalNTT[comp], sigEvalNTT[comp])
+	if !signatureSpecNoWrapOK(spec) {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature chain spec violates no-wrap bound: maxAbs=%d q=%d", spec.MaxAbs, spec.Q)
 	}
-	sigHatHeads := make([][][]uint64, blocks)
-	for block := 0; block < blocks; block++ {
-		sigHatHeads[block] = make([][]uint64, len(cn.Sig))
-		start := block * ncols
-		end := start + ncols
-		for comp := 0; comp < len(cn.Sig); comp++ {
-			head := append([]uint64(nil), sigEvalNTT[comp].Coeffs[0][start:end]...)
-			sigHatHeads[block][comp] = head
-			rows = append(rows, makeRowFromHead(head))
-		}
-	}
-
 	nttHead := func(src *ring.Poly) ([]uint64, error) {
 		if src == nil {
 			return nil, fmt.Errorf("nil NTT source row")
@@ -388,7 +504,7 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	for col := 0; col < ncols; col++ {
 		m1 := centeredLift(m1Head[col], q)
 		m2 := centeredLift(m2Head[col], q)
-		code, err := encodeCarrierPair(m1, m2, pub.BoundB)
+		code, err := encodePackedMessageCarrier(m1, m2, pub.BoundB)
 		if err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("encode carrier M col=%d: %w", col, err)
 		}
@@ -406,66 +522,59 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	idxCarrierCtr := len(rows)
 	rows = append(rows, makeRowFromHead(carrierCtrHead))
 
-	idxMHat1 := len(rows)
-	m1HatHead, berr := nttHead(cn.M1)
-	if berr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M1 hat: %w", berr)
+	msgDecode1, msgDecode2, derr := buildPackedMessageCarrierDecodePolys(pub.BoundB, q)
+	if derr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("message carrier decode polys: %w", derr)
 	}
-	rows = append(rows, makeRowFromHead(m1HatHead))
-	idxMHat2 := len(rows)
-	m2HatHead, berr := nttHead(cn.M2)
-	if berr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M2 hat: %w", berr)
+	ctrDecode1, ctrDecode2, derr := buildCarrierDecodePolys(pub.BoundB, q)
+	if derr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("carrier decode polys: %w", derr)
 	}
-	rows = append(rows, makeRowFromHead(m2HatHead))
+	headAsCoeffPoly := func(head []uint64) *ring.Poly {
+		p := ringQ.NewPoly()
+		copy(p.Coeffs[0], head)
+		return p
+	}
+	m1CanonHead := make([]uint64, ncols)
+	m2CanonHead := make([]uint64, ncols)
+	r0CanonHead := make([]uint64, ncols)
+	r1CanonHead := make([]uint64, ncols)
+	mSigmaCanonHead := make([]uint64, ncols)
+	for col := 0; col < ncols; col++ {
+		m1CanonHead[col] = EvalPoly(msgDecode1, carrierMHead[col], q) % q
+		m2CanonHead[col] = EvalPoly(msgDecode2, carrierMHead[col], q) % q
+		r0CanonHead[col] = EvalPoly(ctrDecode1, carrierCtrHead[col], q) % q
+		r1CanonHead[col] = EvalPoly(ctrDecode2, carrierCtrHead[col], q) % q
+		mSigmaCanonHead[col] = modAdd(m1CanonHead[col], m2CanonHead[col], q)
+	}
+
+	idxMHatSigma := len(rows)
+	mSigmaHatHead, berr := nttHead(headAsCoeffPoly(mSigmaCanonHead))
+	if berr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M sigma hat: %w", berr)
+	}
+	rows = append(rows, makeRowFromHead(mSigmaHatHead))
 	idxRHat0 := len(rows)
-	r0HatHead, berr := nttHead(cn.R0)
+	r0HatHead, berr := nttHead(headAsCoeffPoly(r0CanonHead))
 	if berr != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R0 hat: %w", berr)
 	}
 	rows = append(rows, makeRowFromHead(r0HatHead))
 	idxRHat1 := len(rows)
-	r1HatHead, berr := nttHead(cn.R1)
+	r1HatHead, berr := nttHead(headAsCoeffPoly(r1CanonHead))
 	if berr != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R1 hat: %w", berr)
 	}
 	rows = append(rows, makeRowFromHead(r1HatHead))
 
+	replayTHatCount := 1
 	idxTHatBase := len(rows)
-	if opts.DomainMode == DomainModeExplicit {
-		if len(pub.A) == 0 || len(pub.A[0]) == 0 {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("explicit T-hat requires non-empty A")
-		}
-		if len(pub.A) != 1 {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("explicit T-hat expects single-row A, got %d", len(pub.A))
-		}
-		if sigHatHeads == nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("explicit T-hat requires sig hat heads")
-		}
-		q := ringQ.Modulus[0]
-		for block := 0; block < blocks; block++ {
-			tHead := make([]uint64, ncols)
-			for comp := 0; comp < len(cn.Sig); comp++ {
-				aHead, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], explicitOmega, block, blocks)
-				if err != nil {
-					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("theta A head block %d comp %d: %w", block, comp, err)
-				}
-				for k := 0; k < ncols; k++ {
-					tHead[k] = modAdd(tHead[k], modMul(aHead[k]%q, sigHatHeads[block][comp][k]%q, q), q)
-				}
-			}
-			rows = append(rows, makeRowFromHead(tHead))
-		}
-	} else {
-		tNTT := ringQ.NewPoly()
-		ring.Copy(cn.T, tNTT)
-		ringQ.NTT(tNTT, tNTT)
-		for block := 0; block < blocks; block++ {
-			start := block * ncols
-			end := start + ncols
-			head := append([]uint64(nil), tNTT.Coeffs[0][start:end]...)
-			rows = append(rows, makeRowFromHead(head))
-		}
+	tHatHeads, terr := buildTHatHeadsFromPublicT(ringQ, pub.T, ncols, replayTHatCount)
+	if terr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build public T-hat heads: %w", terr)
+	}
+	for block := 0; block < replayTHatCount; block++ {
+		rows = append(rows, makeRowFromHead(tHatHeads[block]))
 	}
 
 	packedSigChainBase := -1
@@ -473,13 +582,6 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	packedSigChainGroupSize := 0
 	packedSigChainRowsPerGroup := 0
 	sigSignedChain := false
-	spec, serr := signatureChainSpecForOpts(ringQ.Modulus[0], opts)
-	if serr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature chain spec: %w", serr)
-	}
-	if !signatureSpecNoWrapOK(spec) {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature chain spec violates no-wrap bound: maxAbs=%d q=%d", spec.MaxAbs, spec.Q)
-	}
 	packedSigChainBase = len(rows)
 	for block := 0; block < blocks; block++ {
 		for comp := 0; comp < len(packedWitness.SigLimbs); comp++ {
@@ -528,18 +630,17 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.IdxK1 = -1
 	layout.IdxCarrierM = idxCarrierM
 	layout.IdxCarrierCtr = idxCarrierCtr
-	layout.IdxSigHatBase = sigHatBase
+	layout.IdxSigHatBase = -1
 	layout.SigHatExtraBase = -1
-	if blocks > 1 {
-		layout.SigHatExtraBase = sigHatBase + len(cn.Sig)
-	}
 	layout.IdxTHatBase = idxTHatBase
-	layout.IdxMHat1 = idxMHat1
-	layout.IdxMHat2 = idxMHat2
+	layout.ReplayTHatCount = replayTHatCount
+	layout.IdxMHatSigma = idxMHatSigma
+	layout.IdxMHat1 = -1
+	layout.IdxMHat2 = -1
 	layout.IdxRHat0 = idxRHat0
 	layout.IdxRHat1 = idxRHat1
 	layout.SigBlocks = blocks
-	layout.SigUCount = len(cn.Sig)
+	layout.SigUCount = 0
 	layout.SigCoeffBase = -1
 	layout.ChainBase = -1
 	layout.ChainRowsPerSig = 0
@@ -575,18 +676,18 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.CoeffNativeSig = CoeffNativeSigLayout{
 		Enabled:             true,
 		Model:               model,
-		SigBase:             packedSigBase,
-		SigCount:            packedSigCount,
+		SigBase:             -1,
+		SigCount:            0,
 		SigBlocks:           blocks,
-		SigUCount:           len(cn.Sig),
+		SigUCount:           0,
 		SigComponentCount:   len(cn.Sig),
 		SigCoeffCount:       int(ringQ.N),
 		OutputBlocks:        blocks,
 		OutputBlockWidth:    ncols,
-		W1SigBase:           packedSigBase,
-		W1SigCount:          packedSigCount,
-		PackedSigBase:       packedSigBase,
-		PackedSigCount:      packedSigCount,
+		W1SigBase:           -1,
+		W1SigCount:          0,
+		PackedSigBase:       -1,
+		PackedSigCount:      0,
 		PackedSigBlocks:     blocks,
 		PackedSigComponents: len(cn.Sig),
 		PackedSigBlockWidth: ncols,
@@ -720,15 +821,8 @@ func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, 
 		if layout.PackedSigChainGroupCount != wantGroupCount {
 			return ConstraintSet{}, fmt.Errorf("signature shortness group count=%d want %d", layout.PackedSigChainGroupCount, wantGroupCount)
 		}
-		if cfg.PackedSigBase+cfg.PackedSigCount > len(rowsNTT) {
-			return ConstraintSet{}, fmt.Errorf("packed signature source rows [%d,%d) out of range (rows=%d)", cfg.PackedSigBase, cfg.PackedSigBase+cfg.PackedSigCount, len(rowsNTT))
-		}
 		if layout.PackedSigChainBase+layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup > len(rowsNTT) {
 			return ConstraintSet{}, fmt.Errorf("signature shortness rows [%d,%d) out of range (rows=%d)", layout.PackedSigChainBase, layout.PackedSigChainBase+layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup, len(rowsNTT))
-		}
-		packedSourceRows := make([]*ring.Poly, layout.PackedSigChainGroupCount)
-		for g := 0; g < layout.PackedSigChainGroupCount; g++ {
-			packedSourceRows[g] = rowsNTT[cfg.PackedSigBase+g]
 		}
 		packedRows := make([][]*ring.Poly, layout.PackedSigChainGroupCount)
 		for g := 0; g < layout.PackedSigChainGroupCount; g++ {
@@ -737,7 +831,21 @@ func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, 
 				packedRows[g][i] = rowsNTT[layout.PackedSigChainBase+g*layout.PackedSigChainRowsPerGroup+i]
 			}
 		}
-		chainPolys, chainCoeffs, err := buildSigShortnessPackedMembershipFormalCoeffs(ringQ, packedSourceRows, packedRows, specSig)
+		var chainPolys []*ring.Poly
+		var chainCoeffs [][]uint64
+		var err error
+		if cfg.PackedSigCount > 0 && cfg.PackedSigBase >= 0 {
+			if cfg.PackedSigBase+cfg.PackedSigCount > len(rowsNTT) {
+				return ConstraintSet{}, fmt.Errorf("packed signature source rows [%d,%d) out of range (rows=%d)", cfg.PackedSigBase, cfg.PackedSigBase+cfg.PackedSigCount, len(rowsNTT))
+			}
+			packedSourceRows := make([]*ring.Poly, layout.PackedSigChainGroupCount)
+			for g := 0; g < layout.PackedSigChainGroupCount; g++ {
+				packedSourceRows[g] = rowsNTT[cfg.PackedSigBase+g]
+			}
+			chainPolys, chainCoeffs, err = buildSigShortnessPackedMembershipFormalCoeffs(ringQ, packedSourceRows, packedRows, specSig)
+		} else {
+			chainPolys, chainCoeffs, err = buildSigShortnessPackedMembershipFormalCoeffs(ringQ, nil, packedRows, specSig)
+		}
 		if err != nil {
 			return ConstraintSet{}, fmt.Errorf("literal packed signature shortness: %w", err)
 		}

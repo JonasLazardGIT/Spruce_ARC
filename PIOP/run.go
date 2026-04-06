@@ -59,15 +59,24 @@ func showingPresetLVCSNCols(preset string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
 		return 96
-	case ShowingPresetProductionBalance:
-		return 28
+	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
+		return 32
 	default:
-		return 128
+		return 32
 	}
 }
 
 func showingPresetSigShortnessProfile(preset string) string {
-	return SigShortnessProfileR11L4Production
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetSoundnessBalanced:
+		return SigShortnessProfileR11L4Production
+	case ShowingPresetTranscriptFirst:
+		return SigShortnessProfileR11L4Production
+	case ShowingPresetProductionBalance:
+		return SigShortnessProfileR11L4Production
+	default:
+		return SigShortnessProfileR11L4Production
+	}
 }
 
 func showingPresetTheta(preset string) int {
@@ -123,48 +132,52 @@ func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
 	}
 	resolved := opts
 	resolved.applyDefaults()
-	switch {
-	case resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
-		resolved.LVCSNCols == 96 &&
-		resolved.PostSignLVCSNCols == 96 &&
-		resolved.PRFLVCSNCols == 96 &&
-		resolved.Theta == 3 &&
-		resolved.Rho == 2 &&
-		resolved.EllPrime == 2 &&
-		resolved.Eta == 43 &&
-		resolved.NLeaves == 4096 &&
-		resolved.PostSignNLeaves == 4096 &&
-		resolved.PRFNLeaves == 4096 &&
-		resolved.Kappa == [4]int{0, 0, 0, 5}:
-		return ShowingPresetSoundnessBalanced
-	case resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
-		resolved.LVCSNCols == 128 &&
-		resolved.PostSignLVCSNCols == 128 &&
-		resolved.PRFLVCSNCols == 128 &&
-		resolved.Theta == 6 &&
-		resolved.Rho == 2 &&
-		resolved.EllPrime == 2 &&
-		resolved.Eta == 31 &&
-		resolved.NLeaves == 2048 &&
-		resolved.PostSignNLeaves == 2048 &&
-		resolved.PRFNLeaves == 2048 &&
-		resolved.Kappa == [4]int{}:
-		return ShowingPresetTranscriptFirst
-	case resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
-		resolved.LVCSNCols == 28 &&
-		resolved.PostSignLVCSNCols == 28 &&
-		resolved.PRFLVCSNCols == 28 &&
-		resolved.Theta == 6 &&
-		resolved.Rho == 2 &&
-		resolved.EllPrime == 2 &&
-		resolved.Eta == 31 &&
-		resolved.NLeaves == 2048 &&
-		resolved.PostSignNLeaves == 2048 &&
-		resolved.PRFNLeaves == 2048 &&
-		resolved.Kappa == [4]int{}:
-		return ShowingPresetProductionBalance
+	requested := normalizeShowingPreset(opts.ShowingPreset)
+	if requested != "" && requested != ShowingPresetCustom && showingOptsMatchPreset(resolved, requested) {
+		return requested
+	}
+	for _, preset := range []string{
+		ShowingPresetSoundnessBalanced,
+		ShowingPresetTranscriptFirst,
+		ShowingPresetProductionBalance,
+	} {
+		if showingOptsMatchPreset(resolved, preset) {
+			return preset
+		}
+	}
+	return ShowingPresetCustom
+}
+
+func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetSoundnessBalanced:
+		return resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
+			resolved.LVCSNCols == 96 &&
+			resolved.PostSignLVCSNCols == 96 &&
+			resolved.PRFLVCSNCols == 96 &&
+			resolved.Theta == 3 &&
+			resolved.Rho == 2 &&
+			resolved.EllPrime == 2 &&
+			resolved.Eta == 43 &&
+			resolved.NLeaves == 4096 &&
+			resolved.PostSignNLeaves == 4096 &&
+			resolved.PRFNLeaves == 4096 &&
+			resolved.Kappa == [4]int{0, 0, 0, 5}
+	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
+		return resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
+			resolved.LVCSNCols == 32 &&
+			resolved.PostSignLVCSNCols == 32 &&
+			resolved.PRFLVCSNCols == 32 &&
+			resolved.Theta == 6 &&
+			resolved.Rho == 2 &&
+			resolved.EllPrime == 2 &&
+			resolved.Eta == 31 &&
+			resolved.NLeaves == 2048 &&
+			resolved.PostSignNLeaves == 2048 &&
+			resolved.PRFNLeaves == 2048 &&
+			resolved.Kappa == [4]int{}
 	default:
-		return ShowingPresetCustom
+		return false
 	}
 }
 
@@ -462,10 +475,15 @@ type RowLayout struct {
 	IdxK0              int
 	IdxK1              int
 	IdxCarrierM        int
+	IdxCarrierPreRU    int
+	IdxCarrierPreR     int
 	IdxCarrierCtr      int
+	IdxCarrierK        int
 	IdxSigHatBase      int
 	SigHatExtraBase    int
 	IdxTHatBase        int
+	ReplayTHatCount    int
+	IdxMHatSigma       int
 	IdxMHat1           int
 	IdxMHat2           int
 	IdxRHat0           int

@@ -92,7 +92,7 @@ func ExtractSignedPRFKeyScalarsFromCarrier(ringQ *ring.Ring, carrier *ring.Poly,
 	out := make([]int64, lenKey)
 	for i := 0; i < lenKey; i++ {
 		code := carrierNTT.Coeffs[0][half+i] % ringQ.Modulus[0]
-		_, m2, err := decodeCarrierPair(code, bound)
+		_, m2, err := decodePackedMessageCarrier(code, bound)
 		if err != nil {
 			return nil, fmt.Errorf("carrier decode col=%d: %w", half+i, err)
 		}
@@ -132,7 +132,7 @@ func ExtractSignedPRFKeyScalarsFromCarrierOnOmega(ringQ *ring.Ring, carrier *rin
 	q := ringQ.Modulus[0]
 	for i := 0; i < lenKey; i++ {
 		code := head[half+i] % q
-		_, m2, err := decodeCarrierPair(code, bound)
+		_, m2, err := decodePackedMessageCarrier(code, bound)
 		if err != nil {
 			return nil, fmt.Errorf("carrier decode col=%d: %w", half+i, err)
 		}

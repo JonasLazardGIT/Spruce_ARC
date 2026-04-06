@@ -66,6 +66,12 @@ At a high level:
 In the current code, `T` is public in the issuance proof. That keeps the
 pre-sign statement structurally simpler than the post-sign statement.
 
+The pre-sign proof now commits only carrier rows and decodes the logical
+message/randomness rows virtually. Concretely, issuance commits carrier rows
+`C^M`, `C^preRU`, `C^preR`, `C^ctr`, and `C^K`, then derives
+`M1/M2/RU0/RU1/R/R0/R1/K0/K1` from fixed decode polynomials during constraint
+evaluation. Carrier membership constraints replace the old bound-chain gadget.
+
 The implementation entrypoints are:
 
 - `issuance.PrepareCommit`

@@ -9,8 +9,10 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-// buildCredentialRows maps credential witnesses into the row order used by pre-sign and showing.
-func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts) (rows []*ring.Poly, rowInputs []lvcs.RowInput, layout RowLayout, decsParams decs.Params, maskRowOffset, maskRowCount, witnessCount, ncols int, err error) {
+// buildCredentialRows maps credential witnesses into the pre-sign row order.
+// The retained pre-sign layout commits carriers, decoded aliases, and the
+// minimal replay-facing transform aliases for the public-target hash.
+func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts, bound int64) (rows []*ring.Poly, rowInputs []lvcs.RowInput, layout RowLayout, decsParams decs.Params, maskRowOffset, maskRowCount, witnessCount, ncols int, err error) {
 	if ringQ == nil {
 		err = fmt.Errorf("nil ring")
 		return
@@ -20,6 +22,10 @@ func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts) (row
 		opts.NCols = int(ringQ.N)
 	}
 	ncols = opts.NCols
+	if bound <= 0 {
+		err = fmt.Errorf("invalid bound %d for carrier encoding", bound)
+		return
+	}
 
 	require := func(vec []*ring.Poly, name string) error {
 		if len(vec) == 0 {
@@ -55,39 +61,7 @@ func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts) (row
 		return
 	}
 
-	rows = []*ring.Poly{
-		wit.M1[0],
-		wit.M2[0],
-		wit.RU0[0],
-		wit.RU1[0],
-		wit.R[0],
-		wit.R0[0],
-		wit.R1[0],
-		wit.K0[0],
-		wit.K1[0],
-	}
-	// Some pre-sign callers still provide T as an internal witness row.
-	if len(wit.T) > 0 {
-		tPoly := ringQ.NewPoly()
-		if len(wit.T) > len(tPoly.Coeffs[0]) {
-			err = fmt.Errorf("t length %d exceeds ring dimension %d", len(wit.T), len(tPoly.Coeffs[0]))
-			return
-		}
-		q := int64(ringQ.Modulus[0])
-		for i := range wit.T {
-			v := wit.T[i] % q
-			if v < 0 {
-				v += q
-			}
-			tPoly.Coeffs[0][i] = uint64(v)
-		}
-		rows = append(rows, tPoly)
-	}
-
-	if len(wit.U) > 0 {
-		rows = append(rows, wit.U...)
-	}
-
+	var explicitOmega []uint64
 	if opts.DomainMode == DomainModeExplicit {
 		pcsNCols := resolvePCSNCols(opts, ncols)
 		omegaWitness, omegaErr := deriveExplicitWitnessOmega(ringQ.Modulus[0], opts.NLeaves, ncols, pcsNCols, opts.Ell)
@@ -95,7 +69,54 @@ func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts) (row
 			err = fmt.Errorf("derive explicit witness omega: %w", omegaErr)
 			return
 		}
-		rowInputs, err = buildRowInputsExplicit(ringQ, rows, omegaWitness, ncols)
+		explicitOmega = omegaWitness
+	}
+
+	omegaForSurface := explicitOmega
+	if opts.DomainMode != DomainModeExplicit {
+		omegaForSurface = make([]uint64, ncols)
+	}
+	surface, derr := DerivePreSignCarrierAndAliasRows(ringQ, bound, omegaForSurface, opts.DomainMode, PreSignRawRows{
+		M1:  wit.M1[0],
+		M2:  wit.M2[0],
+		RU0: wit.RU0[0],
+		RU1: wit.RU1[0],
+		R:   wit.R[0],
+		R0:  wit.R0[0],
+		R1:  wit.R1[0],
+		K0:  wit.K0[0],
+		K1:  wit.K1[0],
+	})
+	if derr != nil {
+		return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, derr
+	}
+	transformSurface, terr := DerivePreSignTransformAliases(ringQ, omegaForSurface, opts.DomainMode, surface)
+	if terr != nil {
+		return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, terr
+	}
+	rows = []*ring.Poly{
+		surface.CarrierRows[PreSignCarrierM],
+		surface.CarrierRows[PreSignCarrierPreRU],
+		surface.CarrierRows[PreSignCarrierPreR],
+		surface.CarrierRows[PreSignCarrierCtr],
+		surface.CarrierRows[PreSignCarrierK],
+		surface.AliasRows[PreSignAliasM1],
+		surface.AliasRows[PreSignAliasM2],
+		surface.AliasRows[PreSignAliasRU0],
+		surface.AliasRows[PreSignAliasRU1],
+		surface.AliasRows[PreSignAliasR],
+		surface.AliasRows[PreSignAliasR0],
+		surface.AliasRows[PreSignAliasR1],
+		surface.AliasRows[PreSignAliasK0],
+		surface.AliasRows[PreSignAliasK1],
+		transformSurface.Rows[PreSignTransformAliasMHat1],
+		transformSurface.Rows[PreSignTransformAliasMHat2],
+		transformSurface.Rows[PreSignTransformAliasRHat0],
+		transformSurface.Rows[PreSignTransformAliasRHat1],
+	}
+
+	if opts.DomainMode == DomainModeExplicit {
+		rowInputs, err = buildRowInputsExplicit(ringQ, rows, explicitOmega, ncols)
 		if err != nil {
 			return
 		}
@@ -123,30 +144,33 @@ func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts) (row
 
 	// Layout: we only set counts; range/chain bases unused for credential mode.
 	witnessCount = len(rows)
-	hasBaseIdx := len(rows) >= 9
+	hasBaseIdx := true
 	layout = RowLayout{
 		SigCount:           witnessCount,
 		MsgCount:           0,
 		RndCount:           0,
 		HasExplicitBaseIdx: hasBaseIdx,
-		IdxM1:              0,
-		IdxM2:              1,
-		IdxRU0:             2,
-		IdxRU1:             3,
-		IdxR:               4,
-		IdxR0:              5,
-		IdxR1:              6,
-		IdxK0:              7,
-		IdxK1:              8,
-		IdxCarrierM:        -1,
-		IdxCarrierCtr:      -1,
+		IdxM1:              5,
+		IdxM2:              6,
+		IdxRU0:             7,
+		IdxRU1:             8,
+		IdxR:               9,
+		IdxR0:              10,
+		IdxR1:              11,
+		IdxK0:              12,
+		IdxK1:              13,
+		IdxMHat1:           14,
+		IdxMHat2:           15,
+		IdxRHat0:           16,
+		IdxRHat1:           17,
+		IdxCarrierM:        0,
+		IdxCarrierPreRU:    1,
+		IdxCarrierPreR:     2,
+		IdxCarrierCtr:      3,
+		IdxCarrierK:        4,
 		IdxSigHatBase:      -1,
 		SigHatExtraBase:    -1,
 		IdxTHatBase:        -1,
-		IdxMHat1:           -1,
-		IdxMHat2:           -1,
-		IdxRHat0:           -1,
-		IdxRHat1:           -1,
 		NonSigBlocks:       nonSigBlocks,
 		MsgCompCount:       msgCompCount,
 		MsgExtraNTTBase:    msgExtraNTTBase,

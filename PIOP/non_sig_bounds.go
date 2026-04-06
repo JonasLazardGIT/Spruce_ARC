@@ -1,12 +1,12 @@
 package PIOP
 
 func preSignBoundRowIndices(layout RowLayout) []int {
-	// BoundB is enforced on the inner pre-sign fixture rows:
-	//   M1,M2,RU0,RU1,R,R0,R1
+	// BoundB is enforced via carrier membership on the pre-sign carrier rows:
+	//   C^M, C^preRU, C^preR, C^ctr
 	return rowLayoutPreSignBoundRows(layout)
 }
 
 func preSignCarryRowIndices(layout RowLayout) []int {
-	// Carry rows (K0,K1) remain bounded separately in pre-sign.
+	// Carry rows are encoded in the pre-sign K carrier.
 	return rowLayoutPreSignCarryRows(layout)
 }

@@ -944,6 +944,52 @@ func polyMul(a, b []uint64, q uint64) []uint64 {
 	return out
 }
 
+func polyAdd(a, b []uint64, q uint64) []uint64 {
+	n := len(a)
+	if len(b) > n {
+		n = len(b)
+	}
+	if n == 0 {
+		return []uint64{0}
+	}
+	out := make([]uint64, n)
+	for i := 0; i < n; i++ {
+		av := uint64(0)
+		if i < len(a) {
+			av = a[i] % q
+		}
+		bv := uint64(0)
+		if i < len(b) {
+			bv = b[i] % q
+		}
+		out[i] = modAdd(av, bv, q)
+	}
+	return trimPoly(out, q)
+}
+
+func polySub(a, b []uint64, q uint64) []uint64 {
+	n := len(a)
+	if len(b) > n {
+		n = len(b)
+	}
+	if n == 0 {
+		return []uint64{0}
+	}
+	out := make([]uint64, n)
+	for i := 0; i < n; i++ {
+		av := uint64(0)
+		if i < len(a) {
+			av = a[i] % q
+		}
+		bv := uint64(0)
+		if i < len(b) {
+			bv = b[i] % q
+		}
+		out[i] = modSub(av, bv, q)
+	}
+	return trimPoly(out, q)
+}
+
 // scalePoly returns c·p  (mod q).
 func scalePoly(p []uint64, c, q uint64) []uint64 {
 	if c >= q {

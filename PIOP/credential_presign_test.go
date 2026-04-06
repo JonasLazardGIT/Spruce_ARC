@@ -18,47 +18,41 @@ import (
 
 func samplePackedHalfEvalPreSignTest(r *ring.Ring, bound int64, omega []uint64, rng *rand.Rand, lower bool) *ring.Poly {
 	ncols := len(omega)
-	head := make([]uint64, ncols)
 	mod := int64(2*bound + 1)
 	q := int64(r.Modulus[0])
+	p := r.NewPoly()
 	for i := 0; i < ncols; i++ {
 		v := rng.Int63n(mod) - bound
 		if v < 0 {
 			v += q
 		}
-		head[i] = uint64(v)
+		p.Coeffs[0][i] = uint64(v)
 	}
 	half := ncols / 2
 	if lower {
 		for i := half; i < ncols; i++ {
-			head[i] = 0
+			p.Coeffs[0][i] = 0
 		}
 	} else {
 		for i := 0; i < half; i++ {
-			head[i] = 0
+			p.Coeffs[0][i] = 0
 		}
 	}
-	pNTT := BuildThetaPrime(r, head, omega)
-	p := r.NewPoly()
-	r.InvNTT(pNTT, p)
 	return p
 }
 
 func sampleBoundedEvalPreSignTest(r *ring.Ring, bound int64, omega []uint64, rng *rand.Rand) *ring.Poly {
 	ncols := len(omega)
-	head := make([]uint64, ncols)
 	mod := int64(2*bound + 1)
 	q := int64(r.Modulus[0])
+	p := r.NewPoly()
 	for i := 0; i < ncols; i++ {
 		v := rng.Int63n(mod) - bound
 		if v < 0 {
 			v += q
 		}
-		head[i] = uint64(v)
+		p.Coeffs[0][i] = uint64(v)
 	}
-	pNTT := BuildThetaPrime(r, head, omega)
-	p := r.NewPoly()
-	r.InvNTT(pNTT, p)
 	return p
 }
 
@@ -138,13 +132,29 @@ func prepareCommitPreSignTest(r *ring.Ring, Ac [][]*ring.Poly, in WitnessInputs,
 	}
 	ncols := len(omega)
 	q := r.Modulus[0]
-	vec := make([][]uint64, 0, 5)
-	for _, src := range [][]*ring.Poly{in.M1, in.M2, in.RU0, in.RU1, in.R} {
-		head, err := rowHeadOnOmega(r, omega, src[0], ncols)
-		if err != nil {
-			return nil, err
+	surface, err := DerivePreSignCarrierAndAliasRows(r, 1, omega, DomainModeExplicit, PreSignRawRows{
+		M1:  in.M1[0],
+		M2:  in.M2[0],
+		RU0: in.RU0[0],
+		RU1: in.RU1[0],
+		R:   in.R[0],
+	})
+	if err != nil {
+		return nil, err
+	}
+	headFromCoeffs := func(coeffs []uint64) []uint64 {
+		head := make([]uint64, ncols)
+		for i, w := range omega {
+			head[i] = EvalPoly(coeffs, w%q, q)
 		}
-		vec = append(vec, head)
+		return head
+	}
+	vec := [][]uint64{
+		headFromCoeffs(surface.AliasCoeffs[PreSignAliasM1]),
+		headFromCoeffs(surface.AliasCoeffs[PreSignAliasM2]),
+		headFromCoeffs(surface.AliasCoeffs[PreSignAliasRU0]),
+		headFromCoeffs(surface.AliasCoeffs[PreSignAliasRU1]),
+		headFromCoeffs(surface.AliasCoeffs[PreSignAliasR]),
 	}
 	com := make([]*ring.Poly, len(Ac))
 	for i := range Ac {
@@ -197,7 +207,7 @@ func modInverseUint64PreSignTest(x, q uint64) (uint64, bool) {
 		return 0, false
 	}
 	var t, newT int64 = 0, 1
-	var r0, newR int64 = int64(q), int64(x%q)
+	var r0, newR int64 = int64(q), int64(x % q)
 	for newR != 0 {
 		quot := r0 / newR
 		t, newT = newT, t-quot*newT
@@ -217,20 +227,6 @@ func applyChallengePreSignTest(p *credential.Params, in WitnessInputs, ch preSig
 	bound := p.BoundB
 	q := int64(r.Modulus[0])
 	delta := int64(2*bound + 1)
-	headFromCoeff := func(p *ring.Poly, ncols int) []uint64 {
-		coeff := append([]uint64(nil), p.Coeffs[0]...)
-		head := make([]uint64, ncols)
-		for i := 0; i < ncols; i++ {
-			head[i] = EvalPoly(coeff, omega[i], uint64(q))
-		}
-		return head
-	}
-	coeffFromHead := func(head []uint64) *ring.Poly {
-		pNTT := BuildThetaPrime(r, head, omega)
-		out := r.NewPoly()
-		r.InvNTT(pNTT, out)
-		return out
-	}
 	centered := func(v uint64) int64 {
 		x := int64(v % uint64(q))
 		if x > q/2 {
@@ -238,61 +234,63 @@ func applyChallengePreSignTest(p *credential.Params, in WitnessInputs, ch preSig
 		}
 		return x
 	}
-	sumCarry := func(ruHead, riHead []uint64) (*ring.Poly, *ring.Poly) {
-		rHead := make([]uint64, len(ruHead))
-		kHead := make([]uint64, len(ruHead))
-		for i := range ruHead {
-			ruCoeff := centered(ruHead[i])
-			riCoeff := centered(riHead[i])
+	sumCarry := func(ruPoly, riPoly *ring.Poly, ncols int) (*ring.Poly, *ring.Poly) {
+		rPoly := r.NewPoly()
+		kPoly := r.NewPoly()
+		for i := 0; i < ncols; i++ {
+			ruCoeff := centered(ruPoly.Coeffs[0][i])
+			riCoeff := centered(riPoly.Coeffs[0][i])
 			c := credential.CenterBounded(ruCoeff+riCoeff, bound)
 			k := (ruCoeff + riCoeff - c) / delta
 			if c < 0 {
-				rHead[i] = uint64(c + q)
+				rPoly.Coeffs[0][i] = uint64(c + q)
 			} else {
-				rHead[i] = uint64(c)
+				rPoly.Coeffs[0][i] = uint64(c)
 			}
 			if k < 0 {
-				kHead[i] = uint64(k + q)
+				kPoly.Coeffs[0][i] = uint64(k + q)
 			} else {
-				kHead[i] = uint64(k)
+				kPoly.Coeffs[0][i] = uint64(k)
 			}
 		}
-		return coeffFromHead(rHead), coeffFromHead(kHead)
+		return rPoly, kPoly
 	}
-	ru0Head := headFromCoeff(in.RU0[0], 16)
-	ru1Head := headFromCoeff(in.RU1[0], 16)
-	r0, k0 := sumCarry(ru0Head, ch.RI0[0].Coeffs[0][:16])
-	r1, k1 := sumCarry(ru1Head, ch.RI1[0].Coeffs[0][:16])
+	ncols := len(omega)
+	r0, k0 := sumCarry(in.RU0[0], ch.RI0[0], ncols)
+	r1, k1 := sumCarry(in.RU1[0], ch.RI1[0], ncols)
 
 	B, err := loadBForPreSignTest(r, p.BPath)
 	if err != nil {
 		return nil, err
 	}
-	m1Head := headFromCoeff(in.M1[0], 16)
-	m2Head := headFromCoeff(in.M2[0], 16)
-	r0Head := headFromCoeff(r0, 16)
-	r1Head := headFromCoeff(r1, 16)
-	tHead := make([]uint64, len(m1Head))
-	for i := range tHead {
-		b0 := B[0].Coeffs[0][i] % uint64(q)
-		b1 := B[1].Coeffs[0][i] % uint64(q)
-		b2 := B[2].Coeffs[0][i] % uint64(q)
-		b3 := B[3].Coeffs[0][i] % uint64(q)
-		mCombined := (m1Head[i] + m2Head[i]) % uint64(q)
-		num := b0
-		num = (num + (b1*mCombined)%uint64(q)) % uint64(q)
-		num = (num + (b2*r0Head[i])%uint64(q)) % uint64(q)
-		den := (b3 + uint64(q) - r1Head[i]%uint64(q)) % uint64(q)
-		denInv, ok := modInverseUint64PreSignTest(den, uint64(q))
-		if !ok {
-			return nil, fmt.Errorf("hash denominator not invertible at omega slot %d", i)
-		}
-		tHead[i] = (num * denInv) % uint64(q)
+	surface, err := DerivePreSignCarrierAndAliasRows(r, bound, omega, DomainModeExplicit, PreSignRawRows{
+		M1: in.M1[0],
+		M2: in.M2[0],
+		R0: r0,
+		R1: r1,
+	})
+	if err != nil {
+		return nil, err
 	}
-	tPoly := coeffFromHead(tHead)
-	tCoeff := make([]int64, r.N)
-	for i, c := range tPoly.Coeffs[0] {
-		tCoeff[i] = centered(c)
+	polyFromAliasOmega := func(coeffs []uint64) *ring.Poly {
+		head := make([]uint64, len(omega))
+		for i, w := range omega {
+			head[i] = EvalPoly(coeffs, w%uint64(q), uint64(q))
+		}
+		p := r.NewPoly()
+		copy(p.Coeffs[0], head)
+		return p
+	}
+	tCoeff, err := credential.HashMessage(
+		r,
+		B,
+		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasM1]),
+		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasM2]),
+		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasR0]),
+		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasR1]),
+	)
+	if err != nil {
+		return nil, err
 	}
 	return &preSignStateTest{
 		B:  B,
@@ -336,13 +334,13 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 		DomainMode: DomainModeExplicit,
 		NLeaves:    2048,
 	})
-	opts.LVCSNCols = opts.NCols
+	opts.LVCSNCols = 96
 	_, omega, _, err := loadParamsAndOmega(opts)
 	if err != nil {
 		t.Fatalf("load params/omega: %v", err)
 	}
 	omega = omega[:opts.NCols]
-	const bound = int64(8)
+	const bound = int64(1)
 	Ac := make([][]*ring.Poly, 5)
 	for i := range Ac {
 		Ac[i] = make([]*ring.Poly, 5)
@@ -403,9 +401,31 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 		K0:  st.K0,
 		K1:  st.K1,
 	}
-	cs, err := BuildCredentialConstraintSetPre(ringQ, params.BoundB, pub, wit, omega)
+	rows, _, layout, _, _, _, witnessCount, _, err := buildCredentialRows(ringQ, wit, opts, bound)
+	if err != nil {
+		t.Fatalf("build credential rows: %v", err)
+	}
+	if len(rows) != witnessCount+opts.Rho {
+		t.Fatalf("row count=%d want witness+rho=%d", len(rows), witnessCount+opts.Rho)
+	}
+	if witnessCount != 18 {
+		t.Fatalf("pre-sign witness rows=%d want 18", witnessCount)
+	}
+	if layout.IdxCarrierM != 0 || layout.IdxCarrierPreRU != 1 || layout.IdxCarrierPreR != 2 || layout.IdxCarrierCtr != 3 || layout.IdxCarrierK != 4 {
+		t.Fatalf("unexpected carrier layout indices: %+v", layout)
+	}
+	if layout.IdxM1 != 5 || layout.IdxM2 != 6 || layout.IdxRU0 != 7 || layout.IdxRU1 != 8 || layout.IdxR != 9 || layout.IdxR0 != 10 || layout.IdxR1 != 11 || layout.IdxK0 != 12 || layout.IdxK1 != 13 {
+		t.Fatalf("unexpected alias layout indices: %+v", layout)
+	}
+	if layout.IdxMHat1 != 14 || layout.IdxMHat2 != 15 || layout.IdxRHat0 != 16 || layout.IdxRHat1 != 17 {
+		t.Fatalf("unexpected hat layout indices: %+v", layout)
+	}
+	cs, err := BuildCredentialConstraintSetPre(ringQ, params.BoundB, pub, wit, omega, opts.DomainMode)
 	if err != nil {
 		t.Fatalf("build constraint set: %v", err)
+	}
+	if len(cs.FaggInt) != 0 || len(cs.FaggNorm) != 4*len(omega) {
+		t.Fatalf("unexpected pre-sign aggregated family counts: FaggInt=%d FaggNorm=%d want %d", len(cs.FaggInt), len(cs.FaggNorm), 4*len(omega))
 	}
 	q := ringQ.Modulus[0]
 	checkFamily := func(name string, polys []*ring.Poly) {
@@ -425,6 +445,23 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 	}
 	checkFamily("FparInt", cs.FparInt)
 	checkFamily("FparNorm", cs.FparNorm)
+	checkAggFamily := func(name string, polys []*ring.Poly) {
+		t.Helper()
+		for i, p := range polys {
+			coeffs, cerr := coeffFromNTTPoly(ringQ, p)
+			if cerr != nil {
+				t.Fatalf("%s[%d] coeffs: %v", name, i, cerr)
+			}
+			sum := uint64(0)
+			for _, x := range omega {
+				sum = modAdd(sum, EvalPoly(coeffs, x, q)%q, q)
+			}
+			if sum != 0 {
+				t.Fatalf("%s[%d] nonzero SigmaOmega sum=%d", name, i, sum)
+			}
+		}
+	}
+	checkAggFamily("FaggNorm", cs.FaggNorm)
 	totalParallel := len(cs.FparInt) + len(cs.FparNorm)
 	totalAgg := len(cs.FaggInt) + len(cs.FaggNorm)
 	gammaPrime := make([][][]uint64, opts.Rho)
@@ -486,7 +523,6 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 }
 
 func TestCredentialPreSignProofVerifies(t *testing.T) {
-	t.Skip("legacy pre-sign proof verification is out of scope for transform-bridge cleanup")
 	credentialPreSignChdir(t, credentialPreSignRepoRoot(t))
 	ringQ, err := credential.LoadDefaultRing()
 	if err != nil {
@@ -503,13 +539,13 @@ func TestCredentialPreSignProofVerifies(t *testing.T) {
 		DomainMode: DomainModeExplicit,
 		NLeaves:    2048,
 	})
-	opts.LVCSNCols = opts.NCols
+	opts.LVCSNCols = 96
 	_, omega, _, err := loadParamsAndOmega(opts)
 	if err != nil {
 		t.Fatalf("load params/omega: %v", err)
 	}
 	omega = omega[:opts.NCols]
-	const bound = int64(8)
+	const bound = int64(1)
 	Ac := make([][]*ring.Poly, 5)
 	for i := range Ac {
 		Ac[i] = make([]*ring.Poly, 5)
@@ -581,6 +617,129 @@ func TestCredentialPreSignProofVerifies(t *testing.T) {
 	}
 	if !ok {
 		t.Fatal("pre-sign proof did not verify")
+	}
+}
+
+func TestCredentialPreSignTamperedHatFails(t *testing.T) {
+	credentialPreSignChdir(t, credentialPreSignRepoRoot(t))
+	ringQ, err := credential.LoadDefaultRing()
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+	opts := ResolveSimOptsDefaults(SimOpts{
+		Credential: true,
+		Theta:      1,
+		EllPrime:   2,
+		Rho:        2,
+		NCols:      16,
+		Ell:        25,
+		Eta:        19,
+		DomainMode: DomainModeExplicit,
+		NLeaves:    2048,
+	})
+	opts.LVCSNCols = 96
+	_, omega, _, err := loadParamsAndOmega(opts)
+	if err != nil {
+		t.Fatalf("load params/omega: %v", err)
+	}
+	omega = omega[:opts.NCols]
+	const bound = int64(1)
+	Ac := make([][]*ring.Poly, 5)
+	for i := range Ac {
+		Ac[i] = make([]*ring.Poly, 5)
+		for j := range Ac[i] {
+			if i == j {
+				Ac[i][j] = constNTTPolyPreSignTest(ringQ, 1)
+			} else {
+				Ac[i][j] = ringQ.NewPoly()
+			}
+		}
+	}
+	params := &credential.Params{
+		Ac:     Ac,
+		BPath:  "Parameters/Bmatrix.json",
+		AcPath: "credential/Ac.json",
+		BoundB: bound,
+		RingQ:  ringQ,
+		LenM1:  1,
+		LenM2:  1,
+		LenRU0: 1,
+		LenRU1: 1,
+		LenR:   1,
+	}
+	rng := rand.New(rand.NewSource(9))
+	witBase := WitnessInputs{
+		M1:  []*ring.Poly{samplePackedHalfEvalPreSignTest(ringQ, bound, omega, rng, true)},
+		M2:  []*ring.Poly{samplePackedHalfEvalPreSignTest(ringQ, bound, omega, rng, false)},
+		RU0: []*ring.Poly{sampleBoundedEvalPreSignTest(ringQ, bound, omega, rng)},
+		RU1: []*ring.Poly{sampleBoundedEvalPreSignTest(ringQ, bound, omega, rng)},
+		R:   []*ring.Poly{sampleBoundedEvalPreSignTest(ringQ, bound, omega, rng)},
+	}
+	ch := sampleChallengePreSignTest(ringQ, bound, rng)
+	com, err := prepareCommitPreSignTest(ringQ, Ac, witBase, omega)
+	if err != nil {
+		t.Fatalf("prepare commit: %v", err)
+	}
+	st, err := applyChallengePreSignTest(params, witBase, ch, omega)
+	if err != nil {
+		t.Fatalf("apply challenge: %v", err)
+	}
+	pub := PublicInputs{
+		Com:    com,
+		RI0:    ch.RI0,
+		RI1:    ch.RI1,
+		Ac:     params.Ac,
+		B:      st.B,
+		T:      st.T,
+		BoundB: params.BoundB,
+	}
+	wit := WitnessInputs{
+		M1:  witBase.M1,
+		M2:  witBase.M2,
+		RU0: witBase.RU0,
+		RU1: witBase.RU1,
+		R:   witBase.R,
+		R0:  st.R0,
+		R1:  st.R1,
+		K0:  st.K0,
+		K1:  st.K1,
+	}
+	rows, _, layout, _, _, _, _, _, err := buildCredentialRows(ringQ, wit, opts, bound)
+	if err != nil {
+		t.Fatalf("build rows: %v", err)
+	}
+	if layout.IdxMHat1 < 0 {
+		t.Fatalf("missing M-hat row in layout")
+	}
+	rows[layout.IdxMHat1].Coeffs[0][0] = modAdd(rows[layout.IdxMHat1].Coeffs[0][0], 1, ringQ.Modulus[0])
+	rowsNTT := make([]*ring.Poly, len(rows))
+	for i := range rows {
+		rowsNTT[i] = ringQ.NewPoly()
+		ring.Copy(rows[i], rowsNTT[i])
+		ringQ.NTT(rowsNTT[i], rowsNTT[i])
+	}
+	cs, err := buildCredentialConstraintSetPreFromRows(ringQ, bound, pub, layout, rowsNTT, omega, opts.DomainMode)
+	if err != nil {
+		t.Fatalf("constraint set from tampered rows: %v", err)
+	}
+	q := ringQ.Modulus[0]
+	aggBroken := false
+	for i, p := range cs.FaggNorm {
+		coeffs, cerr := coeffFromNTTPoly(ringQ, p)
+		if cerr != nil {
+			t.Fatalf("FaggNorm[%d] coeffs: %v", i, cerr)
+		}
+		sum := uint64(0)
+		for _, x := range omega {
+			sum = modAdd(sum, EvalPoly(coeffs, x%q, q)%q, q)
+		}
+		if sum != 0 {
+			aggBroken = true
+			break
+		}
+	}
+	if !aggBroken {
+		t.Fatal("tampered pre-sign hat left all aggregated transform bridges satisfied")
 	}
 }
 

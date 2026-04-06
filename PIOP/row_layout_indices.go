@@ -16,31 +16,64 @@ func rowLayoutPostSignR0(layout RowLayout) int { return resolveRowLayoutIdx(layo
 func rowLayoutPostSignR1(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxR1, 6) }
 func rowLayoutPreSignK0(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxK0, 7) }
 func rowLayoutPreSignK1(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxK1, 8) }
-func rowLayoutPostSignCarrierM(layout RowLayout) int    { return resolveRowLayoutIdx(layout, layout.IdxCarrierM, -1) }
-func rowLayoutPostSignCarrierCtr(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxCarrierCtr, -1) }
-func rowLayoutPostSignSigHatBase(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxSigHatBase, -1) }
-func rowLayoutPostSignTHatBase(layout RowLayout) int    { return resolveRowLayoutIdx(layout, layout.IdxTHatBase, -1) }
-func rowLayoutPostSignMHat1(layout RowLayout) int       { return resolveRowLayoutIdx(layout, layout.IdxMHat1, -1) }
-func rowLayoutPostSignMHat2(layout RowLayout) int       { return resolveRowLayoutIdx(layout, layout.IdxMHat2, -1) }
-func rowLayoutPostSignRHat0(layout RowLayout) int       { return resolveRowLayoutIdx(layout, layout.IdxRHat0, -1) }
-func rowLayoutPostSignRHat1(layout RowLayout) int       { return resolveRowLayoutIdx(layout, layout.IdxRHat1, -1) }
+func rowLayoutPostSignCarrierM(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxCarrierM, -1)
+}
+func rowLayoutPreSignCarrierRU(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxCarrierPreRU, -1)
+}
+func rowLayoutPreSignCarrierR(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxCarrierPreR, -1)
+}
+func rowLayoutPostSignCarrierCtr(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxCarrierCtr, -1)
+}
+func rowLayoutPreSignCarrierK(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxCarrierK, -1)
+}
+func rowLayoutPostSignSigHatBase(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxSigHatBase, -1)
+}
+func rowLayoutPostSignTHatBase(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxTHatBase, -1)
+}
+func rowLayoutReplayTHatCount(layout RowLayout) int {
+	if layout.ReplayTHatCount > 0 {
+		return layout.ReplayTHatCount
+	}
+	if layout.SigBlocks > 0 {
+		return layout.SigBlocks
+	}
+	return 0
+}
+func rowLayoutPostSignMHatSigma(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxMHatSigma, -1)
+}
+func rowLayoutPostSignMHat1(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxMHat1, -1)
+}
+func rowLayoutPostSignMHat2(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxMHat2, -1)
+}
+func rowLayoutPostSignRHat0(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxRHat0, -1)
+}
+func rowLayoutPostSignRHat1(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxRHat1, -1)
+}
 
 func rowLayoutPreSignBoundRows(layout RowLayout) []int {
 	return uniqueNonNegativeIndices([]int{
-		rowLayoutPostSignM1(layout),
-		rowLayoutPostSignM2(layout),
-		rowLayoutPreSignRU0(layout),
-		rowLayoutPreSignRU1(layout),
-		rowLayoutPostSignR(layout),
-		rowLayoutPostSignR0(layout),
-		rowLayoutPostSignR1(layout),
+		rowLayoutPostSignCarrierM(layout),
+		rowLayoutPreSignCarrierRU(layout),
+		rowLayoutPreSignCarrierR(layout),
+		rowLayoutPostSignCarrierCtr(layout),
 	})
 }
 
 func rowLayoutPreSignCarryRows(layout RowLayout) []int {
 	return uniqueNonNegativeIndices([]int{
-		rowLayoutPreSignK0(layout),
-		rowLayoutPreSignK1(layout),
+		rowLayoutPreSignCarrierK(layout),
 	})
 }
 

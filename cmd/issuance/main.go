@@ -284,36 +284,9 @@ func displayBits(bits float64) float64 {
 }
 
 func printWitnessRowBreakdown(prefix string, in issuance.Inputs, st *issuance.State, maskRows int) {
-	base := 0
-	if len(in.M1) > 0 {
-		base++
-	}
-	if len(in.M2) > 0 {
-		base++
-	}
-	if len(in.RU0) > 0 {
-		base++
-	}
-	if len(in.RU1) > 0 {
-		base++
-	}
-	if len(in.R) > 0 {
-		base++
-	}
-	if st != nil {
-		if len(st.R0) > 0 {
-			base++
-		}
-		if len(st.R1) > 0 {
-			base++
-		}
-		if len(st.K0) > 0 {
-			base++
-		}
-		if len(st.K1) > 0 {
-			base++
-		}
-	}
+	_ = in
+	_ = st
+	base := 5 // C^M, C^preRU, C^preR, C^ctr, C^K
 	if base == 0 {
 		log.Printf("%sno witness rows (base=0)", prefix)
 		return

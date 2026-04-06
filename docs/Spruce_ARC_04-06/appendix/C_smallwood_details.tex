@@ -1,0 +1,254 @@
+\section{SmallWood Proof-System Details}
+\label{app:smallwood}
+
+This appendix recalls the SmallWood proof stack and provides algorithmic details used by our instantiations. The main
+text treats SmallWood as a black box; here we summarize the DECS/LVCS/PCS/PIOP layers and the Fiat--Shamir compilation,
+following \cite{EPRINT:FenRiv25b}.
+
+\newcommand{\NTT}{\mathrm{NTT}}
+
+\subsection{Domains and packing}
+Fix a base field \(\Fq\), an evaluation set \(\Omega\subset\Fq\) of size \(s\), and a disjoint tail set
+\(\Omega'\subset\Fq\setminus\Omega\) of size \(\ell\). A witness row is interpolated into a polynomial of degree
+\(\le s+\ell-1\) whose values on \(\Omega\) are the packed coordinates and whose values on \(\Omega'\) are random masks
+(HVZK).
+
+\subsection{DECS (Degree-Enforcing Commitment Scheme)}
+DECS commits to evaluations of witness polynomials and enforces that they come from low-degree polynomials rather than
+arbitrary vectors. Commitments are implemented via a Merkle tree over an NTT-sized domain, and degree soundness is
+obtained by checking masked low-degree relations at verifier-chosen indices.
+
+\begin{algorithm}[H]
+\caption{\textsf{DECS.DeriveGamma}(\(\mathsf{root},\eta,r,q\)) \(\to \Gamma\) (verifier and prover)}
+\label{alg:decs-derivegamma}
+\begin{algorithmic}[1]
+\State Initialize counter \(ctr\gets 0\); let \(L\gets \big\lfloor \frac{2^{64}}{q}\big\rfloor\cdot q\).
+\For{\(k=0\) to \(\eta-1\)}
+  \For{\(j=0\) to \(r-1\)}
+    \Repeat
+      \State \(x \gets \textsf{SHA256}(\mathsf{root}\ \|\ \textsf{LE64}(ctr))\) interpreted as a 64-bit integer
+      \State \(ctr\gets ctr+1\)
+    \Until{\(x < L\)}
+    \State \(\Gamma_{k,j}\gets x \bmod q\)
+  \EndFor
+\EndFor
+\State \Return \(\Gamma\)
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsf{DECS.VerifyEval}(\(\mathsf{root},\Gamma,R,\mathsf{open}\)) (verifier)}
+\label{alg:decs-verifyeval}
+\begin{algorithmic}[1]
+\Require Domain size \(N\), modulus \(q\), mask count \(\eta\), committed row count \(r\).
+\For{each opened index \(e\)}
+  \State Verify Merkle authentication for \(e\) against \(\mathsf{root}\); reject on failure.
+  \For{each mask row \(k<\eta\)}
+    \State Check \(R_k^\star[e] \stackrel{?}{=} M_k(e) + \sum_{j=0}^{r-1}\Gamma_{k,j}\,P_j(e)\pmod q\).
+  \EndFor
+\EndFor
+\State \Return accept
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{LVCS (Linear Vector Commitments)}
+LVCS commits to packed witness rows and supports succinct openings of \(\Fq\)-linear forms of those rows. SmallWood uses
+LVCS both as a routing/batching layer and as the core of its hash-based PCS: the verifier requests openings of linear
+forms that correspond to evaluating constraint residuals at verifier-chosen points, and DECS enforces that opened values
+come from low-degree polynomials.
+
+\begin{algorithm}[H]
+\caption{\textsf{LVCS.CommitInitWithParams}(\(\mathrm{ringQ},\{r_j\}_{j<r},\ell,\mathrm{params}\)) \(\to (\mathsf{root},\mathsf{ProverKey})\) (prover)}
+\label{alg:lvcs-commitinit}
+\begin{algorithmic}[1]
+\Require Ring \(R_q\) of size \(N\), packed rows \(r_j\in\Fq^{n_{\mathrm{cols}}}\), tail length \(\ell>0\).
+\State Sample \(\mathrm{mask}_j\getsunif \Fq^{\ell}\) for each row \(j\) (HVZK tails).
+\State Interpolate each row to \(P_j(X)\gets \textsf{interpolateRow}(\mathrm{ringQ},r_j,\mathrm{mask}_j,n_{\mathrm{cols}},\ell)\).
+\State Commit to \(\{P_j\}\) via DECS and obtain Merkle root \(\mathsf{root}\).
+\State Derive \(\Gamma\gets \textsf{DECS.DeriveGamma}(\mathsf{root},\eta,r,q)\) and cache values needed for openings.
+\State \Return \((\mathsf{root},\mathsf{ProverKey})\).
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsf{LVCS.CommitStep1}(\(\mathsf{root}\)) \(\to \Gamma\) (verifier)}
+\label{alg:lvcs-commitstep1}
+\begin{algorithmic}[1]
+\State Store \(\mathsf{root}\) and derive \(\Gamma\gets \textsf{DECS.DeriveGamma}(\mathsf{root},\eta,r,q)\).
+\State \Return \(\Gamma\).
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsf{LVCS.CommitStep2}(\(\{R_k\}_{k<\eta}\)) \(\to\) accept/reject (verifier)}
+\label{alg:lvcs-commitstep2}
+\begin{algorithmic}[1]
+\For{each mask row \(R_k\)}
+  \State Reject if \(\deg(R_k) > d\) (degree guard before openings).
+\EndFor
+\State \Return accept.
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsf{LVCS.EvalInitMany}(\(\mathrm{ringQ},\mathsf{ProverKey},\{\mathrm{Coeffs}_k\}_{k<m}\)) \(\to \{\bar v_k\}_{k<m}\) (prover)}
+\label{alg:lvcs-evalinit}
+\begin{algorithmic}[1]
+\Require Linear forms \(\mathrm{Coeffs}_k\in\Fq^{r}\) for \(k=0,\dots,m-1\).
+\State Let \(\ell\gets |\mathrm{mask}_j|\).
+\For{\(k=0\) to \(m-1\)}
+  \State Initialize \(\bar v_k\gets 0\in\Fq^{\ell}\).
+  \State Set \(\bar v_k \gets \sum_{j=0}^{r-1} \mathrm{Coeffs}_k[j]\cdot \mathrm{mask}_j \in \Fq^{\ell}\).
+\EndFor
+\State \Return \(\{\bar v_k\}_{k<m}\).
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsf{LVCS.ChooseE}(\(\ell,n_{\mathrm{cols}}\)) \(\to E\) (verifier)}
+\label{alg:lvcs-choosee}
+\begin{algorithmic}[1]
+\Require Ring size \(N\); packed domain size \(n_{\mathrm{cols}}=|\Omega|\); masked slab indices \([n_{\mathrm{cols}},n_{\mathrm{cols}}+\ell)\).
+\State Sample \(E\subset \{n_{\mathrm{cols}}+\ell,\dots,N-1\}\) uniformly without replacement with \(|E|=\ell\).
+\State \Return \(E\).
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsf{LVCS.EvalFinish}(\(\mathsf{ProverKey},E\)) \(\to \mathsf{Opening}\) (prover)}
+\label{alg:lvcs-evalfinish}
+\begin{algorithmic}[1]
+\State \(\mathsf{open}\gets \mathsf{ProverKey}.\mathrm{DecsProver}.\textsf{EvalOpen}(E)\).
+\State \Return \(\mathsf{Opening}\{\mathrm{DECSOpen}=\mathsf{open}\}\).
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsf{LVCS.EvalStep2}(\(\{\bar v_k\},E,\mathsf{open},C,v_{\mathrm{targets}}\)) (verifier)}
+\label{alg:lvcs-evalstep2}
+\begin{algorithmic}[1]
+\Require Coeffs \(C\in\Fq^{m\times r}\), public prefixes \(v_{\mathrm{targets}}\in(\Fq^{n_{\mathrm{cols}}})^{m}\).
+\State Split \(\mathsf{open}\) into mask openings for \([n_{\mathrm{cols}},n_{\mathrm{cols}}+\ell)\) and tail openings at \(E\).
+\State Verify the DECS openings (degree soundness and Merkle authentication); reject on failure.
+\For{each \(k<m\) and each masked index \(i<\ell\)}
+  \State Check \(\sum_{j=0}^{r-1} C[k,j]\cdot \mathsf{maskOpen.Pvals}[i][j] \stackrel{?}{=} \bar v_k[i]\pmod q\).
+\EndFor
+\State Reconstruct each batched polynomial \(Q_k(X)\) from its \(\Omega\)-prefix \(v_{\mathrm{targets}}[k]\) and mask tail \(\bar v_k\).
+\State Check tail consistency of \(Q_k\) against the opened linear combinations at points in \(E\).
+\State \Return accept.
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{LVCS and PCS/PIOP}
+LVCS provides linear opening queries to committed rows and is used to implement the polynomial oracle interface needed
+by PIOPs. SmallWood combines LVCS with DECS (for degree enforcement) to obtain a hash-based PCS.
+
+\subsection{What DECS/LVCS/PCS bind in ARC-SPRUCE}\label{app:smallwood-binds}
+At a high level, the SmallWood stack provides a single commitment that simultaneously binds \emph{all} witness rows used
+in a statement, and it enforces that every opened value is consistent with a low-degree polynomial view of those rows.
+In ARC-SPRUCE this binding is used in three complementary ways:
+\begin{itemize}[leftmargin=1.25em]
+  \item \textbf{Row binding and low degree (DECS).} DECS ensures that the prover cannot answer openings using
+  high-degree ``fake'' vectors: each committed row must correspond to a degree-\(\le s+\ell-1\) polynomial that matches
+  the packed values on \(\Omega\) and the masked tails on \(\Omega'\).
+  \item \textbf{Linear linking across subsystems (LVCS).} LVCS is used to request openings of verifier-chosen linear
+  combinations of rows. This is what couples different parts of the statement: the same opened evaluations are reused
+  to recompute commitment residuals, centering residuals, the rational-hash residual, the signature residual, and the
+  PRF checkpoint residuals.
+  \item \textbf{No witness splitting (single PCS commitment).} Because all rows live under one commitment, the prover
+  cannot use inconsistent witnesses for different checks. For instance, in showings the same signed packed-message rows
+  that appear in the hash/signature relation are also the rows from which the committed PRF key lanes are extracted;
+  this prevents ``mix-and-match'' of \((k,u)\) with an unrelated PRF witness.
+\end{itemize}
+This is exactly the binding invariant emphasized in the previous paper’s SmallWood appendix: the verifier’s checks are
+expressed as residual functions of opened row evaluations, so all constraints are evaluated against a single coherent
+row assignment.
+
+\subsection{Openings we request in issuance vs showing}\label{app:smallwood-openings}
+Both proofs in ARC-SPRUCE follow the same pattern: the prover commits to all witness rows as polynomials, the verifier
+derives Fiat--Shamir challenges, and the prover opens the committed rows at verifier-chosen points. The verifier then
+recomputes residuals for each constraint family from these openings and checks that all residuals vanish.
+
+\paragraph{Issuance (pre-sign).}
+The witness consists of the base rows
+\[
+  M_1,M_2,R_0^U,R_1^U,\bar R,\quad R_0,R_1,K_0,K_1.
+\]
+while the target \(T\) and issuer challenges \((r_0^I,r_1^I)\) are public. The verifier requests openings sufficient to
+replay: (i) the linear commitment constraints linking \(\mathsf{com}\) to \((M_1,M_2,R_0^U,R_1^U,\bar R)\), (ii) the
+centering constraints linking \((R_0,R_1)\) to the holder/issuer randomness and carries \((K_0,K_1)\), and (iii) the
+cleared-denominator hash constraint linking \(T\) to \((M_1,M_2,R_0,R_1)\), together with packing and membership checks.
+Because all of these residuals are evaluated from the same opened rows, the proof binds the target \(T\) to the
+commitment opening and the centered randomness.
+
+\paragraph{Showing (post-sign).}
+The witness extends issuance with the hash target \(T\), the signature preimage rows \(U\), and the PRF witness block
+(key lanes and checkpointed S-box outputs). The verifier requests openings sufficient to replay: (i) the signature
+residual \(A\cdot U-T\), (ii) the bilinear cleared-denominator hash residual linking \(T\) to the base rows, and (iii)
+the PRF key-binding, checkpoint, and tag-binding residuals (Section~\ref{subsec:prf-checkpointed}). The key point is
+that the PRF key lanes are tied back to the signed packed message via selector constraints, so the opened values jointly
+bind \(\mathsf{tag}=\PRF(k,\nonce)\) to the same secret \(k\) that appears inside the signed message
+\(m=\mu\Vert k\).
+
+\paragraph{Internal \(\Omega\)-sum check.}
+Even when an application’s aggregated family is empty (\(F_{\mathrm{agg}}=\emptyset\)), PACS/PIOP still enforces the
+masked \(\Omega\)-sum test on the batch polynomials \(Q\), which is the mechanism that ties the verifier’s spot-check
+openings to correctness on the full packing domain \(\Omega\).
+
+\subsection{PACS/PIOP interface (used by our statements)}
+SmallWood’s PACS/PIOP layer checks that constraint polynomials vanish on \(\Omega\) (and at random points outside
+\(\Omega\)), by committing to witness rows and mask polynomials and then opening them at verifier-chosen coordinates.
+The following algorithms summarize the high-level structure used in our proofs.
+
+\begin{algorithm}[H]
+\caption{\textsf{PACS.PIOPCommitOracle}\(_{\mathrm{Prover}}(\textsf{params})\to \textsf{pcsCom}\)}
+\label{alg:pacs-commitoracle}
+\begin{algorithmic}[1]
+\State Interpolate witness rows into \(P_1,\ldots,P_n\in\Fq[X]_{\le s+\ell'-1}\) with \(\ell'\) random blind evaluations outside \(\Omega\).
+\State Sample mask polynomials \(M_1,\ldots,M_\rho\in\Fq[X]_{\le d_Q}\) such that \(\sum_{\omega\in\Omega} M_i(\omega)=0\) for all \(i\).
+\State Commit to \(P\Vert M\) via PCS (implemented through LVCS/DECS); obtain \(\textsf{pcsCom}\).
+\State \Return \(\textsf{pcsCom}\).
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsf{PACS.PIOPBatchCombine}\(_{\mathrm{Prover}}(\textsf{pcsCom},\Gamma')\to Q\)}
+\label{alg:pacs-batchcombine}
+\begin{algorithmic}[1]
+\State Using \(P,M\), form batched polynomials
+\[
+Q_i(X) \;=\; M_i(X) + \sum_j \Gamma'_{i,j}(X)\,F_j(X) + \sum_u \gamma'_{i,u}\,F'_u(X),
+\]
+where \(F_j\) and \(F'_u\) are the parallel and aggregated constraint polynomials evaluated on \(P\).
+\State \Return \(Q=(Q_1,\ldots,Q_\rho)\).
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsf{PACS.PIOPOpenAndCheck}(\(\textsf{pcsCom},Q\)) (verifier)}
+\label{alg:pacs-openandcheck}
+\begin{algorithmic}[1]
+\State Sample a query set \(E'\subset S\) with \(|E'|=\ell'\) (Fiat--Shamir in NIZK).
+\State Verify PCS openings of \(P\) and \(M\) at \(E'\) (via LVCS/DECS); reject on failure.
+\State Check that each \(Q_i(e)\) matches its definition from \(M_i(e)\) and the constraint evaluations at \(e\in E'\).
+\State Check the masked \(\Omega\)-sum test \(\sum_{\omega\in\Omega} Q_i(\omega)=0\) for all \(i\).
+\State \Return accept/reject.
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Fiat--Shamir compilation}
+SmallWood compiles the interactive protocol to a NIZK using Fiat--Shamir with grinding to obtain challenges with
+all-zero prefixes, as in \cite{EPRINT:FenRiv25b}. Our ARC instantiation is dominated by parallel constraints, but
+the PACS/PIOP reminder here is stated for general \((F_{\mathrm{par}},F_{\mathrm{agg}})\) statements. In particular, if the
+application introduces global coupling across the packing domain (as in the proof-friendly encodings inherited from the
+previous paper), those relations appear as \(F_{\mathrm{agg}}\) and are enforced through the \(\Omega\)-sum checks of the PIOP.
+
+\begin{algorithm}[H]
+\caption{\textsf{PACS.ToNIZK} (Fiat--Shamir wrapper with grinding)}
+\label{alg:pacs-tonizk}
+\begin{algorithmic}[1]
+\State Sample \(\textsf{salt}\getsunif\{0,1\}^{2\lambda}\).
+\State Derive challenges by hashing the transcript with grinding counters to obtain required prefix properties.
+\State Output PCS/LVCS/DECS openings and any required batched values; the verifier recomputes challenges and checks.
+\end{algorithmic}
+\end{algorithm}

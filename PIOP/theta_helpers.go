@@ -51,6 +51,38 @@ func thetaPolyFromNTT(ringQ *ring.Ring, pNTT *ring.Poly, omega []uint64) (*ring.
 	return out, nil
 }
 
+// thetaPolyFromCoeff lifts a public coefficient-domain polynomial to its
+// explicit-domain Θ polynomial by first moving it to the ring transform domain
+// and then interpolating the Ω head.
+func thetaPolyFromCoeff(ringQ *ring.Ring, coeffs []int64, omega []uint64) (*ring.Poly, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if len(coeffs) == 0 {
+		return nil, fmt.Errorf("empty coefficient slice")
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega")
+	}
+	pCoeff := ringQ.NewPoly()
+	q := int64(ringQ.Modulus[0])
+	limit := len(coeffs)
+	if limit > len(pCoeff.Coeffs[0]) {
+		limit = len(pCoeff.Coeffs[0])
+	}
+	for i := 0; i < limit; i++ {
+		v := coeffs[i] % q
+		if v < 0 {
+			v += q
+		}
+		pCoeff.Coeffs[0][i] = uint64(v)
+	}
+	pNTT := ringQ.NewPoly()
+	ring.Copy(pCoeff, pNTT)
+	ringQ.NTT(pNTT, pNTT)
+	return thetaPolyFromNTT(ringQ, pNTT, omega)
+}
+
 // thetaPolyFromNTTBlock interpolates the block-th public Θ polynomial from a
 // flattened NTT-head representation whose first blocks*|Ω| entries encode the
 // explicit-domain values block by block.

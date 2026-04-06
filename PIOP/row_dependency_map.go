@@ -6,12 +6,12 @@ import (
 )
 
 const (
-	RowFamilyPostSignCore              = "post_sign_core"
-	RowFamilyPostSignCarriers          = "post_sign_carriers"
-	RowFamilySigTransformAlias         = "sig_transform_alias"
-	RowFamilyNonSigTransformAlias      = "nonsig_transform_alias"
-	RowFamilyReplayImage               = "replay_image"
-	RowFamilySigPrimaryLimb            = "sig_primary_limb"
+	RowFamilyPostSignCore         = "post_sign_core"
+	RowFamilyPostSignCarriers     = "post_sign_carriers"
+	RowFamilySigTransformAlias    = "sig_transform_alias"
+	RowFamilyNonSigTransformAlias = "nonsig_transform_alias"
+	RowFamilyReplayImage          = "replay_image"
+	RowFamilySigPrimaryLimb       = "sig_primary_limb"
 )
 
 // RowDependencyMap records which committed row indices are consumed by each
@@ -23,12 +23,12 @@ type RowDependencyMap map[string][]int
 func BuildShowingRowDependencyMap(layout RowLayout, prfLayout *PRFLayout) RowDependencyMap {
 	_ = prfLayout
 	acc := map[string]map[int]struct{}{
-		RowFamilyPostSignCore:              {},
-		RowFamilyPostSignCarriers:          {},
-		RowFamilySigTransformAlias:         {},
-		RowFamilyNonSigTransformAlias:      {},
-		RowFamilyReplayImage:               {},
-		RowFamilySigPrimaryLimb:            {},
+		RowFamilyPostSignCore:         {},
+		RowFamilyPostSignCarriers:     {},
+		RowFamilySigTransformAlias:    {},
+		RowFamilyNonSigTransformAlias: {},
+		RowFamilyReplayImage:          {},
+		RowFamilySigPrimaryLimb:       {},
 	}
 
 	add := func(name string, idx int) {
@@ -61,20 +61,14 @@ func addCoeffNativeLiteralPackedRows(
 	add func(string, int),
 	addRange func(string, int, int),
 ) {
-	cfg := layout.CoeffNativeSig
 	if rowLayoutCoeffNativeUsesTransformBridge(layout) {
-		addRange(RowFamilyPostSignCore, cfg.PackedSigBase, cfg.PackedSigCount)
-		if layout.SigBlocks > 0 && layout.SigUCount > 0 && layout.IdxSigHatBase >= 0 {
-			addRange(RowFamilySigTransformAlias, layout.IdxSigHatBase, layout.SigBlocks*layout.SigUCount)
-		}
 		add(RowFamilyPostSignCarriers, layout.IdxCarrierM)
 		add(RowFamilyPostSignCarriers, layout.IdxCarrierCtr)
-		add(RowFamilyNonSigTransformAlias, layout.IdxMHat1)
-		add(RowFamilyNonSigTransformAlias, layout.IdxMHat2)
+		add(RowFamilyNonSigTransformAlias, layout.IdxMHatSigma)
 		add(RowFamilyNonSigTransformAlias, layout.IdxRHat0)
 		add(RowFamilyNonSigTransformAlias, layout.IdxRHat1)
-		if layout.IdxTHatBase >= 0 && layout.SigBlocks > 0 {
-			addRange(RowFamilyReplayImage, layout.IdxTHatBase, layout.SigBlocks)
+		if layout.IdxTHatBase >= 0 && rowLayoutReplayTHatCount(layout) > 0 {
+			addRange(RowFamilyReplayImage, layout.IdxTHatBase, rowLayoutReplayTHatCount(layout))
 		}
 		addRange(RowFamilySigPrimaryLimb, layout.PackedSigChainBase, layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup)
 		return

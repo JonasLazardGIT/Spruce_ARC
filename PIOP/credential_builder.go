@@ -52,7 +52,7 @@ func (b *credentialBuilder) Build(pub PublicInputs, wit WitnessInputs, _ MaskCon
 		}
 		omegaWitness = append([]uint64(nil), derivedOmega[:witnessNCols]...)
 	}
-	cs, err := BuildCredentialConstraintSetPre(ringQ, pub.BoundB, pub, wit, omegaWitness)
+	cs, err := BuildCredentialConstraintSetPre(ringQ, pub.BoundB, pub, wit, omegaWitness, b.opts.DomainMode)
 	if err != nil {
 		return nil, fmt.Errorf("build credential constraint set: %w", err)
 	}

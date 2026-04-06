@@ -36,21 +36,22 @@ func decodeUint64Slice(b []byte) []uint64 {
 	return out
 }
 
-// evalRowsAt evaluates a slice of polys (NTT or coeff) at given points in F_q.
+// evalRowsAt evaluates a slice of coefficient-form polys at given points in F_q.
+// Witness rows are stored in coefficient form under explicit-domain mode.
 func evalRowsAt(r *ring.Ring, polys []*ring.Poly, points []uint64) [][]uint64 {
 	if r == nil {
 		return nil
 	}
+	q := r.Modulus[0]
 	out := make([][]uint64, len(polys))
 	for i, p := range polys {
 		if p == nil {
 			continue
 		}
-		coeff := r.NewPoly()
-		r.InvNTT(p, coeff)
+		coeffs := p.Coeffs[0]
 		row := make([]uint64, len(points))
 		for j, x := range points {
-			row[j] = evalAt(r, coeff, x)
+			row[j] = EvalPoly(coeffs, x%q, q)
 		}
 		out[i] = row
 	}

@@ -88,9 +88,6 @@ func loadParamsAndOmega(opts SimOpts) (*ring.Ring, []uint64, int, error) {
 		sWitness = int(ringQ.N)
 	}
 	pcsNCols := resolvePCSNCols(opts, sWitness)
-	if opts.Theta == 1 && pcsNCols > 0 && pcsNCols != sWitness {
-		return nil, nil, 0, fmt.Errorf("unsupported pcs decoupling for theta==1 (pcsNCols=%d, ncols=%d)", pcsNCols, sWitness)
-	}
 	ncols := pcsNCols
 	if ncols <= 0 {
 		ncols = sWitness

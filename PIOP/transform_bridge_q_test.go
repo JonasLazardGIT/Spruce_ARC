@@ -531,6 +531,38 @@ func assertConstraintBucketSumsToZeroOnOmega(t *testing.T, ringQ *ring.Ring, ome
 	}
 }
 
+func bucketHasNonZeroOmegaSum(ringQ *ring.Ring, omega []uint64, polys []*ring.Poly, coeffs [][]uint64) (bool, error) {
+	if ringQ == nil {
+		return false, fmt.Errorf("nil ring")
+	}
+	q := ringQ.Modulus[0]
+	tmp := ringQ.NewPoly()
+	count := len(polys)
+	if len(coeffs) > count {
+		count = len(coeffs)
+	}
+	for i := 0; i < count; i++ {
+		var coeffVals []uint64
+		switch {
+		case i < len(coeffs) && len(coeffs[i]) > 0:
+			coeffVals = coeffs[i]
+		case i < len(polys) && polys[i] != nil:
+			ringQ.InvNTT(polys[i], tmp)
+			coeffVals = append([]uint64(nil), tmp.Coeffs[0]...)
+		default:
+			continue
+		}
+		sum := uint64(0)
+		for _, w := range omega {
+			sum = modAdd(sum, EvalPoly(coeffVals, w%q, q)%q, q)
+		}
+		if sum%q != 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func TestTransformBridgeConstraintFamiliesOnOmega(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
@@ -589,6 +621,50 @@ func TestTransformBridgeFixtureOmegaVanishing(t *testing.T) {
 	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparNorm", postSet.FparNorm, postSet.FparNormCoeffs)
 	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggInt", postSet.FaggInt, postSet.FaggIntCoeffs)
 	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
+}
+
+func TestTransformBridgeReplaySurfaceUsesOnlyTHat0(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration-like fixture")
+	}
+	fx := buildTransformBridgeFixture(t)
+	if got := rowLayoutReplayTHatCount(fx.layout); got != 1 {
+		t.Fatalf("replay T-hat count=%d want 1", got)
+	}
+	if fx.layout.IdxTHatBase < 0 {
+		t.Fatalf("missing replay T-hat row")
+	}
+	if fx.layout.IdxSigHatBase >= 0 || fx.layout.SigHatExtraBase >= 0 {
+		t.Fatalf("unexpected committed signature hats in final showing layout: %+v", fx.layout)
+	}
+}
+
+func TestTransformBridgeTamperedTHat0BreaksDirectBridge(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration-like fixture")
+	}
+	fx := buildTransformBridgeFixture(t)
+	tamperedRowsNTT := make([]*ring.Poly, len(fx.rowsNTT))
+	for i := range fx.rowsNTT {
+		if fx.rowsNTT[i] == nil {
+			continue
+		}
+		tamperedRowsNTT[i] = fx.ringQ.NewPoly()
+		ring.Copy(fx.rowsNTT[i], tamperedRowsNTT[i])
+	}
+	q := fx.ringQ.Modulus[0]
+	tamperedRowsNTT[fx.layout.IdxTHatBase].Coeffs[0][0] = modAdd(tamperedRowsNTT[fx.layout.IdxTHatBase].Coeffs[0][0], 1, q)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, tamperedRowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
+	if err != nil {
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
+	}
+	nonZero, err := bucketHasNonZeroOmegaSum(fx.ringQ, fx.omegaWitness, postSet.FaggNorm, postSet.FaggNormCoeffs)
+	if err != nil {
+		t.Fatalf("check tampered direct bridge: %v", err)
+	}
+	if !nonZero {
+		t.Fatal("tampered THat0 left all aggregated bridge families satisfied")
+	}
 }
 
 func TestTransformBridgeQPrefixZero(t *testing.T) {

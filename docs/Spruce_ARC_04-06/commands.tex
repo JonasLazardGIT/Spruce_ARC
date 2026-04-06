@@ -1,0 +1,137 @@
+% ---------- theorem styles ----------
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\theoremstyle{plain}
+%\newtheorem{theorem}[definition]{Theorem}
+\newtheorem{lemma}[definition]{Lemma}
+\newtheorem{proposition}[definition]{Proposition}
+\theoremstyle{remark}
+\newtheorem{remark}[definition]{Remark}
+
+% Avoid hyperref duplicate anchors for algorithmicx line numbers
+\makeatletter
+\renewcommand{\theHALG@line}{\theHalgorithm.\arabic{ALG@line}}
+\makeatother
+
+% ---------- macros ----------
+\newcommand{\negl}{\mathrm{negl}}
+\newcommand{\poly}{\mathrm{poly}}
+\newcommand{\SecParam}{1^\lambda}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Zq}{\Z_q}
+\newcommand{\F}{\mathbb{F}}
+\newcommand{\Fq}{\F_q}
+\newcommand{\R}{R}
+\newcommand{\Rq}{R_q}
+\newcommand{\getsunif}{\overset{\$}{\leftarrow}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\Had}{\odot}
+\newcommand{\Hdiv}{\oslash}
+
+% Actors
+\newcommand{\Holder}{\mathcal{H}}
+\newcommand{\Issuer}{\mathcal{I}}
+\newcommand{\Verifier}{\mathcal{V}}
+
+% Syntax
+\newcommand{\Setup}{\mathsf{Setup}}
+\newcommand{\IKeyGen}{\mathsf{IssuerKeyGen}}
+\newcommand{\Issue}{\mathsf{Issue}}
+\newcommand{\Show}{\mathsf{Show}}
+\newcommand{\Verify}{\mathsf{Verify}}
+
+% Global notation requirements (project-wide)
+\newcommand{\BoundB}{\mathsf{BoundB}} % coefficient bound (never overload B)
+\newcommand{\centerfunc}{\mathsf{center}}
+\newcommand{\PRF}{\mathsf{F}}
+\newcommand{\BoundSig}{\ensuremath{\beta_{\mathtt{sig}}}}
+\newcommand{\BoundMsg}{\ensuremath{\beta_{\mathtt{msg}}}}
+
+% --- Commitment / NIZK notation helpers (avoid clash with ARC \Verify) ---
+\newcommand{\ComScheme}{\mathsf{Com}}
+\newcommand{\Commit}{\mathsf{Commit}}
+\newcommand{\Open}{\mathsf{Open}}
+\newcommand{\ComSetup}{\mathsf{Setup}}
+\newcommand{\ComVerify}{\mathsf{Verify}}
+\newcommand{\ComPublicParam}{\ensuremath{\mathsf{pp}_{\ComScheme}}}
+
+
+%Signatures
+\newcommand{\vsisscheme}{\ensuremath{\mathsf{vSIS}}}
+\newcommand{\KeyGen}{\mathsf{KG}}
+\newcommand{\Sign}{\mathsf{Sign}}
+\newcommand{\SigVerify}{\mathsf{Verify}}
+\newcommand{\vk}{\ensuremath{\mathsf{vk}}}
+
+%Blind Signatures
+\newcommand{\BlindSignature}{\ensuremath{\mathsf{BSig}}}
+\newcommand{\RateLimit}{\ensuremath{\mathsf{RateLimit}}}
+\newcommand{\PublicParamsBS}{\ensuremath{\PP_{\BlindSignature}}}
+\newcommand{\PublicParamsRL}{\ensuremath{\PP_{\RateLimit}}}
+
+% ARC
+\newcommand{\ARC}{\ensuremath{\mathsf{ARC}}}
+\newcommand{\PublicParamsARC}{\ensuremath{\PP_{\ARC}}}
+\newcommand{\credential}{\ensuremath{\mathsf{cred}}}
+\newcommand{\presentation}{\ensuremath{\mathsf{pres}}}
+\newcommand{\nonce}{\ensuremath{\mathsf{nonce}}}
+\newcommand{\usednonce}{\ensuremath{\mathcal{U}_\mathsf{nonce}}}
+\newcommand{\prftag}{\ensuremath{\mathsf{tag}}}
+
+% ZK proofs
+\newcommand{\ZKProve}{\mathsf{Prove}}
+\newcommand{\ZKVerify}{\mathsf{Verify}}
+\newcommand{\Sim}{\mathsf{Sim}}
+\newcommand{\Ext}{\mathsf{Ext}}
+
+\newcommand{\Adv}{\mathcal{A}}
+\newcommand{\Challenger}{\ensuremath{\mathcal{C}}}
+\newcommand{\RO}{\ensuremath{\mathsf{RO}}}
+
+
+% vectors
+\newcommand{\vectorify}[1]{\ensuremath{\mathbf{#1}}}
+\newcommand{\veck}{\vectorify{k}}
+\newcommand{\vecn}{\vectorify{n}}
+\newcommand{\vecr}{\vectorify{r}}
+\newcommand{\vect}{\vectorify{t}}
+\newcommand{\vecc}{\vectorify{c}}
+\newcommand{\vecw}{\vectorify{w}}
+\newcommand{\vecu}{\vectorify{u}}
+\newcommand{\vecm}{\vectorify{m}}
+\newcommand{\vecmu}{\vectorify{\mu}}
+\newcommand{\vecx}{\vectorify{x}}
+\newcommand{\mA}{\vectorify{A}}
+\newcommand{\mB}{\vectorify{B}}
+\newcommand{\mM}{\vectorify{M}}
+\newcommand{\mACom}{\mA_{\ComScheme}}
+
+
+% sampler notation
+
+\providecommand{\trapdoor}{\ensuremath{\mathsf{td}}}
+\newcommand{\TrapGen}{\ensuremath{\mathsf{TrapGen}}}
+\newcommand{\SampPre}{\ensuremath{\mathsf{SampPre}}}
+\newcommand{\trapdoorDistribution}{\ensuremath{\mathcal{D}_{\trapdoor}}}
+
+% Local notation macros (kept here to avoid touching the preamble).
+\providecommand{\adversary}{\Adv}
+\providecommand{\state}{\mathsf{state}}
+
+\providecommand{\sk}{\mathsf{sk}}
+\providecommand{\pk}{\mathsf{pk}}
+\providecommand{\sig}{\mathsf{sig}}
+
+\providecommand{\Tr}{\mathrm{Tr}}
+
+
+\providecommand{\PP}{\mathsf{pp}}
+
+\newcommand{\relIssue}{\ensuremath{\mathcal{R}_{\mathsf{Issue}}}}
+\newcommand{\relSign}{\ensuremath{\mathcal{R}_{\mathsf{Sign}}}}
+\newcommand{\nizkIssue}{\ensuremath{\pi_{\mathsf{Issue}}}}
+\newcommand{\nizkSign}{\ensuremath{\pi_{\mathsf{Sign}}}}
+
+\newcommand{\nizkscheme}{\ensuremath{\mathsf{NIZK}}}
+
+\newcommand{\TDRH}{\ensuremath{\mathsf{TDRH}}}

@@ -459,7 +459,7 @@ type CredentialConstraintConfig struct {
 	// CarryBound is used for K0/K1 carry rows; defaults to 1 when set.
 	CarryBound int64
 
-	TPublicNTT *ring.Poly // optional: public T in NTT domain
+	TPublicTheta *ring.Poly // optional: public T lifted as a Θ-polynomial
 
 	// Packing selector values over the evaluation domain (NTT).
 	PackingSelNTT []uint64
@@ -476,8 +476,11 @@ type CredentialConstraintConfig struct {
 	IdxK1  int
 	IdxT   int // optional: T as witness row
 
-	BoundRows []int
-	CarryRows []int
+	IdxCarrierM     int
+	IdxCarrierPreRU int
+	IdxCarrierPreR  int
+	IdxCarrierCtr   int
+	IdxCarrierK     int
 
 	Omega []uint64
 	// DomainPoints is the explicit DECS evaluation domain.
@@ -834,6 +837,12 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 		ri0Coeff        []uint64
 		ri1Coeff        []uint64
 		tPublicCoeff    []uint64
+		decode1         []uint64
+		decode2         []uint64
+		decode1K        []uint64
+		decode2K        []uint64
+		memBound        []uint64
+		memCarry        []uint64
 	)
 	if cfg.Ring == nil {
 		configErr = fmt.Errorf("nil ring")
@@ -914,10 +923,45 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 	}
 	ri0Coeff = firstCoeff(cfg.RI0)
 	ri1Coeff = firstCoeff(cfg.RI1)
-	if cfg.TPublicNTT != nil {
-		coeff, err := toCoeffTheta(cfg.TPublicNTT)
+	if cfg.TPublicTheta != nil {
+		coeff, err := toCoeffTheta(cfg.TPublicTheta)
 		if err == nil {
 			tPublicCoeff = coeff
+		}
+	}
+	if configErr == nil {
+		if cfg.IdxCarrierM < 0 || cfg.IdxCarrierPreRU < 0 || cfg.IdxCarrierPreR < 0 || cfg.IdxCarrierCtr < 0 || cfg.IdxCarrierK < 0 {
+			configErr = fmt.Errorf("credential replay config: missing pre-sign carrier indices")
+		} else if cfg.IdxM1 < 0 || cfg.IdxM2 < 0 || cfg.IdxRU0 < 0 || cfg.IdxRU1 < 0 || cfg.IdxR < 0 || cfg.IdxR0 < 0 || cfg.IdxR1 < 0 || cfg.IdxK0 < 0 || cfg.IdxK1 < 0 {
+			configErr = fmt.Errorf("credential replay config: missing pre-sign alias indices")
+		}
+	}
+	if configErr == nil {
+		var err error
+		decode1, decode2, err = buildCarrierDecodePolys(cfg.Bound, cfg.Ring.Modulus[0])
+		if err != nil {
+			configErr = fmt.Errorf("credential replay config: carrier decode polys: %w", err)
+		}
+	}
+	if configErr == nil {
+		var err error
+		decode1K, decode2K, err = buildCarrierDecodePolys(1, cfg.Ring.Modulus[0])
+		if err != nil {
+			configErr = fmt.Errorf("credential replay config: carrier decode polys (K): %w", err)
+		}
+	}
+	if configErr == nil {
+		var err error
+		memBound, err = buildCarrierMembershipPoly(cfg.Bound, cfg.Ring.Modulus[0])
+		if err != nil {
+			configErr = fmt.Errorf("credential replay config: carrier membership poly: %w", err)
+		}
+	}
+	if configErr == nil {
+		var err error
+		memCarry, err = buildCarrierMembershipPoly(1, cfg.Ring.Modulus[0])
+		if err != nil {
+			configErr = fmt.Errorf("credential replay config: carrier membership poly (K): %w", err)
 		}
 	}
 	return func(evalIdx uint64, rows []uint64) ([]uint64, []uint64, error) {
@@ -945,13 +989,55 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 			}
 			return EvalPoly(coeff, x, q)
 		}
-		// Commit residuals (parallel, same ordering as BuildCredentialConstraintSetPre).
+		decodeVal := func(coeff []uint64, code uint64) uint64 {
+			if len(coeff) == 0 {
+				return 0
+			}
+			return EvalPoly(coeff, code%q, q)
+		}
+		carrierM := getRow(cfg.IdxCarrierM)
+		carrierRU := getRow(cfg.IdxCarrierPreRU)
+		carrierR := getRow(cfg.IdxCarrierPreR)
+		carrierCtr := getRow(cfg.IdxCarrierCtr)
+		carrierK := getRow(cfg.IdxCarrierK)
+		m1Dec := decodeVal(decode1, carrierM)
+		m2Dec := decodeVal(decode2, carrierM)
+		ru0Dec := decodeVal(decode1, carrierRU)
+		ru1Dec := decodeVal(decode2, carrierRU)
+		rDec := decodeVal(decode1, carrierR)
+		r0Dec := decodeVal(decode1, carrierCtr)
+		r1Dec := decodeVal(decode2, carrierCtr)
+		k0Dec := decodeVal(decode1K, carrierK)
+		k1Dec := decodeVal(decode2K, carrierK)
+		m1 := getRow(cfg.IdxM1)
+		m2 := getRow(cfg.IdxM2)
+		ru0 := getRow(cfg.IdxRU0)
+		ru1 := getRow(cfg.IdxRU1)
+		rVal := getRow(cfg.IdxR)
+		r0v := getRow(cfg.IdxR0)
+		r1v := getRow(cfg.IdxR1)
+		k0 := getRow(cfg.IdxK0)
+		k1 := getRow(cfg.IdxK1)
+
 		var fpar []uint64
+		fpar = append(fpar,
+			(q+m1-m1Dec)%q,
+			(q+m2-m2Dec)%q,
+			(q+ru0-ru0Dec)%q,
+			(q+ru1-ru1Dec)%q,
+			(q+rVal-rDec)%q,
+			(q+r0v-r0Dec)%q,
+			(q+r1v-r1Dec)%q,
+			(q+k0-k0Dec)%q,
+			(q+k1-k1Dec)%q,
+		)
+
+		// Commit residuals (parallel, same ordering as BuildCredentialConstraintSetPre).
 		if len(cfg.Ac) > 0 {
-			fpar = make([]uint64, len(cfg.Ac))
 			for i := range cfg.Ac {
 				var sum uint64
 				if cfg.Ac[i] == nil || cfg.Com == nil || i >= len(cfg.Com) {
+					fpar = append(fpar, 0)
 					continue
 				}
 				if i < len(comCoeff) {
@@ -962,38 +1048,40 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 					if cfg.Ac[i][j] == nil {
 						continue
 					}
-					vecIdx := []int{cfg.IdxM1, cfg.IdxM2, cfg.IdxRU0, cfg.IdxRU1, cfg.IdxR}
-					if j < len(vecIdx) {
-						var aVal uint64
-						if i < len(acCoeff) && j < len(acCoeff[i]) && len(acCoeff[i][j]) > 0 {
-							aVal = evalTheta(acCoeff[i][j]) % q
-						}
-						sum = lvcs.MulAddMod64(sum, aVal%q, getRow(vecIdx[j]), q)
+					var aVal uint64
+					if i < len(acCoeff) && j < len(acCoeff[i]) && len(acCoeff[i][j]) > 0 {
+						aVal = evalTheta(acCoeff[i][j]) % q
+					}
+					switch j {
+					case 0:
+						sum = lvcs.MulAddMod64(sum, aVal%q, m1, q)
+					case 1:
+						sum = lvcs.MulAddMod64(sum, aVal%q, m2, q)
+					case 2:
+						sum = lvcs.MulAddMod64(sum, aVal%q, ru0, q)
+					case 3:
+						sum = lvcs.MulAddMod64(sum, aVal%q, ru1, q)
+					case 4:
+						sum = lvcs.MulAddMod64(sum, aVal%q, rVal, q)
 					}
 				}
-				fpar[i] = sum % q
+				fpar = append(fpar, sum%q)
 			}
 		}
 
 		// Center constraints.
 		if cfg.Bound > 0 {
 			delta := uint64(2*cfg.Bound + 1)
-			ru0 := getRow(cfg.IdxRU0)
-			ru1 := getRow(cfg.IdxRU1)
-			r0 := getRow(cfg.IdxR0)
-			r1 := getRow(cfg.IdxR1)
-			k0 := getRow(cfg.IdxK0)
-			k1 := getRow(cfg.IdxK1)
 			ri0 := evalTheta(ri0Coeff)
 			ri1 := evalTheta(ri1Coeff)
-			res0 := (ru0 + ri0 + q - r0) % q
+			res0 := (ru0 + ri0 + q - r0v) % q
 			res0 = (res0 + q - (delta*k0)%q) % q
-			res1 := (ru1 + ri1 + q - r1) % q
+			res1 := (ru1 + ri1 + q - r1v) % q
 			res1 = (res1 + q - (delta*k1)%q) % q
 			fpar = append(fpar, res0%q, res1%q)
 		}
 
-		// Hash residual (cleared denominator form).
+		// Hash residual with public T, as in the ARC issuance relation.
 		if len(cfg.B) >= 4 {
 			var b0, b1, b2, b3 uint64
 			if len(bCoeff) >= 4 {
@@ -1002,17 +1090,7 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 				b2 = evalTheta(bCoeff[2]) % q
 				b3 = evalTheta(bCoeff[3]) % q
 			}
-			m1 := getRow(cfg.IdxM1)
-			m2 := getRow(cfg.IdxM2)
-			r0v := getRow(cfg.IdxR0)
-			r1v := getRow(cfg.IdxR1)
-			t := uint64(0)
-			if cfg.IdxT >= 0 && cfg.IdxT < len(rows) {
-				t = rows[cfg.IdxT] % q
-			} else {
-				t = evalTheta(tPublicCoeff)
-			}
-			// (B3 - R1)*T - (B0 + B1*(M1+M2) + B2*R0)
+			t := evalTheta(tPublicCoeff)
 			res := (q + b3 - r1v) % q
 			res = (res * t) % q
 			mCombined := (m1 + m2) % q
@@ -1034,24 +1112,20 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 				sel = evalTheta(packingSelCoeff) % q
 			}
 			oneMinus := (1 + q - sel) % q
-			fpar = append(fpar, lvcs.MulMod64(sel, getRow(cfg.IdxM1), q))
-			fpar = append(fpar, lvcs.MulMod64(oneMinus, getRow(cfg.IdxM2), q))
+			fpar = append(fpar, lvcs.MulMod64(sel, m1, q))
+			fpar = append(fpar, lvcs.MulMod64(oneMinus, m2, q))
 		}
 
-		// Bounds: P_B(row) for configured rows (evaluation-domain).
-		for _, idx := range cfg.BoundRows {
-			v := int64(getRow(idx))
-			pb := boundPoly(v, cfg.Bound, int64(q))
-			fpar = append(fpar, pb%q)
+		// Carrier membership constraints.
+		memVals := []uint64{
+			decodeVal(memBound, carrierM),
+			decodeVal(memBound, carrierRU),
+			decodeVal(memBound, carrierR),
+			decodeVal(memBound, carrierCtr),
+			decodeVal(memCarry, carrierK),
 		}
-		carryBound := cfg.CarryBound
-		if carryBound == 0 && len(cfg.CarryRows) > 0 {
-			carryBound = 1
-		}
-		for _, idx := range cfg.CarryRows {
-			v := int64(getRow(idx))
-			pb := boundPoly(v, carryBound, int64(q))
-			fpar = append(fpar, pb%q)
+		for _, mv := range memVals {
+			fpar = append(fpar, mv%q)
 		}
 
 		return fpar, nil, nil
@@ -1079,23 +1153,72 @@ func (cfg CredentialConstraintConfig) CredentialKEvaluator(K *kf.Field) (KConstr
 			}
 			return rows[idx]
 		}
+		decodeVal := func(coeff []uint64, code kf.Elem) kf.Elem {
+			if len(coeff) == 0 {
+				return K.Zero()
+			}
+			return K.EvalFPolyAtK(coeff, code)
+		}
+		carrierM := getRow(cfg.IdxCarrierM)
+		carrierRU := getRow(cfg.IdxCarrierPreRU)
+		carrierR := getRow(cfg.IdxCarrierPreR)
+		carrierCtr := getRow(cfg.IdxCarrierCtr)
+		carrierK := getRow(cfg.IdxCarrierK)
+		m1Dec := decodeVal(cache.Decode1, carrierM)
+		m2Dec := decodeVal(cache.Decode2, carrierM)
+		ru0Dec := decodeVal(cache.Decode1, carrierRU)
+		ru1Dec := decodeVal(cache.Decode2, carrierRU)
+		rDec := decodeVal(cache.Decode1, carrierR)
+		r0Dec := decodeVal(cache.Decode1, carrierCtr)
+		r1Dec := decodeVal(cache.Decode2, carrierCtr)
+		k0Dec := decodeVal(cache.Decode1K, carrierK)
+		k1Dec := decodeVal(cache.Decode2K, carrierK)
+		m1 := getRow(cfg.IdxM1)
+		m2 := getRow(cfg.IdxM2)
+		ru0 := getRow(cfg.IdxRU0)
+		ru1 := getRow(cfg.IdxRU1)
+		rVal := getRow(cfg.IdxR)
+		r0v := getRow(cfg.IdxR0)
+		r1v := getRow(cfg.IdxR1)
+		k0 := getRow(cfg.IdxK0)
+		k1 := getRow(cfg.IdxK1)
 
 		// Commit residuals.
 		var fpar []kf.Elem
+		fpar = append(fpar,
+			K.Sub(m1, m1Dec),
+			K.Sub(m2, m2Dec),
+			K.Sub(ru0, ru0Dec),
+			K.Sub(ru1, ru1Dec),
+			K.Sub(rVal, rDec),
+			K.Sub(r0v, r0Dec),
+			K.Sub(r1v, r1Dec),
+			K.Sub(k0, k0Dec),
+			K.Sub(k1, k1Dec),
+		)
 		if len(cache.AcCoeff) > 0 {
-			fpar = make([]kf.Elem, len(cache.AcCoeff))
-			vecIdx := []int{cfg.IdxM1, cfg.IdxM2, cfg.IdxRU0, cfg.IdxRU1, cfg.IdxR}
 			for i := range cache.AcCoeff {
 				sum := K.Zero()
 				if i < len(cache.ComCoeff) {
 					comVal := K.EvalFPolyAtK(cache.ComCoeff[i], e)
 					sum = K.Sub(sum, comVal)
 				}
-				for j := 0; j < len(cache.AcCoeff[i]) && j < len(vecIdx); j++ {
+				for j := 0; j < len(cache.AcCoeff[i]); j++ {
 					aVal := K.EvalFPolyAtK(cache.AcCoeff[i][j], e)
-					sum = K.Add(sum, K.Mul(aVal, getRow(vecIdx[j])))
+					switch j {
+					case 0:
+						sum = K.Add(sum, K.Mul(aVal, m1))
+					case 1:
+						sum = K.Add(sum, K.Mul(aVal, m2))
+					case 2:
+						sum = K.Add(sum, K.Mul(aVal, ru0))
+					case 3:
+						sum = K.Add(sum, K.Mul(aVal, ru1))
+					case 4:
+						sum = K.Add(sum, K.Mul(aVal, rVal))
+					}
 				}
-				fpar[i] = sum
+				fpar = append(fpar, sum)
 			}
 		}
 
@@ -1103,33 +1226,21 @@ func (cfg CredentialConstraintConfig) CredentialKEvaluator(K *kf.Field) (KConstr
 		if cfg.Bound > 0 {
 			delta := uint64(2*cfg.Bound + 1)
 			deltaK := K.EmbedF(delta % q)
-			ru0 := getRow(cfg.IdxRU0)
-			ru1 := getRow(cfg.IdxRU1)
-			r0 := getRow(cfg.IdxR0)
-			r1 := getRow(cfg.IdxR1)
-			k0 := getRow(cfg.IdxK0)
-			k1 := getRow(cfg.IdxK1)
 			ri0 := K.EvalFPolyAtK(cache.RI0Coeff, e)
 			ri1 := K.EvalFPolyAtK(cache.RI1Coeff, e)
-			res0 := K.Sub(K.Sub(K.Add(ru0, ri0), r0), K.Mul(deltaK, k0))
-			res1 := K.Sub(K.Sub(K.Add(ru1, ri1), r1), K.Mul(deltaK, k1))
+			res0 := K.Sub(K.Sub(K.Add(ru0, ri0), r0v), K.Mul(deltaK, k0))
+			res1 := K.Sub(K.Sub(K.Add(ru1, ri1), r1v), K.Mul(deltaK, k1))
 			fpar = append(fpar, res0, res1)
 		}
 
-		// Hash residual.
+		// Hash residual (transform domain using hat rows).
 		if len(cache.BCoeff) >= 4 {
 			b0 := K.EvalFPolyAtK(cache.BCoeff[0], e)
 			b1 := K.EvalFPolyAtK(cache.BCoeff[1], e)
 			b2 := K.EvalFPolyAtK(cache.BCoeff[2], e)
 			b3 := K.EvalFPolyAtK(cache.BCoeff[3], e)
-			m1 := getRow(cfg.IdxM1)
-			m2 := getRow(cfg.IdxM2)
-			r0v := getRow(cfg.IdxR0)
-			r1v := getRow(cfg.IdxR1)
 			var t kf.Elem
-			if cfg.IdxT >= 0 && cfg.IdxT < len(rows) {
-				t = getRow(cfg.IdxT)
-			} else if len(cache.TPublicCoeff) > 0 {
+			if len(cache.TPublicCoeff) > 0 {
 				t = K.EvalFPolyAtK(cache.TPublicCoeff, e)
 			} else {
 				t = K.Zero()
@@ -1147,25 +1258,19 @@ func (cfg CredentialConstraintConfig) CredentialKEvaluator(K *kf.Field) (KConstr
 		if len(cache.PackingSelCoeff) > 0 {
 			sel := K.EvalFPolyAtK(cache.PackingSelCoeff, e)
 			oneMinus := K.Sub(K.One(), sel)
-			fpar = append(fpar, K.Mul(sel, getRow(cfg.IdxM1)))
-			fpar = append(fpar, K.Mul(oneMinus, getRow(cfg.IdxM2)))
+			fpar = append(fpar, K.Mul(sel, m1))
+			fpar = append(fpar, K.Mul(oneMinus, m2))
 		}
 
-		// Bounds: P_B(row) over K.
-		for _, idx := range cfg.BoundRows {
-			v := getRow(idx)
-			pb := boundPolyK(K, v, cfg.Bound)
-			fpar = append(fpar, pb)
+		// Carrier membership constraints.
+		memVals := []kf.Elem{
+			K.EvalFPolyAtK(cache.MemBound, carrierM),
+			K.EvalFPolyAtK(cache.MemBound, carrierRU),
+			K.EvalFPolyAtK(cache.MemBound, carrierR),
+			K.EvalFPolyAtK(cache.MemBound, carrierCtr),
+			K.EvalFPolyAtK(cache.MemCarry, carrierK),
 		}
-		carryBound := cfg.CarryBound
-		if carryBound == 0 && len(cfg.CarryRows) > 0 {
-			carryBound = 1
-		}
-		for _, idx := range cfg.CarryRows {
-			v := getRow(idx)
-			pb := boundPolyK(K, v, carryBound)
-			fpar = append(fpar, pb)
-		}
+		fpar = append(fpar, memVals...)
 
 		return fpar, nil, nil
 	}, nil
@@ -1273,11 +1378,23 @@ type credentialKEvalCache struct {
 	RI1Coeff        []uint64
 	TPublicCoeff    []uint64
 	PackingSelCoeff []uint64
+	Decode1         []uint64
+	Decode2         []uint64
+	Decode1K        []uint64
+	Decode2K        []uint64
+	MemBound        []uint64
+	MemCarry        []uint64
 }
 
 func buildCredentialKEvalCache(cfg CredentialConstraintConfig, K *kf.Field) (*credentialKEvalCache, error) {
 	if cfg.Ring == nil {
 		return nil, fmt.Errorf("nil ring")
+	}
+	if cfg.IdxCarrierM < 0 || cfg.IdxCarrierPreRU < 0 || cfg.IdxCarrierPreR < 0 || cfg.IdxCarrierCtr < 0 || cfg.IdxCarrierK < 0 {
+		return nil, fmt.Errorf("credential replay config: missing pre-sign carrier indices")
+	}
+	if cfg.IdxM1 < 0 || cfg.IdxM2 < 0 || cfg.IdxRU0 < 0 || cfg.IdxRU1 < 0 || cfg.IdxR < 0 || cfg.IdxR0 < 0 || cfg.IdxR1 < 0 || cfg.IdxK0 < 0 || cfg.IdxK1 < 0 {
+		return nil, fmt.Errorf("credential replay config: missing pre-sign alias indices")
 	}
 	if len(cfg.Omega) == 0 {
 		return nil, fmt.Errorf("credential replay config: missing omega")
@@ -1351,8 +1468,8 @@ func buildCredentialKEvalCache(cfg CredentialConstraintConfig, K *kf.Field) (*cr
 		}
 		cache.RI1Coeff = coeff
 	}
-	if cfg.TPublicNTT != nil {
-		coeff, err := toCoeffTheta(cfg.TPublicNTT)
+	if cfg.TPublicTheta != nil {
+		coeff, err := toCoeffTheta(cfg.TPublicTheta)
 		if err != nil {
 			return nil, err
 		}
@@ -1366,6 +1483,28 @@ func buildCredentialKEvalCache(cfg CredentialConstraintConfig, K *kf.Field) (*cr
 		}
 		cache.PackingSelCoeff = selCoeff
 	}
+	decode1, decode2, err := buildCarrierDecodePolys(cfg.Bound, cfg.Ring.Modulus[0])
+	if err != nil {
+		return nil, fmt.Errorf("credential replay config: carrier decode polys: %w", err)
+	}
+	decode1K, decode2K, err := buildCarrierDecodePolys(1, cfg.Ring.Modulus[0])
+	if err != nil {
+		return nil, fmt.Errorf("credential replay config: carrier decode polys (K): %w", err)
+	}
+	memBound, err := buildCarrierMembershipPoly(cfg.Bound, cfg.Ring.Modulus[0])
+	if err != nil {
+		return nil, fmt.Errorf("credential replay config: carrier membership poly: %w", err)
+	}
+	memCarry, err := buildCarrierMembershipPoly(1, cfg.Ring.Modulus[0])
+	if err != nil {
+		return nil, fmt.Errorf("credential replay config: carrier membership poly (K): %w", err)
+	}
+	cache.Decode1 = decode1
+	cache.Decode2 = decode2
+	cache.Decode1K = decode1K
+	cache.Decode2K = decode2K
+	cache.MemBound = memBound
+	cache.MemCarry = memCarry
 	return cache, nil
 }
 

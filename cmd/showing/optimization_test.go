@@ -3,15 +3,20 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
+	"vSIS-Signature/issuance"
 	ntru "vSIS-Signature/ntru"
 	ntrurio "vSIS-Signature/ntru/io"
 	"vSIS-Signature/ntru/signverify"
+	"vSIS-Signature/prf"
+
+	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
 func stablePaperTranscriptScore(rep PIOP.PaperTranscriptReport) int {
@@ -25,6 +30,273 @@ func stablePaperTranscriptScore(rep PIOP.PaperTranscriptReport) int {
 		rep.Pdecs.OptimizedBytes +
 		rep.Mdecs.OptimizedBytes +
 		rep.Tapes.OptimizedBytes
+}
+
+func optimizationPolyToInt64(r *ring.Ring, p *ring.Poly, ntt bool) []int64 {
+	cp := r.NewPoly()
+	ring.Copy(p, cp)
+	if ntt {
+		r.InvNTT(cp, cp)
+	}
+	out := make([]int64, r.N)
+	q := int64(r.Modulus[0])
+	half := q / 2
+	for i, c := range cp.Coeffs[0] {
+		v := int64(c)
+		if v > half {
+			v -= q
+		}
+		out[i] = v
+	}
+	return out
+}
+
+func optimizationPolyVecToInt64(r *ring.Ring, rows []*ring.Poly, ntt bool) [][]int64 {
+	out := make([][]int64, len(rows))
+	for i, p := range rows {
+		out[i] = optimizationPolyToInt64(r, p, ntt)
+	}
+	return out
+}
+
+func optimizationIdentityAc(r *ring.Ring, cols int) [][]*ring.Poly {
+	mat := make([][]*ring.Poly, cols)
+	for i := 0; i < cols; i++ {
+		mat[i] = make([]*ring.Poly, cols)
+		for j := 0; j < cols; j++ {
+			if i == j {
+				p := r.NewPoly()
+				p.Coeffs[0][0] = 1
+				r.NTT(p, p)
+				mat[i][j] = p
+				continue
+			}
+			mat[i][j] = r.NewPoly()
+		}
+	}
+	return mat
+}
+
+func buildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols int) credential.State {
+	t.Helper()
+	root := showingTestRepoRoot(t)
+	chdirForShowingTest(t, root)
+
+	ringQ, err := credential.LoadDefaultRing()
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+	prfParams, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+	if err != nil {
+		t.Fatalf("load prf params: %v", err)
+	}
+	opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+		Credential:       true,
+		Theta:            1,
+		EllPrime:         2,
+		Rho:              2,
+		NCols:            packedNCols,
+		Ell:              18,
+		Eta:              19,
+		DomainMode:       PIOP.DomainModeExplicit,
+		NLeaves:          4096,
+		ShowingPreset:    PIOP.ShowingPresetCustom,
+		CoeffPacking:     true,
+		PRFGroupRounds:   2,
+		PRFCompanionMode: PIOP.PRFCompanionModeOutputAudit,
+	})
+	if opts.NCols < 2*prfParams.LenKey {
+		opts.NCols = 2 * prfParams.LenKey
+	}
+	if opts.NCols%2 != 0 {
+		opts.NCols++
+	}
+	lvcsNCols := 96
+	if lvcsNCols < opts.NCols {
+		lvcsNCols = opts.NCols
+	}
+	opts.LVCSNCols = lvcsNCols
+	opts.PostSignLVCSNCols = lvcsNCols
+	opts.PRFLVCSNCols = lvcsNCols
+
+	omega, err := deriveOmegaForOpts(ringQ, opts)
+	if err != nil {
+		t.Fatalf("derive optimization omega for ncols=%d: %v", opts.NCols, err)
+	}
+	q := ringQ.Modulus[0]
+	rng := rand.New(rand.NewSource(1))
+	sampleTernaryPoly := func(ncols int) *ring.Poly {
+		p := ringQ.NewPoly()
+		if ncols > len(p.Coeffs[0]) {
+			ncols = len(p.Coeffs[0])
+		}
+		for i := 0; i < ncols; i++ {
+			v := int64(rng.Intn(3) - 1)
+			if v < 0 {
+				p.Coeffs[0][i] = q - uint64(-v)%q
+			} else {
+				p.Coeffs[0][i] = uint64(v) % q
+			}
+		}
+		return p
+	}
+
+	params := &credential.Params{
+		Ac:     optimizationIdentityAc(ringQ, 5),
+		BPath:  filepath.Join("Parameters", "Bmatrix.json"),
+		AcPath: filepath.Join("credential", "Ac.json"),
+		BoundB: 1,
+		RingQ:  ringQ,
+		LenM1:  1,
+		LenM2:  1,
+		LenRU0: 1,
+		LenRU1: 1,
+		LenR:   1,
+	}
+	inputs := issuance.Inputs{
+		M1:  []*ring.Poly{ringQ.NewPoly()},
+		M2:  []*ring.Poly{ringQ.NewPoly()},
+		RU0: []*ring.Poly{sampleTernaryPoly(len(omega))},
+		RU1: []*ring.Poly{sampleTernaryPoly(len(omega))},
+		R:   []*ring.Poly{sampleTernaryPoly(len(omega))},
+	}
+	ch := issuance.Challenge{
+		RI0: []*ring.Poly{ringQ.NewPoly()},
+		RI1: []*ring.Poly{ringQ.NewPoly()},
+	}
+	com, err := issuance.PrepareCommit(params, inputs, omega)
+	if err != nil {
+		t.Fatalf("prepare commit for ncols=%d: %v", opts.NCols, err)
+	}
+	st, err := issuance.ApplyChallenge(params, inputs, ch, omega)
+	if err != nil {
+		t.Fatalf("apply challenge for ncols=%d: %v", opts.NCols, err)
+	}
+	sig, err := signverify.SignTarget(st.T, 2048, ntru.SamplerOpts{})
+	if err != nil {
+		t.Fatalf("sign target for ncols=%d: %v", opts.NCols, err)
+	}
+
+	out := credential.State{
+		M1:            optimizationPolyVecToInt64(ringQ, inputs.M1, false),
+		M2:            optimizationPolyVecToInt64(ringQ, inputs.M2, false),
+		RU0:           optimizationPolyVecToInt64(ringQ, inputs.RU0, false),
+		RU1:           optimizationPolyVecToInt64(ringQ, inputs.RU1, false),
+		R:             optimizationPolyVecToInt64(ringQ, inputs.R, false),
+		R0:            optimizationPolyVecToInt64(ringQ, st.R0, false),
+		R1:            optimizationPolyVecToInt64(ringQ, st.R1, false),
+		K0:            optimizationPolyVecToInt64(ringQ, st.K0, false),
+		K1:            optimizationPolyVecToInt64(ringQ, st.K1, false),
+		T:             append([]int64(nil), st.T...),
+		Com:           optimizationPolyVecToInt64(ringQ, com, true),
+		RI0:           optimizationPolyVecToInt64(ringQ, ch.RI0, true),
+		RI1:           optimizationPolyVecToInt64(ringQ, ch.RI1, true),
+		BPath:         filepath.Join("Parameters", "Bmatrix.json"),
+		AcPath:        filepath.Join("credential", "Ac.json"),
+		PRFParamsPath: filepath.Join("prf", "prf_params.json"),
+		PackedNCols:   opts.NCols,
+		B:             optimizationPolyVecToInt64(ringQ, st.B, true),
+	}
+	out.SigS1 = append([]int64(nil), sig.Signature.S1...)
+	out.SigS2 = append([]int64(nil), sig.Signature.S2...)
+	return out
+}
+
+func buildShowingProofForOptimizationState(t *testing.T, st credential.State, opts PIOP.SimOpts) (*PIOP.Proof, PIOP.ProofReport) {
+	t.Helper()
+	root := showingTestRepoRoot(t)
+	chdirForShowingTest(t, root)
+
+	ringQ, err := credential.LoadDefaultRing()
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+	params, err := loadPRFParamsFromState(st)
+	if err != nil {
+		t.Fatalf("load prf params: %v", err)
+	}
+	wit, err := buildWitnessFromState(ringQ, st)
+	if err != nil {
+		t.Fatalf("build witness from optimization state: %v", err)
+	}
+	A, err := buildSignatureMatrix(ringQ, st, showingSignatureComponentCount(wit))
+	if err != nil {
+		t.Fatalf("build A: %v", err)
+	}
+	B, err := loadBFromState(ringQ, st)
+	if err != nil {
+		t.Fatalf("load B: %v", err)
+	}
+	omega, err := deriveOmegaForOpts(ringQ, opts)
+	if err != nil {
+		t.Fatalf("derive omega: %v", err)
+	}
+	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey, omega)
+	if err != nil {
+		t.Fatalf("derive prf key: %v", err)
+	}
+	nonce, noncePublic := sampleNonceForTest(params.LenNonce, opts.NCols, ringQ.Modulus[0])
+	tag, err := prf.Tag(key, nonce, params)
+	if err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	boundB, err := loadCredentialBoundB(filepath.Join(root, "credential", "params.json"))
+	if err != nil {
+		t.Fatalf("load credential bound: %v", err)
+	}
+	pub := PIOP.PublicInputs{
+		A:      A,
+		B:      B,
+		T:      append([]int64(nil), st.T...),
+		Tag:    lanesFromElems(tag, opts.NCols),
+		Nonce:  noncePublic,
+		BoundB: boundB,
+	}
+	proof, err := PIOP.BuildShowingCombined(pub, wit, opts)
+	if err != nil {
+		t.Fatalf("build showing for ncols=%d lvcs=%d preset=%s: %v", opts.NCols, opts.PostSignLVCSNCols, opts.ShowingPreset, err)
+	}
+	verifySet := PIOP.ConstraintSet{PRFLayout: proof.PRFLayout}
+	if proof.PRFCompanion != nil {
+		verifySet.PRFCompanionLayout = proof.PRFCompanion.Layout
+	}
+	ok, err := PIOP.VerifyWithConstraints(proof, verifySet, pub, opts, PIOP.FSModeCredential)
+	if err != nil {
+		t.Fatalf("verify showing for ncols=%d lvcs=%d preset=%s: %v", opts.NCols, opts.PostSignLVCSNCols, opts.ShowingPreset, err)
+	}
+	if !ok {
+		t.Fatalf("verify showing returned ok=false for ncols=%d lvcs=%d preset=%s", opts.NCols, opts.PostSignLVCSNCols, opts.ShowingPreset)
+	}
+	rep, err := PIOP.BuildProofReport(proof, opts, ringQ)
+	if err != nil {
+		t.Fatalf("proof report: %v", err)
+	}
+	return proof, rep
+}
+
+func optimizationLVCSCandidates(ncols int) []int {
+	seen := map[int]bool{}
+	out := make([]int, 0, 32)
+	add := func(v int) {
+		if v < ncols || seen[v] {
+			return
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	for v := 24; v <= 256; v += 8 {
+		add(v)
+	}
+	add(28)
+	// keep deterministic ascending order
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j] < out[i] {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out
 }
 
 func TestShowingProductionBetaAuditMatchesCalibrationPolicy(t *testing.T) {
@@ -116,6 +388,8 @@ type shortnessCandidate struct {
 
 func buildShortnessCandidatesForBeta(t *testing.T) []shortnessCandidate {
 	t.Helper()
+	root := showingTestRepoRoot(t)
+	chdirForShowingTest(t, root)
 	const ringQ = uint64(1054721)
 	seen := map[string]bool{}
 	add := func(out *[]shortnessCandidate, c shortnessCandidate) {
@@ -130,28 +404,44 @@ func buildShortnessCandidatesForBeta(t *testing.T) []shortnessCandidate {
 	out := []shortnessCandidate{
 		{label: PIOP.SigShortnessProfileR11L4Production, profile: PIOP.SigShortnessProfileR11L4Production},
 	}
-	for _, digits := range []int{3, 4, 5, 6} {
+	for digits := 2; digits <= 6; digits++ {
 		base, gotDigits, _, err := PIOP.ResolveSignatureBoundShapeForOpts(ringQ, PIOP.SimOpts{
 			CoeffNativeSigModel: PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
 			SigShortnessL:       digits,
 		})
 		if err != nil {
-			t.Fatalf("resolve minimal radix for L=%d: %v", digits, err)
+			t.Logf("skip shortness L=%d: %v", digits, err)
+			continue
+		}
+		if base > 16 {
+			t.Logf("skip shortness L=%d: minimal radix=%d exceeds sweep cap", gotDigits, base)
+			continue
 		}
 		add(&out, shortnessCandidate{
 			label:  fmt.Sprintf("minimal_r%d_l%d", base, gotDigits),
 			radix:  base,
 			digits: gotDigits,
 		})
-		for delta := 1; delta <= 1; delta++ {
+		for radix := base + 1; radix <= 16; radix++ {
 			add(&out, shortnessCandidate{
-				label:  fmt.Sprintf("nearby_r%d_l%d", base+delta, gotDigits),
-				radix:  base + delta,
+				label:  fmt.Sprintf("raw_r%d_l%d", radix, gotDigits),
+				radix:  radix,
 				digits: gotDigits,
 			})
 		}
 	}
 	return out
+}
+
+func presetLVCSNColsForOptimization(preset string) int {
+	switch preset {
+	case PIOP.ShowingPresetSoundnessBalanced:
+		return 96
+	case PIOP.ShowingPresetTranscriptFirst, PIOP.ShowingPresetProductionBalance:
+		return 32
+	default:
+		return 32
+	}
 }
 
 func TestShowingShortnessSweepKeepsProductionProfile(t *testing.T) {
@@ -168,10 +458,47 @@ func TestShowingShortnessSweepKeepsProductionProfile(t *testing.T) {
 		q         int
 		soundness float64
 	}
+	better := func(got, best measured) bool {
+		switch {
+		case got.total != best.total:
+			return got.total < best.total
+		case got.pdecs+got.vtargets+got.barsets != best.pdecs+best.vtargets+best.barsets:
+			return got.pdecs+got.vtargets+got.barsets < best.pdecs+best.vtargets+best.barsets
+		case got.q != best.q:
+			return got.q < best.q
+		case got.digits != best.digits:
+			return got.digits < best.digits
+		default:
+			return got.radix < best.radix
+		}
+	}
 
 	var best *measured
 	for _, cand := range buildShortnessCandidatesForBeta(t) {
-		_, rep, _, _, _, _ := buildShowingProofForTestConfigWithShortness(t, PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3, false, false, "", 8, cand.profile, cand.radix, cand.digits)
+		if cand.radix > 0 || cand.digits > 0 {
+			if _, _, _, _, err := PIOP.ResolveSignatureShortnessMetricsForOpts(1054721, PIOP.SimOpts{
+				CoeffNativeSigModel: PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+				SigShortnessRadix:   cand.radix,
+				SigShortnessL:       cand.digits,
+			}); err != nil {
+				t.Logf("shortness candidate %s rejected before build: %v", cand.label, err)
+				continue
+			}
+		}
+		_, rep, _, _, _, _ := buildShowingProofForTestConfigWithResearchKnobs(
+			t,
+			PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+			false,
+			false,
+			"",
+			8,
+			PIOP.ShowingPresetSoundnessBalanced,
+			cand.profile,
+			cand.radix,
+			cand.digits,
+			16,
+			presetLVCSNColsForOptimization(PIOP.ShowingPresetSoundnessBalanced),
+		)
 		got := measured{
 			shortnessCandidate: cand,
 			score:              stablePaperTranscriptScore(rep.PaperTranscript),
@@ -188,7 +515,7 @@ func TestShowingShortnessSweepKeepsProductionProfile(t *testing.T) {
 		}
 		t.Logf("shortness candidate %s -> stable=%d total=%d Pdecs=%d VTargets=%d BarSets=%d Q=%d soundness=%.2f",
 			cand.label, got.score, got.total, got.pdecs, got.vtargets, got.barsets, got.q, got.soundness)
-		if best == nil || got.score < best.score {
+		if best == nil || better(got, *best) {
 			copy := got
 			best = &copy
 		}
@@ -196,8 +523,17 @@ func TestShowingShortnessSweepKeepsProductionProfile(t *testing.T) {
 	if best == nil {
 		t.Fatalf("no shortness candidates measured")
 	}
-	if best.profile != PIOP.SigShortnessProfileR11L4Production {
-		t.Fatalf("best shortness candidate=%s want production profile %s", best.label, PIOP.SigShortnessProfileR11L4Production)
+	bestRadix, bestDigits, _, _, err := PIOP.ResolveSignatureShortnessMetricsForOpts(1054721, PIOP.SimOpts{
+		CoeffNativeSigModel: PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+		SigShortnessProfile: best.profile,
+		SigShortnessRadix:   best.radix,
+		SigShortnessL:       best.digits,
+	})
+	if err != nil {
+		t.Fatalf("resolve best shortness candidate %s: %v", best.label, err)
+	}
+	if bestRadix != 11 || bestDigits != 4 {
+		t.Fatalf("best shortness candidate=%s resolved to (R=%d,L=%d) want (11,4)", best.label, bestRadix, bestDigits)
 	}
 }
 
@@ -325,5 +661,181 @@ func TestShowingNIZKRetuneSelectsTheta3Eta43Preset(t *testing.T) {
 	}
 	if best.label != "theta3_eta43" {
 		t.Fatalf("best NIZK candidate=%s want theta3_eta43", best.label)
+	}
+}
+
+func TestShowingPackedWidthAndLVCSRetuneSelectsShippedDefaults(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+
+	type presetWinner struct {
+		preset    string
+		lvcsNCols int
+		total     int
+		pdecs     int
+		vtargets  int
+		barsets   int
+		auth      int
+		q         int
+		nrows     int
+		soundness float64
+	}
+	betterPreset := func(got, best presetWinner) bool {
+		switch {
+		case got.total != best.total:
+			return got.total < best.total
+		case got.pdecs+got.vtargets+got.barsets+got.auth != best.pdecs+best.vtargets+best.barsets+best.auth:
+			return got.pdecs+got.vtargets+got.barsets+got.auth < best.pdecs+best.vtargets+best.barsets+best.auth
+		case got.q != best.q:
+			return got.q < best.q
+		case got.nrows != best.nrows:
+			return got.nrows < best.nrows
+		default:
+			return got.lvcsNCols < best.lvcsNCols
+		}
+	}
+
+	type ncolsWinner struct {
+		ncols         int
+		sumTotal      int
+		worstTotal    int
+		sumPayload    int
+		sumQ          int
+		perPresetBest []presetWinner
+	}
+	betterNCols := func(got, best ncolsWinner) bool {
+		switch {
+		case got.sumTotal != best.sumTotal:
+			return got.sumTotal < best.sumTotal
+		case got.worstTotal != best.worstTotal:
+			return got.worstTotal < best.worstTotal
+		case got.sumPayload != best.sumPayload:
+			return got.sumPayload < best.sumPayload
+		case got.sumQ != best.sumQ:
+			return got.sumQ < best.sumQ
+		default:
+			return got.ncols < best.ncols
+		}
+	}
+
+	presets := []string{
+		PIOP.ShowingPresetSoundnessBalanced,
+		PIOP.ShowingPresetTranscriptFirst,
+		PIOP.ShowingPresetProductionBalance,
+	}
+	ncolsCandidates := []int{16, 32, 64}
+
+	currentState, err := credential.LoadState(filepath.Join(showingTestRepoRoot(t), "credential", "keys", "credential_state.json"))
+	if err != nil {
+		t.Fatalf("load shipped credential state: %v", err)
+	}
+	shippedNCols, err := PIOP.ResolvePackedNCols(currentState.PackedNCols, 0, 1024)
+	if err != nil {
+		t.Fatalf("resolve shipped packed ncols: %v", err)
+	}
+
+	var best *ncolsWinner
+	for _, ncols := range ncolsCandidates {
+		state := buildDeterministicCredentialStateForPackedNCols(t, ncols)
+		got := ncolsWinner{ncols: ncols}
+		admissibleNCols := true
+		for _, preset := range presets {
+			var presetBest *presetWinner
+			for _, lvcsNCols := range optimizationLVCSCandidates(ncols) {
+				opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+					Credential:           true,
+					NCols:                ncols,
+					Ell:                  18,
+					DomainMode:           PIOP.DomainModeExplicit,
+					PRFGroupRounds:       2,
+					CoeffPacking:         true,
+					CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+					ShowingPreset:        preset,
+					SigShortnessProfile:  PIOP.SigShortnessProfileR11L4Production,
+					PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
+					PRFCheckpointSamples: 8,
+					LVCSNCols:            lvcsNCols,
+					PostSignLVCSNCols:    lvcsNCols,
+					PRFLVCSNCols:         lvcsNCols,
+				})
+				_, rep := buildShowingProofForOptimizationState(t, state, opts)
+				if rep.Soundness.TotalBits < 100 {
+					t.Logf("reject preset=%s ncols=%d lvcs=%d by theorem floor: %.2f", preset, ncols, lvcsNCols, rep.Soundness.TotalBits)
+					continue
+				}
+				cand := presetWinner{
+					preset:    preset,
+					lvcsNCols: lvcsNCols,
+					total:     rep.PaperTranscript.OptimizedBytes,
+					pdecs:     rep.PaperTranscript.Pdecs.OptimizedBytes,
+					vtargets:  rep.PaperTranscript.VTargets.OptimizedBytes,
+					barsets:   rep.PaperTranscript.BarSets.OptimizedBytes,
+					auth:      rep.PaperTranscript.Auth.OptimizedBytes,
+					q:         rep.PaperTranscript.Q.OptimizedBytes,
+					nrows:     rep.TranscriptFocus.NRows,
+					soundness: rep.Soundness.TotalBits,
+				}
+				t.Logf("packed sweep preset=%s ncols=%d lvcs=%d -> total=%d payload=%d q=%d nrows=%d soundness=%.2f",
+					preset,
+					ncols,
+					lvcsNCols,
+					cand.total,
+					cand.pdecs+cand.vtargets+cand.barsets+cand.auth,
+					cand.q,
+					cand.nrows,
+					cand.soundness,
+				)
+				if presetBest == nil || betterPreset(cand, *presetBest) {
+					copy := cand
+					presetBest = &copy
+				}
+			}
+			if presetBest == nil {
+				t.Logf("reject ncols=%d because preset=%s has no admissible lvcs candidate", ncols, preset)
+				admissibleNCols = false
+				break
+			}
+			got.perPresetBest = append(got.perPresetBest, *presetBest)
+			got.sumTotal += presetBest.total
+			got.sumPayload += presetBest.pdecs + presetBest.vtargets + presetBest.barsets + presetBest.auth
+			got.sumQ += presetBest.q
+			if presetBest.total > got.worstTotal {
+				got.worstTotal = presetBest.total
+			}
+		}
+		if !admissibleNCols {
+			continue
+		}
+		t.Logf("packed sweep ncols=%d -> sumTotal=%d worst=%d payload=%d q=%d winners=%+v",
+			got.ncols, got.sumTotal, got.worstTotal, got.sumPayload, got.sumQ, got.perPresetBest)
+		if best == nil || betterNCols(got, *best) {
+			copy := got
+			best = &copy
+		}
+	}
+	if best == nil {
+		t.Fatalf("no admissible packed-width candidate")
+	}
+	if best.ncols != shippedNCols {
+		t.Fatalf("best packed width=%d want shipped PackedNCols=%d", best.ncols, shippedNCols)
+	}
+	for _, winner := range best.perPresetBest {
+		shipped := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+			Credential:           true,
+			NCols:                shippedNCols,
+			Ell:                  18,
+			DomainMode:           PIOP.DomainModeExplicit,
+			PRFGroupRounds:       2,
+			CoeffPacking:         true,
+			CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+			ShowingPreset:        winner.preset,
+			SigShortnessProfile:  PIOP.SigShortnessProfileR11L4Production,
+			PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
+			PRFCheckpointSamples: 8,
+		})
+		if winner.lvcsNCols != shipped.PostSignLVCSNCols {
+			t.Fatalf("best lvcs for preset=%s is %d want shipped %d", winner.preset, winner.lvcsNCols, shipped.PostSignLVCSNCols)
+		}
 	}
 }

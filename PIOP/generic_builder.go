@@ -116,7 +116,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				set.PRFLayout = prfLayout
 				set.PRFCompanionLayout = prfCompanionLayout
 			} else {
-				rows, rowInputs, rowLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, err = buildCredentialRows(ringQ, wit, opts)
+				rows, rowInputs, rowLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, err = buildCredentialRows(ringQ, wit, opts, pub.BoundB)
 			}
 			if err != nil {
 				return nil, fmt.Errorf("build credential rows: %w", err)
@@ -264,14 +264,28 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				return nil, fmt.Errorf("row count mismatch: got %d want %d (witness=%d rho=%d)", len(rows), expectedRows, witnessCount, rho)
 			}
 			rowInputs = make([]lvcs.RowInput, expectedRows)
-			tmpNTT := ringQ.NewPoly()
-			for i := 0; i < witnessCount; i++ {
-				ringQ.NTT(rows[i], tmpNTT)
-				head := append([]uint64(nil), tmpNTT.Coeffs[0][:len(omega)]...)
-				for j := range head {
-					head[j] %= q
+			if opts.DomainMode == DomainModeExplicit {
+				for i := 0; i < witnessCount; i++ {
+					head, herr := rowHeadOnOmega(ringQ, omega, rows[i], len(omega))
+					if herr != nil {
+						return nil, fmt.Errorf("row %d head on omega: %w", i, herr)
+					}
+					rowInputs[i] = lvcs.RowInput{Head: head}
+					if opts.Credential {
+						rowInputs[i].Poly = rows[i]
+						rowInputs[i].PolyCoeffs = trimCoeffsCopy(rows[i].Coeffs[0], q)
+					}
 				}
-				rowInputs[i] = lvcs.RowInput{Head: head}
+			} else {
+				tmpNTT := ringQ.NewPoly()
+				for i := 0; i < witnessCount; i++ {
+					ringQ.NTT(rows[i], tmpNTT)
+					head := append([]uint64(nil), tmpNTT.Coeffs[0][:len(omega)]...)
+					for j := range head {
+						head[j] %= q
+					}
+					rowInputs[i] = lvcs.RowInput{Head: head}
+				}
 			}
 			for i := 0; i < rho; i++ {
 				head := make([]uint64, len(omega))
@@ -313,38 +327,26 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			}
 			if opts.Credential && len(constraintRows) > 0 {
 				rebuiltEmpty := len(set.FparInt)+len(set.FparNorm)+len(set.FaggInt)+len(set.FaggNorm) == 0
-				// Rebuild pre-sign constraints when their publics are present.
-				if len(pub.Ac) > 0 && len(pub.Com) > 0 && len(pub.RI0) > 0 && len(pub.RI1) > 0 && len(pub.B) > 0 && len(pub.T) > 0 {
-					csRows, cerr := BuildCredentialConstraintSetPre(ringQ, pub.BoundB, pub, wit, omegaWitness)
+				if len(pub.Ac) > 0 && len(pub.B) > 0 && len(pub.A) == 0 {
+					preRows, cerr := buildCredentialConstraintSetPreFromRows(ringQ, pub.BoundB, pub, rowLayout, constraintRows, omegaWitness, opts.DomainMode)
 					if cerr != nil {
-						return nil, fmt.Errorf("rebuild credential constraints from witness: %w", cerr)
+						return nil, cerr
 					}
-					if len(set.FparInt) < len(csRows.FparInt) {
-						return nil, fmt.Errorf("constraint set too small: have %d want >=%d", len(set.FparInt), len(csRows.FparInt))
+					if rebuiltEmpty {
+						set = preRows
+					} else {
+						set.FparInt = append([]*ring.Poly{}, preRows.FparInt...)
+						set.FparIntCoeffs = append([][]uint64{}, preRows.FparIntCoeffs...)
+						set.FparNorm = append([]*ring.Poly{}, preRows.FparNorm...)
+						set.FparNormCoeffs = append([][]uint64{}, preRows.FparNormCoeffs...)
+						set.FaggInt = append([]*ring.Poly{}, preRows.FaggInt...)
+						set.FaggIntCoeffs = append([][]uint64{}, preRows.FaggIntCoeffs...)
+						set.FaggNorm = append([]*ring.Poly{}, preRows.FaggNorm...)
+						set.FaggNormCoeffs = append([][]uint64{}, preRows.FaggNormCoeffs...)
+						set.ParallelAlgDeg = preRows.ParallelAlgDeg
+						set.AggregatedAlgDeg = preRows.AggregatedAlgDeg
 					}
-					copy(set.FparInt[:len(csRows.FparInt)], csRows.FparInt)
-					set.FparNorm = csRows.FparNorm
-					if len(set.FparIntCoeffs) < len(set.FparInt) {
-						expanded := make([][]uint64, len(set.FparInt))
-						copy(expanded, set.FparIntCoeffs)
-						set.FparIntCoeffs = expanded
-					}
-					for i := 0; i < len(csRows.FparInt); i++ {
-						set.FparIntCoeffs[i] = nil
-					}
-					if len(csRows.FparIntCoeffs) > 0 {
-						copy(set.FparIntCoeffs[:len(csRows.FparInt)], csRows.FparIntCoeffs)
-					}
-					set.FparNormCoeffs = csRows.FparNormCoeffs
-
-					// The paper-aligned pre-sign credential path does not retain the
-					// extra non-signature NTT↔coefficient bridge families. Those
-					// bridges are showing-side scaffolding, not part of the issuance
-					// relation itself.
-				}
-				// Rebuild post-sign constraints only when the public signature/hash
-				// statement is present.
-				if len(pub.A) > 0 && len(pub.B) > 0 {
+				} else if len(pub.A) > 0 && len(pub.B) > 0 {
 					postRows, cerr := rebuildPostSignConstraintSetWithBridges(ringQ, pub, rowLayout, constraintRows, omegaWitness, opts, root, set.PRFLayout, set.PRFCompanionLayout)
 					if cerr != nil {
 						return nil, cerr
@@ -560,122 +562,6 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			}
 		}
 
-		var tNTT *ring.Poly
-		var tThetaNTT *ring.Poly
-		if len(pub.T) > 0 {
-			tCoeff := ringQ.NewPoly()
-			q := int64(ringQ.Modulus[0])
-			for i := 0; i < ringQ.N && i < len(pub.T); i++ {
-				v := pub.T[i]
-				if v < 0 {
-					v += q
-				}
-				tCoeff.Coeffs[0][i] = uint64(v % q)
-			}
-			tNTT = ringQ.NewPoly()
-			ring.Copy(tCoeff, tNTT)
-			ringQ.NTT(tNTT, tNTT)
-			thetaT, err := thetaPolyFromNTT(ringQ, tNTT, omegaWitness)
-			if err != nil {
-				return false, fmt.Errorf("theta T: %w", err)
-			}
-			tThetaNTT = thetaT
-		}
-		var packSelNTT []uint64
-		if selNTT, _, err := buildPackingSelectorNTT(ringQ, omegaWitness); err == nil {
-			packSelNTT = append([]uint64(nil), selNTT.Coeffs[0]...)
-		}
-
-		thetaAc := make([][]*ring.Poly, len(pub.Ac))
-		for i := range pub.Ac {
-			thetaAc[i] = make([]*ring.Poly, len(pub.Ac[i]))
-			for j := range pub.Ac[i] {
-				theta, err := thetaPolyFromNTT(ringQ, pub.Ac[i][j], omegaWitness)
-				if err != nil {
-					return false, fmt.Errorf("theta Ac[%d][%d]: %w", i, j, err)
-				}
-				thetaAc[i][j] = theta
-			}
-		}
-		thetaCom := make([]*ring.Poly, len(pub.Com))
-		for i := range pub.Com {
-			theta, err := thetaPolyFromNTT(ringQ, pub.Com[i], omegaWitness)
-			if err != nil {
-				return false, fmt.Errorf("theta Com[%d]: %w", i, err)
-			}
-			thetaCom[i] = theta
-		}
-		thetaA := make([][]*ring.Poly, len(pub.A))
-		for i := range pub.A {
-			thetaA[i] = make([]*ring.Poly, len(pub.A[i]))
-			for j := range pub.A[i] {
-				theta, err := thetaPolyFromNTT(ringQ, pub.A[i][j], omegaWitness)
-				if err != nil {
-					return false, fmt.Errorf("theta A[%d][%d]: %w", i, j, err)
-				}
-				thetaA[i][j] = theta
-			}
-		}
-		// When signatures span multiple packed blocks, rebuild Θ(A) per block.
-		var thetaABlocks [][][]*ring.Poly
-		if proof.RowLayout.SigBlocks > 1 {
-			blocks := proof.RowLayout.SigBlocks
-			if blocks <= 0 {
-				return false, fmt.Errorf("invalid SigBlocks=%d in proof layout", blocks)
-			}
-			if blocks*witnessNCols != int(ringQ.N) {
-				return false, fmt.Errorf("signature block layout mismatch: SigBlocks*ncols=%d*%d != ringN=%d", blocks, witnessNCols, ringQ.N)
-			}
-			q := ringQ.Modulus[0]
-			thetaABlocks = make([][][]*ring.Poly, blocks)
-			for b := 0; b < blocks; b++ {
-				thetaABlocks[b] = make([][]*ring.Poly, len(pub.A))
-				start := b * witnessNCols
-				end := start + witnessNCols
-				for i := range pub.A {
-					thetaABlocks[b][i] = make([]*ring.Poly, len(pub.A[i]))
-					for j := range pub.A[i] {
-						pNTT := pub.A[i][j]
-						if pNTT == nil || len(pNTT.Coeffs) == 0 || len(pNTT.Coeffs[0]) < end {
-							continue
-						}
-						head := append([]uint64(nil), pNTT.Coeffs[0][start:end]...)
-						for idx := range head {
-							head[idx] %= q
-						}
-						coeffs := Interpolate(omegaWitness, head, q)
-						theta := ringQ.NewPoly()
-						copy(theta.Coeffs[0], coeffs)
-						ringQ.NTT(theta, theta)
-						thetaABlocks[b][i][j] = theta
-					}
-				}
-			}
-		}
-		var thetaRI0, thetaRI1 []*ring.Poly
-		if len(pub.RI0) > 0 {
-			theta, err := thetaPolyFromNTT(ringQ, pub.RI0[0], omegaWitness)
-			if err != nil {
-				return false, fmt.Errorf("theta RI0: %w", err)
-			}
-			thetaRI0 = []*ring.Poly{theta}
-		}
-		if len(pub.RI1) > 0 {
-			theta, err := thetaPolyFromNTT(ringQ, pub.RI1[0], omegaWitness)
-			if err != nil {
-				return false, fmt.Errorf("theta RI1: %w", err)
-			}
-			thetaRI1 = []*ring.Poly{theta}
-		}
-		thetaB := make([]*ring.Poly, len(pub.B))
-		for i := range pub.B {
-			theta, err := thetaPolyFromNTT(ringQ, pub.B[i], omegaWitness)
-			if err != nil {
-				return false, fmt.Errorf("theta B[%d]: %w", i, err)
-			}
-			thetaB[i] = theta
-		}
-
 		var (
 			eval              ConstraintEvaluator
 			evalK             KConstraintEvaluator
@@ -715,7 +601,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			if cfgLayout.PackedSigComponents <= 0 || cfgLayout.PackedSigBlocks <= 0 || cfgLayout.PackedSigBlockWidth <= 0 {
 				return false, fmt.Errorf("invalid literal packed coeff-native layout: comps=%d blocks=%d width=%d", cfgLayout.PackedSigComponents, cfgLayout.PackedSigBlocks, cfgLayout.PackedSigBlockWidth)
 			}
-			cfgPost, cerr := newTransformBridgePostSignConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, pub.BoundB, set.PRFLayout, set.PRFCompanionLayout)
+			cfgPost, cerr := newTransformBridgePostSignConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, pub.BoundB, set.PRFLayout, set.PRFCompanionLayout, opts)
 			if cerr != nil {
 				return false, cerr
 			}
@@ -768,93 +654,51 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				}
 			}
 		} else if set.PRFLayout == nil && (len(pub.Ac) > 0 || len(pub.Com) > 0 || len(pub.B) > 0 || len(pub.RI0) > 0 || len(pub.RI1) > 0) {
-			preBoundRows := preSignBoundRowIndices(proof.RowLayout)
-			if len(preBoundRows) == 0 {
-				preBoundRows = rowLayoutPreSignBoundRows(RowLayout{})
+			cfgPre, cerr := newPreSignTransformBridgeConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, pub.BoundB)
+			if cerr != nil {
+				return false, cerr
 			}
-			preCarryRows := preSignCarryRowIndices(proof.RowLayout)
-			if len(preCarryRows) == 0 {
-				preCarryRows = rowLayoutPreSignCarryRows(RowLayout{})
-			}
-			cfgEval := CredentialConstraintConfig{
-				Ring:          ringQ,
-				Ac:            thetaAc,
-				B:             thetaB,
-				Com:           thetaCom,
-				RI0:           thetaRI0,
-				RI1:           thetaRI1,
-				Bound:         pub.BoundB,
-				CarryBound:    1,
-				TPublicNTT:    tThetaNTT,
-				PackingNCols:  witnessNCols,
-				PackingSelNTT: packSelNTT,
-				IdxM1:         rowLayoutPostSignM1(proof.RowLayout),
-				IdxM2:         rowLayoutPostSignM2(proof.RowLayout),
-				IdxRU0:        rowLayoutPreSignRU0(proof.RowLayout),
-				IdxRU1:        rowLayoutPreSignRU1(proof.RowLayout),
-				IdxR:          rowLayoutPostSignR(proof.RowLayout),
-				IdxR0:         rowLayoutPostSignR0(proof.RowLayout),
-				IdxR1:         rowLayoutPostSignR1(proof.RowLayout),
-				IdxK0:         rowLayoutPreSignK0(proof.RowLayout),
-				IdxK1:         rowLayoutPreSignK1(proof.RowLayout),
-				IdxT:          -1,
-				BoundRows:     preBoundRows,
-				CarryRows:     preCarryRows,
-				Omega:         omegaWitness,
-				DomainPoints:  domainPoints,
-			}
-			cfgK := CredentialConstraintConfig{
-				Ring:         ringQ,
-				Ac:           thetaAc,
-				B:            thetaB,
-				Com:          thetaCom,
-				RI0:          thetaRI0,
-				RI1:          thetaRI1,
-				Bound:        pub.BoundB,
-				CarryBound:   1,
-				TPublicNTT:   tThetaNTT,
-				PackingNCols: witnessNCols,
-				IdxM1:        rowLayoutPostSignM1(proof.RowLayout),
-				IdxM2:        rowLayoutPostSignM2(proof.RowLayout),
-				IdxRU0:       rowLayoutPreSignRU0(proof.RowLayout),
-				IdxRU1:       rowLayoutPreSignRU1(proof.RowLayout),
-				IdxR:         rowLayoutPostSignR(proof.RowLayout),
-				IdxR0:        rowLayoutPostSignR0(proof.RowLayout),
-				IdxR1:        rowLayoutPostSignR1(proof.RowLayout),
-				IdxK0:        rowLayoutPreSignK0(proof.RowLayout),
-				IdxK1:        rowLayoutPreSignK1(proof.RowLayout),
-				IdxT:         -1,
-				BoundRows:    preBoundRows,
-				CarryRows:    preCarryRows,
-				Omega:        omegaWitness,
-			}
-			eval = cfgEval.CredentialEvaluator()
+			eval = cfgPre.CoreEvaluator()
 			if proof.Theta > 1 && K != nil {
-				ek, err := cfgK.CredentialKEvaluator(K)
+				ek, err := cfgPre.CoreKEvaluator(K)
 				if err != nil {
 					return false, err
 				}
 				evalK = ek
 			}
-			boundRows = append([]int(nil), cfgEval.BoundRows...)
-			carryRows = append([]int(nil), cfgEval.CarryRows...)
-			boundB = cfgEval.Bound
-			carryBound = cfgEval.CarryBound
-			rowCount = cfgEval.IdxK1 + 1
-			for _, idx := range cfgEval.BoundRows {
-				if idx+1 > rowCount {
-					rowCount = idx + 1
-				}
-			}
-			for _, idx := range cfgEval.CarryRows {
+			boundRows = nil
+			carryRows = nil
+			boundB = pub.BoundB
+			carryBound = 1
+			rowCount = 0
+			for _, idx := range []int{
+				proof.RowLayout.IdxM1,
+				proof.RowLayout.IdxM2,
+				proof.RowLayout.IdxRU0,
+				proof.RowLayout.IdxRU1,
+				proof.RowLayout.IdxR,
+				proof.RowLayout.IdxR0,
+				proof.RowLayout.IdxR1,
+				proof.RowLayout.IdxK0,
+				proof.RowLayout.IdxK1,
+				proof.RowLayout.IdxCarrierM,
+				proof.RowLayout.IdxCarrierPreRU,
+				proof.RowLayout.IdxCarrierPreR,
+				proof.RowLayout.IdxCarrierCtr,
+				proof.RowLayout.IdxCarrierK,
+				proof.RowLayout.IdxMHat1,
+				proof.RowLayout.IdxMHat2,
+				proof.RowLayout.IdxRHat0,
+				proof.RowLayout.IdxRHat1,
+			} {
 				if idx+1 > rowCount {
 					rowCount = idx + 1
 				}
 			}
 			haveCred = true
 
-			// The retained paper-aligned pre-sign credential relation does not
-			// replay the legacy non-signature NTT/coeff bridge families.
+			// Pre-sign now reuses the showing transform-bridge hash machinery, but
+			// only for the non-sign replay-facing hats.
 		}
 		if set.PRFCompanionLayout != nil && proof.PRFCompanion != nil {
 			cfgCompanion := PRFCompanionBridgeConfig{

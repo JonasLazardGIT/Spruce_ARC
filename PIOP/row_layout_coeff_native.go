@@ -41,10 +41,14 @@ func rowLayoutCoeffNativeUsesLiteralPackedV3(layout RowLayout) bool {
 
 func rowLayoutCoeffNativeSigIndex(layout RowLayout, block, comp int) int {
 	cfg := layout.CoeffNativeSig
-	if !rowLayoutCoeffNativeUsesLiteralPacked(layout) || block < 0 || comp < 0 || comp >= cfg.SigUCount || block >= cfg.SigBlocks {
+	componentCount := cfg.SigUCount
+	if componentCount <= 0 {
+		componentCount = cfg.SigComponentCount
+	}
+	if !rowLayoutCoeffNativeUsesLiteralPacked(layout) || block < 0 || comp < 0 || comp >= componentCount || block >= cfg.SigBlocks {
 		return -1
 	}
-	return cfg.SigBase + block*cfg.SigUCount + comp
+	return cfg.SigBase + block*componentCount + comp
 }
 
 func rowLayoutCoeffNativeSigScalarIndex(layout RowLayout, comp, coeff int) int {

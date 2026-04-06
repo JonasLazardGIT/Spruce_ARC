@@ -108,8 +108,7 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 	if layout.CoeffNativeSig.Enabled {
 		cfg := layout.CoeffNativeSig
 		if rowLayoutCoeffNativeUsesTransformBridge(layout) {
-			sigHatCount := layout.SigBlocks * layout.SigUCount
-			out.SigCoreRows = cfg.PackedSigCount + sigHatCount + layout.SigBlocks
+			out.SigCoreRows = rowLayoutReplayTHatCount(layout)
 			out.SigReplayRows = out.SigCoreRows
 			out.NonSigRows = 0
 			if layout.IdxCarrierM >= 0 {
@@ -118,7 +117,7 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 			if layout.IdxCarrierCtr >= 0 {
 				out.NonSigRows++
 			}
-			for _, idx := range []int{layout.IdxMHat1, layout.IdxMHat2, layout.IdxRHat0, layout.IdxRHat1} {
+			for _, idx := range []int{layout.IdxMHatSigma, layout.IdxRHat0, layout.IdxRHat1} {
 				if idx >= 0 {
 					out.NonSigRows++
 				}

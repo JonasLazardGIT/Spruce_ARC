@@ -1,0 +1,199 @@
+\section{SmallWood Programming Model}
+\label{sec:smallwood-model}
+
+This section describes how ARC-SPRUCE statements are compiled into SmallWood constraints. Proof-system internals are deferred to Appendix~\ref{app:smallwood}.
+
+\subsection{What SmallWood provides (formal interface)}
+Fix an evaluation set \(\Omega=\{\omega_1,\dots,\omega_s\}\subset\Fq\) of size \(s\) and a disjoint set of \(\ell\)
+blinding points \(\Omega'\subset\Fq\setminus \Omega\). A witness is arranged as a matrix \(w\in\Fq^{n\times s}\), where each
+row \(w_i\) is interpolated into a polynomial \(P_i(X)\in\Fq[X]\) such that \(P_i(\omega_k)=w_{i,k}\) for all
+\(\omega_k\in\Omega\) and \(P_i\) takes random values on \(\Omega'\) (HVZK tails). SmallWood commits to the evaluations of
+all \(P_i\) and proves satisfaction of constraint polynomials evaluated on \(\Omega\), using random spot-checks outside
+\(\Omega\) to enforce correctness with high probability.
+
+\paragraph{Constraints: parallel vs aggregated.}
+SmallWood’s PACS language distinguishes two families of constraints over the packing domain $\Omega$:
+(i) \emph{parallel constraints} enforced pointwise for every $\omega\in\Omega$, and
+(ii) \emph{aggregated constraints} enforced through a single $\Omega$-sum identity of the form
+$\sum_{\omega\in\Omega} f'(\omega)=0$.
+Parallel constraints are ideal for slot-local algebra (Hadamard products, linear relations, and checkpointed S-box
+constraints)\lena{I'd add that they are for Poseidon}, while aggregated constraints are needed whenever the encoding introduces a \emph{global} coupling across
+packed coordinates (e.g., row-sum identities arising from proof-friendly rewritings under packing, or global norm/shortness
+tests implemented via carry/limb aggregation).
+
+In our ARC statements, the issuance proof is dominated by parallel constraints (commitment, centering, and the
+cleared-denominator hash relation). The showing proof uses parallel constraints for the signature/hash/PRF relations; for
+the concrete ARC instantiation in this paper we set \(F_{\mathrm{agg}}=\emptyset\), but we retain the distinction because
+proof-friendly encodings in earlier versions of the paper do use aggregated constraints to express global coupling.
+The concrete split between $F_{\mathrm{par}}$ and $F_{\mathrm{agg}}$ for our instantiation is spelled out below.
+
+
+\subsection{Constraint compilation recipe}
+Given a statement that relates ring elements (messages, randomness, signatures), we compile it as follows:
+\begin{enumerate}[leftmargin=1.25em]
+  \item \textbf{Choose witness rows.} Allocate one row per ring element (and per auxiliary carry/selector row if needed).
+  \item \textbf{Fix packing.} Use coefficient packing on \(\Omega\): each column corresponds to one packed coordinate
+  (e.g., one coefficient slot), and some rows may be constrained to be column-constant.
+  \item \textbf{Introduce \(\Theta\)-selectors.} For constraints that should apply at a single coordinate (e.g., binding an
+  extracted PRF-key lane), define public selector polynomials that are \(1\) at one \(\omega_k\in\Omega\) and \(0\)
+  elsewhere.
+  \item \textbf{Write constraint families.} Express all relations (commitment linearity, centering, rational-hash cleared
+  identity, signature equation, PRF algebra) as polynomials in the witness rows and public \(\Theta\)-values.
+  \item \textbf{Add bounds via membership polynomials.} Enforce coefficient-wise bounds using a vanishing polynomial on
+  \([-\BoundMsg,\BoundMsg]\) (Appendix~\ref{app:defs}).
+\end{enumerate}
+
+\subsection{Issuance (pre-sign) constraints}
+\label{subsec:smallwood-issuance}
+We rewrite the pre-sign statement of Section~\ref{subsec:issuance-protocol} as a SmallWood instance. The target \(T\) (the hash
+output \(t\)) is \emph{public} in issuance, so the hash relation is linear in the witness.
+
+\paragraph{Witness rows.}
+We commit to the following fixed-order rows (each a ring element packed on \(\Omega\)):
+\[
+  M_1,\ M_2,\ R_0^U,\ R_1^U,\ \bar R,\ R_0,\ R_1,\ K_0,\ K_1.
+\]
+Here \(M_1,M_2\) are the packed witness rows encoding the abstract message \(m=\mu\Vert k\), \(R_0^U,R_1^U,\bar R\) are
+holder randomnesses, \(R_0,R_1\) are the centered combinations, and \(K_0,K_1\) are carry rows for centering
+(coefficients in \(\{-1,0,1\}\)).
+
+\paragraph{Public inputs.}
+The verifier’s public inputs are:
+\[
+  A_c,\ B,\ \mathsf{com},\ r_0^I,\ r_1^I,\ T.
+\]
+All public values are lifted to \(\Theta\)-polynomials over \(\Omega\) so that constraints are evaluated in the same
+domain as the witness rows.
+
+\paragraph{Constraint families (mostly parallel).}
+Let \(\Delta = 2\BoundMsg+1\). The pre-sign proof enforces:
+\begin{enumerate}[leftmargin=1.25em]
+  \item \textbf{Commit constraints (linear):}
+  \[
+    A_c\cdot [M_1\Vert M_2\Vert R_0^U\Vert R_1^U\Vert \bar R]^\top = \mathsf{com}.
+  \]
+  \item \textbf{Center constraints (linear with carries):}
+  \[
+    R_0 = R_0^U + r_0^I - \Delta\cdot K_0,\qquad
+    R_1 = R_1^U + r_1^I - \Delta\cdot K_1,
+  \]
+  enforced coefficient-wise on \(\Omega\), together with membership constraints \(K_0,K_1\in\{-1,0,1\}\).
+  \item \textbf{Hash constraints (cleared denominator, linear in pre-sign):}
+  \[
+    (B_3 - R_1)\Had T
+    - \bigl(B_0 + B_1\cdot(M_1{+}M_2) + B_2\cdot R_0\bigr)=0.
+  \]
+  \item \textbf{Packing constraints (message representation).} We use half-split packing: \(M_1\) occupies the lower
+  half of coordinates and \(M_2\) the upper half, and together they encode the abstract message \(m=\mu\Vert k\). We
+  enforce \(M_1(\omega_k)=0\) for \(k>s/2\) and \(M_2(\omega_k)=0\) for \(k\le s/2\).
+  \item \textbf{Bounds.} For each bounded row \(X\in\{M_1,M_2,R_0^U,R_1^U,\bar R,R_0,R_1\}\), we enforce
+  \(P_{\BoundMsg}(X(\omega_k))=0\) for all \(\omega_k\in\Omega\), where \(P_{\BoundMsg}\) is the vanishing polynomial on
+  \([-\BoundMsg,\BoundMsg]\). For \(K_0,K_1\), we use the vanishing polynomial on \(\{-1,0,1\}\).
+\end{enumerate}
+
+\subsection{Showing (post-sign) constraints}
+\label{subsec:smallwood-showing}
+The showing proof (Step~2 of \Cref{alg:showing}) binds together the signature relation \(A\cdot U=T\), the hash relation
+defining \(T\), and the PRF relation defining \(\prftag\). Unlike issuance, \(T\) is now a \emph{witness row}, so the
+hash relation becomes bilinear.
+
+\paragraph{Witness rows and ordering.}
+We commit a single witness matrix whose rows are arranged as:
+\begin{enumerate}[leftmargin=1.25em]
+  \item \textbf{Base credential rows (as in issuance):}
+  \[
+    M_1,M_2,R_0^U,R_1^U,\bar R,\quad R_0,R_1,K_0,K_1.
+  \]
+  \item \textbf{Hash target:} \(T\) (one row).
+  \item \textbf{Signature preimage:} \(U\) (a small number of rows determined by the signature format; for an NTRU
+  format this is two rows).
+  \item \textbf{PRF witness block:} key-lane rows \(\mathsf{Key}[0..(\ell_{\mathsf{key}}-1)]\) and checkpointed S-box
+  output rows \(\mathsf{Z}[0..(\mathsf{ZCount}-1)]\), as described in Section~\ref{subsec:prf-checkpointed}.
+\end{enumerate}
+All PRF block rows are column-constant over \(\Omega\) (up to the SmallWood tail masks) and are bound to the signed
+encoding of the secret \(k\) inside the packed message representation via selector constraints.
+
+\paragraph{Public inputs.}
+The verifier receives \(A\) (signature matrix), \(B\) (hash key), the public \(\prftag\) and \(\nonce\), and
+the public bound \(\BoundMsg\).
+
+\paragraph{Constraint families (parallel + aggregated).}
+The post-sign proof enforces:
+\begin{enumerate}[leftmargin=1.25em]
+  \item \textbf{Signature constraint (linear):} \(A\cdot U = T\).
+  \item \textbf{Hash constraint (cleared denominator, bilinear):}
+  \[
+    (B_3 - R_1)\Had T
+    - \bigl(B_0 + B_1\cdot(M_1{+}M_2) + B_2\cdot R_0\bigr)=0.
+  \]
+  \item \textbf{PRF constraints.} We enforce:
+  \begin{itemize}[leftmargin=1.25em]
+    \item \emph{Key binding:} each \(\mathsf{Key}[i]\) equals the designated signed encoding of \(\veck\) extracted from
+    the packed message rows. This is enforced at a single \(\Omega\)-coordinate using a \(\Theta\)-selector polynomial.
+    \item \emph{Checkpointed S-box constraints:} for each committed checkpoint row \(\mathsf{Z}[\alpha]\), enforce
+    \(\mathsf{Z}[\alpha] - \mathsf{In}[\alpha]^d = 0\), where \(\mathsf{In}[\alpha]\) is the recomputed S-box input lane
+    at that checkpoint (linear wiring is recomputed from opened evaluations and public constants).
+    \item \emph{Tag binding:} enforce the feed-forward plus truncation relation on the first
+    \(\ell_{\prftag}\) lanes, binding the public \(\prftag\) to the final PRF state.
+  \end{itemize}
+  \item \textbf{Packing constraints (message representation).} Same half-split constraints as in issuance.
+  \item \textbf{Bounds.} Enforce coefficient-wise bounds for all bounded rows (message, randomness, target \(T\), and
+  signature rows \(U\)) using vanishing polynomials.
+\end{enumerate}
+
+\subsection{Poseidon PRF constraints with checkpoints}
+\label{subsec:prf-checkpointed}
+This subsection spells out the PRF part of the post-sign statement for the Poseidon2-like PRF of
+Section~\ref{subsec:poseidon-prf}. All checks are expressed as \emph{parallel} PACS constraints, i.e., they are enforced
+pointwise on the packing domain \(\Omega\) (Section~\ref{sec:smallwood-model}).
+
+\paragraph{Witness rows for the PRF.}
+We allocate:
+(i) \(\ell_{\mathsf{key}}\) \emph{key-lane} rows \(\mathsf{Key}[0],\ldots,\mathsf{Key}[\ell_{\mathsf{key}}-1]\), and
+(ii) \(\mathsf{ZCount}\) \emph{checkpoint} rows \(\mathsf{Z}[0],\ldots,\mathsf{Z}[\mathsf{ZCount}-1]\) holding committed
+S-box outputs. Each PRF row is column-constant on \(\Omega\) (up to the HVZK tails on \(\Omega'\)), so opening it at a
+single verifier point suffices to replay the PRF computation at that point.
+
+\paragraph{Checkpoint schedule (grouping parameter \(g\)).}
+Internal rounds are always checkpointed (one lane per round), while among external rounds we checkpoint every \(g\)-th
+round (all \(t\) lanes). Between two checkpoints, the verifier composes at most \(g\) S-box layers, so each checkpoint
+constraint has effective degree \(d^g\) (where \(d\) is the S-box exponent). A concrete schedule and the resulting row
+counts for our default instantiation are recorded in Appendix~\ref{app:prf}.
+
+\paragraph{Key binding (selector constraints).}
+Let \(\Theta_i(X)\) be a public selector polynomial that is \(1\) at the \(\Omega\)-coordinate encoding the \(i\)-th key
+lane of the signed secret \(\veck\) inside the packed message representation, and \(0\) elsewhere. We enforce:
+\[
+  \Theta_i(X)\cdot\bigl(\mathsf{Key}[i](X)-M_2(X)\bigr)=0
+  \qquad\text{for all }i\in[0,\ell_{\mathsf{key}}-1].
+\]
+Since each \(\mathsf{Key}[i]\) is column-constant on \(\Omega\), checking equality at a single selected coordinate binds
+it to the signed \(\veck\) value while keeping \(\veck\) hidden.
+
+\paragraph{S-box checkpoint constraints.}
+For each committed checkpoint \(\alpha\), the verifier recomputes the corresponding S-box input lane
+\(\mathsf{In}[\alpha](X)\) (just before exponentiation) by replaying the linear wiring between checkpoints: adding public
+round constants and applying the public MDS matrices to previously committed checkpoint outputs and the key/nonce lanes.
+We enforce the parallel constraint
+\[
+  \mathsf{Z}[\alpha](X) - \bigl(\mathsf{In}[\alpha](X)\bigr)^d = 0
+  \qquad\text{for all }\alpha\in[0,\mathsf{ZCount}-1].
+\]
+
+\paragraph{Tag binding (feed-forward + truncation).}
+Let \(\mathbf{x}^{(0)}=\mathbf{k}\Vert \mathbf{n}\) be the initial state (with \(\mathbf{k}\) given by the key-lane
+witness rows and \(\mathbf{n}\) the public nonce encoding), and let \(\mathbf{x}^{(\mathrm{final})}\) be the recomputed
+final state after applying all rounds consistent with the checkpoint constraints. Define
+\(\mathbf{y}=\mathbf{x}^{(\mathrm{final})}+\mathbf{x}^{(0)}\). For each output lane \(j\in[1,\ell_{\prftag}]\), we
+enforce that the corresponding public tag component equals the truncated feed-forward state:
+\[
+  y_j(X) - \prftag_j = 0,
+\]
+where \(\prftag\) is the verifier’s public input and \(y_j\) is the \(j\)-th lane of \(\mathbf{y}\).
+
+\subsection{Where details are deferred}
+The SmallWood protocol stack (DECS/LVCS/PCS/PIOP), its soundness accounting, and the small-field variant are presented in
+Appendix~\ref{app:smallwood}. The Gaussian trapdoor sampler for signing is detailed in Appendix~\ref{app:gaussian-sampler}.
+The PRF algorithm is given in Section~\ref{subsec:poseidon-prf} and the PRF constraint families (including
+checkpointing) are stated in Section~\ref{subsec:prf-checkpointed}. Appendix~\ref{app:prf} records extended notes (e.g.,
+parameter-generation guidelines).

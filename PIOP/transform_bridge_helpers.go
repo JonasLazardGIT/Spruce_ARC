@@ -3,61 +3,90 @@ package PIOP
 import (
 	"fmt"
 
+	kf "vSIS-Signature/internal/kfield"
+
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-func buildTransformBridgeHFromCoeffs(omega, nttPoints []uint64, q uint64) ([][]uint64, error) {
+// transformBridgeBasisCache holds the public linear-map data used by both the
+// showing and pre-sign transform-bridge replay paths.
+type transformBridgeBasisCache struct {
+	LagrangeBasis  [][]uint64
+	TransformH     [][]uint64
+	TransformHEval [][]uint64
+	BlockFactors   [][]uint64
+}
+
+// newTransformBridgeBasisCache derives the fixed public basis used by the
+// transform bridges:
+// - the Lagrange basis on Ω,
+// - the exact NTT-matrix H rows,
+// - the evaluation-form H rows used by non-sign bridges,
+// - and the per-block scaling factors used by signature bridges.
+func newTransformBridgeBasisCache(ringQ *ring.Ring, omega []uint64, outputCount int, sourceBlocks int) (*transformBridgeBasisCache, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
 	if len(omega) == 0 {
 		return nil, fmt.Errorf("empty omega")
 	}
-	if len(nttPoints) < len(omega) {
-		return nil, fmt.Errorf("nttPoints len=%d < omega len=%d", len(nttPoints), len(omega))
+	if outputCount <= 0 {
+		return nil, fmt.Errorf("invalid H row count=%d", outputCount)
 	}
-	out := make([][]uint64, len(nttPoints))
-	for j := range nttPoints {
-		w := nttPoints[j] % q
-		vals := make([]uint64, len(omega))
-		pow := uint64(1)
-		for k := 0; k < len(omega); k++ {
-			vals[k] = pow
-			pow = modMul(pow, w, q)
-		}
-		out[j] = Interpolate(omega, vals, q)
+	if outputCount > int(ringQ.N) {
+		return nil, fmt.Errorf("H row count=%d exceeds ring dimension %d", outputCount, ringQ.N)
 	}
-	return out, nil
+	if sourceBlocks <= 0 {
+		return nil, fmt.Errorf("invalid source blocks=%d", sourceBlocks)
+	}
+	ncols := len(omega)
+	lagrangeBasis, err := buildLagrangeBasisCoeffs(omega, ringQ.Modulus[0])
+	if err != nil {
+		return nil, fmt.Errorf("lagrange basis: %w", err)
+	}
+	transformH, blockFactors, err := buildTransformBridgeHFromNTTMatrix(ringQ, omega, outputCount, sourceBlocks)
+	if err != nil {
+		return nil, err
+	}
+	transformHEval := transformH
+	if len(transformHEval) > ncols {
+		transformHEval = transformHEval[:ncols]
+	}
+	return &transformBridgeBasisCache{
+		LagrangeBasis:  lagrangeBasis,
+		TransformH:     transformH,
+		TransformHEval: transformHEval,
+		BlockFactors:   blockFactors,
+	}, nil
 }
 
-// buildTransformBridgeHFromNTTMatrix builds the transform-bridge H rows by
-// computing the NTT matrix entries directly from basis vectors. For each
-// NTT output index t and coefficient index k (0 <= k < |Ω|), it sets:
-//   H_{t,k} = NTT(e_k)[t]
-// and interpolates H_t(X) over Ω so that H_t(ω_k) = H_{t,k}.
-//
-// It also returns blockFactors[t][b] = NTT(e_{b*|Ω|})[t] / NTT(e_0)[t],
-// which scales the block-b source rows to account for the full NTT matrix.
-func buildTransformBridgeHFromNTTMatrix(ringQ *ring.Ring, omega []uint64, count int) ([][]uint64, [][]uint64, error) {
+// buildTransformBridgeHFromNTTMatrix builds H rows directly from the NTT
+// matrix entries H_{t,k} = NTT(e_k)[t] for k in [0,|Ω|). This maps the
+// coefficient-slot surface used by the explicit-domain rows to the exact NTT
+// outputs consumed by the replay equations.
+func buildTransformBridgeHFromNTTMatrix(ringQ *ring.Ring, omega []uint64, outputCount int, sourceBlocks int) ([][]uint64, [][]uint64, error) {
 	if ringQ == nil {
 		return nil, nil, fmt.Errorf("nil ring")
 	}
 	if len(omega) == 0 {
 		return nil, nil, fmt.Errorf("empty omega")
 	}
-	if count <= 0 {
-		return nil, nil, fmt.Errorf("invalid H row count=%d", count)
+	if outputCount <= 0 {
+		return nil, nil, fmt.Errorf("invalid H row count=%d", outputCount)
 	}
-	if count > int(ringQ.N) {
-		return nil, nil, fmt.Errorf("H row count=%d exceeds ring dimension %d", count, ringQ.N)
+	if outputCount > int(ringQ.N) {
+		return nil, nil, fmt.Errorf("H row count=%d exceeds ring dimension %d", outputCount, ringQ.N)
 	}
 	ncols := len(omega)
 	q := ringQ.Modulus[0]
-	if count%ncols != 0 {
-		return nil, nil, fmt.Errorf("H row count=%d not divisible by ncols=%d", count, ncols)
+	if outputCount%ncols != 0 {
+		return nil, nil, fmt.Errorf("H row count=%d not divisible by ncols=%d", outputCount, ncols)
 	}
-	blocks := count / ncols
-
-	// weights[t][k] = NTT(e_k)[t] for 0<=k<ncols, 0<=t<count
-	weights := make([][]uint64, count)
-	for t := 0; t < count; t++ {
+	if sourceBlocks <= 0 || sourceBlocks*ncols > int(ringQ.N) {
+		return nil, nil, fmt.Errorf("invalid source blocks=%d for ncols=%d ringN=%d", sourceBlocks, ncols, ringQ.N)
+	}
+	weights := make([][]uint64, outputCount)
+	for t := 0; t < outputCount; t++ {
 		weights[t] = make([]uint64, ncols)
 	}
 	for k := 0; k < ncols; k++ {
@@ -65,76 +94,38 @@ func buildTransformBridgeHFromNTTMatrix(ringQ *ring.Ring, omega []uint64, count 
 		basis.Coeffs[0][k] = 1
 		ntt := ringQ.NewPoly()
 		ringQ.NTT(basis, ntt)
-		for t := 0; t < count; t++ {
+		for t := 0; t < outputCount; t++ {
 			weights[t][k] = ntt.Coeffs[0][t] % q
 		}
 	}
 
-	hCoeffs := make([][]uint64, count)
-	blockFactors := make([][]uint64, count)
-	// Precompute NTT(e_{b*ncols}) for block scaling.
-	blockWeights := make([][]uint64, blocks)
-	for b := 0; b < blocks; b++ {
+	hCoeffs := make([][]uint64, outputCount)
+	blockFactors := make([][]uint64, outputCount)
+	blockWeights := make([][]uint64, sourceBlocks)
+	for b := 0; b < sourceBlocks; b++ {
 		basis := ringQ.NewPoly()
 		basis.Coeffs[0][b*ncols] = 1
 		ntt := ringQ.NewPoly()
 		ringQ.NTT(basis, ntt)
-		vec := make([]uint64, count)
-		for t := 0; t < count; t++ {
+		vec := make([]uint64, outputCount)
+		for t := 0; t < outputCount; t++ {
 			vec[t] = ntt.Coeffs[0][t] % q
 		}
 		blockWeights[b] = vec
 	}
-	for t := 0; t < count; t++ {
+	for t := 0; t < outputCount; t++ {
 		hCoeffs[t] = Interpolate(omega, weights[t], q)
 		w0 := weights[t][0] % q
 		if w0 == 0 {
 			return nil, nil, fmt.Errorf("ntt matrix weight zero at t=%d,k=0", t)
 		}
-		blockFactors[t] = make([]uint64, blocks)
-		for b := 0; b < blocks; b++ {
+		blockFactors[t] = make([]uint64, sourceBlocks)
+		for b := 0; b < sourceBlocks; b++ {
 			wb := blockWeights[b][t] % q
 			blockFactors[t][b] = modMul(wb, modInv(w0, q), q)
 		}
 	}
 	return hCoeffs, blockFactors, nil
-}
-
-func buildTransformBridgeHFromEvals(omega, nttPoints []uint64, q uint64) ([][]uint64, error) {
-	if len(omega) == 0 {
-		return nil, fmt.Errorf("empty omega")
-	}
-	if len(nttPoints) < len(omega) {
-		return nil, fmt.Errorf("nttPoints len=%d < omega len=%d", len(nttPoints), len(omega))
-	}
-	lagrangeBasis, err := buildLagrangeBasisCoeffs(omega, q)
-	if err != nil {
-		return nil, err
-	}
-	out := make([][]uint64, len(nttPoints))
-	for j := range nttPoints {
-		w := nttPoints[j] % q
-		vals := make([]uint64, len(omega))
-		for k := 0; k < len(omega); k++ {
-			vals[k] = EvalPoly(lagrangeBasis[k], w, q)
-		}
-		out[j] = Interpolate(omega, vals, q)
-	}
-	return out, nil
-}
-
-func nttDomainPoints(ringQ *ring.Ring) ([]uint64, error) {
-	if ringQ == nil {
-		return nil, fmt.Errorf("nil ring")
-	}
-	if ringQ.N <= 0 {
-		return nil, fmt.Errorf("invalid ring dimension %d", ringQ.N)
-	}
-	p := ringQ.NewPoly()
-	p.Coeffs[0][1] = 1
-	pts := ringQ.NewPoly()
-	ringQ.NTT(p, pts)
-	return append([]uint64(nil), pts.Coeffs[0]...), nil
 }
 
 // thetaHeadFromNTTBlock returns the Θ values on Ω for a block of a public NTT-head
@@ -184,4 +175,52 @@ func evalPolyOnNTT(ringQ *ring.Ring, coeffs []uint64, rowNTT *ring.Poly) (*ring.
 		out.Coeffs[0][i] = EvalPoly(coeffs, rowNTT.Coeffs[0][i]%q, q)
 	}
 	return out, nil
+}
+
+func buildTransformHashResidualCoeffs(q uint64, bCoeff [][]uint64, m1Coeff, m2Coeff, r0Coeff, r1Coeff, tCoeff []uint64) []uint64 {
+	mCombined := polyAdd(m1Coeff, m2Coeff, q)
+	return buildTransformHashResidualCombinedCoeffs(q, bCoeff, mCombined, r0Coeff, r1Coeff, tCoeff)
+}
+
+func buildTransformHashResidualCombinedCoeffs(q uint64, bCoeff [][]uint64, mCombinedCoeff, r0Coeff, r1Coeff, tCoeff []uint64) []uint64 {
+	num := polyAdd(bCoeff[0], polyMul(bCoeff[1], mCombinedCoeff, q), q)
+	num = polyAdd(num, polyMul(bCoeff[2], r0Coeff, q), q)
+	den := polySub(bCoeff[3], r1Coeff, q)
+	return trimPoly(polySub(polyMul(den, tCoeff, q), num, q), q)
+}
+
+func buildTransformBridgeResidualCoeff(q uint64, transformHCoeff, lagrangeCoeff, srcCoeff, hatCoeff []uint64) []uint64 {
+	leftCoeff := polyMul(transformHCoeff, srcCoeff, q)
+	rightCoeff := polyMul(lagrangeCoeff, hatCoeff, q)
+	return trimPoly(polySub(leftCoeff, rightCoeff, q), q)
+}
+
+func transformHashResidualEval(q, x uint64, thetaB [][]uint64, mHat1, mHat2, rHat0, rHat1, tTheta uint64) uint64 {
+	return transformHashResidualCombinedEval(q, x, thetaB, modAdd(mHat1, mHat2, q), rHat0, rHat1, tTheta)
+}
+
+func transformHashResidualCombinedEval(q, x uint64, thetaB [][]uint64, mCombined, rHat0, rHat1, tTheta uint64) uint64 {
+	b0 := EvalPoly(thetaB[0], x, q) % q
+	b1 := EvalPoly(thetaB[1], x, q) % q
+	b2 := EvalPoly(thetaB[2], x, q) % q
+	b3 := EvalPoly(thetaB[3], x, q) % q
+	hashNum := modAdd(b0, modMul(b1, mCombined, q), q)
+	hashNum = modAdd(hashNum, modMul(b2, rHat0, q), q)
+	hashDen := modSub(b3, rHat1, q)
+	return modSub(modMul(hashDen, tTheta, q), hashNum, q)
+}
+
+func transformHashResidualKEval(K *kf.Field, e kf.Elem, thetaB [][]uint64, mHat1, mHat2, rHat0, rHat1, tTheta kf.Elem) kf.Elem {
+	return transformHashResidualCombinedKEval(K, e, thetaB, K.Add(mHat1, mHat2), rHat0, rHat1, tTheta)
+}
+
+func transformHashResidualCombinedKEval(K *kf.Field, e kf.Elem, thetaB [][]uint64, mCombined, rHat0, rHat1, tTheta kf.Elem) kf.Elem {
+	b0 := K.EvalFPolyAtK(thetaB[0], e)
+	b1 := K.EvalFPolyAtK(thetaB[1], e)
+	b2 := K.EvalFPolyAtK(thetaB[2], e)
+	b3 := K.EvalFPolyAtK(thetaB[3], e)
+	hashNum := K.Add(b0, K.Mul(b1, mCombined))
+	hashNum = K.Add(hashNum, K.Mul(b2, rHat0))
+	hashDen := K.Sub(b3, rHat1)
+	return K.Sub(K.Mul(hashDen, tTheta), hashNum)
 }

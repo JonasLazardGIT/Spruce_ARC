@@ -121,7 +121,7 @@ func main() {
 	)
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
-	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default; transcript_first keeps the paper-transcript minimum; production_balance keeps the old shipped geometry)")
+	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default; transcript_first and production_balance use the current transcript-tuned wide-LVCS profile under fixed theorem knobs)")
 	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
 	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
 	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override for soundness research")
