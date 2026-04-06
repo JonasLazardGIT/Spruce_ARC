@@ -51,9 +51,15 @@ SmallWood introduces parameters controlling packing, masking, and soundness:
   \item \textbf{Degree bounds} \(d_{\mathrm{decs}}=s+\ell-1\) for witness rows and \(d_Q\) for constraint-derived masks.
   \item \textbf{Small-field knob} \(\theta\) when using an extension-field variant.
 \end{itemize}
-The pre-sign proof is dominated by linear constraints (commitment, centering, and a linear cleared-denominator hash),
-while the post-sign proof introduces higher effective degree due to the PRF’s S-box constraints and the bilinear hash
-relation (since \(T\) becomes a witness row). Appendix~\ref{app:smallwood} and Appendix~\ref{app:ext-params} detail how
+The pre-sign proof is dominated by carrier membership, linear replay on decoded
+aliases, and the transform-domain public-target hash using the public
+theta-lift of the blind-signature target together with the committed hats
+\(\widehat M,\widehat K,\widehat R_0,\widehat R_1\).
+The post-sign proof introduces higher effective degree through the signature
+shortness gadget, the direct limb-to-\(\widehat T_0\) bridge, and the PRF's
+S-box constraints; it no longer commits a semantic witness row for the hash
+target.
+Appendix~\ref{app:smallwood} and Appendix~\ref{app:ext-params} detail how
 these degrees translate into \(d_Q\) and final soundness.
 
 \subsection{PRF parameters}

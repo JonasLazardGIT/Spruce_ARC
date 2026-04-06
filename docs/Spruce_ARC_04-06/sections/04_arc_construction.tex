@@ -21,7 +21,7 @@ Every credential message has the abstract form
   m \;=\; \mu \Vert \veck.
 \]
 Here \(\mu\) encodes the holder attributes and \(\veck\) is sampled uniformly and serves as the secret PRF key used for
-rate limiting. In the implementation this abstract message is stored in packed witness rows \((M_1,M_2)\), but that is
+rate limiting. In the implementation this abstract message is stored in packed witness rows \((M,K)\), but that is
 only a representation choice and not part of the abstract syntax.
 
 \subsection{Rate-limiting via the secret key \(\veck\)}

@@ -171,14 +171,14 @@ randomness \(\chi=(r_0,r_1)\in\Rq^2\) with coefficient bounds
     \bot \qquad\text{otherwise.}
   \end{cases}
 \]
-Whenever \(T=h_{m,(r_0,r_1)}(B)\) is defined, it is equivalently characterized by the cleared-denominator identity
+Whenever \(\vect=h_{m,(r_0,r_1)}(B)\) is defined, it is equivalently characterized by the cleared-denominator identity
 \begin{equation}\label{eq:hash-cleared}
-  (B_3-r_1)\Had T-\bigl(B_0+B_1\cdot m+B_2\cdot r_0\bigr)=0.
+  (B_3-r_1)\Had \vect-\bigl(B_0+B_1\cdot m+B_2\cdot r_0\bigr)=0.
 \end{equation}
-In the implementation, the same abstract message \(m\) is stored in packed rows \((M_1,M_2)\) with \(m=M_1+M_2\), so
+In the implementation, the same abstract message \(m\) is stored in packed rows \((M,K)\) with \(m=M+K\), so
 the same identity is written as
 \[
-  (B_3-R_1)\Had T-\bigl(B_0+B_1\cdot(M_1+M_2)+B_2\cdot R_0\bigr)=0.
+  (B_3-R_1)\Had \vect-\bigl(B_0+B_1\cdot(M+K)+B_2\cdot R_0\bigr)=0.
 \]
 \end{definition}
 

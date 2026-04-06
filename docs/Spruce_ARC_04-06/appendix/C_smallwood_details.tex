@@ -144,56 +144,118 @@ LVCS provides linear opening queries to committed rows and is used to implement 
 by PIOPs. SmallWood combines LVCS with DECS (for degree enforcement) to obtain a hash-based PCS.
 
 \subsection{What DECS/LVCS/PCS bind in ARC-SPRUCE}\label{app:smallwood-binds}
-At a high level, the SmallWood stack provides a single commitment that simultaneously binds \emph{all} witness rows used
-in a statement, and it enforces that every opened value is consistent with a low-degree polynomial view of those rows.
-In ARC-SPRUCE this binding is used in three complementary ways:
+At a high level, the SmallWood stack provides a single commitment that
+simultaneously binds \emph{all committed witness rows} of a statement, and it
+enforces that every opened value is consistent with a low-degree polynomial
+view of those rows. In ARC-SPRUCE this binding is used in three complementary
+ways:
 \begin{itemize}[leftmargin=1.25em]
-  \item \textbf{Row binding and low degree (DECS).} DECS ensures that the prover cannot answer openings using
-  high-degree ``fake'' vectors: each committed row must correspond to a degree-\(\le s+\ell-1\) polynomial that matches
-  the packed values on \(\Omega\) and the masked tails on \(\Omega'\).
-  \item \textbf{Linear linking across subsystems (LVCS).} LVCS is used to request openings of verifier-chosen linear
-  combinations of rows. This is what couples different parts of the statement: the same opened evaluations are reused
-  to recompute commitment residuals, centering residuals, the rational-hash residual, the signature residual, and the
-  PRF checkpoint residuals.
-  \item \textbf{No witness splitting (single PCS commitment).} Because all rows live under one commitment, the prover
-  cannot use inconsistent witnesses for different checks. For instance, in showings the same signed packed-message rows
-  that appear in the hash/signature relation are also the rows from which the committed PRF key lanes are extracted;
-  this prevents ``mix-and-match'' of \((k,u)\) with an unrelated PRF witness.
+  \item \textbf{Row binding and low degree (DECS).} DECS ensures that the
+  prover cannot answer openings using high-degree ``fake'' vectors: each
+  committed row must correspond to a degree-\(\le s+\ell-1\) polynomial that
+  matches the packed values on \(\Omega\) and the masked tails on
+  \(\Omega'\).
+  \item \textbf{Replay binding across subsystems (LVCS).} LVCS is used to
+  request verifier-chosen linear openings of the committed rows. In issuance
+  these same openings are reused to replay carrier membership, carrier-to-alias
+  decode bridges, commitment, centering, packing, the transform-domain
+  public-target hash, and the four aggregated non-sign transform bridges. In
+  showing the same openings are reused to replay signature digit membership,
+  the direct limb-to-\(\widehat T_0\) bridge, the non-sign bridges to
+  \(\widehat m,\widehat R_0,\widehat R_1\), the replay residual, and the
+  PRF companion constraints.
+  \item \textbf{No witness splitting (single PCS commitment).} Because all
+  committed rows live under one PCS root, the prover cannot use inconsistent
+  witnesses for different subsystems. In issuance the same committed carriers
+  determine the committed decoded aliases and the replay-facing hats. In
+  showing the same committed message carrier \(C^M\) simultaneously determines
+  the decoded message used in packing and PRF key binding and the transform
+  alias \(\widehat m\), while the same committed limb rows determine the
+  only committed signature replay row \(\widehat T_0\).
 \end{itemize}
-This is exactly the binding invariant emphasized in the previous paper’s SmallWood appendix: the verifier’s checks are
-expressed as residual functions of opened row evaluations, so all constraints are evaluated against a single coherent
-row assignment.
+This is the current binding invariant of the implementation: every replay check
+is expressed as a residual function of committed row openings, and every
+deterministic link needed by replay is either an explicit committed alias row
+or an explicit PACS family.
 
 \subsection{Openings we request in issuance vs showing}\label{app:smallwood-openings}
-Both proofs in ARC-SPRUCE follow the same pattern: the prover commits to all witness rows as polynomials, the verifier
-derives Fiat--Shamir challenges, and the prover opens the committed rows at verifier-chosen points. The verifier then
-recomputes residuals for each constraint family from these openings and checks that all residuals vanish.
+Both proofs in ARC-SPRUCE follow the same pattern: the prover commits to all
+statement rows as explicit-domain polynomials, the verifier derives
+Fiat--Shamir challenges, and the prover opens the committed rows at
+verifier-chosen points. The verifier then recomputes the residuals of the
+active constraint families from those openings and checks the parallel replay
+identities at \(E'\) together with the aggregated \(\Omega\)-sum identities.
 
 \paragraph{Issuance (pre-sign).}
-The witness consists of the base rows
+The committed issuance witness consists of
 \[
-  M_1,M_2,R_0^U,R_1^U,\bar R,\quad R_0,R_1,K_0,K_1.
+  C^M,\ C^{\mathrm{preRU}},\ C^{\mathrm{preR}},\ C^{\mathrm{ctr}},\ C^J,
 \]
-while the target \(T\) and issuer challenges \((r_0^I,r_1^I)\) are public. The verifier requests openings sufficient to
-replay: (i) the linear commitment constraints linking \(\mathsf{com}\) to \((M_1,M_2,R_0^U,R_1^U,\bar R)\), (ii) the
-centering constraints linking \((R_0,R_1)\) to the holder/issuer randomness and carries \((K_0,K_1)\), and (iii) the
-cleared-denominator hash constraint linking \(T\) to \((M_1,M_2,R_0,R_1)\), together with packing and membership checks.
-Because all of these residuals are evaluated from the same opened rows, the proof binds the target \(T\) to the
-commitment opening and the centered randomness.
+\[
+  M,\ K,\ R_U^0,\ R_U^1,\ R,\ R_0,\ R_1,\ J_0,\ J_1,
+\]
+\[
+  \widehat M,\ \widehat K,\ \widehat R_0,\ \widehat R_1.
+\]
+The public blind-signature target remains public as a coefficient-domain ring
+element \(T\), and the verifier derives its public theta-lift \(T^\Theta\).
+The verifier requests openings sufficient to replay:
+\begin{enumerate}[leftmargin=1.25em]
+  \item carrier membership on the five committed carriers,
+  \item carrier-to-alias decode bridges from those carriers to the nine
+  committed alias rows,
+  \item commitment, centering, and packing on the committed alias rows,
+  \item the transform-domain public-target hash residual on
+  \(\widehat M,\widehat K,\widehat R_0,\widehat R_1\) against public
+  \(B^\Theta\) and public \(T^\Theta\),
+  \item the four aggregated non-sign transform bridges
+  \(M\!\to\!\widehat M\), \(K\!\to\!\widehat K\),
+  \(R_0\!\to\!\widehat R_0\), and \(R_1\!\to\!\widehat R_1\).
+\end{enumerate}
+Because all of these checks are replayed from the same committed rows, the
+pre-sign proof binds the public target \(T\) to the commitment opening, the
+centering step, and the exact transform images of the committed non-sign rows.
 
 \paragraph{Showing (post-sign).}
-The witness extends issuance with the hash target \(T\), the signature preimage rows \(U\), and the PRF witness block
-(key lanes and checkpointed S-box outputs). The verifier requests openings sufficient to replay: (i) the signature
-residual \(A\cdot U-T\), (ii) the bilinear cleared-denominator hash residual linking \(T\) to the base rows, and (iii)
-the PRF key-binding, checkpoint, and tag-binding residuals (Section~\ref{subsec:prf-checkpointed}). The key point is
-that the PRF key lanes are tied back to the signed packed message via selector constraints, so the opened values jointly
-bind \(\mathsf{tag}=\PRF(k,\nonce)\) to the same secret \(k\) that appears inside the signed message
-\(m=\mu\Vert k\).
+The committed showing witness is smaller and already reduced to the
+theorem-essential replay surface. It consists of:
+\begin{enumerate}[leftmargin=1.25em]
+  \item cert-side signature limb rows \(L_{c,b,\ell}\),
+  \item the committed carriers \(C^M\) and \(C^{\mathrm{ctr}}\),
+  \item the committed replay aliases
+  \(\widehat T_0,\widehat m,\widehat R_0,\widehat R_1\),
+  \item the packed PRF companion rows.
+\end{enumerate}
+There are no committed \(\widetilde S\) rows, no committed \(\widehat S\)
+rows, no semantic \(U\) rows, and no committed witness row for the target
+\(T\). The verifier requests openings sufficient to replay:
+\begin{enumerate}[leftmargin=1.25em]
+  \item signature digit membership on the limb rows,
+  \item the direct aggregated limb-to-\(\widehat T_0\) bridge,
+  \item the aggregated non-sign transform bridges
+  \((M+K)\!\to\!\widehat m\),
+  \(R_0\!\to\!\widehat R_0\), and
+  \(R_1\!\to\!\widehat R_1\),
+  \item the transform-domain replay residual on
+  \(\widehat T_0,\widehat m,\widehat R_0,\widehat R_1\),
+  \item packing and carrier membership on the decoded non-sign rows,
+  \item PRF key binding, grouped checkpoint constraints, and final tag binding
+  on the packed companion rows.
+\end{enumerate}
+The decoded message and centered-randomness rows remain virtual decode images of
+the committed carriers, and the virtual packed signature source is reconstructed
+linearly from the limb rows. The direct bridge to \(\widehat T_0\) is what
+lets the verifier replay the showing equation from one committed signature-side
+row instead of from a larger semantic signature surface.
 
 \paragraph{Internal \(\Omega\)-sum check.}
-Even when an application’s aggregated family is empty (\(F_{\mathrm{agg}}=\emptyset\)), PACS/PIOP still enforces the
-masked \(\Omega\)-sum test on the batch polynomials \(Q\), which is the mechanism that ties the verifier’s spot-check
-openings to correctness on the full packing domain \(\Omega\).
+The \(\Omega\)-sum check is active in both of our proofs. In issuance it
+enforces the four non-sign transform bridges. In showing it enforces the direct
+limb-to-\(\widehat T_0\) bridge and the three non-sign transform bridges; the
+PRF constancy family is present only in the general model and is empty in the
+shipped packed-companion path. Thus the \(\Sigma_\Omega\) check is not merely a
+generic PCS safeguard: it is part of the active statement layer of both
+issuance and showing.
 
 \subsection{PACS/PIOP interface (used by our statements)}
 SmallWood’s PACS/PIOP layer checks that constraint polynomials vanish on \(\Omega\) (and at random points outside
@@ -236,12 +298,21 @@ where \(F_j\) and \(F'_u\) are the parallel and aggregated constraint polynomial
 \end{algorithmic}
 \end{algorithm}
 
+In the current ARC instantiation, the prover also supplies formal coefficient
+representations of the active parallel and aggregated families in
+explicit-domain mode. This is crucial for the transform-bridge statements:
+decode compositions, theta-lifted replay rows, and aggregated bridge
+polynomials must be replayed as actual polynomial identities at \(E'\), not as
+naive pointwise products on \(\Omega\).
+
 \subsection{Fiat--Shamir compilation}
 SmallWood compiles the interactive protocol to a NIZK using Fiat--Shamir with grinding to obtain challenges with
-all-zero prefixes, as in \cite{EPRINT:FenRiv25b}. Our ARC instantiation is dominated by parallel constraints, but
-the PACS/PIOP reminder here is stated for general \((F_{\mathrm{par}},F_{\mathrm{agg}})\) statements. In particular, if the
-application introduces global coupling across the packing domain (as in the proof-friendly encodings inherited from the
-previous paper), those relations appear as \(F_{\mathrm{agg}}\) and are enforced through the \(\Omega\)-sum checks of the PIOP.
+all-zero prefixes, as in \cite{EPRINT:FenRiv25b}. The generic wrapper remains
+unchanged, but the active ARC instantiation now uses both
+\(F_{\mathrm{par}}\neq\emptyset\) and \(F_{\mathrm{agg}}\neq\emptyset\) in
+issuance and showing. The verifier therefore derives challenges for the same
+batched PIOP, then checks both replay identities at \(E'\) and the active
+\(\Omega\)-sum constraints for the transform bridges.
 
 \begin{algorithm}[H]
 \caption{\textsf{PACS.ToNIZK} (Fiat--Shamir wrapper with grinding)}

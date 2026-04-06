@@ -1,199 +1,410 @@
 \section{SmallWood Programming Model}
 \label{sec:smallwood-model}
 
-This section describes how ARC-SPRUCE statements are compiled into SmallWood constraints. Proof-system internals are deferred to Appendix~\ref{app:smallwood}.
+This section describes how the current ARC-SPRUCE issuance and showing
+statements are compiled into SmallWood constraints. The proof-system internals
+(DECS/LVCS/PCS/PIOP and Fiat--Shamir compilation) are deferred to
+Appendix~\ref{app:smallwood}; here we fix the witness families and constraint
+families that the implementation actually proves.
 
 \subsection{What SmallWood provides (formal interface)}
-Fix an evaluation set \(\Omega=\{\omega_1,\dots,\omega_s\}\subset\Fq\) of size \(s\) and a disjoint set of \(\ell\)
-blinding points \(\Omega'\subset\Fq\setminus \Omega\). A witness is arranged as a matrix \(w\in\Fq^{n\times s}\), where each
-row \(w_i\) is interpolated into a polynomial \(P_i(X)\in\Fq[X]\) such that \(P_i(\omega_k)=w_{i,k}\) for all
-\(\omega_k\in\Omega\) and \(P_i\) takes random values on \(\Omega'\) (HVZK tails). SmallWood commits to the evaluations of
-all \(P_i\) and proves satisfaction of constraint polynomials evaluated on \(\Omega\), using random spot-checks outside
-\(\Omega\) to enforce correctness with high probability.
+Fix a witness-support domain
+\(\Omega=\{\omega_0,\dots,\omega_{s-1}\}\subset\Fq\) of size \(s\), a
+disjoint set of tail points \(\Omega'\subset\Fq\setminus\Omega\), and an
+opening set \(E'\subset\Fq\setminus\Omega\) chosen by the verifier through
+Fiat--Shamir. A witness is arranged as a matrix \(w\in\Fq^{n\times s}\), with
+one committed polynomial \(P_i(X)\in\Fq[X]\) per row, such that
+\(P_i(\omega_k)=w_{i,k}\) for all \(\omega_k\in\Omega\) and \(P_i\) takes
+random values on \(\Omega'\) (HVZK tails). SmallWood commits to the full row
+family and then replays constraint residuals from openings at \(E'\).
 
-\paragraph{Constraints: parallel vs aggregated.}
-SmallWood’s PACS language distinguishes two families of constraints over the packing domain $\Omega$:
-(i) \emph{parallel constraints} enforced pointwise for every $\omega\in\Omega$, and
-(ii) \emph{aggregated constraints} enforced through a single $\Omega$-sum identity of the form
-$\sum_{\omega\in\Omega} f'(\omega)=0$.
-Parallel constraints are ideal for slot-local algebra (Hadamard products, linear relations, and checkpointed S-box
-constraints)\lena{I'd add that they are for Poseidon}, while aggregated constraints are needed whenever the encoding introduces a \emph{global} coupling across
-packed coordinates (e.g., row-sum identities arising from proof-friendly rewritings under packing, or global norm/shortness
-tests implemented via carry/limb aggregation).
+\paragraph{Parallel vs. aggregated PACS families.}
+SmallWood's PACS language distinguishes:
+\begin{itemize}[leftmargin=1.25em]
+  \item \emph{parallel families}, enforced pointwise on \(\Omega\), and
+  \item \emph{aggregated families}, enforced through the \(\Omega\)-sum test
+  \(\sum_{\omega\in\Omega} F'(\omega)=0\).
+\end{itemize}
+Parallel families are used for slot-local algebra: carrier membership, decode
+bridges, linear commitment and centering identities, replay residuals, packing,
+and PRF checkpoint constraints. Aggregated families are used exactly where the
+current implementation has a global linear map across packed coordinates,
+namely the transform bridges from explicit-domain source rows to replay-facing
+transform aliases.
 
-In our ARC statements, the issuance proof is dominated by parallel constraints (commitment, centering, and the
-cleared-denominator hash relation). The showing proof uses parallel constraints for the signature/hash/PRF relations; for
-the concrete ARC instantiation in this paper we set \(F_{\mathrm{agg}}=\emptyset\), but we retain the distinction because
-proof-friendly encodings in earlier versions of the paper do use aggregated constraints to express global coupling.
-The concrete split between $F_{\mathrm{par}}$ and $F_{\mathrm{agg}}$ for our instantiation is spelled out below.
-
+\paragraph{Replay-facing aliases and Eq.(4) honesty.}
+The current implementation uses explicit-domain committed polynomials for all
+witness rows, but it also commits \emph{transform-domain aliases} whenever the
+verifier must replay a quotient-ring relation from row openings. The reason is
+mathematical rather than implementation-specific: a coefficient-domain identity
+in \(\Fq[X]/(X^N+1)\) is generally \emph{not} preserved by naive scalar
+evaluation of coefficient representatives at arbitrary points in \(E'\).
+Therefore, whenever replay requires the verifier to recover ring-multiplication
+semantics, the implementation commits explicit transform-domain aliases and
+checks the replay relation in that basis.
 
 \subsection{Constraint compilation recipe}
-Given a statement that relates ring elements (messages, randomness, signatures), we compile it as follows:
+Given a ring statement, the current ARC compilation follows five steps:
 \begin{enumerate}[leftmargin=1.25em]
-  \item \textbf{Choose witness rows.} Allocate one row per ring element (and per auxiliary carry/selector row if needed).
-  \item \textbf{Fix packing.} Use coefficient packing on \(\Omega\): each column corresponds to one packed coordinate
-  (e.g., one coefficient slot), and some rows may be constrained to be column-constant.
-  \item \textbf{Introduce \(\Theta\)-selectors.} For constraints that should apply at a single coordinate (e.g., binding an
-  extracted PRF-key lane), define public selector polynomials that are \(1\) at one \(\omega_k\in\Omega\) and \(0\)
-  elsewhere.
-  \item \textbf{Write constraint families.} Express all relations (commitment linearity, centering, rational-hash cleared
-  identity, signature equation, PRF algebra) as polynomials in the witness rows and public \(\Theta\)-values.
-  \item \textbf{Add bounds via membership polynomials.} Enforce coefficient-wise bounds using a vanishing polynomial on
-  \([-\BoundMsg,\BoundMsg]\) (Appendix~\ref{app:defs}).
+  \item \textbf{Choose the committed witness surface.}
+  Commit explicit-domain witness rows for the low-alphabet carriers, any
+  decoded aliases that must replay linearly at \(E'\), and any replay-facing
+  transform aliases required for quotient-ring relations.
+  \item \textbf{Fix packing on \(\Omega\).}
+  Use coefficient packing: each coordinate of \(\Omega\) represents one packed
+  coefficient slot. Some logical surfaces, such as PRF companion rows, are
+  packed even though they are conceptually column-constant.
+  \item \textbf{Lift public rows into the replay basis.}
+  Public hash rows and public signature-map rows are converted into
+  theta-lifted explicit-domain polynomials, denoted \(B^\Theta\),
+  \(T^\Theta\), and \(A^\Theta\), whose values on \(\Omega\) are the NTT-head
+  values used by replay.
+  \item \textbf{Split into parallel and aggregated families.}
+  Parallel families enforce slot-local relations on committed rows or decoded
+  virtual rows. Aggregated families enforce the global linear transform map
+  from source rows to replay aliases.
+  \item \textbf{Provide formal coefficient polynomials.}
+  In explicit-domain mode the verifier replays polynomial identities at
+  \(E'\), so the implementation supplies formal coefficient overrides for both
+  parallel and aggregated families. This prevents the usual
+  interpolate-then-multiply mismatch between pointwise \(\Omega\)-products and
+  the actual committed explicit-domain polynomials.
 \end{enumerate}
 
 \subsection{Issuance (pre-sign) constraints}
 \label{subsec:smallwood-issuance}
-We rewrite the pre-sign statement of Section~\ref{subsec:issuance-protocol} as a SmallWood instance. The target \(T\) (the hash
-output \(t\)) is \emph{public} in issuance, so the hash relation is linear in the witness.
+We rewrite the issuance relation of
+Section~\ref{subsec:issuance-protocol} as a SmallWood statement whose public
+target \(\vect\) remains public, with \(T\) denoting its coefficient-domain
+representative inside the replay basis, and whose replay-safe hash check is
+carried out on transform-domain aliases.
 
-\paragraph{Witness rows.}
-We commit to the following fixed-order rows (each a ring element packed on \(\Omega\)):
+\paragraph{Committed witness rows.}
+The current pre-sign witness surface is committed in the following order:
 \[
-  M_1,\ M_2,\ R_0^U,\ R_1^U,\ \bar R,\ R_0,\ R_1,\ K_0,\ K_1.
+  C^M,\ C^{\mathrm{preRU}},\ C^{\mathrm{preR}},\ C^{\mathrm{ctr}},\ C^J,
 \]
-Here \(M_1,M_2\) are the packed witness rows encoding the abstract message \(m=\mu\Vert k\), \(R_0^U,R_1^U,\bar R\) are
-holder randomnesses, \(R_0,R_1\) are the centered combinations, and \(K_0,K_1\) are carry rows for centering
-(coefficients in \(\{-1,0,1\}\)).
-
-\paragraph{Public inputs.}
-The verifier’s public inputs are:
 \[
-  A_c,\ B,\ \mathsf{com},\ r_0^I,\ r_1^I,\ T.
+  M,\ K,\ R_U^0,\ R_U^1,\ R,\ R_0,\ R_1,\ J_0,\ J_1,
 \]
-All public values are lifted to \(\Theta\)-polynomials over \(\Omega\) so that constraints are evaluated in the same
-domain as the witness rows.
+\[
+  \widehat M,\ \widehat K,\ \widehat R_0,\ \widehat R_1.
+\]
+The first five rows are low-alphabet carriers. The next nine rows are explicit
+decoded aliases. The final four rows are the replay-facing transform aliases
+needed only for the hash relation.
 
-\paragraph{Constraint families (mostly parallel).}
-Let \(\Delta = 2\BoundMsg+1\). The pre-sign proof enforces:
+\paragraph{Carrier families.}
+The message carrier \(C^M\) uses the same sparse packed codec as showing:
+\[
+S_M^{\mathrm{packed}}
+=
+\{(a,0):a\in[-\BoundMsg,\BoundMsg]\}
+\cup
+\{(0,a):a\in[-\BoundMsg,\BoundMsg]\},
+\]
+with \((0,0)\) deduplicated, contiguous code set \(\{0,\dots,4\BoundMsg\}\),
+and membership degree \(4\BoundMsg\). The other issuance carriers use the
+generic full pair codec
+\[
+  c=(x_0+B)+(2B+1)(x_1+B),
+\]
+with the appropriate bound for each family; in particular, \(C^J\) is a bound-1
+pair carrier for \((J_0,J_1)\), and \(C^{\mathrm{preR}}\) stores
+\((R,0)\), with only the first decoded coordinate used later.
+
+\paragraph{Canonical decoded aliases.}
+The decoded alias rows are not copied directly from the holder's raw witness.
+Instead, the prover first commits the carrier rows, then composes the public
+decode polynomials with those committed carrier polynomials, and commits the
+resulting decoded aliases. Concretely,
+\[
+  (M,K)=\mathrm{Dec}_M(C^M),
+\]
+\[
+  (R_U^0,R_U^1)=\mathrm{Dec}_{\mathrm{preRU}}(C^{\mathrm{preRU}}),\qquad
+  R=\mathrm{Dec}^{(1)}_{\mathrm{preR}}(C^{\mathrm{preR}}),
+\]
+\[
+  (R_0,R_1)=\mathrm{Dec}_{\mathrm{ctr}}(C^{\mathrm{ctr}}),\qquad
+  (J_0,J_1)=\mathrm{Dec}_J(C^J).
+\]
+This matters because the verifier replays from committed row openings at
+\(E'\): the alias rows must be the exact decode images of the committed
+carriers.
+
+\paragraph{Public inputs and lifted public rows.}
+The public issuance inputs are
+\[
+  \mACom,\ B,\ \vecc,\ \vecr_0^{\Issuer},\ \vecr_1^{\Issuer},\ T.
+\]
+Here \(T\) denotes the coefficient-domain representative of the public blind
+signature target \(\vect\) from Section~\ref{subsec:issuance-protocol}. The
+current implementation also derives the public theta-lifts
+\(B_0^\Theta,B_1^\Theta,B_2^\Theta,B_3^\Theta\) and \(T^\Theta\), where
+\(T^\Theta\) is obtained from the public coefficient-domain target \(T\) by the
+same NTT-head lift used elsewhere in the transform bridge.
+
+\paragraph{Parallel issuance families.}
+Let \(\Delta=2\BoundMsg+1\). The current pre-sign proof enforces the
+following parallel families:
 \begin{enumerate}[leftmargin=1.25em]
-  \item \textbf{Commit constraints (linear):}
+  \item \textbf{Carrier membership:}
   \[
-    A_c\cdot [M_1\Vert M_2\Vert R_0^U\Vert R_1^U\Vert \bar R]^\top = \mathsf{com}.
+    P_M(C^M)=0,\quad P_{\mathrm{preRU}}(C^{\mathrm{preRU}})=0,\quad
+    P_{\mathrm{preR}}(C^{\mathrm{preR}})=0,\quad
+    P_{\mathrm{ctr}}(C^{\mathrm{ctr}})=0,\quad
+    P_J(C^J)=0.
   \]
-  \item \textbf{Center constraints (linear with carries):}
+  \item \textbf{Carrier-to-alias bridges:}
   \[
-    R_0 = R_0^U + r_0^I - \Delta\cdot K_0,\qquad
-    R_1 = R_1^U + r_1^I - \Delta\cdot K_1,
+    M-\mathrm{Dec}_M^{(1)}(C^M)=0,\quad K-\mathrm{Dec}_M^{(2)}(C^M)=0,
   \]
-  enforced coefficient-wise on \(\Omega\), together with membership constraints \(K_0,K_1\in\{-1,0,1\}\).
-  \item \textbf{Hash constraints (cleared denominator, linear in pre-sign):}
   \[
-    (B_3 - R_1)\Had T
-    - \bigl(B_0 + B_1\cdot(M_1{+}M_2) + B_2\cdot R_0\bigr)=0.
+    R_U^0-\mathrm{Dec}_{\mathrm{preRU}}^{(1)}(C^{\mathrm{preRU}})=0,\quad
+    R_U^1-\mathrm{Dec}_{\mathrm{preRU}}^{(2)}(C^{\mathrm{preRU}})=0,
   \]
-  \item \textbf{Packing constraints (message representation).} We use half-split packing: \(M_1\) occupies the lower
-  half of coordinates and \(M_2\) the upper half, and together they encode the abstract message \(m=\mu\Vert k\). We
-  enforce \(M_1(\omega_k)=0\) for \(k>s/2\) and \(M_2(\omega_k)=0\) for \(k\le s/2\).
-  \item \textbf{Bounds.} For each bounded row \(X\in\{M_1,M_2,R_0^U,R_1^U,\bar R,R_0,R_1\}\), we enforce
-  \(P_{\BoundMsg}(X(\omega_k))=0\) for all \(\omega_k\in\Omega\), where \(P_{\BoundMsg}\) is the vanishing polynomial on
-  \([-\BoundMsg,\BoundMsg]\). For \(K_0,K_1\), we use the vanishing polynomial on \(\{-1,0,1\}\).
+  \[
+    R-\mathrm{Dec}_{\mathrm{preR}}^{(1)}(C^{\mathrm{preR}})=0,
+  \]
+  \[
+    R_0-\mathrm{Dec}_{\mathrm{ctr}}^{(1)}(C^{\mathrm{ctr}})=0,\quad
+    R_1-\mathrm{Dec}_{\mathrm{ctr}}^{(2)}(C^{\mathrm{ctr}})=0,
+  \]
+  \[
+    J_0-\mathrm{Dec}_J^{(1)}(C^J)=0,\quad J_1-\mathrm{Dec}_J^{(2)}(C^J)=0.
+  \]
+  \item \textbf{Commitment:}
+  \[
+    \mACom\cdot[M\Vert K\Vert R_U^0\Vert R_U^1\Vert R]^\top=\vecc.
+  \]
+  \item \textbf{Centering:}
+  \[
+    R_0 = R_U^0 + \vecr_0^{\Issuer} - \Delta J_0,
+    \qquad
+    R_1 = R_U^1 + \vecr_1^{\Issuer} - \Delta J_1.
+  \]
+  \item \textbf{Packing:}
+  \(M\) is constrained to the lower half of \(\Omega\), and \(K\) to the
+  upper half, exactly as in the packed-message representation of
+  Section~\ref{sec:arc-construction}.
+  \item \textbf{Transform-domain public-target hash:}
+  \[
+    (B_3^\Theta-\widehat R_1)\,T^\Theta
+    -\bigl(B_0^\Theta + B_1^\Theta(\widehat M+\widehat K)
+    + B_2^\Theta\widehat R_0\bigr)=0.
+  \]
 \end{enumerate}
+
+\paragraph{Aggregated issuance families.}
+The current pre-sign statement has four aggregated families, namely the
+non-sign transform bridges
+\[
+  M\rightarrow \widehat M,\qquad K\rightarrow \widehat K,
+\]
+\[
+  R_0\rightarrow \widehat R_0,\qquad R_1\rightarrow \widehat R_1.
+\]
+No signature-side bridge is needed in issuance, and there is no committed
+\(\widehat T\) witness row because the target remains public.
+
+\paragraph{Why public issuance still uses hats.}
+The commitment and centering equations are linear in the decoded aliases and
+therefore replay-clean in that coefficient basis. The rational-hash equation is
+not: replaying it from single-point openings of coefficient rows at arbitrary
+points in \(E'\) does not preserve the quotient-ring multiplication used by the
+hash. The current issuance design therefore mirrors the showing proof only for
+the hash-facing rows: it keeps \(T\) public, derives the public lift
+\(T^\Theta\), commits the four minimal non-sign hats, and checks the hash
+relation in that transform basis.
+
+\paragraph{Exact pre-sign statement now proved.}
+The current issuance proof asserts the existence of committed carriers,
+committed decoded aliases, and committed non-sign hats such that:
+\begin{enumerate}[leftmargin=1.25em]
+  \item each carrier lies in its low-alphabet carrier set,
+  \item each decoded alias is the public decode image of its carrier,
+  \item the decoded aliases satisfy commitment, centering, and packing,
+  \item the hats are the exact transform images of \(M,K,R_0,R_1\), and
+  \item the public target \(T\), after public theta-lift, satisfies the
+  transform-domain hash equation with those hats.
+\end{enumerate}
+This is the minimal committed replay surface that makes the current
+implementation honest under SmallWood replay while keeping the ARC issuance
+target public.
 
 \subsection{Showing (post-sign) constraints}
 \label{subsec:smallwood-showing}
-The showing proof (Step~2 of \Cref{alg:showing}) binds together the signature relation \(A\cdot U=T\), the hash relation
-defining \(T\), and the PRF relation defining \(\prftag\). Unlike issuance, \(T\) is now a \emph{witness row}, so the
-hash relation becomes bilinear.
+The showing proof rewrites the ARC presentation statement of
+Section~\ref{subsec:showing-protocol} into a transform-bridge SmallWood
+instance. The current statement is substantially smaller than earlier versions:
+only the theorem-essential replay row \(\widehat T_0\) is committed on the
+signature side, and the message transform aliases are deduplicated into one row
+\(\widehat m\).
 
-\paragraph{Witness rows and ordering.}
-We commit a single witness matrix whose rows are arranged as:
+\paragraph{Fixed public algebra and transform map.}
+Let \(A^\Theta\) denote the theta-lifted public signature map and
+\(B_0^\Theta,B_1^\Theta,B_2^\Theta,B_3^\Theta\) the theta-lifted public replay
+rows derived from the NTT heads of the corresponding public polynomials. The
+transform-domain aliases are related to their explicit-domain source rows by one
+exact public linear map \(\mathcal F\), implemented through a bridge matrix
+\(H\) derived from the NTT matrix itself:
+\[
+  H_{t,k}=\mathrm{NTT}(e_k)_t,
+\]
+where \(e_k\) is the \(k\)-th coefficient basis vector. Thus \(H\) is not a
+heuristic root-power map: it is the exact public linear transform matching the
+implementation's NTT ordering.
+
+\paragraph{Committed showing witness rows.}
+The current showing witness surface consists of:
 \begin{enumerate}[leftmargin=1.25em]
-  \item \textbf{Base credential rows (as in issuance):}
-  \[
-    M_1,M_2,R_0^U,R_1^U,\bar R,\quad R_0,R_1,K_0,K_1.
-  \]
-  \item \textbf{Hash target:} \(T\) (one row).
-  \item \textbf{Signature preimage:} \(U\) (a small number of rows determined by the signature format; for an NTRU
-  format this is two rows).
-  \item \textbf{PRF witness block:} key-lane rows \(\mathsf{Key}[0..(\ell_{\mathsf{key}}-1)]\) and checkpointed S-box
-  output rows \(\mathsf{Z}[0..(\mathsf{ZCount}-1)]\), as described in Section~\ref{subsec:prf-checkpointed}.
+  \item \textbf{Cert-side signature limb rows}
+  \(L_{c,b,\ell}\), used by the shortness gadget.
+  \item \textbf{Carrier rows}
+  \(C^M\) and \(C^{\mathrm{ctr}}\).
+  \item \textbf{Replay-facing transform aliases}
+  \(\widehat T_0,\widehat m,\widehat R_0,\widehat R_1\), where
+  \(\widehat m=\mathcal F(M+K)\).
+  \item \textbf{PRF companion rows} for the shipped checkpointed PRF path.
 \end{enumerate}
-All PRF block rows are column-constant over \(\Omega\) (up to the SmallWood tail masks) and are bound to the signed
-encoding of the secret \(k\) inside the packed message representation via selector constraints.
 
-\paragraph{Public inputs.}
-The verifier receives \(A\) (signature matrix), \(B\) (hash key), the public \(\prftag\) and \(\nonce\), and
-the public bound \(\BoundMsg\).
+\paragraph{What is no longer committed.}
+The current implementation does \emph{not} commit any of the following older
+surfaces:
+\begin{itemize}[leftmargin=1.25em]
+  \item packed signature source rows \(\widetilde S\),
+  \item intermediate signature hats \(\widehat S\),
+  \item semantic signature rows \(U\),
+  \item semantic witness target rows \(T\),
+  \item separate message hats \(\widehat M,\widehat K\).
+\end{itemize}
+Instead, \(\widetilde S\) is reconstructed virtually from the limb rows,
+\(\widehat S\) is only a conceptual intermediate linear image, and the only
+committed signature replay row is \(\widehat T_0\).
 
-\paragraph{Constraint families (parallel + aggregated).}
-The post-sign proof enforces:
+\paragraph{Virtual showing rows.}
+The decoded non-sign rows remain virtual:
+\[
+  (M,K)=\mathrm{Dec}_M(C^M),\qquad
+  (R_0,R_1)=\mathrm{Dec}_{\mathrm{ctr}}(C^{\mathrm{ctr}}).
+\]
+The virtual packed signature source is reconstructed linearly from the limb
+surface as
+\[
+  \widetilde S_{c,b}=\sum_{\ell} r^\ell L_{c,b,\ell}.
+\]
+The intermediate signature hats are also virtual: they are the linear image of
+\(\widetilde S\) under the same transform map, but they are not committed in
+the final statement.
+
+\paragraph{Parallel showing families.}
+The current post-sign proof enforces the following parallel families:
 \begin{enumerate}[leftmargin=1.25em]
-  \item \textbf{Signature constraint (linear):} \(A\cdot U = T\).
-  \item \textbf{Hash constraint (cleared denominator, bilinear):}
+  \item \textbf{Signature digit membership:}
+  the limb rows satisfy the signed low-alphabet digit constraints of the chosen
+  shortness profile.
+  \item \textbf{Replay residual:}
   \[
-    (B_3 - R_1)\Had T
-    - \bigl(B_0 + B_1\cdot(M_1{+}M_2) + B_2\cdot R_0\bigr)=0.
+    (B_3^\Theta-\widehat R_1)\widehat T_0
+    -\bigl(B_0^\Theta + B_1^\Theta\widehat m + B_2^\Theta\widehat R_0\bigr)=0.
   \]
-  \item \textbf{PRF constraints.} We enforce:
-  \begin{itemize}[leftmargin=1.25em]
-    \item \emph{Key binding:} each \(\mathsf{Key}[i]\) equals the designated signed encoding of \(\veck\) extracted from
-    the packed message rows. This is enforced at a single \(\Omega\)-coordinate using a \(\Theta\)-selector polynomial.
-    \item \emph{Checkpointed S-box constraints:} for each committed checkpoint row \(\mathsf{Z}[\alpha]\), enforce
-    \(\mathsf{Z}[\alpha] - \mathsf{In}[\alpha]^d = 0\), where \(\mathsf{In}[\alpha]\) is the recomputed S-box input lane
-    at that checkpoint (linear wiring is recomputed from opened evaluations and public constants).
-    \item \emph{Tag binding:} enforce the feed-forward plus truncation relation on the first
-    \(\ell_{\prftag}\) lanes, binding the public \(\prftag\) to the final PRF state.
-  \end{itemize}
-  \item \textbf{Packing constraints (message representation).} Same half-split constraints as in issuance.
-  \item \textbf{Bounds.} Enforce coefficient-wise bounds for all bounded rows (message, randomness, target \(T\), and
-  signature rows \(U\)) using vanishing polynomials.
+  \item \textbf{Packing:}
+  the decoded virtual rows \(M,K\) satisfy the same half-split message
+  representation as in issuance.
+  \item \textbf{Carrier membership:}
+  \(P_M(C^M)=0\) for the sparse packed-message carrier and
+  \(P_{\mathrm{ctr}}(C^{\mathrm{ctr}})=0\) for the centered full-pair carrier.
+  \item \textbf{PRF key binding and nonlinear constraints:}
+  the packed companion rows are bound to decoded \(K\) lanes, satisfy the
+  grouped S-box/checkpoint equations, and bind the public tag after the
+  feed-forward and truncation step.
 \end{enumerate}
+
+\paragraph{Aggregated showing families.}
+The current post-sign statement has three classes of aggregated families:
+\begin{enumerate}[leftmargin=1.25em]
+  \item \textbf{Direct limb-to-\(\widehat T_0\) bridge.}
+  For each local coordinate \(j\), one aggregated family proves that the
+  committed replay row \(\widehat T_0(\omega_j)\) is the exact public linear
+  image of the limb surface under the combined signature map and transform map.
+  This is the final replacement for both the committed
+  \(\widetilde S\) layer and the committed \(\widehat S\) layer.
+  \item \textbf{Non-sign transform bridges.}
+  The proof enforces
+  \[
+    (M+K)\rightarrow \widehat m,
+    \qquad
+    R_0\rightarrow \widehat R_0,
+    \qquad
+    R_1\rightarrow \widehat R_1.
+  \]
+  \item \textbf{PRF constancy for unpacked PRF rows only.}
+  This family is part of the general model but is empty in the shipped packed
+  companion path.
+\end{enumerate}
+
+\paragraph{Exact post-sign statement now proved.}
+The current showing proof asserts the existence of committed limb rows,
+committed carriers, committed replay-facing transform aliases
+\(\widehat T_0,\widehat m,\widehat R_0,\widehat R_1\), and PRF witness
+rows such that:
+\begin{enumerate}[leftmargin=1.25em]
+  \item the cert-side signature is short via the limb decomposition,
+  \item \(\widehat T_0\) is the direct public transform/image of that short
+  cert-side surface,
+  \item \(\widehat m,\widehat R_0,\widehat R_1\) are the transform
+  images of the decoded non-sign rows,
+  \item the replay residual vanishes, and
+  \item the PRF rows bind the public tag to the signed hidden key and public
+  nonce.
+\end{enumerate}
+Because \(\mathcal F\) is public and invertible, this is equivalent to the
+coefficient-domain replay claim
+\[
+  B_3T - T\star R_1 - B_0 - B_1(M+K) - B_2R_0 = 0,
+\]
+with \(T\) certified as the cert-side signature image. The signature replay
+surface has therefore already been reduced to the theorem-essential subset.
 
 \subsection{Poseidon PRF constraints with checkpoints}
 \label{subsec:prf-checkpointed}
-This subsection spells out the PRF part of the post-sign statement for the Poseidon2-like PRF of
-Section~\ref{subsec:poseidon-prf}. All checks are expressed as \emph{parallel} PACS constraints, i.e., they are enforced
-pointwise on the packing domain \(\Omega\) (Section~\ref{sec:smallwood-model}).
+This subsection records the logical PRF constraints used inside the current
+showing statement. The shipped implementation carries them through packed
+companion rows rather than through one explicit row per logical lane, but the
+mathematical content is the same.
 
-\paragraph{Witness rows for the PRF.}
-We allocate:
-(i) \(\ell_{\mathsf{key}}\) \emph{key-lane} rows \(\mathsf{Key}[0],\ldots,\mathsf{Key}[\ell_{\mathsf{key}}-1]\), and
-(ii) \(\mathsf{ZCount}\) \emph{checkpoint} rows \(\mathsf{Z}[0],\ldots,\mathsf{Z}[\mathsf{ZCount}-1]\) holding committed
-S-box outputs. Each PRF row is column-constant on \(\Omega\) (up to the HVZK tails on \(\Omega'\)), so opening it at a
-single verifier point suffices to replay the PRF computation at that point.
+\paragraph{Logical PRF witness.}
+Conceptually the PRF witness contains hidden key lanes and checkpointed
+nonlinear outputs. In the shipped packed-companion path these logical values are
+serialized into packed companion rows, but the verifier still replays the same
+logical constraints from their opened evaluations.
 
-\paragraph{Checkpoint schedule (grouping parameter \(g\)).}
-Internal rounds are always checkpointed (one lane per round), while among external rounds we checkpoint every \(g\)-th
-round (all \(t\) lanes). Between two checkpoints, the verifier composes at most \(g\) S-box layers, so each checkpoint
-constraint has effective degree \(d^g\) (where \(d\) is the S-box exponent). A concrete schedule and the resulting row
-counts for our default instantiation are recorded in Appendix~\ref{app:prf}.
+\paragraph{Key binding.}
+For each key lane, a public selector on \(\Omega\) binds the packed companion
+value to the decoded packed-key row \(K\) at the designated coordinate. This is
+the mechanism that ties the hidden PRF key to the signed message component
+\(\veck\).
 
-\paragraph{Key binding (selector constraints).}
-Let \(\Theta_i(X)\) be a public selector polynomial that is \(1\) at the \(\Omega\)-coordinate encoding the \(i\)-th key
-lane of the signed secret \(\veck\) inside the packed message representation, and \(0\) elsewhere. We enforce:
-\[
-  \Theta_i(X)\cdot\bigl(\mathsf{Key}[i](X)-M_2(X)\bigr)=0
-  \qquad\text{for all }i\in[0,\ell_{\mathsf{key}}-1].
-\]
-Since each \(\mathsf{Key}[i]\) is column-constant on \(\Omega\), checking equality at a single selected coordinate binds
-it to the signed \(\veck\) value while keeping \(\veck\) hidden.
+\paragraph{Checkpointed nonlinear constraints.}
+The verifier recomputes the linear wiring between checkpoints and enforces the
+grouped S-box equations at the committed checkpoints. These are parallel PACS
+families. The grouping parameter controls the effective degree, but under the
+current shipped parameters this PRF degree remains below the signature
+shortness degree and does not dominate \(d_Q\).
 
-\paragraph{S-box checkpoint constraints.}
-For each committed checkpoint \(\alpha\), the verifier recomputes the corresponding S-box input lane
-\(\mathsf{In}[\alpha](X)\) (just before exponentiation) by replaying the linear wiring between checkpoints: adding public
-round constants and applying the public MDS matrices to previously committed checkpoint outputs and the key/nonce lanes.
-We enforce the parallel constraint
-\[
-  \mathsf{Z}[\alpha](X) - \bigl(\mathsf{In}[\alpha](X)\bigr)^d = 0
-  \qquad\text{for all }\alpha\in[0,\mathsf{ZCount}-1].
-\]
-
-\paragraph{Tag binding (feed-forward + truncation).}
-Let \(\mathbf{x}^{(0)}=\mathbf{k}\Vert \mathbf{n}\) be the initial state (with \(\mathbf{k}\) given by the key-lane
-witness rows and \(\mathbf{n}\) the public nonce encoding), and let \(\mathbf{x}^{(\mathrm{final})}\) be the recomputed
-final state after applying all rounds consistent with the checkpoint constraints. Define
-\(\mathbf{y}=\mathbf{x}^{(\mathrm{final})}+\mathbf{x}^{(0)}\). For each output lane \(j\in[1,\ell_{\prftag}]\), we
-enforce that the corresponding public tag component equals the truncated feed-forward state:
-\[
-  y_j(X) - \prftag_j = 0,
-\]
-where \(\prftag\) is the verifier’s public input and \(y_j\) is the \(j\)-th lane of \(\mathbf{y}\).
+\paragraph{Tag binding.}
+The verifier reconstructs the final PRF state, applies the feed-forward with
+the initial state, truncates to the public output lanes, and enforces equality
+with the public tag. This is the public rate-limiting handle used by the ARC
+showing protocol.
 
 \subsection{Where details are deferred}
-The SmallWood protocol stack (DECS/LVCS/PCS/PIOP), its soundness accounting, and the small-field variant are presented in
-Appendix~\ref{app:smallwood}. The Gaussian trapdoor sampler for signing is detailed in Appendix~\ref{app:gaussian-sampler}.
-The PRF algorithm is given in Section~\ref{subsec:poseidon-prf} and the PRF constraint families (including
-checkpointing) are stated in Section~\ref{subsec:prf-checkpointed}. Appendix~\ref{app:prf} records extended notes (e.g.,
-parameter-generation guidelines).
+Appendix~\ref{app:smallwood} records the SmallWood proof stack itself:
+DECS/LVCS/PCS/PIOP, Fiat--Shamir, and the exact replay checks. The Gaussian
+trapdoor sampler remains in Appendix~\ref{app:gaussian-sampler}. The current
+PRF algorithm and its checkpoint schedule remain tied to
+Section~\ref{subsec:poseidon-prf} and Appendix~\ref{app:prf}. This section only
+fixes the statement layer: which witness rows are committed, which rows are
+virtual, and how the current implementation splits those relations into
+parallel and aggregated SmallWood families.
