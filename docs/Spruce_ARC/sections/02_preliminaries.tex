@@ -29,12 +29,11 @@ with the following syntax:
 \begin{itemize}[leftmargin=1.25em]
   \item $\ComPublicParam\gets \ComSetup(\SecParam)$ is a PPT algorithm which outputs public parameters $\ComPublicParam$. It is implicit input to all other algorithms.
   \item $c \gets \Commit(m)$ is a PPT algorithm which takes a message $m\in\mathcal{M}$ as input and outputs a commitment $c$ and decommitment $d$.
-  %\item $\pi \gets \Open(\ComPublicParam,m;r)$ outputs an opening string (often just $r$). \cb{TODO: remove open}
   \item $\ComVerify(c,m,d)\in\{0,1\}$ deterministically checks validity of the opening.
 \end{itemize}
 Correctness holds if for all $\ComPublicParam\gets \ComSetup$,  $m\in \mathcal{M}$ and $(c,d)\gets \Commit(m)$ it holds that
 \[
-  \ComVerify(m,c,d)=1.
+  \ComVerify(c,m,d)=1.
 \]
 
 The scheme is \emph{computationally binding} if for all PPT adversaries $\Adv$,
@@ -105,16 +104,26 @@ computationally binding whenever \(\mathsf{MSIS}_\infty\) is hard for the result
 \end{lemma}
 
 \begin{lemma}[Statistical hiding of the Ajtai commitment]\label{lem:ajtai-hiding}
-Write \(\mACom=[\mA_{\mathsf{msg}}\mid \mA_{\mathsf{rnd}}]\) according to the message and randomness blocks. If the
-randomness dimension \(\ell_r\) satisfies the leftover-hash entropy condition of
-\cite[Lemma~1]{EPRINT:AttCraKoh21} for coefficient alphabet \([-\BoundMsg,\BoundMsg]\), then
-\(\mA_{\mathsf{rnd}}\vectorify{r}\) is statistically close to uniform over \(\Rq^{\ell_{\ComScheme}}\). Consequently,
+Let \(B_r\) denote the coefficient bound of the commitment-randomness alphabet, so that the commitment randomness is
+sampled coefficient-wise from \([ -B_r,B_r]\). If
 \[
-  \mACom\cdot[\vectorify{m}\Vert \vectorify{r}]^\top
-  = \mA_{\mathsf{msg}}\vectorify{m}+\mA_{\mathsf{rnd}}\vectorify{r}
+N\ell_r \log_2(2B_r+1)\ \ge\ N\ell_{\ComScheme}\log_2 q + 2\lambda,
 \]
-statistically hides \(\vectorify{m}\).
+then the commitment distribution is statistically \(2^{-\lambda}\)-close to a distribution independent of the committed
+message. In the present instantiation the same coefficient bound is used for messages and commitment randomness, so
+\(B_r=\BoundMsg\), and a sufficient condition is
+\[
+N\ell_r \log_2(2\BoundMsg+1)\ \ge\ N\ell_{\ComScheme}\log_2 q + 2\lambda.
+\]
 \end{lemma}
+
+\begin{proof}
+This is the direct specialization of \cite[Lemma~1]{EPRINT:AttCraKoh21} to the present notation. The randomness block
+contains \(N\ell_r\) coefficients, each uniformly distributed in an alphabet of size \(2B_r+1\), hence its min-entropy
+is \(N\ell_r \log_2(2B_r+1)\). The commitment output lies in \(\Rq^{\ell_{\ComScheme}}\), whose support size is
+\(q^{N\ell_{\ComScheme}}\), so the output entropy term is \(N\ell_{\ComScheme}\log_2 q\). The leftover-hash loss is
+\(2\lambda\) bits, which yields the displayed condition.
+\end{proof}
 
 \subsection{Lattices, trapdoors, vSIS, and rational hashing}
 \label{subsec:prelim-vsis}
@@ -159,28 +168,75 @@ every \(m\in\mathcal{M}_B\) and every \(\chi\in\mathcal{X}\) with \(\mathsf{Eval
 negligible probability.
 \end{definition}
 
-\begin{definition}[ARC rational hash and cleared-denominator form]\label{def:rational-hash}
+\begin{definition}[ARC rational hash, admissibility, and cleared form]\label{def:rational-hash}
 Our concrete instantiation uses a public key \(B=(B_0,B_1,B_2,B_3)\in\Rq^4\), message \(m\in\Rq\), and witness
-randomness \(\chi=(r_0,r_1)\in\Rq^2\) with coefficient bounds
-\(\|m\|_\infty,\|r_0\|_\infty,\|r_1\|_\infty\le \BoundMsg\). The evaluation algorithm is
+randomness \((r_0,r_1)\in\Rq^2\) with coefficient bounds
+\(\|m\|_\infty,\|r_0\|_\infty,\|r_1\|_\infty\le \BoundMsg\). Write
 \[
-  h_{m,(r_0,r_1)}(B):=
-  \begin{cases}
-    \bigl(B_0+B_1\cdot m+B_2\cdot r_0\bigr)\ \Hdiv\ (B_3-r_1)\\
-    \qquad\text{if \(B_3-r_1\) is invertible in every slot,}\\
-    \bot \qquad\text{otherwise.}
-  \end{cases}
+\operatorname{num}(B,m,r_0):=B_0+B_1m+B_2r_0,
+\qquad
+\operatorname{den}(B,r_1):=B_3-r_1.
 \]
-Whenever \(\vect=h_{m,(r_0,r_1)}(B)\) is defined, it is equivalently characterized by the cleared-denominator identity
+We say that \((B,m,r_0,r_1)\) is \emph{admissible} if \(\operatorname{den}(B,r_1)\in \Rq^\times\), equivalently, if
+\(\operatorname{den}(B,r_1)\) is non-zero in every CRT slot of \(\Rq\).
+
+When this admissibility condition holds, the rational hash is the partial function
+\[
+h_{m,(r_0,r_1)}(B):=\operatorname{num}(B,m,r_0)\Hdiv \operatorname{den}(B,r_1).
+\]
+
+For an arbitrary target \(T\in\Rq\), we also define the cleared-denominator relation
 \begin{equation}\label{eq:hash-cleared}
-  (B_3-r_1)\Had \vect-\bigl(B_0+B_1\cdot m+B_2\cdot r_0\bigr)=0.
+  (B_3-r_1)\Had T-\bigl(B_0+B_1m+B_2r_0\bigr)=0.
 \end{equation}
-In the implementation, the same abstract message \(m\) is stored in packed rows \((M,K)\) with \(m=M+K\), so
-the same identity is written as
-\[
-  (B_3-R_1)\Had \vect-\bigl(B_0+B_1\cdot(M+K)+B_2\cdot R_0\bigr)=0.
-\]
+The cleared relation is a well-formed ring identity for all inputs. It is used below as a compiled proof-system
+relation.
 \end{definition}
+
+\begin{lemma}[Cleared form under admissibility]\label{lem:hash-cleared-admissible}
+Let
+\[
+\Rq \cong \prod_{i=1}^s F_i
+\]
+be the CRT decomposition of \(\Rq\) into field factors, and write
+\[
+\operatorname{num}(B,m,r_0)=(n_1,\ldots,n_s),\qquad
+\operatorname{den}(B,r_1)=(d_1,\ldots,d_s),\qquad
+T=(t_1,\ldots,t_s).
+\]
+If \((B,m,r_0,r_1)\) is admissible, that is, \(d_i\neq 0\) for every \(i\), then
+\[
+T=h_{m,(r_0,r_1)}(B)
+\iff
+(B_3-r_1)\Had T-\bigl(B_0+B_1m+B_2r_0\bigr)=0.
+\]
+Without admissibility, the implication from right to left may fail.
+\end{lemma}
+
+\begin{proof}
+Under the CRT isomorphism, the defined quotient relation is the coordinate-wise statement
+\[
+t_i=n_i/d_i
+\qquad\text{for every }i.
+\]
+If \(d_i\neq 0\) for every \(i\), then each \(d_i\) is invertible in \(F_i\), so
+\[
+t_i=n_i/d_i
+\iff
+d_it_i-n_i=0.
+\]
+Collecting the coordinates yields the equivalence with the cleared identity. If admissibility fails, then \(d_i=0\) in
+at least one slot. In that slot the cleared equation reduces to \(0\cdot t_i-n_i=0\), hence to \(n_i=0\), and imposes
+no condition on \(t_i\). The quotient remains undefined there, so the cleared relation is no longer sufficient.
+\end{proof}
+
+\begin{remark}[Why the admissibility side condition is necessary]\label{rem:hash-cleared-not-sufficient}
+The cleared identity is therefore a necessary condition for the defined quotient relation, but it is not a sufficient
+condition in general. A concrete counterexample is obtained by choosing a CRT slot \(i\) for which \(d_i=0\),
+\(n_i=0\), and \(t_i\) arbitrary. Then the cleared identity holds in slot \(i\), but the quotient \(n_i/d_i\) is
+undefined. All later uses of the rational hash therefore state explicitly whether they refer to the abstract defined
+quotient relation or to the weaker cleared relation.
+\end{remark}
 
 \begin{remark}[Relation to the DKLW25 BBS candidate]\label{rem:hash-notation-match}
 Our ARC family is exactly the BBS-type rational hash studied in \cite[Table~1]{EPRINT:DKLW25}, specialized by
@@ -253,23 +309,63 @@ Now fix a keyed evaluation family \(f:K\times M\times X\to R_q^n\) as in \cite[D
 \end{itemize}
 \end{definition}
 
-\begin{remark}[Security interpretation via DKLW25]\label{rem:vsis-unforgeability}
-For our family, the DKLW25 BBS row is instantiated by
+\begin{definition}[Non-blind signature experiments for \(\Sigma_{\mathrm{vSIS}}\)]\label{def:vsis-games}
+We use the signature-security experiments of \cite[Definition~4 and Figure~3]{EPRINT:DKLW25} specialized to the
+template of Definition~\ref{def:vsis-template}. The load-bearing experiment for the present paper is strong
+existential unforgeability under random-message attack.
+
+Fix \(Q\in\poly(\lambda)\). In the experiment
+\(\mathsf{Exp}_{\mathrm{sEUF\mbox{-}RMA}}^{\Sigma_{\mathrm{vSIS}},\mathcal A,Q}(\lambda)\), the challenger samples the
+public parameters and a key pair, then draws \(m_1,\ldots,m_Q\) independently and uniformly from the admissible message
+space \(\mathcal{M}_B\). For each \(i\in[Q]\) it returns a signature \(\sigma_i\leftarrow \Sign(sk,m_i)\). Finally
+\(\mathcal A\) outputs a pair \((m^\star,\sigma^\star)\) and wins iff:
+\begin{enumerate}[leftmargin=1.25em]
+    \item \(\SigVerify(vk,m^\star,\sigma^\star)=1\), and
+    \item \((m^\star,\sigma^\star)\notin \{(m_i,\sigma_i):1\le i\le Q\}\).
+\end{enumerate}
+The experiments \(\mathrm{sEUF\mbox{-}CMA}\), \(\mathrm{sEUF\mbox{-}SMA}\), and \(\mathrm{sSUF\mbox{-}SMA}\) are exactly
+those of \cite[Figure~3]{EPRINT:DKLW25}.
+\end{definition}
+
+\begin{lemma}[Theorem-backed status of the non-blind rational-hash signature layer]\label{lem:vsis-unforgeability}
+Let \(\ell_{\mathrm{hash}}=4\) for the present ARC instantiation and set
 \[
-  f(B,m,\chi)=\mathsf{Eval}(B,m,\chi)=h_{m,(r_0,r_1)}(B)
+k_{\mathrm{DKLW}}:=m+\ell_{\mathrm{hash}}.
 \]
-with \(u=m\), \(x_0=r_0\), \(x_1=r_1\), \(\tilde b_0=(B_0,B_1,B_2)\), and \(\tilde b_1=B_3\). Assume negligible
-inadmissibility \(\delta\), coefficient-wise bounds on the denominator data, and the natural-predicate condition of
-\cite[Definition~7]{EPRINT:DKLW25} under the same split-ring and entropy hypotheses used in DKLW's BBS discussion.
-Under these conditions, Theorem~4 gives correctness of the non-blind \(\Sigma_{\mathsf{vSIS}}\) template instantiated by
-our family. Theorem~5 then yields \(s\)EUF-RMA of that non-blind signature layer from the strong random-hinted vSIS
-assumption once the predicate condition holds. Theorem~7 shows that the same non-blind security experiment is equivalent
-to \(\mathsf{GenISIS}_f\) for \(f(B,m,\chi)=\mathsf{Eval}(B,m,\chi)\), up to the same trapdoor-to-uniform hybrids made
-explicit in Appendix~A.3 of \cite{EPRINT:DKLW25}. Theorem~8 and Corollary~1 then relate \(\mathsf{GenISIS}_f\) and the
-strong random-hinted vSIS assumption for this family, with Appendix~A.4 giving the converse direction. This is
-therefore the correct assumption-level justification for the underlying non-blind rational-hash signature family used
-here. It does not prove message hiding of \(h_{m,\chi}(B)\). It also does not yet prove one-more unforgeability or
-blindness of the blind issuance protocol of Section~\ref{sec:blind-signature}.
+Assume the following:
+\begin{enumerate}[leftmargin=1.25em]
+    \item \((n,m,q,\BoundSig)\) are admissible parameters for \((\TrapGen,\SampPre)\);
+    \item the inadmissibility bound satisfies \(\delta\le \negl(\lambda)\);
+    \item a DKLW-compatible norm bound \(\beta_{\mathrm{DKLW}}\) is fixed so that every signature accepted by the
+    present verifier also satisfies \(\|\vecu\|\le \beta_{\mathrm{DKLW}}\) in the norm used in \cite{EPRINT:DKLW25};
+    \item the predicate condition of \cite[Definition~7]{EPRINT:DKLW25} holds for the instantiated rational-hash
+    family; and
+    \item the denominator-bound and strong-linear-independence side conditions required by
+    \cite[Theorems~4--8 and Corollary~1]{EPRINT:DKLW25} hold for the instantiated family.
+\end{enumerate}
+Then the following theorem-backed claims hold.
+\begin{enumerate}[leftmargin=1.25em]
+    \item The non-blind template of Definition~\ref{def:vsis-template} is correct by \cite[Theorem~4]{EPRINT:DKLW25}.
+    \item Under the strong random-hinted vSIS assumption of \cite{EPRINT:DKLW25} for the induced parameter tuple, the
+    non-blind template is \(\mathrm{sEUF\mbox{-}RMA}\) by \cite[Theorem~5]{EPRINT:DKLW25}.
+    \item For \(f(B,m,\chi)=h_{m,(r_0,r_1)}(B)\), the experiment \(\mathsf{GenISIS}_f\) is equivalent to the non-blind
+    \(\mathrm{sEUF\mbox{-}RMA}\) experiment by \cite[Theorem~7]{EPRINT:DKLW25}.
+    \item \(\mathsf{GenISIS}_f\) implies the same strong random-hinted vSIS assumption by
+    \cite[Theorem~8]{EPRINT:DKLW25}, and the converse implication follows by \cite[Corollary~1]{EPRINT:DKLW25}.
+    \item Under the stronger strong-hinted vSIS assumption, the same non-blind family also enjoys
+    \(\mathrm{sEUF\mbox{-}SMA}\) by \cite[Theorem~5]{EPRINT:DKLW25}.
+\end{enumerate}
+\end{lemma}
+
+\begin{proof}
+All items are immediate from \cite[Theorems~4, 5, 7, 8, and Corollary~1]{EPRINT:DKLW25} under the stated
+specialization and side conditions.
+\end{proof}
+
+\begin{remark}[Scope of the DKLW import]\label{rem:vsis-unforgeability}
+Lemma~\ref{lem:vsis-unforgeability} is the correct external reduction basis for the non-blind signature layer only. It
+does not imply blindness or one-more unforgeability of the blind issuance protocol, and it does not by itself yield an
+ARC theorem.
 \end{remark}
 
 \subsection{Non-interactive zero-knowledge arguments of knowledge (NIZKs)}
@@ -397,109 +493,29 @@ A blind signature scheme is one-more unforgeable if there exists \(\negl\) such 
 %Our issuance protocol (Section~\ref{sec:blind-signature}) instantiates this primitive and additionally packages the
 %interaction with pre-sign and post-sign NIZKs tailored to ARC.
 
-\subsection{Rate Limiting (with blind signatures)}
-\lena{$\credential$ could also be $\sig$}
-Rate limiting allows a holder $\Holder$ to obtain a credential $\credential$ that is valid under the verification key of an issuer $\Issuer$, which can be shown a limited number of times $\ell$.  
-A blind signature algorithm allows a holder $\Holder$ to obtain signatures valid under the verification key of an issuer $\Issuer$, without the latter learning the signed message $\mu$. 
-Our definitions for rate limiting follow \cite{C:Fischlin06}, with an additonal rate limit $\ell$ that limits the number of showings. 
-When any algorithm $\mathcal{B}$ uses the interactive protocol $\Issue$ with $\Issuer$, we will write $\mathcal{B}^{\Issue:\langle \Issuer(\cdot):\cdot \rangle}$ and adjust this the notation for other interactions accordingly.
-
-
-\begin{definition}[Rate Limiting]\label{def:rate-limit}
-  A rate limting scheme is a tuple of algorithms 
- 	\[
- 	\RateLimit=(\Setup,\IKeyGen,\Issue,\Verify)
- 	\]
- 	such that:
- 	\begin{itemize}[leftmargin=1.25em]
- 		\item $\Setup(\SecParam)$ is a PPT algorithm that outputs public parameters $\PublicParamsRL$. All other algorithms obtain $\SecParam,\PublicParamsRL$ as implicit inputs.
- 		\item $\IKeyGen()$ is a PPT algorithm that outputs issuer keys $(\vk,\sk)$.
-  \item $\Issue$ is an interactive protocol between $\Issuer$ and
-    $\Holder$, where $\Issuer$ has input $\sk$ and a rate limit $\ell$, and
-    $\Holder$ has input $\mu,\vk$. At the end of the protocol, $\Holder$ obtains
-    $\credential$ which can be shown at most $\ell$ times.
- 		\item $\Verify(\vk,\mu,\credential,\nonce)$ is a deterministic polynomial-time algorithm that outputs a bit.
-  The showings are unlinkable if they are correct. 
- 	\end{itemize}
-\end{definition}
-
-\begin{definition}[Correctness]\label{def:rate-limit-correctness}
-  %You can produce at least $\ell$ showings
-	A rate limiting scheme is correct if there exists \(\negl\) such that for all messages \(\mu\), with a fresh \(\nonce\) within the rate limit $\ell$,
- 	\[
- 	\Pr\!\left[
- 	\begin{array}{l}
- 		\PublicParamsRL \gets \Setup(\SecParam); \\
- 		(\vk,\sk)\gets \IKeyGen(\PublicParamsRL);\\
- 		\sig\gets \Holder^{\Issue: \langle \Issuer(\sk,\ell): \cdot  \rangle }(\mu,\vk);\\
-    \Verify(\vk,\mu,\sig,\nonce \in \{0,\ell\})=1
- 	\end{array}
- 	\right]
- 	\ge 1-\negl(\lambda).
- 	\]
-\end{definition}
-
-\lena{blindness would be privacy, idk if this is a good idea}
-\begin{definition}[Privacy]\label{def:bs-blindness}
-	A rate limiting scheme is private if there exists \(\negl\) such that for any PPT three-stage stateful adversary
-	\(\adversary=(\adversary_1,\adversary_2,\adversary_3)\) and any two messages \(\mu_0,\mu_1\),
-	\[
-	\left|\Pr\!\left[
-	\begin{array}{l}
-		\PublicParamsBS\gets \Setup(\SecParam);\\
-		\vk\gets \adversary_1(\PublicParamsBS);\\ b\getsunif\{0,1\};\\
-		\adversary_2^{\Issue:\langle \cdot: \Holder(\mu_b,\vk)\rangle ,~ \Issue:\langle \cdot: \Holder(\mu_{1-b},\vk)\rangle }; \\
-		\Holder(\mu_b,\vk) \text{ outputs }\sig_b;\\
-		\Holder(\mu_{1-b},\vk) \text{ outputs }\sig_{1-b}\\
-		\text{if }\bot\in\{\sig_0,\sig_1\}\text{ then }(\sig_0,\sig_1)\gets(\bot,\bot):\\
-		b=\adversary_3(\sig_0,\sig_1)
-	\end{array}
-	\right]-\frac{1}{2}\right|
-	\le \negl(\lambda).
-	\]
-\end{definition}
-
-
-\lena{this is already nonce-defined, maybe we want to keep the definition more general. This is basically one-more unforgeability with the additional constraint that we can only spend  a credential once- should we make this two different defintions?}
-\begin{definition}[Soundness]\label{def:rate-limit-soundness}
-  % You can produce at most $\ell$ showings
-	A rate limiting scheme is sound if there exists \(\negl\) such that for all messages \(\mu\), with a reused \(\nonce\) which is in the set of previously spent nonces \(\usednonce\) within the rate limit $\ell$ or a \(\nonce \geq \ell\),
- 	\[
- 	\Pr\!\left[
- 	\begin{array}{l}
- 		\PublicParamsRL \gets \Setup(\SecParam); \\
- 		(\vk,\sk)\gets \IKeyGen(\PublicParamsRL);\\
- 		\sig\gets \Holder^{\Issue: \langle \Issuer(\sk,\ell): \cdot  \rangle }(\mu,\vk);\\
-    \Verify(\vk,\mu,\sig,(\nonce \geq \ell \lor \nonce \in \usednonce) )=0; \\
-      \{(\mu_i,\sig_i)\}_{i\in[Q+1]}\gets \adversary^{\Issue \langle \Issuer(\sk):\cdot \rangle}(\vk):\\
-      \forall\,1\le i<j\le Q+1:\ \mu_i\neq \mu_j\ \land\ \forall\,i\in[Q+1]:\ \Verify(\vk,\mu_i,\sig_i,\ell)=1 	\end{array}
- 	\right]
- 	\ge 1-\negl(\lambda).
- 	\]
-\end{definition}
+\paragraph{Rate limiting at the ARC layer.}
+We do not introduce a separate stand-alone rate-limiting primitive. In the present paper, rate limiting is part of the
+ARC syntax itself: the holder presents a credential together with a public nonce and a PRF-derived public tag, and the
+verifier enforces the policy through local state on previously accepted \((\nonce,\prftag)\) pairs.
 
 
 \subsection{Anonymous Rate-Limiting Credentials (ARCs)}
 \label{subsec:arc-security}
-% LENA: I left the partial reveals out for now. 
-Anonymous Rate-Limited credentials offer a similar syntax to Blind signatures\lena{/rate limiting}. 
-However, they additionally provide an algorithm $\Show$ that may create multiple presentations of a previous output of $\Issue$.
-We also explicitly introduce the additional verifier party $\Verifier$ that will obtain the presentations. Our defintion follows established syntax and security models~\cite{JOC:FucHanSla19,C:BLNS23} for anonymous credentials. 
-We simplify the defintions, removing organizations and attributes which are not currently supported by ARC, and add a seperation between $\Setup$ and $\IKeyGen$.
-The seperation is necessary to ensure the commitment matrix is chosen at random, which may lead to the commitment not being hiding. 
-We also seperate $\Show$ and $\Verify$ to explicitly state that $\Show$ is the
-client routine and $\Verify$ is the server routine of the credential
-presentation. 
+Anonymous rate-limited credentials extend blind signatures by adding a showing algorithm \(\Show\) that may create
+multiple presentations of a previously issued credential. We explicitly introduce the verifier party \(\Verifier\),
+which receives and checks those presentations. Our definition follows the established syntax and security models
+of~\cite{JC:FucHanSla19,C:BLNS23}, specialized to the ARC setting considered here.
 
-The blindness of ARC follows from AC unlinkability. 
-At redemption, the same credential with two different nonces, and two different credentials with the same nonce, and two different credentials with different nonces, are indistinguishable to the verifier. 
+We keep \(\Setup\) and \(\IKeyGen\) separate, so the public commitment matrix is sampled independently of the issuer
+keys. We also separate \(\Show\) and \(\Verify\) to distinguish the client-side presentation algorithm from the
+verifier-side stateful check.
 \begin{definition}[ARC scheme syntax]\label{def:arc-syntax}
 Let $\mathcal{N}$ be a finite set of nonces. 
 An anonymous rate-limited credential (ARC) scheme is a tuple of algorithms
 \[
   \ARC=(\Setup,\IKeyGen,\Issue,\Show,\Verify)
 \]
-such that: %\cb{should there also be a message attached to the credential?} \lena{could, but we don't have to add it in this revision imho}
+such that:
 \begin{itemize}[leftmargin=1.25em]
    \item $\Setup(\SecParam)$ is a PPT algorithm that outputs public parameters $\PublicParamsARC$. All other algorithms obtain $\SecParam,\PublicParamsARC$ as implicit inputs.
 
@@ -597,7 +613,6 @@ where $P:\Fq^t\to \Fq^t$ is the permutation from Definition \ref{def:poseidon-pe
 
 
 \paragraph{Constraint view (what the post-sign NIZK must prove).}
-\cb{All of this should go to a later section.}
 To prove $\mathsf{tag}=\PRF(k,\mathsf{nonce})$ inside SmallWood, where \(k\) is the signed secret part of
 \(m=\mu\Vert k\), we arithmetize:
 (i) S-box constraints of the form $z = y^d$ at selected checkpoints,

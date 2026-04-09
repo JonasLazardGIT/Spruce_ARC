@@ -149,18 +149,21 @@ Warning--string name "usenix21month" is undefined
 --line 873142 of file ./biblio/crypto.bib
 Warning--string name "usenixpub" is undefined
 --line 873143 of file ./biblio/crypto.bib
+Warning--string name "springer" is undefined
+--line 1221579 of file ./biblio/crypto.bib
+Warning--string name "jcrypto" is undefined
+--line 1221581 of file ./biblio/crypto.bib
 Database file #2: ./biblio/abbrev3.bib
 Reallocated str_pool (elt_size=1) to 130000 items from 65000.
 Reallocated str_pool (elt_size=1) to 195000 items from 130000.
 Reallocated str_pool (elt_size=1) to 260000 items from 195000.
 Database file #3: ./biblio/references.bib
-Warning--I didn't find a database entry for "EPRINT:BFMRSV25"
-Warning--I didn't find a database entry for "JOC:FucHanSla19"
 Warning--empty booktitle in CCS:AGJLRS24
 Warning--empty booktitle in CCS:BLNS23
 Warning--empty booktitle in C:BLNS23
 Warning--empty booktitle in AC:CDLT25
 Warning--empty booktitle in PKC:DKLW25
+Warning--empty journal in JC:FucHanSla19
 Warning--empty booktitle in C:Fischlin06
 Warning--empty booktitle in USENIX:GKRRS21
 Warning--empty booktitle in AFRICACRYPT:GraKhoSch23
@@ -168,45 +171,45 @@ Warning--empty booktitle in STOC:GenPeiVai08
 Warning--empty booktitle in C:JeuRouSan23
 Warning--empty booktitle in AC:JeuSan25
 Warning--empty booktitle in CCS:LyuSeiSte24
-You've used 22 entries,
+You've used 24 entries,
             2543 wiz_defined-function locations,
-            16860 strings with 202769 characters,
-and the built_in function-call counts, 10638 in all, are:
-= -- 1056
-> -- 578
+            16868 strings with 203136 characters,
+and the built_in function-call counts, 11549 in all, are:
+= -- 1142
+> -- 643
 < -- 15
-+ -- 215
-- -- 209
-* -- 698
-:= -- 1659
-add.period$ -- 68
-call.type$ -- 22
-change.case$ -- 161
-chr.to.int$ -- 19
-cite$ -- 34
-duplicate$ -- 405
-empty$ -- 741
-format.name$ -- 228
-if$ -- 2245
++ -- 239
+- -- 233
+* -- 775
+:= -- 1815
+add.period$ -- 74
+call.type$ -- 24
+change.case$ -- 178
+chr.to.int$ -- 21
+cite$ -- 37
+duplicate$ -- 429
+empty$ -- 796
+format.name$ -- 253
+if$ -- 2421
 int.to.chr$ -- 4
 int.to.str$ -- 0
-missing$ -- 12
-newline$ -- 116
-num.names$ -- 66
-pop$ -- 217
+missing$ -- 13
+newline$ -- 126
+num.names$ -- 72
+pop$ -- 236
 preamble$ -- 1
-purify$ -- 183
+purify$ -- 202
 quote$ -- 0
-skip$ -- 412
+skip$ -- 435
 stack$ -- 0
-substring$ -- 541
-swap$ -- 130
+substring$ -- 580
+swap$ -- 131
 text.length$ -- 15
 text.prefix$ -- 1
 top$ -- 0
-type$ -- 176
-warning$ -- 12
-while$ -- 101
-width$ -- 25
-write$ -- 273
-(There were 87 warnings)
+type$ -- 192
+warning$ -- 13
+while$ -- 109
+width$ -- 27
+write$ -- 297
+(There were 88 warnings)

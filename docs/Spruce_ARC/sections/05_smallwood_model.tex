@@ -1,0 +1,417 @@
+\section{SmallWood Programming Model}
+\label{sec:smallwood-model}
+\label{sec:smallwood}
+
+This section specifies the SmallWood relations used by ARC-SPRUCE. Its purpose is to record the committed witness
+surfaces, public inputs, and PACS constraint families used by the issuance and showing proofs, and to state the precise
+strength of the resulting proof statements. Throughout, SmallWood certifies only the compiled relations stated in this
+section, namely relations over committed witness rows, public lifts, and PACS constraint families derived from them.
+Any further coefficient-domain consequence is obtained only through the explicit theorem stated below.
+
+\subsection{Proof-language interface}
+\label{subsec:smallwood-interface}
+Fix an evaluation set \(\Omega=\{\omega_1,\ldots,\omega_s\}\subset \Fq\) and a disjoint set of blinding points
+\(\Omega'\subset \Fq\setminus \Omega\). A witness is arranged as a matrix
+\[
+W\in \Fq^{n\times s},
+\]
+whose rows are interpolated into low-degree polynomials
+\[
+P_1(X),\ldots,P_n(X)\in \Fq[X]
+\]
+satisfying
+\[
+P_i(\omega_k)=W_{i,k}\qquad\text{for all }\omega_k\in\Omega,
+\]
+and taking random values on \(\Omega'\) in order to achieve honest-verifier zero knowledge. SmallWood commits to these
+row polynomials and proves satisfaction of PACS constraints by opening verifier-chosen linear maps of the committed rows.
+
+The PACS language distinguishes two classes of constraints.
+\begin{itemize}[leftmargin=1.25em]
+    \item \emph{Parallel constraints} are enforced pointwise on \(\Omega\). They are used for slot-local algebra,
+    including linear relations, pointwise products, selector gating, and checkpointed PRF constraints.
+    \item \emph{Aggregated constraints} are enforced through \(\Omega\)-sum identities. They are used when the encoding
+    introduces global coupling across packed coordinates, in particular for public linear bridge relations between source
+    rows and replay-image rows.
+\end{itemize}
+
+The proof-system properties imported from SmallWood apply to the compiled PACS relation built from these rows and
+constraints. They do not, by themselves, replace the explicit coefficient-domain consequence theorem stated in
+Section~\ref{subsec:statement-strength}.
+
+\subsection{Abstract and compiled relations}
+\label{subsec:abstract-compiled}
+At the protocol layer, the blind-signature and ARC constructions are specified by abstract relations in the quotient ring
+\(R_q\). The SmallWood proofs, however, are proofs for compiled relations over committed witness rows, public lifts, and
+PACS constraints. We therefore keep the two levels distinct throughout this section.
+
+In issuance, the compiled relation is the cleared-denominator relation
+\(R_{\mathrm{Issue}}^{\mathrm{cmp}}\) of Section~\ref{sec:blind-signature}, with the public target \(T\) supplied as an
+input to the proof. In showing, the compiled relation is a full transform-basis replay relation over explicitly committed
+source rows, full replay-image blocks, and PRF companion rows. The purpose of the remainder of the section is to state
+those compiled relations precisely and to prove their coefficient-domain consequence.
+
+\subsection{Issuance (pre-sign) compiled relation}
+\label{subsec:smallwood-issuance}
+\label{subsec:presign-compiled}
+The pre-sign proof keeps the blind-signature target \(T\) public and proves that it is consistent with one hidden
+commitment opening and the issuer randomness. At the abstract level, issuance is governed by
+\(R_{\mathrm{Issue}}^{\mathrm{abs}}\) from Section~\ref{sec:blind-signature}. The compiled SmallWood proof certifies
+instead the weaker relation \(R_{\mathrm{Issue}}^{\mathrm{cmp}}\), which replaces the defined quotient semantics by the
+cleared-denominator relation.
+
+\paragraph{Committed rows.}
+The committed pre-sign witness consists of the following rows:
+\[
+C^M,\ C^{\mathrm{preRU}},\ C^{\mathrm{preR}},\ C^{\mathrm{ctr}},\ C^J,
+\]
+\[
+M,\ K,\ R_0^U,\ R_1^U,\ R,\ R_0,\ R_1,\ J_0,\ J_1,
+\]
+\[
+\widehat M,\ \widehat K,\ \widehat R_0,\ \widehat R_1.
+\]
+The first five rows are low-alphabet carriers. The next nine rows are decoded aliases. The final four rows are the
+transform aliases used by the hash replay.
+
+\paragraph{Public inputs and lifts.}
+The public pre-sign inputs are
+\[
+\mACom,\ B,\ \vecc,\ \vecr_0^{\Issuer},\ \vecr_1^{\Issuer},\ T.
+\]
+The verifier also derives the public lifts
+\[
+B_0^\Theta,\ B_1^\Theta,\ B_2^\Theta,\ B_3^\Theta,\ T^\Theta,
+\]
+where \(T^\Theta\) is the chosen public lift of the coefficient-domain target \(T\).
+
+\paragraph{Constraint families.}
+Let \(\Delta=2\BoundMsg+1\). The compiled pre-sign relation enforces:
+\begin{enumerate}[leftmargin=1.25em]
+    \item \emph{Carrier membership:}
+    \[
+    P_M(C^M)=0,\qquad
+    P_{\mathrm{preRU}}(C^{\mathrm{preRU}})=0,\qquad
+    P_{\mathrm{preR}}(C^{\mathrm{preR}})=0,
+    \]
+    \[
+    P_{\mathrm{ctr}}(C^{\mathrm{ctr}})=0,\qquad
+    P_J(C^J)=0.
+    \]
+    \item \emph{Carrier-to-alias bridges:}
+    \[
+    M-\mathrm{Dec}_M^{(1)}(C^M)=0,\qquad
+    K-\mathrm{Dec}_M^{(2)}(C^M)=0,
+    \]
+    \[
+    R_0^U-\mathrm{Dec}_{\mathrm{preRU}}^{(1)}(C^{\mathrm{preRU}})=0,\qquad
+    R_1^U-\mathrm{Dec}_{\mathrm{preRU}}^{(2)}(C^{\mathrm{preRU}})=0,
+    \]
+    \[
+    R-\mathrm{Dec}_{\mathrm{preR}}^{(1)}(C^{\mathrm{preR}})=0,
+    \]
+    \[
+    R_0-\mathrm{Dec}_{\mathrm{ctr}}^{(1)}(C^{\mathrm{ctr}})=0,\qquad
+    R_1-\mathrm{Dec}_{\mathrm{ctr}}^{(2)}(C^{\mathrm{ctr}})=0,
+    \]
+    \[
+    J_0-\mathrm{Dec}_J^{(1)}(C^J)=0,\qquad
+    J_1-\mathrm{Dec}_J^{(2)}(C^J)=0.
+    \]
+    \item \emph{Commitment relation:}
+    \[
+    \mACom\cdot [M\Vert K\Vert R_0^U\Vert R_1^U\Vert R]^\top = \vecc.
+    \]
+    \item \emph{Centering relation:}
+    \[
+    R_0 = R_0^U + \vecr_0^{\Issuer} - \Delta J_0,\qquad
+    R_1 = R_1^U + \vecr_1^{\Issuer} - \Delta J_1.
+    \]
+    \item \emph{Packing relation:} the rows \(M\) and \(K\) occupy complementary halves of the packing domain and
+    together encode the abstract message \(m=\mu\Vert k\).
+    \item \emph{Transform-domain cleared relation:}
+    \[
+    (B_3^\Theta-\widehat R_1)\Had T^\Theta
+    -
+    \bigl(B_0^\Theta + B_1^\Theta\Had(\widehat M+\widehat K)+B_2^\Theta \Had \widehat R_0\bigr)
+    =0.
+    \]
+\end{enumerate}
+
+\paragraph{Aggregated bridge families.}
+The issuance statement includes the four transform bridges
+\[
+M\mapsto \widehat M,\qquad
+K\mapsto \widehat K,\qquad
+R_0\mapsto \widehat R_0,\qquad
+R_1\mapsto \widehat R_1.
+\]
+
+\paragraph{Statement proved.}
+The compiled pre-sign proof asserts the existence of committed carriers, decoded aliases, and transform aliases such
+that:
+\begin{enumerate}[leftmargin=1.25em]
+    \item each carrier lies in its designated carrier alphabet;
+    \item each decoded alias is the decode image of its carrier;
+    \item the decoded aliases satisfy commitment, centering, and packing;
+    \item the transform aliases are the public transform images of the decoded rows; and
+    \item the public target \(T\), after lifting, satisfies the transform-domain cleared relation.
+\end{enumerate}
+This is a proof of \(R_{\mathrm{Issue}}^{\mathrm{cmp}}\). No inverse witness for \(B_3-R_1\) is included, and the
+compiled statement should therefore not be described as a proof of the abstract quotient semantics.
+
+\subsection{Showing (post-sign) compiled relation}
+\label{subsec:smallwood-showing}
+\label{subsec:showing-compiled}
+At the ARC layer, the abstract showing relation is the existence of a witness \((u,\mu,k,r_0,r_1)\) such that
+\[
+Au = h_{\mu\Vert k,(r_0,r_1)}(B)
+\qquad\text{and}\qquad
+\prftag = \PRF(k,\nonce),
+\]
+together with the public coefficient-wise bounds on \(\mu,k,r_0,r_1\) and the public shortness bound on \(u\). The
+post-sign NIZK does not expose this witness directly. Instead, it proves a compiled transform-basis relation over
+committed source rows, full replay-image blocks, and PRF companion rows.
+
+\paragraph{Exact replay transform.}
+Let
+\[
+\mathcal F_{\mathrm{rep}} : \Rq \longrightarrow \mathcal T
+\]
+denote the exact public transform used by the replay relation, where \(\mathcal T\) is the full transform image of
+\(\Rq\) for the chosen replay basis. We write
+\[
+\mathcal F_{\mathrm{rep}} = \bigl(\mathcal F_{\mathrm{rep},0},\ldots,\mathcal F_{\mathrm{rep},B_{\mathrm{rep}}-1}\bigr)
+\]
+for its decomposition into replay blocks. For every public hash polynomial \(B_i\in\Rq\), define the corresponding
+block lifts
+\[
+B_{i,b}^\Theta := \mathcal F_{\mathrm{rep},b}(B_i),
+\qquad i\in\{0,1,2,3\},\quad b\in\{0,\ldots,B_{\mathrm{rep}}-1\}.
+\]
+
+\paragraph{Committed rows.}
+The committed showing witness consists of:
+\begin{enumerate}[leftmargin=1.25em]
+    \item the signature limb rows \(L_{c,b,\ell}\);
+    \item the carrier rows \(C^M\) and \(C^{\mathrm{ctr}}\);
+    \item the decoded non-sign source rows
+    \[
+    M,\ K,\ R_0,\ R_1;
+    \]
+    \item the full replay-image block families
+    \[
+    \widehat T_0,\ldots,\widehat T_{B_{\mathrm{rep}}-1},
+    \qquad
+    \widehat m_0,\ldots,\widehat m_{B_{\mathrm{rep}}-1},
+    \]
+    \[
+    \widehat R_{0,0},\ldots,\widehat R_{0,B_{\mathrm{rep}}-1},
+    \qquad
+    \widehat R_{1,0},\ldots,\widehat R_{1,B_{\mathrm{rep}}-1};
+    \]
+    \item the PRF companion rows.
+\end{enumerate}
+The coefficient-domain signature witness \(u\) is reconstructed from the limb surface by the public digit-collapse map
+of the shortness gadget.
+
+\paragraph{Parallel families.}
+The compiled showing relation enforces:
+\begin{enumerate}[leftmargin=1.25em]
+    \item \emph{Signature digit membership:} the limb rows satisfy the signed low-alphabet digit constraints of the
+    chosen shortness profile.
+    \item \emph{Carrier membership:}
+    \[
+    P_M(C^M)=0,\qquad P_{\mathrm{ctr}}(C^{\mathrm{ctr}})=0.
+    \]
+    \item \emph{Carrier-to-source decode:}
+    \[
+    M=\mathrm{Dec}_M^{(1)}(C^M),\qquad K=\mathrm{Dec}_M^{(2)}(C^M),
+    \]
+    \[
+    R_0=\mathrm{Dec}_{\mathrm{ctr}}^{(1)}(C^{\mathrm{ctr}}),\qquad
+    R_1=\mathrm{Dec}_{\mathrm{ctr}}^{(2)}(C^{\mathrm{ctr}}).
+    \]
+    \item \emph{Packing:} the decoded rows \(M\) and \(K\) satisfy the same half-split message representation as in
+    issuance.
+    \item \emph{Full replay residual:} for every block
+    \[
+    b\in\{0,\ldots,B_{\mathrm{rep}}-1\},
+    \]
+    the replay aliases satisfy
+    \[
+    (B_{3,b}^\Theta-\widehat R_{1,b})\Had \widehat T_b
+    -
+    \bigl(B_{0,b}^\Theta + B_{1,b}^\Theta\Had \widehat m_b + B_{2,b}^\Theta\Had \widehat R_{0,b}\bigr)
+    =0.
+    \]
+    \item \emph{PRF key binding and nonlinear constraints:} the companion rows are bound to the decoded
+    \(K\)-coordinates, satisfy the checkpointed permutation equations, and bind the public tag after feed-forward and
+    truncation.
+\end{enumerate}
+
+\paragraph{Aggregated bridge families.}
+The compiled showing relation includes the following aggregated families.
+\begin{enumerate}[leftmargin=1.25em]
+    \item \emph{Signature-side bridges:} for every replay block \(b\),
+    \[
+    \widehat T_b = \mathcal F_{\mathrm{rep},b}(Au),
+    \]
+    where \(u\) is the coefficient-domain signature witness reconstructed from the cert-side limb surface.
+    \item \emph{Non-sign transform bridges:} for every replay block \(b\),
+    \[
+    \widehat m_b = \mathcal F_{\mathrm{rep},b}(M+K),\qquad
+    \widehat R_{0,b} = \mathcal F_{\mathrm{rep},b}(R_0),\qquad
+    \widehat R_{1,b} = \mathcal F_{\mathrm{rep},b}(R_1).
+    \]
+\end{enumerate}
+
+\paragraph{Statement proved.}
+The compiled showing proof asserts the existence of committed limb rows, source rows, replay-image rows, and PRF
+companion rows such that:
+\begin{enumerate}[leftmargin=1.25em]
+    \item the cert-side signature witness is short via the limb decomposition;
+    \item the decoded source rows are the coefficient-domain message and randomness rows used throughout the statement;
+    \item the full replay-image blocks are the exact transform images of \(Au\), \(M+K\), \(R_0\), and \(R_1\);
+    \item the full replay residual vanishes blockwise; and
+    \item the public tag is bound to the signed hidden key and the public nonce by the PRF companion constraints.
+\end{enumerate}
+
+\subsection{PRF constraints}
+\label{subsec:prf-checkpointed}
+\label{subsec:prf-constraints}
+The public tag is tied to the signed hidden key by a checkpointed arithmetization of the Poseidon2-like permutation from
+Section~\ref{subsec:poseidon-prf}. The proof commits selected S-box outputs and lets the verifier replay all public
+linear wiring between checkpoints from openings and public constants. The resulting families are parallel PACS
+constraints over the companion rows, together with the public feed-forward and truncation equations that bind the final
+state to the tag.
+
+\subsection{Coefficient-domain consequence and statement strength}
+\label{subsec:statement-strength}
+The completeness, knowledge-soundness, and zero-knowledge guarantees imported from SmallWood apply to the compiled PACS
+relations stated in this section. In particular, the showing proof directly certifies the full transform-basis replay
+relation on explicitly committed replay-image blocks together with the signature-side and non-sign bridge families. The
+coefficient-domain consequence is the following.
+
+\begin{lemma}[Exact replay transform]\label{lem:replay-transform}
+The public replay map
+\[
+\mathcal F_{\mathrm{rep}} : \Rq \longrightarrow \mathcal T
+\]
+is the exact transform isomorphism used by the replay basis. In particular, it is additive, multiplicative, and
+injective.
+\end{lemma}
+
+\begin{proof}
+The replay basis is chosen so that \(\mathcal F_{\mathrm{rep}}\) is the corresponding CRT/NTT isomorphism of
+\(\Rq\). The stated properties are exactly the defining properties of that isomorphism.
+\end{proof}
+
+\begin{lemma}[Coefficient-domain consequence of the compiled showing relation]\label{lem:showing-to-cleared}
+Assume the compiled showing relation of Section~\ref{subsec:showing-compiled}. Then
+\[
+B_3Au-(Au)R_1-B_0-B_1(M+K)-B_2R_0=0
+\]
+in \(\Rq\).
+\end{lemma}
+
+\begin{proof}
+For every replay block \(b\), the bridge families and the public lift definition give
+\[
+\widehat T_b = \mathcal F_{\mathrm{rep},b}(Au),\qquad
+\widehat m_b = \mathcal F_{\mathrm{rep},b}(M+K),
+\]
+\[
+\widehat R_{0,b} = \mathcal F_{\mathrm{rep},b}(R_0),\qquad
+\widehat R_{1,b} = \mathcal F_{\mathrm{rep},b}(R_1),
+\]
+\[
+B_{i,b}^\Theta = \mathcal F_{\mathrm{rep},b}(B_i)\qquad\text{for }i\in\{0,1,2,3\}.
+\]
+Substituting these identities into the blockwise replay residual gives
+\[
+\mathcal F_{\mathrm{rep},b}(B_3Au)
+-
+\mathcal F_{\mathrm{rep},b}((Au)R_1)
+-
+\mathcal F_{\mathrm{rep},b}(B_0)
+-
+\mathcal F_{\mathrm{rep},b}(B_1(M+K))
+-
+\mathcal F_{\mathrm{rep},b}(B_2R_0)
+=0
+\]
+for every \(b\). Concatenating the blocks yields
+\[
+\mathcal F_{\mathrm{rep}}
+\bigl(
+B_3Au-(Au)R_1-B_0-B_1(M+K)-B_2R_0
+\bigr)=0.
+\]
+By Lemma~\ref{lem:replay-transform}, \(\mathcal F_{\mathrm{rep}}\) is injective. Hence
+\[
+B_3Au-(Au)R_1-B_0-B_1(M+K)-B_2R_0=0
+\]
+in \(\Rq\).
+\end{proof}
+
+\begin{corollary}[Abstract rational-hash relation under admissibility]\label{cor:showing-to-abstract}
+If, in addition, the witness satisfies
+\[
+B_3-R_1\in \Rq^\times,
+\]
+then
+\[
+Au = h_{M+K,(R_0,R_1)}(B).
+\]
+\end{corollary}
+
+\begin{proof}
+Lemma~\ref{lem:showing-to-cleared} gives
+\[
+(B_3-R_1)\Had Au - \bigl(B_0+B_1(M+K)+B_2R_0\bigr)=0.
+\]
+Under the admissibility condition \(B_3-R_1\in \Rq^\times\), Lemma~\ref{lem:hash-cleared-admissible} implies
+\[
+Au = h_{M+K,(R_0,R_1)}(B).
+\]
+\end{proof}
+
+\begin{corollary}[Consequence of an accepting post-sign proof]\label{cor:showing-proof-consequence}
+Assume the post-sign NIZK is knowledge sound for the compiled showing relation. Then every accepting post-sign proof
+yields a witness \((u,M,K,R_0,R_1)\) satisfying
+\[
+B_3Au-(Au)R_1-B_0-B_1(M+K)-B_2R_0=0
+\]
+in \(\Rq\). If the extracted witness additionally satisfies denominator admissibility, then it also satisfies
+\[
+Au = h_{M+K,(R_0,R_1)}(B).
+\]
+\end{corollary}
+
+\begin{proof}
+Knowledge soundness yields a witness satisfying the compiled showing relation. Lemma~\ref{lem:showing-to-cleared}
+then gives the coefficient-domain cleared identity, and Corollary~\ref{cor:showing-to-abstract} gives the quotient-side
+relation under admissibility.
+\end{proof}
+
+\begin{remark}[Statement strength]
+The theorem suite above proves a one-way consequence from the compiled full-replay showing relation to the
+coefficient-domain cleared identity, and from there to the abstract quotient relation under admissibility. It does not
+assert a converse implication from the coefficient-domain identity back to the full compiled relation. The present paper
+therefore does not claim a two-way equivalence between the compiled showing relation and the abstract showing relation.
+\end{remark}
+
+\begin{remark}[Strengthened post-sign variant]\label{rem:showing-admissibility-variant}
+If one wishes the post-sign proof itself to certify the abstract quotient relation without any external admissibility
+side condition, the compiled statement can be strengthened by introducing an inverse witness \(z\) and enforcing
+\[
+(B_3-R_1)\Had z = 1,\qquad
+Au = z\Had \bigl(B_0+B_1(M+K)+B_2R_0\bigr).
+\]
+The present section does not assume that this stronger variant has been adopted.
+\end{remark}
+
+The remaining sections use Lemma~\ref{lem:showing-to-cleared} and Corollary~\ref{cor:showing-proof-consequence}
+whenever a coefficient-domain consequence of the compiled showing proof is needed, and invoke
+Corollary~\ref{cor:showing-to-abstract} only when admissibility is also available.

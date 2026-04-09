@@ -1,0 +1,152 @@
+\section{ARC Construction from Blind Signatures}
+\label{sec:arc-construction}
+
+This section turns the blind signature of Section~\ref{sec:blind-signature} into an anonymous rate-limited credential
+(ARC) system. We use the following terminology throughout:
+\emph{issuance} refers to the blind signature protocol, while \emph{showing} refers to an ARC presentation.
+The issuance proof is the \emph{pre-sign NIZK}; the showing proof is the \emph{post-sign NIZK}.
+
+\subsection{From blind signatures to ARC}
+A credential issued to a holder conceptually consists of:
+\begin{itemize}[leftmargin=1.25em]
+  \item the signed message \(m=\mu\Vert \veck\), where \(\mu\) are attributes and \(\veck\) is a uniformly sampled secret PRF key;
+  \item the signature \(u\) satisfying \(A u = h_{m,(r_0,r_1)}(B)\) for some bounded randomness \((r_0,r_1)\).
+\end{itemize}
+The holder may additionally store local auxiliary values needed to prove the signature relation in zero knowledge. These
+values are never revealed in showings.
+
+\paragraph{Message structure.}
+Every credential message has the abstract form
+\[
+  m = \mu \Vert \veck.
+\]
+Here \(\mu\) encodes the holder attributes and \(\veck\) is sampled uniformly and serves as the secret PRF key used for
+rate limiting. At the proof-system layer this abstract message is represented by packed witness rows \((M,K)\), but the
+credential syntax itself remains the quotient-ring statement of Section~\ref{sec:blind-signature}.
+
+\subsection{Rate limiting via the secret key \(\veck\)}
+Rate limiting is implemented by deterministic tags derived from a PRF keyed by the credential's secret \(\veck\). For a
+public nonce \(\nonce\in\mathcal{D}\), the holder computes
+\[
+  \prftag = \PRF(\veck,\nonce).
+\]
+Intuitively:
+\begin{itemize}[leftmargin=1.25em]
+  \item if the holder never repeats a nonce, then \(\prftag\) is pseudorandom and yields unlinkable showings;
+  \item if the holder repeats a nonce, the tag repeats deterministically, enabling the verifier to detect double-spending
+  for that nonce.
+\end{itemize}
+The verifier enforces its rate policy by restricting acceptable nonces and maintaining state that records previously
+accepted \((\nonce,\prftag)\) pairs for a given policy context.
+
+\subsection{Concrete PRF instantiation (Poseidon2-like)}
+\label{subsec:poseidon-prf}
+
+\providecommand{\Tr}{\mathrm{Tr}}
+
+We instantiate the PRF from Definition~\ref{def:prf} using the Poseidon2-like construction of
+Definitions~\ref{def:poseidon-prf} and \ref{def:poseidon-perm}. Algorithm~\ref{alg:prf} summarizes the computation.
+
+\begin{algorithm}[H]
+\caption{$\PRF(k,n)$ (Poseidon2-like with feed-forward + truncation)}
+\label{alg:prf}
+\begin{algorithmic}[1]
+\State $x \gets k\Vert n$; $x^{(0)}\gets x$
+\For{$i=1$ to $R_F/2$} \State $x\gets E_i(x)$ \EndFor
+\For{$i=1$ to $R_P$} \State $x\gets I_i(x)$ \EndFor
+\For{$i=R_F/2+1$ to $R_F$} \State $x\gets E_i(x)$ \EndFor
+\State $y \gets x + x^{(0)}$ \Comment{feed-forward}
+\State \Return $\Tr(y)$ \Comment{first $\ell_{\prftag}$ lanes}
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Proof-friendly arithmetization.}
+In the post-sign NIZK we enforce $\prftag=\PRF(\veck,\nonce)$ using a checkpointed arithmetization: we commit
+selected S-box outputs and let the verifier replay all linear wiring between checkpoints from openings and public
+constants. Section~\ref{subsec:prf-checkpointed} states the constraint families; Appendix~\ref{app:prf} records the
+checkpoint schedule and extended notes.
+
+\subsection{Showing protocol}
+\label{subsec:showing-protocol}
+
+\begin{algorithm}[H]
+\caption{\(\Show\): ARC presentation (canonical protocol)}
+\label{alg:showing}
+\begin{algorithmic}[1]
+\Require Holder has credential \((\mu,\veck,r_0,r_1,u)\). Public parameters include \(A,B,\BoundMsg\) and the PRF description.
+\Require Input nonce \(\nonce\in\mathcal{D}\) that has not been used before for this credential.
+\Ensure Presentation \((\prftag,\nonce,\pi_{\mathsf{post}})\).
+\State Compute \(\prftag\gets \PRF(\veck,\nonce)\).
+\State Produce a post-sign NIZK \(\pi_{\mathsf{post}}\) for the compiled showing relation specified in Section~\ref{sec:smallwood-model}, with public inputs \((\prftag,\nonce)\) and witness derived from the credential \((\mu,\veck,r_0,r_1,u)\).
+\State Output \((\prftag,\nonce,\pi_{\mathsf{post}})\).
+\end{algorithmic}
+\end{algorithm}
+
+At the ARC level, the intended abstract witness remains \((u,\mu,\veck,r_0,r_1)\) satisfying the signature equation and
+the PRF-tag equation. Section~\ref{sec:smallwood-model} specifies the compiled SmallWood relation used to realize that
+goal at the proof-system layer and proves its coefficient-domain consequence.
+
+The verifier runs \(\Verify\) by checking \(\pi_{\mathsf{post}}\) and consulting a policy state that tracks used
+nonces and tags. The verifier rejects if the proof fails or if the nonce-tag pair violates the local policy.
+
+\subsection{PRF role and rationale}
+The PRF serves two simultaneous roles:
+\begin{itemize}[leftmargin=1.25em]
+  \item \textbf{Public rate-limiting handle.} The tag is deterministic in \((\veck,\nonce)\) so the verifier can
+  enforce stateful policies without interacting with the issuer and without learning the credential message.
+  \item \textbf{Unlinkability across nonces.} For fresh nonces, tags are pseudorandom even given previous tags, so a
+  verifier cannot link two presentations to the same credential unless the policy context forces reuse.
+\end{itemize}
+Crucially, \(\veck\) is part of the signed message, so the holder cannot change the PRF key between showings without
+producing a new valid signature witness. The post-sign NIZK binds the public tag to that signed hidden key while keeping
+the key itself hidden. This is the mechanism by which verifier-side state can enforce rate policies through the public
+pair \((\nonce,\prftag)\).
+
+\subsection{ARC correctness and conditional security decomposition}
+
+\paragraph{Honest correctness.}
+If issuance completes, the holder stores a witness \((u,\mu,\veck,r_0,r_1)\) satisfying the abstract signature relation
+of Section~\ref{sec:blind-signature}. For any public nonce \(\nonce\), the holder computes
+\(\prftag = \PRF(\veck,\nonce)\) and derives the corresponding witness for the compiled post-sign relation of
+Section~\ref{sec:smallwood-model}. By completeness of the post-sign NIZK, the verifier accepts any honest presentation
+for which the local policy check on \((\nonce,\prftag)\) also accepts.
+
+\paragraph{Cryptographic decomposition of the ARC layer.}
+The ARC layer combines five ingredients:
+\begin{enumerate}[leftmargin=1.25em]
+    \item the non-blind theorem-backed signature layer of Lemma~\ref{lem:vsis-unforgeability};
+    \item blindness and one-more unforgeability of the blind issuance protocol, which remain to be reduced;
+    \item straightline-extractable knowledge soundness and zero knowledge of the post-sign NIZK for the compiled relation of Section~\ref{sec:smallwood-model};
+    \item pseudorandomness and correctness of the PRF; and
+    \item verifier-side policy state recording previously accepted \((\nonce,\prftag)\) pairs.
+\end{enumerate}
+Only the first and third ingredients are theorem-backed in the present draft. The fourth is an external assumption on
+the chosen PRF instantiation, the second remains a reduction goal, and the fifth is an application-layer enforcement
+rule rather than a stand-alone cryptographic theorem.
+
+\paragraph{Conditional policy soundness.}
+Knowledge soundness of the post-sign proof yields a witness for the compiled showing relation of Section~\ref{sec:smallwood-model}. By Corollary~\ref{cor:showing-proof-consequence}, every accepting post-sign proof yields
+\[
+B_3Au-(Au)R_1-B_0-B_1(M+K)-B_2R_0 = 0
+\]
+in \(R_q\). If the extracted witness additionally satisfies denominator admissibility, then
+Corollary~\ref{cor:showing-to-abstract} yields the abstract signature relation
+\[
+Au = h_{M+K,(R_0,R_1)}(B).
+\]
+Under that signature-side condition, together with one-more unforgeability of the blind issuance layer and correctness
+of the PRF, the signed key \(k\) determines the public tag uniquely for each nonce. Consequently, a verifier that
+records spent \((\nonce,\prftag)\) pairs rejects same-nonce replays deterministically.
+
+\paragraph{Conditional presentation unlinkability.}
+Presentation unlinkability in Definition~\ref{def:pres-unlink} is not implied by PRF security and post-sign zero
+knowledge alone. In that experiment the adversary controls the issuer during the two issuance sessions. Accordingly,
+unlinkability also depends on an issuance-layer privacy property, namely blindness or a comparably strong issuer-view
+hiding statement. Under that issuance-layer privacy assumption, post-sign zero knowledge hides the witness used during
+showing, and PRF pseudorandomness makes the public tags computationally random across distinct fresh nonces. This yields
+the intended unlinkability claim for showing transcripts, subject to the explicit nonce-reuse caveat.
+
+\paragraph{Attribute privacy and selective disclosure.}
+The message part \(\mu\) can encode attributes; the post-sign NIZK can be extended to prove predicates about \(\mu\) and
+to selectively reveal components, without changing the issuance protocol. We focus on the core rate-limiting
+construction and defer predicate engineering to the SmallWood programming model in Section~\ref{sec:smallwood-model}.
