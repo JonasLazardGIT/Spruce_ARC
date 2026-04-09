@@ -168,6 +168,7 @@ func buildCredentialRows(ringQ *ring.Ring, wit WitnessInputs, opts SimOpts, boun
 		IdxCarrierPreR:     2,
 		IdxCarrierCtr:      3,
 		IdxCarrierK:        4,
+		IdxTSource:         -1,
 		IdxSigHatBase:      -1,
 		SigHatExtraBase:    -1,
 		IdxTHatBase:        -1,

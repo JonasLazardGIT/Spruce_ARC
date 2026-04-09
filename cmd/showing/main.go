@@ -122,6 +122,7 @@ func main() {
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
 	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default; transcript_first and production_balance use the current transcript-tuned wide-LVCS profile under fixed theorem knobs)")
+	fullReplay := flag.Bool("full", false, "enable full replay-image showing mode")
 	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
 	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
 	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override for soundness research")
@@ -226,6 +227,7 @@ func main() {
 		CoeffPacking:         true,
 		CoeffNativeSigModel:  resolvedModel,
 		ShowingPreset:        *showingPreset,
+		ShowingReplayMode:    PIOP.ShowingReplayModeReduced,
 		SigShortnessProfile:  *sigShortnessProfile,
 		SigShortnessRadix:    *sigShortnessRadix,
 		SigShortnessL:        *sigShortnessDigits,
@@ -235,6 +237,9 @@ func main() {
 		PRFNLeaves:           effectivePRFNLeaves,
 		PRFCompanionMode:     PIOP.PRFCompanionMode(*prfCompanionMode),
 		PRFCheckpointSamples: *prfCheckpointSamples,
+	}
+	if *fullReplay {
+		opts.ShowingReplayMode = PIOP.ShowingReplayModeFull
 	}
 	opts = PIOP.ResolveSimOptsDefaults(opts)
 	effectivePostLVCS = opts.PostSignLVCSNCols
@@ -256,11 +261,12 @@ func main() {
 		CoeffPacking:         true,
 		CoeffNativeSigModel:  resolvedModel,
 		ShowingPreset:        *showingPreset,
+		ShowingReplayMode:    opts.ShowingReplayMode,
 		PRFCompanionMode:     PIOP.PRFCompanionMode(*prfCompanionMode),
 		PRFCheckpointSamples: *prfCheckpointSamples,
 	})
-	cli.printf(categoryStatus, "[showing-cli] ", "production showing profile (preset=%s ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d nleaves=%d kappa={%d,%d,%d,%d} prf_group_rounds=%d prf_mode=%s prf_samples=%d sig_profile=%s sig_R=%d sig_L=%d sig_rows=%d sig_deg=%d)",
-		resolvedShowingPreset, opts.Ell, opts.Eta, opts.EllPrime, opts.Rho, opts.Theta, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], opts.PRFGroupRounds, opts.PRFCompanionMode, opts.PRFCheckpointSamples, resolvedSigProfile, sigBase, sigL, sigRowsPer, sigDegree)
+	cli.printf(categoryStatus, "[showing-cli] ", "production showing profile (preset=%s replay=%s ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d nleaves=%d kappa={%d,%d,%d,%d} prf_group_rounds=%d prf_mode=%s prf_samples=%d sig_profile=%s sig_R=%d sig_L=%d sig_rows=%d sig_deg=%d)",
+		resolvedShowingPreset, opts.ShowingReplayMode, opts.Ell, opts.Eta, opts.EllPrime, opts.Rho, opts.Theta, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], opts.PRFGroupRounds, opts.PRFCompanionMode, opts.PRFCheckpointSamples, resolvedSigProfile, sigBase, sigL, sigRowsPer, sigDegree)
 	if opts.NCols != baselineOpts.NCols ||
 		effectivePostLVCS != baselineOpts.PostSignLVCSNCols ||
 		effectivePRFLVCS != baselineOpts.PRFLVCSNCols ||
@@ -272,17 +278,21 @@ func main() {
 		opts.Rho != baselineOpts.Rho ||
 		opts.EllPrime != baselineOpts.EllPrime ||
 		opts.Kappa != baselineOpts.Kappa ||
+		opts.ShowingReplayMode != baselineOpts.ShowingReplayMode ||
 		opts.PRFCompanionMode != baselineOpts.PRFCompanionMode ||
 		opts.PRFCheckpointSamples != baselineOpts.PRFCheckpointSamples ||
 		resolvedShowingPreset != baselineOpts.ShowingPreset ||
 		*sigShortnessProfile != "" || *sigShortnessRadix > 0 || *sigShortnessDigits > 0 {
-		cli.printf(categoryWarning, "[showing-cli] ", "warning: transcript/soundness research overrides active (preset=%s ncols=%d lvcs_ncols=%d nleaves=%d eta=%d theta=%d rho=%d ell'=%d kappa={%d,%d,%d,%d} sig_profile=%s sig_R=%d sig_L=%d)",
-			resolvedShowingPreset, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Eta, opts.Theta, opts.Rho, opts.EllPrime, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], resolvedSigProfile, sigBase, sigL)
+		cli.printf(categoryWarning, "[showing-cli] ", "warning: transcript/soundness research overrides active (preset=%s replay=%s ncols=%d lvcs_ncols=%d nleaves=%d eta=%d theta=%d rho=%d ell'=%d kappa={%d,%d,%d,%d} sig_profile=%s sig_R=%d sig_L=%d)",
+			resolvedShowingPreset, opts.ShowingReplayMode, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Eta, opts.Theta, opts.Rho, opts.EllPrime, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], resolvedSigProfile, sigBase, sigL)
 	}
 	for i, kappa := range opts.Kappa {
 		if kappa >= 32 {
 			cli.printf(categoryWarning, "[showing-cli] ", "warning: kappa%d=%d implies infeasible grinding in live proving; use large κ only for theorem-floor analysis, not production runs", i+1, kappa)
 		}
+	}
+	if opts.ShowingReplayMode == PIOP.ShowingReplayModeFull {
+		cli.printf(categoryWarning, "[showing-cli] ", "warning: full replay mode is experimental and increases the committed showing surface to obtain a theorem-clean full transform image")
 	}
 	switch opts.PRFCompanionMode {
 	case PIOP.PRFCompanionModeDirectAuth:
@@ -356,7 +366,6 @@ func main() {
 	pub := PIOP.PublicInputs{
 		A:      A,
 		B:      B,
-		T:      append([]int64(nil), state.T...),
 		Tag:    tagPublic,
 		Nonce:  noncePublic,
 		BoundB: boundB,
@@ -882,8 +891,10 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 		layout = "packed"
 	}
 	return fmt.Sprintf(
-		"Transcript focus: preset=%s lvcs=%d nleaves=%d rowsBlock=%d maskChunks=%d witness=%d nrows=%d m=%d pcols=%d omitP=%d prf_scalars=%d prf_rows=%d (%s) entries=%d",
+		"Transcript focus: preset=%s replay=%s blocks=%d lvcs=%d nleaves=%d rowsBlock=%d maskChunks=%d witness=%d nrows=%d m=%d pcols=%d omitP=%d prf_scalars=%d prf_rows=%d (%s) entries=%d",
 		focus.ShowingPreset,
+		focus.ReplayMode,
+		focus.ReplayBlocks,
 		focus.LVCSNCols,
 		focus.NLeaves,
 		focus.RowsBlock,

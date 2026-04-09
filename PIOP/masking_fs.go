@@ -287,7 +287,10 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		args.omega = in.Omega
 	} else {
 		args.rows = evalRowsAt(in.RingQ, in.WitnessPolys, in.Omega)
-		args.omegaWitness = append([]uint64(nil), in.Omega...)
+		// Keep the witness packing support separate from the larger LVCS/PCS domain.
+		// The companion and transform-bridge builders are keyed to \Omega_s, not the
+		// full oracle domain.
+		args.omegaWitness = append([]uint64(nil), args.omegaWitness...)
 	}
 	out, err := runMaskFS(args)
 	if err != nil {

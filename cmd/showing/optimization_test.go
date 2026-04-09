@@ -247,7 +247,6 @@ func buildShowingProofForOptimizationState(t *testing.T, st credential.State, op
 	pub := PIOP.PublicInputs{
 		A:      A,
 		B:      B,
-		T:      append([]int64(nil), st.T...),
 		Tag:    lanesFromElems(tag, opts.NCols),
 		Nonce:  noncePublic,
 		BoundB: boundB,
@@ -297,6 +296,117 @@ func optimizationLVCSCandidates(ncols int) []int {
 		}
 	}
 	return out
+}
+
+func TestShowingFullReplayModeDeterministicPackedWidths(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	// The deterministic issuance fixture used here is currently admissible for
+	// 64 and 128 columns. The 256-column case exceeds the present pre-sign
+	// alias-degree budget and is left to the wider parameter sweep.
+	for _, ncols := range []int{64, 128} {
+		state := buildDeterministicCredentialStateForPackedNCols(t, ncols)
+		lvcsNCols := 128
+		if lvcsNCols < ncols {
+			lvcsNCols = ncols
+		}
+		opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+			Credential:           true,
+			NCols:                ncols,
+			Ell:                  18,
+			DomainMode:           PIOP.DomainModeExplicit,
+			ShowingPreset:        PIOP.ShowingPresetSoundnessBalanced,
+			ShowingReplayMode:    PIOP.ShowingReplayModeFull,
+			CoeffPacking:         true,
+			PRFGroupRounds:       2,
+			PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
+			LVCSNCols:            lvcsNCols,
+			PostSignLVCSNCols:    lvcsNCols,
+			PRFLVCSNCols:         lvcsNCols,
+			CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+			SigShortnessProfile:  PIOP.SigShortnessProfileR11L4Production,
+		})
+		wantBlocks := len(state.T) / ncols
+		ringQ, err := credential.LoadDefaultRing()
+		if err != nil {
+			t.Fatalf("load ring: %v", err)
+		}
+		params, err := loadPRFParamsFromState(state)
+		if err != nil {
+			t.Fatalf("load prf params: %v", err)
+		}
+		wit, err := buildWitnessFromState(ringQ, state)
+		if err != nil {
+			t.Fatalf("build witness from state: %v", err)
+		}
+		A, err := buildSignatureMatrix(ringQ, state, showingSignatureComponentCount(wit))
+		if err != nil {
+			t.Fatalf("build A: %v", err)
+		}
+		B, err := loadBFromState(ringQ, state)
+		if err != nil {
+			t.Fatalf("load B: %v", err)
+		}
+		omega, err := deriveOmegaForOpts(ringQ, opts)
+		if err != nil {
+			t.Fatalf("derive omega: %v", err)
+		}
+		key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey, omega)
+		if err != nil {
+			t.Fatalf("derive prf key: %v", err)
+		}
+		nonce, noncePublic := sampleNonceForTest(params.LenNonce, opts.NCols, ringQ.Modulus[0])
+		tag, err := prf.Tag(key, nonce, params)
+		if err != nil {
+			t.Fatalf("tag: %v", err)
+		}
+		pub := PIOP.PublicInputs{
+			A:      A,
+			B:      B,
+			Tag:    lanesFromElems(tag, opts.NCols),
+			Nonce:  noncePublic,
+			BoundB: 1,
+		}
+		_, _, layout, _, companionLayout, _, _, _, witnessCount, _, _, err := PIOP.BuildCredentialRowsShowing(
+			ringQ,
+			pub,
+			wit,
+			params.LenKey,
+			params.LenNonce,
+			params.RF,
+			params.RP,
+			opts.PRFGroupRounds,
+			opts,
+		)
+		if err != nil {
+			t.Fatalf("build full replay rows for ncols=%d: %v", ncols, err)
+		}
+		if got := layout.ReplayBlockCount; got != wantBlocks {
+			t.Fatalf("ncols=%d replay blocks=%d want %d", ncols, got, wantBlocks)
+		}
+		if got := layout.ReplayTHatCount; got != wantBlocks {
+			t.Fatalf("ncols=%d replay T-hat count=%d want %d", ncols, got, wantBlocks)
+		}
+		if companionLayout == nil {
+			t.Fatalf("ncols=%d missing prf companion layout", ncols)
+		}
+		if got := layout.SigCount; got != witnessCount {
+			t.Fatalf("ncols=%d layout sig count=%d want witness count=%d", ncols, got, witnessCount)
+		}
+		if ncols == 64 {
+			proof, rep := buildShowingProofForOptimizationState(t, state, opts)
+			if got := proof.RowLayout.ReplayBlockCount; got != wantBlocks {
+				t.Fatalf("ncols=%d proof replay blocks=%d want %d", ncols, got, wantBlocks)
+			}
+			if got := rep.TranscriptFocus.ReplayBlocks; got != wantBlocks {
+				t.Fatalf("ncols=%d report replay blocks=%d want %d", ncols, got, wantBlocks)
+			}
+			if got := rep.TranscriptFocus.ReplayMode; got != string(PIOP.ShowingReplayModeFull) {
+				t.Fatalf("ncols=%d replay mode=%q want %q", ncols, got, PIOP.ShowingReplayModeFull)
+			}
+		}
+	}
 }
 
 func TestShowingProductionBetaAuditMatchesCalibrationPolicy(t *testing.T) {

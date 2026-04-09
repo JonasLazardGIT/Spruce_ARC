@@ -250,7 +250,7 @@ func convertRowInputs(inputs []decsRowInput) []decsRowInput {
 	return out
 }
 
-func buildTransformBridgeFixtureWithShortness(t *testing.T, sigShortnessProfile string, sigShortnessRadix int, sigShortnessDigits int) transformBridgeFixture {
+func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayMode ShowingReplayMode, sigShortnessProfile string, sigShortnessRadix int, sigShortnessDigits int) transformBridgeFixture {
 	t.Helper()
 	root := transformBridgeRepoRoot(t)
 	transformBridgeChdir(t, root)
@@ -281,6 +281,7 @@ func buildTransformBridgeFixtureWithShortness(t *testing.T, sigShortnessProfile 
 		CoeffPacking:        true,
 		CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
 		ShowingPreset:       ShowingPresetTranscriptFirst,
+		ShowingReplayMode:   replayMode,
 		SigShortnessProfile: sigShortnessProfile,
 		SigShortnessRadix:   sigShortnessRadix,
 		SigShortnessL:       sigShortnessDigits,
@@ -366,7 +367,6 @@ func buildTransformBridgeFixtureWithShortness(t *testing.T, sigShortnessProfile 
 	pub := PublicInputs{
 		A:      A,
 		B:      B,
-		T:      append([]int64(nil), state.T...),
 		Tag:    tagPublic,
 		Nonce:  noncePublic,
 		BoundB: boundB,
@@ -427,6 +427,11 @@ func buildTransformBridgeFixtureWithShortness(t *testing.T, sigShortnessProfile 
 	}
 }
 
+func buildTransformBridgeFixtureWithShortness(t *testing.T, sigShortnessProfile string, sigShortnessRadix int, sigShortnessDigits int) transformBridgeFixture {
+	t.Helper()
+	return buildTransformBridgeFixtureWithReplayModeAndShortness(t, ShowingReplayModeReduced, sigShortnessProfile, sigShortnessRadix, sigShortnessDigits)
+}
+
 func buildTransformBridgeFixtureWithShortnessProfile(t *testing.T, sigShortnessProfile string) transformBridgeFixture {
 	t.Helper()
 	return buildTransformBridgeFixtureWithShortness(t, sigShortnessProfile, 0, 0)
@@ -435,6 +440,11 @@ func buildTransformBridgeFixtureWithShortnessProfile(t *testing.T, sigShortnessP
 func buildTransformBridgeFixture(t *testing.T) transformBridgeFixture {
 	t.Helper()
 	return buildTransformBridgeFixtureWithShortnessProfile(t, "")
+}
+
+func buildTransformBridgeFullFixture(t *testing.T) transformBridgeFixture {
+	t.Helper()
+	return buildTransformBridgeFixtureWithReplayModeAndShortness(t, ShowingReplayModeFull, "", 0, 0)
 }
 
 func evalPolyOnOmegaTest(ringQ *ring.Ring, omega []uint64, poly *ring.Poly) ([]uint64, error) {
@@ -593,6 +603,21 @@ func TestTransformBridgeConstraintFamiliesOnOmegaProductionShortnessProfile(t *t
 	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
 }
 
+func TestTransformBridgeConstraintFamiliesOnOmegaFullReplay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration-like fixture")
+	}
+	fx := buildTransformBridgeFullFixture(t)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
+	if err != nil {
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
+	}
+	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparInt", postSet.FparInt, postSet.FparIntCoeffs)
+	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparNorm", postSet.FparNorm, postSet.FparNormCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggInt", postSet.FaggInt, postSet.FaggIntCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "FaggNorm", postSet.FaggNorm, postSet.FaggNormCoeffs)
+}
+
 func TestTransformBridgeConstraintFamiliesOnOmegaCustomBalanced75(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
@@ -631,6 +656,9 @@ func TestTransformBridgeReplaySurfaceUsesOnlyTHat0(t *testing.T) {
 	if got := rowLayoutReplayTHatCount(fx.layout); got != 1 {
 		t.Fatalf("replay T-hat count=%d want 1", got)
 	}
+	if fx.layout.IdxTSource < 0 {
+		t.Fatalf("missing committed T source row")
+	}
 	if fx.layout.IdxTHatBase < 0 {
 		t.Fatalf("missing replay T-hat row")
 	}
@@ -664,6 +692,110 @@ func TestTransformBridgeTamperedTHat0BreaksDirectBridge(t *testing.T) {
 	}
 	if !nonZero {
 		t.Fatal("tampered THat0 left all aggregated bridge families satisfied")
+	}
+}
+
+func TestTransformBridgeTamperedHiddenTBreaksSourceBridge(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration-like fixture")
+	}
+	fx := buildTransformBridgeFixture(t)
+	tamperedRowsNTT := make([]*ring.Poly, len(fx.rowsNTT))
+	for i := range fx.rowsNTT {
+		if fx.rowsNTT[i] == nil {
+			continue
+		}
+		tamperedRowsNTT[i] = fx.ringQ.NewPoly()
+		ring.Copy(fx.rowsNTT[i], tamperedRowsNTT[i])
+	}
+	q := fx.ringQ.Modulus[0]
+	tamperedRowsNTT[fx.layout.IdxTSource].Coeffs[0][0] = modAdd(tamperedRowsNTT[fx.layout.IdxTSource].Coeffs[0][0], 1, q)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, tamperedRowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
+	if err != nil {
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
+	}
+	nonZero, err := bucketHasNonZeroOmegaSum(fx.ringQ, fx.omegaWitness, postSet.FaggNorm, postSet.FaggNormCoeffs)
+	if err != nil {
+		t.Fatalf("check tampered T source bridge: %v", err)
+	}
+	if !nonZero {
+		t.Fatal("tampered hidden T left all aggregated bridge families satisfied")
+	}
+}
+
+func TestTransformBridgeFullReplaySurfaceUsesAllBlocks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration-like fixture")
+	}
+	fx := buildTransformBridgeFullFixture(t)
+	if got, want := rowLayoutReplayBlockCount(fx.layout), fx.layout.SigBlocks; got != want {
+		t.Fatalf("replay block count=%d want %d", got, want)
+	}
+	if got, want := rowLayoutReplayTHatCount(fx.layout), fx.layout.SigBlocks; got != want {
+		t.Fatalf("replay T-hat count=%d want %d", got, want)
+	}
+	if fx.layout.IdxMHatSigma < 0 || fx.layout.IdxRHat0 < 0 || fx.layout.IdxRHat1 < 0 || fx.layout.IdxTHatBase < 0 {
+		t.Fatalf("missing full replay family base indices: %+v", fx.layout)
+	}
+}
+
+func TestTransformBridgeTamperedFullRHatBreaksBridge(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration-like fixture")
+	}
+	fx := buildTransformBridgeFullFixture(t)
+	tamperedRowsNTT := make([]*ring.Poly, len(fx.rowsNTT))
+	for i := range fx.rowsNTT {
+		if fx.rowsNTT[i] == nil {
+			continue
+		}
+		tamperedRowsNTT[i] = fx.ringQ.NewPoly()
+		ring.Copy(fx.rowsNTT[i], tamperedRowsNTT[i])
+	}
+	q := fx.ringQ.Modulus[0]
+	idx := rowLayoutPostSignRHat1Index(fx.layout, 1)
+	if idx < 0 {
+		t.Fatalf("missing replay R1 block 1")
+	}
+	tamperedRowsNTT[idx].Coeffs[0][0] = modAdd(tamperedRowsNTT[idx].Coeffs[0][0], 1, q)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, tamperedRowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
+	if err != nil {
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
+	}
+	nonZero, err := bucketHasNonZeroOmegaSum(fx.ringQ, fx.omegaWitness, postSet.FaggNorm, postSet.FaggNormCoeffs)
+	if err != nil {
+		t.Fatalf("check tampered full replay bridge: %v", err)
+	}
+	if !nonZero {
+		t.Fatal("tampered full replay R1 block left all aggregated bridge families satisfied")
+	}
+}
+
+func TestTransformBridgeFullReplayRejectsNonSignTailLeakage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration-like fixture")
+	}
+	fx := buildTransformBridgeFullFixture(t)
+	cn := *fx.wit.CoeffNativeShowing
+	cn.M1 = fx.ringQ.NewPoly()
+	ring.Copy(fx.wit.CoeffNativeShowing.M1, cn.M1)
+	q := fx.ringQ.Modulus[0]
+	cn.M1.Coeffs[0][len(fx.omegaWitness)] = 1 % q
+	wit := fx.wit
+	wit.CoeffNativeShowing = &cn
+	_, _, _, _, _, _, _, _, _, _, _, err := BuildCredentialRowsShowing(
+		fx.ringQ,
+		fx.pub,
+		wit,
+		fx.prfCompanion.KeyCount,
+		len(fx.pub.Nonce),
+		0,
+		0,
+		fx.opts.PRFGroupRounds,
+		fx.opts,
+	)
+	if err == nil {
+		t.Fatal("expected full replay mode to reject non-sign tail leakage")
 	}
 }
 
@@ -757,6 +889,42 @@ func TestTransformBridgeCombinedReplayDebug(t *testing.T) {
 	defer func() {
 		_ = os.Setenv("PIOP_DEBUG_EQ4_K", prev)
 	}()
+	ok, err := VerifyWithConstraints(proof, set, fx.pub, fx.opts, FSModeCredential)
+	if err != nil {
+		t.Fatalf("verify with built set: %v", err)
+	}
+	if !ok {
+		t.Fatalf("verify with built set returned false")
+	}
+}
+
+func TestTransformBridgeCombinedReplayDebugFull(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration-like fixture")
+	}
+	fx := buildTransformBridgeFullFixture(t)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
+	if err != nil {
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
+	}
+	set := ConstraintSet{
+		FparInt:            append([]*ring.Poly{}, postSet.FparInt...),
+		FparIntCoeffs:      append([][]uint64{}, postSet.FparIntCoeffs...),
+		FparNorm:           postSet.FparNorm,
+		FparNormCoeffs:     postSet.FparNormCoeffs,
+		FaggInt:            postSet.FaggInt,
+		FaggIntCoeffs:      postSet.FaggIntCoeffs,
+		FaggNorm:           postSet.FaggNorm,
+		FaggNormCoeffs:     postSet.FaggNormCoeffs,
+		ParallelAlgDeg:     postSet.ParallelAlgDeg,
+		AggregatedAlgDeg:   postSet.AggregatedAlgDeg,
+		PRFLayout:          fx.prfLayout,
+		PRFCompanionLayout: fx.prfCompanion,
+	}
+	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
+	if err != nil {
+		t.Fatalf("build showing combined: %v", err)
+	}
 	ok, err := VerifyWithConstraints(proof, set, fx.pub, fx.opts, FSModeCredential)
 	if err != nil {
 		t.Fatalf("verify with built set: %v", err)

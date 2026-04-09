@@ -24,6 +24,24 @@ const (
 	ShowingPresetCustom            = "custom"
 )
 
+type ShowingReplayMode string
+
+const (
+	ShowingReplayModeReduced ShowingReplayMode = "reduced"
+	ShowingReplayModeFull    ShowingReplayMode = "full"
+)
+
+func normalizeShowingReplayMode(mode ShowingReplayMode) ShowingReplayMode {
+	switch mode {
+	case ShowingReplayModeReduced, ShowingReplayModeFull:
+		return mode
+	case "":
+		return ShowingReplayModeReduced
+	default:
+		return ShowingReplayModeReduced
+	}
+}
+
 type PRFCompanionMode string
 
 const (
@@ -215,6 +233,8 @@ type SimOpts struct {
 	// ShowingPreset selects a coherent showing-time transcript preset for the
 	// retained credential flow.
 	ShowingPreset string
+	// ShowingReplayMode selects the active showing replay surface.
+	ShowingReplayMode ShowingReplayMode
 	// CoeffNativeSigModel selects the coeff-native post-sign model.
 	CoeffNativeSigModel string
 	CoeffPacking        bool
@@ -259,6 +279,7 @@ func defaultSimOpts() SimOpts {
 		SigShortnessRadix:    0,
 		SigShortnessProfile:  "",
 		ShowingPreset:        "",
+		ShowingReplayMode:    ShowingReplayModeReduced,
 		CoeffPacking:         false,
 		DomainMode:           DomainModeExplicit,
 		PRFGroupRounds:       1,
@@ -385,6 +406,7 @@ func (o *SimOpts) applyDefaults() {
 		o.PRFCheckpointSamples = def.PRFCheckpointSamples
 	}
 	o.PRFCompanionMode = normalizePRFCompanionMode(o.PRFCompanionMode)
+	o.ShowingReplayMode = normalizeShowingReplayMode(o.ShowingReplayMode)
 	if o.DomainMode != DomainModeExplicit {
 		o.DomainMode = DomainModeExplicit
 	}
@@ -479,10 +501,12 @@ type RowLayout struct {
 	IdxCarrierPreR     int
 	IdxCarrierCtr      int
 	IdxCarrierK        int
+	IdxTSource         int
 	IdxSigHatBase      int
 	SigHatExtraBase    int
 	IdxTHatBase        int
 	ReplayTHatCount    int
+	ReplayBlockCount   int
 	IdxMHatSigma       int
 	IdxMHat1           int
 	IdxMHat2           int

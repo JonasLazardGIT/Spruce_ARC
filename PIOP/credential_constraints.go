@@ -261,6 +261,7 @@ func BuildCredentialConstraintSetPre(ringQ *ring.Ring, bound int64, pub PublicIn
 		IdxCarrierPreR:     2,
 		IdxCarrierCtr:      3,
 		IdxCarrierK:        4,
+		IdxTSource:         -1,
 		IdxM1:              5,
 		IdxM2:              6,
 		IdxRU0:             7,

@@ -31,13 +31,28 @@ func rowLayoutPostSignCarrierCtr(layout RowLayout) int {
 func rowLayoutPreSignCarrierK(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxCarrierK, -1)
 }
+func rowLayoutPostSignTSource(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxTSource, -1)
+}
+func rowLayoutPostSignTSourceCount(layout RowLayout) int {
+	if rowLayoutPostSignTSource(layout) < 0 {
+		return 0
+	}
+	if layout.SigBlocks > 0 {
+		return layout.SigBlocks
+	}
+	return 1
+}
 func rowLayoutPostSignSigHatBase(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxSigHatBase, -1)
 }
 func rowLayoutPostSignTHatBase(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxTHatBase, -1)
 }
-func rowLayoutReplayTHatCount(layout RowLayout) int {
+func rowLayoutReplayBlockCount(layout RowLayout) int {
+	if layout.ReplayBlockCount > 0 {
+		return layout.ReplayBlockCount
+	}
 	if layout.ReplayTHatCount > 0 {
 		return layout.ReplayTHatCount
 	}
@@ -45,6 +60,12 @@ func rowLayoutReplayTHatCount(layout RowLayout) int {
 		return layout.SigBlocks
 	}
 	return 0
+}
+func rowLayoutReplayTHatCount(layout RowLayout) int {
+	if layout.ReplayTHatCount > 0 {
+		return layout.ReplayTHatCount
+	}
+	return rowLayoutReplayBlockCount(layout)
 }
 func rowLayoutPostSignMHatSigma(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxMHatSigma, -1)
@@ -60,6 +81,38 @@ func rowLayoutPostSignRHat0(layout RowLayout) int {
 }
 func rowLayoutPostSignRHat1(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxRHat1, -1)
+}
+func rowLayoutPostSignTHatIndex(layout RowLayout, block int) int {
+	base := rowLayoutPostSignTHatBase(layout)
+	count := rowLayoutReplayTHatCount(layout)
+	if base < 0 || block < 0 || block >= count {
+		return -1
+	}
+	return base + block
+}
+func rowLayoutPostSignMHatSigmaIndex(layout RowLayout, block int) int {
+	base := rowLayoutPostSignMHatSigma(layout)
+	count := rowLayoutReplayBlockCount(layout)
+	if base < 0 || block < 0 || block >= count {
+		return -1
+	}
+	return base + block
+}
+func rowLayoutPostSignRHat0Index(layout RowLayout, block int) int {
+	base := rowLayoutPostSignRHat0(layout)
+	count := rowLayoutReplayBlockCount(layout)
+	if base < 0 || block < 0 || block >= count {
+		return -1
+	}
+	return base + block
+}
+func rowLayoutPostSignRHat1Index(layout RowLayout, block int) int {
+	base := rowLayoutPostSignRHat1(layout)
+	count := rowLayoutReplayBlockCount(layout)
+	if base < 0 || block < 0 || block >= count {
+		return -1
+	}
+	return base + block
 }
 
 func rowLayoutPreSignBoundRows(layout RowLayout) []int {

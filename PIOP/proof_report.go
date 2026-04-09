@@ -48,6 +48,8 @@ type TranscriptOptimizationReport struct {
 	SigShortnessRadix   int    `json:"sig_shortness_radix"`
 	SigShortnessDigits  int    `json:"sig_shortness_digits"`
 	SigShortnessDegree  int    `json:"sig_shortness_degree"`
+	ReplayMode          string `json:"replay_mode"`
+	ReplayBlocks        int    `json:"replay_blocks"`
 	LVCSNCols           int    `json:"lvcs_ncols"`
 	NLeaves             int    `json:"nleaves"`
 	WitnessRows         int    `json:"witness_rows"`
@@ -193,6 +195,11 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 		QBytes:            paper.Q.OptimizedBytes,
 	}
 	out.LVCSNCols = lvcsNCols
+	out.ReplayMode = string(normalizeShowingReplayMode(opts.ShowingReplayMode))
+	out.ReplayBlocks = rowLayoutReplayBlockCount(proof.RowLayout)
+	if out.ReplayBlocks <= 0 {
+		out.ReplayBlocks = rowLayoutReplayTHatCount(proof.RowLayout)
+	}
 	out.NLeaves = proof.NLeavesUsed
 	if out.NLeaves <= 0 {
 		out.NLeaves = opts.NLeaves

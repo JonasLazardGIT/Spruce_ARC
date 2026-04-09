@@ -1,15 +1,15 @@
 # Fdb version 4
-["bibtex main"] 1775462553.81388 "main.aux" "main.bbl" "main" 1775463120.30489 0
+["bibtex main"] 1775722576.71889 "main.aux" "main.bbl" "main" 1775722579.07818 0
   "./biblio/abbrev3.bib" 1775452806 487273 2c98ba26a284358a125cb19770b54ebc ""
   "./biblio/crypto.bib" 1775452808 41225289 dc61bf1badb7dceeddfccdc1ce06a1c5 ""
   "./biblio/references.bib" 1775452806 3739 9812729a3f879714ac9766bef626280a ""
   "/usr/share/texmf-dist/bibtex/bst/base/alpha.bst" 1772820570 23907 a5f93555796fb564b924339521f10a7c ""
-  "main.aux" 1775463119.88929 36616 9ee15c70a115a282998536a2904eb898 "pdflatex"
+  "main.aux" 1775722578.69659 36037 9a780b6e8e8bd9618068856bb6f41b93 "pdflatex"
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1775463118.34969 "/home/jonas/Desktop/Spruce Folder/SPRUCE/docs/Spruce_ARC_04-06/main.tex" "main.pdf" "main" 1775463120.30511 0
+["pdflatex"] 1775722577.19664 "/home/jonas/Desktop/Spruce Folder/SPRUCE/docs/Spruce_ARC_04-06/main.tex" "main.pdf" "main" 1775722579.07838 0
   "/home/jonas/Desktop/Spruce Folder/SPRUCE/docs/Spruce_ARC_04-06/main.tex" 1775452806 904 433e740bf82bd7731b4648c38fd0adfe ""
   "/usr/share/texmf-dist/fonts/enc/dvips/inconsolata/i4-t1-4.enc" 1772820570 7693 0f2dce6d313c82989ec3a67fc24df2a0 ""
   "/usr/share/texmf-dist/fonts/enc/dvips/libertine/lbtn_25tcsq.enc" 1772820570 2921 8ca0eb0831f9bc5da080d3697cfe67bf ""
@@ -317,20 +317,20 @@
   "acmart.cls" 1775452806 116926 65d76993612821ba98fae6ad9b6a49c9 ""
   "appendix/A_definitions.tex" 1775452806 1535 a16d933a33652101772735b30bb68183 ""
   "appendix/B_gaussian_sampler.tex" 1775452806 5694 39fac916f19a312f8f3c69ff61a8ae88 ""
-  "appendix/C_smallwood_details.tex" 1775462456.23967 16699 e5ec0d30676c6126a2b87b6c6e3c292d ""
+  "appendix/C_smallwood_details.tex" 1775721634.21681 15180 5a57f3d6da4e6a62a9cff9de3fc631a9 ""
   "appendix/D_extended_parameters.tex" 1775452806 4858 4a428c5be33df8bcaba4f6c6cfa2114a ""
   "appendix/E_prf_and_misc.tex" 1775452806 3440 b3c6787183b229f6034942e222ec261f ""
   "commands.tex" 1775452806 4469 90d2882405f676b32ea034fef59a96d2 ""
   "imports.tex" 1775452806 655 6d0b961a1762a88ac0abf4ff22c07afd ""
-  "main.aux" 1775463119.88929 36616 9ee15c70a115a282998536a2904eb898 "pdflatex"
-  "main.bbl" 1775462554.25765 5147 0dfbfa98a7e1ac05463accc8372b81a3 "bibtex main"
-  "main.out" 1775463119.89029 14945 b53e6ea122e544979c6025a4c2658507 "pdflatex"
+  "main.aux" 1775722578.69659 36037 9a780b6e8e8bd9618068856bb6f41b93 "pdflatex"
+  "main.bbl" 1775722577.18547 5115 78dd214b9985cd8b90971cfe9c8c743f "bibtex main"
+  "main.out" 1775722578.69745 14799 1642a3ccb923cbaaafebde6105e70e8a "pdflatex"
   "main.tex" 1775452806 904 433e740bf82bd7731b4648c38fd0adfe ""
   "sections/01_intro.tex" 1775452806 17123 1a2c49e17e69c4abc6c78904d53527da ""
   "sections/02_preliminaries.tex" 1775462392.95468 34854 ab5b08072f799c97ccf80950bae9c305 ""
   "sections/03_blind_signature.tex" 1775452806 7298 62f0e6f022f8ac04794abdc3cdfb6f2b ""
   "sections/04_arc_construction.tex" 1775462397.81568 7425 3757bd7d150c8f3c0dce7d1c48ef118a ""
-  "sections/05_smallwood_model.tex" 1775462469.16267 18512 9f1ef886dac50a4dbeea6fdac3be3ebf ""
+  "sections/05_smallwood_model.tex" 1775721634.21681 14519 3fb802ce7b858d2d661bc1dea5428a6e ""
   "sections/06_parameters.tex" 1775462521.17866 5815 8f50d18800f89a03d2cd0f0ade1eb895 ""
   (generated)
   "main.aux"

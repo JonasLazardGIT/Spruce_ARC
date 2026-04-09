@@ -7,16 +7,14 @@ Thomas Attema, Ronald Cramer, and Lisa Kohl.
 \newblock Cryptology ePrint Archive, Report 2021/307, 2021.
 
 \bibitem[AGJ{\etalchar{+}}24]{CCS:AGJLRS24}
-Sven Argo, Tim G{\"u}neysu, Corentin Jeudy, Georg Land, Adeline
-  {Roux-Langlois}, and Olivier Sanders.
+Sven Argo, Tim G{\"u}neysu, Corentin Jeudy, Georg Land, Adeline {Roux-Langlois}, and Olivier Sanders.
 \newblock Practical post-quantum signatures for privacy.
 \newblock pages 1523--1537, 2024.
 
 \bibitem[AS26]{google-pq}
 Heather Adkins and Sophie Schmieg.
 \newblock Quantum frontiers may be closer than they appear, March 2026.
-\newblock
-  \url{https://blog.google/innovation-and-ai/technology/safety-security/cryptography-migration-timeline/}.
+\newblock \url{https://blog.google/innovation-and-ai/technology/safety-security/cryptography-migration-timeline/}.
 
 \bibitem[BLNS23a]{CCS:BLNS23}
 Ward Beullens, Vadim Lyubashevsky, Ngoc~Khanh Nguyen, and Gregor Seiler.
@@ -24,39 +22,33 @@ Ward Beullens, Vadim Lyubashevsky, Ngoc~Khanh Nguyen, and Gregor Seiler.
 \newblock pages 16--29, 2023.
 
 \bibitem[BLNS23b]{C:BLNS23}
-Jonathan Bootle, Vadim Lyubashevsky, Ngoc~Khanh Nguyen, and Alessandro
-  Sorniotti.
+Jonathan Bootle, Vadim Lyubashevsky, Ngoc~Khanh Nguyen, and Alessandro Sorniotti.
 \newblock A framework for practical anonymous credentials from lattices.
 \newblock pages 384--417, 2023.
 
 \bibitem[CADLT25]{AC:CDLT25}
-Rutchathon Chairattana-Apirom, Nico D{\"o}ttling, Anna Lysyanskaya, and Stefano
-  Tessaro.
+Rutchathon Chairattana-Apirom, Nico D{\"o}ttling, Anna Lysyanskaya, and Stefano Tessaro.
 \newblock Everlasting anonymous rate-limited tokens.
 \newblock pages 435--468, 2025.
 
 \bibitem[DKLW25a]{EPRINT:DKLW25}
 Adrien Dubois, Michael Kloo{\ss}, Russell W.~F. Lai, and Ivy K.~Y. Woo.
-\newblock Lattice-based proof-friendly signatures from vanishing short integer
-  solutions.
+\newblock Lattice-based proof-friendly signatures from vanishing short integer solutions.
 \newblock Cryptology ePrint Archive, Report 2025/356, 2025.
 
 \bibitem[DKLW25b]{PKC:DKLW25}
 Adrien Dubois, Michael Kloo{\ss}, Russell W.~F. Lai, and Ivy K.~Y. Woo.
-\newblock Lattice-based proof-friendly signatures from vanishing short integer
-  solutions.
+\newblock Lattice-based proof-friendly signatures from vanishing short integer solutions.
 \newblock pages 452--486, 2025.
 
 \bibitem[ENS{\etalchar{+}}23]{EPRINT:ENSTW23}
-Thomas Espitau, Thi Thu~Quyen Nguyen, Chao Sun, Mehdi Tibouchi, and Alexandre
-  Wallet.
+Thomas Espitau, Thi Thu~Quyen Nguyen, Chao Sun, Mehdi Tibouchi, and Alexandre Wallet.
 \newblock Antrag: Annular {NTRU} trapdoor generation.
 \newblock Cryptology {ePrint} Archive, Report 2023/1335, 2023.
 
 \bibitem[Fis06]{C:Fischlin06}
 Marc Fischlin.
-\newblock Round-optimal composable blind signatures in the common reference
-  string model.
+\newblock Round-optimal composable blind signatures in the common reference string model.
 \newblock pages 60--77, 2006.
 
 \bibitem[FR25a]{EPRINT:FenRiv25a}
@@ -66,13 +58,11 @@ Thibauld Feneuil and Matthieu Rivain.
 
 \bibitem[FR25b]{EPRINT:FenRiv25b}
 Thibauld Feneuil and Matthieu Rivain.
-\newblock {SmallWood}: Hash-based polynomial commitments and zero-knowledge
-  arguments for relatively small instances.
+\newblock {SmallWood}: Hash-based polynomial commitments and zero-knowledge arguments for relatively small instances.
 \newblock Cryptology ePrint Archive, Report 2025/1085, 2025.
 
 \bibitem[GKR{\etalchar{+}}21]{USENIX:GKRRS21}
-Lorenzo Grassi, Dmitry Khovratovich, Christian Rechberger, Arnab Roy, and
-  Markus Schofnegger.
+Lorenzo Grassi, Dmitry Khovratovich, Christian Rechberger, Arnab Roy, and Markus Schofnegger.
 \newblock Poseidon: {A} new hash function for zero-knowledge proof systems.
 \newblock pages 519--535, 2021.
 
@@ -88,8 +78,7 @@ Craig Gentry, Chris Peikert, and Vinod Vaikuntanathan.
 
 \bibitem[JRS23]{C:JeuRouSan23}
 Corentin Jeudy, Adeline {Roux-Langlois}, and Olivier Sanders.
-\newblock Lattice signature with efficient protocols, application to anonymous
-  credentials.
+\newblock Lattice signature with efficient protocols, application to anonymous credentials.
 \newblock pages 351--383, 2023.
 
 \bibitem[JS25]{AC:JeuSan25}
@@ -99,34 +88,29 @@ Corentin Jeudy and Olivier Sanders.
 
 \bibitem[LCL{\etalchar{+}}23]{EPRINT:LCLLW23}
 Qiqi Lai, Chongshen Chen, Feng-Hao Liu, Anna Lysyanskaya, and Zhedong Wang.
-\newblock Lattice-based commit-transferrable signatures and applications to
-  anonymous credentials.
+\newblock Lattice-based commit-transferrable signatures and applications to anonymous credentials.
 \newblock Cryptology {ePrint} Archive, Report 2023/766, 2023.
 
 \bibitem[LSS24]{CCS:LyuSeiSte24}
 Vadim Lyubashevsky, Gregor Seiler, and Patrick Steuer.
-\newblock The {LaZer} library: Lattice-based zero knowledge and succinct proofs
-  for quantum-safe privacy.
+\newblock The {LaZer} library: Lattice-based zero knowledge and succinct proofs for quantum-safe privacy.
 \newblock pages 3125--3137, 2024.
 
 \bibitem[PWFW23]{EPRINT:PWFW23}
-Guru-Vamsi Policharla, Bas Westerbaan, Armando {Faz-Hern{\'a}ndez}, and
-  Christopher~A Wood.
+Guru-Vamsi Policharla, Bas Westerbaan, Armando {Faz-Hern{\'a}ndez}, and Christopher~A Wood.
 \newblock Post-quantum privacy pass via post-quantum anonymous credentials.
 \newblock Cryptology {ePrint} Archive, Report 2023/414, 2023.
 
 \bibitem[SK25]{schlesinger-cfrg-act-00}
 Samuel Schlesinger and Jonathan Katz.
 \newblock {Anonymous Credit Tokens}.
-\newblock Internet-Draft draft-schlesinger-cfrg-act-00, Internet Engineering
-  Task Force, August 2025.
+\newblock Internet-Draft draft-schlesinger-cfrg-act-00, Internet Engineering Task Force, August 2025.
 \newblock Work in Progress.
 
 \bibitem[YW25]{yun-privacypass-crypto-arc-00}
 Cathie Yun and Christopher~A. Wood.
 \newblock {Anonymous Rate-Limited Credentials}.
-\newblock Internet-Draft draft-yun-privacypass-crypto-arc-00, Internet
-  Engineering Task Force, October 2025.
+\newblock Internet-Draft draft-yun-privacypass-crypto-arc-00, Internet Engineering Task Force, October 2025.
 \newblock Work in Progress.
 
 \end{thebibliography}

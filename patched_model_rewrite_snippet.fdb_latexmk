@@ -1,0 +1,11 @@
+# Fdb version 4
+["pdflatex"] 1775737458.62362 ".private/patched_model_rewrite_snippet.tex" "patched_model_rewrite_snippet.pdf" "patched_model_rewrite_snippet" 1775737458.7032 2
+  ".private/patched_model_rewrite_snippet.tex" 1775737308.00213 39951 fbc2a82d2ad958f795c8eaebb6d2a727 ""
+  "/usr/share/texmf-dist/web2c/texmf.cnf" 1772820570 43569 fd570f2fa160877d211e859f687312ba ""
+  "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1775117707 3084552 ae12dc2e691b5a63b641dfca026e306b ""
+  "patched_model_rewrite_snippet.aux" 1775737450.62307 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
+  (generated)
+  "patched_model_rewrite_snippet.aux"
+  "patched_model_rewrite_snippet.log"
+  "patched_model_rewrite_snippet.pdf"
+  (rewritten before read)

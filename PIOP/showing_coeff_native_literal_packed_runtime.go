@@ -186,6 +186,38 @@ func buildTHatHeadsFromSigHatHeads(ringQ *ring.Ring, pub PublicInputs, omega []u
 	return out, nil
 }
 
+func buildTHatHeadsFromWitnessT(ringQ *ring.Ring, witnessT *ring.Poly, ncols, replayTHatCount int) ([][]uint64, error) {
+	return buildReplayHeadsFromWitnessPoly(ringQ, witnessT, ncols, replayTHatCount, "witness T")
+}
+
+func buildReplayHeadsFromWitnessPoly(ringQ *ring.Ring, witnessPoly *ring.Poly, ncols, replayBlockCount int, name string) ([][]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if witnessPoly == nil {
+		return nil, fmt.Errorf("nil %s", name)
+	}
+	if replayBlockCount <= 0 {
+		return nil, fmt.Errorf("invalid replay block count=%d", replayBlockCount)
+	}
+	if ncols <= 0 || ncols > int(ringQ.N) {
+		return nil, fmt.Errorf("invalid ncols=%d for ringN=%d", ncols, ringQ.N)
+	}
+	fullNTT := ringQ.NewPoly()
+	ring.Copy(witnessPoly, fullNTT)
+	ringQ.NTT(fullNTT, fullNTT)
+	out := make([][]uint64, replayBlockCount)
+	for block := 0; block < replayBlockCount; block++ {
+		start := block * ncols
+		end := start + ncols
+		if end > len(fullNTT.Coeffs[0]) {
+			return nil, fmt.Errorf("%s too short for block slice [%d,%d)", name, start, end)
+		}
+		out[block] = append([]uint64(nil), fullNTT.Coeffs[0][start:end]...)
+	}
+	return out, nil
+}
+
 func buildTHatHeadsFromPublicT(ringQ *ring.Ring, publicT []int64, ncols, replayTHatCount int) ([][]uint64, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
@@ -230,6 +262,21 @@ func repeatFieldValue(v uint64, n int) []uint64 {
 		out[i] = v
 	}
 	return out
+}
+
+func validateSparseSupportTailZero(p *ring.Poly, ncols int, q uint64, name string) error {
+	if p == nil {
+		return fmt.Errorf("nil %s", name)
+	}
+	if ncols < 0 || ncols > len(p.Coeffs[0]) {
+		return fmt.Errorf("invalid sparse support width=%d for %s", ncols, name)
+	}
+	for i := ncols; i < len(p.Coeffs[0]); i++ {
+		if p.Coeffs[0][i]%q != 0 {
+			return fmt.Errorf("%s has nonzero coefficient outside sparse support at idx=%d", name, i)
+		}
+	}
+	return nil
 }
 
 func centeredLift(v, q uint64) int64 {
@@ -317,9 +364,18 @@ func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 	if idx := rowLayoutPostSignCarrierCtr(layout); idx >= 0 && idx+1 > rowCount {
 		rowCount = idx + 1
 	}
+	if idx := rowLayoutPostSignTSource(layout); idx >= 0 && rowLayoutPostSignTSourceCount(layout) > 0 {
+		if end := idx + rowLayoutPostSignTSourceCount(layout); end > rowCount {
+			rowCount = end
+		}
+	}
+	replayBlocks := rowLayoutReplayBlockCount(layout)
+	if replayBlocks <= 0 {
+		replayBlocks = 1
+	}
 	for _, idx := range []int{rowLayoutPostSignMHatSigma(layout), rowLayoutPostSignRHat0(layout), rowLayoutPostSignRHat1(layout)} {
-		if idx >= 0 && idx+1 > rowCount {
-			rowCount = idx + 1
+		if idx >= 0 && idx+replayBlocks > rowCount {
+			rowCount = idx + replayBlocks
 		}
 	}
 	if idx := rowLayoutPostSignTHatBase(layout); idx >= 0 && rowLayoutReplayTHatCount(layout) > 0 {
@@ -374,6 +430,10 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("literal packed signature witness rows=%d want %d", len(cn.Sig), len(pub.A[0]))
 	}
 	blocks := int(ringQ.N) / ncols
+	replayBlockCount := 1
+	if opts.ShowingReplayMode == ShowingReplayModeFull {
+		replayBlockCount = blocks
+	}
 	var explicitOmega []uint64
 	if opts.DomainMode == DomainModeExplicit {
 		nLeaves := opts.NLeaves
@@ -438,6 +498,21 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("transform-bridge showing requires positive BoundB")
 	}
 	q := ringQ.Modulus[0]
+	if opts.ShowingReplayMode == ShowingReplayModeFull {
+		for _, pair := range []struct {
+			poly *ring.Poly
+			name string
+		}{
+			{poly: cn.M1, name: "M1"},
+			{poly: cn.M2, name: "M2"},
+			{poly: cn.R0, name: "R0"},
+			{poly: cn.R1, name: "R1"},
+		} {
+			if err := validateSparseSupportTailZero(pair.poly, ncols, q, pair.name); err != nil {
+				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+			}
+		}
+	}
 	var m1Head []uint64
 	var berr error
 	if opts.DomainMode == DomainModeExplicit {
@@ -521,6 +596,16 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	rows = append(rows, makeRowFromHead(carrierMHead))
 	idxCarrierCtr := len(rows)
 	rows = append(rows, makeRowFromHead(carrierCtrHead))
+	idxTSource := len(rows)
+	for block := 0; block < blocks; block++ {
+		start := block * ncols
+		end := start + ncols
+		tSourceHead := append([]uint64(nil), cn.T.Coeffs[0][start:end]...)
+		for i := range tSourceHead {
+			tSourceHead[i] %= q
+		}
+		rows = append(rows, makeRowFromHead(tSourceHead))
+	}
 
 	msgDecode1, msgDecode2, derr := buildPackedMessageCarrierDecodePolys(pub.BoundB, q)
 	if derr != nil {
@@ -548,30 +633,51 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		mSigmaCanonHead[col] = modAdd(m1CanonHead[col], m2CanonHead[col], q)
 	}
 
+	var mSigmaPoly *ring.Poly
+	if replayBlockCount == 1 {
+		mSigmaPoly = headAsCoeffPoly(mSigmaCanonHead)
+	} else {
+		mSigmaPoly = ringQ.NewPoly()
+		ringQ.Add(cn.M1, cn.M2, mSigmaPoly)
+	}
 	idxMHatSigma := len(rows)
-	mSigmaHatHead, berr := nttHead(headAsCoeffPoly(mSigmaCanonHead))
+	mSigmaHatHeads, berr := buildReplayHeadsFromWitnessPoly(ringQ, mSigmaPoly, ncols, replayBlockCount, "M sigma")
 	if berr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M sigma hat: %w", berr)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M sigma hats: %w", berr)
 	}
-	rows = append(rows, makeRowFromHead(mSigmaHatHead))
+	for block := 0; block < replayBlockCount; block++ {
+		rows = append(rows, makeRowFromHead(mSigmaHatHeads[block]))
+	}
 	idxRHat0 := len(rows)
-	r0HatHead, berr := nttHead(headAsCoeffPoly(r0CanonHead))
-	if berr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R0 hat: %w", berr)
+	r0SourcePoly := cn.R0
+	if replayBlockCount == 1 {
+		r0SourcePoly = headAsCoeffPoly(r0CanonHead)
 	}
-	rows = append(rows, makeRowFromHead(r0HatHead))
+	r0HatHeads, berr := buildReplayHeadsFromWitnessPoly(ringQ, r0SourcePoly, ncols, replayBlockCount, "R0")
+	if berr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R0 hats: %w", berr)
+	}
+	for block := 0; block < replayBlockCount; block++ {
+		rows = append(rows, makeRowFromHead(r0HatHeads[block]))
+	}
 	idxRHat1 := len(rows)
-	r1HatHead, berr := nttHead(headAsCoeffPoly(r1CanonHead))
-	if berr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R1 hat: %w", berr)
+	r1SourcePoly := cn.R1
+	if replayBlockCount == 1 {
+		r1SourcePoly = headAsCoeffPoly(r1CanonHead)
 	}
-	rows = append(rows, makeRowFromHead(r1HatHead))
+	r1HatHeads, berr := buildReplayHeadsFromWitnessPoly(ringQ, r1SourcePoly, ncols, replayBlockCount, "R1")
+	if berr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R1 hats: %w", berr)
+	}
+	for block := 0; block < replayBlockCount; block++ {
+		rows = append(rows, makeRowFromHead(r1HatHeads[block]))
+	}
 
-	replayTHatCount := 1
+	replayTHatCount := replayBlockCount
 	idxTHatBase := len(rows)
-	tHatHeads, terr := buildTHatHeadsFromPublicT(ringQ, pub.T, ncols, replayTHatCount)
+	tHatHeads, terr := buildTHatHeadsFromWitnessT(ringQ, cn.T, ncols, replayTHatCount)
 	if terr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build public T-hat heads: %w", terr)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build witness T-hat heads: %w", terr)
 	}
 	for block := 0; block < replayTHatCount; block++ {
 		rows = append(rows, makeRowFromHead(tHatHeads[block]))
@@ -630,10 +736,12 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.IdxK1 = -1
 	layout.IdxCarrierM = idxCarrierM
 	layout.IdxCarrierCtr = idxCarrierCtr
+	layout.IdxTSource = idxTSource
 	layout.IdxSigHatBase = -1
 	layout.SigHatExtraBase = -1
 	layout.IdxTHatBase = idxTHatBase
 	layout.ReplayTHatCount = replayTHatCount
+	layout.ReplayBlockCount = replayBlockCount
 	layout.IdxMHatSigma = idxMHatSigma
 	layout.IdxMHat1 = -1
 	layout.IdxMHat2 = -1

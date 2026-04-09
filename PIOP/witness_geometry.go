@@ -117,9 +117,17 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 			if layout.IdxCarrierCtr >= 0 {
 				out.NonSigRows++
 			}
+			if layout.IdxTSource >= 0 {
+				out.NonSigRows += rowLayoutPostSignTSourceCount(layout)
+			}
+			replayBlocks := rowLayoutReplayBlockCount(layout)
 			for _, idx := range []int{layout.IdxMHatSigma, layout.IdxRHat0, layout.IdxRHat1} {
 				if idx >= 0 {
-					out.NonSigRows++
+					if replayBlocks > 0 {
+						out.NonSigRows += replayBlocks
+					} else {
+						out.NonSigRows++
+					}
 				}
 			}
 		}

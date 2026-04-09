@@ -62,11 +62,16 @@ func addCoeffNativeLiteralPackedRows(
 	addRange func(string, int, int),
 ) {
 	if rowLayoutCoeffNativeUsesTransformBridge(layout) {
+		if layout.IdxTSource >= 0 && rowLayoutPostSignTSourceCount(layout) > 0 {
+			addRange(RowFamilyPostSignCore, layout.IdxTSource, rowLayoutPostSignTSourceCount(layout))
+		}
 		add(RowFamilyPostSignCarriers, layout.IdxCarrierM)
 		add(RowFamilyPostSignCarriers, layout.IdxCarrierCtr)
-		add(RowFamilyNonSigTransformAlias, layout.IdxMHatSigma)
-		add(RowFamilyNonSigTransformAlias, layout.IdxRHat0)
-		add(RowFamilyNonSigTransformAlias, layout.IdxRHat1)
+		if replayBlocks := rowLayoutReplayBlockCount(layout); replayBlocks > 0 {
+			addRange(RowFamilyNonSigTransformAlias, layout.IdxMHatSigma, replayBlocks)
+			addRange(RowFamilyNonSigTransformAlias, layout.IdxRHat0, replayBlocks)
+			addRange(RowFamilyNonSigTransformAlias, layout.IdxRHat1, replayBlocks)
+		}
 		if layout.IdxTHatBase >= 0 && rowLayoutReplayTHatCount(layout) > 0 {
 			addRange(RowFamilyReplayImage, layout.IdxTHatBase, rowLayoutReplayTHatCount(layout))
 		}

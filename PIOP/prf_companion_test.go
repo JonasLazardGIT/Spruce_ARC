@@ -114,8 +114,13 @@ func TestPRFCompanionLayoutEmission(t *testing.T) {
 	if fx.companion.PackedLogicalCount != wantLogical {
 		t.Fatalf("packed logical count=%d want %d", fx.companion.PackedLogicalCount, wantLogical)
 	}
-	if fx.companion.PackedRows != ceilDiv(wantLogical, fx.opts.NCols) {
-		t.Fatalf("packed rows=%d want %d", fx.companion.PackedRows, ceilDiv(wantLogical, fx.opts.NCols))
+	keyPrefix := 0
+	if half := fx.opts.NCols / 2; half >= len(fx.companion.KeySlots) {
+		keyPrefix = half
+	}
+	wantPackedRows := ceilDiv(keyPrefix+wantLogical, fx.opts.NCols)
+	if fx.companion.PackedRows != wantPackedRows {
+		t.Fatalf("packed rows=%d want %d", fx.companion.PackedRows, wantPackedRows)
 	}
 	if fx.companion.DataRows != ceilDiv(len(fx.companion.KeySlots)+len(fx.companion.CheckpointSlots), fx.opts.NCols) {
 		t.Fatalf("data rows=%d want %d", fx.companion.DataRows, ceilDiv(len(fx.companion.KeySlots)+len(fx.companion.CheckpointSlots), fx.opts.NCols))

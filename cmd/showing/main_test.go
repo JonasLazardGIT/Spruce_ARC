@@ -39,6 +39,8 @@ func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T)
 	line := formatTranscriptOptimizationSummary(PIOP.ProofReport{
 		TranscriptFocus: PIOP.TranscriptOptimizationReport{
 			ShowingPreset:     PIOP.ShowingPresetTranscriptFirst,
+			ReplayMode:        string(PIOP.ShowingReplayModeReduced),
+			ReplayBlocks:      1,
 			LVCSNCols:         128,
 			NLeaves:           2048,
 			WitnessRows:       859,
@@ -54,7 +56,7 @@ func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T)
 			RowOpeningEntries: 36,
 		},
 	})
-	if !strings.Contains(line, "preset=transcript_first lvcs=128 nleaves=2048 rowsBlock=7 maskChunks=2 witness=859 nrows=560 m=288 pcols=272 omitP=288") {
+	if !strings.Contains(line, "preset=transcript_first replay=reduced blocks=1 lvcs=128 nleaves=2048 rowsBlock=7 maskChunks=2 witness=859 nrows=560 m=288 pcols=272 omitP=288") {
 		t.Fatalf("missing nrows/m/pcols summary: %q", line)
 	}
 	if !strings.Contains(line, "prf_scalars=165 prf_rows=11 (packed)") {

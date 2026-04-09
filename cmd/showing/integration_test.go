@@ -215,7 +215,6 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 	pub := PIOP.PublicInputs{
 		A:      A,
 		B:      B,
-		T:      append([]int64(nil), state.T...),
 		Tag:    tagPublic,
 		Nonce:  noncePublic,
 		BoundB: boundB,
@@ -383,8 +382,8 @@ func TestShowingV3TranscriptRegression(t *testing.T) {
 	if proof.PRFCompanion.Layout.KeySource != PIOP.KeySourceIndependentWitness {
 		t.Fatalf("companion key source=%d want independent witness", proof.PRFCompanion.Layout.KeySource)
 	}
-	if proof.RowLayout.IdxCarrierM < 0 || proof.RowLayout.IdxCarrierCtr < 0 {
-		t.Fatalf("missing carrier rows in showing layout: %+v", proof.RowLayout)
+	if proof.RowLayout.IdxCarrierM < 0 || proof.RowLayout.IdxCarrierCtr < 0 || proof.RowLayout.IdxTSource < 0 {
+		t.Fatalf("missing showing source rows in layout: %+v", proof.RowLayout)
 	}
 	if proof.RowLayout.IdxMHatSigma < 0 || proof.RowLayout.IdxTHatBase < 0 {
 		t.Fatalf("missing transform-domain replay rows in showing layout: %+v", proof.RowLayout)
@@ -398,11 +397,11 @@ func TestShowingV3TranscriptRegression(t *testing.T) {
 	if rep.TranscriptFocus.LVCSNCols != 16 {
 		t.Fatalf("reported LVCSNCols=%d want 16", rep.TranscriptFocus.LVCSNCols)
 	}
-	if rep.TranscriptFocus.WitnessRows != 530 {
-		t.Fatalf("reported witness rows=%d want 530", rep.TranscriptFocus.WitnessRows)
+	if rep.TranscriptFocus.WitnessRows != 594 {
+		t.Fatalf("reported witness rows=%d want 594", rep.TranscriptFocus.WitnessRows)
 	}
-	if rep.TranscriptFocus.RowsBlock != 34 {
-		t.Fatalf("reported rowsBlock=%d want 34", rep.TranscriptFocus.RowsBlock)
+	if rep.TranscriptFocus.RowsBlock != 38 {
+		t.Fatalf("reported rowsBlock=%d want 38", rep.TranscriptFocus.RowsBlock)
 	}
 	if rep.TranscriptFocus.MaskChunks != 24 {
 		t.Fatalf("reported maskChunks=%d want 24", rep.TranscriptFocus.MaskChunks)
@@ -416,35 +415,35 @@ func TestShowingV3TranscriptRegression(t *testing.T) {
 	if rep.TranscriptFocus.PCols != rep.TranscriptFocus.NRows-rep.TranscriptFocus.M {
 		t.Fatalf("pcols=%d nrows-m=%d", rep.TranscriptFocus.PCols, rep.TranscriptFocus.NRows-rep.TranscriptFocus.M)
 	}
-	if rep.Geometry.PCSBlockCount != 34 {
-		t.Fatalf("pcs block count=%d want 34", rep.Geometry.PCSBlockCount)
+	if rep.Geometry.PCSBlockCount != 38 {
+		t.Fatalf("pcs block count=%d want 38", rep.Geometry.PCSBlockCount)
 	}
-	if rep.Geometry.ActualWitnessPolys != 530 || rep.Geometry.ActualPostSignWitnessPolys != 518 || rep.Geometry.ActualPRFWitnessPolys != 12 {
+	if rep.Geometry.ActualWitnessPolys != 594 || rep.Geometry.ActualPostSignWitnessPolys != 582 || rep.Geometry.ActualPRFWitnessPolys != 12 {
 		t.Fatalf("unexpected witness geometry: %+v", rep.Geometry)
 	}
 	if proof.RowLayout.MsgChainBase >= 0 || proof.RowLayout.RndChainBase >= 0 || proof.RowLayout.NonSigBoundRowsPer != 0 {
 		t.Fatalf("expected compressed carriers (no non-sig chain rows), got MsgChainBase=%d RndChainBase=%d RowsPer=%d", proof.RowLayout.MsgChainBase, proof.RowLayout.RndChainBase, proof.RowLayout.NonSigBoundRowsPer)
 	}
-	if rep.PaperTranscript.VTargets.OptimizedBytes != 8578 {
-		t.Fatalf("VTargets=%d want 8578", rep.PaperTranscript.VTargets.OptimizedBytes)
+	if rep.PaperTranscript.VTargets.OptimizedBytes != 9586 {
+		t.Fatalf("VTargets=%d want 9586", rep.PaperTranscript.VTargets.OptimizedBytes)
 	}
-	if rep.PaperTranscript.BarSets.OptimizedBytes != 9649 {
-		t.Fatalf("BarSets=%d want 9649", rep.PaperTranscript.BarSets.OptimizedBytes)
+	if rep.PaperTranscript.BarSets.OptimizedBytes != 10783 {
+		t.Fatalf("BarSets=%d want 10783", rep.PaperTranscript.BarSets.OptimizedBytes)
 	}
-	if rep.PaperTranscript.Pdecs.OptimizedBytes != 55747 {
-		t.Fatalf("Pdecs=%d want 55747", rep.PaperTranscript.Pdecs.OptimizedBytes)
+	if rep.PaperTranscript.Pdecs.OptimizedBytes != 60709 {
+		t.Fatalf("Pdecs=%d want 60709", rep.PaperTranscript.Pdecs.OptimizedBytes)
 	}
 	if rep.PaperTranscript.Q.OptimizedBytes != 5628 {
 		t.Fatalf("Q=%d want 5628", rep.PaperTranscript.Q.OptimizedBytes)
 	}
-	if rep.TranscriptFocus.NRows != 790 {
-		t.Fatalf("nrows=%d want 790", rep.TranscriptFocus.NRows)
+	if rep.TranscriptFocus.NRows != 866 {
+		t.Fatalf("nrows=%d want 866", rep.TranscriptFocus.NRows)
 	}
-	if rep.TranscriptFocus.M != 204 {
-		t.Fatalf("m=%d want 204", rep.TranscriptFocus.M)
+	if rep.TranscriptFocus.M != 228 {
+		t.Fatalf("m=%d want 228", rep.TranscriptFocus.M)
 	}
-	if rep.TranscriptFocus.PCols != 586 {
-		t.Fatalf("pcols=%d want 586", rep.TranscriptFocus.PCols)
+	if rep.TranscriptFocus.PCols != 638 {
+		t.Fatalf("pcols=%d want 638", rep.TranscriptFocus.PCols)
 	}
 	t.Logf("v3 transcript: total=%d dQ=%d Pdecs=%d Auth=%d Q=%d R=%d nrows=%d m=%d pcols=%d",
 		rep.PaperTranscript.OptimizedBytes,
@@ -476,25 +475,25 @@ func TestShowingV3SoundnessBalancedPreset(t *testing.T) {
 	if rep.TranscriptFocus.ShowingPreset != PIOP.ShowingPresetSoundnessBalanced {
 		t.Fatalf("reported showing preset=%q want %q", rep.TranscriptFocus.ShowingPreset, PIOP.ShowingPresetSoundnessBalanced)
 	}
-	if rep.TranscriptFocus.LVCSNCols != 96 || rep.TranscriptFocus.WitnessRows != 530 || rep.TranscriptFocus.RowsBlock != 6 || rep.TranscriptFocus.MaskChunks != 4 {
+	if rep.TranscriptFocus.LVCSNCols != 96 || rep.TranscriptFocus.WitnessRows != 594 || rep.TranscriptFocus.RowsBlock != 7 || rep.TranscriptFocus.MaskChunks != 4 {
 		t.Fatalf("unexpected soundness-balanced geometry: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
-	if rep.PaperTranscript.OptimizedBytes >= 43500 {
-		t.Fatalf("soundness-balanced total=%d want <43500", rep.PaperTranscript.OptimizedBytes)
+	if rep.PaperTranscript.OptimizedBytes >= 47000 {
+		t.Fatalf("soundness-balanced total=%d want <47000", rep.PaperTranscript.OptimizedBytes)
 	}
-	if rep.PaperTranscript.Pdecs.OptimizedBytes != 9678 {
-		t.Fatalf("soundness-balanced Pdecs=%d want 9678", rep.PaperTranscript.Pdecs.OptimizedBytes)
+	if rep.PaperTranscript.Pdecs.OptimizedBytes != 10913 {
+		t.Fatalf("soundness-balanced Pdecs=%d want 10913", rep.PaperTranscript.Pdecs.OptimizedBytes)
 	}
-	if rep.PaperTranscript.VTargets.OptimizedBytes != 9082 {
-		t.Fatalf("soundness-balanced VTargets=%d want 9082", rep.PaperTranscript.VTargets.OptimizedBytes)
+	if rep.PaperTranscript.VTargets.OptimizedBytes != 10594 {
+		t.Fatalf("soundness-balanced VTargets=%d want 10594", rep.PaperTranscript.VTargets.OptimizedBytes)
 	}
-	if rep.PaperTranscript.BarSets.OptimizedBytes != 1711 {
-		t.Fatalf("soundness-balanced BarSets=%d want 1711", rep.PaperTranscript.BarSets.OptimizedBytes)
+	if rep.PaperTranscript.BarSets.OptimizedBytes != 1995 {
+		t.Fatalf("soundness-balanced BarSets=%d want 1995", rep.PaperTranscript.BarSets.OptimizedBytes)
 	}
 	if rep.PaperTranscript.Q.OptimizedBytes != 5628 {
 		t.Fatalf("soundness-balanced Q=%d want 5628", rep.PaperTranscript.Q.OptimizedBytes)
 	}
-	if rep.TranscriptFocus.NRows != 138 || rep.TranscriptFocus.M != 36 || rep.TranscriptFocus.PCols != 102 {
+	if rep.TranscriptFocus.NRows != 157 || rep.TranscriptFocus.M != 42 || rep.TranscriptFocus.PCols != 115 {
 		t.Fatalf("unexpected soundness-balanced transcript geometry: nrows=%d m=%d pcols=%d", rep.TranscriptFocus.NRows, rep.TranscriptFocus.M, rep.TranscriptFocus.PCols)
 	}
 }
@@ -575,28 +574,28 @@ func TestShowingV3ProductionBalancePreset(t *testing.T) {
 	if rep.TranscriptFocus.SigShortnessRadix != 11 || rep.TranscriptFocus.SigShortnessDigits != 4 || rep.TranscriptFocus.SigShortnessDegree != 11 {
 		t.Fatalf("unexpected production-balance sig shortness metrics: profile=%q radix=%d digits=%d degree=%d", rep.TranscriptFocus.SigShortnessProfile, rep.TranscriptFocus.SigShortnessRadix, rep.TranscriptFocus.SigShortnessDigits, rep.TranscriptFocus.SigShortnessDegree)
 	}
-	if rep.TranscriptFocus.LVCSNCols != 32 || rep.TranscriptFocus.WitnessRows != 530 || rep.TranscriptFocus.RowsBlock != 17 || rep.TranscriptFocus.MaskChunks != 12 {
+	if rep.TranscriptFocus.LVCSNCols != 32 || rep.TranscriptFocus.WitnessRows != 594 || rep.TranscriptFocus.RowsBlock != 19 || rep.TranscriptFocus.MaskChunks != 12 {
 		t.Fatalf("unexpected production-balance geometry: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
 	if rep.DQ != 378 {
 		t.Fatalf("production-balance dQ=%d want 378", rep.DQ)
 	}
-	if rep.PaperTranscript.OptimizedBytes >= 76000 {
-		t.Fatalf("production-balance total=%d want <76000", rep.PaperTranscript.OptimizedBytes)
+	if rep.PaperTranscript.OptimizedBytes >= 82000 {
+		t.Fatalf("production-balance total=%d want <82000", rep.PaperTranscript.OptimizedBytes)
 	}
-	if rep.PaperTranscript.Pdecs.OptimizedBytes != 30013 {
-		t.Fatalf("production-balance Pdecs=%d want 30013", rep.PaperTranscript.Pdecs.OptimizedBytes)
+	if rep.PaperTranscript.Pdecs.OptimizedBytes != 31951 {
+		t.Fatalf("production-balance Pdecs=%d want 31951", rep.PaperTranscript.Pdecs.OptimizedBytes)
 	}
-	if rep.PaperTranscript.VTargets.OptimizedBytes != 17146 {
-		t.Fatalf("production-balance VTargets=%d want 17146", rep.PaperTranscript.VTargets.OptimizedBytes)
+	if rep.PaperTranscript.VTargets.OptimizedBytes != 19162 {
+		t.Fatalf("production-balance VTargets=%d want 19162", rep.PaperTranscript.VTargets.OptimizedBytes)
 	}
-	if rep.PaperTranscript.BarSets.OptimizedBytes != 9649 {
-		t.Fatalf("production-balance BarSets=%d want 9649", rep.PaperTranscript.BarSets.OptimizedBytes)
+	if rep.PaperTranscript.BarSets.OptimizedBytes != 10783 {
+		t.Fatalf("production-balance BarSets=%d want 10783", rep.PaperTranscript.BarSets.OptimizedBytes)
 	}
 	if rep.PaperTranscript.Q.OptimizedBytes != 11255 {
 		t.Fatalf("production-balance Q=%d want 11255", rep.PaperTranscript.Q.OptimizedBytes)
 	}
-	if rep.TranscriptFocus.NRows != 518 || rep.TranscriptFocus.M != 204 || rep.TranscriptFocus.PCols != 314 {
+	if rep.TranscriptFocus.NRows != 562 || rep.TranscriptFocus.M != 228 || rep.TranscriptFocus.PCols != 334 {
 		t.Fatalf("unexpected production-balance transcript geometry: nrows=%d m=%d pcols=%d", rep.TranscriptFocus.NRows, rep.TranscriptFocus.M, rep.TranscriptFocus.PCols)
 	}
 }
@@ -618,31 +617,31 @@ func TestShowingV3TranscriptFirstProductionShortnessPreset(t *testing.T) {
 	if rep.DQ != 378 {
 		t.Fatalf("transcript-first dQ=%d want 378", rep.DQ)
 	}
-	if rep.Geometry.ActualWitnessPolys != 530 || rep.Geometry.ActualPostSignWitnessPolys != 518 || rep.Geometry.ActualPRFWitnessPolys != 12 {
+	if rep.Geometry.ActualWitnessPolys != 594 || rep.Geometry.ActualPostSignWitnessPolys != 582 || rep.Geometry.ActualPRFWitnessPolys != 12 {
 		t.Fatalf("unexpected transcript-first witness geometry: %+v", rep.Geometry)
 	}
-	if rep.Geometry.PCSBlockCount != 17 {
-		t.Fatalf("transcript-first pcs block count=%d want 17", rep.Geometry.PCSBlockCount)
+	if rep.Geometry.PCSBlockCount != 19 {
+		t.Fatalf("transcript-first pcs block count=%d want 19", rep.Geometry.PCSBlockCount)
 	}
-	if rep.TranscriptFocus.LVCSNCols != 32 || rep.TranscriptFocus.WitnessRows != 530 || rep.TranscriptFocus.RowsBlock != 17 || rep.TranscriptFocus.MaskChunks != 12 {
+	if rep.TranscriptFocus.LVCSNCols != 32 || rep.TranscriptFocus.WitnessRows != 594 || rep.TranscriptFocus.RowsBlock != 19 || rep.TranscriptFocus.MaskChunks != 12 {
 		t.Fatalf("unexpected transcript-first lvcs geometry: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
-	if rep.PaperTranscript.OptimizedBytes >= 76000 {
-		t.Fatalf("transcript-first total=%d want <76000", rep.PaperTranscript.OptimizedBytes)
+	if rep.PaperTranscript.OptimizedBytes >= 82000 {
+		t.Fatalf("transcript-first total=%d want <82000", rep.PaperTranscript.OptimizedBytes)
 	}
-	if rep.PaperTranscript.Pdecs.OptimizedBytes != 30013 {
-		t.Fatalf("transcript-first Pdecs=%d want 30013", rep.PaperTranscript.Pdecs.OptimizedBytes)
+	if rep.PaperTranscript.Pdecs.OptimizedBytes != 31951 {
+		t.Fatalf("transcript-first Pdecs=%d want 31951", rep.PaperTranscript.Pdecs.OptimizedBytes)
 	}
-	if rep.PaperTranscript.VTargets.OptimizedBytes != 17146 {
-		t.Fatalf("transcript-first VTargets=%d want 17146", rep.PaperTranscript.VTargets.OptimizedBytes)
+	if rep.PaperTranscript.VTargets.OptimizedBytes != 19162 {
+		t.Fatalf("transcript-first VTargets=%d want 19162", rep.PaperTranscript.VTargets.OptimizedBytes)
 	}
-	if rep.PaperTranscript.BarSets.OptimizedBytes != 9649 {
-		t.Fatalf("transcript-first BarSets=%d want 9649", rep.PaperTranscript.BarSets.OptimizedBytes)
+	if rep.PaperTranscript.BarSets.OptimizedBytes != 10783 {
+		t.Fatalf("transcript-first BarSets=%d want 10783", rep.PaperTranscript.BarSets.OptimizedBytes)
 	}
 	if rep.PaperTranscript.Q.OptimizedBytes != 11255 {
 		t.Fatalf("transcript-first Q=%d want 11255", rep.PaperTranscript.Q.OptimizedBytes)
 	}
-	if rep.TranscriptFocus.NRows != 518 || rep.TranscriptFocus.M != 204 || rep.TranscriptFocus.PCols != 314 {
+	if rep.TranscriptFocus.NRows != 562 || rep.TranscriptFocus.M != 228 || rep.TranscriptFocus.PCols != 334 {
 		t.Fatalf("unexpected transcript-first transcript geometry: nrows=%d m=%d pcols=%d", rep.TranscriptFocus.NRows, rep.TranscriptFocus.M, rep.TranscriptFocus.PCols)
 	}
 }
@@ -664,11 +663,11 @@ func TestShowingV3CustomBalancedRawShortnessProbe(t *testing.T) {
 	if rep.DQ != 312 {
 		t.Fatalf("custom dQ=%d want 312", rep.DQ)
 	}
-	if rep.Geometry.ActualWitnessPolys != 658 || rep.Geometry.ActualPostSignWitnessPolys != 646 || rep.Geometry.ActualPRFWitnessPolys != 12 {
+	if rep.Geometry.ActualWitnessPolys != 722 || rep.Geometry.ActualPostSignWitnessPolys != 710 || rep.Geometry.ActualPRFWitnessPolys != 12 {
 		t.Fatalf("unexpected custom witness geometry: %+v", rep.Geometry)
 	}
-	if rep.Geometry.PCSBlockCount != 42 {
-		t.Fatalf("custom pcs block count=%d want 42", rep.Geometry.PCSBlockCount)
+	if rep.Geometry.PCSBlockCount != 46 {
+		t.Fatalf("custom pcs block count=%d want 46", rep.Geometry.PCSBlockCount)
 	}
 	if rep.PaperTranscript.Pdecs.OptimizedBytes != 63403 {
 		t.Fatalf("custom Pdecs=%d want 63403", rep.PaperTranscript.Pdecs.OptimizedBytes)
@@ -695,11 +694,11 @@ func TestShowingV3ProductionShortnessWideLVCS96ResearchBaseline(t *testing.T) {
 	if rep.TranscriptFocus.SigShortnessProfile != PIOP.SigShortnessProfileR11L4Production {
 		t.Fatalf("reported sig shortness profile=%q want %q", rep.TranscriptFocus.SigShortnessProfile, PIOP.SigShortnessProfileR11L4Production)
 	}
-	if rep.TranscriptFocus.LVCSNCols != 96 || rep.TranscriptFocus.WitnessRows != 530 || rep.TranscriptFocus.RowsBlock != 6 || rep.TranscriptFocus.MaskChunks != 4 {
+	if rep.TranscriptFocus.LVCSNCols != 96 || rep.TranscriptFocus.WitnessRows != 594 || rep.TranscriptFocus.RowsBlock != 7 || rep.TranscriptFocus.MaskChunks != 4 {
 		t.Fatalf("unexpected lvcs96 geometry focus: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
-	if rep.Geometry.PCSBlockCount != 6 {
-		t.Fatalf("production lvcs96 pcs block count=%d want 6", rep.Geometry.PCSBlockCount)
+	if rep.Geometry.PCSBlockCount != 7 {
+		t.Fatalf("production lvcs96 pcs block count=%d want 7", rep.Geometry.PCSBlockCount)
 	}
 	if rep.DQ != 378 {
 		t.Fatalf("production lvcs96 dQ=%d want 378", rep.DQ)
@@ -714,7 +713,7 @@ func TestShowingV3ProductionShortnessWideLVCS128ResearchBaseline(t *testing.T) {
 	if rep.TranscriptFocus.SigShortnessProfile != PIOP.SigShortnessProfileR11L4Production {
 		t.Fatalf("reported sig shortness profile=%q want %q", rep.TranscriptFocus.SigShortnessProfile, PIOP.SigShortnessProfileR11L4Production)
 	}
-	if rep.TranscriptFocus.LVCSNCols != 128 || rep.TranscriptFocus.WitnessRows != 530 || rep.TranscriptFocus.RowsBlock != 5 || rep.TranscriptFocus.MaskChunks != 3 {
+	if rep.TranscriptFocus.LVCSNCols != 128 || rep.TranscriptFocus.WitnessRows != 594 || rep.TranscriptFocus.RowsBlock != 5 || rep.TranscriptFocus.MaskChunks != 3 {
 		t.Fatalf("unexpected lvcs128 geometry focus: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
 	if rep.Geometry.PCSBlockCount != 5 {
@@ -736,7 +735,7 @@ func TestShowingV3CustomBalancedRawShortnessWideLVCS128Probe(t *testing.T) {
 	if rep.TranscriptFocus.SigShortnessRadix != 7 || rep.TranscriptFocus.SigShortnessDigits != 5 || rep.TranscriptFocus.SigShortnessDegree != 7 {
 		t.Fatalf("unexpected custom lvcs128 sig metrics: profile=%q radix=%d digits=%d degree=%d", rep.TranscriptFocus.SigShortnessProfile, rep.TranscriptFocus.SigShortnessRadix, rep.TranscriptFocus.SigShortnessDigits, rep.TranscriptFocus.SigShortnessDegree)
 	}
-	if rep.TranscriptFocus.LVCSNCols != 128 || rep.TranscriptFocus.WitnessRows != 658 || rep.TranscriptFocus.RowsBlock != 6 || rep.TranscriptFocus.MaskChunks != 3 {
+	if rep.TranscriptFocus.LVCSNCols != 128 || rep.TranscriptFocus.WitnessRows != 722 || rep.TranscriptFocus.RowsBlock != 6 || rep.TranscriptFocus.MaskChunks != 3 {
 		t.Fatalf("unexpected custom lvcs128 geometry focus: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
 	if rep.Geometry.PCSBlockCount != 6 {
