@@ -29,6 +29,7 @@ with the following syntax:
 \begin{itemize}[leftmargin=1.25em]
   \item $\ComPublicParam\gets \ComSetup(\SecParam)$ is a PPT algorithm which outputs public parameters $\ComPublicParam$. It is implicit input to all other algorithms.
   \item $c \gets \Commit(m)$ is a PPT algorithm which takes a message $m\in\mathcal{M}$ as input and outputs a commitment $c$ and decommitment $d$.
+  %\item $\pi \gets \Open(\ComPublicParam,m;r)$ outputs an opening string (often just $r$). \cb{TODO: remove open}
   \item $\ComVerify(c,m,d)\in\{0,1\}$ deterministically checks validity of the opening.
 \end{itemize}
 Correctness holds if for all $\ComPublicParam\gets \ComSetup$,  $m\in \mathcal{M}$ and $(c,d)\gets \Commit(m)$ it holds that
@@ -38,20 +39,21 @@ Correctness holds if for all $\ComPublicParam\gets \ComSetup$,  $m\in \mathcal{M
 
 The scheme is \emph{computationally binding} if for all PPT adversaries $\Adv$,
 \[
-  \Pr_r\Big[\begin{matrix}
-  	(\ComPublicParam,c,m,d,m',d')\gets \Adv(r) \wedge m\neq m' \\
-  	 \ComVerify(c,m,d)=1 \wedge \ComVerify(c,m',d')=1 
-  \end{matrix} 
-   \Big]\le \negl(\lambda)\text{.}
+  \Pr\Big[\begin{matrix}
+  	\ComPublicParam \gets \ComSetup(\SecParam) \wedge (c,m,d,m',d')\gets \Adv(\ComPublicParam) \wedge  \\
+  	m\neq m' \wedge \ComVerify(c,m,d)=1 \wedge \ComVerify(c,m',d')=1
+  \end{matrix}
+   \Big]\le \negl(\lambda),
 \]
+where the probability is taken over the randomness of $\ComSetup,\Adv$.
 
 The scheme is \emph{(computationally) hiding} if for all PPT distinguishers $\mathcal{D}$, all 
 messages $m_0,m_1\in\mathcal{M}$ and $\ComPublicParam\gets \ComSetup()$,
 \[
-  \Big|\Pr[\mathcal{D}^{\mathcal{O}_\Commit(m_0)}(\ComPublicParam)=1]
-  -\Pr[\mathcal{D}^{\mathcal{O}_\Commit(m_1)}(\ComPublicParam)=1]\Big|\le \negl(\lambda)
+  \Big|\Pr[\mathcal{D}^{\mathcal{O}_{\mathsf{Com}}(m_0)}(\ComPublicParam)=1]
+  -\Pr[\mathcal{D}^{\mathcal{O}_{\mathsf{Com}}(m_1)}(\ComPublicParam)=1]\Big|\le \negl(\lambda)
 \]
-where $\mathcal{O}_{\Commit}(m_b)$ runs $(c,d)\gets \Commit(m_b)$ and outputs $c$ and the probability is taken over the randomness of $\Commit,\mathcal{D}$.
+where $\mathcal{O}_{\mathsf{Com}}(m_b)$ runs $(c,d)\gets \Commit(m_b)$ and outputs $c$ and the probability is taken over the randomness of $\Commit,\mathcal{D}$.
 \end{definition}
 
 \subsubsection{Ajtai's Commitment scheme}
@@ -92,16 +94,15 @@ Fix integers \(n,m\ge 1\), modulus \(q\ge 2\), and bound \(\beta>0\).
 \end{definition}
 
 \begin{lemma}[Binding of the Ajtai commitment]\label{lem:ajtai-binding}
-Suppose an adversary outputs a commitment \(\vectorify{c}\) and two distinct valid openings
-\((\vectorify{m},\vectorify{r})\neq(\vectorify{m}',\vectorify{r}')\) with coefficient bound \(\BoundMsg\). Then
-\[
-  \vectorify{\Delta}:=[\vectorify{m}-\vectorify{m}'\Vert \vectorify{r}-\vectorify{r}']^\top
-\]
-is a non-zero solution to \(\mathsf{MSIS}_\infty\) for \(\mACom\) with bound \(2\BoundMsg\), since
-\(\mACom\vectorify{\Delta}\equiv 0\pmod q\) and \(\|\vectorify{\Delta}\|_\infty\le 2\BoundMsg\). Hence the commitment is
-computationally binding whenever \(\mathsf{MSIS}_\infty\) is hard for the resulting parameters
-\cite[Lemma~2]{EPRINT:AttCraKoh21}.
+Let $\Adv$ be any PPT adversary that breaks the binding property of the Ajtai commitment scheme with probability $p$ for
+random matrices $\mACom\in \Rq^{n \times m}$ and coefficient bound $\BoundMsg$. Then there exists a PPT attacker
+$\Adv'$ that breaks the $\mathsf{MSIS}_\infty(n,m,q,2\BoundMsg)$ assumption with essentially the same probability and
+runtime.
 \end{lemma}
+
+\begin{proof}
+See e.g.~\cite[Lemma~2]{EPRINT:AttCraKoh21}.
+\end{proof}
 
 \begin{lemma}[Statistical hiding of the Ajtai commitment]\label{lem:ajtai-hiding}
 Let \(B_r\) denote the coefficient bound of the commitment-randomness alphabet, so that the commitment randomness is
@@ -124,6 +125,7 @@ is \(N\ell_r \log_2(2B_r+1)\). The commitment output lies in \(\Rq^{\ell_{\ComSc
 \(q^{N\ell_{\ComScheme}}\), so the output entropy term is \(N\ell_{\ComScheme}\log_2 q\). The leftover-hash loss is
 \(2\lambda\) bits, which yields the displayed condition.
 \end{proof}
+\cb{better: just state what the condition is exactly here.}
 
 \subsection{Lattices, trapdoors, vSIS, and rational hashing}
 \label{subsec:prelim-vsis}
@@ -167,6 +169,7 @@ every \(m\in\mathcal{M}_B\) and every \(\chi\in\mathcal{X}\) with \(\mathsf{Eval
 \(\vecu\gets \SampPre(\trapdoor,\vect)\) satisfies \(\mA\vecu=\vect\) and \(\|\vecu\|_\infty\le \BoundSig\), except with
 negligible probability.
 \end{definition}
+\cb{Could the Message space be input? Also, generic descriptions of this algorithm likely don't have to define $\BoundMsg$.}
 
 \begin{definition}[ARC rational hash, admissibility, and cleared form]\label{def:rational-hash}
 Our concrete instantiation uses a public key \(B=(B_0,B_1,B_2,B_3)\in\Rq^4\), message \(m\in\Rq\), and witness
@@ -184,6 +187,7 @@ When this admissibility condition holds, the rational hash is the partial functi
 \[
 h_{m,(r_0,r_1)}(B):=\operatorname{num}(B,m,r_0)\Hdiv \operatorname{den}(B,r_1).
 \]
+\cb{what is $\Hdiv$ notation?}
 
 For an arbitrary target \(T\in\Rq\), we also define the cleared-denominator relation
 \begin{equation}\label{eq:hash-cleared}
@@ -192,6 +196,7 @@ For an arbitrary target \(T\in\Rq\), we also define the cleared-denominator rela
 The cleared relation is a well-formed ring identity for all inputs. It is used below as a compiled proof-system
 relation.
 \end{definition}
+\cb{What is $\Had$ notation?}
 
 \begin{lemma}[Cleared form under admissibility]\label{lem:hash-cleared-admissible}
 Let
@@ -229,6 +234,7 @@ Collecting the coordinates yields the equivalence with the cleared identity. If 
 at least one slot. In that slot the cleared equation reduces to \(0\cdot t_i-n_i=0\), hence to \(n_i=0\), and imposes
 no condition on \(t_i\). The quotient remains undefined there, so the cleared relation is no longer sufficient.
 \end{proof}
+\cb{is this true? what if all terms are simply zero in one of the subfields?}
 
 \begin{remark}[Why the admissibility side condition is necessary]\label{rem:hash-cleared-not-sufficient}
 The cleared identity is therefore a necessary condition for the defined quotient relation, but it is not a sufficient
@@ -237,6 +243,7 @@ condition in general. A concrete counterexample is obtained by choosing a CRT sl
 undefined. All later uses of the rational hash therefore state explicitly whether they refer to the abstract defined
 quotient relation or to the weaker cleared relation.
 \end{remark}
+\cb{why is this sometimes $r_i$ and $R_i$?}
 
 \begin{remark}[Relation to the DKLW25 BBS candidate]\label{rem:hash-notation-match}
 Our ARC family is exactly the BBS-type rational hash studied in \cite[Table~1]{EPRINT:DKLW25}, specialized by
@@ -497,6 +504,8 @@ A blind signature scheme is one-more unforgeable if there exists \(\negl\) such 
 We do not introduce a separate stand-alone rate-limiting primitive. In the present paper, rate limiting is part of the
 ARC syntax itself: the holder presents a credential together with a public nonce and a PRF-derived public tag, and the
 verifier enforces the policy through local state on previously accepted \((\nonce,\prftag)\) pairs.
+% Preserved from Carsten 10-04: the earlier standalone "Rate Limiting (with blind signatures)" subsection remained
+% wrapped in a comment environment at that revision boundary.
 
 
 \subsection{Anonymous Rate-Limiting Credentials (ARCs)}
@@ -505,6 +514,7 @@ Anonymous rate-limited credentials extend blind signatures by adding a showing a
 multiple presentations of a previously issued credential. We explicitly introduce the verifier party \(\Verifier\),
 which receives and checks those presentations. Our definition follows the established syntax and security models
 of~\cite{JC:FucHanSla19,C:BLNS23}, specialized to the ARC setting considered here.
+\lena{$\credential$ could also be $\sig$}
 
 We keep \(\Setup\) and \(\IKeyGen\) separate, so the public commitment matrix is sampled independently of the issuer
 keys. We also separate \(\Show\) and \(\Verify\) to distinguish the client-side presentation algorithm from the
@@ -516,38 +526,74 @@ An anonymous rate-limited credential (ARC) scheme is a tuple of algorithms
   \ARC=(\Setup,\IKeyGen,\Issue,\Show,\Verify)
 \]
 such that:
+\cb{should there also be a message attached to the credential?}\lena{could, but we don't have to add it in this revision imho}
 \begin{itemize}[leftmargin=1.25em]
    \item $\Setup(\SecParam)$ is a PPT algorithm that outputs public parameters $\PublicParamsARC$. All other algorithms obtain $\SecParam,\PublicParamsARC$ as implicit inputs.
 
     \item $\IKeyGen()$ is a PPT algorithm that outputs issuer keys $(\vk,\sk)$.
-    \item $\Issue(\cdot)$ is an interactive protocol between $\Issuer$ and $\Holder$, where $\Issuer$ has input $\sk$ and $\Holder$ has input $\vk$. At the end of the protocol, $\Holder$ obtains $\credential$.
-  \item $\Show(\cdot)$ on input a credential $\credential$ and a nonce $\nonce\in \mathcal{N}$ outputs a presentation $\presentation$. 
+\item $\Issue$ is an interactive protocol between $\Issuer$ and $\Holder$, where $\Issuer$ has input $\sk$ and $\Holder$ has input a message $\mu$ and verification key $\vk$. At the end of the protocol, $\Holder$ obtains the credential $\credential$.
+  \item $\Show(\credential,\nonce)$ on input a credential $\credential$ and a nonce $\nonce\in \mathcal{N}$ outputs a presentation $\presentation$.
   
-  \item $\Verify(\vk,\presentation,\nonce)$ is a deterministic polynomial-time algorithm that outputs a bit.
- \end{itemize}
+  \item $\Verify(\vk,\presentation,\state)$ is a deterministic polynomial-time algorithm that on input a verification key $\vk$, a presentation $\presentation$, and a verifier state $\state$ outputs a validity bit together with an updated state $\state'$.
+	 \end{itemize}
 \end{definition}
 
-Adjusting the correctness definition \ref{def:bs-correctness}, blindness definition \ref{def:bs-blindness} and unforgeability definition \ref{def:bs-euf-cma} to ARC follows trivially. However, we additionally require that if the same credential $\credential$ is presented multiple times, but for different nonces from $\mathcal{N}$, then the presentations should be unlinkable. To formalize this, we let a challenger $\Challenger$ create two credentials in interactions where the adversary controls the issuer. Then the challenger either creates two presentations for the same credential, or for different credentials.
+Adjusting the blind-signature correctness notion of Definition~\ref{def:bs-correctness} to ARC is immediate. We also use
+the following soundness notion, which captures that each issuance can support at most one accepting presentation per
+nonce.
+
+\begin{definition}[ARC soundness]\label{def:arc-soundness}
+Let \(\ARC\) be an ARC scheme with nonce space \(\mathcal{N}\). For \(Q=Q(\lambda)\), set
+\[
+K:=Q\cdot |\mathcal{N}|+1.
+\]
+Consider the following experiment. The challenger samples
+\[
+\PublicParamsARC\gets \Setup(\SecParam),\qquad (\vk,\sk)\gets \IKeyGen(\PublicParamsARC),
+\]
+initializes the verifier state \(\state_0\), and gives \((\PublicParamsARC,\vk)\) to a PPT adversary
+\(\adversary^{\Issue:\langle \Issuer(\sk): \cdot \rangle}\) that makes at most \(Q\) issuance queries. The adversary then
+outputs a sequence \((\presentation_1,\ldots,\presentation_K)\). For \(i=1,\ldots,K\), the challenger computes
+\[
+(b_i,\state_i)\gets \Verify(\vk,\presentation_i,\state_{i-1}).
+\]
+We say that \(\ARC\) is \emph{sound} if for every PPT adversary, the probability that \(b_i=1\) for every
+\(i\in[K]\) is negligible in \(\lambda\).
+\end{definition}
+
+This definition is the ARC analogue of one-more unforgeability. Since each honestly issued credential can be shown for
+all \(|\mathcal{N}|\) different nonces, \(Q\) issuance interactions may legitimately yield \(Q\cdot |\mathcal{N}|\)
+accepting presentations. Producing strictly more than that forces a policy violation for at least one nonce by the
+pigeonhole principle.
+\lena{this is already nonce-defined, maybe we want to keep the definition more general. This is basically one-more unforgeability with the additional constraint that we can only spend a credential once- should we make this two different definitions?}
+
+However, we additionally require that if the same credential \(\credential\) is presented multiple times, but for
+different nonces from \(\mathcal{N}\), then the presentations should be unlinkable. To formalize this, we let a
+challenger create two credentials in interactions where the adversary controls the issuer. Then the challenger either
+creates two presentations for the same credential, or for different credentials.
+\lena{blindness would be privacy, idk if this is a good idea}
 
 \begin{definition}[Presentation unlinkability]\label{def:pres-unlink}
 Let $\ARC$ be an ARC scheme. Consider the following experiment
-$\mathsf{Exp}^{\mathsf{pres\mbox{-}unlink}}_{\ARC,\Adv}(\lambda)$ between a challenger $\Challenger$ and a two-stage stateful adversary $\Adv=(\Adv_1,\Adv_2)$:
+$\mathsf{Exp}^{\mathsf{pres\mbox{-}unlink}}_{\ARC,\Adv}(\lambda)$ between a challenger $\Challenger$ and a three-stage stateful adversary $\Adv=(\Adv_1,\Adv_2,\Adv_3)$:
 \begin{enumerate}[leftmargin=1.25em]
-  \item $\Challenger$ runs $\PublicParamsARC\gets \Setup(\SecParam)$, $(\vk,\sk)\gets \IKeyGen(\PublicParamsARC)$. 
-\item Run $\adversary_1^{\Issue:\langle \cdot: \Challenger(\vk)\rangle ,~ \Issue:\langle \cdot: \Challenger(\vk)\rangle }$, at the end of which $\Challenger$ obtains $\credential_0,\credential_1$ and $\Adv_1$ outputs $\nonce_0,\nonce_1$.
-\item If $\credential_0$ or $\credential_1$ is $\bot$ or if $\nonce_0=\nonce_1$ then output a random bit.
+  \item $\Challenger$ runs $\PublicParamsARC\gets \Setup(\SecParam)$.
+  \item Run $\vk\gets \Adv_1(\PublicParamsARC)$.
+  \item Run $\Adv_2^{\Issue:\langle \cdot: \Challenger(\vk)\rangle ,~ \Issue:\langle \cdot: \Challenger(\vk)\rangle }$, at the end of which $\Challenger$ obtains $\credential_0,\credential_1$ and $\Adv_2$ outputs $\nonce_0,\nonce_1$.
+  \item If $\credential_0$ or $\credential_1$ is $\bot$ or if $\nonce_0=\nonce_1$ then output a random bit.
 
   \item $\Challenger$ samples $b\getsunif\{0,1\}$ and computes
   \[
     \presentation_0 \leftarrow \Show(\credential_0,\nonce_0),\qquad
     \presentation_1 \leftarrow \Show(\credential_b,\nonce_1).
   \]
-  \item $\Adv_2(\presentation_0,\presentation_1)$ outputs a bit $b'$.
+  \item $\Adv_3(\presentation_0,\presentation_1)$ outputs a bit $b'$.
 \end{enumerate}
 Define $\Adv^{\mathsf{pres\mbox{-}unlink}}_{\ARC}(\Adv) := \big| \Pr[b'=b]-\tfrac12 \big|$.
 We say ARC has \emph{presentation unlinkability} if for all PPT $\Adv$ this advantage is negligible in $\lambda$.
 
 \end{definition}
+\cb{A notion of blindness of ARC follows from presentation unlinkability:}
 
 %\paragraph{Nonce reuse caveat (intended).}
 %If a nonce is reused, deterministic presentation components (e.g., a
@@ -612,11 +658,4 @@ where $P:\Fq^t\to \Fq^t$ is the permutation from Definition \ref{def:poseidon-pe
 
 
 
-\paragraph{Constraint view (what the post-sign NIZK must prove).}
-To prove $\mathsf{tag}=\PRF(k,\mathsf{nonce})$ inside SmallWood, where \(k\) is the signed secret part of
-\(m=\mu\Vert k\), we arithmetize:
-(i) S-box constraints of the form $z = y^d$ at selected checkpoints,
-(ii) linear constraints for adding round constants and applying $M_E,M_I$ between checkpoints,
-and (iii) feed-forward plus truncation constraints binding the public $\mathsf{tag}$ to the final state.
-The constraint families are stated in Section~\ref{subsec:prf-checkpointed}, while checkpoint scheduling and extended
-notes are in Appendix~\ref{app:prf}.
+% Carsten 10-04 removed the standalone preliminaries-level PRF "constraint view" paragraph in favor of Section 4/5.

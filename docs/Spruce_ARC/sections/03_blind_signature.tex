@@ -5,15 +5,16 @@ This section presents the vSIS-based blind signature that underlies ARC-SPRUCE. 
 Section~\ref{subsec:commitments}, the trapdoor rational hash of Definition~\ref{def:rational-hash}, and the NIZK-ARK of
 Definition~\ref{def:nizk-ark}. The signed message is always
 \[
-  \vecm=\vecmu\Vert \veck,
+  \vecmu=\vecm\Vert \veck,
 \]
-where \(\vecmu\) denotes the attribute payload and \(\veck\) is a holder-generated secret PRF key used later for rate
+where \(\vecm\) denotes the attribute payload and \(\veck\) is a holder-generated secret PRF key used later for rate
 limiting.
+% Carsten (10-04): The signed message is denoted as \vecmu.
 
 \subsubsection{Randomizing the rational-hash witness}
 In the protocol, \(\Holder\) first commits to
 \[
-  \vecw=[\vecm\Vert \vecr_0^{\Holder}\Vert \vecr_1^{\Holder}\Vert \bar\vecr]^\top,
+  \vecw=[\vecmu\Vert \vecr_0^{\Holder}\Vert \vecr_1^{\Holder}\Vert \bar\vecr]^\top,
 \]
 where \((\vecr_0^{\Holder},\vecr_1^{\Holder})\) are the holder contributions to the rational-hash witness and
 \(\bar\vecr\) is fresh commitment randomness. To satisfy the commitment bounds, we require
@@ -29,6 +30,7 @@ Appendix~\ref{app:defs} records the centering map and its uniformity property.
 
 \subsubsection{Blind signature protocol}
 \label{subsec:issuance-protocol}
+\label{subsec:bs-protocol}
 We assume \(\nizkscheme=(\ZKProve,\ZKVerify)\) is a NIZK for the relations below,
 \(\ComScheme=(\ComSetup,\Commit,\ComVerify)\) is the Ajtai commitment scheme, and
 \[
@@ -37,33 +39,27 @@ We assume \(\nizkscheme=(\ZKProve,\ZKVerify)\) is a NIZK for the relations below
 is the trapdoor rational-hash interface from Definition~\ref{def:bbs-rational-hash}. Public setup outputs the hash key
 \(B\), while issuer key generation outputs the trapdoored signing matrix \(\mA\).
 
-\paragraph{Abstract and compiled issuance relations.}
-We distinguish the ideal issuance relation from the relation actually passed to the pre-sign proof system.
-
+\paragraph{Abstract issuance and signature relations.}
+At the protocol level, issuance is described by the following abstract witness statement.
 We write \(R_{\mathrm{Issue}}^{\mathrm{abs}}(x,w)=1\) iff
 \[
 \begin{aligned}
   x&=\bigl(\ComPublicParam,\vecc,T,(\vecr_0^{\Issuer},\vecr_1^{\Issuer}),B\bigr),\\
-  w&=(\vecm,\vecr_0^{\Holder},\vecr_1^{\Holder},\bar\vecr),\\
+  w&=(\vecmu,\vecr_0^{\Holder},\vecr_1^{\Holder},\bar\vecr),\\
   \ComPublicParam&=(\mACom,\BoundMsg),\\
-  \vecc&=\mACom\cdot[\vecm\Vert \vecr_0^{\Holder}\Vert \vecr_1^{\Holder}\Vert \bar\vecr]^\top,\\
-  \|\vecm\|_\infty,\|\vecr_0^{\Holder}\|_\infty,\|\vecr_1^{\Holder}\|_\infty,\|\bar\vecr\|_\infty&\le \BoundMsg,\\
+  \vecc&=\mACom\cdot[\vecmu\Vert \vecr_0^{\Holder}\Vert \vecr_1^{\Holder}\Vert \bar\vecr]^\top,\\
+  \|\vecmu\|_\infty,\|\vecr_0^{\Holder}\|_\infty,\|\vecr_1^{\Holder}\|_\infty,\|\bar\vecr\|_\infty&\le \BoundMsg,\\
   \vecr_0&=\centerfunc(\vecr_0^{\Holder}+\vecr_0^{\Issuer}),\\
   \vecr_1&=\centerfunc(\vecr_1^{\Holder}+\vecr_1^{\Issuer}),\\
-  T&=h_{\vecm,(\vecr_0,\vecr_1)}(B).
+  T&=h_{\vecmu,(\vecr_0,\vecr_1)}(B).
 \end{aligned}
-\]
-
-We write \(R_{\mathrm{Issue}}^{\mathrm{cmp}}(x,w)=1\) iff the same conditions hold, except that the last line is replaced by
-\[
-  (B_3-\vecr_1)\Had T-\bigl(B_0+B_1\cdot \vecm+B_2\cdot \vecr_0\bigr)=0.
 \]
 
 The issued signature relation remains the abstract relation
 \[
 R_{\mathrm{Sign}}(x,w)=1
 \iff
-x=(\vecm,\mA,B,\BoundMsg,\BoundSig),\quad w=(\vecu,\vecr_0,\vecr_1),
+x=(\vecmu,\mA,B,\BoundMsg,\BoundSig),\quad w=(\vecu,\vecr_0,\vecr_1),
 \]
 \[
   \|\vecr_0\|_\infty,\|\vecr_1\|_\infty \le \BoundMsg,
@@ -71,22 +67,22 @@ x=(\vecm,\mA,B,\BoundMsg,\BoundSig),\quad w=(\vecu,\vecr_0,\vecr_1),
   \|\vecu\|_\infty \le \BoundSig,
 \]
 \[
-  h_{\vecm,(\vecr_0,\vecr_1)}(B)\neq\bot,
+  h_{\vecmu,(\vecr_0,\vecr_1)}(B)\neq\bot,
   \qquad
-  \mA\vecu=h_{\vecm,(\vecr_0,\vecr_1)}(B).
+  \mA\vecu=h_{\vecmu,(\vecr_0,\vecr_1)}(B).
 \]
-
-\begin{lemma}\label{lem:issue-abs-cmp}
-If an honest holder first checks that \(B_3-\vecr_1\) is invertible in every CRT slot and then computes
-\(T=h_{\vecm,(\vecr_0,\vecr_1)}(B)\), every witness satisfying \(R_{\mathrm{Issue}}^{\mathrm{abs}}\) also satisfies
-\(R_{\mathrm{Issue}}^{\mathrm{cmp}}\). The converse need not hold.
-\end{lemma}
-
-\begin{proof}
-This is immediate from Lemma~\ref{lem:hash-cleared-admissible} and Remark~\ref{rem:hash-cleared-not-sufficient}.
-\end{proof}
+The concrete pre-sign proof used by the protocol is a compiled SmallWood relation over committed rows and public lifts.
+We defer that compiled statement to Section~\ref{subsec:presign-compiled}; the present section keeps the issuance
+protocol at the abstract witness level.
 
 We now define the blind-signature algorithms.
+\begin{comment}
+Preserved from Carsten's 10-04 source: an older proof-carrying-signature presentation introduced the explicit relation
+macros \(\relIssueBS\) and \(\relSign\), defined the blind-signature protocol directly in terms of those relations, and
+packaged the final signature as a proof object \(\nizkSign\). The current live text keeps the later theorem-disciplined
+abstract/compiled split, but the compatibility macros and the historical formulation are intentionally retained in
+source.
+\end{comment}
 \begin{description}
   \item[$\Setup(\SecParam)$:] Fix the global ring parameters. Run
   \[
@@ -106,13 +102,13 @@ We now define the blind-signature algorithms.
     \vk=\mA,\qquad \sk=\trapdoor.
   \]
 
-  \item[$\Issue$:] The issuer \(\Issuer\) holds \(\sk\); the holder \(\Holder\) holds \(\vecmu,\vk\).
+  \item[$\Issue$:] The issuer \(\Issuer\) holds \(\sk\); the holder \(\Holder\) holds \(\vecm,\vk\).
   \begin{enumerate}[leftmargin=1.25em]
     \item \(\Holder\) samples \(\veck,\vecr_0^{\Holder},\vecr_1^{\Holder},\bar\vecr\) coefficient-wise in
-    \([ -\BoundMsg,\BoundMsg]\) and sets \(\vecm=\vecmu\Vert \veck\).
+    \([ -\BoundMsg,\BoundMsg]\) and sets \(\vecmu=\vecm\Vert \veck\).
     \item \(\Holder\) computes
     \[
-      \vecc\gets \mACom\cdot[\vecm\Vert \vecr_0^{\Holder}\Vert \vecr_1^{\Holder}\Vert \bar\vecr]^\top
+      \vecc\gets \mACom\cdot[\vecmu\Vert \vecr_0^{\Holder}\Vert \vecr_1^{\Holder}\Vert \bar\vecr]^\top
     \]
     and sends \(\vecc\) to \(\Issuer\).
     \item \(\Issuer\) samples \(\vecr_0^{\Issuer},\vecr_1^{\Issuer}\) coefficient-wise in
@@ -122,21 +118,20 @@ We now define the blind-signature algorithms.
       \vecr_0\gets \centerfunc(\vecr_0^{\Holder}+\vecr_0^{\Issuer}),\qquad
       \vecr_1\gets \centerfunc(\vecr_1^{\Holder}+\vecr_1^{\Issuer}),
     \]
-    checks whether \(h_{\vecm,(\vecr_0,\vecr_1)}(B)=\bot\), and aborts/restarts if so. Otherwise it computes the public target
+    checks whether \(h_{\vecmu,(\vecr_0,\vecr_1)}(B)=\bot\), and aborts/restarts if so. Otherwise it computes the public target
     \[
-      T\gets h_{\vecm,(\vecr_0,\vecr_1)}(B).
+      T\gets h_{\vecmu,(\vecr_0,\vecr_1)}(B).
     \]
-    \item \(\Holder\) computes \(\nizkIssue\gets \nizkscheme.\ZKProve(w,x)\) for the compiled relation
-    \(R_{\mathrm{Issue}}^{\mathrm{cmp}}\), with witness
+    \item \(\Holder\) computes \(\nizkIssue\gets \nizkscheme.\ZKProve(w,x)\) for the issuance statement above, with witness
     \[
-      w=(\vecm,\vecr_0^{\Holder},\vecr_1^{\Holder},\bar\vecr)
+      w=(\vecmu,\vecr_0^{\Holder},\vecr_1^{\Holder},\bar\vecr)
     \]
     and statement
     \[
       x=(\ComPublicParam,\vecc,T,(\vecr_0^{\Issuer},\vecr_1^{\Issuer}),B),
     \]
     and sends \((T,\nizkIssue)\) to \(\Issuer\).
-    \item \(\Issuer\) verifies \(\nizkIssue\) for \(R_{\mathrm{Issue}}^{\mathrm{cmp}}\). If verification fails, it aborts.
+    \item \(\Issuer\) verifies \(\nizkIssue\). If verification fails, it aborts.
     Otherwise it computes
     \[
       \vecu\gets \TDRH.\SampPre(\trapdoor,T)
@@ -146,18 +141,20 @@ We now define the blind-signature algorithms.
     \[
       \sig=(\vecu,\vecr_0,\vecr_1)
     \]
-    on message \(\vecm=\vecmu\Vert \veck\); otherwise it aborts.
+    on message \(\vecmu=\vecm\Vert \veck\); otherwise it aborts.
   \end{enumerate}
 
-  \item[$\Verify(\vk,\vecm,\sig)$:] Let \(\vk=\mA\). Parse \(\sig=(\vecu,\vecr_0,\vecr_1)\). Accept iff
+  \item[$\Verify(\vk,\vecmu,\sig)$:] Let \(\vk=\mA\). Parse \(\sig=(\vecu,\vecr_0,\vecr_1)\). Accept iff
   \[
-    \bigl((\vecm,\mA,B,\BoundMsg,\BoundSig),(\vecu,\vecr_0,\vecr_1)\bigr)\in R_{\mathrm{Sign}}.
+    \bigl((\vecmu,\mA,B,\BoundMsg,\BoundSig),(\vecu,\vecr_0,\vecr_1)\bigr)\in R_{\mathrm{Sign}}.
   \]
 \end{description}
 
-For ARC, the holder does not reveal \(\sig\) directly. Section~\ref{sec:arc-construction} instead proves the compiled
-post-sign relation of Section~\ref{sec:smallwood-model} in zero knowledge while keeping \(\veck,\vecr_0,\vecr_1\) hidden
-and binding \(\veck\) to the PRF tag.
+For ARC, the holder does not reveal \(\sig\) directly. Section~\ref{sec:arc-construction} instead states the abstract
+showing witness relation in zero knowledge, while Section~\ref{sec:smallwood-model} later specifies the compiled
+SmallWood realization that binds \(\veck\) to the PRF tag.
+% For ARC, the holder does not reveal \(\sig\) directly. Section~\ref{sec:arc-construction} instead proves the relation
+% \(\relSign\) in zero knowledge while keeping \(\veck,\vecr_0,\vecr_1\) hidden and binding \(\veck\) to the PRF tag.
 
 \subsubsection{Security}
 \begin{proposition}[Correctness]
@@ -168,15 +165,17 @@ trapdoor sampler or an inadmissible hash evaluation.
 
 \begin{proof}
 By honest target derivation, the holder computes \(T\) only after checking that
-\(h_{\vecm,(\vecr_0,\vecr_1)}(B)\neq\bot\), and then sets
+\(h_{\vecmu,(\vecr_0,\vecr_1)}(B)\neq\bot\), and then sets
 \[
-T=h_{\vecm,(\vecr_0,\vecr_1)}(B).
+T=h_{\vecmu,(\vecr_0,\vecr_1)}(B).
 \]
-Lemma~\ref{lem:issue-abs-cmp} implies that the honest witness satisfies the compiled relation
-\(R_{\mathrm{Issue}}^{\mathrm{cmp}}\), so completeness of the pre-sign NIZK implies that the issuer accepts. By
-correctness of \(\SampPre\), the returned \(\vecu\) satisfies \(\mA\vecu=T\) and the public shortness bound except with
-negligible probability. Hence \(\sig=(\vecu,\vecr_0,\vecr_1)\) satisfies \(R_{\mathrm{Sign}}\).
+The honest witness therefore satisfies the abstract issuance statement above, so completeness of the pre-sign proof
+implies that the issuer accepts. By correctness of \(\SampPre\), the returned \(\vecu\) satisfies \(\mA\vecu=T\) and
+the public shortness bound except with negligible probability. Hence \(\sig=(\vecu,\vecr_0,\vecr_1)\) satisfies
+\(R_{\mathrm{Sign}}\).
 \end{proof}
+
+\cb{todo: add more statements and proofs here once definitions are settled in prelims.}
 
 \begin{remark}[Security status of the blind protocol]\label{rem:blind-security-roadmap}
 The non-blind hash-and-preimage signature layer underlying this protocol is justified by the DKLW25 reduction summarized
@@ -188,3 +187,17 @@ would still have to combine the same commitment-hiding and proof zero-knowledge 
 for the issuer view. Accordingly, the blind protocol is presented here as a construction with defined goals and an
 explicit reduction roadmap, not as a layer for which blindness or one-more unforgeability has already been reduced.
 \end{remark}
+
+\begin{comment}
+\begin{remark}[Security roadmap]
+The non-blind hash-and-preimage signature layer underlying this protocol is justified by the DKLW25 reduction discussed
+in Remark~\ref{rem:vsis-unforgeability}. For the blind protocol itself, the intended route is to combine straightline
+extractability of the pre-sign proof with an interactive \(\mathsf{GenISIS}_f\)-style assumption for
+\[
+  f(B,\vecmu,(\vecr_0,\vecr_1))=h_{\vecmu,(\vecr_0,\vecr_1)}(B),
+\]
+while using statistical hiding of the Ajtai commitment and zero knowledge of the pre-sign proof in the blindness
+argument. This explains why the construction targets one-more unforgeability and blindness, but we do not claim a
+completed reduction for either property here.
+\end{remark}
+\end{comment}

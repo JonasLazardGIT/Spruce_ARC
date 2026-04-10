@@ -1,15 +1,16 @@
 # Fdb version 4
-["bibtex main"] 1775775260.73992 "main.aux" "main.bbl" "main" 1775775263.20627 0
+["bibtex main"] 1775784375.65704 "main.aux" "main.bbl" "main" 1775784602.49918 0
   "./biblio/abbrev3.bib" 1775452806 487273 2c98ba26a284358a125cb19770b54ebc ""
   "./biblio/crypto.bib" 1775452808 41225289 dc61bf1badb7dceeddfccdc1ce06a1c5 ""
   "./biblio/references.bib" 1775452806 3739 9812729a3f879714ac9766bef626280a ""
   "/usr/share/texmf-dist/bibtex/bst/base/alpha.bst" 1772820570 23907 a5f93555796fb564b924339521f10a7c ""
-  "main.aux" 1775775262.73227 39054 bd5561017b27b2567fabdfd0dbe8859b "pdflatex"
+  "main.aux" 1775784602.10061 40360 f40c161222c9763abbf65dff94b24fb6 "pdflatex"
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1775775261.19649 "main.tex" "main.pdf" "main" 1775775263.20653 0
+["pdflatex"] 1775784600.6639 "/home/jonas/Desktop/Spruce Folder/SPRUCE/docs/Spruce_ARC/main.tex" "main.pdf" "main" 1775784602.4994 0
+  "/home/jonas/Desktop/Spruce Folder/SPRUCE/docs/Spruce_ARC/main.tex" 1775452806 904 433e740bf82bd7731b4648c38fd0adfe ""
   "/usr/share/texmf-dist/fonts/enc/dvips/inconsolata/i4-t1-4.enc" 1772820570 7693 0f2dce6d313c82989ec3a67fc24df2a0 ""
   "/usr/share/texmf-dist/fonts/enc/dvips/libertine/lbtn_25tcsq.enc" 1772820570 2921 8ca0eb0831f9bc5da080d3697cfe67bf ""
   "/usr/share/texmf-dist/fonts/enc/dvips/libertine/lbtn_76gpa5.enc" 1772820570 2933 9ad527ce78d7c5fa0a642dead095f172 ""
@@ -319,20 +320,20 @@
   "acmart.cls" 1775452806 116926 65d76993612821ba98fae6ad9b6a49c9 ""
   "appendix/A_definitions.tex" 1775452806 1535 a16d933a33652101772735b30bb68183 ""
   "appendix/B_gaussian_sampler.tex" 1775452806 5694 39fac916f19a312f8f3c69ff61a8ae88 ""
-  "appendix/C_smallwood_details.tex" 1775775120.91317 16142 691cb95ea73d4b0f1d82529108e28a32 ""
+  "appendix/C_smallwood_details.tex" 1775784371.74098 20666 218702deaa0d18b2e2363b31ba839c52 ""
   "appendix/D_extended_parameters.tex" 1775775253.67827 4874 613747a31f8d26ed9b5cf626e204b68b ""
-  "appendix/E_prf_and_misc.tex" 1775452806 3440 b3c6787183b229f6034942e222ec261f ""
-  "commands.tex" 1775452806 4469 90d2882405f676b32ea034fef59a96d2 ""
+  "appendix/E_prf_and_misc.tex" 1775784371.74098 3967 c8086c4127d7f53713a265187869319e ""
+  "commands.tex" 1775777958.3989 4734 b7c54c078bff38efd50f68eae8857ec1 ""
   "imports.tex" 1775452806 655 6d0b961a1762a88ac0abf4ff22c07afd ""
-  "main.aux" 1775775262.73227 39054 bd5561017b27b2567fabdfd0dbe8859b "pdflatex"
-  "main.bbl" 1775775261.18927 5657 85217cbe7244326d3b974e7fc29eff3b "bibtex main"
-  "main.out" 1775775262.73427 14522 5a803e1ec93339f349560b8428e34b38 "pdflatex"
+  "main.aux" 1775784602.10061 40360 f40c161222c9763abbf65dff94b24fb6 "pdflatex"
+  "main.bbl" 1775784376.09098 5657 85217cbe7244326d3b974e7fc29eff3b "bibtex main"
+  "main.out" 1775784602.10203 14829 91bcc5d8562ca0362d49b13bd455d1bc "pdflatex"
   "main.tex" 1775452806 904 433e740bf82bd7731b4648c38fd0adfe ""
-  "sections/01_intro.tex" 1775775246.94726 16291 55e31dbe1777c0fe8bdf8d9a084d8cb4 ""
-  "sections/02_preliminaries.tex" 1775775249.85326 34580 81a44306ad78875036033e43dfbbfbe6 ""
-  "sections/03_blind_signature.tex" 1775774741.12612 8705 82d48ec5f3974500c2ef2af4c3cdfa28 ""
-  "sections/04_arc_construction.tex" 1775774777.46792 9377 779df49da8c8d2ffabbc81e9822c1830 ""
-  "sections/05_smallwood_model.tex" 1775775035.43211 17443 10a3cc5504159d952d46cbb8e0b5ad08 ""
+  "sections/01_intro.tex" 1775779387.62977 16722 0ec6ca3e62aa894512d2974c10115fb7 ""
+  "sections/02_preliminaries.tex" 1775779500.48788 36739 66dff1810722a6a623a0656ecee916fa ""
+  "sections/03_blind_signature.tex" 1775779450.53883 9860 d989c8260ec992ebf31cfd44efe5ef5d ""
+  "sections/04_arc_construction.tex" 1775784371.73998 12724 864ac4b517a812ac841c86504e561a18 ""
+  "sections/05_smallwood_model.tex" 1775784599.55903 18111 8af6e7d499af0ab8993f582a2781803e ""
   "sections/06_parameters.tex" 1775774883.17885 6603 6cca53d7a8cc23623a84c6f5bdcd4049 ""
   (generated)
   "main.aux"

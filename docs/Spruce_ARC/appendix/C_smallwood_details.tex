@@ -11,6 +11,111 @@ consequences are obtained exactly by the theorem suite stated there.
 
 \newcommand{\NTT}{\mathrm{NTT}}
 
+\subsection{Deferred row inventories and bridge formulas}
+\label{subsec:smallwood-row-inventories}
+
+Section~\ref{sec:smallwood-model} groups the witness rows semantically. We record here the exact compiled surfaces and
+bridge formulas used by the issuance and showing relations.
+
+\paragraph{Issuance witness surface.}
+The committed issuance witness consists of the carrier rows
+\[
+C^M,\ C^{\mathrm{preRU}},\ C^{\mathrm{preR}},\ C^{\mathrm{ctr}},\ C^J,
+\]
+the decoded rows
+\[
+M,\ K,\ R_0^U,\ R_1^U,\ R,\ R_0,\ R_1,\ J_0,\ J_1,
+\]
+and the non-sign replay aliases
+\[
+\widehat M,\ \widehat K,\ \widehat R_0,\ \widehat R_1.
+\]
+The exact carrier-to-source bridges are
+\[
+M-\mathrm{Dec}_M^{(1)}(C^M)=0,
+\qquad
+K-\mathrm{Dec}_M^{(2)}(C^M)=0,
+\]
+\[
+R_0^U-\mathrm{Dec}_{\mathrm{preRU}}^{(1)}(C^{\mathrm{preRU}})=0,
+\qquad
+R_1^U-\mathrm{Dec}_{\mathrm{preRU}}^{(2)}(C^{\mathrm{preRU}})=0,
+\]
+\[
+R-\mathrm{Dec}_{\mathrm{preR}}^{(1)}(C^{\mathrm{preR}})=0,
+\]
+\[
+R_0-\mathrm{Dec}_{\mathrm{ctr}}^{(1)}(C^{\mathrm{ctr}})=0,
+\qquad
+R_1-\mathrm{Dec}_{\mathrm{ctr}}^{(2)}(C^{\mathrm{ctr}})=0,
+\]
+\[
+J_0-\mathrm{Dec}_J^{(1)}(C^J)=0,
+\qquad
+J_1-\mathrm{Dec}_J^{(2)}(C^J)=0.
+\]
+The non-sign transform bridges are
+\[
+\widehat M = \mathcal F_{\mathrm{ns}}(M),
+\qquad
+\widehat K = \mathcal F_{\mathrm{ns}}(K),
+\qquad
+\widehat R_0 = \mathcal F_{\mathrm{ns}}(R_0),
+\qquad
+\widehat R_1 = \mathcal F_{\mathrm{ns}}(R_1),
+\]
+where \(\mathcal F_{\mathrm{ns}}\) denotes the public lift used by the pre-sign replay.
+
+\paragraph{Showing witness surface.}
+The committed showing witness consists of:
+\begin{enumerate}[leftmargin=1.25em]
+    \item the signature limb rows \(L_{c,b,\ell}\);
+    \item the carrier rows \(C^M\) and \(C^{\mathrm{ctr}}\);
+    \item the source rows
+    \[
+    T,\ M,\ K,\ R_0,\ R_1,\ Z;
+    \]
+    \item the replay-image block families
+    \[
+    \widehat T_0,\ldots,\widehat T_{B_{\mathrm{rep}}-1},
+    \qquad
+    \widehat m_0,\ldots,\widehat m_{B_{\mathrm{rep}}-1},
+    \]
+    \[
+    \widehat R_{0,0},\ldots,\widehat R_{0,B_{\mathrm{rep}}-1},
+    \qquad
+    \widehat R_{1,0},\ldots,\widehat R_{1,B_{\mathrm{rep}}-1};
+    \]
+    \item the PRF companion rows.
+\end{enumerate}
+The cert-side signature witness \(u\) is reconstructed from the limb surface by the public digit-collapse map of the
+shortness gadget and is tied to the source row \(T\) by the source-side equation \(T=Au\). The carrier-to-source bridges are
+\[
+M=\mathrm{Dec}_M^{(1)}(C^M),
+\qquad
+K=\mathrm{Dec}_M^{(2)}(C^M),
+\]
+\[
+R_0=\mathrm{Dec}_{\mathrm{ctr}}^{(1)}(C^{\mathrm{ctr}}),
+\qquad
+R_1=\mathrm{Dec}_{\mathrm{ctr}}^{(2)}(C^{\mathrm{ctr}}).
+\]
+The source-side inverse witness satisfies
+\[
+(B_3-R_1)\Had Z = 1.
+\]
+For every replay block \(b\in\{0,\ldots,B_{\mathrm{rep}}-1\}\), the exact source-to-replay bridges are
+\[
+\widehat T_b = \mathcal F_{\mathrm{rep},b}(T),
+\qquad
+\widehat m_b = \mathcal F_{\mathrm{rep},b}(M+K),
+\]
+\[
+\widehat R_{0,b} = \mathcal F_{\mathrm{rep},b}(R_0),
+\qquad
+\widehat R_{1,b} = \mathcal F_{\mathrm{rep},b}(R_1).
+\]
+
 \subsection{Domains and packing}
 Fix a base field \(\Fq\), an evaluation set \(\Omega\subset\Fq\) of size
 \(s\), and a disjoint tail set \(\Omega'\subset\Fq\setminus\Omega\) of size
@@ -274,6 +379,58 @@ block projections of \(\mathcal F_{\mathrm{rep}}(Au)\),
 \(\mathcal F_{\mathrm{rep}}(M+K)\), \(\mathcal F_{\mathrm{rep}}(R_0)\), and
 \(\mathcal F_{\mathrm{rep}}(R_1)\). These are precisely the identities used in
 Lemma~\ref{lem:showing-to-cleared}.
+
+\paragraph{Proof of Lemma~\ref{lem:replay-transform}.}
+The replay basis is chosen so that
+\[
+\mathcal F_{\mathrm{rep}} : \Rq \longrightarrow \mathcal T
+\]
+is the corresponding exact CRT/NTT transform of \(\Rq\). Its additivity and multiplicativity are the defining algebraic
+properties of that transform, and injectivity follows because it is an isomorphism onto its image.
+
+\paragraph{Proof of Lemma~\ref{lem:showing-to-cleared}.}
+For every replay block \(b\), the source-to-replay bridges and the public lift definition give
+\[
+\widehat T_b = \mathcal F_{\mathrm{rep},b}(T),
+\qquad
+\widehat m_b = \mathcal F_{\mathrm{rep},b}(M+K),
+\]
+\[
+\widehat R_{0,b} = \mathcal F_{\mathrm{rep},b}(R_0),
+\qquad
+\widehat R_{1,b} = \mathcal F_{\mathrm{rep},b}(R_1),
+\]
+\[
+B_{i,b}^\Theta = \mathcal F_{\mathrm{rep},b}(B_i)
+\qquad\text{for }i\in\{0,1,2,3\}.
+\]
+Substituting these identities into the blockwise replay residual yields
+\[
+\mathcal F_{\mathrm{rep},b}(B_3T)
+-
+\mathcal F_{\mathrm{rep},b}(TR_1)
+-
+\mathcal F_{\mathrm{rep},b}(B_0)
+-
+\mathcal F_{\mathrm{rep},b}(B_1(M+K))
+-
+\mathcal F_{\mathrm{rep},b}(B_2R_0)
+=0
+\]
+for every \(b\). Concatenating the replay blocks gives
+\[
+\mathcal F_{\mathrm{rep}}
+\bigl(B_3T-TR_1-B_0-B_1(M+K)-B_2R_0\bigr)=0.
+\]
+By Lemma~\ref{lem:replay-transform}, \(\mathcal F_{\mathrm{rep}}\) is injective. Hence
+\[
+B_3T-TR_1-B_0-B_1(M+K)-B_2R_0=0
+\]
+in \(\Rq\). Since the compiled showing relation also enforces \(T=Au\), this immediately implies
+\[
+B_3Au-(Au)R_1-B_0-B_1(M+K)-B_2R_0=0
+\]
+in \(\Rq\).
 
 \paragraph{The \(\Omega\)-sum check.}
 The \(\Omega\)-sum check is active in both proofs. In issuance it enforces the

@@ -48,6 +48,13 @@ The truncation length is chosen to satisfy \(\ell_{\prftag}\ge \lceil \lambda/\l
 tag contains \(\lambda\) bits of entropy.
 
 \subsection{Arithmetization strategy (System A with checkpoints)}
+\paragraph{Status of the checkpoint schedule.}
+Section~\ref{subsec:prf-checkpointed} uses only the abstract interface of three PRF companion families: key binding,
+nonlinear checkpoint constraints, and final feed-forward/truncation constraints. The grouped schedule recorded in this
+appendix is the concrete realization used for the present instantiation and measurements. Alternative checkpoint schedules
+with the same interface could be substituted without changing the statement layer of
+Section~\ref{sec:smallwood-model}.
+
 To keep showing proofs compact, we commit only selected nonlinear checkpoints:
 \begin{itemize}[leftmargin=1.25em]
   \item \textbf{Key lanes.} We commit one row per key lane \(\mathsf{Key}[i]\) and enforce equality to an encoding of

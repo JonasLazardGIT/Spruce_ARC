@@ -1,7 +1,7 @@
-PWD /home/jonas/Desktop/Spruce Folder/SPRUCE/docs/Spruce_ARC_04-06
+PWD /home/jonas/Desktop/Spruce Folder/SPRUCE/docs/Spruce_ARC
 INPUT /usr/share/texmf-dist/web2c/texmf.cnf
 INPUT /var/lib/texmf/web2c/pdftex/pdflatex.fmt
-INPUT main.tex
+INPUT /home/jonas/Desktop/Spruce Folder/SPRUCE/docs/Spruce_ARC/main.tex
 OUTPUT main.log
 INPUT ./acmart.cls
 INPUT acmart.cls
@@ -579,15 +579,20 @@ INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineTZ-tlf-ot1--b
 INPUT /usr/share/texmf-dist/fonts/enc/dvips/libertine/lbtn_fygcup.enc
 INPUT /usr/share/texmf-dist/fonts/vf/public/libertine/LinLibertineT-tlf-ot1.vf
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineT-tlf-ot1--base.tfm
-INPUT /usr/share/texmf-dist/fonts/enc/dvips/inconsolata/i4-t1-4.enc
 INPUT /usr/share/texmf-dist/fonts/vf/public/newtx/nxlmi7.vf
 INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/LibertineMathMI7.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/NewTXMI7.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/stxscr.tfm
+INPUT /usr/share/texmf-dist/fonts/vf/public/newtx/ntxexx.vf
+INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txexs.tfm
 INPUT /usr/share/texmf-dist/fonts/vf/public/libertine/LinLibertineTZ-tlf-ot1.vf
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineTZ-tlf-ot1--base.tfm
+INPUT /usr/share/texmf-dist/fonts/vf/public/newtx/ntxsy5.vf
+INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txsys.tfm
+INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txex-bar.tfm
 INPUT /usr/share/texmf-dist/fonts/vf/public/libertine/LinLibertineT-tlf-ot1.vf
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineT-tlf-ot1--base.tfm
+INPUT /usr/share/texmf-dist/fonts/enc/dvips/inconsolata/i4-t1-4.enc
 INPUT /usr/share/texmf-dist/fonts/vf/public/libertine/LinLibertineTB-tlf-t1.vf
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineTB-tlf-t1--base.tfm
 INPUT ./sections/02_preliminaries.tex
@@ -595,8 +600,6 @@ INPUT ./sections/02_preliminaries.tex
 INPUT ./sections/02_preliminaries.tex
 INPUT ./sections/02_preliminaries.tex
 INPUT sections/02_preliminaries.tex
-INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineT-tlf-t1.tfm
-INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineT-tlf-t1.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinBiolinumTI-tlf-t1.tfm
 INPUT /usr/share/texmf-dist/fonts/vf/public/newtx/ntxexx.vf
 INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txexs.tfm
@@ -609,6 +612,8 @@ INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/LibertineMathMI5.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/NewTXMI5.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/stxscr.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineT-tlf-sc-t1.tfm
+INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineT-tlf-t1.tfm
+INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineT-tlf-t1.tfm
 INPUT /usr/share/texmf-dist/fonts/vf/public/libertine/LinLibertineT-tlf-sc-t1.vf
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineT-tlf-sc-t1--base.tfm
 INPUT /usr/share/texmf-dist/fonts/enc/dvips/libertine/lbtn_ncsllp.enc
@@ -618,9 +623,6 @@ INPUT /usr/share/texmf-dist/fonts/vf/public/newtx/nxlmia.vf
 INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/LibertineMathRM.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txmiaSTbb.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txmiaX.tfm
-INPUT /usr/share/texmf-dist/fonts/vf/public/newtx/ntxsy5.vf
-INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txsys.tfm
-INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txex-bar.tfm
 INPUT ./sections/03_blind_signature.tex
 INPUT ./sections/03_blind_signature.tex
 INPUT ./sections/03_blind_signature.tex
@@ -667,6 +669,8 @@ INPUT ./sections/05_smallwood_model.tex
 INPUT ./sections/05_smallwood_model.tex
 INPUT ./sections/05_smallwood_model.tex
 INPUT sections/05_smallwood_model.tex
+INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineTI-tlf-t1.tfm
+INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineTI-tlf-t1.tfm
 INPUT ./sections/06_parameters.tex
 INPUT ./sections/06_parameters.tex
 INPUT ./sections/06_parameters.tex
@@ -678,10 +682,6 @@ INPUT main.bbl
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineTZ-tlf-ot1.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinBiolinumT-tlf-ot1.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/inconsolata/t1-zi4r-4.tfm
-INPUT /usr/share/texmf-dist/fonts/vf/public/newtx/nxlmia.vf
-INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/LibertineMathRM.tfm
-INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txmiaSTbb.tfm
-INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txmiaX.tfm
 INPUT ./appendix/A_definitions.tex
 INPUT ./appendix/A_definitions.tex
 INPUT ./appendix/A_definitions.tex
@@ -692,6 +692,10 @@ INPUT ./appendix/B_gaussian_sampler.tex
 INPUT ./appendix/B_gaussian_sampler.tex
 INPUT ./appendix/B_gaussian_sampler.tex
 INPUT appendix/B_gaussian_sampler.tex
+INPUT /usr/share/texmf-dist/fonts/vf/public/newtx/nxlmia.vf
+INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/LibertineMathRM.tfm
+INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txmiaSTbb.tfm
+INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/txmiaX.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineT-tlf-ot1.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/libertine/LinLibertineT-tlf-ot1.tfm
 INPUT /usr/share/texmf-dist/fonts/tfm/public/newtx/nxlmi5.tfm

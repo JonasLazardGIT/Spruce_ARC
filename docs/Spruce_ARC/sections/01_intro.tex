@@ -3,7 +3,7 @@
 
 % Local fallbacks for macros used in the overview figures (kept here to avoid touching the preamble).
 
-Anonymous credentials (AC) are cryptographic protocols that allow parties to convey certified information about themselves in a privacy-preserving way. There are usually three roles in ACs, namely \emph{issuers}, \emph{holders} and \emph{verifiers}.  More concretely, an AC scheme allows a holder to prove to a verifier that it possesses certain attributes, which have been authenticated by the issuer. Here, the authenticated attributes are usually called a \emph{credential}, which is kept private by the user. Using a so-called \emph{showing} process, the user can generate a presentation which convinces the verifier that attributes stored in its credential (or credentials) satisfy predicates without revealing any additional information. While there are numerous security properties that ACs can achieve, the most fundamental ones are unforgeability and unlinkability. Here, the former ensures that an issuer indeed generated a credential that a user presents, and that colluding issuers and verifiers may not link a presentation to a specific issuance session.  Here, the latter should also ensure that multiple presentations cannot be traced to the same credential.
+Anonymous credentials (AC)~\cb{todo: add citations} are cryptographic protocols that allow parties to convey certified information about themselves in a privacy-preserving way. There are usually three roles in ACs, namely \emph{issuers}, \emph{holders} and \emph{verifiers}.  More concretely, an AC scheme allows a holder to prove to a verifier that it possesses certain attributes, which have been authenticated by the issuer. Here, the authenticated attributes are usually called a \emph{credential}, which is kept private by the user. Using a so-called \emph{showing} process, the user can generate a presentation which convinces the verifier that attributes stored in its credential (or credentials) satisfy predicates without revealing any additional information. While there are numerous security properties that ACs can achieve, the most fundamental ones are unforgeability and unlinkability. Here, the former ensures that an issuer indeed generated a credential that a user presents, and that colluding issuers and verifiers may not link a presentation to a specific issuance session.  Here, the latter should also ensure that multiple presentations cannot be traced to the same credential.
 
 Certain AC use-cases like rate limiting~\cite{yun-privacypass-crypto-arc-00,schlesinger-cfrg-act-00} require that the credential is only valid for a \emph{bounded} number of presentations in a given context (e.g. per epoch or per service) -- without revealing which presentations come from the same holder up to the enforced limit. 
 A key advantage of existing, pre-quantum ACs is their performance, e.g. with constant credential and presentation size, regardless of the enforced rate limit. However, the situation looks very different in the post-quantum setting. There, practically efficient AC schemes~\cite{CCS:BLNS23,CCS:AGJLRS24,EPRINT:PWFW23}, are yet mostly absent. This is highly unfortunate, given the uptake of (privacy-preserving) digital identification schemes in e.g. the EU Digital Identity Wallet, and simultaneous requirement for deployed schemes to eventually be quantum-secure: given current migration timelines, post-quantum ACs may become mandatory in the next 5 years or fewer. Recently, Google~\cite{google-pq} moved the timeline for post-quantum to 2029. 
@@ -20,7 +20,7 @@ Anonymous credentials are often built on top of a Blind Signature design. Here, 
 	\item Upon receiving $t$, the issuer signs it and thus  creates a signature $\sig$. It then sends $\sig$ to the user, who checks its verifiability with $\vk$.
 	\item To create the blind signature, the user creates a Non-Interactive Zero-Knowledge Proof of Knowledge (NIZK) showing that it knows $\sig,r$ such that $$\Verify_{\vk}(t,\sig)=1 \land t= \Commit(\mu;r)$$
 \end{enumerate}
-Combining existing post-quantum primitives generically, even with zero-knowledge friendly hash functions~\cite{EPRINT:PWFW23}, leads to non-competitive performance. Thus, existing works carefully choose commitment schemes, signatures and NIZKs such that the NIZK for the given relation has good proof size and prover/verifier time. However, the state-of-the-art is generally not considered efficient enough for practical deployments:
+Combining existing post-quantum primitives generically, even with zero-knowledge friendly hash functions~\cite{EPRINT:PWFW23}, leads to non-competitive performance. Thus, existing works \cb{todo: cite} carefully choose commitment schemes, signatures and NIZKs such that the NIZK for the given relation has good proof size and prover/verifier time. However, the state-of-the-art is generally not considered efficient enough for practical deployments:
 Constructing blind signatures from alternative post-quantum hash-and-sign
 cryptography~\cite{EPRINT:BFMRSV25a} and anonymous credentials from
 lattices~\cite{EPRINT:LCLLW23}, where recent work brings the credential size
@@ -31,6 +31,7 @@ Our construction builds on proof-friendly lattice signatures from vanishing SIS 
 lattices \cite{EPRINT:ENSTW23}. For succinct zero knowledge over small fields, we use the SmallWood framework
 for hash-based polynomial commitments and compiled PIOPs \cite{EPRINT:FenRiv25b}. 
 While SmallWood has been used for ZK-friendly post-quantum signatures in CAPSS~\cite{EPRINT:FenRiv25a}, we use a zk-friendly PRF with a significantly smaller modulus for tag derivation, which reduces the size of our communication significantly, and discuss Poseidon/Poseidon2-style instantiations \cite{USENIX:GKRRS21,AFRICACRYPT:GraKhoSch23}.
+\lena{I'd add more motivation and explanation here- why vSIS and rational hashing, what rational hashing is etc. here}
 
 
 
@@ -46,15 +47,22 @@ To design the Blind Signature, we follow the recent proposal of \cite{C:BLNS23,C
 
 \subsection{Technical overview}
 
-This work constructs ARC around a single protocol blueprint with message  \(\vecm=\vecmu\Vert \veck\), where \(\vecmu\) is a vector of
-attributes and \(\veck\) is a \emph{secret} PRF key.
+This work constructs ARC around a single protocol blueprint with full signed message
+\(\vecmu=\vecm\Vert \veck\), where \(\vecm\) is a vector of attributes and \(\veck\) is a \emph{secret} PRF key.
 
 \paragraph*{Issuance}
-Let $\mACom$ be a uniformly random and compressing matrix to be used for the Ajtai commitment. In the issuance protocol, the holder additionally samples  short $\vecr_0^\Holder,\vecr_1^\Holder,\vecr$  to compute the commitment $\vecc=\mACom [\vecmu \Vert \vecr]$ that is sent to the issuer. It, in response, samples short $\vecr_0^\Issuer,\vecr_1^\Issuer$ that are returned to the holder. The target $\vect$ is then computed as
-	$$ \vect :=hash(\vecmu,\veck,\centerfunc{\vecr_0^\Holder+\vecr_0^\Issuer},\centerfunc{\vecr_1^\Holder+\vecr_1^\Issuer})$$
-	where $\centerfunc$ derives a short value from the sum and $hash$ is a
-  so-called rational hash function as introduced in~\cite{C:BLNS23}. The holder
-  then sends $\vect$ to the issuer, together with a NIZK that it is well-formed according to $\vecc,\vecr_0^\Issuer,\vecr_1^\Issuer$ and that all involved values are short.
+Let $\mACom$ be a uniformly random and compressing matrix to be used for the Ajtai commitment. In the issuance
+protocol, the holder samples a short attribute vector \(\vecm\), a secret PRF key \(\veck\), forms the full message
+\(\vecmu=\vecm\Vert \veck\), and additionally samples short \(\vecr_0^\Holder,\vecr_1^\Holder,\vecr\) to compute the
+commitment \(\vecc=\mACom[\vecmu \Vert \vecr]\) that is sent to the issuer. The issuer, in response, samples short
+\(\vecr_0^\Issuer,\vecr_1^\Issuer\) that are returned to the holder. The target \(\vect\) is then computed as
+\[
+\vect := h_{\vecmu,\left(\centerfunc{\vecr_0^\Holder+\vecr_0^\Issuer},\centerfunc{\vecr_1^\Holder+\vecr_1^\Issuer}\right)}(B),
+\]
+where \(\centerfunc\) derives a short value from the sum and \(h\) is the rational hash function introduced
+in~\cite{C:BLNS23}. The holder then sends \(\vect\) to the issuer, together with a NIZK that it is well-formed
+according to \(\vecc,\vecr_0^\Issuer,\vecr_1^\Issuer\) and that all involved values are short.
+\lena{seems incorrect- to the holder?}
 
  The signature scheme is based on a hash-and sign signature. It precomputes preimages of a matrix $\mA$ using a trapdoor Gaussian preimage sampler over an
 	NTRU-like lattice (Antrag/hybrid sampling) to instantiate the issuer’s trapdoor signing step. The short preimage $\vecu$ can then be returned to the holder, who verifies that $\vect = \mA \vecu$.
@@ -81,7 +89,7 @@ Let $\mACom$ be a uniformly random and compressing matrix to be used for the Ajt
 		\draw[lifeline] (H) -- ++(0,-9.5);
 		
 		% --- Notes and messages ---
-		\node[note] at ($(H)+(0,-1.55)$) {Sample $\vecm=\vecmu\Vert \veck$\\ (with $\veck$ as PRF key)\\ Sample $\vecr_0^\Holder,\vecr_1^\Holder,\bar \vecr$};
+		\node[note] at ($(H)+(0,-1.55)$) {Sample $\vecm,\veck$ and set $\vecmu=\vecm\Vert \veck$\\ (with $\veck$ as PRF key)\\ Sample $\vecr_0^\Holder,\vecr_1^\Holder,\bar \vecr$};
 		
 		% Commitment (Holder -> Issuer)
 		\draw[msg] ($(H)+(0,-3.2)$) -- node[above,sloped]
@@ -96,14 +104,14 @@ Let $\mACom$ be a uniformly random and compressing matrix to be used for the Ajt
 		
 		% Pre-sign target + proof (Holder -> Issuer)
 		\draw[msg] ($(H)+(0,-6.8)$) -- node[above,sloped]
-		{$\vect=h_{(\vecmu\Vert \veck),(\vecr_0,\vecr_1)}(B),\;\pi_{\mathsf{pre}}$} ($(I)+(0,-6.8)$);
+		{$\vect=h_{\vecmu,(\vecr_0,\vecr_1)}(B),\;\pi_{\mathsf{pre}}$} ($(I)+(0,-6.8)$);
 		
 		\node[note] at ($(I)+(0,-7.8)$) {Trapdoor sample\\ $\vecu\gets \SampPre(\trapdoor,\vect)$\\ such that $\mA \vecu = \vect$};
 		
 		% Signature (Issuer -> Holder)
 		\draw[msg] ($(I)+(0,-8.8)$) -- node[above,sloped] {Signature $\vecu$} ($(H)+(0,-8.8)$);
 		
-		\node[note] at ($(H)+(0,-9.6)$) {Store credential\\ $(\vecmu,\veck,\vecr_0,\vecr_1,\vecu)$};
+		\node[note] at ($(H)+(0,-9.6)$) {Store credential\\ $(\vecm,\veck,\vecr_0,\vecr_1,\vecu)$};
 		
 	\end{tikzpicture}
     }
@@ -114,7 +122,12 @@ Let $\mACom$ be a uniformly random and compressing matrix to be used for the Ajt
 	
 	
 \paragraph{Blind Signatures and ARC Presentations.}
-Let $\vecr_0:=\centerfunc(\vecr_0^\Holder+\vecr_0^\Issuer),\vecr_1:=\centerfunc(\vecr_1^\Holder+\vecr_1^\Issuer)$. A presentation is a NIZK showing knowledge of $\vecm$, $\vecr_0,\vecr_1$, $\vect$,  such that  $\vect=hash(\vecm,\vecr_0,\vecr_1)$, as well as $\vecu$ such that $\vect =\mA \vecu$ where $\vecm,\vecr_0,\vecr_1,\vecu$ are short. Towards constructing ARC, we additionally compute $\prftag=\PRF(\veck;\nonce)$, append it to the NIZK and additionally prove in the NIZK that $\nonce$ is in the rate limiting interval and that $\prftag$ is well-formed.
+Let \(\vecr_0:=\centerfunc(\vecr_0^\Holder+\vecr_0^\Issuer)\) and
+\(\vecr_1:=\centerfunc(\vecr_1^\Holder+\vecr_1^\Issuer)\). A presentation is a NIZK showing knowledge of
+\(\vecm,\veck,\vecr_0,\vecr_1,\vect,\vecu\), where \(\vecmu=\vecm\Vert \veck\), such that
+\(\vect=h_{\vecmu,(\vecr_0,\vecr_1)}(B)\) and \(\vect=\mA\vecu\), with all hidden values short. Toward constructing ARC,
+we additionally compute \(\prftag=\PRF(\veck,\nonce)\), append it to the NIZK, and prove that \(\nonce\) is in the
+rate-limiting interval and that \(\prftag\) is well-formed.
 	
 
 The verifier checks the NIZK proof and enforces the rate policy by maintaining server-side state keyed by
@@ -139,7 +152,7 @@ The verifier checks the NIZK proof and enforces the rate policy by maintaining s
 		\draw[lifeline] (V) -- ++(0,-7.9);
 		
 		% --- Notes and messages ---
-		\node[note] at ($(H)+(0,-2.5)$) {Choose unused $\nonce$\\ Compute $\prftag\leftarrow \PRF(\veck,\nonce)$ \\ Compute $\pi_{\mathsf{post}}$ proves:\\ $\exists(\vecu,\vecmu,\veck,\vecr_0,\vecr_1)$ s.t.\\ $\mA \vecu=h_{(\vecmu\Vert \veck),(\vecr_0,\vecr_1)}(B)$\\ and $\prftag=\PRF(\veck,\nonce)$
+		\node[note] at ($(H)+(0,-2.5)$) {Choose unused $\nonce$\\ Compute $\prftag\leftarrow \PRF(\veck,\nonce)$ \\ Compute $\pi_{\mathsf{post}}$ proves:\\ $\exists(\vecu,\vecm,\veck,\vecr_0,\vecr_1)$ s.t.\\ $\vecmu=\vecm\Vert \veck$ and $\mA \vecu=h_{\vecmu,(\vecr_0,\vecr_1)}(B)$\\ and $\prftag=\PRF(\veck,\nonce)$
 		};
 		
 		% Presentation (Holder -> Verifier)
@@ -163,6 +176,7 @@ The verifier checks the NIZK proof and enforces the rate policy by maintaining s
 \end{figure}
 
 Figure~\ref{fig:showing-flow} summarizes how tags enable stateful rate limiting without revealing the credential.
+\lena{I'm missing that the holder has some state in Figure 2}
 
 
 

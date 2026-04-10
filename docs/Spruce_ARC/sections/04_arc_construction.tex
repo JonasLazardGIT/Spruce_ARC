@@ -1,4 +1,4 @@
-\section{ARC Construction from Blind Signatures}
+\section{From Blind Signatures to ARC}
 \label{sec:arc-construction}
 
 This section turns the blind signature of Section~\ref{sec:blind-signature} into an anonymous rate-limited credential
@@ -9,8 +9,8 @@ The issuance proof is the \emph{pre-sign NIZK}; the showing proof is the \emph{p
 \subsection{From blind signatures to ARC}
 A credential issued to a holder conceptually consists of:
 \begin{itemize}[leftmargin=1.25em]
-  \item the signed message \(m=\mu\Vert \veck\), where \(\mu\) are attributes and \(\veck\) is a uniformly sampled secret PRF key;
-  \item the signature \(u\) satisfying \(A u = h_{m,(r_0,r_1)}(B)\) for some bounded randomness \((r_0,r_1)\).
+  \item the signed message \(\vecmu=\vecm\Vert \veck\), where \(\vecm\) are attributes and \(\veck\) is a uniformly sampled secret PRF key;
+  \item the signature \(u\) satisfying \(A u = h_{\vecmu,(r_0,r_1)}(B)\) for some bounded randomness \((r_0,r_1)\).
 \end{itemize}
 The holder may additionally store local auxiliary values needed to prove the signature relation in zero knowledge. These
 values are never revealed in showings.
@@ -18,9 +18,9 @@ values are never revealed in showings.
 \paragraph{Message structure.}
 Every credential message has the abstract form
 \[
-  m = \mu \Vert \veck.
+  \vecmu = \vecm \Vert \veck.
 \]
-Here \(\mu\) encodes the holder attributes and \(\veck\) is sampled uniformly and serves as the secret PRF key used for
+Here \(\vecm\) encodes the holder attributes and \(\veck\) is sampled uniformly and serves as the secret PRF key used for
 rate limiting. At the proof-system layer this abstract message is represented by packed witness rows \((M,K)\), but the
 credential syntax itself remains the quotient-ring statement of Section~\ref{sec:blind-signature}.
 
@@ -66,28 +66,74 @@ selected S-box outputs and let the verifier replay all linear wiring between che
 constants. Section~\ref{subsec:prf-checkpointed} states the constraint families; Appendix~\ref{app:prf} records the
 checkpoint schedule and extended notes.
 
+\begin{comment}
+Preserved from Carsten's 10-04 source: this entire PRF-instantiation subsection was wrapped in a comment environment at
+that revision boundary. The active paper keeps the subsection live because the later rewrite uses it to anchor the
+SmallWood PRF constraint discussion.
+\end{comment}
+
 \subsection{Showing protocol}
 \label{subsec:showing-protocol}
+\label{subsec:arc-protocol}
 
 \begin{algorithm}[H]
 \caption{\(\Show\): ARC presentation (canonical protocol)}
 \label{alg:showing}
 \begin{algorithmic}[1]
-\Require Holder has credential \((\mu,\veck,r_0,r_1,u)\). Public parameters include \(A,B,\BoundMsg\) and the PRF description.
+\Require Holder has credential \((\vecm,\veck,r_0,r_1,u)\). Public parameters include \(A,B,\BoundMsg\) and the PRF description.
 \Require Input nonce \(\nonce\in\mathcal{D}\) that has not been used before for this credential.
 \Ensure Presentation \((\prftag,\nonce,\pi_{\mathsf{post}})\).
 \State Compute \(\prftag\gets \PRF(\veck,\nonce)\).
-\State Produce a post-sign NIZK \(\pi_{\mathsf{post}}\) for the compiled showing relation specified in Section~\ref{sec:smallwood-model}, with public inputs \((\prftag,\nonce)\) and witness derived from the credential \((\mu,\veck,r_0,r_1,u)\).
+\State Produce a \emph{post-sign} NIZK \(\pi_{\mathsf{post}}\) proving knowledge of \((u,\vecm,\veck,r_0,r_1)\) such that:
+\begin{enumerate}[leftmargin=1.6em]
+  \item \(A u = h_{\vecmu,(r_0,r_1)}(B)\) for \(\vecmu=\vecm\Vert \veck\);
+  \item \(\prftag = \PRF(\veck,\nonce)\);
+  \item \(\vecm,\veck,r_0,r_1\) are coefficient-wise in \([-\BoundMsg,\BoundMsg]\) and \(u\) satisfies the public shortness bound.
+\end{enumerate}
 \State Output \((\prftag,\nonce,\pi_{\mathsf{post}})\).
 \end{algorithmic}
 \end{algorithm}
+\cb{FIX THIS}
 
-At the ARC level, the intended abstract witness remains \((u,\mu,\veck,r_0,r_1)\) satisfying the signature equation and
-the PRF-tag equation. Section~\ref{sec:smallwood-model} specifies the compiled SmallWood relation used to realize that
-goal at the proof-system layer and proves its coefficient-domain consequence.
+At the ARC level, the intended abstract witness remains 
+\((u,\vecm,\veck,r_0,r_1)\), together with
+\(\vecmu=\vecm\Vert \veck\), satisfying the signature equation and
+ the PRF-tag equation. Section~\ref{sec:smallwood-model} later specifies the compiled SmallWood relation used to realize
+that abstract witness statement. The coefficient-domain statement used in the security discussion below is recovered only
+through the theorem suite of Section~\ref{subsec:statement-strength}; we do not use any stronger identification between
+the compiled replay-space statement and the abstract showing relation.
 
 The verifier runs \(\Verify\) by checking \(\pi_{\mathsf{post}}\) and consulting a policy state that tracks used
 nonces and tags. The verifier rejects if the proof fails or if the nonce-tag pair violates the local policy.
+\cb{No message $\mu$ here}
+
+\begin{comment}
+\subsubsection{ARC protocol}
+\label{subsec:arc-protocol}
+We assume the same setup as in Section \ref{subsec:bs-protocol}. Moreover, define the relations
+\[
+\relIssueARC,\qquad \relShow.
+\]
+In the 10-04 source, \(\relIssueARC\) explicitly committed \((\vecmu,\veck,\vecr_0^{\Holder},\vecr_1^{\Holder},\bar r)\)
+and required
+\[
+\vect = h_{\vecmu \Vert \veck,(\vecr_0,\vecr_1)}(B),
+\]
+while \(\relShow\) explicitly bound
+\[
+\prftag = \PRF(\veck,\nonce),\qquad
+\mA \vecu = h_{\vecmu\Vert \veck ,(\vecr_0,\vecr_1)}(B).
+\]
+\cb{FIX THIS}
+That version then presented explicit \(\Issue\), \(\Show\), and \(\Verify\) routines in terms of
+\(\relIssueARC,\relShow\), prior to the later theorem-clean rewrite that compiles showing through the Section~5
+SmallWood relation instead.
+
+\subsection{Showing protocol}
+The 10-04 source also stated an older abstract showing algorithm in which \(\pi_{\mathsf{post}}\) directly proved
+knowledge of \((u,\mu,\veck,r_0,r_1)\) satisfying the signature/hash relation, the PRF-tag relation, and the public
+bounds, rather than referring forward to the compiled Section~5 relation.
+\end{comment}
 
 \subsection{PRF role and rationale}
 The PRF serves two simultaneous roles:
@@ -105,7 +151,8 @@ pair \((\nonce,\prftag)\).
 \subsection{ARC correctness and conditional security decomposition}
 
 \paragraph{Honest correctness.}
-If issuance completes, the holder stores a witness \((u,\mu,\veck,r_0,r_1)\) satisfying the abstract signature relation
+If issuance completes, the holder stores a witness \((u,\vecm,\veck,r_0,r_1)\), together with
+\(\vecmu=\vecm\Vert \veck\), satisfying the abstract signature relation
 of Section~\ref{sec:blind-signature}. For any public nonce \(\nonce\), the holder computes
 \(\prftag = \PRF(\veck,\nonce)\) and derives the corresponding witness for the compiled post-sign relation of
 Section~\ref{sec:smallwood-model}. By completeness of the post-sign NIZK, the verifier accepts any honest presentation
@@ -125,17 +172,21 @@ the chosen PRF instantiation, the second remains a reduction goal, and the fifth
 rule rather than a stand-alone cryptographic theorem.
 
 \paragraph{Conditional policy soundness.}
-Knowledge soundness of the post-sign proof yields a witness for the compiled showing relation of Section~\ref{sec:smallwood-model}. By Corollary~\ref{cor:showing-proof-consequence}, every accepting post-sign proof yields
+Knowledge soundness of the post-sign proof yields a witness for the compiled showing relation of
+Section~\ref{sec:smallwood-model}. Section~\ref{subsec:statement-strength} is the sole bridge from that compiled
+replay-space statement to the coefficient-domain statement used here. In particular,
+Corollary~\ref{cor:showing-proof-consequence} yields a witness \((u,T,M,K,R_0,R_1,Z)\) satisfying
 \[
-B_3Au-(Au)R_1-B_0-B_1(M+K)-B_2R_0 = 0
+B_3Au-(Au)R_1-B_0-B_1(M+K)-B_2R_0=0
 \]
-in \(R_q\). If the extracted witness additionally satisfies denominator admissibility, then
-Corollary~\ref{cor:showing-to-abstract} yields the abstract signature relation
+in \(R_q\), together with
 \[
+(B_3-R_1)\Had Z = 1,
+\qquad
 Au = h_{M+K,(R_0,R_1)}(B).
 \]
 Under that signature-side condition, together with one-more unforgeability of the blind issuance layer and correctness
-of the PRF, the signed key \(k\) determines the public tag uniquely for each nonce. Consequently, a verifier that
+of the PRF, the signed key \(\veck\) determines the public tag uniquely for each nonce. Consequently, a verifier that
 records spent \((\nonce,\prftag)\) pairs rejects same-nonce replays deterministically.
 
 \paragraph{Conditional presentation unlinkability.}
@@ -147,6 +198,27 @@ showing, and PRF pseudorandomness makes the public tags computationally random a
 the intended unlinkability claim for showing transcripts, subject to the explicit nonce-reuse caveat.
 
 \paragraph{Attribute privacy and selective disclosure.}
-The message part \(\mu\) can encode attributes; the post-sign NIZK can be extended to prove predicates about \(\mu\) and
+The message part \(\vecm\) can encode attributes; the post-sign NIZK can be extended to prove predicates about \(\vecm\) and
 to selectively reveal components, without changing the issuance protocol. We focus on the core rate-limiting
 construction and defer predicate engineering to the SmallWood programming model in Section~\ref{sec:smallwood-model}.
+
+\begin{comment}
+\subsection{ARC security sketch}
+\paragraph{Correctness.}
+If issuance completes and the holder uses a fresh nonce, then the post-sign statement is satisfiable by construction.
+
+\paragraph{Unforgeability and policy soundness.}
+By knowledge soundness, any accepting presentation yields a witness satisfying both the signature/hash relation and the
+PRF-tag relation. Under one-more unforgeability of the blind signature, an adversary cannot produce accepting showings
+for credentials it did not obtain via issuance. Policy soundness is enforced by verifier state because
+\(\prftag=\PRF(\veck,\nonce)\) is uniquely determined by \((\veck,\nonce)\).
+
+\paragraph{Unlinkability.}
+Presentation unlinkability is formalized in Definition~\ref{def:pres-unlink}. For distinct fresh nonces, PRF security
+and zero knowledge hide the credential secret, except for the intended nonce-reuse caveat.
+
+\paragraph{Constraint view (what the post-sign NIZK must prove).}
+To prove \(\mathsf{tag}=\PRF(k,\mathsf{nonce})\) inside SmallWood, where \(k\) is the signed secret part of the
+message, we arithmetize the S-box constraints, the public linear layers, and the feed-forward plus truncation
+constraints binding the public tag to the final state.
+\end{comment}
