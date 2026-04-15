@@ -13,7 +13,7 @@ credential path that is still wired end to end:
 
 - NTRU key generation, signing, and verification
 - blind issuance / pre-sign proving
-- showing with the retained `v3` and split-PRF `v4` layouts
+- showing with the retained coeff-native `v3` layout and PRF companion route
 - the SmallWood-style proof stack used by those flows
 
 The protocol framing in this repo follows the current paper source.
@@ -25,10 +25,12 @@ Start here, then read:
 
 1. [docs/protocol.md](docs/protocol.md) for the current protocol and proof
    model
-2. [docs/modulus_choice.md](docs/modulus_choice.md) for the modulus and packing
+2. [docs/nizk_alignment_notes.md](docs/nizk_alignment_notes.md) for the
+   detailed paper-vs-code reconciliation
+3. [docs/modulus_choice.md](docs/modulus_choice.md) for the modulus and packing
    rationale
-3. [Commands.md](Commands.md) for operator-facing command usage
-4. package READMEs for subsystem context:
+4. [Commands.md](Commands.md) for operator-facing command usage
+5. package READMEs for subsystem context:
    [PIOP](PIOP/README.md),
    [ntru](ntru/README.md),
    [prf](prf/README.md),
@@ -48,7 +50,6 @@ go run ./cmd/ntrucli sign -m test
 go run ./cmd/ntrucli verify
 go run ./cmd/issuance
 go run ./cmd/showing
-go run ./cmd/showing -coeff-model literal_packed_aggregated_v4_split_prf
 ```
 
 Typical order:
@@ -59,22 +60,18 @@ Typical order:
 
 ## Retained Showing Surface
 
-Only two showing layouts remain:
+Only one showing layout remains on the retained proving path:
 
 - `literal_packed_aggregated_v3`
-- `literal_packed_aggregated_v4_split_prf`
-
-`v3` is the default shipped layout.
 
 Current showing defaults from code:
 
 - shared parameters:
-  `NCols=16`, `Theta=6`, `Ell=18`, `Eta=31`, `EllPrime=2`, `Rho=2`
-- one-root `v3`:
-  `LVCSNCols=24`, `NLeaves=2048`
-- split `v4`:
-  post-sign `LVCSNCols=32`, `NLeaves=1536`
-  and PRF `LVCSNCols=28`, `NLeaves=2048`
+  `NCols=16`, `Ell=18`, `PRFGroupRounds=2`, explicit domain, replay `reduced`
+- default preset `soundness_balanced` resolves to:
+  `Theta=3`, `Eta=43`, `EllPrime=2`, `Rho=2`, `LVCSNCols=96`,
+  `NLeaves=4096`, `Kappa={0,0,0,5}`
+- PRF companion mode defaults to `output_audit`
 
 ## Runtime Assets
 

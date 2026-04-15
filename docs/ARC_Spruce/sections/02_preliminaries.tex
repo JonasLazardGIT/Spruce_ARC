@@ -82,12 +82,12 @@ We use the standard bounded linear commitment over \(\Rq\), matching the compact
   and \(\vectorify{c}=\mACom\cdot[\vectorify{m}\Vert \vectorify{r}]^\top\).
 \end{itemize}
 
-\begin{definition}[Module-SIS and module-ISIS over \(R_q\)]\label{def:sis-isis}
+\begin{definition}[Module-SIS and Module-ISIS over \(R_q\)]\label{def:sis-isis}
 Fix integers \(n,m\ge 1\), modulus \(q\ge 2\), and bound \(\beta>0\).
 \begin{itemize}[leftmargin=1.25em]
-  \item \textbf{\(\mathsf{MSIS}_\infty(n,m,q,\beta)\).} Given \(\mA\in R_q^{n\times m}\), find a non-zero
+  \item \textbf{\(\mathsf{M-SIS}_\infty(n,m,q,\beta)\).} Given \(\mA\in R_q^{n\times m}\), find a non-zero
   \(\vectorify{s}\in R^m\) such that \(\mA\vectorify{s}\equiv 0 \pmod q\) and \(\|\vectorify{s}\|_\infty\le \beta\).
-  \item \textbf{\(\mathsf{MISIS}_\infty(n,m,q,\beta)\).} Given \((\mA,\vect)\in R_q^{n\times m}\times R_q^n\), find
+  \item \textbf{\(\mathsf{M-ISIS}_\infty(n,m,q,\beta)\).} Given \((\mA,\vect)\in R_q^{n\times m}\times R_q^n\), find
   \(\vectorify{s}\in R^m\) such that \(\mA\vectorify{s}\equiv \vect \pmod q\) and
   \(\|\vectorify{s}\|_\infty\le \beta\).
 \end{itemize}
@@ -127,52 +127,53 @@ is \(N\ell_r \log_2(2B_r+1)\). The commitment output lies in \(\Rq^{\ell_{\ComSc
 \end{proof}
 \cb{better: just state what the condition is exactly here.}
 
-\subsection{Lattices, trapdoors, vSIS, and rational hashing}
+\subsection{Lattice trapdoors and rational hashing}
 \label{subsec:prelim-vsis}
-We recall only the definitions needed to state our construction; implementation details of the trapdoor sampler are
-deferred to Appendix~\ref{app:gaussian-sampler}.
+We recall only the definitions needed to state our construction, where we follow the definitions \cite{EPRINT:DKLW25}. We defer additional definitions such as the $\mathsf{vSIS}$- and $\mathsf{GenISIS}_f$-assumptions to Appendix \ref{app:assumptions lattices}. 
 
 \begin{definition}[Lattice trapdoor suite]\label{def:trapdoor-suite}
 A lattice trapdoor suite over \(\Rq\) consists of PPT algorithms
-\[
-  (\TrapGen,\SampPre)
-\]
-and admissible public parameters \((n,m,q,\BoundSig)\) as in \cite[Definition~1]{EPRINT:DKLW25} such that:
+$  (\TrapGen,\SampPre)
+$
+and admissible public parameters \((n,m,q,\BoundSig)\)  such that:
 \begin{itemize}[leftmargin=1.25em]
   \item \((\mA,\trapdoor)\gets \TrapGen(\SecParam)\) outputs a public matrix \(\mA\in\Rq^{n\times m}\) and a trapdoor
   \(\trapdoor\), where the distribution of \(\mA\) is statistically close to uniform over \(\Rq^{n\times m}\).
   \item On input \((\trapdoor,\vect)\) with \(\vect\in\Rq^n\), the algorithm \(\SampPre(\trapdoor,\vect)\) outputs
   \(\vecu\in R^m\) such that \(\mA\vecu=\vect\) in \(\Rq^n\), except with negligible failure probability, and
-  \(\|\vecu\|_\infty\le \BoundSig\) except with negligible probability
-  \cite{STOC:GenPeiVai08,EPRINT:DKLW25}.
+  \(\|\vecu\|_\infty\le \BoundSig\) except with negligible probability.
 \end{itemize}
 \end{definition}
+We defer details of the sampler that we use in this work to Appendix~\ref{app:gaussian-sampler}.
 
 \begin{definition}[Trapdoor rational hash]\label{def:bbs-rational-hash}
 A trapdoor rational hash scheme over \(\Rq\) is a tuple
 \[
-  \TDRH=(\Setup,\TrapGen,\mathsf{Eval},\SampPre)
+  \TDRH=(\Setup,\TrapGen,\Eval,\SampPre)
 \]
-consisting of the lattice trapdoor suite above together with a public evaluation algorithm. On input \(\SecParam\),
+consisting of the lattice trapdoor suite above together with a setup and public evaluation algorithm. On input \(\SecParam\),
 \(\Setup\) outputs a public hash description \(B\), a message space \(\mathcal{M}\), a randomness space \(\mathcal{X}\), an
 admissibility error bound \(\delta\), and public bounds \((\BoundMsg,\BoundSig)\). For fixed \(B\), the algorithm
-\(\mathsf{Eval}(B,m,\chi)\) takes a message \(m\in\mathcal{M}\) and witness randomness \(\chi\in\mathcal{X}\) and outputs a
+\(\Eval(B,m,\chi)\) takes a message \(m\in\mathcal{M}\) and witness randomness \(\chi\in\mathcal{X}\) and outputs a
 target \(\vect\in\Rq^n\) or \(\bot\) if the input is inadmissible.
-
-For a public key \(B\), define the admissible message subspace
+ For a public key \(B\), define the admissible message subspace
 \[
   \mathcal{M}_B:=\left\{m\in\mathcal{M} :
-  \Pr_{\chi\gets \mathcal{X}}\big[\mathsf{Eval}(B,m,\chi)=\bot\big]\le \delta\right\},
+  \Pr_{\chi\gets \mathcal{X}}\big[\Eval(B,m,\chi)=\bot\big]\le \delta\right\}\text{.}
 \]
-following the \(\Sigma_{\mathsf{vSIS}}\) template of \cite[Section~4.1]{EPRINT:DKLW25}. Correctness requires that for
-every \(m\in\mathcal{M}_B\) and every \(\chi\in\mathcal{X}\) with \(\mathsf{Eval}(B,m,\chi)=\vect\neq\bot\), the output
+Correctness requires that for
+every \(m\in\mathcal{M}_B\) and every \(\chi\in\mathcal{X}\) with \(\Eval(B,m,\chi)=\vect\neq\bot\), the output
 \(\vecu\gets \SampPre(\trapdoor,\vect)\) satisfies \(\mA\vecu=\vect\) and \(\|\vecu\|_\infty\le \BoundSig\), except with
 negligible probability.
 \end{definition}
 \cb{Could the Message space be input? Also, generic descriptions of this algorithm likely don't have to define $\BoundMsg$.}
 
-\begin{definition}[ARC rational hash, admissibility, and cleared form]\label{def:rational-hash}
-Our concrete instantiation uses a public key \(B=(B_0,B_1,B_2,B_3)\in\Rq^4\), message \(m\in\Rq\), and witness
+\cb{NEED: does $\vect$ hide anything about $m$?}
+
+In this work, we use the BBS-type rational hash defined in \cite[Table~1]{EPRINT:DKLW25}.
+
+\begin{definition}[Rational hash, admissibility, and cleared form]\label{def:rational-hash}
+Our concrete instantiation uses a public key \(B=(B_0,B_1,B_2,B_3)\in\Rq^4\), message \(m\in\Rq\), and 
 randomness \((r_0,r_1)\in\Rq^2\) with coefficient bounds
 \(\|m\|_\infty,\|r_0\|_\infty,\|r_1\|_\infty\le \BoundMsg\). Write
 \[
@@ -189,7 +190,7 @@ h_{m,(r_0,r_1)}(B):=\operatorname{num}(B,m,r_0)\Hdiv \operatorname{den}(B,r_1).
 \]
 \cb{what is $\Hdiv$ notation?}
 
-For an arbitrary target \(T\in\Rq\), we also define the cleared-denominator relation
+For \(T\in\Rq\), we also define the cleared-denominator relation
 \begin{equation}\label{eq:hash-cleared}
   (B_3-r_1)\Had T-\bigl(B_0+B_1m+B_2r_0\bigr)=0.
 \end{equation}
@@ -200,13 +201,11 @@ relation.
 
 \begin{lemma}[Cleared form under admissibility]\label{lem:hash-cleared-admissible}
 Let
-\[
-\Rq \cong \prod_{i=1}^s F_i
-\]
+$\Rq \cong \prod_{i=1}^s F_i$
 be the CRT decomposition of \(\Rq\) into field factors, and write
 \[
-\operatorname{num}(B,m,r_0)=(n_1,\ldots,n_s),\qquad
-\operatorname{den}(B,r_1)=(d_1,\ldots,d_s),\qquad
+\operatorname{num}(B,m,r_0)=(n_1,\ldots,n_s),\,
+\operatorname{den}(B,r_1)=(d_1,\ldots,d_s),\,
 T=(t_1,\ldots,t_s).
 \]
 If \((B,m,r_0,r_1)\) is admissible, that is, \(d_i\neq 0\) for every \(i\), then
@@ -215,7 +214,7 @@ T=h_{m,(r_0,r_1)}(B)
 \iff
 (B_3-r_1)\Had T-\bigl(B_0+B_1m+B_2r_0\bigr)=0.
 \]
-Without admissibility, the implication from right to left may fail.
+%Without admissibility, the implication from right to left may fail.
 \end{lemma}
 
 \begin{proof}
@@ -230,61 +229,55 @@ t_i=n_i/d_i
 \iff
 d_it_i-n_i=0.
 \]
-Collecting the coordinates yields the equivalence with the cleared identity. If admissibility fails, then \(d_i=0\) in
+Collecting the coordinates yields the equivalence. If admissibility fails, then \(d_i=0\) in
 at least one slot. In that slot the cleared equation reduces to \(0\cdot t_i-n_i=0\), hence to \(n_i=0\), and imposes
 no condition on \(t_i\). The quotient remains undefined there, so the cleared relation is no longer sufficient.
 \end{proof}
-\cb{is this true? what if all terms are simply zero in one of the subfields?}
+%\cb{is this true? what if all terms are simply zero in one of the subfields?}
 
-\begin{remark}[Why the admissibility side condition is necessary]\label{rem:hash-cleared-not-sufficient}
-The cleared identity is therefore a necessary condition for the defined quotient relation, but it is not a sufficient
-condition in general. A concrete counterexample is obtained by choosing a CRT slot \(i\) for which \(d_i=0\),
-\(n_i=0\), and \(t_i\) arbitrary. Then the cleared identity holds in slot \(i\), but the quotient \(n_i/d_i\) is
-undefined. All later uses of the rational hash therefore state explicitly whether they refer to the abstract defined
-quotient relation or to the weaker cleared relation.
-\end{remark}
-\cb{why is this sometimes $r_i$ and $R_i$?}
+All later uses of the rational hash state explicitly whether they refer to the quotient relation or to the weaker cleared relation.
 
-\begin{remark}[Relation to the DKLW25 BBS candidate]\label{rem:hash-notation-match}
-Our ARC family is exactly the BBS-type rational hash studied in \cite[Table~1]{EPRINT:DKLW25}, specialized by
-\[
-\begin{aligned}
-  \tilde b_0&=(B_0,B_1,B_2),\qquad \tilde b_1=B_3,\\
-  u&=m,\qquad x_0=r_0,\qquad x_1=r_1.
-\end{aligned}
-\]
-Equivalently,
-\[
-  h_{m,(r_0,r_1)}(B)
-  =\frac{B_0+B_1m+B_2r_0}{B_3-r_1}.
-\]
-The undefined case \(h_{m,(r_0,r_1)}(B)=\bot\) is exactly the inadmissibility event that \(B_3-r_1\) is not invertible
-slotwise, and is absorbed by the admissibility parameter \(\delta\). In issuance, \((r_0,r_1)\) is obtained from the
-holder and issuer contributions via the centering map of Appendix~\ref{app:defs}; by
-Lemma~\ref{lem:center-uniform}, this is compatible with the bounded randomness space used in the DKLW security
-experiments.
-\end{remark}
+%\begin{remark}[Why the admissibility side condition is necessary]%\label{rem:hash-cleared-not-sufficient}
+%The cleared identity is therefore a necessary condition for the defined quotient relation, but it is not a sufficient
+%condition in general. A concrete counterexample is obtained by choosing a CRT slot \(i\) for which \(d_i=0\),
+%\(n_i=0\), and \(t_i\) arbitrary. Then the cleared identity holds in slot \(i\), but the quotient \(n_i/d_i\) is
+%undefined. All later uses of the rational hash therefore state explicitly whether they refer to the abstract defined
+%quotient relation or to the weaker cleared relation.
+%\end{remark}
+%\cb{why is this sometimes $r_i$ and $R_i$?}
 
-\begin{definition}[vSIS-style hash-and-preimage signature template]\label{def:vsis-template}
-Fix a trapdoor rational hash scheme \(\TDRH\) with public output
-\((B,\mathcal{M},\mathcal{X},\delta,\BoundMsg,\BoundSig)\). The associated signature scheme
-\(\vsisscheme=(\KeyGen,\Sign,\SigVerify)\) is the \(\Sigma_{\mathsf{vSIS}}\) template of
-\cite[Figure~4 and Section~4.1]{EPRINT:DKLW25}, specialized to the public function description \(B\) and the
-evaluation map \(\mathsf{Eval}\):
+Note that the undefined case \(h_{m,(r_0,r_1)}(B)=\bot\) is exactly the inadmissibility event that \(B_3-r_1\) is not invertible
+in $R_q$, and is modeled by the admissibility parameter \(\delta\). We will later choose  \((r_0,r_1)\) such that they are uniformly random within the bounded randomness space. 
+
+We now  define a signature scheme for a Trapdoor Rational Hash.
+%\cite[Figure~4 and Section~4.1]{EPRINT:DKLW25} in 
+
+\begin{definition}[vSIS-style hash-and-sign]\label{def:vsis-template}
+Let \(\TDRH\) be a trapdoor rational hash scheme  with parameters
+\((B,\mathcal{M},\mathcal{X},\delta,\allowbreak\BoundMsg,\allowbreak\BoundSig)\). The associated signature scheme
+\(\vsisscheme=(\KeyGen,\Sign,\SigVerify)\) is defined by
 \begin{itemize}[leftmargin=1.25em]
   \item \(\KeyGen(\SecParam)\) runs \((\mA,\trapdoor)\gets \TrapGen(\SecParam)\) and outputs
   \(\vk=\mA\), \(\sk=\trapdoor\).
   \item \(\Sign(\sk,m)\) for \(m\in\mathcal{M}_B\) samples \(\chi\gets\mathcal{X}\) until
-  \(\vect=\mathsf{Eval}(B,m,\chi)\neq\bot\), computes \(\vecu\gets \SampPre(\trapdoor,\vect)\), and outputs
+  \(\vect=\Eval(B,m,\chi)\neq\bot\), computes \(\vecu\gets \SampPre(\trapdoor,\vect)\), and outputs
   \(\sigma=(\vecu,\chi)\).
   \item \(\SigVerify(\vk,m,\sigma)\) for \(\sigma=(\vecu,\chi)\) accepts iff \(m\in\mathcal{M}_B\),
-  \(\chi\in\mathcal{X}\), \(\mathsf{Eval}(B,m,\chi)\neq\bot\), \(\|\vecu\|_\infty\le \BoundSig\), and
+  \(\chi\in\mathcal{X}\), \(\Eval(B,m,\chi)\neq\bot\), \(\|\vecu\|_\infty\le \BoundSig\), and
   \[
-    \mA\vecu=\mathsf{Eval}(B,m,\chi).
+    \mA\vecu=\Eval(B,m,\chi).
   \]
 \end{itemize}
 \end{definition}
 
+Correctness requires that all admissible parameters, correctly generated $(\vk,\sk)$ and \(m\in\mathcal{M}_B\), the signatures generated using $\Sign$ are accepted by $\SigVerify$ except with
+negligible probability.
+\paragraph{Security of vSIS-style signatures.}
+
+
+
+
+\begin{comment}
 \begin{definition}[Hinted-vSIS and \(\mathsf{GenISIS}_f\) variants from DKLW25]\label{def:dklw-assumptions}
 We recall the DKLW25 assumption variants used in the reduction discussion below.
 Fix a public left factor \(F\), hint space \(H\), target space \(G\), predicate \(P\), and query bound \(Q\), all as in
@@ -315,65 +308,67 @@ Now fix a keyed evaluation family \(f:K\times M\times X\to R_q^n\) as in \cite[D
   back to \(\mathsf{GenISIS}_f\) under enlarged parameters.
 \end{itemize}
 \end{definition}
+\end{comment}
+%We use the signature-security experiments of \cite[Definition~4 and Figure~3]{EPRINT:DKLW25} specialized to  Definition~\ref{def:vsis-template} and 
 
-\begin{definition}[Non-blind signature experiments for \(\Sigma_{\mathrm{vSIS}}\)]\label{def:vsis-games}
-We use the signature-security experiments of \cite[Definition~4 and Figure~3]{EPRINT:DKLW25} specialized to the
-template of Definition~\ref{def:vsis-template}. The load-bearing experiment for the present paper is strong
-existential unforgeability under random-message attack.
-
+We now define security as strong
+existential unforgeability under random-message attacks.
+\begin{definition}[Unforgeability for vSIS-style signatures]\label{def:vsis-games}
+Let \(\TDRH\) be a trapdoor rational hash scheme  with parameters
+\((B,\mathcal{M},\mathcal{X},\delta,\allowbreak\BoundMsg,\allowbreak\BoundSig)\) and
+\(\vsisscheme=(\KeyGen,\Sign,\SigVerify)\) be the associated signature scheme.
 Fix \(Q\in\poly(\lambda)\). In the experiment
-\(\mathsf{Exp}_{\mathrm{sEUF\mbox{-}RMA}}^{\Sigma_{\mathrm{vSIS}},\mathcal A,Q}(\lambda)\), the challenger samples the
-public parameters and a key pair, then draws \(m_1,\ldots,m_Q\) independently and uniformly from the admissible message
-space \(\mathcal{M}_B\). For each \(i\in[Q]\) it returns a signature \(\sigma_i\leftarrow \Sign(sk,m_i)\). Finally
-\(\mathcal A\) outputs a pair \((m^\star,\sigma^\star)\) and wins iff:
+\(\mathsf{Exp}_{\mathrm{sEUF\mbox{-}RMA}}^{\Sigma_{\mathrm{vSIS}},\adversary,Q}(\lambda)\), the challenger runs $(\vk,\sk)\gets \KeyGen$, then uniformly samples \(m_1,\ldots,m_Q \gets \mathcal{M}_B\) and computes \(\sigma_i\leftarrow \Sign(sk,m_i)\) for each $i\in [Q]$. Finally
+\(\adversary\) on input $\vk,(m_i,\sigma_i)_{i\in [Q]}$ and the trapdoor rational hash parameters outputs a pair \((m^\star,\sigma^\star)\) and wins iff:
 \begin{enumerate}[leftmargin=1.25em]
     \item \(\SigVerify(vk,m^\star,\sigma^\star)=1\), and
     \item \((m^\star,\sigma^\star)\notin \{(m_i,\sigma_i):1\le i\le Q\}\).
 \end{enumerate}
-The experiments \(\mathrm{sEUF\mbox{-}CMA}\), \(\mathrm{sEUF\mbox{-}SMA}\), and \(\mathrm{sSUF\mbox{-}SMA}\) are exactly
-those of \cite[Figure~3]{EPRINT:DKLW25}.
-\end{definition}
 
-\begin{lemma}[Theorem-backed status of the non-blind rational-hash signature layer]\label{lem:vsis-unforgeability}
-Let \(\ell_{\mathrm{hash}}=4\) for the present ARC instantiation and set
-\[
-k_{\mathrm{DKLW}}:=m+\ell_{\mathrm{hash}}.
-\]
+%those of \cite[Figure~3]{EPRINT:DKLW25}.
+\end{definition}
+We can equivalently define \(\mathrm{sEUF\mbox{-}CMA}\), \(\mathrm{sEUF\mbox{-}SMA}\), and \(\mathrm{sSUF\mbox{-}SMA}\) security where $\mathrm{CMA}$-security allows the adversary to choose all $m_i$ itself after seeing $\vk$, while $\mathrm{SMA}$-security requires the adversary to pick all $m_i$ as well as $m^*$ \emph{before} seeing $\vk$.
+
+\cb{CONTINUE FROM HERE}
+
+In \cite{EPRINT:DKLW25}, the authors showed the following
+\begin{lemma}\label{lem:vsis-unforgeability}
+Let \(\ell_{\mathrm{hash}}=4\) and $
+k_{\mathrm{DKLW}}:=m+\ell_{\mathrm{hash}}$. 
 Assume the following:
 \begin{enumerate}[leftmargin=1.25em]
     \item \((n,m,q,\BoundSig)\) are admissible parameters for \((\TrapGen,\SampPre)\);
     \item the inadmissibility bound satisfies \(\delta\le \negl(\lambda)\);
     \item a DKLW-compatible norm bound \(\beta_{\mathrm{DKLW}}\) is fixed so that every signature accepted by the
-    present verifier also satisfies \(\|\vecu\|\le \beta_{\mathrm{DKLW}}\) in the norm used in \cite{EPRINT:DKLW25};
+    present verifier also satisfies \(\|\vecu\|\le \beta_{\mathrm{DKLW}}\) in the norm used in \cite{EPRINT:DKLW25} \cb{Is this just $\BoundSig$? What norm is this?};
     \item the predicate condition of \cite[Definition~7]{EPRINT:DKLW25} holds for the instantiated rational-hash
-    family; and
+    family \cb{what does this mean?}; and 
     \item the denominator-bound and strong-linear-independence side conditions required by
-    \cite[Theorems~4--8 and Corollary~1]{EPRINT:DKLW25} hold for the instantiated family.
+    \cite[Theorems~4--8 and Corollary~1]{EPRINT:DKLW25} hold for the instantiated family. \cb{what does this mean?}
 \end{enumerate}
-Then the following theorem-backed claims hold.
+Then 
 \begin{enumerate}[leftmargin=1.25em]
-    \item The non-blind template of Definition~\ref{def:vsis-template} is correct by \cite[Theorem~4]{EPRINT:DKLW25}.
-    \item Under the strong random-hinted vSIS assumption of \cite{EPRINT:DKLW25} for the induced parameter tuple, the
-    non-blind template is \(\mathrm{sEUF\mbox{-}RMA}\) by \cite[Theorem~5]{EPRINT:DKLW25}.
-    \item For \(f(B,m,\chi)=h_{m,(r_0,r_1)}(B)\), the experiment \(\mathsf{GenISIS}_f\) is equivalent to the non-blind
-    \(\mathrm{sEUF\mbox{-}RMA}\) experiment by \cite[Theorem~7]{EPRINT:DKLW25}.
-    \item \(\mathsf{GenISIS}_f\) implies the same strong random-hinted vSIS assumption by
-    \cite[Theorem~8]{EPRINT:DKLW25}, and the converse implication follows by \cite[Corollary~1]{EPRINT:DKLW25}.
-    \item Under the stronger strong-hinted vSIS assumption, the same non-blind family also enjoys
-    \(\mathrm{sEUF\mbox{-}SMA}\) by \cite[Theorem~5]{EPRINT:DKLW25}.
+    \item The construction in Definition~\ref{def:vsis-template} is correct.
+    \item Under the strong random-hinted vSIS assumption for the induced parameter tuple, the signature scheme is \(\mathrm{sEUF\mbox{-}RMA}\)-secure.
+    \item For \(f(B,m,\chi)=h_{m,(r_0,r_1)}(B)\), the experiment \(\mathsf{GenISIS}_f\) is equivalent to the
+    \(\mathrm{sEUF\mbox{-}RMA}\) experiment. %by \cite[Theorem~7]{EPRINT:DKLW25}.
+    %\item \(\mathsf{GenISIS}_f\) implies the same strong random-hinted vSIS assumption by
+    %\cite[Theorem~8]{EPRINT:DKLW25}, and the converse implication follows by \cite[Corollary~1]{EPRINT:DKLW25}.
+    \item Under the strong-hinted vSIS assumption\cb{is it the strong-hinted or random strong-hinted? we might skip one of the two in the Appendix.}, the construction also enjoys
+    \(\mathrm{sEUF\mbox{-}SMA}\) security.% by \cite[Theorem~5]{EPRINT:DKLW25}. 
+    
 \end{enumerate}
 \end{lemma}
 
 \begin{proof}
-All items are immediate from \cite[Theorems~4, 5, 7, 8, and Corollary~1]{EPRINT:DKLW25} under the stated
-specialization and side conditions.
+The claims follow from \cite[Theorems~4, 5, 7, 8, and Corollary~1]{EPRINT:DKLW25}.
 \end{proof}
 
-\begin{remark}[Scope of the DKLW import]\label{rem:vsis-unforgeability}
-Lemma~\ref{lem:vsis-unforgeability} is the correct external reduction basis for the non-blind signature layer only. It
-does not imply blindness or one-more unforgeability of the blind issuance protocol, and it does not by itself yield an
-ARC theorem.
-\end{remark}
+%\begin{remark}[Scope of the DKLW import]\label{rem:vsis-unforgeability}
+%Lemma~\ref{lem:vsis-unforgeability} is the correct external reduction basis for the non-blind signature layer only. It
+%does not imply blindness or one-more unforgeability of the blind issuance protocol, and it does not by itself yield an
+%ARC theorem.
+%\end{remark}
 
 \subsection{Non-interactive zero-knowledge arguments of knowledge (NIZKs)}
 \label{subsec:prelim-nizk}
@@ -461,22 +456,33 @@ A blind signature algorithm allows a holder $\Holder$ to obtain signatures valid
 
 
 \begin{definition}[Blindness]\label{def:bs-blindness}
-	A blind signature scheme is blind if there exists \(\negl\) such that for any PPT three-stage stateful adversary
-	\(\adversary=(\adversary_1,\adversary_2,\adversary_3)\) and any two messages \(\mu_0,\mu_1\),
-	\[
-	\left|\Pr\!\left[
-	\begin{array}{l}
-		\PublicParamsBS\gets \Setup(\SecParam);\\
-		\vk\gets \adversary_1(\PublicParamsBS);\\ b\getsunif\{0,1\};\\
-		\adversary_2^{\Issue:\langle \cdot: \Holder(\mu_b,\vk)\rangle ,~ \Issue:\langle \cdot: \Holder(\mu_{1-b},\vk)\rangle }; \\
-		\Holder(\mu_b,\vk) \text{ outputs }\sig_b;\\
-		\Holder(\mu_{1-b},\vk) \text{ outputs }\sig_{1-b}\\
-		\text{if }\bot\in\{\sig_0,\sig_1\}\text{ then }(\sig_0,\sig_1)\gets(\bot,\bot):\\
-		b=\adversary_3(\sig_0,\sig_1)
-	\end{array}
-	\right]-\frac{1}{2}\right|
-	\le \negl(\lambda).
-	\]
+  Let $\mathsf{BSig}$ be a blind signatures scheme and $\mu_0 \neq \mu_1$ be any two messages. 
+ %  any two messages
+ %  \(\mu_0,\mu_1\) running the following experiment 
+  $\mathsf{Exp}^{\mathsf{sig\mbox{-}blind}}_{\mathsf{BSig},\Adv}(\lambda)$ between a challenger $\Challenger$ and a three-stage stateful adversary $\Adv=(\Adv_1,\Adv_2,\Adv_3)$:
+ \begin{enumerate}[leftmargin=1.25em]
+   \item $\Challenger$ runs $\PublicParamsBS\gets \Setup(\SecParam)$.
+   \item Run
+		$\vk\gets \Adv_1(\PublicParamsBS)$
+   \item Run
+		$\Adv_2^{\Issue:\langle \cdot: \Holder(\mu_b,\vk)\rangle ,~ \Issue:\langle
+    \cdot: \Holder(\mu_{1-b},\vk)\rangle }; $ at the end of which 
+     $\Challenger$ obtains $\sig_0,\sig_1$.
+   \item If $\bot\in\{\sig_0,\sig_1\}\text{ then
+     }(\sig_0,\sig_1)\gets(\bot,\bot)$\lena{or output a random element from the
+     signature space?}  \cb{maybe random bit, like in presentation unlinkability?}
+   \item $\Challenger$ samples $b\getsunif\{0,1\}$ \cb{shouldn't this be sampled above? Also in the game, $\Adv$ gets both signatures} and outputs
+   \begin{align*}
+     \begin{cases}
+     \sig_0 \leftarrow & \text{ if } b=0\\
+     \sig_1 \leftarrow & \text{ if } b=1
+     \end{cases}
+   \end{align*}
+   \item $\Adv_3(\sig_0,\sig_1)$ outputs $b'$.
+ \end{enumerate}
+ Define $\Adv^{\mathsf{sig\mbox{-}blind}}_{\mathsf{BSig}}(\Adv) := \big|
+ \Pr[b'=b]-\tfrac12 \big|$.
+ We say $\mathsf{BSig}$ is \emph{blind} if for all PPT $\Adv$ this advantage is negligible in $\lambda$.
 \end{definition}
 
 
@@ -490,7 +496,7 @@ A blind signature scheme is one-more unforgeable if there exists \(\negl\) such 
      	\PublicParamsBS \gets \Setup(\SecParam); \\
       (\vk,\sk)\gets \IKeyGen(\PublicParamsBS);\\
       \{(\mu_i,\sig_i)\}_{i\in[Q+1]}\gets \adversary^{\Issue \langle \Issuer(\sk):\cdot \rangle}(\vk):\\
-      \forall\,1\le i<j\le Q+1:\ \mu_i\neq \mu_j\ \land\ \forall\,i\in[Q+1]:\ \Verify(\vk,\mu_i,\sig_i)=1
+      \forall\,1\le i<j\le Q+1:\ \mu_i\neq \mu_j\ \land\ \\ \forall\,i\in[Q+1]:\ \Verify(\vk,\mu_i,\sig_i)=1
     \end{array}
   \right]
   \le \negl(\lambda).
@@ -510,90 +516,93 @@ verifier enforces the policy through local state on previously accepted \((\nonc
 
 \subsection{Anonymous Rate-Limiting Credentials (ARCs)}
 \label{subsec:arc-security}
-Anonymous rate-limited credentials extend blind signatures by adding a showing algorithm \(\Show\) that may create
+Anonymous rate-limited credentials~\cite{ietf-privacypass-arc-protocol-01} extend blind signatures by adding a showing algorithm \(\Show\) that may create
 multiple presentations of a previously issued credential. We explicitly introduce the verifier party \(\Verifier\),
 which receives and checks those presentations. Our definition follows the established syntax and security models
 of~\cite{JC:FucHanSla19,C:BLNS23}, specialized to the ARC setting considered here.
-\lena{$\credential$ could also be $\sig$}
 
 We keep \(\Setup\) and \(\IKeyGen\) separate, so the public commitment matrix is sampled independently of the issuer
 keys. We also separate \(\Show\) and \(\Verify\) to distinguish the client-side presentation algorithm from the
 verifier-side stateful check.
 \begin{definition}[ARC scheme syntax]\label{def:arc-syntax}
-Let $\mathcal{N}$ be a finite set of nonces. 
+Let $\nonceSpace$ be a finite set of nonces. 
 An anonymous rate-limited credential (ARC) scheme is a tuple of algorithms
 \[
   \ARC=(\Setup,\IKeyGen,\Issue,\Show,\Verify)
 \]
 such that:
-\cb{should there also be a message attached to the credential?}\lena{could, but we don't have to add it in this revision imho}
+
 \begin{itemize}[leftmargin=1.25em]
    \item $\Setup(\SecParam)$ is a PPT algorithm that outputs public parameters $\PublicParamsARC$. All other algorithms obtain $\SecParam,\PublicParamsARC$ as implicit inputs.
 
     \item $\IKeyGen()$ is a PPT algorithm that outputs issuer keys $(\vk,\sk)$.
 \item $\Issue$ is an interactive protocol between $\Issuer$ and $\Holder$, where $\Issuer$ has input $\sk$ and $\Holder$ has input a message $\mu$ and verification key $\vk$. At the end of the protocol, $\Holder$ obtains the credential $\credential$.
-  \item $\Show(\credential,\nonce)$ on input a credential $\credential$ and a nonce $\nonce\in \mathcal{N}$ outputs a presentation $\presentation$.
+  \item $\Show(\credential,\nonce)$ on input a credential $\credential$ and a nonce $\nonce\in \nonceSpace$ outputs a presentation $\presentation$.
   
-  \item $\Verify(\vk,\presentation,\state)$ is a deterministic polynomial-time algorithm that on input a verification key $\vk$, a presentation $\presentation$, and a verifier state $\state$ outputs a validity bit together with an updated state $\state'$.
+  \item $\Verify(\vk,\presentation,\mu,\algstate)$ is a deterministic polynomial-time algorithm that on input a verification key $\vk$, a presentation $\presentation$, a message $\mu$ and a verifier state $\algstate$ outputs a validity bit together with an updated state $\algstate'$.
 	 \end{itemize}
 \end{definition}
 
-Adjusting the blind-signature correctness notion of Definition~\ref{def:bs-correctness} to ARC is immediate. We also use
-the following soundness notion, which captures that each issuance can support at most one accepting presentation per
+Adjusting the blind-signature correctness notion of Definition~\ref{def:bs-correctness} and the blindness notion from Definition~\ref{def:bs-blindness} to ARC is immediate. 
+
+
+We additionally require the following soundness notion, which captures that each issuance can support at most one accepting presentation per
 nonce.
 
 \begin{definition}[ARC soundness]\label{def:arc-soundness}
-Let \(\ARC\) be an ARC scheme with nonce space \(\mathcal{N}\). For \(Q=Q(\lambda)\), set
+Let \(\ARC\) be an ARC scheme with nonce space \(\nonceSpace\). For \(Q=Q(\lambda)\), set
 \[
-K:=Q\cdot |\mathcal{N}|+1.
+K:=Q\cdot |\nonceSpace|+1.
 \]
 Consider the following experiment. The challenger samples
 \[
 \PublicParamsARC\gets \Setup(\SecParam),\qquad (\vk,\sk)\gets \IKeyGen(\PublicParamsARC),
 \]
-initializes the verifier state \(\state_0\), and gives \((\PublicParamsARC,\vk)\) to a PPT adversary
+initializes the verifier state \(\algstate_0=\emptyset \), and gives \((\PublicParamsARC,\vk)\) to a PPT adversary
 \(\adversary^{\Issue:\langle \Issuer(\sk): \cdot \rangle}\) that makes at most \(Q\) issuance queries. The adversary then
-outputs a sequence \((\presentation_1,\ldots,\presentation_K)\). For \(i=1,\ldots,K\), the challenger computes
+outputs a sequence \((\presentation_i,\mu_i)_{i\in [K]}\). For \(i=1,\ldots,K\), the challenger computes
 \[
-(b_i,\state_i)\gets \Verify(\vk,\presentation_i,\state_{i-1}).
+(b_i,\algstate_i)\gets \Verify(\vk,\presentation_i,\mu_i,\algstate_{i-1}).
 \]
 We say that \(\ARC\) is \emph{sound} if for every PPT adversary, the probability that \(b_i=1\) for every
 \(i\in[K]\) is negligible in \(\lambda\).
 \end{definition}
 
-This definition is the ARC analogue of one-more unforgeability. Since each honestly issued credential can be shown for
-all \(|\mathcal{N}|\) different nonces, \(Q\) issuance interactions may legitimately yield \(Q\cdot |\mathcal{N}|\)
-accepting presentations. Producing strictly more than that forces a policy violation for at least one nonce by the
+This definition is the ARC analogue of one-more unforgeability. Since each honestly issued credential with some fixed $\mu$ can be shown for
+all \(|\nonceSpace|\) different nonces, \(Q\) issuance interactions may legitimately yield \(Q\cdot |\nonceSpace|\)
+accepting presentations. Producing strictly more than that forces a policy violation for at least one nonce or one $\mu$ by the
 pigeonhole principle.
-\lena{this is already nonce-defined, maybe we want to keep the definition more general. This is basically one-more unforgeability with the additional constraint that we can only spend a credential once- should we make this two different definitions?}
+%\lena{this is already nonce-defined, maybe we want to keep the definition more general. This is basically one-more unforgeability with the additional constraint that we can only spend a credential once- should we make this two different definitions?} \cb{No I think it should be one only, as the nonce space naturally changes the unforgeability notion.}
 
 However, we additionally require that if the same credential \(\credential\) is presented multiple times, but for
-different nonces from \(\mathcal{N}\), then the presentations should be unlinkable. To formalize this, we let a
+different nonces from \(\nonceSpace\), then the presentations should be unlinkable. To formalize this, we let a
 challenger create two credentials in interactions where the adversary controls the issuer. Then the challenger either
 creates two presentations for the same credential, or for different credentials.
-\lena{blindness would be privacy, idk if this is a good idea}
 
 \begin{definition}[Presentation unlinkability]\label{def:pres-unlink}
 Let $\ARC$ be an ARC scheme. Consider the following experiment
 $\mathsf{Exp}^{\mathsf{pres\mbox{-}unlink}}_{\ARC,\Adv}(\lambda)$ between a challenger $\Challenger$ and a three-stage stateful adversary $\Adv=(\Adv_1,\Adv_2,\Adv_3)$:
 \begin{enumerate}[leftmargin=1.25em]
   \item $\Challenger$ runs $\PublicParamsARC\gets \Setup(\SecParam)$.
-  \item Run $\vk\gets \Adv_1(\PublicParamsARC)$.
-  \item Run $\Adv_2^{\Issue:\langle \cdot: \Challenger(\vk)\rangle ,~ \Issue:\langle \cdot: \Challenger(\vk)\rangle }$, at the end of which $\Challenger$ obtains $\credential_0,\credential_1$ and $\Adv_2$ outputs $\nonce_0,\nonce_1$.
+  \item Run $(\vk,\mu)\gets \Adv_1(\PublicParamsARC)$.
+  \item Run $\Adv_2^{\Issue:\langle \cdot: \Challenger(\vk,\mu)\rangle ,~ \Issue:\langle \cdot: \Challenger(\vk,\mu)\rangle }$, at the end of which $\Challenger$ obtains $\credential_0,\credential_1$ and $\Adv_2$ outputs $\nonce_0,\nonce_1$.
   \item If $\credential_0$ or $\credential_1$ is $\bot$ or if $\nonce_0=\nonce_1$ then output a random bit.
 
-  \item $\Challenger$ samples $b\getsunif\{0,1\}$ and computes
-  \[
-    \presentation_0 \leftarrow \Show(\credential_0,\nonce_0),\qquad
-    \presentation_1 \leftarrow \Show(\credential_b,\nonce_1).
-  \]
-  \item $\Adv_3(\presentation_0,\presentation_1)$ outputs a bit $b'$.
+  \item $\Challenger$ samples $b\getsunif\{0,1,2\}$ and computes
+  \begin{align*}
+    \presentation_0 \leftarrow & \Show(\credential_0,\nonce_0) \\
+    \presentation_1 \leftarrow & \begin{cases}\Show(\credential_0,\nonce_1) & \text{ if } b=0\\
+    \Show(\credential_1,\nonce_0) & \text{ if } b=1\\
+    \Show(\credential_1,\nonce_1) & \text{ if } b=2
+    \end{cases}
+  \end{align*}
+  \item $\Adv_3(\presentation_0,\presentation_1)$ outputs $b'$.
 \end{enumerate}
-Define $\Adv^{\mathsf{pres\mbox{-}unlink}}_{\ARC}(\Adv) := \big| \Pr[b'=b]-\tfrac12 \big|$.
+Define $\Adv^{\mathsf{pres\mbox{-}unlink}}_{\ARC}(\Adv) := \big| \Pr[b'=b]-\tfrac13 \big|$.
 We say ARC has \emph{presentation unlinkability} if for all PPT $\Adv$ this advantage is negligible in $\lambda$.
 
 \end{definition}
-\cb{A notion of blindness of ARC follows from presentation unlinkability:}
+
 
 %\paragraph{Nonce reuse caveat (intended).}
 %If a nonce is reused, deterministic presentation components (e.g., a

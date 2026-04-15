@@ -1,18 +1,35 @@
-@techreport{yun-privacypass-crypto-arc-00,
-    number =    {draft-yun-privacypass-crypto-arc-00},
+@techreport{ietf-privacypass-arc-protocol-01,
+    number =    {draft-ietf-privacypass-arc-protocol-01},
     type =      {Internet-Draft},
     institution =   {Internet Engineering Task Force},
     publisher = {Internet Engineering Task Force},
     note =      {Work in Progress},
-    url =       {https://datatracker.ietf.org/doc/draft-yun-privacypass-crypto-arc/00/},
-    author =    {Cathie Yun and Christopher A. Wood},
-    title =     {{Anonymous Rate-Limited Credentials}},
-    pagetotal = 44,
-    year =      2025,
-    month =     oct,
-    day =       20,
-    abstract =  {This document specifies the Anonymous Rate-Limited Credential (ARC) protocol, a specialization of keyed-verification anonymous credentials with support for rate limiting. ARC credentials can be presented from client to server up to some fixed number of times, where each presentation is cryptographically bound to client secrets and application-specific public information, such that each presentation is unlinkable from the others as well as the original credential creation. ARC is useful in applications where a server needs to throttle or rate-limit access from anonymous clients.},
+    url =       {https://datatracker.ietf.org/doc/draft-ietf-privacypass-arc-protocol/01/},
+    author =    {Cathie Yun and Christopher A. Wood and Armando Faz-Hernandez},
+    title =     {{Privacy Pass Issuance Protocol for Anonymous Rate-Limited Credentials}},
+    pagetotal = 17,
+    year =      2026,
+    month =     mar,
+    day =       2,
+    abstract =  {This document specifies the issuance and redemption protocols for tokens based on the Anonymous Rate-Limited Credential (ARC) cryptographic protocol.},
 }
+
+@misc{rfc9578,
+    series =    {Request for Comments},
+    number =    9578,
+    howpublished =  {RFC 9578},
+    publisher = {RFC Editor},
+    doi =       {10.17487/RFC9578},
+    url =       {https://www.rfc-editor.org/info/rfc9578},
+    author =    {Sofia Celi and Alex Davidson and Steven Valdez and Christopher A. Wood},
+    title =     {{Privacy Pass Issuance Protocols}},
+    pagetotal = 36,
+    year =      2024,
+    month =     jun,
+    abstract =  {This document specifies two variants of the two-message issuance protocol for Privacy Pass tokens: one that produces tokens that are privately verifiable using the Issuer Private Key and one that produces tokens that are publicly verifiable using the Issuer Public Key. Instances of "issuance protocol" and "issuance protocols" in the text of this document are used interchangeably to refer to the two variants of the Privacy Pass issuance protocol.},
+}
+
+
 
 @misc{google-pq,
     author = {Heather Adkins and Sophie Schmieg},
@@ -52,4 +69,16 @@
   doi          = {10.1515/jmc-2015-0016},
   url          = {https://eprint.iacr.org/2015/046},
   note         = {Preprint: Cryptology ePrint Archive, Report 2015/046. Estimator source: \url{https://github.com/malb/lattice-estimator}}
+}
+
+
+@article{chaum85-anonymous-credentials,
+  title={Security without identification: Transaction systems to make big brother obsolete},
+  author={Chaum, David},
+  journal={Communications of the ACM},
+  volume={28},
+  number={10},
+  pages={1030--1044},
+  year={1985},
+  publisher={ACM New York, NY, USA}
 }

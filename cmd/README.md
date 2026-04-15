@@ -21,5 +21,5 @@ under `credential/keys/`.
 ## `cmd/showing`
 
 This command runs the retained post-sign showing flow. It reads the persisted
-credential state and builds a showing proof in either the default one-root `v3`
-layout or the optional split-PRF `v4` layout.
+credential state and builds a showing proof on the retained coeff-native `v3`
+path with the PRF companion route.

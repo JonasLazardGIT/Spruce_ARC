@@ -1,251 +1,488 @@
 # Protocol
 
-This document is the canonical protocol/context note for the shipped SPRUCE
-codebase. It is written against the current repository and aligned with the
-current paper source in `Spruce_Latex`.
+This document is the implementation-canonical protocol note for the current
+SPRUCE branch. It is intentionally code-first: if this file disagrees with
+older prose, comments, or paper-level summaries, the current implementation and
+tracked runtime assets win.
 
-Use this file for:
+Use this file for the live issuance/showing model. Use
+[nizk_alignment_notes.md](nizk_alignment_notes.md) for detailed paper-vs-code
+alignment notes, [modulus_choice.md](modulus_choice.md) for field rationale,
+and [../Commands.md](../Commands.md) for operator-facing command usage.
 
-- protocol purpose and terminology
-- the current issuance and showing model
-- the retained showing layouts and live defaults
-- how the proof stack maps into the implementation
+## Overview
 
-Use [../README.md](../README.md) for the repository overview,
-[modulus_choice.md](modulus_choice.md) for parameter rationale, and
-[../Commands.md](../Commands.md) for command usage.
+SPRUCE currently implements a proof-oriented anonymous-credential / ARC
+prototype with two retained proof roles:
 
-## Protocol Purpose
+- pre-sign issuance, where a holder proves that a public target `T` was formed
+  correctly from committed message material and centered randomness before the
+  issuer signs it
+- showing, where the holder proves possession of a signed hidden message and a
+  correctly derived PRF tag without revealing the signed secret
 
-SPRUCE is an anonymous-credential construction built around:
+At the branch level, the implementation is split between:
 
-- a blind issuance flow that produces a proof-friendly lattice signature
-- a showing flow that proves possession of that credential
-- a PRF-derived public tag used for rate limiting without revealing the
-  credential secret
-- a SmallWood-style proof stack that makes both proofs succinct and replayable
+- reusable issuance helpers in `issuance/flow.go`
+- a local fixture/demo harness in `cmd/issuance/main.go`
+- the retained showing CLI in `cmd/showing/main.go`
+- the SmallWood-style compiled proof stack in `PIOP/`
 
-This framing follows the current paper story:
+The abstract paper story is still "blind issuance plus ARC showing", but the
+live repository is more specific:
 
-- `sections/01_intro.tex` gives the high-level credential and ARC motivation
-- `sections/04_arc_construction.tex` gives the issuance/showing narrative
-- `appendix/C_smallwood_details.tex` explains the proof stack
+- issuance keeps the target `T` public inside the compiled pre-sign statement
+- showing uses one retained coeff-native proving path
+- showing uses the PRF companion route, not the legacy PRF layout
+- the shipped CLIs are local proof/demo programs; they do not implement a
+  networked issuer/verifier service or a persisted rate-limit database
 
-## Message Split And Credential Model
+## Source Of Truth
 
-The signed credential message is split as:
+The following sources define live behavior on this branch.
 
-- `m = μ || k`
+### Runtime and command sources
 
-where:
+- `Parameters/Parameters.json`
+- `credential/params.json`
+- `prf/prf_params.json`
+- `credential/keys/credential_state.json`
+- `cmd/issuance/main.go`
+- `cmd/showing/main.go`
 
-- `μ` is the holder attribute payload
-- `k` is the secret PRF key used later during showing
+### Proof-system sources
 
-The holder also carries bounded randomness used during issuance and the final
-signature preimage. In showing, those values stay hidden; only the public nonce
-and the derived tag are exposed.
+- `issuance/flow.go`
+- `credential/state.go`
+- `PIOP/credential_rows.go`
+- `PIOP/credential_constraints.go`
+- `PIOP/showing_builder.go`
+- `PIOP/showing_coeff_native_literal_packed_runtime.go`
+- `PIOP/showing_transform_bridge_constraints.go`
+- `PIOP/prf_companion_bridge.go`
+- `PIOP/generic_builder.go`
+- `PIOP/run.go`
+- `PIOP/proof_report.go`
 
-The persisted state is described in [../credential/README.md](../credential/README.md).
+### Paper comparison sources
+
+These are comparison targets only; they are not the source of truth for the
+current branch:
+
+- `docs/ARC_Spruce/sections/03_blind_signature.tex`
+- `docs/ARC_Spruce/sections/04_arc_construction.tex`
+- `docs/ARC_Spruce/sections/05_smallwood_model.tex`
+- `docs/ARC_Spruce/appendix/C_smallwood_details.tex`
+
+## Runtime Assets
+
+The current command path depends on tracked JSON/runtime assets.
+
+| Asset | Role | Current live values / notes |
+| --- | --- | --- |
+| `Parameters/Parameters.json` | shared ring and signature parameters | `N=1024`, `q=1054721`, `k=21`, `beta=6142`, `bound=6142` |
+| `credential/params.json` | issuance/showing credential-side parameters | `BoundB=1`, `LenM1=1`, `LenM2=1`, `LenRU0=1`, `LenRU1=1`, `LenR=1` |
+| `prf/prf_params.json` | PRF parameters | `q=1054721`, `d=3`, `LenKey=8`, `LenNonce=12`, `LenTag=7`, `t=20`, `RF=8`, `RP=19` |
+| `credential/Ac.json` | commitment matrix used by the issuance harness | current `cmd/issuance` rewrites this file with a simple fixture matrix |
+| `Parameters/Bmatrix.json` | rational-hash public matrix `B` | loaded by issuance and showing |
+| `credential/keys/credential_state.json` | persisted holder state | stores issuance witness material, public challenge/commitment data, signed target, public matrices, and showing-time signature rows |
+| `credential/keys/signature.json` | copied signature artifact | populated by `cmd/issuance` after signing `T` |
+
+### Persisted holder state
+
+`credential.State` is the bridge between issuance and showing. The top-level
+state carries:
+
+- issuance rows `M1`, `M2`, `RU0`, `RU1`, `R`, `R0`, `R1`, `K0`, `K1`
+- public issuance artifacts `Com`, `RI0`, `RI1`, `B`, `Ac`, `T`
+- showing signature rows `SigS1`, `SigS2`
+- `PackedNCols`, which fixes how the signed `M2` row is decoded into PRF key
+  lanes
+- optional embedded NTRU public/private coefficients
+
+`credential.CoeffNativeShowingState` is only a compatibility shim for older
+JSON. Production showing derives its semantic witness from the top-level state,
+not from a separate legacy showing blob.
 
 ## Issuance Flow
 
-The retained issuance command implements the pre-sign proof role.
+### Abstract live issuance path
 
-At a high level:
+The reusable issuance helpers implement the following live shape.
 
-1. the holder commits to its message and randomness with an Ajtai-style linear
-   commitment
-2. the issuer contributes challenge randomness
-3. the holder centers the combined randomness and derives the target `T`
-4. the holder proves that `T` is well formed relative to the commitment and the
-   public issuer challenge
-5. the issuer signs `T` with the NTRU trapdoor
-6. the resulting state is written under `credential/keys/`
+1. The holder provides coefficient-domain rows `M1`, `M2`, `RU0`, `RU1`, and
+   `R`.
+2. `issuance.PrepareCommit` derives the canonical pre-sign carrier/alias
+   surface on `Ω` and computes the public commitment vector `Com` from the
+   logical rows `M1`, `M2`, `RU0`, `RU1`, and `R`.
+3. The issuer-side challenge is represented by public rows `RI0`, `RI1`.
+4. `issuance.ApplyChallenge` centers `RU0 + RI0` and `RU1 + RI1` into `R0`,
+   `R1`, records carry rows `K0`, `K1`, loads `B`, and derives the public
+   target `T`.
+5. `issuance.ProvePreSign` builds the pre-sign proof with public inputs
+   `{Com, RI0, RI1, Ac, B, T, BoundB}` and witness inputs
+   `{M1, M2, RU0, RU1, R, R0, R1, K0, K1}`.
+6. `issuance.VerifyPreSign` replays the same statement against the committed
+   row openings and public data.
+7. `issuance.SignTargetAndSave` signs the public target `T` with the NTRU
+   trapdoor and persists the signature.
+8. `cmd/issuance` serializes the holder state to
+   `credential/keys/credential_state.json` for the showing CLI.
 
-In the current code, `T` is public in the issuance proof. That keeps the
-pre-sign statement structurally simpler than the post-sign statement.
+### What is public and what is hidden
 
-The pre-sign proof now commits only carrier rows and decodes the logical
-message/randomness rows virtually. Concretely, issuance commits carrier rows
-`C^M`, `C^preRU`, `C^preR`, `C^ctr`, and `C^K`, then derives
-`M1/M2/RU0/RU1/R/R0/R1/K0/K1` from fixed decode polynomials during constraint
-evaluation. Carrier membership constraints replace the old bound-chain gadget.
+On the retained issuance path:
 
-The implementation entrypoints are:
+- public: `Com`, `RI0`, `RI1`, `Ac`, `B`, `T`, `BoundB`
+- hidden witness rows: `M1`, `M2`, `RU0`, `RU1`, `R`, `R0`, `R1`, `K0`, `K1`
 
-- `issuance.PrepareCommit`
-- `issuance.ApplyChallenge`
-- `issuance.ProvePreSign`
-- `issuance.VerifyPreSign`
+This matches the compiled pre-sign design used in the paper's SmallWood model:
+the prover certifies consistency of hidden rows with a public target `T`,
+rather than hiding `T` inside the proof.
+
+### Current `cmd/issuance` harness behavior
+
+The live command is a local fixture harness, not a networked issuer/holder
+protocol implementation.
+
+Important concrete choices in `cmd/issuance/main.go`:
+
+- it seeds its local RNG with `-seed` (default `1`)
+- it writes a fixture `credential/Ac.json` and `credential/params.json`
+- it sets `BoundB=1`
+- it uses one row each for `M1`, `M2`, `RU0`, `RU1`, and `R`
+- it sets `M1` and `M2` to zero rows
+- it samples `RU0`, `RU1`, and `R` from a ternary alphabet over `Ω`
+- it sets the public issuer challenge rows `RI0`, `RI1` to zero in the current
+  demo path
+
+So the library path supports a general public challenge, but the shipped
+command currently exercises a simpler deterministic fixture:
+
+- public target formation still happens through the same helper stack
+- the witness still contains centered rows and carries
+- the public `T` is still signed and persisted
+- the message/key portion of the demo credential is currently all-zero
+
+### Current issuance proof options
+
+`cmd/issuance` resolves and then overrides proof options so that the live
+pre-sign run uses:
+
+- `DomainMode=explicit`
+- `NCols=16`
+- `Ell=18`
+- `Theta=1`
+- `Eta=19`
+- `EllPrime=2`
+- `Rho=2`
+- `NLeaves=4096`
+- `LVCSNCols=96`
+
+These are issuance-harness settings. They are not the same thing as the
+showing CLI's default preset.
 
 ## Showing Flow
 
-The retained showing command implements the post-sign proof role.
+### Abstract live showing path
 
-At a high level:
-
-1. the holder loads the persisted credential state
-2. it chooses a public nonce
-3. it computes `tag = PRF(k, nonce)`
-4. it proves that:
-   - it knows a valid signature `u`
-   - the signed message still contains the same hidden `k`
-   - the public `tag` is the PRF output derived from that `k` and the chosen
-     nonce
-
-This follows the canonical ARC shape from `sections/04_arc_construction.tex`:
-the PRF tag is deterministic for a fixed `(k, nonce)` pair, so reused nonces
-repeat the same tag, while fresh nonces keep showings unlinkable.
-
-The current command path is:
-
-- `PIOP.BuildShowingCombined`
-- `PIOP.VerifyWithConstraints`
-
-## Retained Showing Layouts
-
-Only one retained showing layout remains on the current runtime path:
-
-### `literal_packed_aggregated_v3`
-
-This is the default one-root layout.
-
-It uses:
-
-- a coeff-native semantic showing witness at the caller boundary
-- literal-packed signature rows in the committed witness
-- the retained coeff-native one-root layout used by the current runtime
-- grouped PRF nonlinear witness rows
-- one shared SmallWood commitment/oracle for post-sign and PRF rows
-
-## Current Live Defaults
-
-### Shared ring and field
-
-The shipped code uses:
-
-- ring degree `N = 1024`
-- modulus `q = 1054721`
-- exact modulus width ceiling `k = 21`
-
-These values come from:
-
-- `Parameters/Parameters.json`
-- `prf/prf_params.json`
-
-### Issuance defaults
-
-The retained issuance proof relation is still the same paper-level pre-sign
-statement, but the `q = 1054721` migration branch is currently blocked before a
-fully re-landed end-to-end issuance baseline.
-
-The intended issuance parameters on this branch are:
-
-- `Theta = 4`
-- `Ell = 25`
-- `Eta = 19`
-- `EllPrime = 2`
-- `Rho = 2`
-- witness support width `NCols = 16`
-
-The credential-side bound used in issuance is:
-
-- `BoundB = 8`
-
-from `credential/params.json`.
-
-### Showing defaults
-
-The retained showing flow keeps the same one-root coeff-native `v3` path.
-
-The migrated parameter target uses:
-
-- `Theta = 5`
-- `Ell = 18`
-- `Eta = 63`
-- `EllPrime = 2`
-- `Rho = 2`
-- witness support width `NCols = 16`
-- grouped PRF checkpointing with `PRFGroupRounds = 2`
-- `LVCSNCols = 96`
-- `NLeaves = 4096`
-- `Kappa = {0,0,0,5}`
-
-The field/PRF migration branch does not yet complete end-to-end because:
-
-- regenerated signatures exceed the preserved showing bound `beta = 745`
-- issuance pre-sign verification is not yet replay-clean again under the new field
-
-## Proof-Stack Mapping
-
-The proof system follows the SmallWood layering described in
-`appendix/C_smallwood_details.tex`, with code-specific responsibilities split as
+The retained showing path starts from persisted holder state and proceeds as
 follows.
 
-### Commitment
+1. `cmd/showing` loads `credential/keys/credential_state.json`.
+2. `buildCoeffNativeShowingWitnessFromState` reconstructs the coeff-native
+   showing witness from top-level state:
+   `SigS1`, `SigS2`, `M1`, `M2`, `R0`, `R1`, and `T`.
+3. The command checks that the stored signature rows satisfy the current live
+   shortness bound from `Parameters/Parameters.json`.
+4. `buildSignatureMatrix` reconstructs the public post-sign matrix `A` from the
+   embedded or on-disk NTRU public key.
+5. The command extracts PRF key lanes from the signed `M2` row, samples a
+   public nonce, computes `tag = PRF(key, nonce)`, and exposes the nonce/tag as
+   public lanes.
+6. `PIOP.BuildShowingCombined` constructs the retained showing proof.
+7. `PIOP.VerifyWithConstraints` replays the verifier logic from proof metadata,
+   public inputs, and committed row openings.
 
-The [../commitment/README.md](../commitment/README.md) package provides the
-Ajtai-style linear commitment used in issuance to bind the holder message and
-randomness before the signature target is derived.
+### Signature relation used in showing
 
-### DECS
+The current showing command reconstructs `A` from the stored NTRU public key.
+For the normal two-component signature case:
 
-The [../DECS/README.md](../DECS/README.md) package is the degree-enforcing
-commitment layer. It authenticates row evaluations and enforces low-degree
-consistency over an explicit evaluation domain.
+- the hidden signature witness is `U = [s1, s2]`
+- the public post-sign equation is `(-h) * s1 + s2 = T`
 
-### LVCS
+This is the matrix form consumed by the compiled showing constraints.
 
-The [../LVCS/README.md](../LVCS/README.md) package lifts DECS into a row-oracle
-commitment that supports the linear openings needed by the proof system.
+### PRF key and tag handling
 
-### PIOP
+The current branch uses the signed hidden message as the PRF-key carrier.
 
-The [../PIOP/README.md](../PIOP/README.md) package compiles issuance and
-showing statements into the retained proof machinery:
+- at CLI time, `cmd/showing` extracts the key directly from the signed `M2`
+  witness to compute the public nonce/tag pair
+- inside the compiled proof, the key is rebound through the committed message
+  carrier row and the PRF companion layout
 
-- witness row construction
-- constraint-family construction
-- Fiat-Shamir challenge flow
-- verifier replay from committed row openings
+This means the public tag is generated outside the proof builder, but the proof
+still enforces that the same signed hidden key was used.
 
-### PRF
+### Current showing defaults
 
-The [../prf/README.md](../prf/README.md) package implements the Poseidon2-like
-PRF and the grouped checkpoint trace helpers used during showing.
+`cmd/showing` fixes some knobs directly and resolves the rest through
+`PIOP.ResolveSimOptsDefaults`.
 
-## Replay Verifier Model
+Direct CLI defaults:
 
-The retained verifier model is replay based.
+- `CoeffNativeSigModel=literal_packed_aggregated_v3`
+- `NCols=16`
+- `Ell=18`
+- `PRFGroupRounds=2`
+- `ShowingPreset=soundness_balanced`
+- `ShowingReplayMode=reduced`
+- `PRFCompanionMode=output_audit`
+- `PRFCheckpointSamples=8`
+- explicit-domain proving
 
-That means the verifier checks:
+The default preset then resolves to:
 
-- committed row openings
-- public inputs
-- replayed constraint residuals
-- committed `Q` material
-- small-field replay data when `Theta > 1`
+- `Theta=3`
+- `Eta=43`
+- `EllPrime=2`
+- `Rho=2`
+- `LVCSNCols=96`
+- `PostSignLVCSNCols=96`
+- `PRFLVCSNCols=96`
+- `NLeaves=4096`
+- `PostSignNLeaves=4096`
+- `PRFNLeaves=4096`
+- `Kappa={0,0,0,5}`
+- signature shortness profile `r11_l4_production`
 
-It does **not** rely on auxiliary routed openings, legacy helper oracles, or
-old layout-specific side channels.
+These are the live default reporting/proving settings for `cmd/showing`, not
+paper-only targets.
 
-This is the main binding invariant of the shipped stack: all constraint families
-are replayed against one coherent committed witness assignment, so the same
-hidden message and PRF key are used consistently across the signature, hash, and
-PRF checks.
+### What `cmd/showing` does not do
 
-## Current Invariants
+The current showing CLI:
 
-The shipped repository assumes:
+- does build a public nonce
+- does compute and prove a public tag
+- does verify the proof locally
 
-- one shared base modulus `q` across the NTRU path, rational hash, SmallWood
-  constraints, and PRF
-- explicit-domain DECS/LVCS semantics
-- replay-based proof verification
-- only the retained `v3` and split `v4` showing layouts
-- coeff-native showing state at the command boundary
-- grouped PRF checkpoints on the retained showing surface
+It does not:
 
-For the parameter rationale behind those choices, read
-[modulus_choice.md](modulus_choice.md).
+- maintain verifier-side rate-limit state
+- reject reused `(nonce, tag)` or `(message, tag)` pairs
+- implement an application service around proof acceptance
+
+So the repo currently ships the cryptographic proof path, not the full
+application-layer ARC verifier state machine.
+
+## Compiled Proof Model
+
+### Shared stack
+
+Both proof roles are compiled through the same SmallWood-style stack:
+
+- explicit-domain witness rows
+- DECS for degree-enforced commitment/oracle openings
+- LVCS as the row-oriented linear opening layer
+- PACS/Fiat-Shamir replay in `PIOP/`
+
+The retained code supports only explicit public-domain semantics. The proof
+builder normalizes non-explicit requests back to the explicit mode.
+
+### Pre-sign compiled witness surface
+
+The live pre-sign row builder in `PIOP/credential_rows.go` commits:
+
+- five carrier rows:
+  `C^M`, `C^preRU`, `C^preR`, `C^ctr`, `C^K`
+- nine decoded alias rows:
+  `M1`, `M2`, `RU0`, `RU1`, `R`, `R0`, `R1`, `K0`, `K1`
+- four transform/replay aliases:
+  `hat(M1)`, `hat(M2)`, `hat(R0)`, `hat(R1)`
+
+So the live committed pre-sign surface is not "carriers only". It is an
+18-row witness surface combining:
+
+- carrier membership rows
+- decode/alias rows
+- replay-facing transform aliases
+
+The active pre-sign constraint families cover:
+
+- carrier membership
+- decode bridges
+- commitment binding against `Com`
+- centering consistency using `K0`, `K1`
+- the public-target cleared hash relation with `T`
+- replay/transform bridges for the non-sign rows
+
+### Showing compiled witness surface
+
+The live showing builder in
+`PIOP/showing_coeff_native_literal_packed_runtime.go` commits the following
+families on the retained path.
+
+- message carrier row `C^M`
+- centered-randomness carrier row `C^ctr`
+- explicit `T` source rows, one block per `NCols` chunk of the signed target
+- replay rows for:
+  `hat(M1+M2)`, `hat(R0)`, `hat(R1)`, and `hat(T)`
+- signature shortness limb rows for the packed coeff-native signature witness
+- packed PRF companion rows
+
+Important consequences of the live layout:
+
+- the showing path does not commit separate top-level source rows for `M`, `K`,
+  `R0`, and `R1`; those are recovered from carriers by public decode maps
+- the rational-hash message surface is carried as `M1`, `M2` in state, then as
+  a combined replay row `hat(M1+M2)` in the transform-bridge proof
+- the live layout does not commit a separate top-level rational-hash inverse
+  row `Z`
+
+### Replay mode
+
+The retained showing compiler supports two replay extents:
+
+- `reduced` (default): only the first replay block is committed/replayed
+- `full`: all replay blocks are committed/replayed
+
+The default runtime path is therefore narrower than the paper's full semantic
+block family. The proof machinery can still expand to the full replay image
+when `ShowingReplayModeFull` is selected.
+
+### PRF companion route
+
+`PIOP.BuildShowingCombined` forces the live showing path onto the packed PRF
+companion route:
+
+- packed PRF witness rows are enabled
+- PRF companion metadata is required
+- the legacy PRF layout is rejected
+
+In verifier terms, the live showing statement is:
+
+- transform-bridge post-sign constraints
+- signature shortness constraints
+- PRF companion bridge/opening constraints
+
+all replayed against one committed witness assignment.
+
+## Current Supported Modes
+
+### Supported proving surface
+
+The live proving core supports exactly one coeff-native showing model:
+
+- `literal_packed_aggregated_v3`
+
+The code rejects unsupported alternatives at multiple layers, including:
+
+- coeff-native model validation in
+  `PIOP/showing_coeff_native_literal_packed_runtime.go`
+- showing verification in `PIOP/generic_builder.go`
+- showing constraint compilation in `PIOP/showing_coeff_native_constraints.go`
+
+Older repo prose that still mentions `literal_packed_aggregated_v4_split_prf`
+is stale and has been cleaned up in the surrounding docs.
+
+### Presets versus protocol variants
+
+The current knobs are easy to misread. They are not independent protocol
+families.
+
+- `showing-preset` chooses a coherent transcript/geometry bundle
+- `-full` switches replay extent from reduced to full
+- shortness-profile and raw radix/digit overrides retune the signature gadget
+- `PRFCompanionMode=direct_auth` remains research scaffolding around the same
+  retained showing path
+
+So the live branch has one retained showing statement, with several reporting
+and geometry knobs around it.
+
+### Domain mode
+
+Only explicit-domain proving is retained on the live path. The implementation
+normalizes the proving mode back to explicit-domain semantics even if callers
+try to request something else.
+
+## Verifier Model
+
+The retained verifier model is replay-based.
+
+For both issuance and showing, the verifier:
+
+- uses committed row openings under one PCS/LVCS root
+- rebuilds the active evaluator set from proof metadata, public inputs, and
+  row layout
+- replays the PACS identities on those openings
+- checks auxiliary proof objects such as the PRF companion bridge/openings when
+  present
+
+The verifier does not rely on older side-channel layouts or legacy helper
+oracles. The key invariant is that the same committed witness assignment must
+simultaneously satisfy:
+
+- commitment and centering equations
+- signature binding
+- rational-hash residuals
+- PRF companion/key-binding equations
+
+That single-root binding property is the main reason the hidden message and PRF
+key cannot be swapped across subsystems without breaking replay.
+
+## Security And Theorem Status
+
+The repository implements compiled proofs and local correctness checks. It does
+not add new reductions beyond the current paper story.
+
+What the live branch actually provides:
+
+- executable issuance/showing proof construction and replay verification
+- a compiled pre-sign statement with public `T`
+- a compiled showing statement with transform-bridge replay and PRF companion
+  constraints
+
+What still lives at the paper/security-model level rather than as a code-level
+claim:
+
+- blind issuance blindness
+- blind issuance one-more unforgeability
+- theorem-backed transport from the compiled showing statement to the abstract
+  ARC relation
+- PRF security beyond correctness of the implemented computation
+- verifier-side stateful rate-limit enforcement
+
+The paper source is explicit that the non-blind signature layer and the
+compiled NIZK layer are the theorem-facing pieces, while blindness/one-more
+security for the blind issuance protocol remain a reduction roadmap item. The
+codebase should be read the same way.
+
+## Paper Alignment Summary
+
+At a high level, the current code still follows the paper's compiled-story
+shape:
+
+- issuance proves consistency of hidden committed rows with a public `T`
+- showing proves a signature/hash relation plus PRF-tag correctness
+- both proofs are compiled through a SmallWood-style explicit-domain stack
+
+The important branch-specific differences are:
+
+- pre-sign carry rows are named `C^K`, `K0`, `K1` in code where the paper now
+  uses `C^J`, `J_0`, `J_1`
+- the live pre-sign witness surface commits carriers, alias rows, and transform
+  aliases, not carriers alone
+- the live showing path keeps only the retained coeff-native `v3` model
+- showing defaults to reduced replay, not the paper's full semantic replay
+  family
+- the live showing layout does not commit paper-semantic source rows
+  `M`, `K`, `R0`, `R1`, `Z` as separate top-level rows
+- the PRF companion route is mandatory on the live path
+- the shipped showing CLI does not implement the application-layer stateful
+  rate-limit check
+
+For the detailed row-by-row and claim-by-claim comparison, read
+[nizk_alignment_notes.md](nizk_alignment_notes.md).

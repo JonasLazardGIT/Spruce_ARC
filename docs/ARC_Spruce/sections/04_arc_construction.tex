@@ -1,43 +1,86 @@
 \section{From Blind Signatures to ARC}
 \label{sec:arc-construction}
 
-This section turns the blind signature of Section~\ref{sec:blind-signature} into an anonymous rate-limited credential
-(ARC) system. We use the following terminology throughout:
-\emph{issuance} refers to the blind signature protocol, while \emph{showing} refers to an ARC presentation.
-The issuance proof is the \emph{pre-sign NIZK}; the showing proof is the \emph{post-sign NIZK}.
+This section adapts the blind signature of Section~\ref{sec:blind-signature} into an anonymous rate-limited credential
+(ARC) system.   To do so, $\Holder$ changes the input to $h$ as \(\vecmu\Vert \veck\), where \(\vecmu\) is the message and \(\veck\) is a uniformly sampled secret PRF key. It's easy to restructure our construction so that $\vecmu$ is instead a vector of private attributes, a function of which will be revealed by $\Holder$ during showing.
 
-\subsection{From blind signatures to ARC}
-A credential issued to a holder conceptually consists of:
-\begin{itemize}[leftmargin=1.25em]
-  \item the signed message \(\vecmu=\vecm\Vert \veck\), where \(\vecm\) are attributes and \(\veck\) is a uniformly sampled secret PRF key;
-  \item the signature \(u\) satisfying \(A u = h_{\vecmu,(r_0,r_1)}(B)\) for some bounded randomness \((r_0,r_1)\).
-\end{itemize}
-The holder may additionally store local auxiliary values needed to prove the signature relation in zero knowledge. These
-values are never revealed in showings.
-
-\paragraph{Message structure.}
-Every credential message has the abstract form
+\paragraph{Rate-limiting via the secret key \(\veck\).}
+Rate limiting is implemented by deterministic tags derived from a PRF keyed by the credential’s secret \(\veck\). For a
+ nonce \(\nonce\in\mathcal{D}\), the holder computes
 \[
-  \vecmu = \vecm \Vert \veck.
+  \prftag \;=\; \PRF(\veck,\nonce)
 \]
-Here \(\vecm\) encodes the holder attributes and \(\veck\) is sampled uniformly and serves as the secret PRF key used for
-rate limiting. At the proof-system layer this abstract message is represented by packed witness rows \((M,K)\), but the
-credential syntax itself remains the quotient-ring statement of Section~\ref{sec:blind-signature}.
+and attaches it as part of the presentation. It additionally proves correctness of $\prftag$ with respect to $\veck$ and that $\nonce \in \nonceSpace$ i.e. in the space of permitted nonces. Intuitively, if the holder never repeats a nonce, then \(\prftag\) is pseudorandom and yields unlinkable showings.  If the holder repeats a nonce, the tag repeats deterministically, enabling the verifier to detect  double-spending for that nonce.
+The verifier enforces its rate policy by maintaining state that records previously accepted \(\prftag\) values. 
 
-\subsection{Rate limiting via the secret key \(\veck\)}
-Rate limiting is implemented by deterministic tags derived from a PRF keyed by the credential's secret \(\veck\). For a
-public nonce \(\nonce\in\mathcal{D}\), the holder computes
+\subsubsection{ARC protocol}
+\label{subsec:arc-protocol}
+We assume the same setup as in Section \ref{subsec:bs-protocol}. Moreover, define the relations 
 \[
-  \prftag = \PRF(\veck,\nonce).
+\relIssueARC:=\left\{ \left(  \begin{pmatrix}
+	\ComPublicParam,\vecc,\\ 
+    t, \vecr_0^{\Issuer},\vecr_1^{\Issuer}, \\
+    \mA,B
+\end{pmatrix},(\vecw=\begin{bmatrix}
+\vecmu \\
+\veck \\
+\vecr_0^{\Holder}\\
+ \vecr_1^{\Holder} \\
+ \bar r
+\end{bmatrix})\right) ~\bigg |~ \begin{matrix} \ComPublicParam=(\mACom,\BoundMsg)  \land  \\
+\vecc = \mACom \vecw  \land \\
+ ||\vecw||_{\infty} \leq \BoundMsg \land \\ 
+\vecr_0= \centerfunc(\vecr_0^{\Holder}+\vecr_0^{\Issuer}) \land  \\
+\vecr_1=\centerfunc(\vecr_1^{\Holder}+\vecr_1^{\Issuer}) \land \\
+\vect = h_{\vecmu \| \veck,(\vecr_0,\vecr_1)}(B) \end{matrix}  \right\}
 \]
-Intuitively:
-\begin{itemize}[leftmargin=1.25em]
-  \item if the holder never repeats a nonce, then \(\prftag\) is pseudorandom and yields unlinkable showings;
-  \item if the holder repeats a nonce, the tag repeats deterministically, enabling the verifier to detect double-spending
-  for that nonce.
-\end{itemize}
-The verifier enforces its rate policy by restricting acceptable nonces and maintaining state that records previously
-accepted \((\nonce,\prftag)\) pairs for a given policy context.
+and
+\[
+\relShow :=\left\{ \left( \begin{pmatrix}
+\vecmu,\prftag,  \mA, \\
+B, \BoundMsg,\BoundSig
+\end{pmatrix},(\vecw = \begin{bmatrix}
+\veck \\ \vecr_0\\ \vecr_1 \\ \vecu \\
+\nonce
+\end{bmatrix})\right) ~\bigg |~ \begin{matrix} 
+  ||\vecmu,\veck,\vecr_0,\vecr_1||_{\infty} \leq \BoundMsg \land\\
+  ||\vecu||_\infty \leq \BoundSig  \land \\
+  \prftag = \PRF(\veck,\nonce) \land \\
+  \nonce \in \nonceSpace \land \\
+	\mA \vecu = h_{\vecmu\| \veck ,(\vecr_0,\vecr_1)}(B) \end{matrix}  \right\}
+\]
+
+Our Anonymous Rate-Limiting Credential scheme is then defined as follows:
+	\begin{description}
+		  \item[$\Setup(\SecParam)$ and $\IKeyGen$:] Same as Section \ref{sec:blind-signature}.
+         
+		\item[$\Issue$:] $\Issuer$ holds $\sk$ while $\Holder$ has $\mu,\vk$. 
+        \begin{enumerate}
+\item $\Holder$ samples \(\veck,\vecr_0^{\Holder},\vecr_0^{\Holder},\bar \vecr\) coefficient-wise in \([-\BoundMsg,\BoundMsg]\).
+\item $\Holder$ computes \(\vecc\gets \mACom\cdot [\vecmu \Vert \veck \Vert  \vecr_0^{\Holder}\Vert \vecr_0^{\Holder}\Vert \bar \vecr]^\top\) and sends \(\vecc\) to \(\Issuer\).
+\item $\Issuer$ samples \(\vecr_0^{\Issuer},\vecr_1^{\Issuer}\) coefficient-wise in \([-\BoundMsg,\BoundMsg]\) and sends \((\vecr_0^{\Issuer},\vecr_1^{\Issuer})\) to \(\Holder\).
+\item $\Holder$ sets \(\vecr_0 \gets \centerfunc(\vecr_0^{\Holder}+\vecr_0^{\Issuer})\) and \(\vecr_1 \gets \centerfunc(\vecr_0^{\Holder}+\vecr_1^{\Issuer})\).
+\item $\Holder$ computes \(\vect\gets h_{\vecmu,(\vecr_0,\vecr_1)}(B)\) and produces the
+\emph{issuing} NIZK \(\nizkIssue\) using $\nizkscheme.\ZKProve$ proving knowledge of \((\vecmu,\veck,\vecr_0^{\Holder},\vecr_0^{\Holder},\bar \vecr)\) satisfying relation $\relIssueARC$.
+\item $\Holder$ sends \((\vect,\nizkIssue)\) to \(\Issuer\).
+\item $\Issuer$ verifies \(\nizkIssue\) for relation $\relIssueARC$ on $\vecc,\vect$ using $\nizkscheme.\ZKVerify$; if it accepts, sample \(\vecu \gets \TDRH.\SampPre(\trapdoor,\vect)\) and send \(\vecu\) to \(\Holder\). Otherwise abort.
+\item $\Holder$ checks \(\mA \vecu = \vect\) and that \( || \vecu ||_\infty \leq \BoundSig  \). If yes, then output $\credential=(\vecu,\vecmu,\veck,\vecr_0,\vecr_1)$. If not, then abort. 
+
+        \end{enumerate}
+        \item[$\Show(\credential=(\vecu,\vecmu,\veck,\vecr_0,\vecr_1),\nonce)$:]~
+        \begin{enumerate}
+        \item Compute  $\prftag \;=\; \PRF(\veck,\nonce)$.
+            \item Compute a 
+\emph{showing} NIZK \(\nizkShow\) using $\nizkscheme.\ZKProve$ proving knowledge of \((\veck,\vecr_0,\vecr_1,\vecu,\nonce)\) for the relation $\relShow$.
+\item Output $\presentation:=(\nizkShow,\prftag)$.
+        \end{enumerate}
+		\item[$\Verify(\vk,\presentation=(\nizkShow,\prftag),\mu,\algstate)$:] For an initially empty $\algstate$:
+        \begin{enumerate}
+            \item Verify $\nizkShow,\mu,\prftag$ for the relation $\relShow$ using $\nizkscheme.\ZKVerify$ and output $(0,\algstate)$ if the proof rejects.
+            \item If $(\mu,\prftag)\in \algstate$ then output reject, otherwise add $(\mu,\prftag)$ to $\algstate$ and output $(1,\algstate)$.
+        \end{enumerate}
+
+	\end{description}
 
 \subsection{Concrete PRF instantiation (Poseidon2-like)}
 \label{subsec:poseidon-prf}
@@ -51,12 +94,12 @@ Definitions~\ref{def:poseidon-prf} and \ref{def:poseidon-perm}. Algorithm~\ref{a
 \caption{$\PRF(k,n)$ (Poseidon2-like with feed-forward + truncation)}
 \label{alg:prf}
 \begin{algorithmic}[1]
-\State $x \gets k\Vert n$; $x^{(0)}\gets x$
-\For{$i=1$ to $R_F/2$} \State $x\gets E_i(x)$ \EndFor
-\For{$i=1$ to $R_P$} \State $x\gets I_i(x)$ \EndFor
-\For{$i=R_F/2+1$ to $R_F$} \State $x\gets E_i(x)$ \EndFor
-\State $y \gets x + x^{(0)}$ \Comment{feed-forward}
-\State \Return $\Tr(y)$ \Comment{first $\ell_{\prftag}$ lanes}
+\\state $x \gets k\Vert n$; $x^{(0)}\gets x$
+\For{$i=1$ to $R_F/2$} \state $x\gets E_i(x)$ \EndFor
+\For{$i=1$ to $R_P$} \\state $x\gets I_i(x)$ \EndFor
+\For{$i=R_F/2+1$ to $R_F$} \\state $x\gets E_i(x)$ \EndFor
+\\state $y \gets x + x^{(0)}$ \Comment{feed-forward}
+\\state \Return $\Tr(y)$ \Comment{first $\ell_{\prftag}$ lanes}
 \end{algorithmic}
 \end{algorithm}
 
@@ -72,40 +115,6 @@ that revision boundary. The active paper keeps the subsection live because the l
 SmallWood PRF constraint discussion.
 \end{comment}
 
-\subsection{Showing protocol}
-\label{subsec:showing-protocol}
-\label{subsec:arc-protocol}
-
-\begin{algorithm}[H]
-\caption{\(\Show\): ARC presentation (canonical protocol)}
-\label{alg:showing}
-\begin{algorithmic}[1]
-\Require Holder has credential \((\vecm,\veck,r_0,r_1,u)\). Public parameters include \(A,B,\BoundMsg\) and the PRF description.
-\Require Input nonce \(\nonce\in\mathcal{D}\) that has not been used before for this credential.
-\Ensure Presentation \((\prftag,\nonce,\pi_{\mathsf{post}})\).
-\State Compute \(\prftag\gets \PRF(\veck,\nonce)\).
-\State Produce a \emph{post-sign} NIZK \(\pi_{\mathsf{post}}\) proving knowledge of \((u,\vecm,\veck,r_0,r_1)\) such that:
-\begin{enumerate}[leftmargin=1.6em]
-  \item \(A u = h_{\vecmu,(r_0,r_1)}(B)\) for \(\vecmu=\vecm\Vert \veck\);
-  \item \(\prftag = \PRF(\veck,\nonce)\);
-  \item \(\vecm,\veck,r_0,r_1\) are coefficient-wise in \([-\BoundMsg,\BoundMsg]\) and \(u\) satisfies the public shortness bound.
-\end{enumerate}
-\State Output \((\prftag,\nonce,\pi_{\mathsf{post}})\).
-\end{algorithmic}
-\end{algorithm}
-\cb{FIX THIS}
-
-At the ARC level, the intended abstract witness remains 
-\((u,\vecm,\veck,r_0,r_1)\), together with
-\(\vecmu=\vecm\Vert \veck\), satisfying the signature equation and
- the PRF-tag equation. Section~\ref{sec:smallwood-model} later specifies the compiled SmallWood relation used to realize
-that abstract witness statement. The coefficient-domain statement used in the security discussion below is recovered only
-through the theorem suite of Section~\ref{subsec:statement-strength}; we do not use any stronger identification between
-the compiled replay-space statement and the abstract showing relation.
-
-The verifier runs \(\Verify\) by checking \(\pi_{\mathsf{post}}\) and consulting a policy state that tracks used
-nonces and tags. The verifier rejects if the proof fails or if the nonce-tag pair violates the local policy.
-\cb{No message $\mu$ here}
 
 \begin{comment}
 \subsubsection{ARC protocol}
@@ -135,18 +144,7 @@ knowledge of \((u,\mu,\veck,r_0,r_1)\) satisfying the signature/hash relation, t
 bounds, rather than referring forward to the compiled Section~5 relation.
 \end{comment}
 
-\subsection{PRF role and rationale}
-The PRF serves two simultaneous roles:
-\begin{itemize}[leftmargin=1.25em]
-  \item \textbf{Public rate-limiting handle.} The tag is deterministic in \((\veck,\nonce)\) so the verifier can
-  enforce stateful policies without interacting with the issuer and without learning the credential message.
-  \item \textbf{Unlinkability across nonces.} For fresh nonces, tags are pseudorandom even given previous tags, so a
-  verifier cannot link two presentations to the same credential unless the policy context forces reuse.
-\end{itemize}
-Crucially, \(\veck\) is part of the signed message, so the holder cannot change the PRF key between showings without
-producing a new valid signature witness. The post-sign NIZK binds the public tag to that signed hidden key while keeping
-the key itself hidden. This is the mechanism by which verifier-side state can enforce rate policies through the public
-pair \((\nonce,\prftag)\).
+
 
 \subsection{ARC correctness and conditional security decomposition}
 

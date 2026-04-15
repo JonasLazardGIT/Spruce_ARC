@@ -94,24 +94,24 @@ The command has no retained operator flags.
 
 `cmd/showing` builds and verifies the retained showing proof.
 
-Default layout:
+Default retained layout:
 
 ```bash
 go run ./cmd/showing
 ```
 
-Optional layout override:
-
-```bash
-go run ./cmd/showing -coeff-model literal_packed_aggregated_v4_split_prf
-```
-
 Supported `-coeff-model` values:
 
 - `literal_packed_aggregated_v3`
-- `literal_packed_aggregated_v4_split_prf`
 
 `cmd/showing` expects the credential state prepared by `cmd/issuance`.
+
+Other retained flags tune transcript geometry and reporting, for example:
+
+- `-showing-preset`
+- `-full`
+- `-sig-shortness-profile`
+- `-prf-companion-mode`
 
 ## Typical End-to-End Flow
 
@@ -121,9 +121,10 @@ go run ./cmd/ntrucli sign -m test
 go run ./cmd/ntrucli verify
 go run ./cmd/issuance
 go run ./cmd/showing
-go run ./cmd/showing -coeff-model literal_packed_aggregated_v4_split_prf
 ```
 
 For protocol meaning, read [docs/protocol.md](docs/protocol.md). For the
 current modulus and packing rationale, read
-[docs/modulus_choice.md](docs/modulus_choice.md).
+[docs/modulus_choice.md](docs/modulus_choice.md). For the detailed
+paper-vs-code alignment note, read
+[docs/nizk_alignment_notes.md](docs/nizk_alignment_notes.md).
