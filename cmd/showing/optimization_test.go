@@ -144,7 +144,7 @@ func buildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols i
 	params := &credential.Params{
 		Ac:     optimizationIdentityAc(ringQ, 5),
 		BPath:  filepath.Join("Parameters", "Bmatrix.json"),
-		AcPath: filepath.Join("credential", "Ac.json"),
+		AcPath: credential.DefaultPublicParamsPath,
 		BoundB: 1,
 		RingQ:  ringQ,
 		LenM1:  1,
@@ -178,24 +178,24 @@ func buildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols i
 	}
 
 	out := credential.State{
-		M1:            optimizationPolyVecToInt64(ringQ, inputs.M1, false),
-		M2:            optimizationPolyVecToInt64(ringQ, inputs.M2, false),
-		RU0:           optimizationPolyVecToInt64(ringQ, inputs.RU0, false),
-		RU1:           optimizationPolyVecToInt64(ringQ, inputs.RU1, false),
-		R:             optimizationPolyVecToInt64(ringQ, inputs.R, false),
-		R0:            optimizationPolyVecToInt64(ringQ, st.R0, false),
-		R1:            optimizationPolyVecToInt64(ringQ, st.R1, false),
-		K0:            optimizationPolyVecToInt64(ringQ, st.K0, false),
-		K1:            optimizationPolyVecToInt64(ringQ, st.K1, false),
-		T:             append([]int64(nil), st.T...),
-		Com:           optimizationPolyVecToInt64(ringQ, com, true),
-		RI0:           optimizationPolyVecToInt64(ringQ, ch.RI0, true),
-		RI1:           optimizationPolyVecToInt64(ringQ, ch.RI1, true),
-		BPath:         filepath.Join("Parameters", "Bmatrix.json"),
-		AcPath:        filepath.Join("credential", "Ac.json"),
-		PRFParamsPath: filepath.Join("prf", "prf_params.json"),
-		PackedNCols:   opts.NCols,
-		B:             optimizationPolyVecToInt64(ringQ, st.B, true),
+		M1:                   optimizationPolyVecToInt64(ringQ, inputs.M1, false),
+		M2:                   optimizationPolyVecToInt64(ringQ, inputs.M2, false),
+		RU0:                  optimizationPolyVecToInt64(ringQ, inputs.RU0, false),
+		RU1:                  optimizationPolyVecToInt64(ringQ, inputs.RU1, false),
+		R:                    optimizationPolyVecToInt64(ringQ, inputs.R, false),
+		R0:                   optimizationPolyVecToInt64(ringQ, st.R0, false),
+		R1:                   optimizationPolyVecToInt64(ringQ, st.R1, false),
+		K0:                   optimizationPolyVecToInt64(ringQ, st.K0, false),
+		K1:                   optimizationPolyVecToInt64(ringQ, st.K1, false),
+		T:                    append([]int64(nil), st.T...),
+		Com:                  optimizationPolyVecToInt64(ringQ, com, true),
+		RI0:                  optimizationPolyVecToInt64(ringQ, ch.RI0, true),
+		RI1:                  optimizationPolyVecToInt64(ringQ, ch.RI1, true),
+		CredentialPublicPath: credential.DefaultPublicParamsPath,
+		BPath:                filepath.Join("Parameters", "Bmatrix.json"),
+		PRFParamsPath:        filepath.Join("prf", "prf_params.json"),
+		PackedNCols:          opts.NCols,
+		B:                    optimizationPolyVecToInt64(ringQ, st.B, true),
 	}
 	out.SigS1 = append([]int64(nil), sig.Signature.S1...)
 	out.SigS2 = append([]int64(nil), sig.Signature.S2...)
@@ -227,11 +227,7 @@ func buildShowingProofForOptimizationState(t *testing.T, st credential.State, op
 	if err != nil {
 		t.Fatalf("load B: %v", err)
 	}
-	omega, err := deriveOmegaForOpts(ringQ, opts)
-	if err != nil {
-		t.Fatalf("derive omega: %v", err)
-	}
-	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey, omega)
+	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey)
 	if err != nil {
 		t.Fatalf("derive prf key: %v", err)
 	}
@@ -240,16 +236,16 @@ func buildShowingProofForOptimizationState(t *testing.T, st credential.State, op
 	if err != nil {
 		t.Fatalf("tag: %v", err)
 	}
-	boundB, err := loadCredentialBoundB(filepath.Join(root, "credential", "params.json"))
+	publicParams, err := loadCredentialPublicParamsFromState(st)
 	if err != nil {
-		t.Fatalf("load credential bound: %v", err)
+		t.Fatalf("load credential public params: %v", err)
 	}
 	pub := PIOP.PublicInputs{
 		A:      A,
 		B:      B,
 		Tag:    lanesFromElems(tag, opts.NCols),
 		Nonce:  noncePublic,
-		BoundB: boundB,
+		BoundB: publicParams.BoundB,
 	}
 	proof, err := PIOP.BuildShowingCombined(pub, wit, opts)
 	if err != nil {
@@ -312,20 +308,20 @@ func TestShowingFullReplayModeDeterministicPackedWidths(t *testing.T) {
 			lvcsNCols = ncols
 		}
 		opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-			Credential:           true,
-			NCols:                ncols,
-			Ell:                  18,
-			DomainMode:           PIOP.DomainModeExplicit,
-			ShowingPreset:        PIOP.ShowingPresetSoundnessBalanced,
-			ShowingReplayMode:    PIOP.ShowingReplayModeFull,
-			CoeffPacking:         true,
-			PRFGroupRounds:       2,
-			PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
-			LVCSNCols:            lvcsNCols,
-			PostSignLVCSNCols:    lvcsNCols,
-			PRFLVCSNCols:         lvcsNCols,
-			CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
-			SigShortnessProfile:  PIOP.SigShortnessProfileR11L4Production,
+			Credential:          true,
+			NCols:               ncols,
+			Ell:                 18,
+			DomainMode:          PIOP.DomainModeExplicit,
+			ShowingPreset:       PIOP.ShowingPresetSoundnessBalanced,
+			ShowingReplayMode:   PIOP.ShowingReplayModeFull,
+			CoeffPacking:        true,
+			PRFGroupRounds:      2,
+			PRFCompanionMode:    PIOP.PRFCompanionModeOutputAudit,
+			LVCSNCols:           lvcsNCols,
+			PostSignLVCSNCols:   lvcsNCols,
+			PRFLVCSNCols:        lvcsNCols,
+			CoeffNativeSigModel: PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+			SigShortnessProfile: PIOP.SigShortnessProfileR11L4Production,
 		})
 		wantBlocks := len(state.T) / ncols
 		ringQ, err := credential.LoadDefaultRing()
@@ -348,11 +344,7 @@ func TestShowingFullReplayModeDeterministicPackedWidths(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load B: %v", err)
 		}
-		omega, err := deriveOmegaForOpts(ringQ, opts)
-		if err != nil {
-			t.Fatalf("derive omega: %v", err)
-		}
-		key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey, omega)
+		key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey)
 		if err != nil {
 			t.Fatalf("derive prf key: %v", err)
 		}

@@ -24,7 +24,7 @@ prototype with two retained proof roles:
 At the branch level, the implementation is split between:
 
 - reusable issuance helpers in `issuance/flow.go`
-- a local fixture/demo harness in `cmd/issuance/main.go`
+- the role-separated issuance CLI in `cmd/issuance/`
 - the retained showing CLI in `cmd/showing/main.go`
 - the SmallWood-style compiled proof stack in `PIOP/`
 
@@ -34,8 +34,9 @@ live repository is more specific:
 - issuance keeps the target `T` public inside the compiled pre-sign statement
 - showing uses one retained coeff-native proving path
 - showing uses the PRF companion route, not the legacy PRF layout
-- the shipped CLIs are local proof/demo programs; they do not implement a
-  networked issuer/verifier service or a persisted rate-limit database
+- the shipped CLIs are local proof programs; issuance now follows a
+  role-separated JSON artifact flow, but the repo still does not implement a
+  networked transport or a spent-tag database
 
 ## Source Of Truth
 
@@ -44,10 +45,10 @@ The following sources define live behavior on this branch.
 ### Runtime and command sources
 
 - `Parameters/Parameters.json`
-- `credential/params.json`
+- `Parameters/credential_public.json`
 - `prf/prf_params.json`
 - `credential/keys/credential_state.json`
-- `cmd/issuance/main.go`
+- `cmd/issuance/*.go`
 - `cmd/showing/main.go`
 
 ### Proof-system sources
@@ -81,12 +82,12 @@ The current command path depends on tracked JSON/runtime assets.
 | Asset | Role | Current live values / notes |
 | --- | --- | --- |
 | `Parameters/Parameters.json` | shared ring and signature parameters | `N=1024`, `q=1054721`, `k=21`, `beta=6142`, `bound=6142` |
-| `credential/params.json` | issuance/showing credential-side parameters | `BoundB=1`, `LenM1=1`, `LenM2=1`, `LenRU0=1`, `LenRU1=1`, `LenR=1` |
+| `Parameters/credential_public.json` | credential public parameters | `BoundB=1`, `LenM1=1`, `LenM2=1`, `LenRU0=1`, `LenRU1=1`, `LenR=1`, tracked full-matrix `Ac` |
 | `prf/prf_params.json` | PRF parameters | `q=1054721`, `d=3`, `LenKey=8`, `LenNonce=12`, `LenTag=7`, `t=20`, `RF=8`, `RP=19` |
-| `credential/Ac.json` | commitment matrix used by the issuance harness | current `cmd/issuance` rewrites this file with a simple fixture matrix |
 | `Parameters/Bmatrix.json` | rational-hash public matrix `B` | loaded by issuance and showing |
-| `credential/keys/credential_state.json` | persisted holder state | stores issuance witness material, public challenge/commitment data, signed target, public matrices, and showing-time signature rows |
-| `credential/keys/signature.json` | copied signature artifact | populated by `cmd/issuance` after signing `T` |
+| `credential/issuance/*.json` | role-separated issuance artifacts | holder/issuer JSON exchange for commit, challenge, proof submission, and response |
+| `credential/keys/credential_state.json` | persisted holder state | stores issuance witness material, public challenge/commitment data, signed target, `credential_public_path`, and showing-time signature rows |
+| `credential/keys/signature.json` | copied signature artifact | populated by `holder-finalize` when the issuer response carries the full signature bundle |
 
 ### Persisted holder state
 
@@ -94,11 +95,12 @@ The current command path depends on tracked JSON/runtime assets.
 state carries:
 
 - issuance rows `M1`, `M2`, `RU0`, `RU1`, `R`, `R0`, `R1`, `K0`, `K1`
-- public issuance artifacts `Com`, `RI0`, `RI1`, `B`, `Ac`, `T`
+- public issuance artifacts `Com`, `RI0`, `RI1`, `B`, `T`
 - showing signature rows `SigS1`, `SigS2`
 - `PackedNCols`, which fixes how the signed `M2` row is decoded into PRF key
   lanes
-- optional embedded NTRU public/private coefficients
+- `CredentialPublicPath`, which points at the stable credential public params
+- optional embedded NTRU public coefficients
 
 `credential.CoeffNativeShowingState` is only a compatibility shim for older
 JSON. Production showing derives its semantic witness from the top-level state,
@@ -126,7 +128,7 @@ The reusable issuance helpers implement the following live shape.
    row openings and public data.
 7. `issuance.SignTargetAndSave` signs the public target `T` with the NTRU
    trapdoor and persists the signature.
-8. `cmd/issuance` serializes the holder state to
+8. `holder-finalize` serializes the holder state to
    `credential/keys/credential_state.json` for the showing CLI.
 
 ### What is public and what is hidden
@@ -140,29 +142,29 @@ This matches the compiled pre-sign design used in the paper's SmallWood model:
 the prover certifies consistency of hidden rows with a public target `T`,
 rather than hiding `T` inside the proof.
 
-### Current `cmd/issuance` harness behavior
+### Current `cmd/issuance` command surface
 
-The live command is a local fixture harness, not a networked issuer/holder
-protocol implementation.
+The shipped command now follows a faithful role split:
 
-Important concrete choices in `cmd/issuance/main.go`:
+1. `holder-commit`
+2. `issuer-challenge`
+3. `holder-prove`
+4. `issuer-verify-sign`
+5. `holder-finalize`
 
-- it seeds its local RNG with `-seed` (default `1`)
-- it writes a fixture `credential/Ac.json` and `credential/params.json`
-- it sets `BoundB=1`
-- it uses one row each for `M1`, `M2`, `RU0`, `RU1`, and `R`
-- it sets `M1` and `M2` to zero rows
-- it samples `RU0`, `RU1`, and `R` from a ternary alphabet over `Ω`
-- it sets the public issuer challenge rows `RI0`, `RI1` to zero in the current
-  demo path
+`demo-local` is a convenience wrapper over those same steps.
 
-So the library path supports a general public challenge, but the shipped
-command currently exercises a simpler deterministic fixture:
+Important concrete choices in the shipped command surface:
 
-- public target formation still happens through the same helper stack
-- the witness still contains centered rows and carries
-- the public `T` is still signed and persisted
-- the message/key portion of the demo credential is currently all-zero
+- `Ac` is loaded from tracked `Parameters/credential_public.json`; issuance no
+  longer fabricates or rewrites it
+- the default holder path samples nonzero hidden witness material, including a
+  nonzero `M2`
+- the issuer path samples nonzero public challenge rows with
+  `issuance.SampleChallenge`
+- intermediate artifacts are written under `credential/issuance/`
+- final holder state carries `credential_public_path` and omits issuer
+  trapdoor material
 
 ### Current issuance proof options
 
@@ -219,7 +221,7 @@ This is the matrix form consumed by the compiled showing constraints.
 The current branch uses the signed hidden message as the PRF-key carrier.
 
 - at CLI time, `cmd/showing` extracts the key directly from the signed `M2`
-  witness to compute the public nonce/tag pair
+  witness's packed upper-half source lanes to compute the public nonce/tag pair
 - inside the compiled proof, the key is rebound through the committed message
   carrier row and the PRF companion layout
 

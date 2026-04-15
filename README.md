@@ -48,14 +48,15 @@ Run everything from the repository root.
 go run ./cmd/ntrucli gen
 go run ./cmd/ntrucli sign -m test
 go run ./cmd/ntrucli verify
-go run ./cmd/issuance
+go run ./cmd/issuance demo-local
 go run ./cmd/showing
 ```
 
 Typical order:
 
 1. `cmd/ntrucli gen` creates the NTRU trapdoor and public key
-2. `cmd/issuance` prepares credential state under `credential/keys/`
+2. `cmd/issuance demo-local` runs the faithful one-machine holder/issuer flow
+   and prepares credential state under `credential/keys/`
 3. `cmd/showing` builds and verifies a post-sign proof from that state
 
 ## Retained Showing Surface
@@ -79,8 +80,8 @@ The shipped commands rely on tracked runtime files:
 
 - `Parameters/Parameters.json`
 - `Parameters/Bmatrix.json`
-- `credential/params.json`
-- `credential/Ac.json`
+- `Parameters/credential_public.json`
+- `credential/issuance/*.json`
 - `credential/keys/*.json`
 - `prf/prf_params.json`
 - `ntru_keys/*.json`

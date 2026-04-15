@@ -12,13 +12,13 @@ Run all commands from the repository root.
 - tracked runtime assets present in the repository:
   `Parameters/Parameters.json`,
   `Parameters/Bmatrix.json`,
-  `credential/params.json`,
-  `credential/Ac.json`,
+  `Parameters/credential_public.json`,
   `prf/prf_params.json`
 
 Most workflows also read or write:
 
 - `ntru_keys/`
+- `credential/issuance/`
 - `credential/keys/`
 
 ## `cmd/ntrucli`
@@ -75,20 +75,43 @@ files used by the bundle workflow.
 
 ## `cmd/issuance`
 
-`cmd/issuance` runs the retained blind-issuance demo:
+`cmd/issuance` is the role-separated issuance CLI. Running it without a
+subcommand prints usage and exits nonzero.
+
+Faithful one-machine wrapper:
 
 ```bash
-go run ./cmd/issuance
+go run ./cmd/issuance demo-local
 ```
 
-It:
+Retained subcommands:
 
-- builds the commitment and pre-sign proof
-- verifies that proof
-- signs the target with the stored NTRU trapdoor
-- updates credential state under `credential/keys/`
+- `setup-demo-public`
+- `holder-commit`
+- `issuer-challenge`
+- `holder-prove`
+- `issuer-verify-sign`
+- `holder-finalize`
+- `demo-local`
 
-The command has no retained operator flags.
+Default issuance artifact flow:
+
+- `credential/issuance/holder_secret.json`
+- `credential/issuance/commit_request.json`
+- `credential/issuance/issue_challenge.json`
+- `credential/issuance/presign_submission.json`
+- `credential/issuance/issue_response.json`
+- `credential/keys/credential_state.json`
+
+Role-separated usage:
+
+```bash
+go run ./cmd/issuance holder-commit
+go run ./cmd/issuance issuer-challenge
+go run ./cmd/issuance holder-prove
+go run ./cmd/issuance issuer-verify-sign
+go run ./cmd/issuance holder-finalize
+```
 
 ## `cmd/showing`
 
@@ -119,7 +142,7 @@ Other retained flags tune transcript geometry and reporting, for example:
 go run ./cmd/ntrucli gen
 go run ./cmd/ntrucli sign -m test
 go run ./cmd/ntrucli verify
-go run ./cmd/issuance
+go run ./cmd/issuance demo-local
 go run ./cmd/showing
 ```
 

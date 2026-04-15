@@ -82,7 +82,7 @@ func TestApplyChallengeMatchesHashMessageAndProofVerifies(t *testing.T) {
 	params := &credential.Params{
 		Ac:     Ac,
 		BPath:  "../Parameters/Bmatrix.json",
-		AcPath: "../credential/Ac.json",
+		AcPath: "../Parameters/credential_public.json",
 		BoundB: bound,
 		RingQ:  ringQ,
 		LenM1:  1,

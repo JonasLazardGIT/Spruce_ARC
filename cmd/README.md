@@ -14,9 +14,10 @@ verification. It is the only retained command for direct NTRU operations.
 
 ## `cmd/issuance`
 
-This command runs the blind-issuance / pre-sign flow. It builds and verifies
-the issuance proof, signs the derived target, and updates the credential state
-under `credential/keys/`.
+This command now exposes the role-separated issuance surface. The holder and
+issuer exchange JSON artifacts under `credential/issuance/`, and `demo-local`
+is the faithful one-process wrapper over the same production steps. The final
+credential state is written under `credential/keys/`.
 
 ## `cmd/showing`
 

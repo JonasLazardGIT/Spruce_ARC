@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/rand"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -204,10 +203,11 @@ func main() {
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "load credential state: %v", err)
 	}
-	boundB, err := loadCredentialBoundB(filepath.Join("credential", "params.json"))
+	publicParams, err := loadCredentialPublicParamsFromState(state)
 	if err != nil {
-		cli.fatalf("[showing-cli] ", "load credential params: %v", err)
+		cli.fatalf("[showing-cli] ", "load credential public params: %v", err)
 	}
+	boundB := publicParams.BoundB
 	params, err := loadPRFParamsFromState(state)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "load prf params: %v", err)
@@ -352,7 +352,7 @@ func main() {
 	}
 
 	// Active showing uses the coeff-native PRF key witness directly.
-	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey, omega)
+	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "prf key: %v", err)
 	}
@@ -444,21 +444,11 @@ func loadPRFParamsFromState(st credential.State) (*prf.Params, error) {
 	return prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
 }
 
-func loadCredentialBoundB(path string) (int64, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, err
+func loadCredentialPublicParamsFromState(st credential.State) (credential.PublicParams, error) {
+	if st.CredentialPublicPath == "" {
+		return credential.PublicParams{}, fmt.Errorf("credential state missing credential_public_path")
 	}
-	var payload struct {
-		BoundB int64 `json:"BoundB"`
-	}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return 0, err
-	}
-	if payload.BoundB <= 0 {
-		return 0, fmt.Errorf("invalid BoundB=%d in %s", payload.BoundB, path)
-	}
-	return payload.BoundB, nil
+	return credential.LoadPublicParams(st.CredentialPublicPath)
 }
 
 func buildSignatureMatrix(r *ring.Ring, st credential.State, uCount int) ([][]*ring.Poly, error) {
@@ -548,14 +538,24 @@ func showingSignatureComponentCount(wit PIOP.WitnessInputs) int {
 	return len(wit.U)
 }
 
-func prfKeyFromSignedWitness(ringQ *ring.Ring, wit *PIOP.CoeffNativeShowingWitness, lenKey int, omega []uint64) ([]prf.Elem, error) {
+func prfKeyFromSignedWitness(ringQ *ring.Ring, wit *PIOP.CoeffNativeShowingWitness, lenKey int) ([]prf.Elem, error) {
 	if wit == nil {
 		return nil, fmt.Errorf("missing coeff-native showing witness")
 	}
-	if len(omega) > 0 {
-		return PIOP.ExtractSignedPRFKeyElemsFromM2OnOmega(ringQ, wit.M2, omega, wit.PackedNCols, lenKey)
+	ncols, err := PIOP.ResolvePackedNCols(wit.PackedNCols, 0, int(ringQ.N))
+	if err != nil {
+		return nil, err
 	}
-	return PIOP.ExtractSignedPRFKeyElems(ringQ, wit.M2, wit.PackedNCols, lenKey)
+	half := ncols / 2
+	if half < lenKey {
+		return nil, fmt.Errorf("packed ncols=%d leaves only %d upper-half lanes for lenKey=%d", ncols, half, lenKey)
+	}
+	out := make([]prf.Elem, lenKey)
+	q := ringQ.Modulus[0]
+	for i := 0; i < lenKey; i++ {
+		out[i] = prf.Elem(wit.M2.Coeffs[0][half+i] % q)
+	}
+	return out, nil
 }
 
 func credentialPolysFromInt64(r *ring.Ring, vec [][]int64) []*ring.Poly {

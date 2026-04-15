@@ -25,7 +25,7 @@ Paper anchors used here:
 Primary code anchors used here:
 
 - `issuance/flow.go`
-- `cmd/issuance/main.go`
+- `cmd/issuance/*.go`
 - `cmd/showing/main.go`
 - `credential/state.go`
 - `PIOP/credential_rows.go`
@@ -163,7 +163,7 @@ claims.
 | --- | --- | --- | --- | --- |
 | `literal_packed_aggregated_v4_split_prf` is a supported showing layout | Only `literal_packed_aggregated_v3` is supported on the retained path | Stale repo prose | `PIOP/run.go`, `PIOP/showing_builder.go`, `PIOP/showing_coeff_native_literal_packed_runtime.go` | old `README.md`, `Commands.md`, `cmd/README.md` |
 | `beta = 745` | `beta = 6142` | Stale numeric claim | `Parameters/Parameters.json`, `cmd/showing/main.go` (signature bound check) | old `docs/modulus_choice.md`, old `docs/protocol.md` |
-| `BoundB = 8` | `BoundB = 1` in the current tracked credential params and issuance harness output | Stale numeric claim | `credential/params.json`, `cmd/issuance/main.go` | old `docs/modulus_choice.md`, old `docs/protocol.md` |
+| `BoundB = 8` | `BoundB = 1` in the current tracked credential public parameters and issuance flow | Stale numeric claim | `Parameters/credential_public.json`, `cmd/issuance/*.go` | old `docs/modulus_choice.md`, old `docs/protocol.md` |
 | Showing defaults use the old `Theta=5` / `Eta=63` style profile | The default showing CLI resolves to `Theta=3`, `Eta=43`, `EllPrime=2`, `Rho=2`, `LVCSNCols=96`, `NLeaves=4096`, `Kappa={0,0,0,5}` under `soundness_balanced` | Stale numeric claim | `cmd/showing/main.go`, `PIOP/run.go` | old `docs/protocol.md` |
 | Issuance commits only carriers | Live pre-sign commits carriers, decoded aliases, and transform aliases | Stale structural claim | `PIOP/credential_rows.go`, `PIOP/credential_constraints.go` | old `docs/nizk_alignment_notes.txt`, old `docs/protocol.md` |
 

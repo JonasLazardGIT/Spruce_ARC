@@ -32,7 +32,7 @@ issuance and showing inside one coherent arithmetic model.
 - signature bound `beta = 6142`
 - signature bound alias `bound = 6142`
 
-### From `credential/params.json`
+### From `Parameters/credential_public.json`
 
 - message / centering bound `BoundB = 1`
 
@@ -123,10 +123,11 @@ At minimum, a modulus change requires revalidating all of the following:
 
 1. `Parameters/Parameters.json`
 2. `prf/prf_params.json`
-3. NTRU keys and signatures
-4. issuance output in `credential/keys/credential_state.json`
-5. showing-time signature-bound checks against the new `beta`
-6. proof geometry and preset defaults that depend on row width / packing width
+3. `Parameters/credential_public.json`
+4. NTRU keys and signatures
+5. issuance output in `credential/keys/credential_state.json`
+6. showing-time signature-bound checks against the new `beta`
+7. proof geometry and preset defaults that depend on row width / packing width
 
 In other words, the modulus is shared infrastructure. It is not safe to treat
 it as a single-package knob.

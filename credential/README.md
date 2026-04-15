@@ -9,19 +9,14 @@ It is the bridge between the operator commands and the proving code.
 
 The current state includes:
 
-- issuance-side public matrices and metadata
+- issuance witness rows and public commitment/challenge artifacts
+- `credential_public_path`, the stable credential public-parameter source
 - pre-sign witness outputs such as `T`
-- the coeff-native semantic showing payload
-- references to PRF parameters and NTRU public data
+- showing signature rows and packed-width metadata
+- references to PRF parameters and issuer public key data
 
-The semantic showing payload is built around:
-
-- `Sig`
-- `U`
-- `X0`
-- `X1`
-- `PRFKey`
-- `NCols`
+Showing reconstructs its coeff-native semantic witness directly from the
+top-level signed state; there is no separate runtime showing blob.
 
 ## Main Entry Points
 
@@ -36,6 +31,7 @@ reads it back to build the post-sign proof.
 - the persisted state is aligned with the current shared modulus
 - showing uses the coeff-native semantic payload, not a legacy layout-specific
   witness file
+- the state must not contain issuer trapdoor material
 - the state is treated as command/runtime data, not as the protocol
   specification
 

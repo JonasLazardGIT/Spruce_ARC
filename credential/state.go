@@ -59,19 +59,18 @@ type State struct {
 	Com         [][]int64 `json:"com"`
 	RI0         [][]int64 `json:"ri0"`
 	RI1         [][]int64 `json:"ri1"`
+	// Stable credential public parameters used by issuance and showing.
+	CredentialPublicPath string `json:"credential_public_path"`
 	// Paths to public parameters.
-	BPath  string `json:"b_path"`
-	AcPath string `json:"ac_path"`
-	// Embedded public parameters (coeff domain) for portability.
-	B  [][]int64   `json:"b,omitempty"`
-	Ac [][][]int64 `json:"ac,omitempty"`
+	BPath string `json:"b_path"`
+	// Embedded public B-matrix (coeff domain) for portability.
+	B [][]int64 `json:"b,omitempty"`
 	// PRF params path used when deriving tag in showing.
 	PRFParamsPath string `json:"prf_params_path,omitempty"`
 	// Optional paper-level semantic witness for coeff-native showing.
 	CoeffNativeShowing *CoeffNativeShowingState `json:"coeff_native_showing,omitempty"`
 	// NTRU keys (coeff form).
-	NTRUPublic  [][]int64 `json:"ntru_public,omitempty"`
-	NTRUPrivate [][]int64 `json:"ntru_private,omitempty"`
+	NTRUPublic [][]int64 `json:"ntru_public,omitempty"`
 }
 
 // polyToInt64 converts a ring.Poly to coeff slice in [-q/2, q/2].

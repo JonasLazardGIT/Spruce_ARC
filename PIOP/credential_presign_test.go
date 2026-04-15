@@ -355,7 +355,7 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 	params := &credential.Params{
 		Ac:     Ac,
 		BPath:  "Parameters/Bmatrix.json",
-		AcPath: "credential/Ac.json",
+		AcPath: "Parameters/credential_public.json",
 		BoundB: bound,
 		RingQ:  ringQ,
 		LenM1:  1,
@@ -560,7 +560,7 @@ func TestCredentialPreSignProofVerifies(t *testing.T) {
 	params := &credential.Params{
 		Ac:     Ac,
 		BPath:  "Parameters/Bmatrix.json",
-		AcPath: "credential/Ac.json",
+		AcPath: "Parameters/credential_public.json",
 		BoundB: bound,
 		RingQ:  ringQ,
 		LenM1:  1,
@@ -658,7 +658,7 @@ func TestCredentialPreSignTamperedHatFails(t *testing.T) {
 	params := &credential.Params{
 		Ac:     Ac,
 		BPath:  "Parameters/Bmatrix.json",
-		AcPath: "credential/Ac.json",
+		AcPath: "Parameters/credential_public.json",
 		BoundB: bound,
 		RingQ:  ringQ,
 		LenM1:  1,

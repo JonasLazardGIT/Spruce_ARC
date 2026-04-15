@@ -178,11 +178,7 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 	if err != nil {
 		t.Fatalf("load B: %v", err)
 	}
-	omega, err := deriveOmegaForOpts(ringQ, opts)
-	if err != nil {
-		t.Fatalf("derive omega: %v", err)
-	}
-	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey, omega)
+	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey)
 	if err != nil {
 		t.Fatalf("prf key: %v", err)
 	}
@@ -207,9 +203,9 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 		wit.Extras["prf_sbox"] = elemsToPolys(ringQ, sboxes)
 	}
 
-	boundB, err := loadCredentialBoundB(filepath.Join(root, "credential", "params.json"))
+	publicParams, err := loadCredentialPublicParamsFromState(state)
 	if err != nil {
-		t.Fatalf("load credential params: %v", err)
+		t.Fatalf("load credential public params: %v", err)
 	}
 
 	pub := PIOP.PublicInputs{
@@ -217,7 +213,7 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 		B:      B,
 		Tag:    tagPublic,
 		Nonce:  noncePublic,
-		BoundB: boundB,
+		BoundB: publicParams.BoundB,
 	}
 	proof, err := PIOP.BuildShowingCombined(pub, wit, opts)
 	if err != nil {
