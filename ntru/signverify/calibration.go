@@ -128,16 +128,17 @@ func CalibrateMeasuredBeta(paths SignPaths, samples, maxTrials int, opts ntru.Sa
 		mSeed := deterministicCalibrationSeed("m", i)
 		x0Seed := deterministicCalibrationSeed("x0", i)
 		x1Seed := deterministicCalibrationSeed("x1", i)
-		tCoeffs, err := ntru.ComputeTargetFromSeeds(sys, bFile, mSeed, x0Seed, x1Seed)
+		tCoeffs, err := ntru.ComputeTargetFromSeeds(sys, bFile, "", mSeed, x0Seed, x1Seed)
 		if err != nil {
 			return nil, fmt.Errorf("target %d: %w", i, err)
 		}
 		meta := targetMeta{
-			BFile:   bFile,
-			MSeed:   mSeed,
-			X0Seed:  x0Seed,
-			X1Seed:  x1Seed,
-			Persist: false,
+			BFile:        bFile,
+			HashRelation: "",
+			MSeed:        mSeed,
+			X0Seed:       x0Seed,
+			X1Seed:       x1Seed,
+			Persist:      false,
 		}
 		mrand.Seed(int64(0x5a5a0000) + int64(i))
 		sig, err := signWithLoadedKeys(pk, sk, tCoeffs, maxTrials, tunedOpts, meta, "")

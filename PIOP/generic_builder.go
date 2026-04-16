@@ -6,6 +6,7 @@ import (
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
+	"vSIS-Signature/credential"
 	kf "vSIS-Signature/internal/kfield"
 	"vSIS-Signature/prf"
 
@@ -40,7 +41,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 	}
 	if opts.Credential {
 		// Credential path: build rows, commit, derive mask config, and run FS with supplied constraints/publics.
-		ringQ, omega, ncols, err := loadParamsAndOmega(opts)
+		ringQ, omega, ncols, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
 		if err != nil {
 			return nil, fmt.Errorf("load params/omega: %w", err)
 		}
@@ -60,7 +61,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				return nil, fmt.Errorf("explicit domain: need ncols+ell <= ring dimension (ncols=%d ell=%d ringN=%d)", ncols, opts.Ell, ringQ.N)
 			}
 			var derr error
-			omega, domainPoints, derr = deriveExplicitDomain(ringQ.Modulus[0], opts.NLeaves, ncols, opts.Ell)
+			omega, domainPoints, derr = deriveExplicitDomainForRelation(ringQ.Modulus[0], opts.NLeaves, witnessNCols, ncols, opts.Ell, pub.HashRelation)
 			if derr != nil {
 				return nil, fmt.Errorf("explicit domain: %w", derr)
 			}
@@ -69,6 +70,17 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			return nil, fmt.Errorf("witness omega len=%d < witness ncols=%d", len(omega), witnessNCols)
 		}
 		omegaWitness := append([]uint64(nil), omega[:witnessNCols]...)
+		if opts.DomainMode == DomainModeExplicit && pub.HashRelation != "" {
+			nLeaves := opts.NLeaves
+			if nLeaves <= 0 {
+				nLeaves = int(ringQ.N)
+			}
+			derivedWitnessOmega, derr := deriveRelationWitnessOmega(ringQ.Modulus[0], nLeaves, witnessNCols, ncols, opts.Ell, pub.HashRelation)
+			if derr != nil {
+				return nil, fmt.Errorf("derive explicit witness omega: %w", derr)
+			}
+			omegaWitness = derivedWitnessOmega
+		}
 		if len(set.FparInt)+len(set.FparNorm)+len(set.FaggInt)+len(set.FaggNorm) == 0 {
 			return nil, fmt.Errorf("empty constraint set for credential mode")
 		}
@@ -116,7 +128,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				set.PRFLayout = prfLayout
 				set.PRFCompanionLayout = prfCompanionLayout
 			} else {
-				rows, rowInputs, rowLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, err = buildCredentialRows(ringQ, wit, opts, pub.BoundB)
+				rows, rowInputs, rowLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, err = buildCredentialRows(ringQ, pub.HashRelation, wit, opts, pub.BoundB)
 			}
 			if err != nil {
 				return nil, fmt.Errorf("build credential rows: %w", err)
@@ -124,6 +136,12 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		}
 		if set.PRFLayout != nil {
 			return nil, fmt.Errorf("legacy PRF layout is no longer supported")
+		}
+		if opts.DomainMode == DomainModeExplicit {
+			requiredPCSNCols := requiredExplicitPCSNColsForRows(ringQ, rowInputs, opts.Ell)
+			if requiredPCSNCols > ncols {
+				return nil, fmt.Errorf("explicit pcs width %d is too small for committed row degree; need at least %d", ncols, requiredPCSNCols)
+			}
 		}
 		if cerr := ValidateRowDependencyClosure(rowLayout, set.PRFLayout, witnessCount); cerr != nil {
 			return nil, fmt.Errorf("row dependency closure: %w", cerr)
@@ -438,6 +456,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if err != nil {
 			return nil, fmt.Errorf("RunMaskingFS: %w", err)
 		}
+		proof.HashRelation = pub.HashRelation
 		proof.LabelsDigest = labelsDigest
 		proof.PRFLayout = nil
 		if proof.PRFCompanion != nil && proof.PRFCompanion.Layout == nil {
@@ -481,7 +500,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				proof.LVCSNColsUsed = proof.NColsUsed
 			}
 		}
-		ringQ, omega, _, err := loadParamsAndOmega(opts)
+		ringQ, omega, _, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
 		if err != nil {
 			return false, fmt.Errorf("load params for replay: %w", err)
 		}
@@ -523,7 +542,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				return false, fmt.Errorf("explicit domain: need lvcsNCols+ell <= ring dimension (lvcsNCols=%d ell=%d ringN=%d)", lvcsNCols, ell, ringQ.N)
 			}
 			var derr error
-			omega, domainPoints, derr = deriveExplicitDomain(ringQ.Modulus[0], nLeaves, lvcsNCols, ell)
+			omega, domainPoints, derr = deriveExplicitDomainForRelation(ringQ.Modulus[0], nLeaves, witnessNCols, lvcsNCols, ell, pub.HashRelation)
 			if derr != nil {
 				return false, fmt.Errorf("explicit domain: %w", derr)
 			}
@@ -533,7 +552,10 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			if len(omega) < witnessNCols {
 				return false, fmt.Errorf("witness omega len=%d < witness ncols=%d", len(omega), witnessNCols)
 			}
-			omegaWitness = append([]uint64(nil), omega[:witnessNCols]...)
+			omegaWitness, err = deriveRelationWitnessOmega(ringQ.Modulus[0], nLeaves, witnessNCols, lvcsNCols, ell, pub.HashRelation)
+			if err != nil {
+				return false, fmt.Errorf("explicit witness omega: %w", err)
+			}
 		} else {
 			if len(omega) < lvcsNCols {
 				return false, fmt.Errorf("row-polynomial domain: omega len=%d < lvcs ncols=%d", len(omega), lvcsNCols)
@@ -690,6 +712,10 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				proof.RowLayout.IdxMHat2,
 				proof.RowLayout.IdxRHat0,
 				proof.RowLayout.IdxRHat1,
+				proof.RowLayout.IdxMSigmaR1,
+				proof.RowLayout.IdxR0R1,
+				proof.RowLayout.IdxMSigmaR1Hat,
+				proof.RowLayout.IdxR0R1Hat,
 			} {
 				if idx+1 > rowCount {
 					rowCount = idx + 1
@@ -747,6 +773,14 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		if !haveCred && !havePRF {
 			return false, fmt.Errorf("no evaluators available for replay")
 		}
+		replayFparCoeffs := append(append([][]uint64{}, set.FparIntCoeffs...), set.FparNormCoeffs...)
+		replayFaggCoeffs := append(append([][]uint64{}, set.FaggIntCoeffs...), set.FaggNormCoeffs...)
+		if len(replayFparCoeffs) == 0 && len(proof.FparCoeffDebug) > 0 {
+			replayFparCoeffs = copyMatrix(proof.FparCoeffDebug)
+		}
+		if len(replayFaggCoeffs) == 0 && len(proof.FaggCoeffDebug) > 0 {
+			replayFaggCoeffs = copyMatrix(proof.FaggCoeffDebug)
+		}
 		replay := &ConstraintReplay{
 			Eval:       eval,
 			EvalK:      evalK,
@@ -757,8 +791,19 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			CarryBound: carryBound,
 			Fpar:       append(append([]*ring.Poly{}, set.FparInt...), set.FparNorm...),
 			Fagg:       append(append([]*ring.Poly{}, set.FaggInt...), set.FaggNorm...),
-			FparCoeffs: append(append([][]uint64{}, set.FparIntCoeffs...), set.FparNormCoeffs...),
-			FaggCoeffs: append(append([][]uint64{}, set.FaggIntCoeffs...), set.FaggNormCoeffs...),
+			FparCoeffs: replayFparCoeffs,
+			FaggCoeffs: replayFaggCoeffs,
+		}
+		if proof.HashRelation == credential.HashRelationBBTran {
+			if len(pub.Ac) > 0 && len(pub.A) == 0 {
+				replay.FparOverrideIdxs = []int{9, 10}
+			} else if rowLayoutHasCoeffNativeSig(proof.RowLayout) {
+				replayBlocks := rowLayoutReplayBlockCount(proof.RowLayout)
+				if replayBlocks <= 0 {
+					replayBlocks = 1
+				}
+				replay.FparOverrideIdxs = []int{replayBlocks, replayBlocks + 1}
+			}
 		}
 
 		okLin, okEq4, okSum, err := VerifyNIZKWithReplay(proof, replay)

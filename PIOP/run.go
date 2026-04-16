@@ -496,6 +496,8 @@ type RowLayout struct {
 	IdxR1              int
 	IdxK0              int
 	IdxK1              int
+	IdxMSigmaR1        int
+	IdxR0R1            int
 	IdxCarrierM        int
 	IdxCarrierPreRU    int
 	IdxCarrierPreR     int
@@ -512,6 +514,8 @@ type RowLayout struct {
 	IdxMHat2           int
 	IdxRHat0           int
 	IdxRHat1           int
+	IdxMSigmaR1Hat     int
+	IdxR0R1Hat         int
 	ChainBase          int
 	ChainRowsPerSig    int
 	PackedSigChainBase int
@@ -567,6 +571,7 @@ type KPolySnapshot struct {
 // nine-round SmallWood–ARK flow.
 type Proof struct {
 	Root             [16]byte
+	HashRelation     string
 	Salt             []byte
 	Ctr              [4]uint64
 	Digests          [4][]byte
@@ -604,10 +609,13 @@ type Proof struct {
 	QRBitWidth     uint8
 	QDegreeBound   int
 	QOpening       *decs.DECSOpening
-	qCoeffDebug    [][]uint64
-	maskCoeffDebug [][]uint64
-	fparCoeffDebug [][]uint64
-	faggCoeffDebug [][]uint64
+	// These coefficient snapshots are retained so verifier-side constraint
+	// replay can reconstruct explicit-domain residual families after the proof
+	// crosses a JSON boundary.
+	QCoeffDebug    [][]uint64 `json:"q_coeff_debug,omitempty"`
+	MaskCoeffDebug [][]uint64 `json:"mask_coeff_debug,omitempty"`
+	FparCoeffDebug [][]uint64 `json:"fpar_coeff_debug,omitempty"`
+	FaggCoeffDebug [][]uint64 `json:"fagg_coeff_debug,omitempty"`
 	MKData         []KPolySnapshot
 	QKData         []KPolySnapshot
 	RowLayout      RowLayout

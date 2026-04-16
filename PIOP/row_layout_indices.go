@@ -16,6 +16,8 @@ func rowLayoutPostSignR0(layout RowLayout) int { return resolveRowLayoutIdx(layo
 func rowLayoutPostSignR1(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxR1, 6) }
 func rowLayoutPreSignK0(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxK0, 7) }
 func rowLayoutPreSignK1(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxK1, 8) }
+func rowLayoutMSigmaR1(layout RowLayout) int   { return resolveRowLayoutIdx(layout, layout.IdxMSigmaR1, -1) }
+func rowLayoutR0R1(layout RowLayout) int       { return resolveRowLayoutIdx(layout, layout.IdxR0R1, -1) }
 func rowLayoutPostSignCarrierM(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxCarrierM, -1)
 }
@@ -82,6 +84,12 @@ func rowLayoutPostSignRHat0(layout RowLayout) int {
 func rowLayoutPostSignRHat1(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxRHat1, -1)
 }
+func rowLayoutPostSignMSigmaR1Hat(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxMSigmaR1Hat, -1)
+}
+func rowLayoutPostSignR0R1Hat(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxR0R1Hat, -1)
+}
 func rowLayoutPostSignTHatIndex(layout RowLayout, block int) int {
 	base := rowLayoutPostSignTHatBase(layout)
 	count := rowLayoutReplayTHatCount(layout)
@@ -108,6 +116,22 @@ func rowLayoutPostSignRHat0Index(layout RowLayout, block int) int {
 }
 func rowLayoutPostSignRHat1Index(layout RowLayout, block int) int {
 	base := rowLayoutPostSignRHat1(layout)
+	count := rowLayoutReplayBlockCount(layout)
+	if base < 0 || block < 0 || block >= count {
+		return -1
+	}
+	return base + block
+}
+func rowLayoutPostSignMSigmaR1HatIndex(layout RowLayout, block int) int {
+	base := rowLayoutPostSignMSigmaR1Hat(layout)
+	count := rowLayoutReplayBlockCount(layout)
+	if base < 0 || block < 0 || block >= count {
+		return -1
+	}
+	return base + block
+}
+func rowLayoutPostSignR0R1HatIndex(layout RowLayout, block int) int {
+	base := rowLayoutPostSignR0R1Hat(layout)
 	count := rowLayoutReplayBlockCount(layout)
 	if base < 0 || block < 0 || block >= count {
 		return -1

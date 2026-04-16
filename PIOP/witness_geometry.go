@@ -130,6 +130,20 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 					}
 				}
 			}
+			for _, idx := range []int{layout.IdxMSigmaR1, layout.IdxR0R1} {
+				if idx >= 0 {
+					out.NonSigRows++
+				}
+			}
+			for _, idx := range []int{layout.IdxMSigmaR1Hat, layout.IdxR0R1Hat} {
+				if idx >= 0 {
+					if replayBlocks > 0 {
+						out.NonSigRows += replayBlocks
+					} else {
+						out.NonSigRows++
+					}
+				}
+			}
 		}
 		if layout.ChainRowsPerSig > 0 && cfg.W1SigCount > 0 {
 			out.SigShortnessRows = layout.ChainRowsPerSig * cfg.W1SigCount

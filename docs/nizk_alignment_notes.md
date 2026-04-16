@@ -1,182 +1,160 @@
 # NIZK Alignment Notes
 
-This note records how the live SPRUCE branch aligns with, compresses, or
-deviates from the current ARC-SPRUCE paper source. It is not a protocol spec;
-that role belongs to [protocol.md](protocol.md). This file is the detailed
-paper-vs-code reconciliation log.
+This note records how the live SPRUCE branch aligns with the current
+ARC-SPRUCE paper source after the retained `bb_tran` migration. It is not the
+protocol specification; that role belongs to [protocol.md](protocol.md).
 
 ## Reading Rule
 
-Interpret the tables below with the following precedence:
+When descriptions disagree, use this precedence:
 
 1. the current codebase and tracked runtime assets define live behavior
-2. the paper source defines the comparison target
-3. older repo prose is subordinate to both and may be stale
+2. the paper under `docs/ARC_Spruce/` is the comparison target
+3. older repo prose is subordinate to both
 
-## Comparison Method
+## Comparison Scope
 
-Paper anchors used here:
+Primary paper anchors:
 
+- `docs/ARC_Spruce/sections/02_preliminaries.tex`
 - `docs/ARC_Spruce/sections/03_blind_signature.tex`
 - `docs/ARC_Spruce/sections/04_arc_construction.tex`
 - `docs/ARC_Spruce/sections/05_smallwood_model.tex`
 - `docs/ARC_Spruce/appendix/C_smallwood_details.tex`
+- `docs/ARC_Spruce/sections/06_parameters.tex`
+- `docs/ARC_Spruce/appendix/D_extended_parameters.tex`
 
-Primary code anchors used here:
+Primary code anchors:
 
+- `credential/hash_relation.go`
+- `credential/helpers.go`
+- `credential/public_params.go`
 - `issuance/flow.go`
 - `cmd/issuance/*.go`
 - `cmd/showing/main.go`
-- `credential/state.go`
 - `PIOP/credential_rows.go`
 - `PIOP/credential_constraints.go`
-- `PIOP/showing_builder.go`
+- `PIOP/hash_relation.go`
+- `PIOP/hash_relation_rows.go`
 - `PIOP/showing_coeff_native_literal_packed_runtime.go`
 - `PIOP/showing_transform_bridge_constraints.go`
-- `PIOP/prf_companion_bridge.go`
-- `PIOP/generic_builder.go`
-- `PIOP/run.go`
+- `PIOP/showing_transform_bridge_eval.go`
+- `ntru/hash_bridge.go`
 
 ## At A Glance
 
-- The live branch still follows the paper's compiled-story split: public-`T`
-  issuance plus post-sign showing with PRF-tag constraints.
-- The implementation compresses more of the semantic witness than the paper
-  presentation suggests, especially on the showing path.
-- The live showing runtime supports only coeff-native
-  `literal_packed_aggregated_v3`.
-- Reduced replay is the default live mode; full replay is optional.
-- The paper's top-level rational-hash inverse witness `Z` does not exist as a
-  separate committed showing source row on the retained live path.
+- The canonical concrete hash relation is now `bb_tran` on both the live
+  branch and the updated paper path.
+- The branch still preserves the same architecture:
+  holder computes public `T`, issuer signs `T`, showing proves possession of a
+  signature on `T` together with PRF-tag correctness.
+- The live implementation keeps `bbs` only as an explicit transition mode
+  through alternate public params; the canonical runtime artifact is
+  `Parameters/credential_public.json`.
+- The important remaining paper-vs-runtime differences are no longer about the
+  hash algebra itself. They are about runtime compression choices and command
+  surface choices: reduced replay by default, compressed non-sign source rows,
+  a mandatory PRF companion route, and the absence of a shipped spent-tag
+  database.
 
 ## Core Alignment Matrix
 
 | Paper term / claim | Live implementation | Status | Code anchor | Paper anchor |
 | --- | --- | --- | --- | --- |
-| Pre-sign carry surface is written as `C^J`, `J_0`, `J_1` | The same semantic carry surface is named `C^K`, `K0`, `K1` in code and in persisted state | Equivalent with renamed notation | `PIOP/carrier_codec.go`, `issuance/flow.go`, `credential/state.go` | `sections/05_smallwood_model.tex` (issuance compiled relation), `appendix/C_smallwood_details.tex` (issuance witness surface) |
-| Issuance compiled relation keeps `T` public | The pre-sign proof takes `T` as a public input and stores it in state before signing | Equivalent | `issuance/flow.go` (`ApplyChallenge`, `ProvePreSign`, `VerifyPreSign`) | `sections/05_smallwood_model.tex` (issuance compiled relation) |
-| Issuance semantic witness groups are carrier rows, decoded rows, and replay aliases | The live pre-sign row builder commits 5 carriers, 9 decoded aliases, and 4 transform aliases | Equivalent at compiled level, but code is more explicit about the concrete row inventory | `PIOP/credential_rows.go`, `PIOP/credential_constraints.go` | `sections/05_smallwood_model.tex` and `appendix/C_smallwood_details.tex` (issuance witness surface) |
-| Message/key rows in issuance are written as `M`, `K` | The code carries the signed message split as `M1`, `M2`; `M2` is the part later decoded as the PRF-key carrier | Equivalent with different concrete row naming | `credential/state.go`, `cmd/showing/main.go`, `PIOP/credential_rows.go` | `sections/04_arc_construction.tex`, `sections/05_smallwood_model.tex` |
-| Showing semantic groups include cert-side signature surface, compressed non-sign data, source rows `T, M, K, R0, R1, Z`, replay-image blocks, and PRF companion rows | The live retained layout commits carrier rows `C^M`, `C^ctr`, explicit `T` source blocks, replay rows for `hat(T)`, `hat(M1+M2)`, `hat(R0)`, `hat(R1)`, packed signature limb rows, and PRF companion rows | Partially aligned; live code compresses or omits several paper-semantic source rows | `PIOP/showing_coeff_native_literal_packed_runtime.go`, `PIOP/showing_transform_bridge_constraints.go` | `sections/05_smallwood_model.tex` and `appendix/C_smallwood_details.tex` (showing compiled relation / witness surface) |
-| Showing source rows `M`, `K`, `R0`, `R1` are described as explicit committed source rows | On the live path, `M/K/R0/R1` are not committed as separate top-level source rows; they are recovered from carrier rows by public decode maps | Compressed in code relative to the paper's semantic presentation | `PIOP/showing_coeff_native_literal_packed_runtime.go`, `PIOP/showing_transform_bridge_constraints.go` | `sections/05_smallwood_model.tex` (showing committed rows) |
-| Showing replay family is written as full block families `hat(T)_b`, `hat(m)_b`, `hat(R0)_b`, `hat(R1)_b` | The code supports full replay, but the default runtime path uses `ShowingReplayModeReduced`, i.e. one replay block | Partially aligned; full family exists, default runtime is reduced | `PIOP/run.go`, `cmd/showing/main.go`, `PIOP/showing_coeff_native_literal_packed_runtime.go` | `sections/05_smallwood_model.tex` and `appendix/C_smallwood_details.tex` (full replay-image block families) |
-| Paper writes the replay message family as `hat(m)_b = F_rep,b(M+K)` | The live code commits a combined replay row family for `M1+M2`, named `hat(M sigma)` in the row layout | Equivalent after concrete message split | `PIOP/showing_coeff_native_literal_packed_runtime.go`, `PIOP/showing_transform_bridge_constraints.go` | `sections/05_smallwood_model.tex` (source-to-replay bridges) |
-| Paper includes a source-side inverse witness `Z` satisfying `(B3 - R1) Had Z = 1` | No separate rational-hash inverse source row `Z` is committed on the retained live showing path | Diverged / not realized verbatim on the retained runtime | absence in `PIOP/showing_coeff_native_literal_packed_runtime.go` row layout; no rational-hash `IdxZ` or analogous committed source row | `sections/05_smallwood_model.tex` (inverse-witness constraint), `appendix/C_smallwood_details.tex` |
-| PRF companion constraints bind the public tag to the signed hidden key | The live showing builder forces the PRF companion route and rejects the legacy PRF layout | Equivalent at semantic level, stricter at runtime | `PIOP/showing_builder.go`, `PIOP/prf_companion_bridge.go`, `PIOP/generic_builder.go` | `sections/05_smallwood_model.tex` (PRF companion constraints) |
-| The signed hidden key is denoted `K` in the showing relation | The live command computes the public tag by extracting key lanes from signed `M2`, while the proof re-binds those lanes through the message carrier row | Equivalent with a different concrete data path | `cmd/showing/main.go`, `PIOP/showing_coeff_native_literal_packed_runtime.go` | `sections/04_arc_construction.tex`, `sections/05_smallwood_model.tex` |
-| The verifier checks replay-space constraints against one coherent witness assignment | The live replay verifier composes post-sign transform constraints, signature shortness, and PRF companion checks against one committed row set under one root | Equivalent | `PIOP/generic_builder.go`, `PIOP/constraint_eval.go`, `PIOP/prf_companion_bridge.go` | `appendix/C_smallwood_details.tex` (what DECS/LVCS/PCS bind) |
+| Concrete target relation is `bb_tran` | `credential.HashRelationBBTran` is the canonical mode selected by `Parameters/credential_public.json` | Aligned | `credential/hash_relation.go`, `credential/public_params.go`, `credential/helpers.go` | `sections/02_preliminaries.tex` |
+| `bbs` remains available only as a transition mode | Alternate public params select `hash_relation=bbs`; no mixed-relation credential flow is supported | Aligned as a transition rule | `Parameters/credential_public_bbs.json`, `cmd/issuance/flow_helpers.go`, `cmd/showing/main.go` | repo-level migration note; paper treats `bb_tran` as canonical |
+| Issuance keeps `T` public and proves it against committed hidden rows | Pre-sign proof takes `T` as a public input and signs the verified public `T` | Aligned | `issuance/flow.go`, `cmd/issuance/*.go` | `sections/03_blind_signature.tex`, `sections/04_arc_construction.tex`, `sections/05_smallwood_model.tex` |
+| Canonical cleared BB-tran relation uses two auxiliary products | Pre-sign and showing both add `MSigmaR1=(M1+M2)*R1` and `R0R1=R0*R1` when `hash_relation=bb_tran` | Aligned | `PIOP/hash_relation_rows.go`, `PIOP/credential_rows.go`, `PIOP/showing_coeff_native_literal_packed_runtime.go` | `sections/02_preliminaries.tex`, `sections/05_smallwood_model.tex`, `appendix/C_smallwood_details.tex` |
+| Pre-sign surface includes carrier rows, decoded aliases, and BB-tran product families | Canonical `bb_tran` pre-sign witness commits 5 carriers, 9 aliases, 2 source product rows, 4 transform aliases, and 2 product transform aliases | Aligned | `PIOP/credential_rows.go`, `PIOP/credential_constraints.go` | `sections/05_smallwood_model.tex`, `appendix/C_smallwood_details.tex` |
+| Showing surface keeps cert-side signature rows, compressed non-sign witness, replay families, and PRF companion rows | Live retained runtime commits carrier rows `C^M`, `C^ctr`, explicit `T` source blocks, replay families for `hat(T)`, `hat(M1+M2)`, `hat(R0)`, `hat(R1)`, and in `bb_tran` mode also `MSigmaR1`, `R0R1`, `hat(MSigmaR1)`, `hat(R0R1)` | Aligned at retained compiled-statement level | `PIOP/showing_coeff_native_literal_packed_runtime.go`, `PIOP/showing_transform_bridge_constraints.go` | `sections/05_smallwood_model.tex`, `appendix/C_smallwood_details.tex` |
+| No source-side inverse witness `Z` appears in the canonical BB-tran statement | The live runtime has no rational-hash inverse row `Z`; it uses the two product rows instead | Aligned | absence of `IdxZ`-style row in `PIOP/showing_coeff_native_literal_packed_runtime.go`; presence of `IdxMSigmaR1`, `IdxR0R1` | `sections/02_preliminaries.tex`, `sections/05_smallwood_model.tex`, `appendix/C_smallwood_details.tex` |
+| Showing theorem extracts `(u,T,M,K,R0,R1,MSigmaR1,R0R1)` instead of `(u,T,M,K,R0,R1,Z)` | The verifier and replay builders enforce the BB-tran expanded relation directly; no `Z` witness is reconstructed | Aligned | `PIOP/showing_transform_bridge_eval.go`, `PIOP/constraint_eval.go` | `sections/05_smallwood_model.tex`, `sections/04_arc_construction.tex` |
+| Signed hidden PRF key is the second packed message half | The live command extracts PRF key lanes from signed `M2` and the proof re-binds them through the message carrier row | Aligned with concrete naming difference | `cmd/showing/main.go`, `PIOP/showing_transform_bridge_constraints.go` | `sections/04_arc_construction.tex`, `sections/05_smallwood_model.tex` |
+| Full replay exists semantically | The runtime supports both `full` and `reduced` replay, but defaults to `reduced` | Partially aligned; same relation family, narrower default runtime | `PIOP/run.go`, `PIOP/showing_coeff_native_literal_packed_runtime.go`, `cmd/showing/main.go` | `sections/05_smallwood_model.tex`, `sections/06_parameters.tex` |
+| PRF companion constraints bind the tag to the same signed secret | The live builder forces the PRF companion route and rejects the legacy PRF layout | Aligned semantically, stricter operationally | `PIOP/showing_builder.go`, `PIOP/prf_companion_bridge.go`, `PIOP/generic_builder.go` | `sections/05_smallwood_model.tex` |
+| Concrete showing verifier includes spent-tag policy state | The shipped CLI proves and verifies locally but does not maintain the application-layer spent-tag database | Intentionally outside the current command surface | `cmd/showing/main.go` | `sections/04_arc_construction.tex` |
 
-## Important Divergences And Compression Choices
+## Concrete BB-tran Statement Used Live
 
-### 1. Pre-sign carry naming changed, semantics did not
+The canonical public params file `Parameters/credential_public.json` sets:
 
-The paper now writes the centering carry surface as:
+- `hash_relation = bb_tran`
+- `BPath = Parameters/Bmatrix_bb_tran.json`
 
-- `C^J`
-- `J_0`
-- `J_1`
+The retained concrete target is therefore
 
-The live code still uses:
+`T = B1 * (M1 + M2) + B2 * R0 + 1 / (B3 - R1)`
 
-- `C^K`
-- `K0`
-- `K1`
+whenever `B3 - R1` is invertible in `Rq`.
 
-This is a naming mismatch, not a different constraint. The carry rows still
-mean "the wrap count needed to express centered randomness as
-`RU + RI = R + (2 * BoundB + 1) * carry`".
+The compiled proofs certify the expanded retained form
 
-### 2. The live pre-sign surface is not carrier-only
+`B3*T - T*R1 - (B3*B1)*(M1+M2) - (B3*B2)*R0 + B1*MSigmaR1 + B2*R0R1 - 1 = 0`
 
-Older prose in this repo sometimes said that issuance commits only carrier
-rows. That is false for the current branch.
+with auxiliary products
 
-The live pre-sign witness surface includes:
+- `MSigmaR1 = (M1 + M2) * R1`
+- `R0R1 = R0 * R1`
 
-- 5 carrier rows
-- 9 decoded alias rows
-- 4 transform/replay aliases
+This is the exact reason the live `bb_tran` witness geometry is larger than
+the former `bbs` geometry.
 
-That row inventory is enforced by the live builder and verifier path in
-`PIOP/credential_rows.go` and `PIOP/credential_constraints.go`.
+## Remaining Compression Choices
 
-### 3. Showing is more compressed than the paper-semantic description
+### 1. The showing source witness is still compressed
 
-The paper's SmallWood model describes semantic groups that include explicit
-source rows `M`, `K`, `R0`, `R1`, and `Z`. The retained live runtime instead
-compresses the non-sign portion as follows:
+The retained live runtime does not commit separate top-level source rows for
+`M`, `K`, `R0`, and `R1`. Instead:
 
-- `M` and `K` are carried through one message carrier row, then decoded
-  virtually
-- `R0` and `R1` are carried through one centering carrier row, then decoded
-  virtually
-- only `T` is committed as an explicit top-level source-row family
-- the replay message family is committed directly as the combined message row
-  `M1 + M2`
+- `M` and `K` are recovered from `C^M`
+- `R0` and `R1` are recovered from `C^ctr`
+- `T` remains an explicit source family
+- `MSigmaR1` and `R0R1` are explicit proof-only source rows in `bb_tran`
 
-This is the single most important paper-vs-code distinction on the live
-showing path.
+This is deliberate. The paper now describes the retained compiled statement in
+that compressed form rather than pretending the implementation commits a fully
+expanded source tuple.
 
-### 4. Reduced replay is the default runtime, not the full paper family
+### 2. Reduced replay is still the default runtime
 
-The paper's compiled showing relation is written against the full replay-image
-block family. The live code can still commit that family, but only when
-`ShowingReplayModeFull` is selected.
+The compiled relation supports full replay families, but the shipped defaults
+continue to use:
 
-The default runtime path is:
+- `ReplayMode = reduced`
+- one replay block for each retained replay family
 
-- `ShowingReplayModeReduced`
-- one replay block for `hat(T)`
-- one replay block for `hat(M1+M2)`
-- one replay block for `hat(R0)`
-- one replay block for `hat(R1)`
+So the canonical theorem statement and the runtime agree on the replay family,
+while the default CLI still picks the narrower geometry for proof size.
 
-This is why the current code should be described as "paper-aligned in shape,
-reduced by default in runtime geometry".
+### 3. The runtime is relation-bound
 
-### 5. The paper's rational-hash inverse witness `Z` is not present verbatim
+Credentials are now explicitly tied to the relation selected by the public
+params. In practice this means:
 
-Be careful not to confuse two different uses of the letter `Z`:
+- `bb_tran` credentials are issued and shown against
+  `Parameters/credential_public.json`
+- `bbs` credentials are issued and shown only against the alternate
+  `Parameters/credential_public_bbs.json`
+- showing rejects mismatches between the state's stored relation and the
+  loaded public params
 
-- the paper's rational-hash inverse witness `Z`
-- the live PRF companion checkpoint openings named `Z`, which are S-box-side
-  audit values
-
-The retained code does have PRF checkpoint openings named `Z`, but those are
-not the paper's rational-hash inverse witness. The live retained showing layout
-does not commit a separate source row for the paper's rational-hash `Z`.
+There is no cross-relation compatibility layer.
 
 ## Supported-Mode Matrix
 
-| Paper / repo expectation | Live branch status | Status | Code anchor | Note |
-| --- | --- | --- | --- | --- |
-| Multiple showing layouts remain supported | Only coeff-native `literal_packed_aggregated_v3` is supported by the proving core | Diverged from stale repo prose | `PIOP/run.go`, `PIOP/showing_builder.go`, `PIOP/showing_coeff_native_literal_packed_runtime.go`, `PIOP/generic_builder.go` | `literal_packed_aggregated_v4_split_prf` is stale documentation, not a live mode |
-| Legacy PRF replay layout may still exist | The showing builder rejects the legacy PRF layout and requires the PRF companion route | Stricter in code | `PIOP/showing_builder.go`, `PIOP/generic_builder.go` | Live showing is the PRF companion route |
-| Full verifier-side ARC policy is part of the shown flow | The shipped CLI only builds/verifies proofs locally; it does not store or reject spent tags | Not implemented in command surface | `cmd/showing/main.go` | Application-layer state must be added outside the current CLI |
+| Expectation | Live branch status | Status | Code anchor |
+| --- | --- | --- | --- |
+| Canonical relation is `bb_tran` | Yes | Implemented | `credential/public_params.go`, `cmd/issuance/flow_helpers.go` |
+| Transition `bbs` mode still exists | Yes, only behind an explicit selector | Implemented | `credential/hash_relation.go`, `Parameters/credential_public_bbs.json` |
+| Multiple coeff-native showing layouts remain supported | No; only `literal_packed_aggregated_v3` is retained | Intentionally narrowed | `PIOP/run.go`, `PIOP/showing_builder.go` |
+| Legacy PRF replay layout still exists | No; PRF companion is mandatory | Intentionally narrowed | `PIOP/showing_builder.go`, `PIOP/generic_builder.go` |
+| Shipped verifier enforces spent-tag policy state | No; local CLI only | Not part of current command surface | `cmd/showing/main.go` |
 
-## Stale Repo Claims Fixed By This Rewrite
+## What To Trust
 
-The rewrite of the surrounding docs corrects the following stale repo-level
-claims.
+If you are checking a claim about the current branch:
 
-| Stale repo claim | Live value / behavior | Status | Code / asset anchor | Where it was stale |
-| --- | --- | --- | --- | --- |
-| `literal_packed_aggregated_v4_split_prf` is a supported showing layout | Only `literal_packed_aggregated_v3` is supported on the retained path | Stale repo prose | `PIOP/run.go`, `PIOP/showing_builder.go`, `PIOP/showing_coeff_native_literal_packed_runtime.go` | old `README.md`, `Commands.md`, `cmd/README.md` |
-| `beta = 745` | `beta = 6142` | Stale numeric claim | `Parameters/Parameters.json`, `cmd/showing/main.go` (signature bound check) | old `docs/modulus_choice.md`, old `docs/protocol.md` |
-| `BoundB = 8` | `BoundB = 1` in the current tracked credential public parameters and issuance flow | Stale numeric claim | `Parameters/credential_public.json`, `cmd/issuance/*.go` | old `docs/modulus_choice.md`, old `docs/protocol.md` |
-| Showing defaults use the old `Theta=5` / `Eta=63` style profile | The default showing CLI resolves to `Theta=3`, `Eta=43`, `EllPrime=2`, `Rho=2`, `LVCSNCols=96`, `NLeaves=4096`, `Kappa={0,0,0,5}` under `soundness_balanced` | Stale numeric claim | `cmd/showing/main.go`, `PIOP/run.go` | old `docs/protocol.md` |
-| Issuance commits only carriers | Live pre-sign commits carriers, decoded aliases, and transform aliases | Stale structural claim | `PIOP/credential_rows.go`, `PIOP/credential_constraints.go` | old `docs/nizk_alignment_notes.txt`, old `docs/protocol.md` |
-
-## What To Trust When Descriptions Disagree
-
-When you encounter disagreement between the paper, the code, and repo prose on
-this branch, use this rule:
-
-- trust the code and tracked runtime assets for live behavior
-- trust the paper for the intended semantic model and theorem statements
-- use this file to map one to the other
-
-If a future branch restores explicit source rows for the paper-semantic showing
-surface, restores a second coeff-native layout, or reintroduces a distinct
-rational-hash inverse row, this note should be updated before the protocol doc
-is changed again.
+- trust the code and tracked assets for live behavior
+- trust the paper for the intended theorem-facing retained BB-tran statement
+- use this note to distinguish true cryptographic changes from runtime
+  compression or operator-surface choices

@@ -173,15 +173,21 @@ rule rather than a stand-alone cryptographic theorem.
 Knowledge soundness of the post-sign proof yields a witness for the compiled showing relation of
 Section~\ref{sec:smallwood-model}. Section~\ref{subsec:statement-strength} is the sole bridge from that compiled
 replay-space statement to the coefficient-domain statement used here. In particular,
-Corollary~\ref{cor:showing-proof-consequence} yields a witness \((u,T,M,K,R_0,R_1,Z)\) satisfying
+Corollary~\ref{cor:showing-proof-consequence} yields a witness
+\((u,T,M,K,R_0,R_1,MSigmaR1,R0R1)\) satisfying
 \[
-B_3Au-(Au)R_1-B_0-B_1(M+K)-B_2R_0=0
+B_3Au-(Au)R_1-(B_3B_1)(M+K)-(B_3B_2)R_0+B_1MSigmaR1+B_2R0R1-1=0
 \]
-in \(R_q\), together with
+in \(R_q\), together with the derived identities
 \[
-(B_3-R_1)\Had Z = 1,
+MSigmaR1=(M+K)R_1,
 \qquad
-Au = h_{M+K,(R_0,R_1)}(B).
+R0R1=R_0R_1.
+\]
+If moreover \(B_3-R_1\in R_q^\times\), then this coefficient-domain statement is
+equivalent to the abstract BB-tran target equation
+\[
+Au = h^{\mathrm{bb\mbox{-}tran}}_{M+K,(R_0,R_1)}(B).
 \]
 Under that signature-side condition, together with one-more unforgeability of the blind issuance layer and correctness
 of the PRF, the signed key \(\veck\) determines the public tag uniquely for each nonce. Consequently, a verifier that

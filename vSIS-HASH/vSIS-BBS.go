@@ -90,6 +90,47 @@ func ComputeBBSHash(
 	return t, nil
 }
 
+// ComputeBBTranHash evaluates the BB-tran target and returns it in the NTT
+// domain. The first public B polynomial must be identically zero in this
+// retained 4-slot encoding.
+func ComputeBBTranHash(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	m, x0, x1 *ring.Poly,
+) (*ring.Poly, error) {
+	if len(B) != 4 {
+		return nil, errors.New("need four B polynomials")
+	}
+	for _, c := range B[0].Coeffs[0] {
+		if c != 0 {
+			return nil, errors.New("bb_tran requires B[0] = 0")
+		}
+	}
+
+	ringQ.NTT(m, m)
+	ringQ.NTT(x0, x0)
+	ringQ.NTT(x1, x1)
+
+	tmp := ringQ.NewPoly()
+	linear := ringQ.NewPoly()
+	ringQ.MulCoeffs(B[1], m, tmp)
+	ring.Copy(tmp, linear)
+	ringQ.MulCoeffs(B[2], x0, tmp)
+	ringQ.Add(linear, tmp, linear)
+
+	d := ringQ.NewPoly()
+	ringQ.Sub(B[3], x1, d)
+	dInv, ok := polyInverseNTT(ringQ, d)
+	if !ok {
+		return nil, errors.New("denominator not invertible")
+	}
+
+	t := ringQ.NewPoly()
+	ring.Copy(linear, t)
+	ringQ.Add(t, dInv, t)
+	return t, nil
+}
+
 func TestPolyInverseNTT(t *testing.T) {
 	const N = 8
 	const q = 8380417

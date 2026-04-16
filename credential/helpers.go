@@ -20,6 +20,7 @@ func CenterBounded(v, bound int64) int64 {
 func HashMessage(
 	ringQ *ring.Ring,
 	B []*ring.Poly,
+	relation string,
 	m1, m2, r0, r1 *ring.Poly,
 ) ([]int64, error) {
 	if ringQ == nil {
@@ -45,7 +46,17 @@ func HashMessage(
 	x0 := clone(r0)
 	x1 := clone(r1)
 
-	tNTT, err := vsishash.ComputeBBSHash(ringQ, B, mPoly, x0, x1)
+	relation = NormalizeHashRelation(relation)
+	var tNTT *ring.Poly
+	var err error
+	switch relation {
+	case HashRelationBBS:
+		tNTT, err = vsishash.ComputeBBSHash(ringQ, B, mPoly, x0, x1)
+	case HashRelationBBTran:
+		tNTT, err = vsishash.ComputeBBTranHash(ringQ, B, mPoly, x0, x1)
+	default:
+		return nil, fmt.Errorf("invalid hash relation %q", relation)
+	}
 	if err != nil {
 		return nil, err
 	}

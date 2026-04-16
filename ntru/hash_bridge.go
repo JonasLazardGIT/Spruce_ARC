@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"vSIS-Signature/credential"
 	ntrurio "vSIS-Signature/ntru/io"
 	vsishash "vSIS-Signature/vSIS-HASH"
 
@@ -14,9 +15,10 @@ import (
 	"github.com/tuneinsight/lattigo/v4/utils"
 )
 
-// ComputeTargetFromSeeds rebuilds the BBS hash target in coefficient domain
-// from the provided seeds. It returns coefficients centered in [-Q/2, Q/2].
-func ComputeTargetFromSeeds(pp *ntrurio.SystemParams, Bfile string, mSeed, x0Seed, x1Seed []byte) ([]int64, error) {
+// ComputeTargetFromSeeds rebuilds the configured hash target in coefficient
+// domain from the provided seeds. It returns coefficients centered in
+// [-Q/2, Q/2]. Empty relation defaults to the legacy BBS path.
+func ComputeTargetFromSeeds(pp *ntrurio.SystemParams, Bfile, relation string, mSeed, x0Seed, x1Seed []byte) ([]int64, error) {
 	if pp == nil {
 		return nil, errors.New("nil params")
 	}
@@ -43,7 +45,19 @@ func ComputeTargetFromSeeds(pp *ntrurio.SystemParams, Bfile string, mSeed, x0See
 	if err := FillPolyBoundedFromPRNG(ringQ, x1prng, x1, CurrentSeedPolyBounds()); err != nil {
 		return nil, fmt.Errorf("sample x1 from seed: %w", err)
 	}
-	tNTT, err := vsishash.ComputeBBSHash(ringQ, B, m, x0, x1)
+	relation = credential.NormalizeHashRelation(relation)
+	if relation == "" {
+		relation = credential.HashRelationBBS
+	}
+	var tNTT *ring.Poly
+	switch relation {
+	case credential.HashRelationBBS:
+		tNTT, err = vsishash.ComputeBBSHash(ringQ, B, m, x0, x1)
+	case credential.HashRelationBBTran:
+		tNTT, err = vsishash.ComputeBBTranHash(ringQ, B, m, x0, x1)
+	default:
+		return nil, fmt.Errorf("invalid hash relation %q", relation)
+	}
 	if err != nil {
 		return nil, err
 	}

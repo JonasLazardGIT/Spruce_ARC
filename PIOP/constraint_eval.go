@@ -48,12 +48,14 @@ type EvalKInput struct {
 
 // EvalTailInput carries tail-opening data for Eq.(4) replay.
 type EvalTailInput struct {
-	Tail       []int
-	RowOpen    *decs.DECSOpening
-	QOpen      *decs.DECSOpening
-	GammaPrime [][][]uint64
-	GammaAgg   [][]uint64
-	Ring       *ring.Ring
+	Tail             []int
+	RowOpen          *decs.DECSOpening
+	QOpen            *decs.DECSOpening
+	GammaPrime       [][][]uint64
+	GammaAgg         [][]uint64
+	Ring             *ring.Ring
+	FparCoeffs       [][]uint64
+	FparOverrideIdxs []int
 	// DomainPoints is the explicit DECS evaluation domain.
 	// When nil, EvaluateConstraintsOnTailOpen treats indices as ring slot indices.
 	DomainPoints  []uint64
@@ -67,17 +69,18 @@ type ConstraintEvaluator func(evalIdx uint64, rowVals []uint64) (fpar []uint64, 
 type KConstraintEvaluator func(e kf.Elem, rowVals []kf.Elem) (fpar []kf.Elem, fagg []kf.Elem, err error)
 
 type ConstraintReplay struct {
-	Eval       ConstraintEvaluator
-	EvalK      KConstraintEvaluator
-	RowCount   int
-	BoundRows  []int
-	CarryRows  []int
-	BoundB     int64
-	CarryBound int64
-	Fpar       []*ring.Poly
-	Fagg       []*ring.Poly
-	FparCoeffs [][]uint64
-	FaggCoeffs [][]uint64
+	Eval             ConstraintEvaluator
+	EvalK            KConstraintEvaluator
+	RowCount         int
+	BoundRows        []int
+	CarryRows        []int
+	BoundB           int64
+	CarryBound       int64
+	Fpar             []*ring.Poly
+	Fagg             []*ring.Poly
+	FparCoeffs       [][]uint64
+	FaggCoeffs       [][]uint64
+	FparOverrideIdxs []int
 }
 
 func composeEvaluators(a, b ConstraintEvaluator) ConstraintEvaluator {
@@ -174,14 +177,19 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 		if err != nil {
 			return false, err
 		}
-		if len(in.FparOverrideIdxs) > 0 && in.Ring != nil && len(in.Fpar) > 0 {
+		if len(in.FparOverrideIdxs) > 0 {
 			tmp := in.Ring.NewPoly()
 			for _, idx := range in.FparOverrideIdxs {
-				if idx < 0 || idx >= len(fpar) || idx >= len(in.Fpar) || in.Fpar[idx] == nil {
+				if idx < 0 || idx >= len(fpar) {
 					continue
 				}
-				in.Ring.InvNTT(in.Fpar[idx], tmp)
-				fpar[idx] = in.K.EvalFPolyAtK(tmp.Coeffs[0], e)
+				switch {
+				case idx < len(in.FparCoeffs) && len(in.FparCoeffs[idx]) > 0:
+					fpar[idx] = in.K.EvalFPolyAtK(in.FparCoeffs[idx], e)
+				case in.Ring != nil && idx < len(in.Fpar) && in.Fpar[idx] != nil:
+					in.Ring.InvNTT(in.Fpar[idx], tmp)
+					fpar[idx] = in.K.EvalFPolyAtK(tmp.Coeffs[0], e)
+				}
 			}
 		}
 		for i := 0; i < rho; i++ {
@@ -415,6 +423,14 @@ func EvaluateConstraintsOnTailOpen(eval ConstraintEvaluator, in EvalTailInput) (
 		if xerr != nil {
 			return false, xerr
 		}
+		if len(in.FparOverrideIdxs) > 0 && len(in.FparCoeffs) > 0 {
+			for _, familyIdx := range in.FparOverrideIdxs {
+				if familyIdx < 0 || familyIdx >= len(fpar) || familyIdx >= len(in.FparCoeffs) {
+					continue
+				}
+				fpar[familyIdx] = EvalPoly(in.FparCoeffs[familyIdx], x, q) % q
+			}
+		}
 		for i := 0; i < rho; i++ {
 			var lhs uint64
 			lhs = decs.GetOpeningPval(in.QOpen, posQ, i) % q
@@ -439,6 +455,14 @@ func EvaluateConstraintsOnTailOpen(eval ConstraintEvaluator, in EvalTailInput) (
 				}
 			}
 			if lhs != rhs {
+				if os.Getenv("PIOP_DEBUG_EQ4_TAIL") == "1" {
+					fmt.Printf("[PIOP_DEBUG_EQ4_TAIL] idx=%d row=%d lhs=%d rhs=%d overrides=%v fparLen=%d coeffLen=%d\n", idx, i, lhs, rhs, in.FparOverrideIdxs, len(fpar), len(in.FparCoeffs))
+					for _, familyIdx := range in.FparOverrideIdxs {
+						if familyIdx >= 0 && familyIdx < len(fpar) && familyIdx < len(in.FparCoeffs) {
+							fmt.Printf("[PIOP_DEBUG_EQ4_TAIL] fpar[%d]=%d coeffEval=%d\n", familyIdx, fpar[familyIdx], EvalPoly(in.FparCoeffs[familyIdx], x, q)%q)
+						}
+					}
+				}
 				return false, fmt.Errorf("eq4 tail replay mismatch idx=%d row=%d lhs=%d rhs=%d", idx, i, lhs, rhs)
 			}
 		}

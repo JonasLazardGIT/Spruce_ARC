@@ -11,7 +11,7 @@ Run all commands from the repository root.
 - Go with module support
 - tracked runtime assets present in the repository:
   `Parameters/Parameters.json`,
-  `Parameters/Bmatrix.json`,
+  `Parameters/Bmatrix_bb_tran.json`,
   `Parameters/credential_public.json`,
   `prf/prf_params.json`
 

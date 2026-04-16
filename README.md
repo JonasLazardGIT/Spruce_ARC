@@ -79,7 +79,7 @@ Current showing defaults from code:
 The shipped commands rely on tracked runtime files:
 
 - `Parameters/Parameters.json`
-- `Parameters/Bmatrix.json`
+- `Parameters/Bmatrix_bb_tran.json`
 - `Parameters/credential_public.json`
 - `credential/issuance/*.json`
 - `credential/keys/*.json`

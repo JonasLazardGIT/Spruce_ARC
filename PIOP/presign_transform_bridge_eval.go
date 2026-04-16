@@ -14,6 +14,7 @@ type preSignTransformBridgeConfig struct {
 	Omega        []uint64
 	DomainPoints []uint64
 	Bound        int64
+	HashRelation string
 
 	AcCoeff      [][][]uint64
 	ComCoeff     [][]uint64
@@ -49,11 +50,15 @@ func newPreSignTransformBridgeConfig(ringQ *ring.Ring, pub PublicInputs, layout 
 	if bound <= 0 {
 		return nil, fmt.Errorf("invalid pre-sign bound %d", bound)
 	}
-	for _, idx := range []int{
+	required := []int{
 		layout.IdxCarrierM, layout.IdxCarrierPreRU, layout.IdxCarrierPreR, layout.IdxCarrierCtr, layout.IdxCarrierK,
 		layout.IdxM1, layout.IdxM2, layout.IdxRU0, layout.IdxRU1, layout.IdxR, layout.IdxR0, layout.IdxR1, layout.IdxK0, layout.IdxK1,
 		layout.IdxMHat1, layout.IdxMHat2, layout.IdxRHat0, layout.IdxRHat1,
-	} {
+	}
+	if publicUsesBBTran(pub) {
+		required = append(required, layout.IdxMSigmaR1, layout.IdxR0R1, layout.IdxMSigmaR1Hat, layout.IdxR0R1Hat)
+	}
+	for _, idx := range required {
 		if idx < 0 {
 			return nil, fmt.Errorf("pre-sign transform-bridge config requires explicit carrier/alias/hat indices")
 		}
@@ -172,6 +177,7 @@ func newPreSignTransformBridgeConfig(ringQ *ring.Ring, pub PublicInputs, layout 
 		Omega:           append([]uint64(nil), omegaWitness...),
 		DomainPoints:    append([]uint64(nil), domainPoints...),
 		Bound:           bound,
+		HashRelation:    pub.HashRelation,
 		AcCoeff:         acCoeff,
 		ComCoeff:        comCoeff,
 		RI0Coeff:        ri0Coeff,
@@ -297,6 +303,29 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 		if err != nil {
 			return nil, nil, err
 		}
+		useBBTran := relationUsesBBTran(cfg.HashRelation)
+		mSigmaR1Src := uint64(0)
+		r0R1Src := uint64(0)
+		mSigmaR1Hat := uint64(0)
+		r0R1Hat := uint64(0)
+		if useBBTran {
+			mSigmaR1Src, err = getRow(layout.IdxMSigmaR1)
+			if err != nil {
+				return nil, nil, err
+			}
+			r0R1Src, err = getRow(layout.IdxR0R1)
+			if err != nil {
+				return nil, nil, err
+			}
+			mSigmaR1Hat, err = getRow(layout.IdxMSigmaR1Hat)
+			if err != nil {
+				return nil, nil, err
+			}
+			r0R1Hat, err = getRow(layout.IdxR0R1Hat)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
 
 		fpar := []uint64{
 			modSub(m1, m1Dec, q),
@@ -308,6 +337,12 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 			modSub(r1v, r1Dec, q),
 			modSub(k0, k0Dec, q),
 			modSub(k1, k1Dec, q),
+		}
+		if useBBTran {
+			fpar = append(fpar,
+				modSub(mSigmaR1Src, modMul(modAdd(m1, m2, q), r1v, q), q),
+				modSub(r0R1Src, modMul(r0v, r1v, q), q),
+			)
 		}
 		for i := range cfg.AcCoeff {
 			sum := uint64(0)
@@ -340,7 +375,7 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 		fpar = append(fpar, res0, res1)
 
 		tTheta := EvalPoly(cfg.TPublicTheta, x, q) % q
-		fpar = append(fpar, transformHashResidualEval(q, x, cfg.ThetaB, mHat1, mHat2, rHat0, rHat1, tTheta))
+		fpar = append(fpar, transformHashResidualEval(q, x, cfg.HashRelation, cfg.ThetaB, mHat1, mHat2, rHat0, rHat1, tTheta, mSigmaR1Hat, r0R1Hat))
 
 		sel := EvalPoly(cfg.PackingSelCoeff, x, q) % q
 		fpar = append(fpar, modMul(sel, m1, q))
@@ -372,6 +407,19 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 		} {
 			for j := 0; j < len(cfg.LagrangeBasis); j++ {
 				fagg = append(fagg, modSub(modMul(pair.src, hVals[j], q), modMul(pair.hat, lagrangeVals[j], q), q))
+			}
+		}
+		if useBBTran {
+			for _, pair := range []struct {
+				src uint64
+				hat uint64
+			}{
+				{src: mSigmaR1Src, hat: mSigmaR1Hat},
+				{src: r0R1Src, hat: r0R1Hat},
+			} {
+				for j := 0; j < len(cfg.LagrangeBasis); j++ {
+					fagg = append(fagg, modSub(modMul(pair.src, hVals[j], q), modMul(pair.hat, lagrangeVals[j], q), q))
+				}
 			}
 		}
 		return fpar, fagg, nil
@@ -479,6 +527,29 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 		if err != nil {
 			return nil, nil, err
 		}
+		useBBTran := relationUsesBBTran(cfg.HashRelation)
+		mSigmaR1Src := K.Zero()
+		r0R1Src := K.Zero()
+		mSigmaR1Hat := K.Zero()
+		r0R1Hat := K.Zero()
+		if useBBTran {
+			mSigmaR1Src, err = getRow(layout.IdxMSigmaR1)
+			if err != nil {
+				return nil, nil, err
+			}
+			r0R1Src, err = getRow(layout.IdxR0R1)
+			if err != nil {
+				return nil, nil, err
+			}
+			mSigmaR1Hat, err = getRow(layout.IdxMSigmaR1Hat)
+			if err != nil {
+				return nil, nil, err
+			}
+			r0R1Hat, err = getRow(layout.IdxR0R1Hat)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
 
 		fpar := []kf.Elem{
 			K.Sub(m1, m1Dec),
@@ -490,6 +561,12 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 			K.Sub(r1v, r1Dec),
 			K.Sub(k0, k0Dec),
 			K.Sub(k1, k1Dec),
+		}
+		if useBBTran {
+			fpar = append(fpar,
+				K.Sub(mSigmaR1Src, K.Mul(K.Add(m1, m2), r1v)),
+				K.Sub(r0R1Src, K.Mul(r0v, r1v)),
+			)
 		}
 		for i := range cfg.AcCoeff {
 			sum := K.Zero()
@@ -520,7 +597,7 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 			K.Sub(K.Sub(K.Add(ru1, ri1), r1v), K.Mul(deltaK, k1)),
 		)
 		tTheta := K.EvalFPolyAtK(cfg.TPublicTheta, e)
-		fpar = append(fpar, transformHashResidualKEval(K, e, cfg.ThetaB, mHat1, mHat2, rHat0, rHat1, tTheta))
+		fpar = append(fpar, transformHashResidualKEval(K, e, cfg.HashRelation, cfg.ThetaB, mHat1, mHat2, rHat0, rHat1, tTheta, mSigmaR1Hat, r0R1Hat))
 		sel := K.EvalFPolyAtK(cfg.PackingSelCoeff, e)
 		fpar = append(fpar, K.Mul(sel, m1), K.Mul(K.Sub(K.One(), sel), m2))
 		fpar = append(fpar,
@@ -549,6 +626,19 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 		} {
 			for j := 0; j < len(cfg.LagrangeBasis); j++ {
 				fagg = append(fagg, K.Sub(K.Mul(pair.src, hVals[j]), K.Mul(pair.hat, lagrangeVals[j])))
+			}
+		}
+		if useBBTran {
+			for _, pair := range []struct {
+				src kf.Elem
+				hat kf.Elem
+			}{
+				{src: mSigmaR1Src, hat: mSigmaR1Hat},
+				{src: r0R1Src, hat: r0R1Hat},
+			} {
+				for j := 0; j < len(cfg.LagrangeBasis); j++ {
+					fagg = append(fagg, K.Sub(K.Mul(pair.src, hVals[j]), K.Mul(pair.hat, lagrangeVals[j])))
+				}
 			}
 		}
 		return fpar, fagg, nil

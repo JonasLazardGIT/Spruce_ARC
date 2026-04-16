@@ -61,6 +61,7 @@ type State struct {
 	RI1         [][]int64 `json:"ri1"`
 	// Stable credential public parameters used by issuance and showing.
 	CredentialPublicPath string `json:"credential_public_path"`
+	HashRelation         string `json:"hash_relation"`
 	// Paths to public parameters.
 	BPath string `json:"b_path"`
 	// Embedded public B-matrix (coeff domain) for portability.

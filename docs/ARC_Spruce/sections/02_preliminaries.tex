@@ -170,72 +170,84 @@ negligible probability.
 
 \cb{NEED: does $\vect$ hide anything about $m$?}
 
-In this work, we use the BBS-type rational hash defined in \cite[Table~1]{EPRINT:DKLW25}.
+In this work, we use the retained BB-tran concrete relation from
+\cite[Table~1]{EPRINT:DKLW25}, specialized to the T-preserving proof
+architecture used by ARC-SPRUCE.
 
 \begin{definition}[Rational hash, admissibility, and cleared form]\label{def:rational-hash}
-Our concrete instantiation uses a public key \(B=(B_0,B_1,B_2,B_3)\in\Rq^4\), message \(m\in\Rq\), and 
-randomness \((r_0,r_1)\in\Rq^2\) with coefficient bounds
+Our concrete instantiation uses a public key \(B=(B_0,B_1,B_2,B_3)\in\Rq^4\),
+message \(m\in\Rq\), and randomness \((r_0,r_1)\in\Rq^2\) with coefficient
+bounds
 \(\|m\|_\infty,\|r_0\|_\infty,\|r_1\|_\infty\le \BoundMsg\). Write
 \[
-\operatorname{num}(B,m,r_0):=B_0+B_1m+B_2r_0,
-\qquad
 \operatorname{den}(B,r_1):=B_3-r_1.
 \]
+In the retained 4-slot encoding we require \(B_0=0\).
 We say that \((B,m,r_0,r_1)\) is \emph{admissible} if \(\operatorname{den}(B,r_1)\in \Rq^\times\), equivalently, if
 \(\operatorname{den}(B,r_1)\) is non-zero in every CRT slot of \(\Rq\).
 
-When this admissibility condition holds, the rational hash is the partial function
+When this admissibility condition holds, the concrete BB-tran target is the
+partial function
 \[
-h_{m,(r_0,r_1)}(B):=\operatorname{num}(B,m,r_0)\Hdiv \operatorname{den}(B,r_1).
+h^{\mathrm{bb\mbox{-}tran}}_{m,(r_0,r_1)}(B):=B_1m+B_2r_0+\operatorname{den}(B,r_1)^{-1}.
 \]
-\cb{what is $\Hdiv$ notation?}
 
 For \(T\in\Rq\), we also define the cleared-denominator relation
 \begin{equation}\label{eq:hash-cleared}
-  (B_3-r_1)\Had T-\bigl(B_0+B_1m+B_2r_0\bigr)=0.
+  B_3T-Tr_1-(B_3B_1)m-(B_3B_2)r_0+B_1(mr_1)+B_2(r_0r_1)-1=0.
 \end{equation}
-The cleared relation is a well-formed ring identity for all inputs. It is used below as a compiled proof-system
-relation.
+This is the expanded cleared form obtained by multiplying the BB-tran target
+equation by \(B_3-r_1\). The implementation certifies this expanded form using
+auxiliary product rows for \(mr_1\) and \(r_0r_1\).
 \end{definition}
-\cb{What is $\Had$ notation?}
 
 \begin{lemma}[Cleared form under admissibility]\label{lem:hash-cleared-admissible}
 Let
 $\Rq \cong \prod_{i=1}^s F_i$
 be the CRT decomposition of \(\Rq\) into field factors, and write
 \[
-\operatorname{num}(B,m,r_0)=(n_1,\ldots,n_s),\,
 \operatorname{den}(B,r_1)=(d_1,\ldots,d_s),\,
+m=(m_1,\ldots,m_s),\,
+r_0=(x_1,\ldots,x_s),\,
+r_1=(y_1,\ldots,y_s),\,
+B_j=(b_{j,1},\ldots,b_{j,s})\text{ for }j\in\{1,2,3\},\,
 T=(t_1,\ldots,t_s).
 \]
 If \((B,m,r_0,r_1)\) is admissible, that is, \(d_i\neq 0\) for every \(i\), then
 \[
-T=h_{m,(r_0,r_1)}(B)
+T=h^{\mathrm{bb\mbox{-}tran}}_{m,(r_0,r_1)}(B)
 \iff
-(B_3-r_1)\Had T-\bigl(B_0+B_1m+B_2r_0\bigr)=0.
+B_3T-Tr_1-(B_3B_1)m-(B_3B_2)r_0+B_1(mr_1)+B_2(r_0r_1)-1=0.
 \]
-%Without admissibility, the implication from right to left may fail.
 \end{lemma}
 
 \begin{proof}
-Under the CRT isomorphism, the defined quotient relation is the coordinate-wise statement
+Under the CRT isomorphism, the BB-tran target relation is the coordinate-wise
+statement
 \[
-t_i=n_i/d_i
+t_i=b_{1,i}m_i+b_{2,i}x_i+d_i^{-1}
 \qquad\text{for every }i.
 \]
 If \(d_i\neq 0\) for every \(i\), then each \(d_i\) is invertible in \(F_i\), so
 \[
-t_i=n_i/d_i
+t_i=b_{1,i}m_i+b_{2,i}x_i+d_i^{-1}
 \iff
-d_it_i-n_i=0.
+d_it_i-d_i(b_{1,i}m_i+b_{2,i}x_i)-1=0.
 \]
-Collecting the coordinates yields the equivalence. If admissibility fails, then \(d_i=0\) in
-at least one slot. In that slot the cleared equation reduces to \(0\cdot t_i-n_i=0\), hence to \(n_i=0\), and imposes
-no condition on \(t_i\). The quotient remains undefined there, so the cleared relation is no longer sufficient.
+Substituting \(d_i=b_{3,i}-y_i\) and expanding gives
+\[
+b_{3,i}t_i-t_iy_i-b_{3,i}b_{1,i}m_i-b_{3,i}b_{2,i}x_i+b_{1,i}m_iy_i+b_{2,i}x_iy_i-1=0.
+\]
+Collecting the coordinates yields the equivalence. If admissibility fails, then
+\(d_i=0\) in at least one slot. In that slot the expanded cleared equation no
+longer determines \(t_i\) uniquely, so the abstract quotient remains undefined
+there.
 \end{proof}
 %\cb{is this true? what if all terms are simply zero in one of the subfields?}
 
-All later uses of the rational hash state explicitly whether they refer to the quotient relation or to the weaker cleared relation.
+All later uses of the rational hash state explicitly whether they refer to the
+abstract admissible BB-tran quotient relation or to the weaker expanded
+cleared relation.
 
 %\begin{remark}[Why the admissibility side condition is necessary]%\label{rem:hash-cleared-not-sufficient}
 %The cleared identity is therefore a necessary condition for the defined quotient relation, but it is not a sufficient

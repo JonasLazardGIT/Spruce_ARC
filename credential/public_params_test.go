@@ -39,14 +39,15 @@ func TestPublicParamsRoundTripAndLift(t *testing.T) {
 		t.Fatalf("generate coeff matrix: %v", err)
 	}
 	public := PublicParams{
-		Ac:     ac,
-		BPath:  filepath.Join("Parameters", "Bmatrix.json"),
-		BoundB: 1,
-		LenM1:  1,
-		LenM2:  1,
-		LenRU0: 1,
-		LenRU1: 1,
-		LenR:   1,
+		Ac:           ac,
+		HashRelation: HashRelationBBS,
+		BPath:        filepath.Join("Parameters", "Bmatrix.json"),
+		BoundB:       1,
+		LenM1:        1,
+		LenM2:        1,
+		LenRU0:       1,
+		LenRU1:       1,
+		LenR:         1,
 	}
 	path := filepath.Join(t.TempDir(), "credential_public.json")
 	if err := SavePublicParams(path, public); err != nil {

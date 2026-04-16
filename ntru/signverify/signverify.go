@@ -81,11 +81,12 @@ func generateKeypairAnnulusNoRecover(par ntru.Params, kg ntru.KeygenOpts) (*keys
 }
 
 type targetMeta struct {
-	BFile   string
-	MSeed   []byte
-	X0Seed  []byte
-	X1Seed  []byte
-	Persist bool
+	BFile        string
+	HashRelation string
+	MSeed        []byte
+	X0Seed       []byte
+	X1Seed       []byte
+	Persist      bool
 }
 
 type SignPaths struct {
@@ -138,16 +139,17 @@ func SignWithPaths(message []byte, maxTrials int, opts ntru.SamplerOpts, paths S
 	if bFile == "" {
 		bFile = "Parameters/Bmatrix.json"
 	}
-	tCoeffs, err := ntru.ComputeTargetFromSeeds(sys, bFile, mSeed, x0Seed, x1Seed)
+	tCoeffs, err := ntru.ComputeTargetFromSeeds(sys, bFile, "", mSeed, x0Seed, x1Seed)
 	if err != nil {
 		return nil, err
 	}
 	meta := targetMeta{
-		BFile:   bFile,
-		MSeed:   mSeed,
-		X0Seed:  x0Seed,
-		X1Seed:  x1Seed,
-		Persist: true,
+		BFile:        bFile,
+		HashRelation: "",
+		MSeed:        mSeed,
+		X0Seed:       x0Seed,
+		X1Seed:       x1Seed,
+		Persist:      true,
 	}
 	return signWithTCoeffsAndPaths(tCoeffs, maxTrials, opts, meta, paths)
 }
@@ -291,6 +293,7 @@ func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64
 	sig.Params.N = par.N
 	sig.Params.Q = pk.Q
 	sig.Hash.BFile = meta.BFile
+	sig.Hash.HashRelation = meta.HashRelation
 	if len(meta.MSeed) > 0 {
 		sig.Hash.MSeed = keys.EncodeSeed(meta.MSeed)
 	}
@@ -360,7 +363,7 @@ func VerifyWithParamsPath(sig *keys.Signature, paramsPath string) error {
 		if err != nil {
 			return err
 		}
-		tCmp, err = ntru.ComputeTargetFromSeeds(sys, sig.Hash.BFile, mSeed, x0Seed, x1Seed)
+		tCmp, err = ntru.ComputeTargetFromSeeds(sys, sig.Hash.BFile, sig.Hash.HashRelation, mSeed, x0Seed, x1Seed)
 		if err != nil {
 			return err
 		}

@@ -15,11 +15,12 @@ type Signature struct {
 		Q string `json:"Q"`
 	} `json:"params"`
 	Hash struct {
-		BFile   string  `json:"B_file"`
-		MSeed   string  `json:"mseed"`
-		X0Seed  string  `json:"x0seed"`
-		X1Seed  string  `json:"x1seed"`
-		TCoeffs []int64 `json:"t_coeffs"`
+		BFile        string  `json:"B_file"`
+		HashRelation string  `json:"hash_relation,omitempty"`
+		MSeed        string  `json:"mseed"`
+		X0Seed       string  `json:"x0seed"`
+		X1Seed       string  `json:"x1seed"`
+		TCoeffs      []int64 `json:"t_coeffs"`
 	} `json:"hash"`
 	PublicKey struct {
 		HCoeffs []int64 `json:"h_coeffs"`

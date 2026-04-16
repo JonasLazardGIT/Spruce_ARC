@@ -71,7 +71,11 @@ func addCoeffNativeLiteralPackedRows(
 			addRange(RowFamilyNonSigTransformAlias, layout.IdxMHatSigma, replayBlocks)
 			addRange(RowFamilyNonSigTransformAlias, layout.IdxRHat0, replayBlocks)
 			addRange(RowFamilyNonSigTransformAlias, layout.IdxRHat1, replayBlocks)
+			addRange(RowFamilyNonSigTransformAlias, layout.IdxMSigmaR1Hat, replayBlocks)
+			addRange(RowFamilyNonSigTransformAlias, layout.IdxR0R1Hat, replayBlocks)
 		}
+		add(RowFamilyPostSignCore, layout.IdxMSigmaR1)
+		add(RowFamilyPostSignCore, layout.IdxR0R1)
 		if layout.IdxTHatBase >= 0 && rowLayoutReplayTHatCount(layout) > 0 {
 			addRange(RowFamilyReplayImage, layout.IdxTHatBase, rowLayoutReplayTHatCount(layout))
 		}

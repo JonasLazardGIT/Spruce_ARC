@@ -142,16 +142,17 @@ func buildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols i
 	}
 
 	params := &credential.Params{
-		Ac:     optimizationIdentityAc(ringQ, 5),
-		BPath:  filepath.Join("Parameters", "Bmatrix.json"),
-		AcPath: credential.DefaultPublicParamsPath,
-		BoundB: 1,
-		RingQ:  ringQ,
-		LenM1:  1,
-		LenM2:  1,
-		LenRU0: 1,
-		LenRU1: 1,
-		LenR:   1,
+		Ac:           optimizationIdentityAc(ringQ, 5),
+		HashRelation: credential.HashRelationBBS,
+		BPath:        filepath.Join("Parameters", "Bmatrix.json"),
+		AcPath:       filepath.Join("Parameters", "credential_public_bbs.json"),
+		BoundB:       1,
+		RingQ:        ringQ,
+		LenM1:        1,
+		LenM2:        1,
+		LenRU0:       1,
+		LenRU1:       1,
+		LenR:         1,
 	}
 	inputs := issuance.Inputs{
 		M1:  []*ring.Poly{ringQ.NewPoly()},
@@ -191,7 +192,8 @@ func buildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols i
 		Com:                  optimizationPolyVecToInt64(ringQ, com, true),
 		RI0:                  optimizationPolyVecToInt64(ringQ, ch.RI0, true),
 		RI1:                  optimizationPolyVecToInt64(ringQ, ch.RI1, true),
-		CredentialPublicPath: credential.DefaultPublicParamsPath,
+		CredentialPublicPath: filepath.Join("Parameters", "credential_public_bbs.json"),
+		HashRelation:         credential.HashRelationBBS,
 		BPath:                filepath.Join("Parameters", "Bmatrix.json"),
 		PRFParamsPath:        filepath.Join("prf", "prf_params.json"),
 		PackedNCols:          opts.NCols,
@@ -223,7 +225,11 @@ func buildShowingProofForOptimizationState(t *testing.T, st credential.State, op
 	if err != nil {
 		t.Fatalf("build A: %v", err)
 	}
-	B, err := loadBFromState(ringQ, st)
+	publicParams, err := loadCredentialPublicParamsFromState(st)
+	if err != nil {
+		t.Fatalf("load credential public params: %v", err)
+	}
+	B, err := loadBForShowing(ringQ, st, publicParams)
 	if err != nil {
 		t.Fatalf("load B: %v", err)
 	}
@@ -236,16 +242,13 @@ func buildShowingProofForOptimizationState(t *testing.T, st credential.State, op
 	if err != nil {
 		t.Fatalf("tag: %v", err)
 	}
-	publicParams, err := loadCredentialPublicParamsFromState(st)
-	if err != nil {
-		t.Fatalf("load credential public params: %v", err)
-	}
 	pub := PIOP.PublicInputs{
-		A:      A,
-		B:      B,
-		Tag:    lanesFromElems(tag, opts.NCols),
-		Nonce:  noncePublic,
-		BoundB: publicParams.BoundB,
+		A:            A,
+		B:            B,
+		Tag:          lanesFromElems(tag, opts.NCols),
+		Nonce:        noncePublic,
+		BoundB:       publicParams.BoundB,
+		HashRelation: publicParams.HashRelation,
 	}
 	proof, err := PIOP.BuildShowingCombined(pub, wit, opts)
 	if err != nil {
@@ -340,7 +343,11 @@ func TestShowingFullReplayModeDeterministicPackedWidths(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build A: %v", err)
 		}
-		B, err := loadBFromState(ringQ, state)
+		publicParams, err := loadCredentialPublicParamsFromState(state)
+		if err != nil {
+			t.Fatalf("load credential public params: %v", err)
+		}
+		B, err := loadBForShowing(ringQ, state, publicParams)
 		if err != nil {
 			t.Fatalf("load B: %v", err)
 		}
@@ -354,11 +361,12 @@ func TestShowingFullReplayModeDeterministicPackedWidths(t *testing.T) {
 			t.Fatalf("tag: %v", err)
 		}
 		pub := PIOP.PublicInputs{
-			A:      A,
-			B:      B,
-			Tag:    lanesFromElems(tag, opts.NCols),
-			Nonce:  noncePublic,
-			BoundB: 1,
+			A:            A,
+			B:            B,
+			Tag:          lanesFromElems(tag, opts.NCols),
+			Nonce:        noncePublic,
+			BoundB:       publicParams.BoundB,
+			HashRelation: publicParams.HashRelation,
 		}
 		_, _, layout, _, companionLayout, _, _, _, witnessCount, _, _, err := PIOP.BuildCredentialRowsShowing(
 			ringQ,

@@ -1,10 +1,12 @@
 \section{Gaussian Preimage Sampling}
 \label{app:gaussian-sampler}
 
-This appendix details the Gaussian preimage sampler used by the issuer to sign a target \(t\in\Rq^n\) by producing a
-short preimage \(u\in\R^m\) such that \(A u = t\) in \(\Rq^n\). Our instantiation follows the vSIS--BBS setting
-\cite{EPRINT:DKLW25} and relies on an NTRU trapdoor generated via Antrag together with a hybrid two-plane sampler
-\cite{EPRINT:ENSTW23}.
+This appendix details the Gaussian preimage sampler used by the issuer to sign a
+target \(t\in\Rq^n\) by producing a short preimage \(u\in\R^m\) such that
+\(A u = t\) in \(\Rq^n\). Our instantiation follows the same vSIS trapdoor
+setting used for the retained BB-tran target relation and relies on an NTRU
+trapdoor generated via Antrag together with a hybrid two-plane sampler
+\cite{EPRINT:DKLW25,EPRINT:ENSTW23}.
 
 \subsection{The preimage sampling problem}
 Given a public linear map \(A\in\Rq^{n\times m}\) and a target \(t\in\Rq^n\), the signer samples

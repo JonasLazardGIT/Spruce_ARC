@@ -104,6 +104,24 @@ func loadBFromStateTest(r *ring.Ring, st credential.State) ([]*ring.Poly, error)
 	return out, nil
 }
 
+func loadBAsNTTTest(r *ring.Ring, path string) ([]*ring.Poly, error) {
+	if path == "" {
+		return nil, fmt.Errorf("missing B path")
+	}
+	coeffs, err := ntrurio.LoadBMatrixCoeffs(path)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*ring.Poly, len(coeffs))
+	for i := range coeffs {
+		p := r.NewPoly()
+		copy(p.Coeffs[0], coeffs[i])
+		r.NTT(p, p)
+		out[i] = p
+	}
+	return out, nil
+}
+
 func buildSignatureMatrixTest(r *ring.Ring, st credential.State, uCount int) ([][]*ring.Poly, error) {
 	if len(st.NTRUPublic) == 0 {
 		pk, err := keys.LoadPublic()
@@ -259,6 +277,14 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
+	publicPath := state.CredentialPublicPath
+	if publicPath == "" {
+		publicPath = credential.DefaultPublicParamsPath
+	}
+	publicParams, err := credential.LoadPublicParams(publicPath)
+	if err != nil {
+		t.Fatalf("load credential public params: %v", err)
+	}
 	ringQ, err := credential.LoadDefaultRing()
 	if err != nil {
 		t.Fatalf("load ring: %v", err)
@@ -299,11 +325,11 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 	}
 
 	omegaLVCS, domainPoints, err := func() ([]uint64, []uint64, error) {
-		_, _, ncols, err := loadParamsAndOmega(opts)
+		_, _, ncols, err := loadParamsAndOmegaForRelation(opts, publicParams.HashRelation)
 		if err != nil {
 			return nil, nil, err
 		}
-		omegaFull, points, derr := deriveExplicitDomain(ringQ.Modulus[0], opts.NLeaves, ncols, opts.Ell)
+		omegaFull, points, derr := deriveExplicitDomainForRelation(ringQ.Modulus[0], opts.NLeaves, opts.NCols, ncols, opts.Ell, publicParams.HashRelation)
 		if derr != nil {
 			return nil, nil, derr
 		}
@@ -324,52 +350,20 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 	if err != nil {
 		t.Fatalf("build A: %v", err)
 	}
-	B, err := loadBFromStateTest(ringQ, state)
+	B, err := loadBAsNTTTest(ringQ, publicParams.BPath)
 	if err != nil {
 		t.Fatalf("load B: %v", err)
 	}
-	key, err := ExtractSignedPRFKeyElemsFromM2OnOmega(ringQ, cnWit.M2, omegaWitness, cnWit.PackedNCols, params.LenKey)
-	if err != nil {
-		t.Fatalf("extract signed PRF key: %v", err)
-	}
 	nonce, noncePublic := fixedNonceTest(params.LenNonce, opts.NCols, ringQ.Modulus[0])
-	tag, err := prf.Tag(key, nonce, params)
-	if err != nil {
-		t.Fatalf("compute tag: %v", err)
-	}
-	tagPublic := lanesFromElemsTest(tag, opts.NCols)
-	x0, err := prf.ConcatKeyNonce(key, nonce, params)
-	if err != nil {
-		t.Fatalf("concat key/nonce: %v", err)
-	}
-	sboxes, _, err := prf.TraceSBoxOutputsGrouped(x0, params, opts.PRFGroupRounds)
-	if err != nil {
-		t.Fatalf("trace grouped sboxes: %v", err)
-	}
-	wit.Extras = map[string]interface{}{
-		"prf_sbox": elemsToPolysTest(ringQ, sboxes),
-	}
 
-	boundB := maxAbsFromRows(state.M1)
-	if v := maxAbsFromRows(state.M2); v > boundB {
-		boundB = v
-	}
-	if v := maxAbsFromRows(state.R0); v > boundB {
-		boundB = v
-	}
-	if v := maxAbsFromRows(state.R1); v > boundB {
-		boundB = v
-	}
-	if boundB > 1 {
-		t.Fatalf("fixture boundB=%d exceeds 1; regenerate ternary fixture", boundB)
-	}
-	boundB = 1
+	dummyTagPublic := lanesFromElemsTest(make([]prf.Elem, params.LenTag), opts.NCols)
 	pub := PublicInputs{
-		A:      A,
-		B:      B,
-		Tag:    tagPublic,
-		Nonce:  noncePublic,
-		BoundB: boundB,
+		A:            A,
+		B:            B,
+		Tag:          dummyTagPublic,
+		Nonce:        noncePublic,
+		BoundB:       publicParams.BoundB,
+		HashRelation: publicParams.HashRelation,
 	}
 
 	rows, rowInputs, layout, prfLayout, prfCompanion, decsParams, maskRowOffset, maskRowCount, witnessCount, _, _, err := BuildCredentialRowsShowing(
@@ -386,6 +380,19 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 	if err != nil {
 		t.Fatalf("build showing rows: %v", err)
 	}
+	keyScalars, err := ExtractSignedPRFKeyScalarsFromCarrierOnOmega(ringQ, rows[layout.IdxCarrierM], omegaWitness, cnWit.PackedNCols, params.LenKey, publicParams.BoundB)
+	if err != nil {
+		t.Fatalf("extract signed PRF key from carrier: %v", err)
+	}
+	key := make([]prf.Elem, len(keyScalars))
+	for i := range keyScalars {
+		key[i] = prf.Elem(liftToField(ringQ.Modulus[0], keyScalars[i]))
+	}
+	tag, err := prf.Tag(key, nonce, params)
+	if err != nil {
+		t.Fatalf("compute tag: %v", err)
+	}
+	pub.Tag = lanesFromElemsTest(tag, opts.NCols)
 	rowsNTT := make([]*ring.Poly, len(rows))
 	for i := range rows {
 		rowsNTT[i] = ringQ.NewPoly()
@@ -882,13 +889,6 @@ func TestTransformBridgeCombinedReplayDebug(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build showing combined: %v", err)
 	}
-	prev := os.Getenv("PIOP_DEBUG_EQ4_K")
-	if err := os.Setenv("PIOP_DEBUG_EQ4_K", "1"); err != nil {
-		t.Fatalf("set debug env: %v", err)
-	}
-	defer func() {
-		_ = os.Setenv("PIOP_DEBUG_EQ4_K", prev)
-	}()
 	ok, err := VerifyWithConstraints(proof, set, fx.pub, fx.opts, FSModeCredential)
 	if err != nil {
 		t.Fatalf("verify with built set: %v", err)

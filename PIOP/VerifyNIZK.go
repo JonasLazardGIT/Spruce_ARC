@@ -86,7 +86,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if ncols+ell > int(ringQ.N) {
 		return false, false, false, fmt.Errorf("VerifyNIZK: explicit domain requires ncols+ell <= ring dimension (ncols=%d, ell=%d, ringN=%d)", ncols, ell, ringQ.N)
 	}
-	omega, domainPoints, derr := deriveExplicitDomain(q, nLeaves, ncols, ell)
+	omega, domainPoints, derr := deriveExplicitDomainForRelation(q, nLeaves, witnessNCols, ncols, ell, proof.HashRelation)
 	if derr != nil {
 		return false, false, false, fmt.Errorf("VerifyNIZK: explicit domain: %w", derr)
 	}
@@ -563,6 +563,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 				Fagg:         replay.Fagg,
 				FparCoeffs:   replay.FparCoeffs,
 				FaggCoeffs:   replay.FaggCoeffs,
+				FparOverrideIdxs: replay.FparOverrideIdxs,
 				BoundRows:    replay.BoundRows,
 				CarryRows:    replay.CarryRows,
 				BoundB:       replay.BoundB,
@@ -584,16 +585,18 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 				rowCount = proof.RowLayout.SigCount
 			}
 			ok, err := EvaluateConstraintsOnTailOpen(replay.Eval, EvalTailInput{
-				Tail:          proof.Tail,
-				RowOpen:       opening,
-				QOpen:         qOpeningPrepared,
-				GammaPrime:    proof.GammaPrime,
-				GammaAgg:      proof.GammaAgg,
-				Ring:          ringQ,
-				DomainPoints:  domainPoints,
-				RowCount:      rowCount,
-				MaskRowOffset: proof.MaskRowOffset,
-				MaskRowCount:  proof.MaskRowCount,
+				Tail:             proof.Tail,
+				RowOpen:          opening,
+				QOpen:            qOpeningPrepared,
+				GammaPrime:       proof.GammaPrime,
+				GammaAgg:         proof.GammaAgg,
+				Ring:             ringQ,
+				FparCoeffs:       replay.FparCoeffs,
+				FparOverrideIdxs: replay.FparOverrideIdxs,
+				DomainPoints:     domainPoints,
+				RowCount:         rowCount,
+				MaskRowOffset:    proof.MaskRowOffset,
+				MaskRowCount:     proof.MaskRowCount,
 			})
 			if err != nil || !ok {
 				if err == nil {

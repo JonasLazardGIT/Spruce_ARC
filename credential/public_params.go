@@ -16,6 +16,7 @@ const DefaultPublicParamsPath = "Parameters/credential_public.json"
 // PublicParams captures the stable credential-side public parameters used by
 // issuance and showing.
 type PublicParams struct {
+	HashRelation string                 `json:"hash_relation"`
 	Ac     commitment.CoeffMatrix `json:"Ac"`
 	BPath  string                 `json:"BPath"`
 	BoundB int64                  `json:"BoundB"`
@@ -27,6 +28,9 @@ type PublicParams struct {
 }
 
 func (pp PublicParams) Validate() error {
+	if err := ValidateHashRelation(pp.HashRelation); err != nil {
+		return err
+	}
 	if len(pp.Ac) == 0 {
 		return fmt.Errorf("missing Ac")
 	}
@@ -86,6 +90,7 @@ func (pp PublicParams) ToIssuanceParams(ringQ *ring.Ring) (*Params, error) {
 		return nil, fmt.Errorf("lift Ac to NTT: %w", err)
 	}
 	return &Params{
+		HashRelation: pp.HashRelation,
 		Ac:     ac,
 		BPath:  pp.BPath,
 		BoundB: pp.BoundB,

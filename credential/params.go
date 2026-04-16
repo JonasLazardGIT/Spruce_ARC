@@ -9,6 +9,7 @@ import (
 
 // Params captures the public inputs required during issuance.
 type Params struct {
+	HashRelation string
 	Ac     commitment.Matrix
 	BPath  string
 	AcPath string

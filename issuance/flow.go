@@ -335,6 +335,7 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	tCoeff, err := credential.HashMessage(
 		r,
 		B,
+		p.HashRelation,
 		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasM1]),
 		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasM2]),
 		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasR0]),
@@ -362,13 +363,14 @@ func ProvePreSign(p *credential.Params, ch Challenge, com commitment.Vector, in 
 		return nil, fmt.Errorf("nil params or ring")
 	}
 	pub := PIOP.PublicInputs{
-		Com:    com,
-		RI0:    ch.RI0,
-		RI1:    ch.RI1,
-		Ac:     p.Ac,
-		B:      st.B,
-		T:      st.T,
-		BoundB: p.BoundB,
+		Com:          com,
+		RI0:          ch.RI0,
+		RI1:          ch.RI1,
+		Ac:           p.Ac,
+		B:            st.B,
+		T:            st.T,
+		BoundB:       p.BoundB,
+		HashRelation: p.HashRelation,
 	}
 	wit := PIOP.WitnessInputs{
 		M1:  in.M1,
@@ -408,13 +410,14 @@ func VerifyPreSign(p *credential.Params, ch Challenge, com commitment.Vector, st
 		return false, fmt.Errorf("nil params or ring")
 	}
 	pub := PIOP.PublicInputs{
-		Com:    com,
-		RI0:    ch.RI0,
-		RI1:    ch.RI1,
-		Ac:     p.Ac,
-		B:      st.B,
-		T:      st.T,
-		BoundB: p.BoundB,
+		Com:          com,
+		RI0:          ch.RI0,
+		RI1:          ch.RI1,
+		Ac:           p.Ac,
+		B:            st.B,
+		T:            st.T,
+		BoundB:       p.BoundB,
+		HashRelation: p.HashRelation,
 	}
 	opts.Credential = true
 	builder := PIOP.NewCredentialBuilder(opts)

@@ -29,9 +29,15 @@ Appendix~\ref{app:gaussian-sampler}.
 
 \subsection{vSIS and rational-hash parameters}
 \paragraph{Rational-hash admissibility.}
-The abstract quotient \(h_{m,(r_0,r_1)}(B)\) is evaluated only when \(B_3-r_1\in \Rq^\times\). In the issuance
-model, this admissibility condition is enforced during honest target derivation by restart. The compiled pre-sign proof
-of Section~\ref{subsec:presign-compiled} certifies only the cleared-denominator relation for the public target \(T\).
+The canonical concrete target is the BB-tran relation
+\[
+h^{\mathrm{bb\mbox{-}tran}}_{m,(r_0,r_1)}(B)=B_1m+B_2r_0+(B_3-r_1)^{-1},
+\]
+which is evaluated only when \(B_3-r_1\in \Rq^\times\). In the issuance model,
+this admissibility condition is enforced during honest target derivation by
+restart. The compiled proofs of Section~\ref{subsec:presign-compiled} and
+Section~\ref{subsec:showing-compiled} certify the expanded cleared BB-tran
+identity using the auxiliary product rows \(mr_1\) and \(r_0r_1\).
 
 \paragraph{No wrap-around in bounds.}
 Membership checks for \([ -\BoundMsg,\BoundMsg]\) are implemented via vanishing polynomials over \(\Fq\), so one
@@ -54,8 +60,9 @@ SmallWood introduces parameters controlling packing, masking, and soundness:
   \item the small-field knob \(\theta\) when using an extension-field variant.
 \end{itemize}
 The pre-sign proof is dominated by carrier membership, decode bridges, linear replay on decoded aliases, and the
-transform-domain cleared relation for the public target. The post-sign proof adds the signature shortness gadget, the
-full replay-image showing relation, and the PRF checkpoint constraints.
+transform-domain BB-tran relation for the public target. The post-sign proof
+adds the signature shortness gadget, the replay-image BB-tran relation, and
+the PRF checkpoint constraints.
 
 \paragraph{Full replay-image geometry.}
 Let \(n_{\mathrm{cols}}^{\mathrm{rep}}\) denote the row width used for the replay blocks, and write
@@ -65,10 +72,11 @@ B_{\mathrm{rep}} := \left\lceil \frac{N}{n_{\mathrm{cols}}^{\mathrm{rep}}} \righ
 In the full replay-image showing model, each replayed ring object is represented by \(B_{\mathrm{rep}}\) replay blocks.
 Accordingly, the post-sign witness carries
 \[
-4B_{\mathrm{rep}}
+6B_{\mathrm{rep}}
 \]
-replay rows for the full images of \(Au\), \(M+K\), \(R_0\), and \(R_1\), in addition to the cert-side signature
-surface, source rows, and PRF companion rows.
+replay rows for the full images of \(Au\), \(M+K\), \(R_0\), \(R_1\),
+\((M+K)R_1\), and \(R_0R_1\), in addition to the cert-side signature surface,
+compressed source witness, and PRF companion rows.
 
 \paragraph{Replay width as a proof-size knob.}
 Increasing \(n_{\mathrm{cols}}^{\mathrm{rep}}\) decreases the replay block count \(B_{\mathrm{rep}}\) and hence the number
@@ -78,10 +86,12 @@ costs. The sizing discussion should therefore treat \(n_{\mathrm{cols}}^{\mathrm
 transcript-size tradeoff of the full replay-image showing proof.
 
 \paragraph{Replay-transform obligations for the showing theorem.}
-The coefficient-domain consequence theorem of Section~\ref{subsec:statement-strength} relies on the exact full replay
-transform \(\mathcal F_{\mathrm{rep}}\) and on the exact bridge equalities for the replay-image rows. In the full
-replay-image model, injectivity is supplied by the transform itself rather than by an additional zero-detection
-assumption on a reduced replay map.
+The coefficient-domain consequence theorem of
+Section~\ref{subsec:statement-strength} relies on the exact replay transform
+\(\mathcal F_{\mathrm{rep}}\) and on the exact bridge equalities for the
+replay-image rows, including the two BB-tran auxiliary product families. In the
+full replay-image model, injectivity is supplied by the transform itself rather
+than by an additional inverse witness.
 
 \subsection{PRF parameters}
 The PRF must be secure at the target security level, efficiently representable in constraints, and compatible with the

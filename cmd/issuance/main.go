@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
+
+	"vSIS-Signature/credential"
 )
 
 const (
@@ -75,11 +76,12 @@ func runSetupDemoPublic(args []string) error {
 	fs.SetOutput(os.Stderr)
 	outPath := fs.String("out", defaultDemoPublicParamsPath, "output path for generated credential public params")
 	force := fs.Bool("force", false, "overwrite an existing output path")
-	bPath := fs.String("b-path", filepath.Join("Parameters", "Bmatrix.json"), "B-matrix path recorded in the public params")
+	bPath := fs.String("b-path", "", "B-matrix path recorded in the public params (defaults from -hash-relation)")
+	hashRelation := fs.String("hash-relation", credential.HashRelationBBTran, "hash relation recorded in the public params (bbs or bb_tran)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return setupDemoPublic(*outPath, *force, *bPath)
+	return setupDemoPublic(*outPath, *force, *bPath, *hashRelation)
 }
 
 func runHolderCommit(args []string) error {

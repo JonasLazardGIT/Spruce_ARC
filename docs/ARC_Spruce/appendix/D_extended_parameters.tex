@@ -10,7 +10,7 @@ A parameter tuple is \emph{admissible} for ARC-SPRUCE if it simultaneously satis
   \item \textbf{Sampler hiding and shortness:} Gaussian widths exceed the required smoothing threshold and the signature
   bound \(\BoundSig\) holds with overwhelming probability.
   \item \textbf{Rational-hash guard:} denominator invertibility succeeds with negligible failure probability under the
-  holder randomness distribution.
+  holder randomness distribution for the retained BB-tran target.
   \item \textbf{SmallWood degree/soundness:} the DECS/LVCS degree bounds and PIOP soundness parameters meet the target
   security \(\lambda\).
   \item \textbf{PRF entropy:} truncation length \(\ell_{\prftag}\) yields at least \(\lambda\) bits of tag entropy.
@@ -65,17 +65,20 @@ and \(d_Q\), typical upper bounds take the form:
 \qquad
 \varepsilon_{\mathrm{tail}} \approx \frac{\binom{d_Q}{\ell'}}{\binom{|S|}{\ell'}}.
 \]
-Our issuance statement uses only linear constraints (given public \(T\)), so \(d_Q\) is driven by membership checks; the
-showing statement additionally depends on the PRF effective degree (Appendix~\ref{app:prf}).
+Our issuance statement keeps \(T\) public but now also carries the two BB-tran
+auxiliary product rows, so \(d_Q\) is driven by membership checks together with
+those low-degree product constraints; the showing statement additionally
+depends on the PRF effective degree (Appendix~\ref{app:prf}).
 
 \subsection{SmallWood knobs (example)}
 For the issuance and showing proofs discussed in Section~\ref{sec:parameters}, one example parameter tuple is:
 \[
   (s,\ell,\ell',\rho,\theta,\eta)\;=\;(16,25,2,2,4,19),
 \]
-with masking degree \(d_Q\) derived from the instantiated constraint degrees. The pre-sign statement remains linear in
-the witness (given public \(T\)), while the post-sign statement’s effective degree is dominated by the PRF S-box
-composition.
+with masking degree \(d_Q\) derived from the instantiated constraint degrees.
+The pre-sign statement keeps \(T\) public and adds only the BB-tran auxiliary
+product constraints, while the post-sign statement’s effective degree is still
+dominated by the PRF S-box composition.
 
 \subsection{Extended benchmark grid (SmallWood)}
 For additional context on how SmallWood knobs affect proof size and proving time, Table~\ref{tab:results-grid} reports

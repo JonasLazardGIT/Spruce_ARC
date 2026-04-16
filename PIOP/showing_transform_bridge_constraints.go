@@ -91,6 +91,7 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if componentCount != len(pub.A[0]) {
 		return ConstraintSet{}, fmt.Errorf("signature component mismatch: layout=%d want %d", componentCount, len(pub.A[0]))
 	}
+	useBBTran := publicUsesBBTran(pub)
 
 	carrierMIdx := rowLayoutPostSignCarrierM(layout)
 	carrierCtrIdx := rowLayoutPostSignCarrierCtr(layout)
@@ -106,6 +107,9 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	}
 	if layout.IdxMHatSigma < 0 || layout.IdxRHat0 < 0 || layout.IdxRHat1 < 0 || layout.IdxTHatBase < 0 {
 		return ConstraintSet{}, fmt.Errorf("missing transform-domain replay rows")
+	}
+	if useBBTran && (layout.IdxMSigmaR1 < 0 || layout.IdxR0R1 < 0 || layout.IdxMSigmaR1Hat < 0 || layout.IdxR0R1Hat < 0) {
+		return ConstraintSet{}, fmt.Errorf("bb_tran showing requires committed product rows and replay hats")
 	}
 
 	specSig, err := signatureChainSpecForLayoutAndOpts(q, layout, opts)
@@ -192,6 +196,13 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	r0CompCoeffs := trimPoly(ctrDecode1Poly.Compose(carrierCtrPoly).Coeffs, q)
 	r1CompCoeffs := trimPoly(ctrDecode2Poly.Compose(carrierCtrPoly).Coeffs, q)
 	mSigmaCompCoeffs := polyAdd(m1CompCoeffs, m2CompCoeffs, q)
+	var mSigmaR1CompCoeffs, r0R1CompCoeffs []uint64
+	if useBBTran {
+		mSigmaR1CompCoeffs, r0R1CompCoeffs, err = buildBBTranProductInterpCoeffs(q, omega, m1CompCoeffs, m2CompCoeffs, r0CompCoeffs, r1CompCoeffs)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("bb_tran source product interpolants: %w", err)
+		}
+	}
 	msgMembership := fpoly.New(q, msgMembershipPoly)
 	ctrMembership := fpoly.New(q, ctrMembershipPoly)
 	memMCoeffs := trimPoly(msgMembership.Compose(carrierMPoly).Coeffs, q)
@@ -212,6 +223,11 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	mSigmaHatCoeffs := make([][]uint64, replayBlockCount)
 	r0HatCoeffs := make([][]uint64, replayBlockCount)
 	r1HatCoeffs := make([][]uint64, replayBlockCount)
+	var mSigmaR1HatCoeffs, r0R1HatCoeffs [][]uint64
+	if useBBTran {
+		mSigmaR1HatCoeffs = make([][]uint64, replayBlockCount)
+		r0R1HatCoeffs = make([][]uint64, replayBlockCount)
+	}
 	for b := 0; b < replayBlockCount; b++ {
 		mSigmaHatCoeff, err := getRowCoeff(rowLayoutPostSignMHatSigmaIndex(layout, b))
 		if err != nil {
@@ -228,6 +244,43 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 		mSigmaHatCoeffs[b] = mSigmaHatCoeff
 		r0HatCoeffs[b] = r0HatCoeff
 		r1HatCoeffs[b] = r1HatCoeff
+		if useBBTran {
+			mSigmaR1HatCoeff, err := getRowCoeff(rowLayoutPostSignMSigmaR1HatIndex(layout, b))
+			if err != nil {
+				return ConstraintSet{}, fmt.Errorf("mSigmaR1 hat coeffs block %d: %w", b, err)
+			}
+			r0R1HatCoeff, err := getRowCoeff(rowLayoutPostSignR0R1HatIndex(layout, b))
+			if err != nil {
+				return ConstraintSet{}, fmt.Errorf("r0R1 hat coeffs block %d: %w", b, err)
+			}
+			mSigmaR1HatCoeffs[b] = mSigmaR1HatCoeff
+			r0R1HatCoeffs[b] = r0R1HatCoeff
+		}
+	}
+	var mSigmaR1SourceCoeff, r0R1SourceCoeff []uint64
+	var productSourceRes []*ring.Poly
+	var productSourceResCoeffs [][]uint64
+	if useBBTran {
+		mSigmaR1SourceCoeff, err = getRowCoeff(layout.IdxMSigmaR1)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("bb_tran source MSigmaR1 coeffs: %w", err)
+		}
+		r0R1SourceCoeff, err = getRowCoeff(layout.IdxR0R1)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("bb_tran source R0R1 coeffs: %w", err)
+		}
+		for _, pair := range []struct {
+			got  []uint64
+			want []uint64
+			name string
+		}{
+			{got: mSigmaR1SourceCoeff, want: mSigmaR1CompCoeffs, name: "bb_tran source MSigmaR1"},
+			{got: r0R1SourceCoeff, want: r0R1CompCoeffs, name: "bb_tran source R0R1"},
+		} {
+			resCoeff := polySub(pair.got, pair.want, q)
+			productSourceResCoeffs = append(productSourceResCoeffs, resCoeff)
+			productSourceRes = append(productSourceRes, nttPolyFromFormalCoeffsIfFits(ringQ, resCoeff))
+		}
 	}
 	tSourceCoeffs := make([][]uint64, tSourceCount)
 	for bSrc := 0; bSrc < tSourceCount; bSrc++ {
@@ -249,7 +302,7 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	hashResCoeffs := make([][]uint64, replayBlockCount)
 	hashResPolys := make([]*ring.Poly, replayBlockCount)
 	for b := 0; b < replayBlockCount; b++ {
-		hashResCoeff := buildTransformHashResidualCombinedCoeffs(q, thetaBBlocks[b], mSigmaHatCoeffs[b], r0HatCoeffs[b], r1HatCoeffs[b], tHatCoeffs[b])
+		hashResCoeff := buildTransformHashResidualCombinedCoeffs(q, pub.HashRelation, thetaBBlocks[b], mSigmaHatCoeffs[b], r0HatCoeffs[b], r1HatCoeffs[b], tHatCoeffs[b], coeffOrZero(mSigmaR1HatCoeffs, b), coeffOrZero(r0R1HatCoeffs, b))
 		hashResCoeffs[b] = hashResCoeff
 		hashResPolys[b] = nttPolyFromFormalCoeffsIfFits(ringQ, hashResCoeff)
 	}
@@ -295,9 +348,11 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	}
 
 	fparInt := append([]*ring.Poly{}, hashResPolys...)
+	fparInt = append(fparInt, productSourceRes...)
 	fparInt = append(fparInt, m1Pack, m2Pack, carrierMemM, carrierMemCtr)
 	fparInt = append(fparInt, keyBindRes...)
 	fparIntCoeffs := append([][]uint64{}, hashResCoeffs...)
+	fparIntCoeffs = append(fparIntCoeffs, productSourceResCoeffs...)
 	fparIntCoeffs = append(fparIntCoeffs, m1PackCoeff, m2PackCoeff, memMCoeffs, memCtrCoeffs)
 	fparIntCoeffs = append(fparIntCoeffs, keyBindCoeffs...)
 	if len(fparIntCoeffs) != len(fparInt) {
@@ -390,6 +445,29 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 				bridgeCoeff := buildTransformBridgeResidualCoeff(q, bridgeBasis.TransformH[t], bridgeBasis.LagrangeBasis[j], pair.srcCoeff, hatCoeff)
 				faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
 				faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
+			}
+		}
+	}
+	if useBBTran {
+		for _, pair := range []struct {
+			srcCoeff []uint64
+			hatBase  int
+			name     string
+		}{
+			{srcCoeff: mSigmaR1SourceCoeff, hatBase: layout.IdxMSigmaR1Hat, name: "mSigmaR1"},
+			{srcCoeff: r0R1SourceCoeff, hatBase: layout.IdxR0R1Hat, name: "r0R1"},
+		} {
+			for b := 0; b < replayBlockCount; b++ {
+				hatCoeff, err := getRowCoeff(pair.hatBase + b)
+				if err != nil {
+					return ConstraintSet{}, fmt.Errorf("bb_tran hat coeffs %s block %d: %w", pair.name, b, err)
+				}
+				for j := 0; j < ncols; j++ {
+					t := b*ncols + j
+					bridgeCoeff := buildTransformBridgeResidualCoeff(q, bridgeBasis.TransformH[t], bridgeBasis.LagrangeBasis[j], pair.srcCoeff, hatCoeff)
+					faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
+					faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
+				}
 			}
 		}
 	}

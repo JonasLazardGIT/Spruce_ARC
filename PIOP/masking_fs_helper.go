@@ -433,9 +433,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			}
 		}
 		qLayout.MaskCoeffs = maskCoeffs
-		proof.maskCoeffDebug = copyMatrix(maskCoeffs)
-		proof.fparCoeffDebug = copyMatrix(args.FparAllCoeffs)
-		proof.faggCoeffDebug = copyMatrix(args.FaggAllCoeffs)
+		proof.MaskCoeffDebug = copyMatrix(maskCoeffs)
+		proof.FparCoeffDebug = copyMatrix(args.FparAllCoeffs)
+		proof.FaggCoeffDebug = copyMatrix(args.FaggAllCoeffs)
 		if proof.Theta <= 1 {
 			totalRows := args.maskRowOffset + args.maskRowCount
 			fullRows := make([][]uint64, totalRows)
@@ -467,7 +467,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			return qErr
 		}
 		out.QCoeffs = qCoeffs
-		proof.qCoeffDebug = copyMatrix(qCoeffs)
+		proof.QCoeffDebug = copyMatrix(qCoeffs)
 		if deg := maxDegreeFromCoeffRows(qCoeffs); deg > qDecsParams.Degree {
 			qDecsParams.Degree = deg
 		}

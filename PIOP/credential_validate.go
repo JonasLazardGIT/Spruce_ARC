@@ -29,6 +29,9 @@ func validatePublics(pub PublicInputs) error {
 	if len(pub.B) != 0 && len(pub.B) != 1 && len(pub.B) != 4 {
 		return fmt.Errorf("b: expected 1 or 4 polys, got %d", len(pub.B))
 	}
+	if err := validateHashRelationPublicInputs(pub); err != nil {
+		return err
+	}
 	if len(pub.Ac) > 0 {
 		rowLen := len(pub.Ac[0])
 		if rowLen == 0 {

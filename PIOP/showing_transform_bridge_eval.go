@@ -20,6 +20,7 @@ type transformBridgePostSignConfig struct {
 	Layout       RowLayout
 	Omega        []uint64
 	DomainPoints []uint64
+	HashRelation string
 
 	ThetaAHeads     [][][]uint64
 	ThetaBBlocks    [][][]uint64
@@ -57,6 +58,9 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	}
 	if rowLayoutPostSignTSource(layout) < 0 {
 		return nil, fmt.Errorf("transform-bridge replay requires a committed T source row")
+	}
+	if publicUsesBBTran(pub) && (layout.IdxMSigmaR1 < 0 || layout.IdxR0R1 < 0 || layout.IdxMSigmaR1Hat < 0 || layout.IdxR0R1Hat < 0) {
+		return nil, fmt.Errorf("bb_tran transform-bridge replay requires product rows and hats")
 	}
 	if len(omegaWitness) == 0 {
 		return nil, fmt.Errorf("empty omega witness")
@@ -180,6 +184,7 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		Layout:            layout,
 		Omega:             append([]uint64(nil), omegaWitness...),
 		DomainPoints:      append([]uint64(nil), domainPoints...),
+		HashRelation:      pub.HashRelation,
 		ThetaAHeads:       thetaAHeads,
 		ThetaBBlocks:      thetaBBlocks,
 		PackingSelCoeff:   packingSelCoeff,
@@ -239,6 +244,7 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 		if tSourceBlocks <= 0 {
 			tSourceBlocks = cfg.SourceBlocks
 		}
+		useBBTran := relationUsesBBTran(cfg.HashRelation)
 		fpar := make([]uint64, 0, replayBlocks+4+cfg.KeyBindLayout.KeyCount)
 		for b := 0; b < replayBlocks; b++ {
 			mHatSigma, err := getRow(rowLayoutPostSignMHatSigmaIndex(layout, b))
@@ -257,7 +263,19 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 			if err != nil {
 				return nil, nil, err
 			}
-			fpar = append(fpar, transformHashResidualCombinedEval(q, x, cfg.ThetaBBlocks[b], mHatSigma, rHat0, rHat1, tHat))
+			mSigmaR1Hat := uint64(0)
+			r0R1Hat := uint64(0)
+			if useBBTran {
+				mSigmaR1Hat, err = getRow(rowLayoutPostSignMSigmaR1HatIndex(layout, b))
+				if err != nil {
+					return nil, nil, err
+				}
+				r0R1Hat, err = getRow(rowLayoutPostSignR0R1HatIndex(layout, b))
+				if err != nil {
+					return nil, nil, err
+				}
+			}
+			fpar = append(fpar, transformHashResidualCombinedEval(q, x, cfg.HashRelation, cfg.ThetaBBlocks[b], mHatSigma, rHat0, rHat1, tHat, mSigmaR1Hat, r0R1Hat))
 		}
 
 		cM, err := getRow(layout.IdxCarrierM)
@@ -272,6 +290,22 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 		m2 := EvalPoly(cfg.MsgDecode2, cM, q) % q
 		r0 := EvalPoly(cfg.CtrDecode1, cCtr, q) % q
 		r1 := EvalPoly(cfg.CtrDecode2, cCtr, q) % q
+		mSigmaR1 := uint64(0)
+		r0R1 := uint64(0)
+		if useBBTran {
+			mSigmaR1, err = getRow(layout.IdxMSigmaR1)
+			if err != nil {
+				return nil, nil, err
+			}
+			r0R1, err = getRow(layout.IdxR0R1)
+			if err != nil {
+				return nil, nil, err
+			}
+			fpar = append(fpar,
+				modSub(mSigmaR1, modMul(modAdd(m1, m2, q), r1, q), q),
+				modSub(r0R1, modMul(r0, r1, q), q),
+			)
+		}
 
 		sel := EvalPoly(cfg.PackingSelCoeff, x, q) % q
 		fpar = append(fpar, modMul(sel, m1, q))
@@ -409,6 +443,31 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 				}
 			}
 		}
+		if useBBTran {
+			for _, pair := range []struct {
+				val     uint64
+				hatBase int
+			}{
+				{val: mSigmaR1, hatBase: layout.IdxMSigmaR1Hat},
+				{val: r0R1, hatBase: layout.IdxR0R1Hat},
+			} {
+				for b := 0; b < replayBlocks; b++ {
+					hat, err := getRow(pair.hatBase + b)
+					if err != nil {
+						return nil, nil, err
+					}
+					for j := 0; j < len(lagrangeVals); j++ {
+						t := b*len(lagrangeVals) + j
+						if t < 0 || t >= len(hVals) {
+							return nil, nil, fmt.Errorf("bb_tran non-sign bridge index t=%d out of range", t)
+						}
+						left := modMul(pair.val, hVals[t], q)
+						right := modMul(hat, lagrangeVals[j], q)
+						fagg = append(fagg, modSub(left, right, q))
+					}
+				}
+			}
+		}
 		if len(cfg.PRFConstRows) > 0 {
 			for _, idx := range cfg.PRFConstRows {
 				rowVal, err := getRow(idx)
@@ -444,6 +503,7 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 		if tSourceBlocks <= 0 {
 			tSourceBlocks = cfg.SourceBlocks
 		}
+		useBBTran := relationUsesBBTran(cfg.HashRelation)
 		fpar := make([]kf.Elem, 0, replayBlocks+4+cfg.KeyBindLayout.KeyCount)
 		for b := 0; b < replayBlocks; b++ {
 			mHatSigma, err := getRow(rowLayoutPostSignMHatSigmaIndex(layout, b))
@@ -462,7 +522,19 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 			if err != nil {
 				return nil, nil, err
 			}
-			fpar = append(fpar, transformHashResidualCombinedKEval(K, e, cfg.ThetaBBlocks[b], mHatSigma, rHat0, rHat1, tHat))
+			mSigmaR1Hat := K.Zero()
+			r0R1Hat := K.Zero()
+			if useBBTran {
+				mSigmaR1Hat, err = getRow(rowLayoutPostSignMSigmaR1HatIndex(layout, b))
+				if err != nil {
+					return nil, nil, err
+				}
+				r0R1Hat, err = getRow(rowLayoutPostSignR0R1HatIndex(layout, b))
+				if err != nil {
+					return nil, nil, err
+				}
+			}
+			fpar = append(fpar, transformHashResidualCombinedKEval(K, e, cfg.HashRelation, cfg.ThetaBBlocks[b], mHatSigma, rHat0, rHat1, tHat, mSigmaR1Hat, r0R1Hat))
 		}
 
 		cM, err := getRow(layout.IdxCarrierM)
@@ -477,6 +549,22 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 		m2 := K.EvalFPolyAtK(cfg.MsgDecode2, cM)
 		r0 := K.EvalFPolyAtK(cfg.CtrDecode1, cCtr)
 		r1 := K.EvalFPolyAtK(cfg.CtrDecode2, cCtr)
+		mSigmaR1 := K.Zero()
+		r0R1 := K.Zero()
+		if useBBTran {
+			mSigmaR1, err = getRow(layout.IdxMSigmaR1)
+			if err != nil {
+				return nil, nil, err
+			}
+			r0R1, err = getRow(layout.IdxR0R1)
+			if err != nil {
+				return nil, nil, err
+			}
+			fpar = append(fpar,
+				K.Sub(mSigmaR1, K.Mul(K.Add(m1, m2), r1)),
+				K.Sub(r0R1, K.Mul(r0, r1)),
+			)
+		}
 
 		sel := K.EvalFPolyAtK(cfg.PackingSelCoeff, e)
 		fpar = append(fpar, K.Mul(sel, m1))
@@ -611,6 +699,31 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 					left := K.Mul(pair.val, hVals[t])
 					right := K.Mul(hat, lagrangeVals[j])
 					fagg = append(fagg, K.Sub(left, right))
+				}
+			}
+		}
+		if useBBTran {
+			for _, pair := range []struct {
+				val     kf.Elem
+				hatBase int
+			}{
+				{val: mSigmaR1, hatBase: layout.IdxMSigmaR1Hat},
+				{val: r0R1, hatBase: layout.IdxR0R1Hat},
+			} {
+				for b := 0; b < replayBlocks; b++ {
+					hat, err := getRow(pair.hatBase + b)
+					if err != nil {
+						return nil, nil, err
+					}
+					for j := 0; j < len(lagrangeVals); j++ {
+						t := b*len(lagrangeVals) + j
+						if t < 0 || t >= len(hVals) {
+							return nil, nil, fmt.Errorf("bb_tran non-sign bridge index t=%d out of range", t)
+						}
+						left := K.Mul(pair.val, hVals[t])
+						right := K.Mul(hat, lagrangeVals[j])
+						fagg = append(fagg, K.Sub(left, right))
+					}
 				}
 			}
 		}

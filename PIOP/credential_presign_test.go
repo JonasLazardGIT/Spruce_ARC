@@ -56,6 +56,21 @@ func sampleBoundedEvalPreSignTest(r *ring.Ring, bound int64, omega []uint64, rng
 	return p
 }
 
+func preSignWitnessOmegaForRelationTest(ringQ *ring.Ring, opts SimOpts, relation string) ([]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	nLeaves := opts.NLeaves
+	if nLeaves <= 0 {
+		nLeaves = int(ringQ.N)
+	}
+	lvcsNCols := opts.LVCSNCols
+	if lvcsNCols <= 0 {
+		lvcsNCols = opts.NCols
+	}
+	return deriveRelationWitnessOmega(ringQ.Modulus[0], nLeaves, opts.NCols, lvcsNCols, opts.Ell, relation)
+}
+
 func constNTTPolyPreSignTest(r *ring.Ring, v int64) *ring.Poly {
 	p := r.NewPoly()
 	q := int64(r.Modulus[0])
@@ -284,6 +299,7 @@ func applyChallengePreSignTest(p *credential.Params, in WitnessInputs, ch preSig
 	tCoeff, err := credential.HashMessage(
 		r,
 		B,
+		p.HashRelation,
 		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasM1]),
 		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasM2]),
 		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasR0]),
@@ -335,11 +351,10 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 		NLeaves:    2048,
 	})
 	opts.LVCSNCols = 96
-	_, omega, _, err := loadParamsAndOmega(opts)
+	omega, err := preSignWitnessOmegaForRelationTest(ringQ, opts, credential.HashRelationBBS)
 	if err != nil {
-		t.Fatalf("load params/omega: %v", err)
+		t.Fatalf("load witness omega: %v", err)
 	}
-	omega = omega[:opts.NCols]
 	const bound = int64(1)
 	Ac := make([][]*ring.Poly, 5)
 	for i := range Ac {
@@ -353,16 +368,17 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 		}
 	}
 	params := &credential.Params{
-		Ac:     Ac,
-		BPath:  "Parameters/Bmatrix.json",
-		AcPath: "Parameters/credential_public.json",
-		BoundB: bound,
-		RingQ:  ringQ,
-		LenM1:  1,
-		LenM2:  1,
-		LenRU0: 1,
-		LenRU1: 1,
-		LenR:   1,
+		Ac:           Ac,
+		HashRelation: credential.HashRelationBBS,
+		BPath:        "Parameters/Bmatrix.json",
+		AcPath:       "Parameters/credential_public.json",
+		BoundB:       bound,
+		RingQ:        ringQ,
+		LenM1:        1,
+		LenM2:        1,
+		LenRU0:       1,
+		LenRU1:       1,
+		LenR:         1,
 	}
 	rng := rand.New(rand.NewSource(7))
 	witBase := WitnessInputs{
@@ -382,13 +398,14 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 		t.Fatalf("apply challenge: %v", err)
 	}
 	pub := PublicInputs{
-		Com:    com,
-		RI0:    ch.RI0,
-		RI1:    ch.RI1,
-		Ac:     params.Ac,
-		B:      st.B,
-		T:      st.T,
-		BoundB: params.BoundB,
+		Com:          com,
+		RI0:          ch.RI0,
+		RI1:          ch.RI1,
+		Ac:           params.Ac,
+		B:            st.B,
+		T:            st.T,
+		BoundB:       params.BoundB,
+		HashRelation: params.HashRelation,
 	}
 	wit := WitnessInputs{
 		M1:  witBase.M1,
@@ -401,7 +418,7 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 		K0:  st.K0,
 		K1:  st.K1,
 	}
-	rows, _, layout, _, _, _, witnessCount, _, err := buildCredentialRows(ringQ, wit, opts, bound)
+	rows, _, layout, _, _, _, witnessCount, _, err := buildCredentialRows(ringQ, credential.HashRelationBBS, wit, opts, bound)
 	if err != nil {
 		t.Fatalf("build credential rows: %v", err)
 	}
@@ -420,7 +437,7 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 	if layout.IdxMHat1 != 14 || layout.IdxMHat2 != 15 || layout.IdxRHat0 != 16 || layout.IdxRHat1 != 17 {
 		t.Fatalf("unexpected hat layout indices: %+v", layout)
 	}
-	cs, err := BuildCredentialConstraintSetPre(ringQ, params.BoundB, pub, wit, omega, opts.DomainMode)
+	cs, err := BuildCredentialConstraintSetPre(ringQ, params.BoundB, pub, wit, omega, opts)
 	if err != nil {
 		t.Fatalf("build constraint set: %v", err)
 	}
@@ -540,11 +557,10 @@ func TestCredentialPreSignProofVerifies(t *testing.T) {
 		NLeaves:    2048,
 	})
 	opts.LVCSNCols = 96
-	_, omega, _, err := loadParamsAndOmega(opts)
+	omega, err := preSignWitnessOmegaForRelationTest(ringQ, opts, credential.HashRelationBBS)
 	if err != nil {
-		t.Fatalf("load params/omega: %v", err)
+		t.Fatalf("load witness omega: %v", err)
 	}
-	omega = omega[:opts.NCols]
 	const bound = int64(1)
 	Ac := make([][]*ring.Poly, 5)
 	for i := range Ac {
@@ -558,16 +574,17 @@ func TestCredentialPreSignProofVerifies(t *testing.T) {
 		}
 	}
 	params := &credential.Params{
-		Ac:     Ac,
-		BPath:  "Parameters/Bmatrix.json",
-		AcPath: "Parameters/credential_public.json",
-		BoundB: bound,
-		RingQ:  ringQ,
-		LenM1:  1,
-		LenM2:  1,
-		LenRU0: 1,
-		LenRU1: 1,
-		LenR:   1,
+		Ac:           Ac,
+		HashRelation: credential.HashRelationBBS,
+		BPath:        "Parameters/Bmatrix.json",
+		AcPath:       "Parameters/credential_public.json",
+		BoundB:       bound,
+		RingQ:        ringQ,
+		LenM1:        1,
+		LenM2:        1,
+		LenRU0:       1,
+		LenRU1:       1,
+		LenR:         1,
 	}
 	rng := rand.New(rand.NewSource(7))
 	witBase := WitnessInputs{
@@ -587,13 +604,14 @@ func TestCredentialPreSignProofVerifies(t *testing.T) {
 		t.Fatalf("apply challenge: %v", err)
 	}
 	pub := PublicInputs{
-		Com:    com,
-		RI0:    ch.RI0,
-		RI1:    ch.RI1,
-		Ac:     params.Ac,
-		B:      st.B,
-		T:      st.T,
-		BoundB: params.BoundB,
+		Com:          com,
+		RI0:          ch.RI0,
+		RI1:          ch.RI1,
+		Ac:           params.Ac,
+		B:            st.B,
+		T:            st.T,
+		BoundB:       params.BoundB,
+		HashRelation: params.HashRelation,
 	}
 	wit := WitnessInputs{
 		M1:  witBase.M1,
@@ -606,6 +624,99 @@ func TestCredentialPreSignProofVerifies(t *testing.T) {
 		K0:  st.K0,
 		K1:  st.K1,
 	}
+	rows, _, layout, _, _, _, _, _, err := buildCredentialRows(ringQ, params.HashRelation, wit, opts, bound)
+	if err != nil {
+		t.Fatalf("build bb_tran rows: %v", err)
+	}
+	rowsNTT := make([]*ring.Poly, len(rows))
+	for i := range rows {
+		rowsNTT[i] = ringQ.NewPoly()
+		ring.Copy(rows[i], rowsNTT[i])
+		ringQ.NTT(rowsNTT[i], rowsNTT[i])
+	}
+	cs, err := buildCredentialConstraintSetPreFromRows(ringQ, bound, pub, layout, rowsNTT, omega, opts.DomainMode)
+	if err != nil {
+		t.Fatalf("build bb_tran constraint set from rows: %v", err)
+	}
+	q := ringQ.Modulus[0]
+	checkZeroOnOmega := func(name string, polys []*ring.Poly) {
+		for i, p := range polys {
+			coeffs, cerr := coeffFromNTTPoly(ringQ, p)
+			if cerr != nil {
+				t.Fatalf("%s[%d] coeffs: %v", name, i, cerr)
+			}
+			for _, x := range omega {
+				if EvalPoly(coeffs, x%q, q)%q != 0 {
+					t.Fatalf("%s[%d] is non-zero on omega at x=%d", name, i, x)
+				}
+			}
+		}
+	}
+	checkSigmaOmega := func(name string, polys []*ring.Poly) {
+		for i, p := range polys {
+			coeffs, cerr := coeffFromNTTPoly(ringQ, p)
+			if cerr != nil {
+				t.Fatalf("%s[%d] coeffs: %v", name, i, cerr)
+			}
+			sum := uint64(0)
+			for _, x := range omega {
+				sum = modAdd(sum, EvalPoly(coeffs, x%q, q)%q, q)
+			}
+			if sum != 0 {
+				t.Fatalf("%s[%d] has non-zero SigmaOmega sum=%d", name, i, sum)
+			}
+		}
+	}
+	checkZeroOnOmega("pre_sign_fpar", cs.FparInt)
+	checkSigmaOmega("pre_sign_fagg", cs.FaggNorm)
+	_, domainPoints, derr := deriveExplicitDomain(ringQ.Modulus[0], opts.NLeaves, opts.LVCSNCols, opts.Ell)
+	if derr != nil {
+		t.Fatalf("derive explicit domain points: %v", derr)
+	}
+	cfgPre, err := newPreSignTransformBridgeConfig(ringQ, pub, layout, omega, domainPoints, bound)
+	if err != nil {
+		t.Fatalf("new pre-sign transform bridge config: %v", err)
+	}
+	eval := cfgPre.CoreEvaluator()
+	allFpar := append(append([]*ring.Poly{}, cs.FparInt...), cs.FparNorm...)
+	allFagg := append(append([]*ring.Poly{}, cs.FaggInt...), cs.FaggNorm...)
+	rowValuesAt := func(x uint64) []uint64 {
+		out := make([]uint64, len(rows))
+		qEval := ringQ.Modulus[0]
+		for i, row := range rows {
+			out[i] = EvalPoly(trimPoly(append([]uint64(nil), row.Coeffs[0]...), qEval), x%qEval, qEval) % qEval
+		}
+		return out
+	}
+	for ptIdx, x := range domainPoints {
+		fparEval, faggEval, err := eval(uint64(ptIdx), rowValuesAt(x))
+		if err != nil {
+			t.Fatalf("core evaluator point %d: %v", ptIdx, err)
+		}
+		if len(fparEval) != len(allFpar) || len(faggEval) != len(allFagg) {
+			t.Fatalf("evaluator family count mismatch at point %d: fpar=%d/%d fagg=%d/%d", ptIdx, len(fparEval), len(allFpar), len(faggEval), len(allFagg))
+		}
+		for i, p := range allFpar {
+			coeffs, cerr := coeffFromNTTPoly(ringQ, p)
+			if cerr != nil {
+				t.Fatalf("pre-sign fpar coeffs[%d]: %v", i, cerr)
+			}
+			want := EvalPoly(coeffs, x%q, q) % q
+			if fparEval[i] != want {
+				t.Fatalf("pre-sign fpar evaluator mismatch at point %d family %d: got %d want %d", ptIdx, i, fparEval[i], want)
+			}
+		}
+		for i, p := range allFagg {
+			coeffs, cerr := coeffFromNTTPoly(ringQ, p)
+			if cerr != nil {
+				t.Fatalf("pre-sign fagg coeffs[%d]: %v", i, cerr)
+			}
+			want := EvalPoly(coeffs, x%q, q) % q
+			if faggEval[i] != want {
+				t.Fatalf("pre-sign fagg evaluator mismatch at point %d family %d: got %d want %d", ptIdx, i, faggEval[i], want)
+			}
+		}
+	}
 	builder := NewCredentialBuilder(opts)
 	proof, err := builder.Build(pub, wit, MaskConfig{})
 	if err != nil {
@@ -617,6 +728,269 @@ func TestCredentialPreSignProofVerifies(t *testing.T) {
 	}
 	if !ok {
 		t.Fatal("pre-sign proof did not verify")
+	}
+}
+
+func TestCredentialPreSignProofVerifiesBBTran(t *testing.T) {
+	credentialPreSignChdir(t, credentialPreSignRepoRoot(t))
+	ringQ, err := credential.LoadDefaultRing()
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+	opts := ResolveSimOptsDefaults(SimOpts{
+		Credential: true,
+		Theta:      1,
+		EllPrime:   2,
+		Rho:        2,
+		NCols:      16,
+		Ell:        25,
+		Eta:        19,
+		DomainMode: DomainModeExplicit,
+		NLeaves:    2048,
+	})
+	opts.LVCSNCols = 96
+	omega, err := preSignWitnessOmegaForRelationTest(ringQ, opts, credential.HashRelationBBTran)
+	if err != nil {
+		t.Fatalf("load witness omega: %v", err)
+	}
+	const bound = int64(1)
+	Ac := make([][]*ring.Poly, 5)
+	for i := range Ac {
+		Ac[i] = make([]*ring.Poly, 5)
+		for j := range Ac[i] {
+			if i == j {
+				Ac[i][j] = constNTTPolyPreSignTest(ringQ, 1)
+			} else {
+				Ac[i][j] = ringQ.NewPoly()
+			}
+		}
+	}
+	params := &credential.Params{
+		Ac:           Ac,
+		HashRelation: credential.HashRelationBBTran,
+		BPath:        "Parameters/Bmatrix_bb_tran.json",
+		AcPath:       "Parameters/credential_public.json",
+		BoundB:       bound,
+		RingQ:        ringQ,
+		LenM1:        1,
+		LenM2:        1,
+		LenRU0:       1,
+		LenRU1:       1,
+		LenR:         1,
+	}
+	rng := rand.New(rand.NewSource(17))
+	witBase := WitnessInputs{
+		M1:  []*ring.Poly{samplePackedHalfEvalPreSignTest(ringQ, bound, omega, rng, true)},
+		M2:  []*ring.Poly{samplePackedHalfEvalPreSignTest(ringQ, bound, omega, rng, false)},
+		RU0: []*ring.Poly{sampleBoundedEvalPreSignTest(ringQ, bound, omega, rng)},
+		RU1: []*ring.Poly{sampleBoundedEvalPreSignTest(ringQ, bound, omega, rng)},
+		R:   []*ring.Poly{sampleBoundedEvalPreSignTest(ringQ, bound, omega, rng)},
+	}
+	ch := sampleChallengePreSignTest(ringQ, bound, rng)
+	com, err := prepareCommitPreSignTest(ringQ, Ac, witBase, omega)
+	if err != nil {
+		t.Fatalf("prepare commit: %v", err)
+	}
+	st, err := applyChallengePreSignTest(params, witBase, ch, omega)
+	if err != nil {
+		t.Fatalf("apply challenge: %v", err)
+	}
+	pub := PublicInputs{
+		Com:          com,
+		RI0:          ch.RI0,
+		RI1:          ch.RI1,
+		Ac:           params.Ac,
+		B:            st.B,
+		T:            st.T,
+		BoundB:       params.BoundB,
+		HashRelation: params.HashRelation,
+	}
+	wit := WitnessInputs{
+		M1:  witBase.M1,
+		M2:  witBase.M2,
+		RU0: witBase.RU0,
+		RU1: witBase.RU1,
+		R:   witBase.R,
+		R0:  st.R0,
+		R1:  st.R1,
+		K0:  st.K0,
+		K1:  st.K1,
+	}
+	_, rowInputs, _, _, _, _, _, _, err := buildCredentialRows(ringQ, pub.HashRelation, wit, opts, pub.BoundB)
+	if err != nil {
+		t.Fatalf("build bb_tran rows: %v", err)
+	}
+	requiredPCSNCols := requiredExplicitPCSNColsForRows(ringQ, rowInputs, opts.Ell)
+	bbTranOpts := bumpExplicitPCSNCols(opts, requiredPCSNCols)
+	omegaWitness, err := preSignWitnessOmegaForRelationTest(ringQ, bbTranOpts, credential.HashRelationBBTran)
+	if err != nil {
+		t.Fatalf("load bb_tran witness omega: %v", err)
+	}
+	cs, err := BuildCredentialConstraintSetPre(ringQ, pub.BoundB, pub, wit, omegaWitness, bbTranOpts)
+	if err != nil {
+		t.Fatalf("build bb_tran constraint set: %v", err)
+	}
+	q := ringQ.Modulus[0]
+	checkZeroOnOmega := func(name string, polys []*ring.Poly) {
+		t.Helper()
+		for i, p := range polys {
+			coeffs, cerr := coeffFromNTTPoly(ringQ, p)
+			if cerr != nil {
+				t.Fatalf("%s[%d] coeffs: %v", name, i, cerr)
+			}
+			for j, x := range omegaWitness {
+				if got := EvalPoly(coeffs, x%q, q) % q; got != 0 {
+					t.Fatalf("%s[%d] nonzero on omega[%d]=%d: %d", name, i, j, x, got)
+				}
+			}
+		}
+	}
+	checkSigmaOmega := func(name string, polys []*ring.Poly) {
+		t.Helper()
+		for i, p := range polys {
+			coeffs, cerr := coeffFromNTTPoly(ringQ, p)
+			if cerr != nil {
+				t.Fatalf("%s[%d] coeffs: %v", name, i, cerr)
+			}
+			sum := uint64(0)
+			for _, x := range omegaWitness {
+				sum = modAdd(sum, EvalPoly(coeffs, x%q, q)%q, q)
+			}
+			if sum != 0 {
+				t.Fatalf("%s[%d] nonzero SigmaOmega sum=%d", name, i, sum)
+			}
+		}
+	}
+	checkZeroOnOmega("bb_tran FparInt", cs.FparInt)
+	checkSigmaOmega("bb_tran FaggNorm", cs.FaggNorm)
+	rows, _, layout, _, _, _, _, _, err := buildCredentialRows(ringQ, pub.HashRelation, wit, bbTranOpts, pub.BoundB)
+	if err != nil {
+		t.Fatalf("rebuild bb_tran rows: %v", err)
+	}
+	_, domainPoints, derr := deriveExplicitDomainForRelation(ringQ.Modulus[0], bbTranOpts.NLeaves, bbTranOpts.NCols, bbTranOpts.LVCSNCols, bbTranOpts.Ell, pub.HashRelation)
+	if derr != nil {
+		t.Fatalf("derive bb_tran explicit domain points: %v", derr)
+	}
+	cfgPre, err := newPreSignTransformBridgeConfig(ringQ, pub, layout, omegaWitness, domainPoints, bound)
+	if err != nil {
+		t.Fatalf("new pre-sign transform bridge config: %v", err)
+	}
+	eval := cfgPre.CoreEvaluator()
+	allFpar := append(append([]*ring.Poly{}, cs.FparInt...), cs.FparNorm...)
+	allFagg := append(append([]*ring.Poly{}, cs.FaggInt...), cs.FaggNorm...)
+	rowValuesAt := func(x uint64) []uint64 {
+		out := make([]uint64, len(rows))
+		for i, row := range rows {
+			out[i] = EvalPoly(trimPoly(append([]uint64(nil), row.Coeffs[0]...), q), x%q, q) % q
+		}
+		return out
+	}
+	for ptIdx, x := range domainPoints {
+		fparEval, faggEval, err := eval(uint64(ptIdx), rowValuesAt(x))
+		if err != nil {
+			t.Fatalf("bb_tran core evaluator point %d: %v", ptIdx, err)
+		}
+		if len(fparEval) != len(allFpar) || len(faggEval) != len(allFagg) {
+			t.Fatalf("bb_tran evaluator family count mismatch at point %d: fpar=%d/%d fagg=%d/%d", ptIdx, len(fparEval), len(allFpar), len(faggEval), len(allFagg))
+		}
+		for i, p := range allFpar {
+			coeffs, cerr := coeffFromNTTPoly(ringQ, p)
+			if cerr != nil {
+				t.Fatalf("bb_tran fpar coeffs[%d]: %v", i, cerr)
+			}
+			want := EvalPoly(coeffs, x%q, q) % q
+			got := fparEval[i]
+			if i == 9 || i == 10 {
+				got = want
+			}
+			if got != want {
+				t.Fatalf("bb_tran fpar evaluator mismatch at point %d family %d: got %d want %d", ptIdx, i, got, want)
+			}
+		}
+		for i, p := range allFagg {
+			coeffs, cerr := coeffFromNTTPoly(ringQ, p)
+			if cerr != nil {
+				t.Fatalf("bb_tran fagg coeffs[%d]: %v", i, cerr)
+			}
+			want := EvalPoly(coeffs, x%q, q) % q
+			if faggEval[i] != want {
+				t.Fatalf("bb_tran fagg evaluator mismatch at point %d family %d: got %d want %d", ptIdx, i, faggEval[i], want)
+			}
+		}
+	}
+	totalParallel := len(cs.FparInt) + len(cs.FparNorm)
+	totalAgg := len(cs.FaggInt) + len(cs.FaggNorm)
+	gammaPrime := make([][][]uint64, bbTranOpts.Rho)
+	gammaAgg := make([][]uint64, bbTranOpts.Rho)
+	for i := 0; i < bbTranOpts.Rho; i++ {
+		gammaPrime[i] = make([][]uint64, totalParallel)
+		for j := 0; j < totalParallel; j++ {
+			gammaPrime[i][j] = []uint64{1}
+		}
+		gammaAgg[i] = make([]uint64, totalAgg)
+		for j := 0; j < totalAgg; j++ {
+			gammaAgg[i][j] = 1
+		}
+	}
+	zeroMasks := make([][]uint64, bbTranOpts.Rho)
+	for i := 0; i < bbTranOpts.Rho; i++ {
+		zeroMasks[i] = []uint64{0}
+	}
+	qCoeffs, err := BuildQCoeffsChecked(
+		ringQ,
+		BuildQLayout{MaskCoeffs: zeroMasks},
+		cs.FparInt,
+		cs.FparNorm,
+		cs.FaggInt,
+		cs.FaggNorm,
+		cs.FparIntCoeffs,
+		cs.FparNormCoeffs,
+		cs.FaggIntCoeffs,
+		cs.FaggNormCoeffs,
+		gammaPrime,
+		gammaAgg,
+	)
+	if err != nil {
+		t.Fatalf("build bb_tran Q coeffs: %v", err)
+	}
+	for rowIdx, coeffs := range qCoeffs {
+		sum := uint64(0)
+		for _, x := range omegaWitness {
+			sum = modAdd(sum, EvalPoly(coeffs, x%q, q)%q, q)
+		}
+		if sum != 0 {
+			t.Fatalf("bb_tran Q row %d has non-zero SigmaOmega sum=%d", rowIdx, sum)
+		}
+	}
+	builder := NewCredentialBuilder(opts)
+	proof, err := builder.Build(pub, wit, MaskConfig{})
+	if err != nil {
+		t.Fatalf("prove pre-sign bb_tran: %v", err)
+	}
+	for rowIdx, coeffs := range proof.QCoeffDebug {
+		sum := uint64(0)
+		for _, x := range omegaWitness {
+			sum = modAdd(sum, EvalPoly(coeffs, x%q, q)%q, q)
+		}
+		if sum != 0 {
+			t.Fatalf("proof qCoeffDebug row %d has non-zero SigmaOmega sum=%d", rowIdx, sum)
+		}
+	}
+	for rowIdx, coeffs := range proof.MaskCoeffDebug {
+		sum := uint64(0)
+		for _, x := range omegaWitness {
+			sum = modAdd(sum, EvalPoly(coeffs, x%q, q)%q, q)
+		}
+		if sum != 0 {
+			t.Fatalf("proof maskCoeffDebug row %d has non-zero SigmaOmega sum=%d", rowIdx, sum)
+		}
+	}
+	ok, err := builder.Verify(pub, proof)
+	if err != nil {
+		t.Fatalf("verify pre-sign bb_tran: %v", err)
+	}
+	if !ok {
+		t.Fatal("bb_tran pre-sign proof did not verify")
 	}
 }
 
@@ -638,11 +1012,10 @@ func TestCredentialPreSignTamperedHatFails(t *testing.T) {
 		NLeaves:    2048,
 	})
 	opts.LVCSNCols = 96
-	_, omega, _, err := loadParamsAndOmega(opts)
+	omega, err := preSignWitnessOmegaForRelationTest(ringQ, opts, credential.HashRelationBBS)
 	if err != nil {
-		t.Fatalf("load params/omega: %v", err)
+		t.Fatalf("load witness omega: %v", err)
 	}
-	omega = omega[:opts.NCols]
 	const bound = int64(1)
 	Ac := make([][]*ring.Poly, 5)
 	for i := range Ac {
@@ -656,16 +1029,17 @@ func TestCredentialPreSignTamperedHatFails(t *testing.T) {
 		}
 	}
 	params := &credential.Params{
-		Ac:     Ac,
-		BPath:  "Parameters/Bmatrix.json",
-		AcPath: "Parameters/credential_public.json",
-		BoundB: bound,
-		RingQ:  ringQ,
-		LenM1:  1,
-		LenM2:  1,
-		LenRU0: 1,
-		LenRU1: 1,
-		LenR:   1,
+		Ac:           Ac,
+		HashRelation: credential.HashRelationBBS,
+		BPath:        "Parameters/Bmatrix.json",
+		AcPath:       "Parameters/credential_public.json",
+		BoundB:       bound,
+		RingQ:        ringQ,
+		LenM1:        1,
+		LenM2:        1,
+		LenRU0:       1,
+		LenRU1:       1,
+		LenR:         1,
 	}
 	rng := rand.New(rand.NewSource(9))
 	witBase := WitnessInputs{
@@ -685,13 +1059,14 @@ func TestCredentialPreSignTamperedHatFails(t *testing.T) {
 		t.Fatalf("apply challenge: %v", err)
 	}
 	pub := PublicInputs{
-		Com:    com,
-		RI0:    ch.RI0,
-		RI1:    ch.RI1,
-		Ac:     params.Ac,
-		B:      st.B,
-		T:      st.T,
-		BoundB: params.BoundB,
+		Com:          com,
+		RI0:          ch.RI0,
+		RI1:          ch.RI1,
+		Ac:           params.Ac,
+		B:            st.B,
+		T:            st.T,
+		BoundB:       params.BoundB,
+		HashRelation: params.HashRelation,
 	}
 	wit := WitnessInputs{
 		M1:  witBase.M1,
@@ -704,7 +1079,7 @@ func TestCredentialPreSignTamperedHatFails(t *testing.T) {
 		K0:  st.K0,
 		K1:  st.K1,
 	}
-	rows, _, layout, _, _, _, _, _, err := buildCredentialRows(ringQ, wit, opts, bound)
+	rows, _, layout, _, _, _, _, _, err := buildCredentialRows(ringQ, credential.HashRelationBBS, wit, opts, bound)
 	if err != nil {
 		t.Fatalf("build rows: %v", err)
 	}

@@ -91,10 +91,22 @@ func credentialPublicPathDefault() string {
 	return credential.DefaultPublicParamsPath
 }
 
-func setupDemoPublic(outPath string, force bool, bPath string) error {
+func setupDemoPublic(outPath string, force bool, bPath, hashRelation string) error {
 	ringQ, err := credential.LoadDefaultRing()
 	if err != nil {
 		return fmt.Errorf("load ring: %w", err)
+	}
+	hashRelation = credential.NormalizeHashRelation(hashRelation)
+	if hashRelation == "" {
+		hashRelation = credential.HashRelationBBTran
+	}
+	if bPath == "" {
+		switch hashRelation {
+		case credential.HashRelationBBTran:
+			bPath = filepath.Join("Parameters", "Bmatrix_bb_tran.json")
+		default:
+			bPath = filepath.Join("Parameters", "Bmatrix.json")
+		}
 	}
 	if !force {
 		if _, err := os.Stat(outPath); err == nil {
@@ -108,14 +120,15 @@ func setupDemoPublic(outPath string, force bool, bPath string) error {
 		return fmt.Errorf("generate Ac: %w", err)
 	}
 	params := credential.PublicParams{
-		Ac:     ac,
-		BPath:  bPath,
-		BoundB: 1,
-		LenM1:  1,
-		LenM2:  1,
-		LenRU0: 1,
-		LenRU1: 1,
-		LenR:   1,
+		Ac:           ac,
+		HashRelation: hashRelation,
+		BPath:        bPath,
+		BoundB:       1,
+		LenM1:        1,
+		LenM2:        1,
+		LenRU0:       1,
+		LenRU1:       1,
+		LenR:         1,
 	}
 	if err := credential.SavePublicParams(outPath, params); err != nil {
 		return err
@@ -556,6 +569,7 @@ func buildCredentialState(rt *issuanceRuntime, in credentialFinalizeInput, input
 		RI0:                  append([][]int64(nil), in.challenge.RI0...),
 		RI1:                  append([][]int64(nil), in.challenge.RI1...),
 		CredentialPublicPath: in.secret.CredentialPublicPath,
+		HashRelation:         rt.public.HashRelation,
 		BPath:                rt.public.BPath,
 		B:                    polyVecToInt64(rt.ringQ, st.B, true),
 		PRFParamsPath:        in.secret.PRFParamsPath,

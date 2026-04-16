@@ -31,6 +31,8 @@ At the branch level, the implementation is split between:
 The abstract paper story is still "blind issuance plus ARC showing", but the
 live repository is more specific:
 
+- the canonical concrete hash relation is `bb_tran`; `bbs` remains only as an
+  explicit transition mode selected through public params
 - issuance keeps the target `T` public inside the compiled pre-sign statement
 - showing uses one retained coeff-native proving path
 - showing uses the PRF companion route, not the legacy PRF layout
@@ -82,9 +84,10 @@ The current command path depends on tracked JSON/runtime assets.
 | Asset | Role | Current live values / notes |
 | --- | --- | --- |
 | `Parameters/Parameters.json` | shared ring and signature parameters | `N=1024`, `q=1054721`, `k=21`, `beta=6142`, `bound=6142` |
-| `Parameters/credential_public.json` | credential public parameters | `BoundB=1`, `LenM1=1`, `LenM2=1`, `LenRU0=1`, `LenRU1=1`, `LenR=1`, tracked full-matrix `Ac` |
+| `Parameters/credential_public.json` | canonical credential public parameters | `hash_relation=bb_tran`, `BoundB=1`, `LenM1=1`, `LenM2=1`, `LenRU0=1`, `LenRU1=1`, `LenR=1`, tracked full-matrix `Ac`, `BPath=Parameters/Bmatrix_bb_tran.json` |
+| `Parameters/credential_public_bbs.json` | transition credential public parameters | explicit `bbs` compatibility asset; not the canonical runtime default |
 | `prf/prf_params.json` | PRF parameters | `q=1054721`, `d=3`, `LenKey=8`, `LenNonce=12`, `LenTag=7`, `t=20`, `RF=8`, `RP=19` |
-| `Parameters/Bmatrix.json` | rational-hash public matrix `B` | loaded by issuance and showing |
+| `Parameters/Bmatrix_bb_tran.json` | canonical rational-hash public matrix `B` | loaded by issuance and showing when `hash_relation=bb_tran` |
 | `credential/issuance/*.json` | role-separated issuance artifacts | holder/issuer JSON exchange for commit, challenge, proof submission, and response |
 | `credential/keys/credential_state.json` | persisted holder state | stores issuance witness material, public challenge/commitment data, signed target, `credential_public_path`, and showing-time signature rows |
 | `credential/keys/signature.json` | copied signature artifact | populated by `holder-finalize` when the issuer response carries the full signature bundle |
@@ -120,7 +123,8 @@ The reusable issuance helpers implement the following live shape.
 3. The issuer-side challenge is represented by public rows `RI0`, `RI1`.
 4. `issuance.ApplyChallenge` centers `RU0 + RI0` and `RU1 + RI1` into `R0`,
    `R1`, records carry rows `K0`, `K1`, loads `B`, and derives the public
-   target `T`.
+   target `T` under the `hash_relation` selected by the credential public
+   params.
 5. `issuance.ProvePreSign` builds the pre-sign proof with public inputs
    `{Com, RI0, RI1, Ac, B, T, BoundB}` and witness inputs
    `{M1, M2, RU0, RU1, R, R0, R1, K0, K1}`.
@@ -202,8 +206,11 @@ follows.
 5. The command extracts PRF key lanes from the signed `M2` row, samples a
    public nonce, computes `tag = PRF(key, nonce)`, and exposes the nonce/tag as
    public lanes.
-6. `PIOP.BuildShowingCombined` constructs the retained showing proof.
-7. `PIOP.VerifyWithConstraints` replays the verifier logic from proof metadata,
+6. The command loads the credential public params from
+   `state.CredentialPublicPath` and rejects any mismatch between the state's
+   stored `hash_relation` and the loaded relation.
+7. `PIOP.BuildShowingCombined` constructs the retained showing proof.
+8. `PIOP.VerifyWithConstraints` replays the verifier logic from proof metadata,
    public inputs, and committed row openings.
 
 ### Signature relation used in showing
@@ -302,15 +309,20 @@ The live pre-sign row builder in `PIOP/credential_rows.go` commits:
   `C^M`, `C^preRU`, `C^preR`, `C^ctr`, `C^K`
 - nine decoded alias rows:
   `M1`, `M2`, `RU0`, `RU1`, `R`, `R0`, `R1`, `K0`, `K1`
+- in canonical `bb_tran` mode, two proof-only source product rows:
+  `MSigmaR1 = (M1 + M2) * R1` and `R0R1 = R0 * R1`
 - four transform/replay aliases:
   `hat(M1)`, `hat(M2)`, `hat(R0)`, `hat(R1)`
+- in canonical `bb_tran` mode, two product transform aliases:
+  `hat(MSigmaR1)` and `hat(R0R1)`
 
-So the live committed pre-sign surface is not "carriers only". It is an
-18-row witness surface combining:
+So the live committed pre-sign surface is not "carriers only". In canonical
+`bb_tran` mode it is a 22-row witness surface combining:
 
 - carrier membership rows
 - decode/alias rows
-- replay-facing transform aliases
+- proof-only source product rows
+- replay-facing transform aliases, including the product aliases
 
 The active pre-sign constraint families cover:
 
@@ -318,8 +330,26 @@ The active pre-sign constraint families cover:
 - decode bridges
 - commitment binding against `Com`
 - centering consistency using `K0`, `K1`
-- the public-target cleared hash relation with `T`
+- the public-target hash relation with `T`
+- in canonical `bb_tran` mode, source-product consistency for `MSigmaR1` and
+  `R0R1`
 - replay/transform bridges for the non-sign rows
+
+### Canonical target relation
+
+`Parameters/credential_public.json` selects `hash_relation=bb_tran`, so the
+canonical live target is
+
+`T = B1 * (M1 + M2) + B2 * R0 + 1 / (B3 - R1)`
+
+whenever `B3 - R1` is invertible in `Rq`. The compiled issuance and showing
+proofs certify the retained cleared form
+
+`B3*T - T*R1 - (B3*B1)*(M1+M2) - (B3*B2)*R0 + B1*MSigmaR1 + B2*R0R1 - 1 = 0`
+
+using the auxiliary product rows `MSigmaR1` and `R0R1`. The legacy `bbs`
+relation remains available only behind an explicit alternate public-params
+file.
 
 ### Showing compiled witness surface
 
@@ -332,6 +362,10 @@ families on the retained path.
 - explicit `T` source rows, one block per `NCols` chunk of the signed target
 - replay rows for:
   `hat(M1+M2)`, `hat(R0)`, `hat(R1)`, and `hat(T)`
+- in canonical `bb_tran` mode, explicit source product rows:
+  `MSigmaR1` and `R0R1`
+- in canonical `bb_tran` mode, replay rows for:
+  `hat(MSigmaR1)` and `hat(R0R1)`
 - signature shortness limb rows for the packed coeff-native signature witness
 - packed PRF companion rows
 
@@ -342,7 +376,8 @@ Important consequences of the live layout:
 - the rational-hash message surface is carried as `M1`, `M2` in state, then as
   a combined replay row `hat(M1+M2)` in the transform-bridge proof
 - the live layout does not commit a separate top-level rational-hash inverse
-  row `Z`
+  row `Z`; canonical `bb_tran` instead uses explicit product rows
+  `MSigmaR1` and `R0R1`
 
 ### Replay mode
 
@@ -473,15 +508,18 @@ shape:
 
 The important branch-specific differences are:
 
-- pre-sign carry rows are named `C^K`, `K0`, `K1` in code where the paper now
-  uses `C^J`, `J_0`, `J_1`
-- the live pre-sign witness surface commits carriers, alias rows, and transform
-  aliases, not carriers alone
+- canonical live hashing is `bb_tran`, while `bbs` is retained only as an
+  explicit transition mode
+- pre-sign carry rows are named `C^K`, `K0`, `K1` in code where some paper
+  passages still use `C^J`, `J_0`, `J_1`
+- the live pre-sign witness surface commits carriers, alias rows, proof-only
+  product rows, and transform aliases, not carriers alone
 - the live showing path keeps only the retained coeff-native `v3` model
 - showing defaults to reduced replay, not the paper's full semantic replay
   family
-- the live showing layout does not commit paper-semantic source rows
-  `M`, `K`, `R0`, `R1`, `Z` as separate top-level rows
+- the live showing layout compresses `M`, `K`, `R0`, and `R1` through carrier
+  rows and uses explicit BB-tran product rows `MSigmaR1` and `R0R1` instead of
+  a source-side inverse row `Z`
 - the PRF companion route is mandatory on the live path
 - the shipped showing CLI does not implement the application-layer stateful
   rate-limit check

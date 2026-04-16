@@ -80,16 +80,17 @@ func TestApplyChallengeMatchesHashMessageAndProofVerifies(t *testing.T) {
 		}
 	}
 	params := &credential.Params{
-		Ac:     Ac,
-		BPath:  "../Parameters/Bmatrix.json",
-		AcPath: "../Parameters/credential_public.json",
-		BoundB: bound,
-		RingQ:  ringQ,
-		LenM1:  1,
-		LenM2:  1,
-		LenRU0: 1,
-		LenRU1: 1,
-		LenR:   1,
+		Ac:           Ac,
+		HashRelation: credential.HashRelationBBS,
+		BPath:        "../Parameters/Bmatrix.json",
+		AcPath:       "../Parameters/credential_public.json",
+		BoundB:       bound,
+		RingQ:        ringQ,
+		LenM1:        1,
+		LenM2:        1,
+		LenRU0:       1,
+		LenRU1:       1,
+		LenR:         1,
 	}
 
 	inputs := Inputs{
@@ -135,6 +136,7 @@ func TestApplyChallengeMatchesHashMessageAndProofVerifies(t *testing.T) {
 	wantT, err := credential.HashMessage(
 		ringQ,
 		st.B,
+		params.HashRelation,
 		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasM1]),
 		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasM2]),
 		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasR0]),

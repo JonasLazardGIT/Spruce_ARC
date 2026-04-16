@@ -207,6 +207,9 @@ func main() {
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "load credential public params: %v", err)
 	}
+	if state.HashRelation != "" && credential.NormalizeHashRelation(state.HashRelation) != credential.NormalizeHashRelation(publicParams.HashRelation) {
+		cli.fatalf("[showing-cli] ", "credential state hash relation %q does not match public params relation %q", state.HashRelation, publicParams.HashRelation)
+	}
 	boundB := publicParams.BoundB
 	params, err := loadPRFParamsFromState(state)
 	if err != nil {
@@ -335,7 +338,7 @@ func main() {
 	ncols := len(omega)
 
 	// Build public matrices.
-	B, err := loadBFromState(ringQ, state)
+	B, err := loadBForShowing(ringQ, state, publicParams)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "load B: %v", err)
 	}
@@ -364,11 +367,12 @@ func main() {
 	tagPublic := lanesFromElems(tag, ncols)
 
 	pub := PIOP.PublicInputs{
-		A:      A,
-		B:      B,
-		Tag:    tagPublic,
-		Nonce:  noncePublic,
-		BoundB: boundB,
+		A:            A,
+		B:            B,
+		Tag:          tagPublic,
+		Nonce:        noncePublic,
+		BoundB:       boundB,
+		HashRelation: publicParams.HashRelation,
 	}
 
 	cli.printf(categoryStatus, "[showing-cli] ", "building proof")
@@ -409,19 +413,15 @@ func maxEllForGroupedPRF(ringN, ncols, prfDegree int) int {
 	return maxEll
 }
 
-func loadBFromState(r *ring.Ring, st credential.State) ([]*ring.Poly, error) {
-	if len(st.B) > 0 {
-		out := make([]*ring.Poly, len(st.B))
-		for i := range st.B {
-			out[i] = polyFromInt64(r, st.B[i])
-			r.NTT(out[i], out[i])
-		}
-		return out, nil
+func loadBForShowing(r *ring.Ring, st credential.State, public credential.PublicParams) ([]*ring.Poly, error) {
+	bPath := public.BPath
+	if bPath == "" {
+		bPath = st.BPath
 	}
-	if st.BPath == "" {
-		return nil, fmt.Errorf("missing B in state")
+	if bPath == "" {
+		return nil, fmt.Errorf("missing B path in public params/state")
 	}
-	coeffs, err := ntrurio.LoadBMatrixCoeffs(st.BPath)
+	coeffs, err := ntrurio.LoadBMatrixCoeffs(bPath)
 	if err != nil {
 		return nil, err
 	}

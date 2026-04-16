@@ -22,45 +22,54 @@ func (b *credentialBuilder) Build(pub PublicInputs, wit WitnessInputs, _ MaskCon
 	if pub.BoundB <= 0 {
 		return nil, fmt.Errorf("BoundB must be > 0")
 	}
-	ringQ, omega, ncols, err := loadParamsAndOmega(b.opts)
-	if err != nil {
-		return nil, fmt.Errorf("load params/omega: %w", err)
-	}
-	witnessNCols := b.opts.NCols
-	if witnessNCols <= 0 {
-		witnessNCols = ncols
-	}
-	if len(omega) < witnessNCols {
-		return nil, fmt.Errorf("witness omega len=%d < witness ncols=%d", len(omega), witnessNCols)
-	}
-	omegaWitness := append([]uint64(nil), omega[:witnessNCols]...)
-	if b.opts.DomainMode == DomainModeExplicit {
-		nLeaves := b.opts.NLeaves
-		if nLeaves <= 0 {
-			nLeaves = int(ringQ.N)
+	opts := b.opts
+	for attempt := 0; attempt < 4; attempt++ {
+		ringQ, omega, ncols, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
+		if err != nil {
+			return nil, fmt.Errorf("load params/omega: %w", err)
 		}
-		ell := b.opts.Ell
-		if ncols+ell > int(ringQ.N) {
-			return nil, fmt.Errorf("explicit domain: need ncols+ell <= ring dimension (ncols=%d ell=%d ringN=%d)", ncols, ell, ringQ.N)
+		witnessNCols := opts.NCols
+		if witnessNCols <= 0 {
+			witnessNCols = ncols
 		}
-		derivedOmega, _, derr := deriveExplicitDomain(ringQ.Modulus[0], nLeaves, ncols, ell)
-		if derr != nil {
-			return nil, fmt.Errorf("explicit domain: %w", derr)
+		if len(omega) < witnessNCols {
+			return nil, fmt.Errorf("witness omega len=%d < witness ncols=%d", len(omega), witnessNCols)
 		}
-		if len(derivedOmega) < witnessNCols {
-			return nil, fmt.Errorf("explicit domain omega len=%d < witness ncols=%d", len(derivedOmega), witnessNCols)
+		omegaWitness := append([]uint64(nil), omega[:witnessNCols]...)
+		if opts.DomainMode == DomainModeExplicit {
+			nLeaves := opts.NLeaves
+			if nLeaves <= 0 {
+				nLeaves = int(ringQ.N)
+			}
+			ell := opts.Ell
+			if ncols+ell > int(ringQ.N) {
+				return nil, fmt.Errorf("explicit domain: need ncols+ell <= ring dimension (ncols=%d ell=%d ringN=%d)", ncols, ell, ringQ.N)
+			}
+			omegaWitness, err = deriveRelationWitnessOmega(ringQ.Modulus[0], nLeaves, witnessNCols, ncols, ell, pub.HashRelation)
+			if err != nil {
+				return nil, fmt.Errorf("explicit witness omega: %w", err)
+			}
+			_, rowInputs, _, _, _, _, _, _, buildErr := buildCredentialRows(ringQ, pub.HashRelation, wit, opts, pub.BoundB)
+			if buildErr != nil {
+				return nil, fmt.Errorf("build credential rows: %w", buildErr)
+			}
+			required := requiredExplicitPCSNColsForRows(ringQ, rowInputs, opts.Ell)
+			if required > ncols {
+				opts = bumpExplicitPCSNCols(opts, required)
+				continue
+			}
 		}
-		omegaWitness = append([]uint64(nil), derivedOmega[:witnessNCols]...)
+		cs, err := BuildCredentialConstraintSetPre(ringQ, pub.BoundB, pub, wit, omegaWitness, opts)
+		if err != nil {
+			return nil, fmt.Errorf("build credential constraint set: %w", err)
+		}
+		proof, err := BuildWithConstraints(pub, wit, cs, opts, FSModeCredential)
+		if err != nil {
+			return nil, err
+		}
+		return proof, nil
 	}
-	cs, err := BuildCredentialConstraintSetPre(ringQ, pub.BoundB, pub, wit, omegaWitness, b.opts.DomainMode)
-	if err != nil {
-		return nil, fmt.Errorf("build credential constraint set: %w", err)
-	}
-	proof, err := BuildWithConstraints(pub, wit, cs, b.opts, FSModeCredential)
-	if err != nil {
-		return nil, err
-	}
-	return proof, nil
+	return nil, fmt.Errorf("could not stabilize explicit PCS width for credential rows")
 }
 
 func (b *credentialBuilder) Verify(pub PublicInputs, proof *Proof) (bool, error) {

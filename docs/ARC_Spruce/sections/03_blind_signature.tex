@@ -34,7 +34,12 @@ We assume \(\nizkscheme=(\ZKProve,\ZKVerify)\) is a NIZK for the relations below
 \[
   \TDRH=(\Setup,\TrapGen,\Eval,\SampPre)
 \]
-is a trapdoor rational hash according to Definition~\ref{def:bbs-rational-hash}. The public setup will output the hash key
+is a trapdoor rational hash according to Definition~\ref{def:rational-hash}. In
+the concrete instantiation used below, the public target \(\vect\) is the
+retained admissible BB-tran value
+\(h^{\mathrm{bb\mbox{-}tran}}_{\vecmu,(\vecr_0,\vecr_1)}(B)\), while the
+compiled proof layer certifies the corresponding expanded cleared relation of
+Definition~\ref{def:rational-hash}. The public setup will output the hash key
 \(B\), while issuer key generation outputs the trapdoored signing matrix \(\mA\) as public verification key.
  We define the relations
 \[

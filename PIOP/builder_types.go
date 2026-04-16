@@ -19,6 +19,7 @@ type PublicInputs struct {
 	Nonce  [][]int64
 	U      []*ring.Poly
 	BoundB int64
+	HashRelation string
 	Extras map[string]interface{}
 }
 

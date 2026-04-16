@@ -53,6 +53,12 @@ func BuildPublicLabels(pub PublicInputs) []PublicLabel {
 		}
 		labels = append(labels, PublicLabel{Name: name, Data: buf.Bytes()})
 	}
+	appendString := func(name, v string) {
+		if v == "" {
+			return
+		}
+		labels = append(labels, PublicLabel{Name: name, Data: []byte(v)})
+	}
 	if len(pub.Com) > 0 {
 		appendPoly("Com", pub.Com)
 	}
@@ -91,6 +97,7 @@ func BuildPublicLabels(pub PublicInputs) []PublicLabel {
 	if len(pub.U) > 0 {
 		appendPoly("U", pub.U)
 	}
+	appendString("HashRelation", pub.HashRelation)
 	if len(pub.Extras) > 0 {
 		keys := make([]string, 0, len(pub.Extras))
 		for k := range pub.Extras {
