@@ -1,0 +1,12 @@
+# Fdb version 4
+["pdflatex"] 1776327252.6579 "docs/ARC_Spruce/main.tex" "main.pdf" "main" 1776327252.69445 2
+  "/usr/share/texmf-dist/web2c/texmf.cnf" 1772734662 43569 fd570f2fa160877d211e859f687312ba ""
+  "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1772800150 3084549 2f6a2be5cb6c40d6ae7e68137c8ce591 ""
+  "acmart.cls" 0 -1 0 ""
+  "docs/ARC_Spruce/main.tex" 1776233492 3179 2df1b38575ba67c3c9ce3176ea3b5688 ""
+  "main.aux" 1776327244.65734 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
+  (generated)
+  "main.aux"
+  "main.log"
+  "main.pdf"
+  (rewritten before read)
