@@ -120,7 +120,7 @@ func main() {
 	)
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
-	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default; transcript_first and production_balance use the current transcript-tuned wide-LVCS profile under fixed theorem knobs)")
+	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default with tuned lvcs=89; compact_l3, compact_l2, and compact_l1_research select the measured low-size profiles; transcript_first and production_balance keep the wide-LVCS theorem presets)")
 	fullReplay := flag.Bool("full", false, "enable full replay-image showing mode")
 	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
 	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
@@ -133,7 +133,7 @@ func main() {
 	kappa2Override := flag.Int("kappa2", -1, "optional round-2 grinding override for soundness research")
 	kappa3Override := flag.Int("kappa3", -1, "optional round-3 grinding override for soundness research")
 	kappa4Override := flag.Int("kappa4", -1, "optional round-4 grinding override for soundness research")
-	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (r11_l4_production default; r7_l4_experimental, r12_l3_default, r13_l3_legacy remain research/legacy)")
+	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (named profiles: r11_l4_production, r24_l3_compact, r111_l2_compact, r12285_l1_research; r7_l4_experimental, r12_l3_default, r13_l3_legacy remain research/legacy)")
 	sigShortnessRadix := flag.Int("sig-shortness-radix", 0, "optional raw signature shortness radix override for transcript research")
 	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override for transcript research")
 	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth is research-only scaffolding)")

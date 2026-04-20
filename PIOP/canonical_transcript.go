@@ -321,7 +321,7 @@ func sigShortnessPayloadBits(sig *SigShortnessProof) float64 {
 	if sig == nil {
 		return 0
 	}
-	return float64(sizeDECSOpening(sig.Opening) * 8)
+	return float64(sizeSigShortnessProof(sig) * 8)
 }
 
 func residueMetadataBits(formatVersion uint8, encodedCols int, omitCols []int) float64 {

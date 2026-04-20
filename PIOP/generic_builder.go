@@ -152,6 +152,8 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		var root [16]byte
 		var pk *lvcs.ProverKey
 		var oracleLayout lvcs.OracleLayout
+		var sigShortness *SigShortnessProof
+		var sigShortnessBindingDigest []byte
 		labels := BuildPublicLabels(pub)
 		labelsDigest := computeLabelsDigest(labels)
 
@@ -324,6 +326,26 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			return nil, fmt.Errorf("commit rows: %w", err)
 		}
 		pcsGeometry.OracleLayout = oracleLayout
+		if rowLayoutHasCoeffNativeSig(rowLayout) && rowLayoutCoeffNativeUsesLiteralPacked(rowLayout) && wit.CoeffNativeShowing != nil {
+			pcsNCols := ncols
+			if pcsNCols <= 0 {
+				pcsNCols = witnessNCols
+			}
+			sigShortness, sigShortnessBindingDigest, err = buildSigShortnessProofV5(
+				ringQ,
+				pk,
+				root,
+				rowLayout,
+				wit.CoeffNativeShowing,
+				omegaWitness,
+				witnessNCols,
+				pcsNCols,
+				opts,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("build sig shortness V5: %w", err)
+			}
+		}
 
 		// Rebuild constraints to match paper-defined F_j(P,Theta). In θ>1 mode the
 		// committed oracle rows are transposed into the §5.4 layer layout, so
@@ -447,6 +469,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			LVCSNCols:         sfNCols,
 			DecsParams:        decsParams,
 			LabelsDigest:      labelsDigest,
+			SigShortnessBindingDigest: sigShortnessBindingDigest,
 			SmallFieldChi:     sfChi,
 			SmallFieldOmegaS1: sfOmegaS1,
 			SmallFieldMuInv:   sfMuInv,
@@ -462,13 +485,10 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if proof.PRFCompanion != nil && proof.PRFCompanion.Layout == nil {
 			proof.PRFCompanion.Layout = clonePRFCompanionLayout(set.PRFCompanionLayout)
 		}
-		if rowLayoutHasCoeffNativeSig(rowLayout) && rowLayoutCoeffNativeUsesLiteralPacked(rowLayout) {
-			sigShortness, serr := buildSigShortnessProofV4(ringQ, pk, proof, pub, omegaWitness, opts)
-			if serr != nil {
-				return nil, fmt.Errorf("build sig shortness: %w", serr)
-			}
-			if sigShortness != nil {
-				proof.SigShortness = sigShortness
+		if sigShortness != nil {
+			proof.SigShortness = sigShortness
+			if serr := VerifySigShortnessProof(proof, ringQ, omegaWitness, pub, opts); serr != nil {
+				return nil, fmt.Errorf("build sig shortness V5 self-check: %w", serr)
 			}
 		}
 		return proof, nil

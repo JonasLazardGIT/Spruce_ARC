@@ -951,26 +951,12 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.PRFScalarBundleRows = len(rows) - startIdx
 	layout.SigCount = len(rows)
 
-	packedSigChainBase = len(rows)
-	for block := 0; block < blocks; block++ {
-		for comp := 0; comp < len(packedWitness.SigLimbs); comp++ {
-			for lane := 0; lane < len(packedWitness.SigLimbs[comp][block]); lane++ {
-				coeff := ringQ.NewPoly()
-				ringQ.InvNTT(packedWitness.SigLimbs[comp][block][lane], coeff)
-				rows = append(rows, coeff)
-			}
-		}
-	}
-	packedSigChainGroupCount = len(cn.Sig) * blocks
-	packedSigChainGroupSize = ncols
-	packedSigChainRowsPerGroup = spec.L
-	sigSignedChain = true
-	layout.PackedSigChainBase = packedSigChainBase
-	layout.PackedSigChainGroupCount = packedSigChainGroupCount
-	layout.PackedSigChainGroupSize = packedSigChainGroupSize
-	layout.PackedSigChainRowsPerGroup = packedSigChainRowsPerGroup
-	layout.SigSignedChain = sigSignedChain
-	layout.SigBoundSliceRows = packedSigChainGroupCount * packedSigChainRowsPerGroup
+	layout.PackedSigChainBase = -1
+	layout.PackedSigChainGroupCount = 0
+	layout.PackedSigChainGroupSize = 0
+	layout.PackedSigChainRowsPerGroup = 0
+	layout.SigSignedChain = false
+	layout.SigBoundSliceRows = 0
 
 	witnessCount = len(rows)
 	if opts.DomainMode == DomainModeExplicit {

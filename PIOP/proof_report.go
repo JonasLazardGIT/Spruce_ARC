@@ -218,12 +218,22 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 		}
 		openBlocks = len(seen)
 	}
+	supportSlotCount := len(sig.SupportSlots)
+	openingBytes := sizeDECSOpening(sig.Opening)
+	if sig.Version == sigShortnessProofVersionV5 && sig.V5 != nil {
+		if sig.V5.THatOpening != nil {
+			supportSlotCount = len(expandPackedOpening(sig.V5.THatOpening).AllIndices())
+		} else {
+			supportSlotCount = 0
+		}
+		openingBytes = sizeDECSOpening(sig.V5.THatOpening)
+	}
 	return SigShortnessReport{
 		Enabled:          true,
 		Version:          sig.Version,
-		SupportSlotCount: len(sig.SupportSlots),
+		SupportSlotCount: supportSlotCount,
 		OpenedBlockCount: openBlocks,
-		OpeningBytes:     sizeDECSOpening(sig.Opening),
+		OpeningBytes:     openingBytes,
 		ProofBytes:       sizeSigShortnessProof(sig),
 	}
 }

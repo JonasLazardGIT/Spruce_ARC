@@ -19,6 +19,9 @@ const (
 
 const (
 	ShowingPresetSoundnessBalanced = "soundness_balanced"
+	ShowingPresetCompactL3         = "compact_l3"
+	ShowingPresetCompactL2         = "compact_l2"
+	ShowingPresetCompactL1Research = "compact_l1_research"
 	ShowingPresetTranscriptFirst   = "transcript_first"
 	ShowingPresetProductionBalance = "production_balance"
 	ShowingPresetCustom            = "custom"
@@ -64,6 +67,12 @@ func normalizeShowingPreset(preset string) string {
 	switch preset {
 	case "", ShowingPresetSoundnessBalanced:
 		return ShowingPresetSoundnessBalanced
+	case ShowingPresetCompactL3:
+		return ShowingPresetCompactL3
+	case ShowingPresetCompactL2:
+		return ShowingPresetCompactL2
+	case ShowingPresetCompactL1Research:
+		return ShowingPresetCompactL1Research
 	case ShowingPresetTranscriptFirst:
 		return ShowingPresetTranscriptFirst
 	case ShowingPresetProductionBalance:
@@ -76,7 +85,13 @@ func normalizeShowingPreset(preset string) string {
 func showingPresetLVCSNCols(preset string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
-		return 96
+		return 89
+	case ShowingPresetCompactL3:
+		return 68
+	case ShowingPresetCompactL2:
+		return 70
+	case ShowingPresetCompactL1Research:
+		return 50
 	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
 		return 32
 	default:
@@ -88,6 +103,12 @@ func showingPresetSigShortnessProfile(preset string) string {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
 		return SigShortnessProfileR11L4Production
+	case ShowingPresetCompactL3:
+		return SigShortnessProfileR24L3Compact
+	case ShowingPresetCompactL2:
+		return SigShortnessProfileR111L2Compact
+	case ShowingPresetCompactL1Research:
+		return SigShortnessProfileR12285L1Research
 	case ShowingPresetTranscriptFirst:
 		return SigShortnessProfileR11L4Production
 	case ShowingPresetProductionBalance:
@@ -99,7 +120,7 @@ func showingPresetSigShortnessProfile(preset string) string {
 
 func showingPresetTheta(preset string) int {
 	switch normalizeShowingPreset(preset) {
-	case ShowingPresetSoundnessBalanced:
+	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2, ShowingPresetCompactL1Research:
 		return 3
 	default:
 		return 6
@@ -118,6 +139,10 @@ func showingPresetEta(preset string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
 		return 43
+	case ShowingPresetCompactL3, ShowingPresetCompactL2:
+		return 36
+	case ShowingPresetCompactL1Research:
+		return 31
 	default:
 		return 31
 	}
@@ -125,7 +150,7 @@ func showingPresetEta(preset string) int {
 
 func showingPresetNLeaves(preset string) int {
 	switch normalizeShowingPreset(preset) {
-	case ShowingPresetSoundnessBalanced:
+	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2, ShowingPresetCompactL1Research:
 		return 4096
 	default:
 		return 2048
@@ -134,7 +159,7 @@ func showingPresetNLeaves(preset string) int {
 
 func showingPresetKappa(preset string) [4]int {
 	switch normalizeShowingPreset(preset) {
-	case ShowingPresetSoundnessBalanced:
+	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2, ShowingPresetCompactL1Research:
 		return [4]int{0, 0, 0, 5}
 	default:
 		return [4]int{}
@@ -156,6 +181,9 @@ func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
 	}
 	for _, preset := range []string{
 		ShowingPresetSoundnessBalanced,
+		ShowingPresetCompactL3,
+		ShowingPresetCompactL2,
+		ShowingPresetCompactL1Research,
 		ShowingPresetTranscriptFirst,
 		ShowingPresetProductionBalance,
 	} {
@@ -170,13 +198,52 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
 		return resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
-			resolved.LVCSNCols == 96 &&
-			resolved.PostSignLVCSNCols == 96 &&
-			resolved.PRFLVCSNCols == 96 &&
+			resolved.LVCSNCols == 89 &&
+			resolved.PostSignLVCSNCols == 89 &&
+			resolved.PRFLVCSNCols == 89 &&
 			resolved.Theta == 3 &&
 			resolved.Rho == 2 &&
 			resolved.EllPrime == 2 &&
 			resolved.Eta == 43 &&
+			resolved.NLeaves == 4096 &&
+			resolved.PostSignNLeaves == 4096 &&
+			resolved.PRFNLeaves == 4096 &&
+			resolved.Kappa == [4]int{0, 0, 0, 5}
+	case ShowingPresetCompactL3:
+		return resolved.SigShortnessProfile == SigShortnessProfileR24L3Compact &&
+			resolved.LVCSNCols == 68 &&
+			resolved.PostSignLVCSNCols == 68 &&
+			resolved.PRFLVCSNCols == 68 &&
+			resolved.Theta == 3 &&
+			resolved.Rho == 2 &&
+			resolved.EllPrime == 2 &&
+			resolved.Eta == 36 &&
+			resolved.NLeaves == 4096 &&
+			resolved.PostSignNLeaves == 4096 &&
+			resolved.PRFNLeaves == 4096 &&
+			resolved.Kappa == [4]int{0, 0, 0, 5}
+	case ShowingPresetCompactL2:
+		return resolved.SigShortnessProfile == SigShortnessProfileR111L2Compact &&
+			resolved.LVCSNCols == 70 &&
+			resolved.PostSignLVCSNCols == 70 &&
+			resolved.PRFLVCSNCols == 70 &&
+			resolved.Theta == 3 &&
+			resolved.Rho == 2 &&
+			resolved.EllPrime == 2 &&
+			resolved.Eta == 36 &&
+			resolved.NLeaves == 4096 &&
+			resolved.PostSignNLeaves == 4096 &&
+			resolved.PRFNLeaves == 4096 &&
+			resolved.Kappa == [4]int{0, 0, 0, 5}
+	case ShowingPresetCompactL1Research:
+		return resolved.SigShortnessProfile == SigShortnessProfileR12285L1Research &&
+			resolved.LVCSNCols == 50 &&
+			resolved.PostSignLVCSNCols == 50 &&
+			resolved.PRFLVCSNCols == 50 &&
+			resolved.Theta == 3 &&
+			resolved.Rho == 2 &&
+			resolved.EllPrime == 2 &&
+			resolved.Eta == 31 &&
 			resolved.NLeaves == 4096 &&
 			resolved.PostSignNLeaves == 4096 &&
 			resolved.PRFNLeaves == 4096 &&
@@ -663,6 +730,20 @@ type SigShortnessProof struct {
 	Version      int
 	SupportSlots []int
 	Opening      *decs.DECSOpening
+	V5           *SigShortnessProofV5
+}
+
+type SigShortnessProofV5 struct {
+	Mode       uint8
+	Radix      int
+	Digits     int
+	ExactHeads SigShortnessPackedMatrix
+	THatOpening *decs.DECSOpening
+}
+
+type SigShortnessPackedMatrix struct {
+	Bits     []byte
+	BitWidth uint8
 }
 
 type fsRoundResult struct {
@@ -1925,6 +2006,21 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 func sizeSigShortnessProof(sig *SigShortnessProof) int {
 	if sig == nil {
 		return 0
+	}
+	if sig.Version == sigShortnessProofVersionV5 && sig.V5 != nil {
+		size := 0
+		if sig.V5.Mode != 0 {
+			size++
+		}
+		size += varintSize(sig.V5.Radix)
+		size += varintSize(sig.V5.Digits)
+		if sig.V5.ExactHeads.BitWidth != 0 {
+			size++
+		}
+		size += varintSize(len(sig.V5.ExactHeads.Bits))
+		size += len(sig.V5.ExactHeads.Bits)
+		size += sizeDECSOpening(sig.V5.THatOpening)
+		return size
 	}
 	return sizeDECSOpening(sig.Opening)
 }

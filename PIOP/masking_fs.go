@@ -117,6 +117,7 @@ type MaskingFSInput struct {
 	LVCSNCols          int    // LVCS row width; 0 => NCols
 	DecsParams         decs.Params
 	LabelsDigest       []byte // hash of public labels included in FS binding
+	SigShortnessBindingDigest []byte
 	// Small-field (theta>1) parameters
 	SmallFieldChi     []uint64
 	SmallFieldOmegaS1 []uint64
@@ -226,6 +227,7 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		decsParams:    in.DecsParams,
 		ncolsOverride: in.NCols,
 		labelsDigest:  append([]byte(nil), in.LabelsDigest...),
+		sigShortnessBindingDigest: append([]byte(nil), in.SigShortnessBindingDigest...),
 	}
 	if in.PRFCompanionLayout != nil {
 		args.prfCompanionBridgeChecks = prfCompanionBridgeChecks

@@ -14,6 +14,21 @@ func cloneSigShortnessProofForTest(src *SigShortnessProof) *SigShortnessProof {
 		Version:      src.Version,
 		SupportSlots: append([]int(nil), src.SupportSlots...),
 		Opening:      cloneDECSOpening(src.Opening),
+		V5: func() *SigShortnessProofV5 {
+			if src.V5 == nil {
+				return nil
+			}
+			return &SigShortnessProofV5{
+				Mode:   src.V5.Mode,
+				Radix:  src.V5.Radix,
+				Digits: src.V5.Digits,
+				ExactHeads: SigShortnessPackedMatrix{
+					Bits:     append([]byte(nil), src.V5.ExactHeads.Bits...),
+					BitWidth: src.V5.ExactHeads.BitWidth,
+				},
+				THatOpening: cloneDECSOpening(src.V5.THatOpening),
+			}
+		}(),
 	}
 }
 
@@ -208,29 +223,33 @@ func TestSigShortnessSupportValuesV2AcceptAndReject(t *testing.T) {
 	}
 }
 
-func TestSigShortnessV4SupportSlotsStaySaturatedOnShippedDefault(t *testing.T) {
+func TestSigShortnessV5SupportSlotsTrackReplayTHatRowsOnShippedDefault(t *testing.T) {
 	fx := buildTransformBridgeFixtureWithShortnessProfile(t, SigShortnessProfileR11L4Production)
 	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
 	if err != nil {
 		t.Fatalf("build showing proof: %v", err)
 	}
+	if proof.SigShortness == nil || proof.SigShortness.Version != sigShortnessProofVersionV5 || proof.SigShortness.V5 == nil {
+		t.Fatalf("missing sig shortness V5 payload")
+	}
 	pcsNCols := resolveProofPCSNCols(proof, 0)
 	if pcsNCols <= 0 {
 		t.Fatalf("missing pcs ncols")
 	}
-	slots, err := buildSigShortnessSupportSlotsForVersion(proof.RowLayout, pcsNCols, sigShortnessProofVersionV4)
+	slots, err := buildSigShortnessSupportSlotsForVersion(proof.RowLayout, pcsNCols, sigShortnessProofVersionV5)
 	if err != nil {
-		t.Fatalf("build V4 support slots: %v", err)
+		t.Fatalf("build V5 support slots: %v", err)
 	}
-	if len(slots) != 96 {
-		t.Fatalf("V4 support slots=%d want 96", len(slots))
+	if len(slots) != rowLayoutReplayTHatCount(proof.RowLayout) {
+		t.Fatalf("V5 support slots=%d want replay T-hat count=%d", len(slots), rowLayoutReplayTHatCount(proof.RowLayout))
 	}
-	if !equalIntSlices(slots, proof.SigShortness.SupportSlots) {
-		t.Fatalf("proof support slots=%v want %v", proof.SigShortness.SupportSlots, slots)
+	openSlots := expandPackedOpening(proof.SigShortness.V5.THatOpening).AllIndices()
+	if !equalIntSlices(slots, openSlots) {
+		t.Fatalf("V5 T-hat opening slots=%v want %v", openSlots, slots)
 	}
 }
 
-func TestSigShortnessProofV4OpeningAndValueTamperRejects(t *testing.T) {
+func TestSigShortnessProofV5OpeningAndValueTamperRejects(t *testing.T) {
 	fx := buildTransformBridgeFixtureWithShortnessProfile(t, SigShortnessProfileR11L4Production)
 	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
 	if err != nil {
@@ -239,8 +258,8 @@ func TestSigShortnessProofV4OpeningAndValueTamperRejects(t *testing.T) {
 	if proof.SigShortness == nil {
 		t.Fatalf("missing sig shortness proof")
 	}
-	if proof.SigShortness.Version != sigShortnessProofVersionV4 {
-		t.Fatalf("sig shortness version=%d want %d", proof.SigShortness.Version, sigShortnessProofVersionV4)
+	if proof.SigShortness.Version != sigShortnessProofVersionV5 {
+		t.Fatalf("sig shortness version=%d want %d", proof.SigShortness.Version, sigShortnessProofVersionV5)
 	}
 	if proof.PCSGeometry.ShortnessTailRows != 0 {
 		t.Fatalf("shortness tail rows=%d want 0", proof.PCSGeometry.ShortnessTailRows)
@@ -256,59 +275,47 @@ func TestSigShortnessProofV4OpeningAndValueTamperRejects(t *testing.T) {
 		t.Fatalf("sig shortness proof bytes=%d want < 55000", rep.SigShortness.ProofBytes)
 	}
 
-	t.Run("wrong slot set", func(t *testing.T) {
+	t.Run("mixed legacy population", func(t *testing.T) {
 		tampered := cloneProofWithSigShortnessForTest(proof)
-		tampered.SigShortness.SupportSlots[0] = tampered.SigShortness.SupportSlots[len(tampered.SigShortness.SupportSlots)-1] + 1
+		tampered.SigShortness.SupportSlots = []int{0}
 		if err := VerifySigShortnessProof(tampered, fx.ringQ, fx.omegaWitness, fx.pub, fx.opts); err == nil {
-			t.Fatalf("expected wrong support slot set to be rejected")
-		}
-	})
-
-	t.Run("duplicate slot", func(t *testing.T) {
-		tampered := cloneProofWithSigShortnessForTest(proof)
-		tampered.SigShortness.SupportSlots[1] = tampered.SigShortness.SupportSlots[0]
-		if err := VerifySigShortnessProof(tampered, fx.ringQ, fx.omegaWitness, fx.pub, fx.opts); err == nil {
-			t.Fatalf("expected duplicate support slot to be rejected")
+			t.Fatalf("expected mixed legacy/V5 fields to be rejected")
 		}
 	})
 
 	t.Run("wrong opening", func(t *testing.T) {
 		tampered := cloneProofWithSigShortnessForTest(proof)
-		tampered.SigShortness.Opening = expandPackedOpening(tampered.SigShortness.Opening)
-		tampered.SigShortness.Opening.Indices[0] = tampered.SigShortness.Opening.Indices[1]
-		tampered.SigShortness.Opening.MaskBase = 0
-		tampered.SigShortness.Opening.MaskCount = 0
-		tampered.SigShortness.Opening.IndexBits = nil
-		tampered.SigShortness.Opening.TailCount = len(tampered.SigShortness.Opening.Indices)
+		tampered.SigShortness.V5.THatOpening = expandPackedOpening(tampered.SigShortness.V5.THatOpening)
+		tampered.SigShortness.V5.THatOpening.Indices[0] = tampered.SigShortness.V5.THatOpening.Indices[0] + 1
+		tampered.SigShortness.V5.THatOpening.MaskBase = 0
+		tampered.SigShortness.V5.THatOpening.MaskCount = 0
+		tampered.SigShortness.V5.THatOpening.IndexBits = nil
+		tampered.SigShortness.V5.THatOpening.TailCount = len(tampered.SigShortness.V5.THatOpening.Indices)
 		if err := VerifySigShortnessProof(tampered, fx.ringQ, fx.omegaWitness, fx.pub, fx.opts); err == nil {
-			t.Fatalf("expected wrong shortness opening to be rejected")
+			t.Fatalf("expected wrong V5 T-hat opening to be rejected")
 		}
 	})
 
-	t.Run("tampered digit value", func(t *testing.T) {
-		digitRow := rowLayoutCoeffNativePackedSigLimbIndex(proof.RowLayout, 0, 0, 0)
-		if digitRow < 0 {
-			t.Fatalf("missing packed digit row")
-		}
-		tampered := tamperSigShortnessWitnessValueForTest(t, proof, digitRow, 0, fx.ringQ.Modulus[0])
+	t.Run("tampered exact head value", func(t *testing.T) {
+		tampered := cloneProofWithSigShortnessForTest(proof)
+		tampered.SigShortness.V5.ExactHeads.Bits[0] ^= 1
 		if err := VerifySigShortnessProof(tampered, fx.ringQ, fx.omegaWitness, fx.pub, fx.opts); err == nil {
-			t.Fatalf("expected tampered digit value to be rejected")
+			t.Fatalf("expected tampered exact head value to be rejected")
 		}
 	})
 
 	t.Run("tampered T-hat value", func(t *testing.T) {
-		tHatRow := rowLayoutPostSignTHatIndex(proof.RowLayout, 0)
-		if tHatRow < 0 {
-			t.Fatalf("missing T-hat row")
-		}
-		tampered := tamperSigShortnessWitnessValueForTest(t, proof, tHatRow, 0, fx.ringQ.Modulus[0])
+		tampered := cloneProofWithSigShortnessForTest(proof)
+		opening := expandPackedOpening(tampered.SigShortness.V5.THatOpening)
+		opening.Pvals[0][0] = modAdd(opening.Pvals[0][0], 1, fx.ringQ.Modulus[0])
+		tampered.SigShortness.V5.THatOpening = opening
 		if err := VerifySigShortnessProof(tampered, fx.ringQ, fx.omegaWitness, fx.pub, fx.opts); err == nil {
 			t.Fatalf("expected tampered T-hat value to be rejected")
 		}
 	})
 }
 
-func TestSigShortnessProofVersionCompatibilityVerifierAcceptsLegacyVersions(t *testing.T) {
+func TestSigShortnessProofVersionCompatibilityRejectsMissingLegacyPayload(t *testing.T) {
 	fx := buildTransformBridgeFixtureWithShortnessProfile(t, SigShortnessProfileR11L4Production)
 	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
 	if err != nil {
@@ -317,8 +324,9 @@ func TestSigShortnessProofVersionCompatibilityVerifierAcceptsLegacyVersions(t *t
 	for _, version := range []int{sigShortnessProofVersionV2, sigShortnessProofVersionV3} {
 		legacy := cloneProofWithSigShortnessForTest(proof)
 		legacy.SigShortness.Version = version
-		if err := VerifySigShortnessProof(legacy, fx.ringQ, fx.omegaWitness, fx.pub, fx.opts); err != nil {
-			t.Fatalf("verify V%d compatibility path: %v", version, err)
+		legacy.SigShortness.V5 = nil
+		if err := VerifySigShortnessProof(legacy, fx.ringQ, fx.omegaWitness, fx.pub, fx.opts); err == nil {
+			t.Fatalf("expected V%d path with no legacy payload to be rejected", version)
 		}
 	}
 }
@@ -329,10 +337,10 @@ func TestSigShortnessProofOmitsMvalsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build showing proof: %v", err)
 	}
-	if proof.SigShortness == nil || proof.SigShortness.Opening == nil {
-		t.Fatalf("missing sig shortness opening")
+	if proof.SigShortness == nil || proof.SigShortness.V5 == nil || proof.SigShortness.V5.THatOpening == nil {
+		t.Fatalf("missing sig shortness V5 T-hat opening")
 	}
-	open := proof.SigShortness.Opening
+	open := proof.SigShortness.V5.THatOpening
 	if open.MFormatVersion != 1 {
 		t.Fatalf("sig shortness opening MFormatVersion=%d want 1", open.MFormatVersion)
 	}
@@ -347,5 +355,56 @@ func TestSigShortnessProofOmitsMvalsAndVerifies(t *testing.T) {
 	}
 	if err := VerifySigShortnessProof(proof, fx.ringQ, fx.omegaWitness, fx.pub, fx.opts); err != nil {
 		t.Fatalf("verify sig shortness proof with omitted Mvals: %v", err)
+	}
+}
+
+func TestSigShortnessPCompressionRoundTrip(t *testing.T) {
+	open := &decs.DECSOpening{
+		FormatVersion: 1,
+		PColsEncoded:  2,
+		POmitCols:     []int{2, 3},
+		Indices:       []int{0, 1},
+		Pvals: [][]uint64{
+			{11, 12},
+			{21, 22},
+		},
+		R: 4,
+	}
+	if err := reconstructSigShortnessOpeningPvals(open, 2); err != nil {
+		t.Fatalf("reconstruct compressed shortness P values: %v", err)
+	}
+	want := [][]uint64{
+		{11, 12, 0, 0},
+		{21, 22, 0, 0},
+	}
+	if len(open.Pvals) != len(want) {
+		t.Fatalf("reconstructed shortness P row count=%d want %d", len(open.Pvals), len(want))
+	}
+	for i := range want {
+		if len(open.Pvals[i]) != len(want[i]) {
+			t.Fatalf("reconstructed shortness P row %d width=%d want %d", i, len(open.Pvals[i]), len(want[i]))
+		}
+		for j := range want[i] {
+			if open.Pvals[i][j] != want[i][j] {
+			t.Fatalf("reconstructed shortness P row %d=%v want %v", i, open.Pvals[i], want[i])
+			}
+		}
+	}
+	if open.FormatVersion != 0 || open.PColsEncoded != 0 || len(open.POmitCols) != 0 {
+		t.Fatalf("reconstructed shortness opening should clear compression metadata")
+	}
+}
+
+func TestSigShortnessPCompressionRejectsWrongSuffix(t *testing.T) {
+	open := &decs.DECSOpening{
+		FormatVersion: 1,
+		PColsEncoded:  2,
+		POmitCols:     []int{1, 3},
+		Indices:       []int{0},
+		Pvals:         [][]uint64{{11, 12}},
+		R:             4,
+	}
+	if err := reconstructSigShortnessOpeningPvals(open, 2); err == nil {
+		t.Fatalf("expected invalid shortness P omission set to be rejected")
 	}
 }

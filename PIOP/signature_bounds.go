@@ -19,6 +19,9 @@ const (
 	signatureRadixOverrideEnv = "SPRUCE_SIGNATURE_RADIX_OVERRIDE"
 
 	SigShortnessProfileR11L4Production  = "r11_l4_production"
+	SigShortnessProfileR24L3Compact     = "r24_l3_compact"
+	SigShortnessProfileR111L2Compact    = "r111_l2_compact"
+	SigShortnessProfileR12285L1Research = "r12285_l1_research"
 	SigShortnessProfileR12L3Default     = "r12_l3_default"
 	SigShortnessProfileR13L3Legacy      = "r13_l3_legacy"
 	SigShortnessProfileR7L4Experimental = "r7_l4_experimental"
@@ -26,6 +29,12 @@ const (
 
 	signaturePackedProductionRadix   = 11
 	signaturePackedProductionL       = 4
+	signaturePackedCompactL3Radix    = 24
+	signaturePackedCompactL3L        = 3
+	signaturePackedCompactL2Radix    = 111
+	signaturePackedCompactL2L        = 2
+	signaturePackedResearchL1Radix   = 12285
+	signaturePackedResearchL1L       = 1
 	signaturePackedDefaultRadix      = 12
 	signaturePackedDefaultL          = 3
 	signaturePackedLegacyRadix       = 13
@@ -66,6 +75,12 @@ func sigShortnessProfileDigits(profile string) int {
 	switch normalizeSigShortnessProfile(profile) {
 	case SigShortnessProfileR11L4Production:
 		return signaturePackedProductionL
+	case SigShortnessProfileR24L3Compact:
+		return signaturePackedCompactL3L
+	case SigShortnessProfileR111L2Compact:
+		return signaturePackedCompactL2L
+	case SigShortnessProfileR12285L1Research:
+		return signaturePackedResearchL1L
 	case SigShortnessProfileR7L4Experimental:
 		return signaturePackedExperimentalL
 	case SigShortnessProfileR13L3Legacy:
@@ -81,6 +96,12 @@ func sigShortnessFixedShape(profile string) (base int, L int, caps []int, ok boo
 	switch normalizeSigShortnessProfile(profile) {
 	case SigShortnessProfileR11L4Production:
 		return signaturePackedProductionRadix, signaturePackedProductionL, nil, true
+	case SigShortnessProfileR24L3Compact:
+		return signaturePackedCompactL3Radix, signaturePackedCompactL3L, nil, true
+	case SigShortnessProfileR111L2Compact:
+		return signaturePackedCompactL2Radix, signaturePackedCompactL2L, nil, true
+	case SigShortnessProfileR12285L1Research:
+		return signaturePackedResearchL1Radix, signaturePackedResearchL1L, nil, true
 	case SigShortnessProfileR12L3Default:
 		return signaturePackedDefaultRadix, signaturePackedDefaultL, nil, true
 	case SigShortnessProfileR13L3Legacy:
@@ -96,6 +117,12 @@ func normalizeSigShortnessProfile(profile string) string {
 	switch profile {
 	case "", SigShortnessProfileR11L4Production:
 		return SigShortnessProfileR11L4Production
+	case SigShortnessProfileR24L3Compact:
+		return SigShortnessProfileR24L3Compact
+	case SigShortnessProfileR111L2Compact:
+		return SigShortnessProfileR111L2Compact
+	case SigShortnessProfileR12285L1Research:
+		return SigShortnessProfileR12285L1Research
 	case SigShortnessProfileR12L3Default:
 		return SigShortnessProfileR12L3Default
 	case SigShortnessProfileR13L3Legacy:

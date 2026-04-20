@@ -70,6 +70,33 @@ func TestSignatureShortnessProfileMetrics(t *testing.T) {
 			wantCaps: nil,
 		},
 		{
+			name:     "compact_r24_l3",
+			opts:     SimOpts{CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3, SigShortnessProfile: SigShortnessProfileR24L3Compact},
+			wantBase: 24,
+			wantL:    3,
+			wantRows: 3,
+			wantDeg:  24,
+			wantCaps: nil,
+		},
+		{
+			name:     "compact_r111_l2",
+			opts:     SimOpts{CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3, SigShortnessProfile: SigShortnessProfileR111L2Compact},
+			wantBase: 111,
+			wantL:    2,
+			wantRows: 2,
+			wantDeg:  111,
+			wantCaps: nil,
+		},
+		{
+			name:     "research_r12285_l1",
+			opts:     SimOpts{CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3, SigShortnessProfile: SigShortnessProfileR12285L1Research},
+			wantBase: 12285,
+			wantL:    1,
+			wantRows: 1,
+			wantDeg:  12285,
+			wantCaps: nil,
+		},
+		{
 			name:    "default_r12_l3_rejects_current_beta",
 			opts:    SimOpts{CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3, SigShortnessProfile: SigShortnessProfileR12L3Default},
 			wantErr: true,
@@ -172,6 +199,37 @@ func TestSignatureShortnessCustomBalanced75Representability(t *testing.T) {
 	}
 }
 
+func TestSignatureShortnessNamedCompactProfilesRepresentability(t *testing.T) {
+	signatureBoundsChdirRepoRoot(t)
+	const ringQ = uint64(1054721)
+	beta, err := productionSignatureCoeffLinfBeta()
+	if err != nil {
+		t.Fatalf("load production beta: %v", err)
+	}
+	for _, profile := range []string{
+		SigShortnessProfileR24L3Compact,
+		SigShortnessProfileR111L2Compact,
+		SigShortnessProfileR12285L1Research,
+	} {
+		spec, err := signatureChainSpecForOpts(ringQ, SimOpts{
+			CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
+			SigShortnessProfile: profile,
+		})
+		if err != nil {
+			t.Fatalf("resolve %s shortness spec: %v", profile, err)
+		}
+		for v := -int64(beta); v <= int64(beta); v++ {
+			digits, err := decomposeLinfDigitsSigned(v, spec)
+			if err != nil {
+				t.Fatalf("%s decompose %d: %v", profile, v, err)
+			}
+			if got := recomposeLinfDigits(digits, spec); got != v {
+				t.Fatalf("%s recompose %d => %d", profile, v, got)
+			}
+		}
+	}
+}
+
 func TestSignatureShortnessObsoleteProfilesRejectCurrentBeta(t *testing.T) {
 	signatureBoundsChdirRepoRoot(t)
 	const ringQ = uint64(1054721)
@@ -268,6 +326,15 @@ func TestResolveShowingPresetLabelForOpts(t *testing.T) {
 			want: ShowingPresetTranscriptFirst,
 		},
 		{
+			name: "explicit_compact_l2",
+			opts: SimOpts{
+				Credential:          true,
+				CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
+				ShowingPreset:       ShowingPresetCompactL2,
+			},
+			want: ShowingPresetCompactL2,
+		},
+		{
 			name: "explicit_production_balance",
 			opts: SimOpts{
 				Credential:          true,
@@ -307,7 +374,7 @@ func TestResolveSimOptsDefaultsSoundnessBalancedPreset(t *testing.T) {
 	if opts.SigShortnessProfile != SigShortnessProfileR11L4Production {
 		t.Fatalf("sig shortness profile=%q want %q", opts.SigShortnessProfile, SigShortnessProfileR11L4Production)
 	}
-	if opts.LVCSNCols != 96 || opts.PostSignLVCSNCols != 96 || opts.PRFLVCSNCols != 96 {
+	if opts.LVCSNCols != 89 || opts.PostSignLVCSNCols != 89 || opts.PRFLVCSNCols != 89 {
 		t.Fatalf("unexpected lvcs preset resolution: %+v", opts)
 	}
 	if opts.Theta != 3 || opts.Rho != 2 || opts.EllPrime != 2 || opts.Eta != 43 {
@@ -318,5 +385,65 @@ func TestResolveSimOptsDefaultsSoundnessBalancedPreset(t *testing.T) {
 	}
 	if opts.Kappa != [4]int{0, 0, 0, 5} {
 		t.Fatalf("unexpected kappa=%v want [0 0 0 5]", opts.Kappa)
+	}
+}
+
+func TestResolveSimOptsDefaultsCompactPresets(t *testing.T) {
+	cases := []struct {
+		name        string
+		preset      string
+		wantProfile string
+		wantLVCS    int
+		wantEta     int
+	}{
+		{
+			name:        "compact_l3",
+			preset:      ShowingPresetCompactL3,
+			wantProfile: SigShortnessProfileR24L3Compact,
+			wantLVCS:    68,
+			wantEta:     36,
+		},
+		{
+			name:        "compact_l2",
+			preset:      ShowingPresetCompactL2,
+			wantProfile: SigShortnessProfileR111L2Compact,
+			wantLVCS:    70,
+			wantEta:     36,
+		},
+		{
+			name:        "compact_l1_research",
+			preset:      ShowingPresetCompactL1Research,
+			wantProfile: SigShortnessProfileR12285L1Research,
+			wantLVCS:    50,
+			wantEta:     31,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := ResolveSimOptsDefaults(SimOpts{
+				Credential:          true,
+				CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
+				ShowingPreset:       tc.preset,
+			})
+			if got := ResolveShowingPresetLabelForOpts(opts); got != tc.preset {
+				t.Fatalf("showing preset=%q want %q", got, tc.preset)
+			}
+			if opts.SigShortnessProfile != tc.wantProfile {
+				t.Fatalf("sig shortness profile=%q want %q", opts.SigShortnessProfile, tc.wantProfile)
+			}
+			if opts.LVCSNCols != tc.wantLVCS || opts.PostSignLVCSNCols != tc.wantLVCS || opts.PRFLVCSNCols != tc.wantLVCS {
+				t.Fatalf("unexpected lvcs preset resolution: %+v", opts)
+			}
+			if opts.Theta != 3 || opts.Rho != 2 || opts.EllPrime != 2 || opts.Eta != tc.wantEta {
+				t.Fatalf("unexpected compact tuple: theta=%d rho=%d ellPrime=%d eta=%d", opts.Theta, opts.Rho, opts.EllPrime, opts.Eta)
+			}
+			if opts.NLeaves != 4096 || opts.PostSignNLeaves != 4096 || opts.PRFNLeaves != 4096 {
+				t.Fatalf("unexpected compact nleaves resolution: n=%d post=%d prf=%d", opts.NLeaves, opts.PostSignNLeaves, opts.PRFNLeaves)
+			}
+			if opts.Kappa != [4]int{0, 0, 0, 5} {
+				t.Fatalf("unexpected compact kappa=%v want [0 0 0 5]", opts.Kappa)
+			}
+		})
 	}
 }

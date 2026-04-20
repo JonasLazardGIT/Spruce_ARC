@@ -140,7 +140,8 @@ type maskFSArgs struct {
 	oracleLayout    lvcs.OracleLayout
 	decsParams      decs.Params
 
-	labelsDigest []byte
+	labelsDigest              []byte
+	sigShortnessBindingDigest []byte
 
 	// Optional ncols override (head length) for theta>1
 	ncolsOverride int
@@ -271,6 +272,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		material0 := [][]byte{args.root[:]}
 		if len(args.labelsDigest) > 0 {
 			material0 = append(material0, args.labelsDigest)
+		}
+		if len(args.sigShortnessBindingDigest) > 0 {
+			material0 = append(material0, args.sigShortnessBindingDigest)
 		}
 		round1 := fsRound(fs, proof, 0, "Gamma", material0...)
 		gammaRNG := round1.RNG

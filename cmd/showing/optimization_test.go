@@ -77,18 +77,18 @@ func optimizationIdentityAc(r *ring.Ring, cols int) [][]*ring.Poly {
 	return mat
 }
 
-func buildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols int) credential.State {
+func tryBuildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols int) (credential.State, error) {
 	t.Helper()
 	root := showingTestRepoRoot(t)
 	chdirForShowingTest(t, root)
 
 	ringQ, err := credential.LoadDefaultRing()
 	if err != nil {
-		t.Fatalf("load ring: %v", err)
+		return credential.State{}, fmt.Errorf("load ring: %w", err)
 	}
 	prfParams, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
 	if err != nil {
-		t.Fatalf("load prf params: %v", err)
+		return credential.State{}, fmt.Errorf("load prf params: %w", err)
 	}
 	opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
 		Credential:       true,
@@ -121,7 +121,7 @@ func buildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols i
 
 	omega, err := deriveOmegaForOpts(ringQ, opts)
 	if err != nil {
-		t.Fatalf("derive optimization omega for ncols=%d: %v", opts.NCols, err)
+		return credential.State{}, fmt.Errorf("derive optimization omega for ncols=%d: %w", opts.NCols, err)
 	}
 	q := ringQ.Modulus[0]
 	rng := rand.New(rand.NewSource(1))
@@ -167,15 +167,15 @@ func buildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols i
 	}
 	com, err := issuance.PrepareCommit(params, inputs, omega)
 	if err != nil {
-		t.Fatalf("prepare commit for ncols=%d: %v", opts.NCols, err)
+		return credential.State{}, fmt.Errorf("prepare commit for ncols=%d: %w", opts.NCols, err)
 	}
 	st, err := issuance.ApplyChallenge(params, inputs, ch, omega)
 	if err != nil {
-		t.Fatalf("apply challenge for ncols=%d: %v", opts.NCols, err)
+		return credential.State{}, fmt.Errorf("apply challenge for ncols=%d: %w", opts.NCols, err)
 	}
 	sig, err := signverify.SignTarget(st.T, 2048, ntru.SamplerOpts{})
 	if err != nil {
-		t.Fatalf("sign target for ncols=%d: %v", opts.NCols, err)
+		return credential.State{}, fmt.Errorf("sign target for ncols=%d: %w", opts.NCols, err)
 	}
 
 	out := credential.State{
@@ -201,46 +201,55 @@ func buildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols i
 	}
 	out.SigS1 = append([]int64(nil), sig.Signature.S1...)
 	out.SigS2 = append([]int64(nil), sig.Signature.S2...)
-	return out
+	return out, nil
 }
 
-func buildShowingProofForOptimizationState(t *testing.T, st credential.State, opts PIOP.SimOpts) (*PIOP.Proof, PIOP.ProofReport) {
+func buildDeterministicCredentialStateForPackedNCols(t *testing.T, packedNCols int) credential.State {
+	t.Helper()
+	st, err := tryBuildDeterministicCredentialStateForPackedNCols(t, packedNCols)
+	if err != nil {
+		t.Fatalf("build deterministic credential state for ncols=%d: %v", packedNCols, err)
+	}
+	return st
+}
+
+func tryBuildShowingProofForOptimizationState(t *testing.T, st credential.State, opts PIOP.SimOpts) (*PIOP.Proof, PIOP.ProofReport, error) {
 	t.Helper()
 	root := showingTestRepoRoot(t)
 	chdirForShowingTest(t, root)
 
 	ringQ, err := credential.LoadDefaultRing()
 	if err != nil {
-		t.Fatalf("load ring: %v", err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("load ring: %w", err)
 	}
 	params, err := loadPRFParamsFromState(st)
 	if err != nil {
-		t.Fatalf("load prf params: %v", err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("load prf params: %w", err)
 	}
 	wit, err := buildWitnessFromState(ringQ, st)
 	if err != nil {
-		t.Fatalf("build witness from optimization state: %v", err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("build witness from optimization state: %w", err)
 	}
 	A, err := buildSignatureMatrix(ringQ, st, showingSignatureComponentCount(wit))
 	if err != nil {
-		t.Fatalf("build A: %v", err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("build A: %w", err)
 	}
 	publicParams, err := loadCredentialPublicParamsFromState(st)
 	if err != nil {
-		t.Fatalf("load credential public params: %v", err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("load credential public params: %w", err)
 	}
 	B, err := loadBForShowing(ringQ, st, publicParams)
 	if err != nil {
-		t.Fatalf("load B: %v", err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("load B: %w", err)
 	}
 	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey)
 	if err != nil {
-		t.Fatalf("derive prf key: %v", err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("derive prf key: %w", err)
 	}
 	nonce, noncePublic := sampleNonceForTest(params.LenNonce, opts.NCols, ringQ.Modulus[0])
 	tag, err := prf.Tag(key, nonce, params)
 	if err != nil {
-		t.Fatalf("tag: %v", err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("tag: %w", err)
 	}
 	pub := PIOP.PublicInputs{
 		A:            A,
@@ -252,7 +261,7 @@ func buildShowingProofForOptimizationState(t *testing.T, st credential.State, op
 	}
 	proof, err := PIOP.BuildShowingCombined(pub, wit, opts)
 	if err != nil {
-		t.Fatalf("build showing for ncols=%d lvcs=%d preset=%s: %v", opts.NCols, opts.PostSignLVCSNCols, opts.ShowingPreset, err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("build showing for ncols=%d lvcs=%d preset=%s: %w", opts.NCols, opts.PostSignLVCSNCols, opts.ShowingPreset, err)
 	}
 	verifySet := PIOP.ConstraintSet{PRFLayout: proof.PRFLayout}
 	if proof.PRFCompanion != nil {
@@ -260,14 +269,23 @@ func buildShowingProofForOptimizationState(t *testing.T, st credential.State, op
 	}
 	ok, err := PIOP.VerifyWithConstraints(proof, verifySet, pub, opts, PIOP.FSModeCredential)
 	if err != nil {
-		t.Fatalf("verify showing for ncols=%d lvcs=%d preset=%s: %v", opts.NCols, opts.PostSignLVCSNCols, opts.ShowingPreset, err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("verify showing for ncols=%d lvcs=%d preset=%s: %w", opts.NCols, opts.PostSignLVCSNCols, opts.ShowingPreset, err)
 	}
 	if !ok {
-		t.Fatalf("verify showing returned ok=false for ncols=%d lvcs=%d preset=%s", opts.NCols, opts.PostSignLVCSNCols, opts.ShowingPreset)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("verify showing returned ok=false for ncols=%d lvcs=%d preset=%s", opts.NCols, opts.PostSignLVCSNCols, opts.ShowingPreset)
 	}
 	rep, err := PIOP.BuildProofReport(proof, opts, ringQ)
 	if err != nil {
-		t.Fatalf("proof report: %v", err)
+		return nil, PIOP.ProofReport{}, fmt.Errorf("proof report: %w", err)
+	}
+	return proof, rep, nil
+}
+
+func buildShowingProofForOptimizationState(t *testing.T, st credential.State, opts PIOP.SimOpts) (*PIOP.Proof, PIOP.ProofReport) {
+	t.Helper()
+	proof, rep, err := tryBuildShowingProofForOptimizationState(t, st, opts)
+	if err != nil {
+		t.Fatalf("build showing proof for optimization state: %v", err)
 	}
 	return proof, rep
 }
@@ -286,6 +304,10 @@ func optimizationLVCSCandidates(ncols int) []int {
 		add(v)
 	}
 	add(28)
+	add(50)
+	add(68)
+	add(70)
+	add(89)
 	// keep deterministic ascending order
 	for i := 0; i < len(out); i++ {
 		for j := i + 1; j < len(out); j++ {
@@ -295,6 +317,321 @@ func optimizationLVCSCandidates(ncols int) []int {
 		}
 	}
 	return out
+}
+
+func optimizationCompactNColsCandidates() []int {
+	return []int{16, 32, 64, 128, 256}
+}
+
+func optimizationCompactEtaCandidates(preset string) []int {
+	switch preset {
+	case PIOP.ShowingPresetCompactL1Research:
+		return []int{19, 23, 27, 31, 35}
+	default:
+		return []int{27, 31, 35, 39, 43}
+	}
+}
+
+func optimizationCompactNLeavesCandidates() []int {
+	return []int{1024, 2048, 3072, 4096, 6144}
+}
+
+func optimizationCeilDiv(x, y int) int {
+	if y <= 0 {
+		return 0
+	}
+	return (x + y - 1) / y
+}
+
+func optimizationMaxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func optimizationThresholdLVCSCandidates(ncols, witnessRows, baseline int) []int {
+	seen := map[int]bool{}
+	out := make([]int, 0, 16)
+	add := func(v int) {
+		if v < ncols || seen[v] {
+			return
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	add(baseline)
+	add(ncols)
+	maxBlocks := optimizationCeilDiv(witnessRows, ncols)
+	if maxBlocks <= 0 {
+		maxBlocks = 1
+	}
+	if maxBlocks > 12 {
+		maxBlocks = 12
+	}
+	for blocks := 1; blocks <= maxBlocks; blocks++ {
+		add(optimizationMaxInt(ncols, optimizationCeilDiv(witnessRows, blocks)))
+	}
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j] < out[i] {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out
+}
+
+type compactPresetSweepTarget struct {
+	preset  string
+	profile string
+}
+
+type compactPresetSweepResult struct {
+	preset       string
+	profile      string
+	ncols        int
+	lvcsNCols    int
+	eta          int
+	nLeaves      int
+	total        int
+	sigShortness int
+	pdecs        int
+	vtargets     int
+	barsets      int
+	q            int
+	witnessRows  int
+	rowsBlock    int
+	openedBlocks int
+	soundness    float64
+}
+
+func buildCompactPresetSweepOpts(target compactPresetSweepTarget, ncols, lvcsNCols, eta, nLeaves int) PIOP.SimOpts {
+	if lvcsNCols < ncols {
+		lvcsNCols = ncols
+	}
+	return PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+		Credential:           true,
+		NCols:                ncols,
+		Ell:                  18,
+		DomainMode:           PIOP.DomainModeExplicit,
+		PRFGroupRounds:       2,
+		CoeffPacking:         true,
+		CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+		ShowingPreset:        target.preset,
+		SigShortnessProfile:  target.profile,
+		PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
+		PRFCheckpointSamples: 8,
+		LVCSNCols:            lvcsNCols,
+		PostSignLVCSNCols:    lvcsNCols,
+		PRFLVCSNCols:         lvcsNCols,
+		Eta:                  eta,
+		NLeaves:              nLeaves,
+		PostSignNLeaves:      nLeaves,
+		PRFNLeaves:           nLeaves,
+	})
+}
+
+func buildCompactPresetSweepResult(target compactPresetSweepTarget, ncols, lvcsNCols, eta, nLeaves int, rep PIOP.ProofReport) compactPresetSweepResult {
+	return compactPresetSweepResult{
+		preset:       target.preset,
+		profile:      target.profile,
+		ncols:        ncols,
+		lvcsNCols:    lvcsNCols,
+		eta:          eta,
+		nLeaves:      nLeaves,
+		total:        rep.PaperTranscript.OptimizedBytes,
+		sigShortness: rep.PaperTranscript.SigShortness.OptimizedBytes,
+		pdecs:        rep.PaperTranscript.Pdecs.OptimizedBytes,
+		vtargets:     rep.PaperTranscript.VTargets.OptimizedBytes,
+		barsets:      rep.PaperTranscript.BarSets.OptimizedBytes,
+		q:            rep.PaperTranscript.Q.OptimizedBytes,
+		witnessRows:  rep.TranscriptFocus.WitnessRows,
+		rowsBlock:    rep.TranscriptFocus.RowsBlock,
+		openedBlocks: rep.SigShortness.OpenedBlockCount,
+		soundness:    rep.Soundness.TotalBits,
+	}
+}
+
+func betterCompactPresetSweepResult(got, best compactPresetSweepResult) bool {
+	switch {
+	case got.total != best.total:
+		return got.total < best.total
+	case got.sigShortness != best.sigShortness:
+		return got.sigShortness < best.sigShortness
+	case got.pdecs+got.vtargets+got.barsets != best.pdecs+best.vtargets+best.barsets:
+		return got.pdecs+got.vtargets+got.barsets < best.pdecs+best.vtargets+best.barsets
+	case got.soundness != best.soundness:
+		return got.soundness > best.soundness
+	case got.nLeaves != best.nLeaves:
+		return got.nLeaves < best.nLeaves
+	case got.eta != best.eta:
+		return got.eta < best.eta
+	case got.lvcsNCols != best.lvcsNCols:
+		return got.lvcsNCols < best.lvcsNCols
+	default:
+		return got.ncols > best.ncols
+	}
+}
+
+func TestShowingCompactPresetNColsSweepRetunesWidthEtaAndNLeaves(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+
+	targets := []compactPresetSweepTarget{
+		{preset: PIOP.ShowingPresetCompactL3, profile: PIOP.SigShortnessProfileR24L3Compact},
+		{preset: PIOP.ShowingPresetCompactL2, profile: PIOP.SigShortnessProfileR111L2Compact},
+		{preset: PIOP.ShowingPresetCompactL1Research, profile: PIOP.SigShortnessProfileR12285L1Research},
+	}
+
+	for _, target := range targets {
+		var presetBest *compactPresetSweepResult
+		for _, ncols := range optimizationCompactNColsCandidates() {
+			state, err := tryBuildDeterministicCredentialStateForPackedNCols(t, ncols)
+			if err != nil {
+				t.Logf("skip compact sweep preset=%s ncols=%d: state build failed: %v", target.preset, ncols, err)
+				continue
+			}
+
+			baselineDefaults := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+				Credential:           true,
+				NCols:                ncols,
+				Ell:                  18,
+				DomainMode:           PIOP.DomainModeExplicit,
+				PRFGroupRounds:       2,
+				CoeffPacking:         true,
+				CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+				ShowingPreset:        target.preset,
+				SigShortnessProfile:  target.profile,
+				PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
+				PRFCheckpointSamples: 8,
+			})
+			baseLVCS := optimizationMaxInt(ncols, presetLVCSNColsForOptimization(target.preset))
+			baseEta := baselineDefaults.Eta
+			baseNLeaves := baselineDefaults.NLeaves
+
+			_, baselineRep, err := tryBuildShowingProofForOptimizationState(t, state, buildCompactPresetSweepOpts(target, ncols, baseLVCS, baseEta, baseNLeaves))
+			if err != nil {
+				t.Logf("skip compact sweep preset=%s ncols=%d: baseline build failed: %v", target.preset, ncols, err)
+				continue
+			}
+
+			var bestLVCS *compactPresetSweepResult
+			for _, lvcsNCols := range optimizationThresholdLVCSCandidates(ncols, baselineRep.TranscriptFocus.WitnessRows, baseLVCS) {
+				_, rep, err := tryBuildShowingProofForOptimizationState(t, state, buildCompactPresetSweepOpts(target, ncols, lvcsNCols, baseEta, baseNLeaves))
+				if err != nil {
+					t.Logf("skip compact sweep preset=%s ncols=%d lvcs=%d: %v", target.preset, ncols, lvcsNCols, err)
+					continue
+				}
+				if rep.Soundness.TotalBits < 100 {
+					t.Logf("reject compact sweep preset=%s ncols=%d lvcs=%d by theorem floor: %.2f", target.preset, ncols, lvcsNCols, rep.Soundness.TotalBits)
+					continue
+				}
+				cand := buildCompactPresetSweepResult(target, ncols, lvcsNCols, baseEta, baseNLeaves, rep)
+				if bestLVCS == nil || betterCompactPresetSweepResult(cand, *bestLVCS) {
+					copy := cand
+					bestLVCS = &copy
+				}
+			}
+			if bestLVCS == nil {
+				t.Logf("reject compact sweep preset=%s ncols=%d: no admissible LVCS candidate", target.preset, ncols)
+				continue
+			}
+
+			bestEta := *bestLVCS
+			for _, eta := range optimizationCompactEtaCandidates(target.preset) {
+				_, rep, err := tryBuildShowingProofForOptimizationState(t, state, buildCompactPresetSweepOpts(target, ncols, bestLVCS.lvcsNCols, eta, baseNLeaves))
+				if err != nil {
+					t.Logf("skip compact sweep preset=%s ncols=%d lvcs=%d eta=%d: %v", target.preset, ncols, bestLVCS.lvcsNCols, eta, err)
+					continue
+				}
+				if rep.Soundness.TotalBits < 100 {
+					t.Logf("reject compact sweep preset=%s ncols=%d lvcs=%d eta=%d by theorem floor: %.2f", target.preset, ncols, bestLVCS.lvcsNCols, eta, rep.Soundness.TotalBits)
+					continue
+				}
+				cand := buildCompactPresetSweepResult(target, ncols, bestLVCS.lvcsNCols, eta, baseNLeaves, rep)
+				if betterCompactPresetSweepResult(cand, bestEta) {
+					bestEta = cand
+				}
+			}
+
+			bestFinal := bestEta
+			for _, nLeaves := range optimizationCompactNLeavesCandidates() {
+				_, rep, err := tryBuildShowingProofForOptimizationState(t, state, buildCompactPresetSweepOpts(target, ncols, bestEta.lvcsNCols, bestEta.eta, nLeaves))
+				if err != nil {
+					t.Logf("skip compact sweep preset=%s ncols=%d lvcs=%d eta=%d nleaves=%d: %v", target.preset, ncols, bestEta.lvcsNCols, bestEta.eta, nLeaves, err)
+					continue
+				}
+				if rep.Soundness.TotalBits < 100 {
+					t.Logf("reject compact sweep preset=%s ncols=%d lvcs=%d eta=%d nleaves=%d by theorem floor: %.2f", target.preset, ncols, bestEta.lvcsNCols, bestEta.eta, nLeaves, rep.Soundness.TotalBits)
+					continue
+				}
+				cand := buildCompactPresetSweepResult(target, ncols, bestEta.lvcsNCols, bestEta.eta, nLeaves, rep)
+				if betterCompactPresetSweepResult(cand, bestFinal) {
+					bestFinal = cand
+				}
+			}
+
+			t.Logf("compact sweep preset=%s ncols=%d -> lvcs=%d eta=%d nleaves=%d total=%d sig=%d Pdecs=%d VTargets=%d BarSets=%d Q=%d witness=%d rowsBlock=%d sigBlocks=%d soundness=%.2f",
+				target.preset,
+				ncols,
+				bestFinal.lvcsNCols,
+				bestFinal.eta,
+				bestFinal.nLeaves,
+				bestFinal.total,
+				bestFinal.sigShortness,
+				bestFinal.pdecs,
+				bestFinal.vtargets,
+				bestFinal.barsets,
+				bestFinal.q,
+				bestFinal.witnessRows,
+				bestFinal.rowsBlock,
+				bestFinal.openedBlocks,
+				bestFinal.soundness,
+			)
+			if presetBest == nil || betterCompactPresetSweepResult(bestFinal, *presetBest) {
+				copy := bestFinal
+				presetBest = &copy
+			}
+		}
+
+		if presetBest == nil {
+			t.Fatalf("compact sweep found no admissible candidate for preset=%s", target.preset)
+		}
+		t.Logf("compact sweep best preset=%s -> ncols=%d lvcs=%d eta=%d nleaves=%d total=%d sig=%d Pdecs=%d VTargets=%d BarSets=%d Q=%d witness=%d rowsBlock=%d sigBlocks=%d soundness=%.2f",
+			target.preset,
+			presetBest.ncols,
+			presetBest.lvcsNCols,
+			presetBest.eta,
+			presetBest.nLeaves,
+			presetBest.total,
+			presetBest.sigShortness,
+			presetBest.pdecs,
+			presetBest.vtargets,
+			presetBest.barsets,
+			presetBest.q,
+			presetBest.witnessRows,
+			presetBest.rowsBlock,
+			presetBest.openedBlocks,
+			presetBest.soundness,
+		)
+
+		switch target.preset {
+		case PIOP.ShowingPresetCompactL3:
+			if presetBest.total > 64336 {
+				t.Fatalf("compact_l3 sweep best total=%d want <= 64336", presetBest.total)
+			}
+		case PIOP.ShowingPresetCompactL2:
+			if presetBest.total > 53517 {
+				t.Fatalf("compact_l2 sweep best total=%d want <= 53517", presetBest.total)
+			}
+		case PIOP.ShowingPresetCompactL1Research:
+			if presetBest.total > 39465 {
+				t.Fatalf("compact_l1_research sweep best total=%d want <= 39465", presetBest.total)
+			}
+		}
+	}
 }
 
 func TestShowingFullReplayModeDeterministicPackedWidths(t *testing.T) {
@@ -491,6 +828,7 @@ func TestShowingProductionBetaAuditMatchesCalibrationPolicy(t *testing.T) {
 
 type shortnessCandidate struct {
 	label   string
+	preset  string
 	profile string
 	radix   int
 	digits  int
@@ -512,9 +850,12 @@ func buildShortnessCandidatesForBeta(t *testing.T) []shortnessCandidate {
 	}
 
 	out := []shortnessCandidate{
-		{label: PIOP.SigShortnessProfileR11L4Production, profile: PIOP.SigShortnessProfileR11L4Production},
+		{label: PIOP.SigShortnessProfileR11L4Production, preset: PIOP.ShowingPresetSoundnessBalanced, profile: PIOP.SigShortnessProfileR11L4Production},
+		{label: PIOP.SigShortnessProfileR24L3Compact, preset: PIOP.ShowingPresetCompactL3, profile: PIOP.SigShortnessProfileR24L3Compact},
+		{label: PIOP.SigShortnessProfileR111L2Compact, preset: PIOP.ShowingPresetCompactL2, profile: PIOP.SigShortnessProfileR111L2Compact},
+		{label: PIOP.SigShortnessProfileR12285L1Research, preset: PIOP.ShowingPresetCompactL1Research, profile: PIOP.SigShortnessProfileR12285L1Research},
 	}
-	for digits := 2; digits <= 6; digits++ {
+	for digits := 1; digits <= 6; digits++ {
 		base, gotDigits, _, err := PIOP.ResolveSignatureBoundShapeForOpts(ringQ, PIOP.SimOpts{
 			CoeffNativeSigModel: PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
 			SigShortnessL:       digits,
@@ -523,22 +864,12 @@ func buildShortnessCandidatesForBeta(t *testing.T) []shortnessCandidate {
 			t.Logf("skip shortness L=%d: %v", digits, err)
 			continue
 		}
-		if base > 16 {
-			t.Logf("skip shortness L=%d: minimal radix=%d exceeds sweep cap", gotDigits, base)
-			continue
-		}
 		add(&out, shortnessCandidate{
 			label:  fmt.Sprintf("minimal_r%d_l%d", base, gotDigits),
+			preset: PIOP.ShowingPresetSoundnessBalanced,
 			radix:  base,
 			digits: gotDigits,
 		})
-		for radix := base + 1; radix <= 16; radix++ {
-			add(&out, shortnessCandidate{
-				label:  fmt.Sprintf("raw_r%d_l%d", radix, gotDigits),
-				radix:  radix,
-				digits: gotDigits,
-			})
-		}
 	}
 	return out
 }
@@ -546,7 +877,13 @@ func buildShortnessCandidatesForBeta(t *testing.T) []shortnessCandidate {
 func presetLVCSNColsForOptimization(preset string) int {
 	switch preset {
 	case PIOP.ShowingPresetSoundnessBalanced:
-		return 96
+		return 89
+	case PIOP.ShowingPresetCompactL3:
+		return 68
+	case PIOP.ShowingPresetCompactL2:
+		return 70
+	case PIOP.ShowingPresetCompactL1Research:
+		return 50
 	case PIOP.ShowingPresetTranscriptFirst, PIOP.ShowingPresetProductionBalance:
 		return 32
 	default:
@@ -554,7 +891,7 @@ func presetLVCSNColsForOptimization(preset string) int {
 	}
 }
 
-func TestShowingShortnessSweepKeepsProductionProfile(t *testing.T) {
+func TestShowingShortnessSweepFindsCompactOneDigitPreset(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
@@ -602,12 +939,12 @@ func TestShowingShortnessSweepKeepsProductionProfile(t *testing.T) {
 			false,
 			"",
 			8,
-			PIOP.ShowingPresetSoundnessBalanced,
+			cand.preset,
 			cand.profile,
 			cand.radix,
 			cand.digits,
 			16,
-			presetLVCSNColsForOptimization(PIOP.ShowingPresetSoundnessBalanced),
+			presetLVCSNColsForOptimization(cand.preset),
 		)
 		got := measured{
 			shortnessCandidate: cand,
@@ -642,8 +979,8 @@ func TestShowingShortnessSweepKeepsProductionProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve best shortness candidate %s: %v", best.label, err)
 	}
-	if bestRadix != 14 || bestDigits != 4 {
-		t.Fatalf("best shortness candidate=%s resolved to (R=%d,L=%d) want (14,4)", best.label, bestRadix, bestDigits)
+	if bestRadix != 12285 || bestDigits != 1 {
+		t.Fatalf("best shortness candidate=%s resolved to (R=%d,L=%d) want (12285,1)", best.label, bestRadix, bestDigits)
 	}
 }
 
@@ -661,7 +998,7 @@ func TestShowingNIZKRetuneSelectsTheta3Eta43Preset(t *testing.T) {
 			label: "old_soundness_balanced_theta5_eta63",
 			mutate: func(opts *PIOP.SimOpts) {
 				opts.ShowingPreset = PIOP.ShowingPresetCustom
-				opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols = 96, 96, 96
+				opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols = 89, 89, 89
 				opts.NLeaves, opts.PostSignNLeaves, opts.PRFNLeaves = 4096, 4096, 4096
 				opts.Theta, opts.Rho, opts.EllPrime, opts.Eta = 5, 2, 2, 63
 				opts.Kappa = [4]int{0, 0, 0, 5}
@@ -671,7 +1008,7 @@ func TestShowingNIZKRetuneSelectsTheta3Eta43Preset(t *testing.T) {
 			label: "rho1_theta5_eta43",
 			mutate: func(opts *PIOP.SimOpts) {
 				opts.ShowingPreset = PIOP.ShowingPresetCustom
-				opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols = 96, 96, 96
+				opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols = 89, 89, 89
 				opts.NLeaves, opts.PostSignNLeaves, opts.PRFNLeaves = 4096, 4096, 4096
 				opts.Theta, opts.Rho, opts.EllPrime, opts.Eta = 5, 1, 2, 43
 				opts.Kappa = [4]int{0, 5, 0, 5}
@@ -681,7 +1018,7 @@ func TestShowingNIZKRetuneSelectsTheta3Eta43Preset(t *testing.T) {
 			label: "theta4_eta43",
 			mutate: func(opts *PIOP.SimOpts) {
 				opts.ShowingPreset = PIOP.ShowingPresetCustom
-				opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols = 96, 96, 96
+				opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols = 89, 89, 89
 				opts.NLeaves, opts.PostSignNLeaves, opts.PRFNLeaves = 4096, 4096, 4096
 				opts.Theta, opts.Rho, opts.EllPrime, opts.Eta = 4, 2, 2, 43
 				opts.Kappa = [4]int{0, 0, 0, 5}
@@ -691,7 +1028,7 @@ func TestShowingNIZKRetuneSelectsTheta3Eta43Preset(t *testing.T) {
 			label: "theta3_eta43",
 			mutate: func(opts *PIOP.SimOpts) {
 				opts.ShowingPreset = PIOP.ShowingPresetCustom
-				opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols = 96, 96, 96
+				opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols = 89, 89, 89
 				opts.NLeaves, opts.PostSignNLeaves, opts.PRFNLeaves = 4096, 4096, 4096
 				opts.Theta, opts.Rho, opts.EllPrime, opts.Eta = 3, 2, 2, 43
 				opts.Kappa = [4]int{0, 0, 0, 5}
@@ -761,7 +1098,7 @@ func TestShowingNIZKRetuneSelectsTheta3Eta43Preset(t *testing.T) {
 		if got.soundness < 100 {
 			continue
 		}
-		if best == nil || got.score < best.score {
+		if best == nil || got.total < best.total {
 			copy := got
 			best = &copy
 		}
@@ -932,7 +1269,7 @@ func TestShowingPackedWidthAndLVCSRetuneSelectsShippedDefaults(t *testing.T) {
 	}
 	for _, winner := range best.perPresetBest {
 		wantLVCS := map[string]int{
-			PIOP.ShowingPresetSoundnessBalanced: 80,
+			PIOP.ShowingPresetSoundnessBalanced: 89,
 			PIOP.ShowingPresetTranscriptFirst:   32,
 			PIOP.ShowingPresetProductionBalance: 32,
 		}
