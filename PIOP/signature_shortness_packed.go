@@ -3,6 +3,8 @@ package PIOP
 import (
 	"fmt"
 
+	"vSIS-Signature/internal/fpoly"
+
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
@@ -56,6 +58,17 @@ func buildPackedDigitMembershipFormalCoeffs(
 	if ringQ == nil {
 		return nil, nil, fmt.Errorf("nil ring")
 	}
+	q := ringQ.Modulus[0]
+	toFormal := func(row *ring.Poly) (fpoly.Poly, error) {
+		if row == nil {
+			return fpoly.Zero(q), fmt.Errorf("nil packed shortness row")
+		}
+		coeff, err := coeffFromNTTPoly(ringQ, row)
+		if err != nil {
+			return fpoly.Zero(q), err
+		}
+		return fpoly.New(q, coeff), nil
+	}
 	outPolys := make([]*ring.Poly, 0, len(packedRows)*spec.L)
 	outCoeffs := make([][]uint64, 0, len(packedRows)*spec.L)
 	for g := range packedRows {
@@ -63,13 +76,14 @@ func buildPackedDigitMembershipFormalCoeffs(
 			return nil, nil, fmt.Errorf("packed shortness rows/group=%d want %d", len(packedRows[g]), spec.L)
 		}
 		for lane := 0; lane < spec.L; lane++ {
-			pi := composeFPolyWithRowNTT(ringQ, packedRows[g][lane], spec.PDi[lane])
-			coeff, err := coeffFromNTTPoly(ringQ, pi)
+			rowFormal, err := toFormal(packedRows[g][lane])
 			if err != nil {
 				return nil, nil, fmt.Errorf("packed digit membership coeffs: %w", err)
 			}
-			outCoeffs = append(outCoeffs, trimPoly(coeff, ringQ.Modulus[0]))
-			outPolys = append(outPolys, pi)
+			pi := fpoly.New(q, spec.PDi[lane]).Compose(rowFormal)
+			coeff := trimPoly(append([]uint64(nil), pi.Coeffs...), q)
+			outCoeffs = append(outCoeffs, coeff)
+			outPolys = append(outPolys, nttPolyFromFormalCoeffsIfFits(ringQ, coeff))
 		}
 	}
 	return outPolys, outCoeffs, nil

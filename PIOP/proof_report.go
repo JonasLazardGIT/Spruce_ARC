@@ -220,6 +220,14 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 	}
 	supportSlotCount := len(sig.SupportSlots)
 	openingBytes := sizeDECSOpening(sig.Opening)
+	if sig.Version == sigShortnessProofVersionV6 && sig.V6 != nil {
+		if sig.V6.THatOpening != nil {
+			supportSlotCount = len(expandPackedOpening(sig.V6.THatOpening).AllIndices())
+		} else {
+			supportSlotCount = 0
+		}
+		openingBytes = sizeDECSOpening(sig.V6.THatOpening)
+	}
 	if sig.Version == sigShortnessProofVersionV5 && sig.V5 != nil {
 		if sig.V5.THatOpening != nil {
 			supportSlotCount = len(expandPackedOpening(sig.V5.THatOpening).AllIndices())

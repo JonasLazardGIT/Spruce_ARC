@@ -25,6 +25,9 @@ type preparedCredentialBuild struct {
 	maskRowCount          int
 	witnessCount          int
 	witnessNCols          int
+	omega                []uint64
+	omegaWitness         []uint64
+	domainPoints         []uint64
 	skipConstraintRebuild bool
 }
 
@@ -104,6 +107,22 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 					return nil, fmt.Errorf("prepared witness omega len=%d < witness ncols=%d", len(omega), witnessNCols)
 				}
 				omegaWitness = append([]uint64(nil), omega[:witnessNCols]...)
+			}
+			if len(prepared.omega) > 0 {
+				omega = append([]uint64(nil), prepared.omega...)
+				ncols = len(omega)
+				if ncols < witnessNCols {
+					return nil, fmt.Errorf("prepared lvcs omega len=%d < witness ncols=%d", ncols, witnessNCols)
+				}
+			}
+			if len(prepared.domainPoints) > 0 {
+				domainPoints = append([]uint64(nil), prepared.domainPoints...)
+			}
+			if len(prepared.omegaWitness) > 0 {
+				if len(prepared.omegaWitness) != witnessNCols {
+					return nil, fmt.Errorf("prepared witness omega len=%d want %d", len(prepared.omegaWitness), witnessNCols)
+				}
+				omegaWitness = append([]uint64(nil), prepared.omegaWitness...)
 			}
 		} else {
 			useShowingRows := opts.CoeffPacking && wit.CoeffNativeShowing != nil
@@ -331,19 +350,20 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			if pcsNCols <= 0 {
 				pcsNCols = witnessNCols
 			}
-			sigShortness, sigShortnessBindingDigest, err = buildSigShortnessProofV5(
+			sigShortness, sigShortnessBindingDigest, err = buildSigShortnessProofV6(
 				ringQ,
 				pk,
 				root,
 				rowLayout,
 				wit.CoeffNativeShowing,
+				pub,
 				omegaWitness,
 				witnessNCols,
 				pcsNCols,
 				opts,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("build sig shortness V5: %w", err)
+				return nil, fmt.Errorf("build sig shortness V6: %w", err)
 			}
 		}
 
@@ -488,7 +508,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if sigShortness != nil {
 			proof.SigShortness = sigShortness
 			if serr := VerifySigShortnessProof(proof, ringQ, omegaWitness, pub, opts); serr != nil {
-				return nil, fmt.Errorf("build sig shortness V5 self-check: %w", serr)
+				return nil, fmt.Errorf("build sig shortness self-check: %w", serr)
 			}
 		}
 		return proof, nil

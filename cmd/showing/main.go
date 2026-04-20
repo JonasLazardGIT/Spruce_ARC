@@ -817,8 +817,9 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 	} else {
 		cli.printf(categoryWarning, prefix, "Linf chain shape resolution warning: sigErr=%v", sigErr)
 	}
-	cli.printf(categoryGeometry, prefix, "Table row: %.2f %.3f %.2f %d %d %d %d %d %d",
-		rep.ProofKB, proveDur.Seconds(), rep.Soundness.TotalBits,
+	paperTranscriptKB := float64(rep.PaperTranscript.OptimizedBytes) / 1024.0
+	cli.printf(categoryWarning, prefix, "Table row: %.2f %.3f %.2f %d %d %d %d %d %d",
+		paperTranscriptKB, proveDur.Seconds(), rep.Soundness.TotalBits,
 		rep.NCols, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta)
 }
 

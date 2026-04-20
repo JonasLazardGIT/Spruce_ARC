@@ -481,17 +481,17 @@ func TestShowingV3SoundnessBalancedPreset(t *testing.T) {
 	if proof.PCSGeometry.ShortnessTailRows != 0 {
 		t.Fatalf("shortness tail rows=%d want 0", proof.PCSGeometry.ShortnessTailRows)
 	}
-	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 5 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
+	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 6 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
 		t.Fatalf("unexpected sig shortness report: %+v", rep.SigShortness)
 	}
-	if rep.SigShortness.ProofBytes >= 6000 {
-		t.Fatalf("soundness-balanced sig shortness bytes=%d want < 6000", rep.SigShortness.ProofBytes)
+	if rep.SigShortness.ProofBytes >= 12000 {
+		t.Fatalf("soundness-balanced sig shortness bytes=%d want < 12000", rep.SigShortness.ProofBytes)
 	}
 	if rep.TranscriptFocus.LVCSNCols != 89 || rep.TranscriptFocus.WitnessRows != 22 || rep.TranscriptFocus.RowsBlock != 1 || rep.TranscriptFocus.MaskChunks != 4 {
 		t.Fatalf("unexpected soundness-balanced geometry: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
-	if rep.PaperTranscript.OptimizedBytes < 27000 || rep.PaperTranscript.OptimizedBytes > 29000 {
-		t.Fatalf("soundness-balanced total=%d want in [27000,29000]", rep.PaperTranscript.OptimizedBytes)
+	if rep.PaperTranscript.OptimizedBytes < 30500 || rep.PaperTranscript.OptimizedBytes > 32500 {
+		t.Fatalf("soundness-balanced total=%d want in [30500,32500]", rep.PaperTranscript.OptimizedBytes)
 	}
 	if rep.PaperTranscript.Pdecs.OptimizedBytes != 3506 {
 		t.Fatalf("soundness-balanced Pdecs=%d want 3506", rep.PaperTranscript.Pdecs.OptimizedBytes)
@@ -524,17 +524,17 @@ func TestShowingV3CompactL3Preset(t *testing.T) {
 	if rep.TranscriptFocus.SigShortnessRadix != 24 || rep.TranscriptFocus.SigShortnessDigits != 3 || rep.TranscriptFocus.SigShortnessDegree != 24 {
 		t.Fatalf("unexpected compact-l3 sig metrics: profile=%q radix=%d digits=%d degree=%d", rep.TranscriptFocus.SigShortnessProfile, rep.TranscriptFocus.SigShortnessRadix, rep.TranscriptFocus.SigShortnessDigits, rep.TranscriptFocus.SigShortnessDegree)
 	}
-	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 5 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
+	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 6 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
 		t.Fatalf("unexpected compact-l3 sig shortness report: %+v", rep.SigShortness)
 	}
-	if rep.SigShortness.ProofBytes >= 6000 {
-		t.Fatalf("compact-l3 sig shortness bytes=%d want < 6000", rep.SigShortness.ProofBytes)
+	if rep.SigShortness.ProofBytes >= 12000 {
+		t.Fatalf("compact-l3 sig shortness bytes=%d want < 12000", rep.SigShortness.ProofBytes)
 	}
 	if rep.TranscriptFocus.LVCSNCols != 68 || rep.TranscriptFocus.WitnessRows != 22 || rep.TranscriptFocus.RowsBlock != 1 || rep.TranscriptFocus.MaskChunks != 5 {
 		t.Fatalf("unexpected compact-l3 geometry: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
-	if rep.PaperTranscript.OptimizedBytes < 24000 || rep.PaperTranscript.OptimizedBytes > 25000 {
-		t.Fatalf("compact-l3 total=%d want in [24000,25000]", rep.PaperTranscript.OptimizedBytes)
+	if rep.PaperTranscript.OptimizedBytes < 27500 || rep.PaperTranscript.OptimizedBytes > 29000 {
+		t.Fatalf("compact-l3 total=%d want in [27500,29000]", rep.PaperTranscript.OptimizedBytes)
 	}
 	if rep.PaperTranscript.Pdecs.OptimizedBytes != 4073 {
 		t.Fatalf("compact-l3 Pdecs=%d want 4073", rep.PaperTranscript.Pdecs.OptimizedBytes)
@@ -570,17 +570,17 @@ func TestShowingV3CompactL2Preset(t *testing.T) {
 	if rep.TranscriptFocus.SigShortnessRadix != 111 || rep.TranscriptFocus.SigShortnessDigits != 2 || rep.TranscriptFocus.SigShortnessDegree != 111 {
 		t.Fatalf("unexpected compact-l2 sig metrics: profile=%q radix=%d digits=%d degree=%d", rep.TranscriptFocus.SigShortnessProfile, rep.TranscriptFocus.SigShortnessRadix, rep.TranscriptFocus.SigShortnessDigits, rep.TranscriptFocus.SigShortnessDegree)
 	}
-	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 5 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
+	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 6 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
 		t.Fatalf("unexpected compact-l2 sig shortness report: %+v", rep.SigShortness)
 	}
-	if rep.SigShortness.ProofBytes >= 6000 {
-		t.Fatalf("compact-l2 sig shortness bytes=%d want < 6000", rep.SigShortness.ProofBytes)
+	if rep.SigShortness.ProofBytes >= 12000 {
+		t.Fatalf("compact-l2 sig shortness bytes=%d want < 12000", rep.SigShortness.ProofBytes)
 	}
 	if rep.TranscriptFocus.LVCSNCols != 70 || rep.TranscriptFocus.WitnessRows != 22 || rep.TranscriptFocus.RowsBlock != 1 || rep.TranscriptFocus.MaskChunks != 5 {
 		t.Fatalf("unexpected compact-l2 geometry: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
-	if rep.PaperTranscript.OptimizedBytes < 24000 || rep.PaperTranscript.OptimizedBytes > 25500 {
-		t.Fatalf("compact-l2 total=%d want in [24000,25500]", rep.PaperTranscript.OptimizedBytes)
+	if rep.PaperTranscript.OptimizedBytes < 27800 || rep.PaperTranscript.OptimizedBytes > 29200 {
+		t.Fatalf("compact-l2 total=%d want in [27800,29200]", rep.PaperTranscript.OptimizedBytes)
 	}
 	if rep.PaperTranscript.Pdecs.OptimizedBytes != 4073 {
 		t.Fatalf("compact-l2 Pdecs=%d want 4073", rep.PaperTranscript.Pdecs.OptimizedBytes)
@@ -616,17 +616,17 @@ func TestShowingV3CompactL1ResearchPreset(t *testing.T) {
 	if rep.TranscriptFocus.SigShortnessRadix != 12285 || rep.TranscriptFocus.SigShortnessDigits != 1 || rep.TranscriptFocus.SigShortnessDegree != 12285 {
 		t.Fatalf("unexpected compact-l1 sig metrics: profile=%q radix=%d digits=%d degree=%d", rep.TranscriptFocus.SigShortnessProfile, rep.TranscriptFocus.SigShortnessRadix, rep.TranscriptFocus.SigShortnessDigits, rep.TranscriptFocus.SigShortnessDegree)
 	}
-	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 5 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
+	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 6 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
 		t.Fatalf("unexpected compact-l1 sig shortness report: %+v", rep.SigShortness)
 	}
-	if rep.SigShortness.ProofBytes >= 6000 {
-		t.Fatalf("compact-l1 sig shortness bytes=%d want < 6000", rep.SigShortness.ProofBytes)
+	if rep.SigShortness.ProofBytes >= 12000 {
+		t.Fatalf("compact-l1 sig shortness bytes=%d want < 12000", rep.SigShortness.ProofBytes)
 	}
 	if rep.TranscriptFocus.LVCSNCols != 50 || rep.TranscriptFocus.WitnessRows != 22 || rep.TranscriptFocus.RowsBlock != 1 || rep.TranscriptFocus.MaskChunks != 7 {
 		t.Fatalf("unexpected compact-l1 geometry: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
-	if rep.PaperTranscript.OptimizedBytes < 23000 || rep.PaperTranscript.OptimizedBytes > 24000 {
-		t.Fatalf("compact-l1 total=%d want in [23000,24000]", rep.PaperTranscript.OptimizedBytes)
+	if rep.PaperTranscript.OptimizedBytes < 26200 || rep.PaperTranscript.OptimizedBytes > 27200 {
+		t.Fatalf("compact-l1 total=%d want in [26200,27200]", rep.PaperTranscript.OptimizedBytes)
 	}
 	if rep.PaperTranscript.Pdecs.OptimizedBytes != 5207 {
 		t.Fatalf("compact-l1 Pdecs=%d want 5207", rep.PaperTranscript.Pdecs.OptimizedBytes)
@@ -1071,11 +1071,11 @@ func TestShowingV3ProductionShortnessWideLVCS128ResearchBaseline(t *testing.T) {
 	if proof.PCSGeometry.ShortnessTailRows != 0 {
 		t.Fatalf("shortness tail rows=%d want 0", proof.PCSGeometry.ShortnessTailRows)
 	}
-	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 5 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
+	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 6 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
 		t.Fatalf("unexpected wide lvcs128 sig shortness report: %+v", rep.SigShortness)
 	}
-	if rep.SigShortness.ProofBytes >= 7000 {
-		t.Fatalf("wide lvcs128 sig shortness bytes=%d want < 7000", rep.SigShortness.ProofBytes)
+	if rep.SigShortness.ProofBytes >= 12000 {
+		t.Fatalf("wide lvcs128 sig shortness bytes=%d want < 12000", rep.SigShortness.ProofBytes)
 	}
 	if rep.TranscriptFocus.LVCSNCols != 128 || rep.TranscriptFocus.WitnessRows != 22 || rep.TranscriptFocus.RowsBlock != 1 || rep.TranscriptFocus.MaskChunks != 3 {
 		t.Fatalf("unexpected lvcs128 geometry focus: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)

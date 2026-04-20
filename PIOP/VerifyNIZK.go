@@ -112,7 +112,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if len(proof.LabelsDigest) > 0 {
 		material0 = append(material0, proof.LabelsDigest)
 	}
-	if digest, derr := buildSigShortnessV5BindingDigest(proof.SigShortness, proof.RowLayout, sigShortnessV5WitnessNColsFromProof(proof)); derr != nil {
+	if digest, derr := buildSigShortnessBindingDigest(proof.SigShortness, proof.RowLayout, sigShortnessV5WitnessNColsFromProof(proof)); derr != nil {
 		return false, false, false, fmt.Errorf("VerifyNIZK: sig shortness binding digest: %w", derr)
 	} else if len(digest) > 0 {
 		material0 = append(material0, digest)

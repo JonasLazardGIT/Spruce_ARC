@@ -731,6 +731,7 @@ type SigShortnessProof struct {
 	SupportSlots []int
 	Opening      *decs.DECSOpening
 	V5           *SigShortnessProofV5
+	V6           *SigShortnessProofV6
 }
 
 type SigShortnessProofV5 struct {
@@ -738,6 +739,14 @@ type SigShortnessProofV5 struct {
 	Radix      int
 	Digits     int
 	ExactHeads SigShortnessPackedMatrix
+	THatOpening *decs.DECSOpening
+}
+
+type SigShortnessProofV6 struct {
+	Mode        uint8
+	Radix       int
+	Digits      int
+	HiddenProof *Proof
 	THatOpening *decs.DECSOpening
 }
 
@@ -2006,6 +2015,20 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 func sizeSigShortnessProof(sig *SigShortnessProof) int {
 	if sig == nil {
 		return 0
+	}
+	if sig.Version == sigShortnessProofVersionV6 && sig.V6 != nil {
+		size := 0
+		if sig.V6.Mode != 0 {
+			size++
+		}
+		size += varintSize(sig.V6.Radix)
+		size += varintSize(sig.V6.Digits)
+		if sig.V6.HiddenProof != nil {
+			_, hiddenTotal := proofSizeBreakdown(sig.V6.HiddenProof)
+			size += hiddenTotal
+		}
+		size += sizeDECSOpening(sig.V6.THatOpening)
+		return size
 	}
 	if sig.Version == sigShortnessProofVersionV5 && sig.V5 != nil {
 		size := 0

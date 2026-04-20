@@ -3,11 +3,13 @@ package PIOP
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"sort"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
+	kf "vSIS-Signature/internal/kfield"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -17,8 +19,18 @@ const (
 	sigShortnessProofVersionV3 = 3
 	sigShortnessProofVersionV4 = 4
 	sigShortnessProofVersionV5 = 5
+	sigShortnessProofVersionV6 = 6
 
 	sigShortnessV5ModeExactSigHeads uint8 = 1
+	sigShortnessV6ModeHiddenSmallWood uint8 = 1
+)
+
+const (
+	fsModeSigShortnessHidden         = "PACS-SigShortnessHidden"
+	sigShortnessTHatExtraKey         = "sig_short_t_hat"
+	sigShortnessMainRootExtraKey     = "sig_short_main_root"
+	sigShortnessSpecExtraKey         = "sig_short_spec"
+	sigShortnessHiddenPrimaryProfile = SigShortnessProfileR11L4Production
 )
 
 func buildSigShortnessWitnessPolyIndices(layout RowLayout) []int {
@@ -106,6 +118,21 @@ func sigShortnessV5WitnessNColsFromProof(proof *Proof) int {
 	return proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth
 }
 
+func computeSigShortnessHiddenProofDigest(proof *Proof) ([]byte, error) {
+	if proof == nil {
+		return nil, fmt.Errorf("nil hidden shortness proof")
+	}
+	proof.syncPCSCompat()
+	decs.PackOpening(resolveProofPCSOpening(proof))
+	decs.PackOpening(proof.QOpening)
+	payload, err := json.Marshal(proof)
+	if err != nil {
+		return nil, fmt.Errorf("marshal hidden shortness proof: %w", err)
+	}
+	sum := sha256.Sum256(payload)
+	return append([]byte(nil), sum[:]...), nil
+}
+
 func buildSigShortnessV5BindingDigest(sig *SigShortnessProof, layout RowLayout, witnessNCols int) ([]byte, error) {
 	if sig == nil || sig.Version != sigShortnessProofVersionV5 || sig.V5 == nil {
 		return nil, nil
@@ -135,6 +162,41 @@ func buildSigShortnessV5BindingDigest(sig *SigShortnessProof, layout RowLayout, 
 	buf = append(buf, sig.V5.ExactHeads.Bits...)
 	sum := sha256.Sum256(buf)
 	return append([]byte(nil), sum[:]...), nil
+}
+
+func buildSigShortnessV6BindingDigest(sig *SigShortnessProof) ([]byte, error) {
+	if sig == nil || sig.Version != sigShortnessProofVersionV6 || sig.V6 == nil {
+		return nil, nil
+	}
+	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil {
+		return nil, fmt.Errorf("sig shortness V6 must not populate legacy or V5 fields")
+	}
+	hiddenDigest, err := computeSigShortnessHiddenProofDigest(sig.V6.HiddenProof)
+	if err != nil {
+		return nil, err
+	}
+	buf := make([]byte, 0, len(hiddenDigest)+64)
+	buf = append(buf, []byte("spruce.sig_shortness.v6/hidden_smallwood_v1")...)
+	buf = appendSigShortnessUvarint(buf, int(sig.V6.Mode))
+	buf = appendSigShortnessUvarint(buf, sig.V6.Radix)
+	buf = appendSigShortnessUvarint(buf, sig.V6.Digits)
+	buf = append(buf, hiddenDigest...)
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...), nil
+}
+
+func buildSigShortnessBindingDigest(sig *SigShortnessProof, layout RowLayout, witnessNCols int) ([]byte, error) {
+	if sig == nil {
+		return nil, nil
+	}
+	switch sig.Version {
+	case sigShortnessProofVersionV5:
+		return buildSigShortnessV5BindingDigest(sig, layout, witnessNCols)
+	case sigShortnessProofVersionV6:
+		return buildSigShortnessV6BindingDigest(sig)
+	default:
+		return nil, nil
+	}
 }
 
 func packSigShortnessV5ExactHeads(sigHeads [][][]uint64) (SigShortnessPackedMatrix, error) {
@@ -229,6 +291,32 @@ func validateSigShortnessV5Shape(proof *Proof) error {
 	return nil
 }
 
+func validateSigShortnessV6Shape(proof *Proof) error {
+	if proof == nil || proof.SigShortness == nil {
+		return nil
+	}
+	sig := proof.SigShortness
+	if sig.Version != sigShortnessProofVersionV6 {
+		return nil
+	}
+	if sig.V6 == nil {
+		return fmt.Errorf("missing sig shortness V6 payload")
+	}
+	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil {
+		return fmt.Errorf("sig shortness V6 must not populate legacy or V5 fields")
+	}
+	if sig.V6.Mode != sigShortnessV6ModeHiddenSmallWood {
+		return fmt.Errorf("unsupported sig shortness V6 mode %d", sig.V6.Mode)
+	}
+	if sig.V6.HiddenProof == nil {
+		return fmt.Errorf("missing sig shortness V6 hidden proof")
+	}
+	if sig.V6.THatOpening == nil {
+		return fmt.Errorf("missing sig shortness V6 T-hat opening")
+	}
+	return nil
+}
+
 func validateSortedUniqueIndices(label string, values []int) error {
 	for i, v := range values {
 		if v < 0 {
@@ -294,7 +382,7 @@ func deriveMainPCSSubsetGamma(proof *Proof, rowCount int, q uint64) ([][]uint64,
 	if len(proof.LabelsDigest) > 0 {
 		material0 = append(material0, proof.LabelsDigest)
 	}
-	if digest, err := buildSigShortnessV5BindingDigest(proof.SigShortness, proof.RowLayout, sigShortnessV5WitnessNColsFromProof(proof)); err != nil {
+	if digest, err := buildSigShortnessBindingDigest(proof.SigShortness, proof.RowLayout, sigShortnessV5WitnessNColsFromProof(proof)); err != nil {
 		return nil, err
 	} else if len(digest) > 0 {
 		material0 = append(material0, digest)
@@ -786,6 +874,574 @@ func verifySigShortnessDigitOnlySupportValues(proof *Proof, view *sigShortnessSu
 	return sigLimbHeads, nil
 }
 
+func encodeSigShortnessTHatHeads(tHatHeads [][]uint64) []byte {
+	bits, _, _, _ := decs.PackUintMatrix(tHatHeads)
+	return append([]byte(nil), bits...)
+}
+
+func encodeSigShortnessSpec(mode uint8, radix, digits int) []byte {
+	buf := make([]byte, 0, 32)
+	buf = append(buf, byte(mode))
+	buf = appendSigShortnessUvarint(buf, radix)
+	buf = appendSigShortnessUvarint(buf, digits)
+	return buf
+}
+
+func extractSigShortnessTHatHeadsFromView(proof *Proof, view *sigShortnessSupportView) ([][]uint64, error) {
+	if proof == nil {
+		return nil, fmt.Errorf("nil proof")
+	}
+	if view == nil {
+		return nil, fmt.Errorf("nil support view")
+	}
+	replayTHatCount := rowLayoutReplayTHatCount(proof.RowLayout)
+	if replayTHatCount <= 0 {
+		return nil, fmt.Errorf("missing replay T-hat count")
+	}
+	out := make([][]uint64, replayTHatCount)
+	for block := 0; block < replayTHatCount; block++ {
+		rowIdx := rowLayoutPostSignTHatIndex(proof.RowLayout, block)
+		if rowIdx < 0 {
+			return nil, fmt.Errorf("invalid replay T-hat row for block %d", block)
+		}
+		head := make([]uint64, view.witnessNCols)
+		for col := 0; col < view.witnessNCols; col++ {
+			val, err := view.witnessValue(rowIdx, col)
+			if err != nil {
+				return nil, fmt.Errorf("extract T-hat[%d,%d]: %w", block, col, err)
+			}
+			head[col] = val % view.q
+		}
+		out[block] = head
+	}
+	return out, nil
+}
+
+func buildSigShortnessHiddenPublicInputs(mainPub PublicInputs, mainRoot [16]byte, tHatHeads [][]uint64, mode uint8, radix, digits int) PublicInputs {
+	extras := map[string]interface{}{
+		sigShortnessTHatExtraKey:     encodeSigShortnessTHatHeads(tHatHeads),
+		sigShortnessMainRootExtraKey: append([]byte(nil), mainRoot[:]...),
+		sigShortnessSpecExtraKey:     encodeSigShortnessSpec(mode, radix, digits),
+	}
+	return PublicInputs{
+		A:            mainPub.A,
+		HashRelation: mainPub.HashRelation,
+		Extras:       extras,
+	}
+}
+
+func buildSigShortnessHiddenOpts(baseOpts SimOpts, profile string, witnessNCols, logicalWitnessPolys int) SimOpts {
+	hiddenLVCSNCols := logicalWitnessPolys
+	if hiddenLVCSNCols <= 0 {
+		hiddenLVCSNCols = witnessNCols
+	}
+	if hiddenLVCSNCols < witnessNCols {
+		hiddenLVCSNCols = witnessNCols
+	}
+	if hiddenLVCSNCols > 256 {
+		hiddenLVCSNCols = 256
+	}
+	hiddenTheta := 2
+	minLeaves := hiddenLVCSNCols + 2
+	hiddenLeaves := 1
+	for hiddenLeaves < minLeaves {
+		hiddenLeaves <<= 1
+	}
+	if hiddenLeaves < 512 {
+		hiddenLeaves = 512
+	}
+	opts := SimOpts{
+		Credential:          true,
+		DomainMode:          DomainModeExplicit,
+		CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
+		SigShortnessProfile: profile,
+		ShowingPreset:       ShowingPresetCustom,
+		NCols:               witnessNCols,
+		PCSNCols:            hiddenLVCSNCols,
+		LVCSNCols:           hiddenLVCSNCols,
+		Theta:               hiddenTheta,
+		Rho:                 1,
+		Ell:                 2,
+		EllPrime:            1,
+		Eta:                 8,
+		NLeaves:             hiddenLeaves,
+		Kappa:               baseOpts.Kappa,
+	}
+	opts.applyDefaults()
+	return opts
+}
+
+func buildSigShortnessHiddenLayout(mainLayout RowLayout, spec LinfSpec, witnessNCols int) RowLayout {
+	cfgMain := mainLayout.CoeffNativeSig
+	logicalWitnessPolys := cfgMain.PackedSigBlocks * cfgMain.PackedSigComponents * spec.L
+	return RowLayout{
+		SigCount:       logicalWitnessPolys,
+		HasExplicitBaseIdx: true,
+		IdxM1:          -1,
+		IdxM2:          -1,
+		IdxRU0:         -1,
+		IdxRU1:         -1,
+		IdxR:           -1,
+		IdxR0:          -1,
+		IdxR1:          -1,
+		IdxK0:          -1,
+		IdxK1:          -1,
+		IdxMSigmaR1:    -1,
+		IdxR0R1:        -1,
+		IdxCarrierM:    -1,
+		IdxCarrierCtr:  -1,
+		IdxCarrierK:    -1,
+		IdxCarrierPreRU: -1,
+		IdxCarrierPreR: -1,
+		IdxTSource:     -1,
+		IdxSigHatBase:  -1,
+		SigHatExtraBase: -1,
+		IdxTHatBase:    -1,
+		ReplayTHatCount: 0,
+		ReplayBlockCount: 0,
+		IdxMHatSigma:   -1,
+		IdxMHat1:       -1,
+		IdxMHat2:       -1,
+		IdxRHat0:       -1,
+		IdxRHat1:       -1,
+		IdxMSigmaR1Hat: -1,
+		IdxR0R1Hat:     -1,
+		ChainBase:      -1,
+		ChainRowsPerSig: 0,
+		PackedSigChainBase:         0,
+		PackedSigChainGroupCount:   cfgMain.PackedSigBlocks * cfgMain.PackedSigComponents,
+		PackedSigChainGroupSize:    1,
+		PackedSigChainRowsPerGroup: spec.L,
+		SigSignedChain:             false,
+		MsgChainBase:               -1,
+		RndChainBase:               -1,
+		X1ChainBase:                -1,
+		MsgRangeBase:               -1,
+		RndRangeBase:               -1,
+		X1RangeBase:                -1,
+		SigBlocks:                  cfgMain.PackedSigBlocks,
+		CoeffNativeSig: CoeffNativeSigLayout{
+			Enabled:             true,
+			Model:               CoeffNativeSigModelLiteralPackedAggregatedV3,
+			SigBase:             -1,
+			SigCount:            0,
+			SigBlocks:           cfgMain.PackedSigBlocks,
+			SigUCount:           0,
+			SigComponentCount:   cfgMain.PackedSigComponents,
+			SigCoeffCount:       cfgMain.SigCoeffCount,
+			OutputBlocks:        rowLayoutReplayTHatCount(mainLayout),
+			OutputBlockWidth:    witnessNCols,
+			W1SigBase:           0,
+			W1SigCount:          logicalWitnessPolys,
+			PackedSigBase:       -1,
+			PackedSigCount:      0,
+			PackedSigBlocks:     cfgMain.PackedSigBlocks,
+			PackedSigComponents: cfgMain.PackedSigComponents,
+			PackedSigBlockWidth: witnessNCols,
+			ScalarBundleBase:    -1,
+			ScalarBundleCount:   0,
+		},
+	}
+}
+
+func flattenSigShortnessHiddenWitnessRows(layout RowLayout, packedWitness *literalPackedPolyWitness, spec LinfSpec) ([]*ring.Poly, error) {
+	if packedWitness == nil {
+		return nil, fmt.Errorf("nil packed shortness witness")
+	}
+	cfg := layout.CoeffNativeSig
+	rows := make([]*ring.Poly, 0, cfg.PackedSigBlocks*cfg.PackedSigComponents*spec.L)
+	for block := 0; block < cfg.PackedSigBlocks; block++ {
+		for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+			if comp >= len(packedWitness.SigLimbs) || block >= len(packedWitness.SigLimbs[comp]) {
+				return nil, fmt.Errorf("missing hidden sig limbs for comp=%d block=%d", comp, block)
+			}
+			for lane := 0; lane < spec.L; lane++ {
+				if lane >= len(packedWitness.SigLimbs[comp][block]) || packedWitness.SigLimbs[comp][block][lane] == nil {
+					return nil, fmt.Errorf("missing hidden digit row for comp=%d block=%d lane=%d", comp, block, lane)
+				}
+				rows = append(rows, packedWitness.SigLimbs[comp][block][lane])
+			}
+		}
+	}
+	return rows, nil
+}
+
+func buildSigShortnessHiddenTHatPublicPolys(ringQ *ring.Ring, omegaWitness []uint64, tHatHeads [][]uint64) ([]*ring.Poly, [][]uint64, error) {
+	if ringQ == nil {
+		return nil, nil, fmt.Errorf("nil ring")
+	}
+	outPolys := make([]*ring.Poly, len(tHatHeads))
+	outCoeffs := make([][]uint64, len(tHatHeads))
+	q := ringQ.Modulus[0]
+	for block := range tHatHeads {
+		p := BuildThetaPrime(ringQ, tHatHeads[block], omegaWitness)
+		coeff, err := coeffFromNTTPoly(ringQ, p)
+		if err != nil {
+			return nil, nil, fmt.Errorf("T-hat public coeffs block %d: %w", block, err)
+		}
+		outPolys[block] = p
+		outCoeffs[block] = trimPoly(coeff, q)
+	}
+	return outPolys, outCoeffs, nil
+}
+
+func buildSigShortnessHiddenTHatBridgeFormalCoeffs(
+	ringQ *ring.Ring,
+	layout RowLayout,
+	pub PublicInputs,
+	omegaWitness []uint64,
+	rowsNTT []*ring.Poly,
+	tHatHeads [][]uint64,
+	spec LinfSpec,
+) ([]*ring.Poly, [][]uint64, error) {
+	if ringQ == nil {
+		return nil, nil, fmt.Errorf("nil ring")
+	}
+	if len(pub.A) != 1 || len(pub.A[0]) == 0 {
+		return nil, nil, fmt.Errorf("hidden sig shortness expects one public A row")
+	}
+	cfg := layout.CoeffNativeSig
+	replayTHatCount := len(tHatHeads)
+	sourceBlocks := cfg.PackedSigBlocks
+	if sourceBlocks <= 0 {
+		return nil, nil, fmt.Errorf("invalid hidden source blocks=%d", sourceBlocks)
+	}
+	ncols := len(omegaWitness)
+	if ncols <= 0 {
+		return nil, nil, fmt.Errorf("empty witness omega")
+	}
+	bridgeBasis, err := newTransformBridgeBasisCache(ringQ, omegaWitness, replayTHatCount*ncols, sourceBlocks)
+	if err != nil {
+		return nil, nil, fmt.Errorf("hidden transform bridge basis: %w", err)
+	}
+	tHatPolys, tHatCoeffs, err := buildSigShortnessHiddenTHatPublicPolys(ringQ, omegaWitness, tHatHeads)
+	if err != nil {
+		return nil, nil, err
+	}
+	_ = tHatPolys
+	digitCoeffs := make(map[[3]int][]uint64, cfg.PackedSigBlocks*cfg.PackedSigComponents*spec.L)
+	q := ringQ.Modulus[0]
+	for block := 0; block < cfg.PackedSigBlocks; block++ {
+		for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+			for lane := 0; lane < spec.L; lane++ {
+				rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
+				if rowIdx < 0 || rowIdx >= len(rowsNTT) {
+					return nil, nil, fmt.Errorf("hidden digit row idx out of range for comp=%d block=%d lane=%d", comp, block, lane)
+				}
+				coeff, err := coeffFromNTTPoly(ringQ, rowsNTT[rowIdx])
+				if err != nil {
+					return nil, nil, fmt.Errorf("hidden digit coeffs comp=%d block=%d lane=%d: %w", comp, block, lane, err)
+				}
+				digitCoeffs[[3]int{comp, block, lane}] = trimPoly(coeff, q)
+			}
+		}
+	}
+	outPolys := make([]*ring.Poly, 0, replayTHatCount*ncols)
+	outCoeffs := make([][]uint64, 0, replayTHatCount*ncols)
+	for bOut := 0; bOut < replayTHatCount; bOut++ {
+		for j := 0; j < ncols; j++ {
+			t := bOut*ncols + j
+			leftCoeff := []uint64{0}
+			for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+				aHead, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omegaWitness, bOut, sourceBlocks)
+				if err != nil {
+					return nil, nil, fmt.Errorf("hidden theta A comp=%d block=%d: %w", comp, bOut, err)
+				}
+				aScale := aHead[j] % q
+				if aScale == 0 {
+					continue
+				}
+				for block := 0; block < cfg.PackedSigBlocks; block++ {
+					blockScale := bridgeBasis.BlockFactors[t][block] % q
+					if blockScale == 0 {
+						continue
+					}
+					for lane := 0; lane < spec.L; lane++ {
+						scale := modMul(aScale, modMul(spec.RPows[lane]%q, blockScale, q), q)
+						term := polyMul(bridgeBasis.TransformH[t], digitCoeffs[[3]int{comp, block, lane}], q)
+						if scale != 1 {
+							term = scalePoly(term, scale, q)
+						}
+						leftCoeff = polyAdd(leftCoeff, term, q)
+					}
+				}
+			}
+			rightCoeff := polyMul(bridgeBasis.LagrangeBasis[j], tHatCoeffs[bOut], q)
+			bridgeCoeff := trimPoly(polySub(leftCoeff, rightCoeff, q), q)
+			outCoeffs = append(outCoeffs, bridgeCoeff)
+			outPolys = append(outPolys, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
+		}
+	}
+	return outPolys, outCoeffs, nil
+}
+
+func buildSigShortnessHiddenConstraintSet(
+	ringQ *ring.Ring,
+	layout RowLayout,
+	pub PublicInputs,
+	omegaWitness []uint64,
+	rowsNTT []*ring.Poly,
+	tHatHeads [][]uint64,
+	spec LinfSpec,
+) (ConstraintSet, error) {
+	shortSet, err := buildLiteralPackedSignatureShortnessConstraintSet(ringQ, layout, rowsNTT, SimOpts{
+		CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
+		SigShortnessRadix:   int(spec.R),
+		SigShortnessL:       spec.L,
+	})
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	faggNorm, faggNormCoeffs, err := buildSigShortnessHiddenTHatBridgeFormalCoeffs(ringQ, layout, pub, omegaWitness, rowsNTT, tHatHeads, spec)
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	shortSet.FaggNorm = append([]*ring.Poly{}, faggNorm...)
+	shortSet.FaggNormCoeffs = append([][]uint64{}, faggNormCoeffs...)
+	shortSet.AggregatedAlgDeg = 1
+	return shortSet, nil
+}
+
+func buildSigShortnessHiddenReplay(
+	ringQ *ring.Ring,
+	proof *Proof,
+	pub PublicInputs,
+	omegaWitness []uint64,
+	tHatHeads [][]uint64,
+	spec LinfSpec,
+) (*ConstraintReplay, error) {
+	if proof == nil {
+		return nil, fmt.Errorf("nil hidden proof")
+	}
+	layout := proof.RowLayout
+	cfg := layout.CoeffNativeSig
+	logicalRows := proof.PCSGeometry.LogicalWitnessPolys
+	if logicalRows <= 0 {
+		logicalRows = layout.SigCount
+	}
+	if logicalRows <= 0 {
+		return nil, fmt.Errorf("missing hidden logical witness row count")
+	}
+	ncols := proof.NColsUsed
+	if ncols <= 0 {
+		ncols = cfg.PackedSigBlockWidth
+	}
+	if ncols <= 0 {
+		return nil, fmt.Errorf("missing hidden witness ncols")
+	}
+	if len(omegaWitness) < ncols {
+		return nil, fmt.Errorf("omega witness len=%d < hidden witness ncols=%d", len(omegaWitness), ncols)
+	}
+	pcsNCols := resolveProofPCSNCols(proof, 0)
+	if pcsNCols <= 0 {
+		pcsNCols = ncols
+	}
+	domainPoints, err := deriveProofExplicitDomainPoints(proof, ringQ.Modulus[0], ncols, pcsNCols)
+	if err != nil {
+		return nil, fmt.Errorf("hidden explicit domain points: %w", err)
+	}
+	sourceBlocks := cfg.PackedSigBlocks
+	replayTHatCount := len(tHatHeads)
+	bridgeBasis, err := newTransformBridgeBasisCache(ringQ, omegaWitness[:ncols], replayTHatCount*ncols, sourceBlocks)
+	if err != nil {
+		return nil, err
+	}
+	tHatPolys, tHatCoeffs, err := buildSigShortnessHiddenTHatPublicPolys(ringQ, omegaWitness[:ncols], tHatHeads)
+	if err != nil {
+		return nil, err
+	}
+	_ = tHatPolys
+	aHeads := make([][][]uint64, replayTHatCount)
+	for bOut := 0; bOut < replayTHatCount; bOut++ {
+		aHeads[bOut] = make([][]uint64, cfg.PackedSigComponents)
+		for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+			head, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omegaWitness[:ncols], bOut, sourceBlocks)
+			if err != nil {
+				return nil, err
+			}
+			aHeads[bOut][comp] = head
+		}
+	}
+	eval := func(evalIdx uint64, rows []uint64) ([]uint64, []uint64, error) {
+		if len(rows) < logicalRows {
+			return nil, nil, fmt.Errorf("hidden row value count=%d want >=%d", len(rows), logicalRows)
+		}
+		q := ringQ.Modulus[0]
+		fpar := make([]uint64, 0, cfg.PackedSigBlocks*cfg.PackedSigComponents*spec.L)
+		for block := 0; block < cfg.PackedSigBlocks; block++ {
+			for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+				for lane := 0; lane < spec.L; lane++ {
+					rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
+					fpar = append(fpar, EvalPoly(spec.PDi[lane], rows[rowIdx]%q, q)%q)
+				}
+			}
+		}
+		if int(evalIdx) >= len(domainPoints) {
+			return nil, nil, fmt.Errorf("hidden eval idx %d out of range (|E|=%d)", evalIdx, len(domainPoints))
+		}
+		x := domainPoints[int(evalIdx)] % q
+		fagg := make([]uint64, 0, replayTHatCount*ncols)
+		for bOut := 0; bOut < replayTHatCount; bOut++ {
+			for j := 0; j < ncols; j++ {
+				t := bOut*ncols + j
+				hVal := EvalPoly(bridgeBasis.TransformH[t], x, q) % q
+				lhs := uint64(0)
+				for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+					aScale := aHeads[bOut][comp][j] % q
+					if aScale == 0 {
+						continue
+					}
+					for block := 0; block < cfg.PackedSigBlocks; block++ {
+						blockScale := bridgeBasis.BlockFactors[t][block] % q
+						for lane := 0; lane < spec.L; lane++ {
+							rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
+							scale := modMul(aScale, modMul(spec.RPows[lane]%q, blockScale, q), q)
+							term := modMul(scale, modMul(hVal, rows[rowIdx]%q, q), q)
+							lhs = modAdd(lhs, term, q)
+						}
+					}
+				}
+				rhs := modMul(EvalPoly(bridgeBasis.LagrangeBasis[j], x, q)%q, EvalPoly(tHatCoeffs[bOut], x, q)%q, q)
+				fagg = append(fagg, modSub(lhs, rhs, q))
+			}
+		}
+		return fpar, fagg, nil
+	}
+	var evalK KConstraintEvaluator
+	if proof.Theta > 1 {
+		K, err := kf.New(ringQ.Modulus[0], proof.Theta, proof.Chi)
+		if err != nil {
+			return nil, err
+		}
+		evalK = func(e kf.Elem, rows []kf.Elem) ([]kf.Elem, []kf.Elem, error) {
+			if len(rows) < logicalRows {
+				return nil, nil, fmt.Errorf("hidden K row count=%d want >=%d", len(rows), logicalRows)
+			}
+			fpar := make([]kf.Elem, 0, cfg.PackedSigBlocks*cfg.PackedSigComponents*spec.L)
+			for block := 0; block < cfg.PackedSigBlocks; block++ {
+				for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+					for lane := 0; lane < spec.L; lane++ {
+						rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
+						fpar = append(fpar, K.EvalFPolyAtK(spec.PDi[lane], rows[rowIdx]))
+					}
+				}
+			}
+			fagg := make([]kf.Elem, 0, replayTHatCount*ncols)
+			for bOut := 0; bOut < replayTHatCount; bOut++ {
+				for j := 0; j < ncols; j++ {
+					t := bOut*ncols + j
+					hVal := K.EvalFPolyAtK(bridgeBasis.TransformH[t], e)
+					lhs := K.Zero()
+					for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+						aScale := K.EmbedF(aHeads[bOut][comp][j] % K.Q)
+						if K.IsZero(aScale) {
+							continue
+						}
+						for block := 0; block < cfg.PackedSigBlocks; block++ {
+							blockScale := K.EmbedF(bridgeBasis.BlockFactors[t][block] % K.Q)
+							for lane := 0; lane < spec.L; lane++ {
+								rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
+								scale := K.Mul(aScale, K.Mul(K.EmbedF(spec.RPows[lane]%K.Q), blockScale))
+								term := K.Mul(scale, K.Mul(hVal, rows[rowIdx]))
+								lhs = K.Add(lhs, term)
+							}
+						}
+					}
+					rhs := K.Mul(K.EvalFPolyAtK(bridgeBasis.LagrangeBasis[j], e), K.EvalFPolyAtK(tHatCoeffs[bOut], e))
+					fagg = append(fagg, K.Sub(lhs, rhs))
+				}
+			}
+			return fpar, fagg, nil
+		}
+	}
+	return &ConstraintReplay{
+		Eval:       eval,
+		EvalK:      evalK,
+		RowCount:   logicalRows,
+		FparCoeffs: nil,
+		FaggCoeffs: nil,
+	}, nil
+}
+
+func verifySigShortnessHiddenProof(
+	proof *Proof,
+	pub PublicInputs,
+	replay *ConstraintReplay,
+) error {
+	if proof == nil {
+		return fmt.Errorf("nil hidden sig shortness proof")
+	}
+	if replay == nil {
+		return fmt.Errorf("nil hidden sig shortness replay")
+	}
+	labelsDigest := computeLabelsDigest(BuildPublicLabels(pub))
+	if !equalByteSlices(labelsDigest, proof.LabelsDigest) {
+		return fmt.Errorf("hidden sig shortness labels digest mismatch")
+	}
+	okLin, okEq4, okSum, err := VerifyNIZKWithReplay(proof, replay)
+	if err != nil {
+		return err
+	}
+	if !(okLin && okEq4 && okSum) {
+		return fmt.Errorf("hidden sig shortness proof rejected (lin=%v eq4=%v sum=%v)", okLin, okEq4, okSum)
+	}
+	return nil
+}
+
+func stripHiddenSigShortnessProofDebug(proof *Proof) {
+	if proof == nil {
+		return
+	}
+	proof.QCoeffDebug = nil
+	proof.MaskCoeffDebug = nil
+	proof.FparCoeffDebug = nil
+	proof.FaggCoeffDebug = nil
+}
+
+func chooseSigShortnessHiddenProfile(
+	ringQ *ring.Ring,
+	cn *CoeffNativeShowingWitness,
+	omegaWitness []uint64,
+	witnessNCols int,
+	mainOpts SimOpts,
+) (*literalPackedPolyWitness, SimOpts, LinfSpec, error) {
+	if ringQ == nil {
+		return nil, SimOpts{}, LinfSpec{}, fmt.Errorf("nil ring")
+	}
+	candidates := []string{
+		sigShortnessHiddenPrimaryProfile,
+		SigShortnessProfileR24L3Compact,
+		SigShortnessProfileR11L4Production,
+		ResolveSignatureShortnessProfileLabelForOpts(mainOpts),
+		SigShortnessProfileR12285L1Research,
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	for _, profile := range candidates {
+		if profile == "" {
+			continue
+		}
+		if _, ok := seen[profile]; ok {
+			continue
+		}
+		seen[profile] = struct{}{}
+		specOpts := SimOpts{CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3, SigShortnessProfile: profile}
+		spec, err := signatureChainSpecForOpts(ringQ.Modulus[0], specOpts)
+		if err != nil {
+			continue
+		}
+		logicalWitnessPolys := 0
+		if cn != nil {
+			logicalWitnessPolys = len(cn.Sig) * (int(ringQ.N)/witnessNCols) * spec.L
+		}
+		hiddenOpts := buildSigShortnessHiddenOpts(mainOpts, profile, witnessNCols, logicalWitnessPolys)
+		packedWitness, err := buildLiteralPackedPolyWitness(ringQ, cn, omegaWitness, witnessNCols, CoeffNativeSigModelLiteralPackedAggregatedV3, hiddenOpts)
+		if err == nil {
+			return packedWitness, hiddenOpts, spec, nil
+		}
+	}
+	return nil, SimOpts{}, LinfSpec{}, fmt.Errorf("no hidden shortness profile fit the current signature witness")
+}
+
 func buildSigShortnessProofBase(
 	ringQ *ring.Ring,
 	pk *lvcs.ProverKey,
@@ -1000,21 +1656,188 @@ func buildSigShortnessProofV5(
 	return sig, digest, nil
 }
 
+func buildSigShortnessProofV6(
+	ringQ *ring.Ring,
+	pk *lvcs.ProverKey,
+	root [16]byte,
+	layout RowLayout,
+	cn *CoeffNativeShowingWitness,
+	pub PublicInputs,
+	omegaWitness []uint64,
+	witnessNCols int,
+	pcsNCols int,
+	opts SimOpts,
+) (*SigShortnessProof, []byte, error) {
+	if ringQ == nil {
+		return nil, nil, fmt.Errorf("nil ring")
+	}
+	if pk == nil {
+		return nil, nil, fmt.Errorf("nil prover key")
+	}
+	if cn == nil {
+		return nil, nil, fmt.Errorf("nil coeff-native showing witness")
+	}
+	if !rowLayoutCoeffNativeUsesLiteralPackedV3(layout) {
+		return nil, nil, fmt.Errorf("sig shortness V6 requires literal packed v3 layout")
+	}
+	if witnessNCols <= 0 || len(omegaWitness) != witnessNCols {
+		return nil, nil, fmt.Errorf("invalid witness omega for sig shortness V6")
+	}
+	if pcsNCols <= 0 {
+		return nil, nil, fmt.Errorf("invalid pcs ncols=%d", pcsNCols)
+	}
+	_, hiddenOpts, spec, err := chooseSigShortnessHiddenProfile(ringQ, cn, omegaWitness, witnessNCols, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	hiddenLVCSNCols := resolvePCSNCols(hiddenOpts, witnessNCols)
+	if hiddenLVCSNCols <= 0 {
+		hiddenLVCSNCols = witnessNCols
+	}
+	hiddenOmega, hiddenDomainPoints, err := deriveExplicitDomainForRelation(
+		ringQ.Modulus[0],
+		hiddenOpts.NLeaves,
+		witnessNCols,
+		hiddenLVCSNCols,
+		hiddenOpts.Ell,
+		pub.HashRelation,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("hidden shortness explicit domain: %w", err)
+	}
+	hiddenOmegaWitness, err := deriveRelationWitnessOmega(
+		ringQ.Modulus[0],
+		hiddenOpts.NLeaves,
+		witnessNCols,
+		hiddenLVCSNCols,
+		hiddenOpts.Ell,
+		pub.HashRelation,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("hidden shortness witness omega: %w", err)
+	}
+	packedWitness, err := buildLiteralPackedPolyWitness(
+		ringQ,
+		cn,
+		hiddenOmegaWitness,
+		witnessNCols,
+		CoeffNativeSigModelLiteralPackedAggregatedV3,
+		hiddenOpts,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("hidden literal packed witness: %w", err)
+	}
+	packedSigHeads := reconstructPackedSigHeadsFromLimbHeads(packedWitness.SigLimbHeads, spec, ringQ.Modulus[0])
+	sigHatHeads, err := buildSigHatHeadsFromPackedSigHeads(ringQ, packedSigHeads, witnessNCols)
+	if err != nil {
+		return nil, nil, fmt.Errorf("hidden sig hat heads: %w", err)
+	}
+	tHatHeads, err := buildTHatHeadsFromSigHatHeads(
+		ringQ,
+		pub,
+		hiddenOmegaWitness,
+		sigHatHeads,
+		rowLayoutReplayTHatCount(layout),
+		layout.CoeffNativeSig.PackedSigBlocks,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("hidden T-hat heads: %w", err)
+	}
+	hiddenLayout := buildSigShortnessHiddenLayout(layout, spec, witnessNCols)
+	hiddenRowsNTT, err := flattenSigShortnessHiddenWitnessRows(hiddenLayout, packedWitness, spec)
+	if err != nil {
+		return nil, nil, err
+	}
+	hiddenRows := make([]*ring.Poly, len(hiddenRowsNTT))
+	for i := range hiddenRowsNTT {
+		coeff := ringQ.NewPoly()
+		ringQ.InvNTT(hiddenRowsNTT[i], coeff)
+		hiddenRows[i] = coeff
+	}
+	hiddenSet, err := buildSigShortnessHiddenConstraintSet(ringQ, hiddenLayout, pub, hiddenOmegaWitness, hiddenRowsNTT, tHatHeads, spec)
+	if err != nil {
+		return nil, nil, fmt.Errorf("hidden sig shortness constraint set: %w", err)
+	}
+	hiddenRowInputs, err := buildRowInputsExplicit(ringQ, hiddenRows, hiddenOmega, hiddenLVCSNCols)
+	if err != nil {
+		return nil, nil, fmt.Errorf("hidden row inputs: %w", err)
+	}
+	hiddenWitnessCount := len(hiddenRows)
+	if hiddenOpts.Theta <= 1 {
+		for i := 0; i < hiddenOpts.Rho; i++ {
+			hiddenRows = append(hiddenRows, ringQ.NewPoly())
+			hiddenRowInputs = append(hiddenRowInputs, lvcs.RowInput{Head: make([]uint64, hiddenLVCSNCols)})
+		}
+	}
+	hiddenPub := buildSigShortnessHiddenPublicInputs(pub, root, tHatHeads, sigShortnessV6ModeHiddenSmallWood, int(spec.R), spec.L)
+	hiddenPrepared := &preparedCredentialBuild{
+		rows:                  hiddenRows,
+		rowInputs:             hiddenRowInputs,
+		rowLayout:             hiddenLayout,
+		witnessCount:          hiddenWitnessCount,
+		witnessNCols:          witnessNCols,
+		omega:                 hiddenOmega,
+		omegaWitness:          append([]uint64(nil), hiddenOmegaWitness...),
+		domainPoints:          hiddenDomainPoints,
+		skipConstraintRebuild: true,
+	}
+	hiddenProof, err := buildWithConstraintsPrepared(hiddenPub, WitnessInputs{}, hiddenSet, hiddenOpts, fsModeSigShortnessHidden, hiddenPrepared)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build hidden sig shortness proof: %w", err)
+	}
+	stripHiddenSigShortnessProofDebug(hiddenProof)
+	hiddenReplay, err := buildSigShortnessHiddenReplay(ringQ, hiddenProof, pub, hiddenOmegaWitness, tHatHeads, spec)
+	if err != nil {
+		return nil, nil, fmt.Errorf("hidden sig shortness replay: %w", err)
+	}
+	if err := verifySigShortnessHiddenProof(hiddenProof, hiddenPub, hiddenReplay); err != nil {
+		return nil, nil, fmt.Errorf("hidden sig shortness self-check: %w", err)
+	}
+	_, tHatOpening, err := buildSigShortnessV5THatOpening(pk, root, layout, pcsNCols)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build sig shortness V6 T-hat opening: %w", err)
+	}
+	sig := &SigShortnessProof{
+		Version: sigShortnessProofVersionV6,
+		V6: &SigShortnessProofV6{
+			Mode:        sigShortnessV6ModeHiddenSmallWood,
+			Radix:       int(spec.R),
+			Digits:      spec.L,
+			HiddenProof: hiddenProof,
+			THatOpening: tHatOpening,
+		},
+	}
+	digest, err := buildSigShortnessV6BindingDigest(sig)
+	if err != nil {
+		return nil, nil, err
+	}
+	return sig, digest, nil
+}
+
 func prepareSigShortnessV5THatView(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64) (*sigShortnessSupportView, error) {
 	if proof == nil || proof.SigShortness == nil {
 		return nil, nil
 	}
-	if err := validateSigShortnessV5Shape(proof); err != nil {
-		return nil, err
-	}
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
+	switch proof.SigShortness.Version {
+	case sigShortnessProofVersionV5:
+		if err := validateSigShortnessV5Shape(proof); err != nil {
+			return nil, err
+		}
+	case sigShortnessProofVersionV6:
+		if err := validateSigShortnessV6Shape(proof); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unsupported sig shortness T-hat view version %d", proof.SigShortness.Version)
+	}
 	if !rowLayoutCoeffNativeUsesLiteralPackedV3(proof.RowLayout) {
-		return nil, fmt.Errorf("sig shortness V5 requires literal packed v3 layout")
+		return nil, fmt.Errorf("sig shortness T-hat view requires literal packed v3 layout")
 	}
 	if proof.Theta <= 1 || proof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV1 {
-		return nil, fmt.Errorf("sig shortness V5 requires compressed-row small-field geometry")
+		return nil, fmt.Errorf("sig shortness T-hat view requires compressed-row small-field geometry")
 	}
 	witnessNCols := proof.NColsUsed
 	if witnessNCols <= 0 {
@@ -1054,12 +1877,19 @@ func prepareSigShortnessV5THatView(proof *Proof, ringQ *ring.Ring, omegaWitness 
 	if err != nil {
 		return nil, err
 	}
-	opening, err := prepareSigShortnessOpeningForVerify(proof.SigShortness.V5.THatOpening, gamma, rPolys, domainPoints, ringQ, replayWitnessRows)
+	var tHatOpening *decs.DECSOpening
+	switch proof.SigShortness.Version {
+	case sigShortnessProofVersionV5:
+		tHatOpening = proof.SigShortness.V5.THatOpening
+	case sigShortnessProofVersionV6:
+		tHatOpening = proof.SigShortness.V6.THatOpening
+	}
+	opening, err := prepareSigShortnessOpeningForVerify(tHatOpening, gamma, rPolys, domainPoints, ringQ, replayWitnessRows)
 	if err != nil {
 		return nil, err
 	}
 	if err := verifyDECSSubset(ringQ, proof.Root, params, gamma, rPolys, opening, slots, domainPoints); err != nil {
-		return nil, fmt.Errorf("sig shortness V5 T-hat opening rejected: %w", err)
+		return nil, fmt.Errorf("sig shortness T-hat opening rejected: %w", err)
 	}
 	theta := proof.Theta
 	if theta <= 1 {
@@ -1168,6 +1998,8 @@ func VerifySigShortnessProof(proof *Proof, ringQ *ring.Ring, omegaWitness []uint
 		return VerifySigShortnessProofV4(proof, ringQ, omegaWitness, pub, opts)
 	case sigShortnessProofVersionV5:
 		return VerifySigShortnessProofV5(proof, ringQ, omegaWitness, pub, opts)
+	case sigShortnessProofVersionV6:
+		return VerifySigShortnessProofV6(proof, ringQ, omegaWitness, pub, opts)
 	default:
 		return fmt.Errorf("unsupported sig shortness version %d", proof.SigShortness.Version)
 	}
@@ -1300,6 +2132,69 @@ func VerifySigShortnessProofV5(proof *Proof, ringQ *ring.Ring, omegaWitness []ui
 				return fmt.Errorf("sig shortness V5 T-hat[%d,%d]=%d want %d", block, omegaRow, got, want)
 			}
 		}
+	}
+	return nil
+}
+
+func VerifySigShortnessProofV6(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64, pub PublicInputs, opts SimOpts) error {
+	if proof == nil || proof.SigShortness == nil {
+		return nil
+	}
+	_ = opts
+	if err := validateSigShortnessV6Shape(proof); err != nil {
+		return err
+	}
+	if ringQ == nil {
+		return fmt.Errorf("nil ring")
+	}
+	v6 := proof.SigShortness.V6
+	spec, err := signatureChainSpecForOpts(ringQ.Modulus[0], SimOpts{
+		CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
+		SigShortnessRadix:   v6.Radix,
+		SigShortnessL:       v6.Digits,
+	})
+	if err != nil {
+		return fmt.Errorf("sig shortness V6 spec: %w", err)
+	}
+	view, err := prepareSigShortnessV5THatView(proof, ringQ, omegaWitness)
+	if err != nil {
+		return err
+	}
+	if view == nil {
+		return nil
+	}
+	tHatHeads, err := extractSigShortnessTHatHeadsFromView(proof, view)
+	if err != nil {
+		return err
+	}
+	hiddenProof := v6.HiddenProof
+	if hiddenProof == nil {
+		return fmt.Errorf("missing hidden sig shortness proof")
+	}
+	if hiddenProof.SigShortness != nil {
+		return fmt.Errorf("hidden sig shortness proof must not carry nested shortness")
+	}
+	if hiddenProof.NColsUsed > 0 && hiddenProof.NColsUsed != view.witnessNCols {
+		return fmt.Errorf("hidden sig shortness witness ncols=%d want %d", hiddenProof.NColsUsed, view.witnessNCols)
+	}
+	hiddenWitnessOmega, err := deriveRelationWitnessOmega(
+		ringQ.Modulus[0],
+		hiddenProof.NLeavesUsed,
+		view.witnessNCols,
+		resolveProofPCSNCols(hiddenProof, 0),
+		len(hiddenProof.Tail),
+		hiddenProof.HashRelation,
+	)
+	if err != nil {
+		return fmt.Errorf("hidden sig shortness witness omega: %w", err)
+	}
+	hiddenPub := buildSigShortnessHiddenPublicInputs(pub, proof.Root, tHatHeads, v6.Mode, v6.Radix, v6.Digits)
+	hiddenReplay, err := buildSigShortnessHiddenReplay(ringQ, hiddenProof, pub, hiddenWitnessOmega, tHatHeads, spec)
+	if err != nil {
+		return fmt.Errorf("hidden sig shortness replay: %w", err)
+	}
+	if err := verifySigShortnessHiddenProof(hiddenProof, hiddenPub, hiddenReplay); err != nil {
+		return fmt.Errorf("hidden sig shortness verification failed: %w", err)
 	}
 	return nil
 }
