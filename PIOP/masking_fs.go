@@ -167,7 +167,15 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		ell:                o.Ell,
 		ellPrime:           o.EllPrime,
 		opts:               o,
-		ncols:              in.NCols,
+		ncols: func() int {
+			if in.LVCSNCols > 0 {
+				return in.LVCSNCols
+			}
+			if in.PCSNCols > 0 {
+				return in.PCSNCols
+			}
+			return in.NCols
+		}(),
 		witnessNCols:       in.NCols,
 		root:               in.Root,
 		PK:                 in.PK,

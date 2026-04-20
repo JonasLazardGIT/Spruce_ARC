@@ -13,7 +13,8 @@ credential path that is still wired end to end:
 
 - NTRU key generation, signing, and verification
 - blind issuance / pre-sign proving
-- showing with the retained coeff-native `v3` layout and PRF companion route
+- showing with the retained coeff-native `v3` layout, PRF companion route, and
+  `SigShortness` V4
 - the SmallWood-style proof stack used by those flows
 
 The protocol framing in this repo follows the current paper source.
@@ -73,6 +74,14 @@ Current showing defaults from code:
   `Theta=3`, `Eta=43`, `EllPrime=2`, `Rho=2`, `LVCSNCols=96`,
   `NLeaves=4096`, `Kappa={0,0,0,5}`
 - PRF companion mode defaults to `output_audit`
+- shortness defaults to `SigShortness` `v4`
+
+Fresh local default measurement on this checkout (`2026-04-20`):
+
+- paper transcript `80,630` bytes (`78.74 KB`)
+- witness rows `534`
+- PCS blocks `6`
+- dominant paper bucket: `SigShortness = 42,739`
 
 ## Runtime Assets
 

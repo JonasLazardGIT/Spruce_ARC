@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
+	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
 	kf "vSIS-Signature/internal/kfield"
 
@@ -117,6 +118,110 @@ func packedHeadsFromRowsOnOmega(ringQ *ring.Ring, omegaWitness []uint64, rows []
 		coeffs[i] = rowCoeff
 	}
 	return heads, coeffs, nil
+}
+
+func subsetOpeningRowsForIndices(base *decs.DECSOpening, indices []int) (*decs.DECSOpening, error) {
+	if base == nil {
+		return nil, fmt.Errorf("nil base opening")
+	}
+	posByIdx := make(map[int]int, base.EntryCount())
+	for i := 0; i < base.EntryCount(); i++ {
+		posByIdx[base.IndexAt(i)] = i
+	}
+	sub := cloneDECSOpening(base)
+	sub.Indices = make([]int, len(indices))
+	sub.Pvals = make([][]uint64, len(indices))
+	if len(base.Mvals) > 0 {
+		sub.Mvals = make([][]uint64, len(indices))
+	} else {
+		sub.Mvals = nil
+	}
+	if len(base.Nonces) > 0 {
+		sub.Nonces = make([][]byte, len(indices))
+	} else {
+		sub.Nonces = nil
+	}
+	if len(base.PathIndex) > 0 {
+		sub.PathIndex = make([][]int, len(indices))
+	} else {
+		sub.PathIndex = nil
+	}
+	sub.TailCount = len(indices)
+	sub.IndexBits = nil
+	sub.MaskBase = 0
+	sub.MaskCount = 0
+	for i, idx := range indices {
+		pos, ok := posByIdx[idx]
+		if !ok {
+			return nil, fmt.Errorf("opening missing index %d", idx)
+		}
+		sub.Indices[i] = idx
+		sub.Pvals[i] = append([]uint64(nil), base.Pvals[pos]...)
+		if len(base.Mvals) > pos {
+			sub.Mvals[i] = append([]uint64(nil), base.Mvals[pos]...)
+		}
+		if len(base.Nonces) > pos {
+			sub.Nonces[i] = append([]byte(nil), base.Nonces[pos]...)
+		}
+		if len(base.PathIndex) > pos {
+			sub.PathIndex[i] = append([]int(nil), base.PathIndex[pos]...)
+		}
+	}
+	return sub, nil
+}
+
+func preparePRFCompanionBridgeOpening(
+	ringQ *ring.Ring,
+	proof *Proof,
+	omegaWitness []uint64,
+) (*decs.DECSOpening, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if proof == nil {
+		return nil, fmt.Errorf("nil proof")
+	}
+	opening := expandPackedOpening(resolveProofPCSOpening(proof))
+	if opening == nil {
+		return nil, fmt.Errorf("missing row opening for direct-auth bridge verification")
+	}
+	maskBase := proof.NColsUsed
+	if maskBase <= 0 {
+		maskBase = len(omegaWitness)
+	}
+	if maskBase <= 0 {
+		return nil, fmt.Errorf("missing witness width for direct-auth bridge")
+	}
+	maskIdx := make([]int, len(proof.Tail))
+	for i := range maskIdx {
+		maskIdx[i] = maskBase + i
+	}
+	opening, err := subsetOpeningRowsForIndices(opening, maskIdx)
+	if err != nil {
+		return nil, fmt.Errorf("direct-auth bridge mask subset: %w", err)
+	}
+	if opening.FormatVersion != 1 {
+		return opening, nil
+	}
+	coeffMatrix := proof.CoeffMatrix
+	if len(coeffMatrix) == 0 {
+		return nil, fmt.Errorf("missing coefficient matrix for direct-auth bridge")
+	}
+	barSets := proof.BarSetsMatrix()
+	if len(barSets) == 0 {
+		return nil, fmt.Errorf("missing bar sets for direct-auth bridge")
+	}
+	// The direct-auth bridge only interpolates packed companion rows from the
+	// mask openings on Ω'. It does not need the sampled tail indices, so
+	// reconstruct only the mask-side subset of the compressed row opening here.
+	qVals := make([]*ring.Poly, len(coeffMatrix))
+	for i := range qVals {
+		qVals[i] = ringQ.NewPoly()
+	}
+	if err := reconstructRowOpeningPvals(opening, coeffMatrix, qVals, barSets, maskIdx, nil, maskBase, nil, ringQ); err != nil {
+		return nil, fmt.Errorf("prepare P row opening for direct-auth bridge: %w", err)
+	}
+	return opening, nil
 }
 
 func buildPRFCompanionCoordDigest(layout *PRFCompanionLayout, seed2 []byte, bridgeChecks [][]uint64, checks int, mode PRFCompanionMode, checkpointSamples int) []byte {
@@ -339,15 +444,12 @@ func verifyPRFCompanionBridgeFromOpening(
 	if len(domainPoints) == 0 {
 		return fmt.Errorf("missing domain points for direct-auth bridge verification")
 	}
-	opening := expandPackedOpening(resolveProofPCSOpening(proof))
-	if opening == nil {
-		return fmt.Errorf("missing row opening for direct-auth bridge verification")
+	opening, err := preparePRFCompanionBridgeOpening(ringQ, proof, omegaWitness)
+	if err != nil {
+		return err
 	}
 	if len(opening.Pvals) == 0 || len(opening.Indices) == 0 {
 		return fmt.Errorf("empty row opening payload for direct-auth bridge verification")
-	}
-	if len(opening.Pvals[0]) < opening.R {
-		return fmt.Errorf("direct-auth bridge verification requires full row-opening columns (have=%d want=%d)", len(opening.Pvals[0]), opening.R)
 	}
 	cfg := PRFCompanionBridgeConfig{
 		Ring:         ringQ,
@@ -367,7 +469,7 @@ func verifyPRFCompanionBridgeFromOpening(
 	if ell <= 0 {
 		return fmt.Errorf("missing tail length for direct-auth bridge verification")
 	}
-	maskBase := proof.LVCSNColsUsed
+	maskBase := proof.NColsUsed
 	if maskBase <= 0 {
 		maskBase = len(omegaWitness)
 	}

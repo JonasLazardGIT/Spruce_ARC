@@ -663,8 +663,8 @@ func TestTransformBridgeReplaySurfaceUsesOnlyTHat0(t *testing.T) {
 	if got := rowLayoutReplayTHatCount(fx.layout); got != 1 {
 		t.Fatalf("replay T-hat count=%d want 1", got)
 	}
-	if fx.layout.IdxTSource < 0 {
-		t.Fatalf("missing committed T source row")
+	if fx.layout.IdxTSource >= 0 {
+		t.Fatalf("reduced replay should omit committed T source rows, got IdxTSource=%d", fx.layout.IdxTSource)
 	}
 	if fx.layout.IdxTHatBase < 0 {
 		t.Fatalf("missing replay T-hat row")
@@ -674,7 +674,7 @@ func TestTransformBridgeReplaySurfaceUsesOnlyTHat0(t *testing.T) {
 	}
 }
 
-func TestTransformBridgeTamperedTHat0BreaksDirectBridge(t *testing.T) {
+func TestTransformBridgeTamperedTHat0BreaksHashResidual(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
 	}
@@ -693,20 +693,23 @@ func TestTransformBridgeTamperedTHat0BreaksDirectBridge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
 	}
-	nonZero, err := bucketHasNonZeroOmegaSum(fx.ringQ, fx.omegaWitness, postSet.FaggNorm, postSet.FaggNormCoeffs)
+	nonZero, err := bucketHasNonZeroOmegaSum(fx.ringQ, fx.omegaWitness, postSet.FparInt, postSet.FparIntCoeffs)
 	if err != nil {
-		t.Fatalf("check tampered direct bridge: %v", err)
+		t.Fatalf("check tampered hash residual: %v", err)
 	}
 	if !nonZero {
-		t.Fatal("tampered THat0 left all aggregated bridge families satisfied")
+		t.Fatal("tampered THat0 left all parallel hash residual families satisfied")
 	}
 }
 
-func TestTransformBridgeTamperedHiddenTBreaksSourceBridge(t *testing.T) {
+func TestTransformBridgeTamperedFullHiddenTBreaksSourceBridge(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration-like fixture")
 	}
-	fx := buildTransformBridgeFixture(t)
+	fx := buildTransformBridgeFullFixture(t)
+	if fx.layout.IdxTSource < 0 {
+		t.Fatalf("full replay should keep committed T source rows")
+	}
 	tamperedRowsNTT := make([]*ring.Poly, len(fx.rowsNTT))
 	for i := range fx.rowsNTT {
 		if fx.rowsNTT[i] == nil {
@@ -740,6 +743,9 @@ func TestTransformBridgeFullReplaySurfaceUsesAllBlocks(t *testing.T) {
 	}
 	if got, want := rowLayoutReplayTHatCount(fx.layout), fx.layout.SigBlocks; got != want {
 		t.Fatalf("replay T-hat count=%d want %d", got, want)
+	}
+	if fx.layout.IdxTSource < 0 {
+		t.Fatalf("full replay should keep committed T source rows")
 	}
 	if fx.layout.IdxMHatSigma < 0 || fx.layout.IdxRHat0 < 0 || fx.layout.IdxRHat1 < 0 || fx.layout.IdxTHatBase < 0 {
 		t.Fatalf("missing full replay family base indices: %+v", fx.layout)

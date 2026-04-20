@@ -758,15 +758,6 @@ func printLogicalWitnessRowBreakdown(prefix string, proof *PIOP.Proof) {
 	if breakdown.TotalRows == 0 {
 		return
 	}
-	if proof != nil && proof.RowLayout.CoeffNativeSig.Model == PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3 {
-		cli.printf(categoryGeometry, prefix, "Witness logical rows: sig_primary_limb=%d, post_sign_scalar_projection=%d, post_sign_scalar_certificate=%d, prf_grouped_nonlinear=%d, total=%d",
-			breakdown.SigCoreRows,
-			breakdown.PostSignProjectionRows,
-			breakdown.PostSignCertificateRows,
-			breakdown.PRFRows,
-			breakdown.TotalRows)
-		return
-	}
 	cli.printf(categoryGeometry, prefix, "Witness logical rows: sig_replay=%d, sig_shortness=%d, non_sig=%d, prf=%d, total=%d",
 		breakdown.SigReplayRows,
 		breakdown.SigShortnessRows,
@@ -800,6 +791,7 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 	cli.printf(categoryTranscript, prefix, "Current verifier payload≈%.2f KB (%.0f bytes)", rep.ProofKB, float64(rep.ProofBytes))
 	printPaperTranscriptBreakdown(prefix, rep)
 	printTranscriptOptimizationFocus(prefix, rep)
+	printSigShortness(prefix, rep)
 	cli.printf(categoryStatus, prefix, "Prover time≈%s", proveDur)
 	cli.printf(categoryStatus, prefix, "Verifier time≈%s", verifyDur)
 	cli.printf(categorySoundness, prefix, "Soundness Eq.(8): %s %s %s %s eq8_total=%.2f",
@@ -879,6 +871,7 @@ func printTranscriptOptimizationFocus(prefix string, rep PIOP.ProofReport) {
 	if line := formatTranscriptBucketFocusSummary(rep); line != "" {
 		cli.printf(categoryTranscript, prefix, "%s", line)
 	}
+	printReplayFamilyAudit(prefix, rep)
 }
 
 func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
@@ -913,16 +906,151 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 
 func formatTranscriptBucketFocusSummary(rep PIOP.ProofReport) string {
 	focus := rep.TranscriptFocus
-	if focus.PdecsBytes <= 0 && focus.VTargetsBytes <= 0 && focus.BarSetsBytes <= 0 && focus.QBytes <= 0 {
+	if focus.PdecsBytes <= 0 && focus.VTargetsBytes <= 0 && focus.BarSetsBytes <= 0 && focus.QBytes <= 0 && rep.PaperTranscript.SigShortness.OptimizedBytes <= 0 {
 		return ""
 	}
 	return fmt.Sprintf(
-		"Bucket focus: Pdecs=%d VTargets=%d BarSets=%d Q=%d",
+		"Bucket focus: Pdecs=%d VTargets=%d BarSets=%d Q=%d SigShortness=%d",
 		focus.PdecsBytes,
 		focus.VTargetsBytes,
 		focus.BarSetsBytes,
 		focus.QBytes,
+		rep.PaperTranscript.SigShortness.OptimizedBytes,
 	)
+}
+
+func printSigShortness(prefix string, rep PIOP.ProofReport) {
+	sig := rep.SigShortness
+	if !sig.Enabled {
+		return
+	}
+	cli.printf(categoryGeometry, prefix, "Sig shortness: v%d slots=%d blocks=%d opening=%d total=%d",
+		sig.Version,
+		sig.SupportSlotCount,
+		sig.OpenedBlockCount,
+		sig.OpeningBytes,
+		sig.ProofBytes,
+	)
+}
+
+func printReplayFamilyAudit(prefix string, rep PIOP.ProofReport) {
+	audit := rep.ReplayAudit
+	if len(audit.Families) == 0 {
+		return
+	}
+	cli.printf(categoryGeometry, prefix, "%s", formatReplayFamilyAuditSummary(rep))
+	ordered := make([]PIOP.ReplayFamilyAuditEntry, len(audit.Families))
+	copy(ordered, audit.Families)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].PriorityRank != ordered[j].PriorityRank {
+			return ordered[i].PriorityRank < ordered[j].PriorityRank
+		}
+		return ordered[i].Family < ordered[j].Family
+	})
+	for _, entry := range ordered {
+		cli.printf(categoryGeometry, prefix, "  replay[%d] %-16s selected=%3d/%-3d blocks=%2d/%-2d derivability=%-42s",
+			entry.PriorityRank,
+			entry.Family,
+			entry.SelectedRowCount,
+			entry.LogicalRowCount,
+			entry.ActiveBlockCount,
+			entry.TotalBlockCount,
+			entry.Derivability,
+		)
+	}
+	printReplaySubfamilyAudit(prefix, audit.Subfamilies)
+	cli.printf(categoryGeometry, prefix, "Replay audit note: selector-derived rows are authoritative for Stage A; the older logical-row summary above is intentionally coarse.")
+}
+
+func printReplaySubfamilyAudit(prefix string, audit PIOP.ReplaySubfamilyAuditReport) {
+	if len(audit.Entries) == 0 {
+		return
+	}
+	cli.printf(categoryGeometry, prefix, "%s", formatReplaySubfamilyAuditSummary(audit))
+	ordered := make([]PIOP.ReplaySubfamilyAuditEntry, len(audit.Entries))
+	copy(ordered, audit.Entries)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].PriorityRank != ordered[j].PriorityRank {
+			return ordered[i].PriorityRank < ordered[j].PriorityRank
+		}
+		return ordered[i].Kind < ordered[j].Kind
+	})
+	if len(ordered) > 8 {
+		ordered = ordered[:8]
+	}
+	for _, entry := range ordered {
+		cli.printf(categoryGeometry, prefix, "  replay_sub[%d] %-34s selected=%3d/%-3d blocks=%2d/%-2d consumption=%-16s",
+			entry.PriorityRank,
+			entry.Kind,
+			entry.SelectedRowCount,
+			entry.LogicalRowCount,
+			entry.ActiveBlockCount,
+			entry.TotalBlockCount,
+			entry.Consumption,
+		)
+	}
+	if audit.PRFBridgeBlocker != "" {
+		cli.printf(categoryGeometry, prefix, "  prf_bridge_blocker: %s", audit.PRFBridgeBlocker)
+	}
+	if len(audit.PRFBridgeTargets) > 0 {
+		cli.printf(categoryGeometry, prefix, "  prf_bridge_targets: %s", formatReplaySubfamilyTargetList(audit.PRFBridgeTargets, 3))
+	}
+	if audit.SigBasisBlocker != "" {
+		cli.printf(categoryGeometry, prefix, "  sig_basis_blocker: %s", audit.SigBasisBlocker)
+	}
+	if len(audit.SigBasisTargets) > 0 {
+		cli.printf(categoryGeometry, prefix, "  sig_basis_targets: %s", formatReplaySubfamilyTargetList(audit.SigBasisTargets, 4))
+	}
+}
+
+func formatReplayFamilyAuditSummary(rep PIOP.ProofReport) string {
+	audit := rep.ReplayAudit
+	if len(audit.Families) == 0 {
+		return ""
+	}
+	targetCap := len(audit.StageBTargets)
+	if targetCap > 3 {
+		targetCap = 3
+	}
+	targets := make([]string, 0, targetCap)
+	for i := 0; i < len(audit.StageBTargets) && i < 3; i++ {
+		targets = append(targets, string(audit.StageBTargets[i]))
+	}
+	targetLabel := "none"
+	if len(targets) > 0 {
+		targetLabel = strings.Join(targets, ", ")
+	}
+	return fmt.Sprintf(
+		"Replay audit: selected=%d/%d rows reduction=%.2f%% activeBlocks=%d/%d top_stage_b=%s",
+		audit.Selector.SelectedRows,
+		audit.Selector.WitnessRows,
+		audit.Selector.ReductionPct,
+		audit.Selector.ActiveBlocks,
+		audit.Selector.FullBlocks,
+		targetLabel,
+	)
+}
+
+func formatReplaySubfamilyAuditSummary(audit PIOP.ReplaySubfamilyAuditReport) string {
+	if len(audit.Entries) == 0 {
+		return ""
+	}
+	targetLabel := formatReplaySubfamilyTargetList(audit.StageBTargets, 4)
+	return fmt.Sprintf("Replay subaudit: top_remaining=%s", targetLabel)
+}
+
+func formatReplaySubfamilyTargetList(targets []PIOP.ReplaySubfamilyKind, limit int) string {
+	if len(targets) == 0 {
+		return "none"
+	}
+	if limit <= 0 || limit > len(targets) {
+		limit = len(targets)
+	}
+	labels := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		labels = append(labels, string(targets[i]))
+	}
+	return strings.Join(labels, ", ")
 }
 
 type paperTranscriptBreakdownRow struct {
@@ -957,12 +1085,13 @@ func orderedPaperTranscriptRows(rep PIOP.PaperTranscriptReport) []paperTranscrip
 	add("ExtraHash", rep.ExtraHash, 2)
 	add("R", rep.R, 3)
 	add("Q", rep.Q, 4)
-	add("VTargets", rep.VTargets, 5)
-	add("BarSets", rep.BarSets, 6)
-	add("Pdecs", rep.Pdecs, 7)
-	add("Mdecs", rep.Mdecs, 8)
-	add("Auth", rep.Auth, 9)
-	add("Tapes", rep.Tapes, 10)
+	add("SigShortness", rep.SigShortness, 5)
+	add("VTargets", rep.VTargets, 6)
+	add("BarSets", rep.BarSets, 7)
+	add("Pdecs", rep.Pdecs, 8)
+	add("Mdecs", rep.Mdecs, 9)
+	add("Auth", rep.Auth, 10)
+	add("Tapes", rep.Tapes, 11)
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Bytes != rows[j].Bytes {
 			return rows[i].Bytes > rows[j].Bytes

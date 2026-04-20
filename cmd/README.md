@@ -23,4 +23,6 @@ credential state is written under `credential/keys/`.
 
 This command runs the retained post-sign showing flow. It reads the persisted
 credential state and builds a showing proof on the retained coeff-native `v3`
-path with the PRF companion route.
+path with the PRF companion route and `SigShortness` V4. The shipped default is
+the reduced replay path under the `soundness_balanced` preset
+(`LVCSNCols=96`).

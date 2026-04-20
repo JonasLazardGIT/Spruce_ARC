@@ -129,6 +129,16 @@ Supported `-coeff-model` values:
 
 `cmd/showing` expects the credential state prepared by `cmd/issuance`.
 
+Current shipped defaults:
+
+- replay mode: `reduced`
+- preset: `soundness_balanced`
+- PRF route: packed companion, `output_audit`
+- shortness proof: `SigShortness` `v4`
+- shipped preset resolution:
+  `Theta=3`, `Eta=43`, `EllPrime=2`, `Rho=2`, `LVCSNCols=96`,
+  `NLeaves=4096`, `Kappa={0,0,0,5}`
+
 Other retained flags tune transcript geometry and reporting, for example:
 
 - `-showing-preset`

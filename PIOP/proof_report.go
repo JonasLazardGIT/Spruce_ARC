@@ -15,6 +15,8 @@ type ProofReport struct {
 	PaperTranscript PaperTranscriptReport
 	TranscriptFocus TranscriptOptimizationReport
 	Packing         ProofPackingAudit
+	ReplayAudit     ReplayFamilyAuditReport
+	SigShortness    SigShortnessReport
 	Geometry        WitnessGeometrySnapshot
 	NCols           int
 	PCSNCols        int
@@ -29,6 +31,15 @@ type ProofReport struct {
 	FieldModulus    uint64
 	Lambda          int
 	Kappa           [4]int
+}
+
+type SigShortnessReport struct {
+	Enabled          bool `json:"enabled"`
+	Version          int  `json:"version"`
+	SupportSlotCount int  `json:"support_slot_count"`
+	OpenedBlockCount int  `json:"opened_block_count"`
+	OpeningBytes     int  `json:"opening_bytes"`
+	ProofBytes       int  `json:"proof_bytes"`
 }
 
 // TranscriptOptimizationReport surfaces the geometry and bucket counters that
@@ -148,6 +159,11 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 	if err != nil {
 		return ProofReport{}, fmt.Errorf("packing audit: %w", err)
 	}
+	replayAudit, err := BuildReplayFamilyAuditReport(proof)
+	if err != nil {
+		return ProofReport{}, fmt.Errorf("replay audit: %w", err)
+	}
+	sigShortness := buildSigShortnessReport(proof)
 	paperTranscript := buildPaperTranscriptReportLeaf(proof, q, paperTranscriptParams{
 		Lambda:   reportOpts.Lambda,
 		Eta:      eta,
@@ -164,6 +180,8 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		Soundness:       sb,
 		PaperTranscript: paperTranscript,
 		Packing:         packing,
+		ReplayAudit:     replayAudit,
+		SigShortness:    sigShortness,
 		Geometry:        geometry,
 		TranscriptFocus: buildTranscriptOptimizationReport(proof, paperTranscript, packing, sb, geometry, lvcsNCols, dQ, reportOpts, q),
 		NCols:           ncols,
@@ -180,6 +198,34 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		Lambda:          reportOpts.Lambda,
 		Kappa:           reportOpts.Kappa,
 	}, nil
+}
+
+func buildSigShortnessReport(proof *Proof) SigShortnessReport {
+	if proof == nil || proof.SigShortness == nil {
+		return SigShortnessReport{}
+	}
+	sig := proof.SigShortness
+	pcsNCols := resolveProofPCSNCols(proof, 0)
+	openBlocks := 0
+	if pcsNCols > 0 {
+		rows := buildSigShortnessWitnessPolyIndicesForVersion(proof.RowLayout, sig.Version)
+		seen := make(map[int]struct{}, len(rows))
+		for _, row := range rows {
+			if row < 0 {
+				continue
+			}
+			seen[row/pcsNCols] = struct{}{}
+		}
+		openBlocks = len(seen)
+	}
+	return SigShortnessReport{
+		Enabled:          true,
+		Version:          sig.Version,
+		SupportSlotCount: len(sig.SupportSlots),
+		OpenedBlockCount: openBlocks,
+		OpeningBytes:     sizeDECSOpening(sig.Opening),
+		ProofBytes:       sizeSigShortnessProof(sig),
+	}
 }
 
 func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport, packing ProofPackingAudit, sb SoundnessBudget, geometry WitnessGeometrySnapshot, lvcsNCols int, dQ int, opts SimOpts, q uint64) TranscriptOptimizationReport {

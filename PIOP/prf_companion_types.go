@@ -33,6 +33,7 @@ type PRFCompanionLayout struct {
 	CheckpointSlots    []CoeffSlot
 	FinalTagSlots      []CoeffSlot
 	HelperFamilies     []string
+	ReplayRows         int
 	PackedRows         int
 	PackedLogicalCount int
 	HelperRowCount     int
@@ -228,6 +229,9 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 	}
 	if layout.PackedRows <= 0 {
 		return fmt.Errorf("invalid companion packed rows %d", layout.PackedRows)
+	}
+	if layout.ReplayRows < 0 || layout.ReplayRows > layout.PackedRows {
+		return fmt.Errorf("invalid companion replay rows %d for packed rows %d", layout.ReplayRows, layout.PackedRows)
 	}
 	if layout.StartRow+layout.PackedRows > witnessRows {
 		return fmt.Errorf("companion packed rows [%d,%d) exceed witness rows=%d", layout.StartRow, layout.StartRow+layout.PackedRows, witnessRows)

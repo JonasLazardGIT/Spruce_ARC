@@ -14,7 +14,8 @@ credential secret.
 
 - load and validate PRF parameters
 - evaluate the PRF over the shared field `F_q`
-- expose grouped S-box checkpoint traces for the showing proof
+- expose grouped S-box checkpoint traces for the packed PRF companion route
+  used by the showing proof
 
 ## Main Entry Points
 
@@ -33,6 +34,8 @@ credential secret.
 - the shipped migration target uses the cubic S-box (`d = 3`) over `q = 1054721`
 - the showing proof uses grouped nonlinear checkpoints
 - the shipped command surface assumes `PRFGroupRounds = 2`
+- the retained showing path binds those checkpoints through the PRF companion
+  bridge, not a legacy standalone PRF replay layout
 
 ## Read Next
 

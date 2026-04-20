@@ -17,6 +17,8 @@ The current state includes:
 
 Showing reconstructs its coeff-native semantic witness directly from the
 top-level signed state; there is no separate runtime showing blob.
+On the current reduced showing path, the proof then derives the digit-only
+shortness witness and committed `THat` surface from that state at runtime.
 
 ## Main Entry Points
 
@@ -31,6 +33,7 @@ reads it back to build the post-sign proof.
 - the persisted state is aligned with the current shared modulus
 - showing uses the coeff-native semantic payload, not a legacy layout-specific
   witness file
+- reduced showing no longer relies on a persisted packed-signature replay basis
 - the state must not contain issuer trapdoor material
 - the state is treated as command/runtime data, not as the protocol
   specification

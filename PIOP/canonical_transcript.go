@@ -23,17 +23,18 @@ type PaperTranscriptBucket struct {
 // is the optimization target; it intentionally differs from the live verifier
 // payload retained in the current Proof object.
 type PaperTranscriptReport struct {
-	Counters  PaperTranscriptBucket `json:"counters"`
-	SaltRoot  PaperTranscriptBucket `json:"salt_root"`
-	ExtraHash PaperTranscriptBucket `json:"extra_hash"`
-	R         PaperTranscriptBucket `json:"r"`
-	Q         PaperTranscriptBucket `json:"q"`
-	VTargets  PaperTranscriptBucket `json:"vtargets"`
-	BarSets   PaperTranscriptBucket `json:"barsets"`
-	Pdecs     PaperTranscriptBucket `json:"pdecs"`
-	Mdecs     PaperTranscriptBucket `json:"mdecs"`
-	Auth      PaperTranscriptBucket `json:"auth"`
-	Tapes     PaperTranscriptBucket `json:"tapes"`
+	Counters     PaperTranscriptBucket `json:"counters"`
+	SaltRoot     PaperTranscriptBucket `json:"salt_root"`
+	ExtraHash    PaperTranscriptBucket `json:"extra_hash"`
+	R            PaperTranscriptBucket `json:"r"`
+	Q            PaperTranscriptBucket `json:"q"`
+	SigShortness PaperTranscriptBucket `json:"sig_shortness"`
+	VTargets     PaperTranscriptBucket `json:"vtargets"`
+	BarSets      PaperTranscriptBucket `json:"barsets"`
+	Pdecs        PaperTranscriptBucket `json:"pdecs"`
+	Mdecs        PaperTranscriptBucket `json:"mdecs"`
+	Auth         PaperTranscriptBucket `json:"auth"`
+	Tapes        PaperTranscriptBucket `json:"tapes"`
 
 	NaiveBits      float64 `json:"naive_bits"`
 	OptimizedBits  float64 `json:"optimized_bits"`
@@ -158,12 +159,13 @@ func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptPar
 			float64(p.Rho*p.DQ*qThetaMultiplier(p.Theta))*logQ,
 			float64(p.Rho*maxInt(p.DQ-(p.EllPrime+1), 0)*qThetaMultiplier(p.Theta))*logQ,
 		),
-		VTargets: newPaperBucket(bitsForPackedMatrixPayload(proof.VTargetsBits, proof.VTargets), bitsForPackedMatrixPayload(proof.VTargetsBits, proof.VTargets)),
-		BarSets:  newPaperBucket(bitsForPackedMatrixPayload(proof.BarSetsBits, proof.BarSets), bitsForPackedMatrixPayload(proof.BarSetsBits, proof.BarSets)),
-		Pdecs:    newPaperBucket(openingRep.PdecsBits, openingRep.PdecsBits),
-		Mdecs:    newPaperBucket(openingRep.MdecsBits, openingRep.MdecsBits),
-		Auth:     newPaperBucket(openingRep.AuthBits, openingRep.AuthBits),
-		Tapes:    newPaperBucket(openingRep.TapeBits, openingRep.TapeBits),
+		SigShortness: newPaperBucket(sigShortnessPayloadBits(proof.SigShortness), sigShortnessPayloadBits(proof.SigShortness)),
+		VTargets:     newPaperBucket(bitsForPackedMatrixPayload(proof.VTargetsBits, proof.VTargets), bitsForPackedMatrixPayload(proof.VTargetsBits, proof.VTargets)),
+		BarSets:      newPaperBucket(bitsForPackedMatrixPayload(proof.BarSetsBits, proof.BarSets), bitsForPackedMatrixPayload(proof.BarSetsBits, proof.BarSets)),
+		Pdecs:        newPaperBucket(openingRep.PdecsBits, openingRep.PdecsBits),
+		Mdecs:        newPaperBucket(openingRep.MdecsBits, openingRep.MdecsBits),
+		Auth:         newPaperBucket(openingRep.AuthBits, openingRep.AuthBits),
+		Tapes:        newPaperBucket(openingRep.TapeBits, openingRep.TapeBits),
 	}
 	finalizePaperTranscriptReport(&out)
 	return out
@@ -267,6 +269,7 @@ func finalizePaperTranscriptReport(r *PaperTranscriptReport) {
 		&r.ExtraHash,
 		&r.R,
 		&r.Q,
+		&r.SigShortness,
 		&r.VTargets,
 		&r.BarSets,
 		&r.Pdecs,
@@ -296,6 +299,8 @@ func mergePaperTranscriptReports(a, b PaperTranscriptReport) PaperTranscriptRepo
 	a.R.OptimizedBits += b.R.OptimizedBits
 	a.Q.NaiveBits += b.Q.NaiveBits
 	a.Q.OptimizedBits += b.Q.OptimizedBits
+	a.SigShortness.NaiveBits += b.SigShortness.NaiveBits
+	a.SigShortness.OptimizedBits += b.SigShortness.OptimizedBits
 	a.VTargets.NaiveBits += b.VTargets.NaiveBits
 	a.VTargets.OptimizedBits += b.VTargets.OptimizedBits
 	a.BarSets.NaiveBits += b.BarSets.NaiveBits
@@ -310,6 +315,13 @@ func mergePaperTranscriptReports(a, b PaperTranscriptReport) PaperTranscriptRepo
 	a.Tapes.OptimizedBits += b.Tapes.OptimizedBits
 	finalizePaperTranscriptReport(&a)
 	return a
+}
+
+func sigShortnessPayloadBits(sig *SigShortnessProof) float64 {
+	if sig == nil {
+		return 0
+	}
+	return float64(sizeDECSOpening(sig.Opening) * 8)
 }
 
 func residueMetadataBits(formatVersion uint8, encodedCols int, omitCols []int) float64 {

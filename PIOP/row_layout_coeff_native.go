@@ -60,10 +60,10 @@ func rowLayoutCoeffNativePackedSigIndex(layout RowLayout, comp, block int) int {
 	if !rowLayoutCoeffNativeUsesLiteralPacked(layout) {
 		return -1
 	}
-	if rowLayoutCoeffNativeUsesLiteralPackedV3(layout) {
+	if comp < 0 || block < 0 || comp >= cfg.PackedSigComponents || block >= cfg.PackedSigBlocks {
 		return -1
 	}
-	if comp < 0 || block < 0 || comp >= cfg.PackedSigComponents || block >= cfg.PackedSigBlocks {
+	if cfg.PackedSigBase < 0 || cfg.PackedSigCount <= 0 {
 		return -1
 	}
 	return cfg.PackedSigBase + comp*cfg.PackedSigBlocks + block

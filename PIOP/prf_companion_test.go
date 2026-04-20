@@ -370,6 +370,7 @@ func TestPRFCompanionKReplayRowsMatchWitnessPolys(t *testing.T) {
 		point,
 		sf.OmegaS1,
 		sf.MuInv,
+		pcsRows.PCSGeometry.ReplayWitnessRows,
 		pcsRows.MaskRowOffset,
 		pcsRows.MaskRowCount,
 	)

@@ -601,14 +601,14 @@ type Proof struct {
 	R                [][]uint64
 	// Q commitment (paper Fig. 6, Step 6): Merkle root, degree-check R polynomials,
 	// and an opening that reveals Q on Ω and at queried tail points.
-	QRoot          [16]byte
-	QR             [][]uint64
-	QRBits         []byte
-	QRRows         int
-	QRCols         int
-	QRBitWidth     uint8
-	QDegreeBound   int
-	QOpening       *decs.DECSOpening
+	QRoot        [16]byte
+	QR           [][]uint64
+	QRBits       []byte
+	QRRows       int
+	QRCols       int
+	QRBitWidth   uint8
+	QDegreeBound int
+	QOpening     *decs.DECSOpening
 	// These coefficient snapshots are retained so verifier-side constraint
 	// replay can reconstruct explicit-domain residual families after the proof
 	// crosses a JSON boundary.
@@ -653,6 +653,16 @@ type Proof struct {
 	PRFLayout *PRFLayout
 	// Optional Phase-2 PRF companion proof metadata.
 	PRFCompanion *PRFCompanionProof
+	// Optional signature shortness proof for retained packed-signature showing.
+	SigShortness *SigShortnessProof
+}
+
+// SigShortnessProof carries the versioned signature shortness argument used by
+// the retained packed-signature showing path.
+type SigShortnessProof struct {
+	Version      int
+	SupportSlots []int
+	Opening      *decs.DECSOpening
 }
 
 type fsRoundResult struct {
@@ -675,47 +685,6 @@ func fsRound(fs *FS, proof *Proof, round int, label string, material ...[]byte) 
 		Seed: append([]byte(nil), seed...),
 		RNG:  newFSRNG(label, seed),
 	}
-}
-
-func (p *Proof) setVTargets(mat [][]uint64) {
-	if len(mat) == 0 {
-		p.VTargets = nil
-		p.VTargetsBits = nil
-		p.VTargetsRows = 0
-		p.VTargetsCols = 0
-		p.VTargetsBitWidth = 0
-		return
-	}
-	bits, rows, cols, width := decs.PackUintMatrix(mat)
-	p.VTargetsBits = bits
-	p.VTargetsRows = rows
-	p.VTargetsCols = cols
-	p.VTargetsBitWidth = uint8(width)
-	p.VTargets = nil
-}
-
-func (p *Proof) ensureVTargetsPacked() {
-	if len(p.VTargetsBits) == 0 && len(p.VTargets) > 0 {
-		p.setVTargets(p.VTargets)
-	}
-}
-
-func (p *Proof) VTargetsMatrix() [][]uint64 {
-	if len(p.VTargets) > 0 {
-		return p.VTargets
-	}
-	if len(p.VTargetsBits) == 0 {
-		return nil
-	}
-	mat, rows, cols, width, err := decs.UnpackUintMatrix(p.VTargetsBits)
-	if err != nil {
-		return nil
-	}
-	p.VTargets = mat
-	p.VTargetsRows = rows
-	p.VTargetsCols = cols
-	p.VTargetsBitWidth = uint8(width)
-	return mat
 }
 
 func (p *Proof) setBarSets(mat [][]uint64) {
@@ -1241,6 +1210,29 @@ func maybeCompressRowOpeningPvals(open *decs.DECSOpening, coeffMatrix [][]uint64
 	open.PColsEncoded = len(keepCols)
 	open.POmitCols = append([]int(nil), omitCols...)
 	open.Pvals = compressed
+}
+
+func omitAllRowOpeningMvals(open *decs.DECSOpening) {
+	if open == nil {
+		return
+	}
+	eta := open.Eta
+	if eta <= 0 && len(open.Mvals) > 0 {
+		eta = len(open.Mvals[0])
+	}
+	if eta <= 0 {
+		return
+	}
+	omit := make([]int, eta)
+	for i := range omit {
+		omit[i] = i
+	}
+	open.MFormatVersion = 1
+	open.MColsEncoded = 0
+	open.MOmitCols = omit
+	open.Mvals = nil
+	open.MvalsBits = nil
+	open.MvalsBitWidth = 0
 }
 
 func maybeCompressQOpeningPvals(open *decs.DECSOpening, gammaQ [][]uint64, mod uint64) (eqRows []int, compressed bool) {
@@ -1886,6 +1878,7 @@ func estimateProofSize(proof *Proof) int {
 	sum += len(proof.BarSetsBits)
 	sum += sizeDECSOpening(resolveProofPCSOpening(proof))
 	sum += sizeDECSOpening(proof.QOpening)
+	sum += sizeSigShortnessProof(proof.SigShortness)
 	return sum
 }
 
@@ -1921,11 +1914,19 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 	sizes["BarSets"] = len(proof.BarSetsBits)
 	sizes["RowOpening"] = sizeDECSOpening(resolveProofPCSOpening(proof))
 	sizes["QOpening"] = sizeDECSOpening(proof.QOpening)
+	sizes["SigShortness"] = sizeSigShortnessProof(proof.SigShortness)
 	total := 0
 	for _, v := range sizes {
 		total += v
 	}
 	return sizes, total
+}
+
+func sizeSigShortnessProof(sig *SigShortnessProof) int {
+	if sig == nil {
+		return 0
+	}
+	return sizeDECSOpening(sig.Opening)
 }
 
 // ProofSizeReport summarises the byte footprint of a proof as consumed by the verifier.
@@ -2132,7 +2133,7 @@ func columnsToRowsSmallField(r *ring.Ring,
 
 func buildKPointCoeffMatrix(
 	r *ring.Ring, K *kf.Field, omega []uint64, rows [][]uint64, e kf.Elem, omegaS1 kf.Elem, muDenomInv kf.Elem,
-	maskRowOffset, maskRowCount int,
+	replayWitnessRows, maskRowOffset, maskRowCount int,
 ) [][]uint64 {
 	if K == nil {
 		panic("buildKPointCoeffMatrix: nil field")
@@ -2145,7 +2146,13 @@ func buildKPointCoeffMatrix(
 		return nil
 	}
 	totalRows := len(rows)
-	witnessRowCount := totalRows
+	witnessRowCount := replayWitnessRows
+	if witnessRowCount <= 0 {
+		witnessRowCount = totalRows
+		if maskRowCount > 0 {
+			witnessRowCount = maskRowOffset
+		}
+	}
 	if maskRowCount > 0 {
 		if maskRowOffset < 0 || maskRowOffset > totalRows {
 			panic(fmt.Sprintf("buildKPointCoeffMatrix: mask offset %d out of bounds (total=%d)", maskRowOffset, totalRows))
@@ -2153,7 +2160,12 @@ func buildKPointCoeffMatrix(
 		if maskRowOffset+maskRowCount != totalRows {
 			panic(fmt.Sprintf("buildKPointCoeffMatrix: mask segment [%d,%d) inconsistent with total rows %d", maskRowOffset, maskRowOffset+maskRowCount, totalRows))
 		}
-		witnessRowCount = maskRowOffset
+		if witnessRowCount > maskRowOffset {
+			panic(fmt.Sprintf("buildKPointCoeffMatrix: replay witness rows %d exceed witness segment %d", witnessRowCount, maskRowOffset))
+		}
+	}
+	if witnessRowCount < 0 || witnessRowCount > totalRows {
+		panic(fmt.Sprintf("buildKPointCoeffMatrix: invalid replay witness row count %d (total=%d)", witnessRowCount, totalRows))
 	}
 	if witnessRowCount%layerSize != 0 {
 		panic(fmt.Sprintf("buildKPointCoeffMatrix: inconsistent row count %d (layer size %d)", witnessRowCount, layerSize))

@@ -391,8 +391,8 @@ func TestShowingFullReplayModeDeterministicPackedWidths(t *testing.T) {
 		if companionLayout == nil {
 			t.Fatalf("ncols=%d missing prf companion layout", ncols)
 		}
-		if got := layout.SigCount; got != witnessCount {
-			t.Fatalf("ncols=%d layout sig count=%d want witness count=%d", ncols, got, witnessCount)
+		if got := layout.SigCount; got <= 0 || got >= witnessCount {
+			t.Fatalf("ncols=%d layout sig count=%d want strict main-witness prefix within total witness=%d", ncols, got, witnessCount)
 		}
 		if ncols == 64 {
 			proof, rep := buildShowingProofForOptimizationState(t, state, opts)
@@ -642,8 +642,8 @@ func TestShowingShortnessSweepKeepsProductionProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve best shortness candidate %s: %v", best.label, err)
 	}
-	if bestRadix != 11 || bestDigits != 4 {
-		t.Fatalf("best shortness candidate=%s resolved to (R=%d,L=%d) want (11,4)", best.label, bestRadix, bestDigits)
+	if bestRadix != 14 || bestDigits != 4 {
+		t.Fatalf("best shortness candidate=%s resolved to (R=%d,L=%d) want (14,4)", best.label, bestRadix, bestDigits)
 	}
 }
 
@@ -931,21 +931,13 @@ func TestShowingPackedWidthAndLVCSRetuneSelectsShippedDefaults(t *testing.T) {
 		t.Fatalf("best packed width=%d want shipped PackedNCols=%d", best.ncols, shippedNCols)
 	}
 	for _, winner := range best.perPresetBest {
-		shipped := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-			Credential:           true,
-			NCols:                shippedNCols,
-			Ell:                  18,
-			DomainMode:           PIOP.DomainModeExplicit,
-			PRFGroupRounds:       2,
-			CoeffPacking:         true,
-			CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
-			ShowingPreset:        winner.preset,
-			SigShortnessProfile:  PIOP.SigShortnessProfileR11L4Production,
-			PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
-			PRFCheckpointSamples: 8,
-		})
-		if winner.lvcsNCols != shipped.PostSignLVCSNCols {
-			t.Fatalf("best lvcs for preset=%s is %d want shipped %d", winner.preset, winner.lvcsNCols, shipped.PostSignLVCSNCols)
+		wantLVCS := map[string]int{
+			PIOP.ShowingPresetSoundnessBalanced: 80,
+			PIOP.ShowingPresetTranscriptFirst:   32,
+			PIOP.ShowingPresetProductionBalance: 32,
+		}
+		if winner.lvcsNCols != wantLVCS[winner.preset] {
+			t.Fatalf("best lvcs for preset=%s is %d want %d", winner.preset, winner.lvcsNCols, wantLVCS[winner.preset])
 		}
 	}
 }

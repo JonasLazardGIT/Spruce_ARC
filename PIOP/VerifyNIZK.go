@@ -61,18 +61,20 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		return false, false, false, fmt.Errorf("VerifyNIZK: ring.NewRing: %w", err)
 	}
 	q := ringQ.Modulus[0]
-	witnessNCols := len(vTargets[0])
-	if proof.NColsUsed > 0 {
-		witnessNCols = proof.NColsUsed
-	}
-	ncols := witnessNCols
-	if proof.PCSNColsUsed > 0 {
-		ncols = proof.PCSNColsUsed
-	} else if proof.LVCSNColsUsed > 0 {
+	ncols := len(vTargets[0])
+	if proof.LVCSNColsUsed > 0 {
 		ncols = proof.LVCSNColsUsed
 	}
-	if ncols < witnessNCols {
-		return false, false, false, fmt.Errorf("VerifyNIZK: invalid ncols (lvcs=%d < witness=%d)", ncols, witnessNCols)
+	witnessNCols := proof.NColsUsed
+	if witnessNCols <= 0 {
+		witnessNCols = ncols
+	}
+	pcsNCols := ncols
+	if proof.PCSNColsUsed > 0 {
+		pcsNCols = proof.PCSNColsUsed
+	}
+	if pcsNCols < witnessNCols {
+		return false, false, false, fmt.Errorf("VerifyNIZK: invalid pcs_ncols (pcs=%d < witness=%d)", pcsNCols, witnessNCols)
 	}
 	ell := len(proof.Tail)
 	if proof.DomainMode != DomainModeExplicit {
@@ -83,10 +85,10 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if nLeaves <= 0 {
 		nLeaves = int(ringQ.N)
 	}
-	if ncols+ell > int(ringQ.N) {
-		return false, false, false, fmt.Errorf("VerifyNIZK: explicit domain requires ncols+ell <= ring dimension (ncols=%d, ell=%d, ringN=%d)", ncols, ell, ringQ.N)
+	if pcsNCols+ell > int(ringQ.N) {
+		return false, false, false, fmt.Errorf("VerifyNIZK: explicit domain requires pcs_ncols+ell <= ring dimension (pcs_ncols=%d, ell=%d, ringN=%d)", pcsNCols, ell, ringQ.N)
 	}
-	omega, domainPoints, derr := deriveExplicitDomainForRelation(q, nLeaves, witnessNCols, ncols, ell, proof.HashRelation)
+	omega, domainPoints, derr := deriveExplicitDomainForRelation(q, nLeaves, witnessNCols, pcsNCols, ell, proof.HashRelation)
 	if derr != nil {
 		return false, false, false, fmt.Errorf("VerifyNIZK: explicit domain: %w", derr)
 	}
@@ -346,26 +348,51 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if len(proof.TailTranscript) > 0 {
 		transcriptForRound3 = [][]byte{proof.TailTranscript}
 	}
-	h4, err := verifyRoundDigest(fs, 3, proof.Ctr[3], transcriptForRound3, proof.Digests[3], proof.Kappa[3])
+	_, err = verifyRoundDigest(fs, 3, proof.Ctr[3], transcriptForRound3, proof.Digests[3], proof.Kappa[3])
 	if err != nil {
 		return false, false, false, fmt.Errorf("VerifyNIZK: FS round 3: %w", err)
 	}
-	seed4 := h4
 	tailStart := ncols + ell
 	tailDomainSize := len(domainPoints)
 	tailLen := tailDomainSize - tailStart
 	if tailLen < ell {
 		return false, false, false, errors.New("VerifyNIZK: insufficient tail region")
 	}
-	derivedTail := sampleDistinctIndices(tailStart, tailLen, ell, newFSRNG("TailPoints", seed4))
-	if !equalIntSlices(derivedTail, proof.Tail) {
-		return false, false, false, errors.New("VerifyNIZK: tail indices mismatch")
+	if err := validateDistinctIndicesInRange(proof.Tail, tailStart, tailStart+tailLen); err != nil {
+		return false, false, false, fmt.Errorf("VerifyNIZK: invalid tail indices: %w", err)
 	}
 
 	// ----------------------------------------------------------------- LVCS EvalStep2
 	opening := expandPackedOpening(pcsOpening)
 	if opening == nil {
 		return false, false, false, errors.New("VerifyNIZK: invalid packed row opening")
+	}
+	expectedEvalEntries := len(proof.Tail) + ell
+	if opening.EntryCount() != expectedEvalEntries {
+		maskIdx := make([]int, ell)
+		for i := 0; i < ell; i++ {
+			maskIdx[i] = ncols + i
+		}
+		Qvals, qErr := interpolateReplayQRows(ringQ, vTargets, barSets, ncols)
+		if qErr != nil {
+			return false, false, false, fmt.Errorf("VerifyNIZK: replay Q rows for subset opening: %w", qErr)
+		}
+		rPolys := make([]*ring.Poly, len(proof.R))
+		for i := range proof.R {
+			rPolys[i] = coeffsToNTTIfFits(ringQ, proof.R[i])
+			if rPolys[i] == nil {
+				return false, false, false, fmt.Errorf("VerifyNIZK: R polynomial %d too large to materialize", i)
+			}
+		}
+		preparedBase, prepErr := prepareRowOpeningForVerify(opening, Gamma, rPolys, coeffMatrix, Qvals, barSets, maskIdx, proof.Tail, ncols, domainPoints, ringQ)
+		if prepErr != nil {
+			return false, false, false, fmt.Errorf("VerifyNIZK: prepare subset row opening: %w", prepErr)
+		}
+		subsetIdx := append(append([]int(nil), maskIdx...), proof.Tail...)
+		opening, err = buildSubsetOpening(preparedBase, subsetIdx, preparedBase.R, preparedBase.Eta)
+		if err != nil {
+			return false, false, false, fmt.Errorf("VerifyNIZK: subset row opening: %w", err)
+		}
 	}
 	okLin = vrf.EvalStep2(barSets, proof.Tail, opening, coeffMatrix, vTargets)
 	if !okLin {
@@ -550,24 +577,24 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 				witnessCount = len(vTargets[0])
 			}
 			ok, err := EvaluateConstraintsOnKPoints(replay.EvalK, EvalKInput{
-				K:            smallFieldK,
-				KPoints:      proof.KPoint,
-				VTargets:     vTargets,
-				QK:           QK,
-				MK:           MK,
-				GammaPrimeK:  proof.GammaPrimeK,
-				GammaAggK:    proof.GammaAggK,
-				WitnessCount: witnessCount,
-				Ring:         ringQ,
-				Fpar:         replay.Fpar,
-				Fagg:         replay.Fagg,
-				FparCoeffs:   replay.FparCoeffs,
-				FaggCoeffs:   replay.FaggCoeffs,
+				K:                smallFieldK,
+				KPoints:          proof.KPoint,
+				VTargets:         vTargets,
+				QK:               QK,
+				MK:               MK,
+				GammaPrimeK:      proof.GammaPrimeK,
+				GammaAggK:        proof.GammaAggK,
+				WitnessCount:     witnessCount,
+				Ring:             ringQ,
+				Fpar:             replay.Fpar,
+				Fagg:             replay.Fagg,
+				FparCoeffs:       replay.FparCoeffs,
+				FaggCoeffs:       replay.FaggCoeffs,
 				FparOverrideIdxs: replay.FparOverrideIdxs,
-				BoundRows:    replay.BoundRows,
-				CarryRows:    replay.CarryRows,
-				BoundB:       replay.BoundB,
-				CarryBound:   replay.CarryBound,
+				BoundRows:        replay.BoundRows,
+				CarryRows:        replay.CarryRows,
+				BoundB:           replay.BoundB,
+				CarryBound:       replay.CarryBound,
 			})
 			if err != nil || !ok {
 				if err == nil {
@@ -818,6 +845,274 @@ func prepareQOpeningForVerify(open *decs.DECSOpening, gammaQ, qr [][]uint64, poi
 	return open, nil
 }
 
+func interpolateReplayQRows(ringQ *ring.Ring, vTargets, barSets [][]uint64, ncols int) ([]*ring.Poly, error) {
+	if ringQ == nil {
+		return nil, errors.New("nil ring")
+	}
+	if len(vTargets) == 0 || len(barSets) == 0 {
+		return nil, errors.New("missing replay matrices")
+	}
+	if len(vTargets) != len(barSets) {
+		return nil, fmt.Errorf("VTargets rows=%d != BarSets rows=%d", len(vTargets), len(barSets))
+	}
+	ell := len(barSets[0])
+	qVals := make([]*ring.Poly, len(barSets))
+	for k := 0; k < len(barSets); k++ {
+		poly, interpErr := interpolateRowLocal(ringQ, vTargets[k], barSets[k], ncols, ell)
+		if interpErr != nil {
+			return nil, fmt.Errorf("interpolateRow(%d): %w", k, interpErr)
+		}
+		qVals[k] = ringQ.NewPoly()
+		ringQ.NTT(poly, qVals[k])
+	}
+	return qVals, nil
+}
+
+func prepareRowOpeningForVerify(
+	base *decs.DECSOpening,
+	gamma [][]uint64,
+	rPolys []*ring.Poly,
+	coeffMatrix [][]uint64,
+	qVals []*ring.Poly,
+	barSets [][]uint64,
+	maskIdx []int,
+	tail []int,
+	ncols int,
+	domainPoints []uint64,
+	ringQ *ring.Ring,
+) (*decs.DECSOpening, error) {
+	if base == nil {
+		return nil, errors.New("nil opening")
+	}
+	if ringQ == nil {
+		return nil, errors.New("nil ring")
+	}
+	open := expandPackedOpening(base)
+	if open == nil {
+		return nil, errors.New("failed to expand opening")
+	}
+	if open.R <= 0 || open.Eta <= 0 {
+		return nil, fmt.Errorf("invalid opening dimensions R=%d Eta=%d", open.R, open.Eta)
+	}
+	if len(gamma) < open.Eta {
+		return nil, fmt.Errorf("gamma rows=%d < eta=%d", len(gamma), open.Eta)
+	}
+	for k := 0; k < open.Eta; k++ {
+		if len(gamma[k]) < open.R {
+			return nil, fmt.Errorf("gamma row %d width=%d < R=%d", k, len(gamma[k]), open.R)
+		}
+	}
+	if open.FormatVersion == 1 {
+		if err := reconstructRowOpeningPvals(open, coeffMatrix, qVals, barSets, maskIdx, tail, ncols, domainPoints, ringQ); err != nil {
+			return nil, err
+		}
+	}
+	if open.MFormatVersion == 1 {
+		if err := reconstructRowOpeningMvals(open, gamma, rPolys, domainPoints, ringQ); err != nil {
+			return nil, err
+		}
+	}
+	return open, nil
+}
+
+func reconstructRowOpeningPvals(
+	open *decs.DECSOpening,
+	coeffMatrix [][]uint64,
+	qVals []*ring.Poly,
+	barSets [][]uint64,
+	maskIdx []int,
+	tail []int,
+	ncols int,
+	domainPoints []uint64,
+	ringQ *ring.Ring,
+) error {
+	if open == nil {
+		return errors.New("nil opening")
+	}
+	if ringQ == nil {
+		return errors.New("nil ring")
+	}
+	q := ringQ.Modulus[0]
+	if len(coeffMatrix) == 0 {
+		return errors.New("missing coefficient matrix")
+	}
+	omitCols, ok := compressionPivotCols(coeffMatrix, open.R, q)
+	if !ok || len(omitCols) == 0 {
+		return errors.New("compressed row opening is not reconstructible (P)")
+	}
+	if !equalIntSlices(open.POmitCols, omitCols) {
+		return fmt.Errorf("compressed row opening POmitCols mismatch got=%v want=%v", open.POmitCols, omitCols)
+	}
+	keepCols := compressionKeepCols(open.R, omitCols)
+	if open.PColsEncoded != len(keepCols) {
+		return fmt.Errorf("compressed row opening PColsEncoded=%d want=%d", open.PColsEncoded, len(keepCols))
+	}
+	if len(open.Pvals) != open.EntryCount() {
+		return fmt.Errorf("compressed row opening P row count=%d want=%d", len(open.Pvals), open.EntryCount())
+	}
+	for i := range open.Pvals {
+		if len(open.Pvals[i]) != len(keepCols) {
+			return fmt.Errorf("compressed row opening P row %d width=%d want=%d", i, len(open.Pvals[i]), len(keepCols))
+		}
+	}
+	a := make([][]uint64, len(coeffMatrix))
+	for i := range coeffMatrix {
+		if len(coeffMatrix[i]) < open.R {
+			return fmt.Errorf("compressed row opening coeff row %d width=%d < R=%d", i, len(coeffMatrix[i]), open.R)
+		}
+		a[i] = make([]uint64, len(omitCols))
+		for j, col := range omitCols {
+			a[i][j] = coeffMatrix[i][col] % q
+		}
+	}
+	if len(a) != len(omitCols) {
+		return fmt.Errorf("compressed row opening system rows=%d want %d", len(a), len(omitCols))
+	}
+	if len(qVals) < len(coeffMatrix) {
+		return fmt.Errorf("compressed row opening Q row count=%d < coeff rows=%d", len(qVals), len(coeffMatrix))
+	}
+	qCoeffRows := make([][]uint64, len(qVals))
+	tmp := ringQ.NewPoly()
+	for k := 0; k < len(qVals); k++ {
+		if qVals[k] == nil {
+			return fmt.Errorf("missing replay Q row %d", k)
+		}
+		ringQ.InvNTT(qVals[k], tmp)
+		qCoeffRows[k] = append([]uint64(nil), tmp.Coeffs[0]...)
+	}
+	if len(barSets) < len(coeffMatrix) {
+		return fmt.Errorf("compressed row opening BarSets rows=%d < coeff rows=%d", len(barSets), len(coeffMatrix))
+	}
+	aInv, ok := invertSquareMatrixMod(a, q)
+	if !ok {
+		return errors.New("compressed row opening P system is singular")
+	}
+	maskPosByIdx := make(map[int]int, len(maskIdx))
+	for pos, idx := range maskIdx {
+		maskPosByIdx[idx] = pos
+	}
+	maskEnd := ncols + len(maskIdx)
+	fullRows := make([][]uint64, open.EntryCount())
+	for t := 0; t < open.EntryCount(); t++ {
+		idx := open.IndexAt(t)
+		target := make([]uint64, len(coeffMatrix))
+		if pos, ok := maskPosByIdx[idx]; ok {
+			for k := 0; k < len(coeffMatrix); k++ {
+				if pos < 0 || pos >= len(barSets[k]) {
+					return fmt.Errorf("mask target pos=%d out of range for row %d", pos, k)
+				}
+				target[k] = barSets[k][pos] % q
+			}
+		} else if idx >= maskEnd {
+			if idx < 0 || idx >= len(domainPoints) {
+				return fmt.Errorf("tail index %d out of explicit domain range", idx)
+			}
+			x := domainPoints[idx] % q
+			for k := 0; k < len(coeffMatrix); k++ {
+				target[k] = EvalPoly(qCoeffRows[k], x, q)
+			}
+		} else {
+			return fmt.Errorf("compressed row opening index %d is neither mask nor tail", idx)
+		}
+		rhs := make([]uint64, len(coeffMatrix))
+		for k := 0; k < len(coeffMatrix); k++ {
+			known := uint64(0)
+			for j, col := range keepCols {
+				known = lvcs.MulAddMod64(known, coeffMatrix[k][col]%q, open.Pvals[t][j]%q, q)
+			}
+			rhs[k] = qSubMod(target[k], known, q)
+		}
+		missing := mulMatVecMod(aInv, rhs, q)
+		full := make([]uint64, open.R)
+		for j, col := range keepCols {
+			full[col] = open.Pvals[t][j] % q
+		}
+		for j, col := range omitCols {
+			full[col] = missing[j] % q
+		}
+		fullRows[t] = full
+	}
+	open.Pvals = fullRows
+	open.PvalsBits = nil
+	open.PvalsBitWidth = 0
+	open.FormatVersion = 0
+	open.PColsEncoded = 0
+	open.POmitCols = nil
+	return nil
+}
+
+func reconstructRowOpeningMvals(open *decs.DECSOpening, gamma [][]uint64, rPolys []*ring.Poly, domainPoints []uint64, ringQ *ring.Ring) error {
+	if open == nil {
+		return errors.New("nil opening")
+	}
+	if ringQ == nil {
+		return errors.New("nil ring")
+	}
+	if len(rPolys) < open.Eta {
+		return fmt.Errorf("row polynomial count=%d < eta=%d", len(rPolys), open.Eta)
+	}
+	q := ringQ.Modulus[0]
+	omitCols := append([]int(nil), open.MOmitCols...)
+	for _, col := range omitCols {
+		if col < 0 || col >= open.Eta {
+			return fmt.Errorf("compressed row opening MOmitCols contains out-of-range col %d", col)
+		}
+	}
+	sortedOmit := append([]int(nil), omitCols...)
+	sort.Ints(sortedOmit)
+	if !equalIntSlices(omitCols, sortedOmit) {
+		return fmt.Errorf("compressed row opening MOmitCols not sorted: got=%v want=%v", omitCols, sortedOmit)
+	}
+	keepCols := compressionKeepCols(open.Eta, omitCols)
+	if open.MColsEncoded != len(keepCols) {
+		return fmt.Errorf("compressed row opening MColsEncoded=%d want=%d", open.MColsEncoded, len(keepCols))
+	}
+	if len(open.Mvals) != 0 && len(open.Mvals) != open.EntryCount() {
+		return fmt.Errorf("compressed row opening M row count=%d want=%d", len(open.Mvals), open.EntryCount())
+	}
+	for i := range open.Mvals {
+		if len(open.Mvals[i]) != len(keepCols) {
+			return fmt.Errorf("compressed row opening M row %d width=%d want=%d", i, len(open.Mvals[i]), len(keepCols))
+		}
+	}
+	rCoeffRows := make([][]uint64, open.Eta)
+	tmp := ringQ.NewPoly()
+	for k := 0; k < open.Eta; k++ {
+		if rPolys[k] == nil {
+			return fmt.Errorf("missing row polynomial %d", k)
+		}
+		ringQ.InvNTT(rPolys[k], tmp)
+		rCoeffRows[k] = append([]uint64(nil), tmp.Coeffs[0]...)
+	}
+	fullRows := make([][]uint64, open.EntryCount())
+	for t := 0; t < open.EntryCount(); t++ {
+		idx := open.IndexAt(t)
+		full := make([]uint64, open.Eta)
+		for j, col := range keepCols {
+			full[col] = open.Mvals[t][j] % q
+		}
+		for _, k := range omitCols {
+			if idx < 0 || idx >= len(domainPoints) {
+				return fmt.Errorf("compressed row opening index %d out of explicit domain range", idx)
+			}
+			sum := uint64(0)
+			for j := 0; j < open.R; j++ {
+				sum = lvcs.MulAddMod64(sum, gamma[k][j]%q, open.Pvals[t][j]%q, q)
+			}
+			rEval := EvalPoly(rCoeffRows[k], domainPoints[idx]%q, q)
+			full[k] = qSubMod(rEval, sum, q)
+		}
+		fullRows[t] = full
+	}
+	open.Mvals = fullRows
+	open.MvalsBits = nil
+	open.MvalsBitWidth = 0
+	open.MFormatVersion = 0
+	open.MColsEncoded = 0
+	open.MOmitCols = nil
+	return nil
+}
+
 func invertSquareMatrixMod(a [][]uint64, mod uint64) ([][]uint64, bool) {
 	n := len(a)
 	if n == 0 {
@@ -959,6 +1254,23 @@ func equalIntSlices(a, b []int) bool {
 	return true
 }
 
+func validateDistinctIndicesInRange(indices []int, start, end int) error {
+	if end < start {
+		return fmt.Errorf("invalid range [%d,%d)", start, end)
+	}
+	seen := make(map[int]struct{}, len(indices))
+	for _, idx := range indices {
+		if idx < start || idx >= end {
+			return fmt.Errorf("index %d outside [%d,%d)", idx, start, end)
+		}
+		if _, ok := seen[idx]; ok {
+			return fmt.Errorf("duplicate index %d", idx)
+		}
+		seen[idx] = struct{}{}
+	}
+	return nil
+}
+
 // checkEq4OnEvalOpen replays Eq.(4) on provided evaluation rows (theta==1).
 func checkEq4OnEvalOpen(
 	ringQ *ring.Ring,
@@ -1091,6 +1403,7 @@ func verifyLVCSConstraints(
 	maskIdx []int,
 	tail []int,
 	ncols int,
+	domainPoints []uint64,
 ) (bool, error) {
 	base := resolveProofPCSOpening(proof)
 	if base == nil {
@@ -1110,11 +1423,19 @@ func verifyLVCSConstraints(
 	if eta <= 0 {
 		eta = len(Gamma)
 	}
-	maskOpen, err := buildSubsetOpening(base, maskIdx, rowCount, eta)
+	Qvals, err := interpolateReplayQRows(ringQ, vTargets, barSets, ncols)
+	if err != nil {
+		return false, fmt.Errorf("VerifyNIZK: replay Q rows: %w", err)
+	}
+	preparedBase, err := prepareRowOpeningForVerify(base, Gamma, Rpolys, coeffMatrix, Qvals, barSets, maskIdx, tail, ncols, domainPoints, ringQ)
+	if err != nil {
+		return false, fmt.Errorf("VerifyNIZK: prepare row opening: %w", err)
+	}
+	maskOpen, err := buildSubsetOpening(preparedBase, maskIdx, rowCount, eta)
 	if err != nil {
 		return false, fmt.Errorf("VerifyNIZK: mask opening: %w", err)
 	}
-	tailOpen, err := buildSubsetOpening(base, tail, rowCount, eta)
+	tailOpen, err := buildSubsetOpening(preparedBase, tail, rowCount, eta)
 	if err != nil {
 		return false, fmt.Errorf("VerifyNIZK: tail opening: %w", err)
 	}
@@ -1135,10 +1456,10 @@ func verifyLVCSConstraints(
 		}
 	}
 	subsetParams := decs.Params{Degree: params.Degree, Eta: eta, NonceBytes: params.NonceBytes}
-	if err := verifyDECSSubset(ringQ, proof.Root, subsetParams, Gamma, Rpolys, maskOpen, maskIdx); err != nil {
+	if err := verifyDECSSubset(ringQ, proof.Root, subsetParams, Gamma, Rpolys, maskOpen, maskIdx, domainPoints); err != nil {
 		return false, fmt.Errorf("VerifyNIZK: mask subset: %w", err)
 	}
-	if err := verifyDECSSubset(ringQ, proof.Root, subsetParams, Gamma, Rpolys, tailOpen, tail); err != nil {
+	if err := verifyDECSSubset(ringQ, proof.Root, subsetParams, Gamma, Rpolys, tailOpen, tail, domainPoints); err != nil {
 		return false, fmt.Errorf("VerifyNIZK: tail subset: %w", err)
 	}
 	if len(coeffMatrix) != len(barSets) || len(coeffMatrix) != len(vTargets) {
@@ -1160,16 +1481,6 @@ func verifyLVCSConstraints(
 				return false, fmt.Errorf("VerifyNIZK: masked linear relation mismatch k=%d pos=%d sum=%d target=%d", k, maskedPos, sum, barSets[k][maskedPos]%mod)
 			}
 		}
-	}
-	ell := len(barSets[0])
-	Qvals := make([]*ring.Poly, len(barSets))
-	for k := 0; k < len(barSets); k++ {
-		poly, interpErr := interpolateRowLocal(ringQ, vTargets[k], barSets[k], ncols, ell)
-		if interpErr != nil {
-			return false, fmt.Errorf("VerifyNIZK: interpolateRow(%d): %w", k, interpErr)
-		}
-		Qvals[k] = ringQ.NewPoly()
-		ringQ.NTT(poly, Qvals[k])
 	}
 	for t, idx := range tail {
 		row := tailOpen.Pvals[t]
@@ -1199,12 +1510,23 @@ func buildSubsetOpening(base *decs.DECSOpening, indices []int, rowCount, eta int
 		idx := base.IndexAt(i)
 		posByIdx[idx] = i
 	}
+	maskCount := 0
+	maskBase := 0
+	if len(indices) > 0 {
+		maskBase = indices[0]
+		for maskCount < len(indices) && indices[maskCount] == maskBase+maskCount {
+			maskCount++
+		}
+	}
+	tailCount := len(indices) - maskCount
 	nonceBytes := base.NonceBytes
 	if nonceBytes <= 0 && len(base.Nonces) > 0 && len(base.Nonces[0]) > 0 {
 		nonceBytes = len(base.Nonces[0])
 	}
 	sub := &decs.DECSOpening{
-		Indices:    make([]int, len(indices)),
+		MaskBase:   maskBase,
+		MaskCount:  maskCount,
+		Indices:    make([]int, tailCount),
 		Pvals:      make([][]uint64, len(indices)),
 		Nodes:      append([][]byte(nil), base.Nodes...),
 		R:          rowCount,
@@ -1226,7 +1548,9 @@ func buildSubsetOpening(base *decs.DECSOpening, indices []int, rowCount, eta int
 		if !ok {
 			return nil, fmt.Errorf("opening missing index %d", idx)
 		}
-		sub.Indices[i] = idx
+		if i >= maskCount {
+			sub.Indices[i-maskCount] = idx
+		}
 		if len(base.Pvals) > 0 {
 			sub.Pvals[i] = append([]uint64(nil), base.Pvals[pos]...)
 		} else {
@@ -1313,7 +1637,7 @@ func interpolateRowLocal(ringQ *ring.Ring, row []uint64, mask []uint64, ncols, e
 	return P, nil
 }
 
-func verifyDECSSubset(ringQ *ring.Ring, root [16]byte, params decs.Params, Gamma [][]uint64, R []*ring.Poly, open *decs.DECSOpening, indices []int) error {
+func verifyDECSSubset(ringQ *ring.Ring, root [16]byte, params decs.Params, Gamma [][]uint64, R []*ring.Poly, open *decs.DECSOpening, indices []int, points []uint64) error {
 	entryCount := open.EntryCount()
 	if len(indices) != entryCount {
 		return fmt.Errorf("DECS subset: index length mismatch")
@@ -1325,16 +1649,21 @@ func verifyDECSSubset(ringQ *ring.Ring, root [16]byte, params decs.Params, Gamma
 	if len(R) != params.Eta {
 		return fmt.Errorf("DECS subset: R count mismatch")
 	}
-	Re := make([]*ring.Poly, params.Eta)
+	Rcoeffs := make([][]uint64, params.Eta)
 	for k := 0; k < params.Eta; k++ {
-		poly := ringQ.NewPoly()
-		ringQ.NTT(R[k], poly)
-		Re[k] = poly
+		coeffs, err := coeffFromNTTPoly(ringQ, R[k])
+		if err != nil {
+			return fmt.Errorf("DECS subset: R[%d] coeffs: %w", k, err)
+		}
+		Rcoeffs[k] = coeffs
 	}
 	mod := ringQ.Modulus[0]
 	for t, idx := range indices {
 		if idx < 0 || idx >= int(ringQ.N) {
 			return fmt.Errorf("DECS subset: index %d out of range", idx)
+		}
+		if idx >= len(points) {
+			return fmt.Errorf("DECS subset: point index %d out of range (points=%d)", idx, len(points))
 		}
 		buf := make([]byte, 4*(rowCount+params.Eta)+2+params.NonceBytes)
 		off := 0
@@ -1371,8 +1700,9 @@ func verifyDECSSubset(ringQ *ring.Ring, root [16]byte, params decs.Params, Gamma
 		if !decs.VerifyPath(buf, path, root, idx) {
 			return fmt.Errorf("DECS subset: Merkle verification failed at idx=%d", idx)
 		}
+		x := points[idx] % mod
 		for k := 0; k < params.Eta; k++ {
-			lhs := Re[k].Coeffs[0][idx] % mod
+			lhs := EvalPoly(Rcoeffs[k], x, mod)
 			rhs := mvals[k]
 			for j := 0; j < rowCount; j++ {
 				rhs = lvcs.MulAddMod64(rhs, Gamma[k][j], pvals[j], mod)

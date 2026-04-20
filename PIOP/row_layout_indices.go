@@ -45,6 +45,9 @@ func rowLayoutPostSignTSourceCount(layout RowLayout) int {
 	}
 	return 1
 }
+func rowLayoutUsesCommittedTSourceBridge(layout RowLayout) bool {
+	return rowLayoutPostSignTSource(layout) >= 0 && rowLayoutPostSignTSourceCount(layout) > 0
+}
 func rowLayoutPostSignSigHatBase(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxSigHatBase, -1)
 }

@@ -66,9 +66,6 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 		sourceBlocks = 1
 	}
 	tSourceCount := rowLayoutPostSignTSourceCount(layout)
-	if tSourceCount <= 0 {
-		tSourceCount = sourceBlocks
-	}
 	replayTHatCount := rowLayoutReplayTHatCount(layout)
 	if replayTHatCount <= 0 {
 		replayTHatCount = 1
@@ -83,14 +80,6 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if replayBlockCount > sourceBlocks {
 		return ConstraintSet{}, fmt.Errorf("replay blocks=%d exceed source blocks=%d", replayBlockCount, sourceBlocks)
 	}
-	cfg := layout.CoeffNativeSig
-	componentCount := cfg.SigComponentCount
-	if componentCount <= 0 {
-		componentCount = len(pub.A[0])
-	}
-	if componentCount != len(pub.A[0]) {
-		return ConstraintSet{}, fmt.Errorf("signature component mismatch: layout=%d want %d", componentCount, len(pub.A[0]))
-	}
 	useBBTran := publicUsesBBTran(pub)
 
 	carrierMIdx := rowLayoutPostSignCarrierM(layout)
@@ -99,22 +88,18 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if carrierMIdx < 0 || carrierCtrIdx < 0 {
 		return ConstraintSet{}, fmt.Errorf("missing carrier rows (M=%d ctr=%d)", carrierMIdx, carrierCtrIdx)
 	}
-	if tSourceIdx < 0 {
-		return ConstraintSet{}, fmt.Errorf("missing committed T source row")
-	}
-	if carrierMIdx >= len(rowsNTT) || carrierCtrIdx >= len(rowsNTT) || tSourceIdx+tSourceCount > len(rowsNTT) {
+	if carrierMIdx >= len(rowsNTT) || carrierCtrIdx >= len(rowsNTT) {
 		return ConstraintSet{}, fmt.Errorf("showing source row index out of range (rows=%d)", len(rowsNTT))
+	}
+	usesCommittedTSourceBridge := rowLayoutUsesCommittedTSourceBridge(layout)
+	if usesCommittedTSourceBridge && tSourceIdx+tSourceCount > len(rowsNTT) {
+		return ConstraintSet{}, fmt.Errorf("showing T source row range [%d,%d) out of bounds (rows=%d)", tSourceIdx, tSourceIdx+tSourceCount, len(rowsNTT))
 	}
 	if layout.IdxMHatSigma < 0 || layout.IdxRHat0 < 0 || layout.IdxRHat1 < 0 || layout.IdxTHatBase < 0 {
 		return ConstraintSet{}, fmt.Errorf("missing transform-domain replay rows")
 	}
 	if useBBTran && (layout.IdxMSigmaR1 < 0 || layout.IdxR0R1 < 0 || layout.IdxMSigmaR1Hat < 0 || layout.IdxR0R1Hat < 0) {
 		return ConstraintSet{}, fmt.Errorf("bb_tran showing requires committed product rows and replay hats")
-	}
-
-	specSig, err := signatureChainSpecForLayoutAndOpts(q, layout, opts)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("signature chain spec: %w", err)
 	}
 
 	thetaBBlocks := make([][][]uint64, replayBlockCount)
@@ -138,18 +123,6 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 			thetaBBlocks[b][i] = trimPoly(coeff, q)
 		}
 	}
-	aHeads := make([][][]uint64, replayTHatCount)
-	for b := 0; b < replayTHatCount; b++ {
-		aHeads[b] = make([][]uint64, componentCount)
-		for comp := 0; comp < componentCount; comp++ {
-			head, herr := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omega, b, sourceBlocks)
-			if herr != nil {
-				return ConstraintSet{}, fmt.Errorf("theta A head block %d comp %d: %w", b, comp, herr)
-			}
-			aHeads[b][comp] = head
-		}
-	}
-
 	msgDecode1, msgDecode2, err := buildPackedMessageCarrierDecodePolys(bound, q)
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("message carrier decode polys: %w", err)
@@ -282,13 +255,16 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 			productSourceRes = append(productSourceRes, nttPolyFromFormalCoeffsIfFits(ringQ, resCoeff))
 		}
 	}
-	tSourceCoeffs := make([][]uint64, tSourceCount)
-	for bSrc := 0; bSrc < tSourceCount; bSrc++ {
-		tSourceCoeff, err := getRowCoeff(tSourceIdx + bSrc)
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("t source coeffs block %d: %w", bSrc, err)
+	var tSourceCoeffs [][]uint64
+	if usesCommittedTSourceBridge {
+		tSourceCoeffs = make([][]uint64, tSourceCount)
+		for bSrc := 0; bSrc < tSourceCount; bSrc++ {
+			tSourceCoeff, err := getRowCoeff(tSourceIdx + bSrc)
+			if err != nil {
+				return ConstraintSet{}, fmt.Errorf("t source coeffs block %d: %w", bSrc, err)
+			}
+			tSourceCoeffs[bSrc] = tSourceCoeff
 		}
-		tSourceCoeffs[bSrc] = tSourceCoeff
 	}
 	tHatCoeffs := make([][]uint64, replayTHatCount)
 	for b := 0; b < replayTHatCount; b++ {
@@ -363,67 +339,30 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("transform-bridge basis: %w", err)
 	}
-	faggNorm := make([]*ring.Poly, 0, 2*replayTHatCount*ncols+3*replayBlockCount*ncols)
-	faggNormCoeffs := make([][]uint64, 0, 2*replayTHatCount*ncols+3*replayBlockCount*ncols)
-	for b := 0; b < replayTHatCount; b++ {
-		tCoeff, err := getRowCoeff(layout.IdxTHatBase + b)
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("t-hat block %d coeffs: %w", b, err)
-		}
-		for j := 0; j < ncols; j++ {
-			t := b*ncols + j
-			leftCoeff := []uint64{0}
-			for comp := 0; comp < componentCount; comp++ {
-				aScale := aHeads[b][comp][j] % q
-				if aScale == 0 {
-					continue
-				}
-				for bSrc := 0; bSrc < sourceBlocks; bSrc++ {
+	faggNorm := make([]*ring.Poly, 0, (1+3+2)*replayBlockCount*ncols)
+	faggNormCoeffs := make([][]uint64, 0, (1+3+2)*replayBlockCount*ncols)
+	if usesCommittedTSourceBridge {
+		for b := 0; b < replayTHatCount; b++ {
+			tCoeff, err := getRowCoeff(layout.IdxTHatBase + b)
+			if err != nil {
+				return ConstraintSet{}, fmt.Errorf("t-hat block %d coeffs: %w", b, err)
+			}
+			for j := 0; j < ncols; j++ {
+				t := b*ncols + j
+				leftCoeff := []uint64{0}
+				for bSrc := 0; bSrc < tSourceCount; bSrc++ {
 					blockScale := bridgeBasis.BlockFactors[t][bSrc] % q
-					for lane := 0; lane < specSig.L; lane++ {
-						limbIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, bSrc, lane)
-						if limbIdx < 0 {
-							return ConstraintSet{}, fmt.Errorf("missing limb row for comp=%d block=%d lane=%d", comp, bSrc, lane)
-						}
-						limbCoeff, err := getRowCoeff(limbIdx)
-						if err != nil {
-							return ConstraintSet{}, fmt.Errorf("limb coeffs (comp=%d block=%d lane=%d): %w", comp, bSrc, lane, err)
-						}
-						scale := modMul(aScale, modMul(blockScale, specSig.RPows[lane]%q, q), q)
-						term := polyMul(bridgeBasis.TransformH[t], limbCoeff, q)
-						if scale != 1 {
-							term = scalePoly(term, scale, q)
-						}
-						leftCoeff = polyAdd(leftCoeff, term, q)
+					term := polyMul(bridgeBasis.TransformH[t], tSourceCoeffs[bSrc], q)
+					if blockScale != 1 {
+						term = scalePoly(term, blockScale, q)
 					}
+					leftCoeff = polyAdd(leftCoeff, term, q)
 				}
+				rightCoeff := polyMul(bridgeBasis.LagrangeBasis[j], tCoeff, q)
+				bridgeCoeff := polySub(leftCoeff, rightCoeff, q)
+				faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
+				faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
 			}
-			rightCoeff := polyMul(bridgeBasis.LagrangeBasis[j], tCoeff, q)
-			bridgeCoeff := polySub(leftCoeff, rightCoeff, q)
-			faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
-			faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
-		}
-	}
-	for b := 0; b < replayTHatCount; b++ {
-		tCoeff, err := getRowCoeff(layout.IdxTHatBase + b)
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("t-hat block %d coeffs: %w", b, err)
-		}
-		for j := 0; j < ncols; j++ {
-			t := b*ncols + j
-			leftCoeff := []uint64{0}
-			for bSrc := 0; bSrc < tSourceCount; bSrc++ {
-				blockScale := bridgeBasis.BlockFactors[t][bSrc] % q
-				term := polyMul(bridgeBasis.TransformH[t], tSourceCoeffs[bSrc], q)
-				if blockScale != 1 {
-					term = scalePoly(term, blockScale, q)
-				}
-				leftCoeff = polyAdd(leftCoeff, term, q)
-			}
-			rightCoeff := polyMul(bridgeBasis.LagrangeBasis[j], tCoeff, q)
-			bridgeCoeff := polySub(leftCoeff, rightCoeff, q)
-			faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
-			faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
 		}
 	}
 	for _, pair := range []struct {

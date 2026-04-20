@@ -462,6 +462,15 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if proof.PRFCompanion != nil && proof.PRFCompanion.Layout == nil {
 			proof.PRFCompanion.Layout = clonePRFCompanionLayout(set.PRFCompanionLayout)
 		}
+		if rowLayoutHasCoeffNativeSig(rowLayout) && rowLayoutCoeffNativeUsesLiteralPacked(rowLayout) {
+			sigShortness, serr := buildSigShortnessProofV4(ringQ, pk, proof, pub, omegaWitness, opts)
+			if serr != nil {
+				return nil, fmt.Errorf("build sig shortness: %w", serr)
+			}
+			if sigShortness != nil {
+				proof.SigShortness = sigShortness
+			}
+		}
 		return proof, nil
 	}
 	return nil, fmt.Errorf("unsupported non-credential BuildWithConstraints path")
@@ -573,6 +582,9 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		}
 		witnessRows := proof.RowLayout.SigCount
 		if witnessRows <= 0 {
+			witnessRows = proof.PCSGeometry.LogicalWitnessPolys
+		}
+		if witnessRows <= 0 {
 			witnessRows = proof.MaskRowOffset
 		}
 		if witnessRows > 0 {
@@ -595,11 +607,8 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			carryRows         []int
 			boundB            int64
 			carryBound        int64
-			sigChainEval      ConstraintEvaluator
-			sigChainEvalK     KConstraintEvaluator
 			prfCompanionEval  ConstraintEvaluator
 			prfCompanionEvalK KConstraintEvaluator
-			sigChainEnd       int
 		)
 		if proof.Theta > 1 {
 			if len(proof.Chi) == 0 {
@@ -638,43 +647,6 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			rowCount = literalPackedPostSignReplayRowCount(proof.RowLayout)
 			haveCred = true
 
-			if proof.RowLayout.PackedSigChainRowsPerGroup > 0 && proof.RowLayout.PackedSigChainBase >= 0 {
-				spec, err := signatureChainSpecForLayoutAndOpts(ringQ.Modulus[0], proof.RowLayout, opts)
-				if err != nil {
-					return false, fmt.Errorf("signature chain spec: %w", err)
-				}
-				wantRowsPer, err := signaturePackedChainRowsPerGroupForOpts(spec, opts, proof.RowLayout.PackedSigChainGroupSize)
-				if err != nil {
-					return false, fmt.Errorf("signature packed chain rows-per-group: %w", err)
-				}
-				if proof.RowLayout.PackedSigChainRowsPerGroup != wantRowsPer {
-					return false, fmt.Errorf("invalid signature packed chain rows-per-group=%d want %d", proof.RowLayout.PackedSigChainRowsPerGroup, wantRowsPer)
-				}
-				cfgBounds := SigCoeffBoundsConfig{
-					Ring:               ringQ,
-					Spec:               spec,
-					PackedSourceBase:   cfgLayout.PackedSigBase,
-					PackedSourceCount:  cfgLayout.PackedSigCount,
-					PackedChainBase:    proof.RowLayout.PackedSigChainBase,
-					PackedGroupCount:   proof.RowLayout.PackedSigChainGroupCount,
-					PackedGroupSize:    proof.RowLayout.PackedSigChainGroupSize,
-					PackedRowsPerGroup: proof.RowLayout.PackedSigChainRowsPerGroup,
-					Omega:              omegaWitness,
-					DomainPoints:       domainPoints,
-					Layout:             proof.RowLayout,
-					Root:               proof.Root,
-					BridgeChecks:       0,
-				}
-				sigChainEval = cfgBounds.SigCoeffBoundsEvaluator()
-				sigChainEnd = cfgBounds.PackedChainBase + cfgBounds.PackedGroupCount*cfgBounds.PackedRowsPerGroup
-				if proof.Theta > 1 && K != nil {
-					ek, err := cfgBounds.SigCoeffBoundsKEvaluator(K)
-					if err != nil {
-						return false, err
-					}
-					sigChainEvalK = ek
-				}
-			}
 		} else if set.PRFLayout == nil && (len(pub.Ac) > 0 || len(pub.Com) > 0 || len(pub.B) > 0 || len(pub.RI0) > 0 || len(pub.RI1) > 0) {
 			cfgPre, cerr := newPreSignTransformBridgeConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, pub.BoundB)
 			if cerr != nil {
@@ -754,16 +726,6 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			}
 			havePRF = true
 		}
-		// Append signature ℓ∞ chain constraints last.
-		if sigChainEval != nil {
-			eval = composeEvaluators(eval, sigChainEval)
-			if proof.Theta > 1 && K != nil && sigChainEvalK != nil {
-				evalK = composeKEvaluators(evalK, sigChainEvalK)
-			}
-			if sigChainEnd > rowCount {
-				rowCount = sigChainEnd
-			}
-		}
 		if prfCompanionEval != nil {
 			eval = composeEvaluators(eval, prfCompanionEval)
 			if proof.Theta > 1 && K != nil && prfCompanionEvalK != nil {
@@ -823,6 +785,9 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			if cerr := verifyPRFCompanionOpenings(set.PRFCompanionLayout, proof, params, pub.Tag, pub.Nonce); cerr != nil {
 				return false, cerr
 			}
+		}
+		if err := VerifySigShortnessProof(proof, ringQ, omegaWitness, pub, opts); err != nil {
+			return false, fmt.Errorf("verify sig shortness: %w", err)
 		}
 		return true, nil
 	}

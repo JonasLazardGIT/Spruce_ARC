@@ -58,7 +58,7 @@ type WitnessGeometrySnapshot struct {
 
 func replayPRFRowCount(layout *PRFLayout, companion *PRFCompanionLayout) int {
 	if companion != nil {
-		return companion.PackedRows
+		return len(prfCompanionSelectedReplayRows(companion))
 	}
 	if layout == nil {
 		return 0

@@ -344,6 +344,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				return fmt.Errorf("build prf companion bridge: %w", berr)
 			}
 			if bridge != nil {
+				layoutForProof := clonePRFCompanionLayout(args.prfCompanionLayout)
 				if bridgeInQ {
 					args.FaggNorm = append(args.FaggNorm, bridge.Families...)
 					args.FaggNormCoeffs = append(args.FaggNormCoeffs, bridge.Coeffs...)
@@ -354,7 +355,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 					Mode:              companionMode,
 					CheckpointSamples: checkpointSamples,
 					BridgeInQ:         bridgeInQ,
-					Layout:            clonePRFCompanionLayout(args.prfCompanionLayout),
+					Layout:            layoutForProof,
 					BridgeChecks:      copyMatrix(bridge.BridgeChecks),
 					CoordDigest:       append([]byte(nil), bridge.CoordDigest...),
 				}
@@ -619,7 +620,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				if zeroTail || conflict {
 					continue
 				}
-				coeffBlock := buildKPointCoeffMatrix(ringQ, args.smallFieldK, omegaWitness, args.rows, candidate, args.smallFieldOmegaS1, args.smallFieldMuInv, args.maskRowOffset, args.maskRowCount)
+				coeffBlock := buildKPointCoeffMatrix(ringQ, args.smallFieldK, omegaWitness, args.rows, candidate, args.smallFieldOmegaS1, args.smallFieldMuInv, args.pcsGeometry.ReplayWitnessRows, args.maskRowOffset, args.maskRowCount)
 				coeffMatrix = append(coeffMatrix, coeffBlock...)
 				for i := range coeffBlock {
 					rowCopy := append([]uint64(nil), coeffBlock[i]...)
@@ -765,7 +766,6 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			}
 			E := sampleDistinctIndices(tailStart, tailLen, args.ell, tailRNG)
 			proof.Tail = append([]int(nil), E...)
-
 			maskIdx := make([]int, args.ell)
 			for i := 0; i < args.ell; i++ {
 				maskIdx[i] = args.ncols + i
@@ -827,7 +827,6 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		tailRNG := round4.RNG
 		E := sampleDistinctIndices(tailStart, tailLen, args.ell, tailRNG)
 		proof.Tail = append([]int(nil), E...)
-
 		maskIdx := make([]int, args.ell)
 		for i := 0; i < args.ell; i++ {
 			maskIdx[i] = args.ncols + i
@@ -839,6 +838,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		proof.PCSOpening.R = len(args.rowInputs)
 		proof.PCSOpening.Eta = args.decsParams.Eta
 		maybeCompressRowOpeningPvals(proof.PCSOpening, coeffMatrix, args.q)
+		omitAllRowOpeningMvals(proof.PCSOpening)
 		decs.PackOpening(proof.PCSOpening)
 		proof.RowOpening = proof.PCSOpening
 

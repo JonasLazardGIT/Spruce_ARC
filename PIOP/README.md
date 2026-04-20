@@ -6,7 +6,7 @@ Its job is to turn the shipped statements into the current SmallWood-style proof
 stack:
 
 - issuance / pre-sign proving
-- showing in the one-root `v3` layout
+- showing in the one-root `v3` layout with PRF companion and `SigShortness` V4
 
 ## Main Responsibilities
 
@@ -34,6 +34,8 @@ stack:
   `literal_packed_aggregated_v3`
 - coeff-native showing witness at the caller boundary
 - grouped PRF checkpoints in the showing statement
+- reduced showing authenticates the signature through committed `THat` plus
+  shortness, not through the legacy signature-source replay basis
 
 ## Read Next
 

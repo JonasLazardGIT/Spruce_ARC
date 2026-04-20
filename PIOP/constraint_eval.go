@@ -49,6 +49,7 @@ type EvalKInput struct {
 // EvalTailInput carries tail-opening data for Eq.(4) replay.
 type EvalTailInput struct {
 	Tail             []int
+	SelectedRows     []int
 	RowOpen          *decs.DECSOpening
 	QOpen            *decs.DECSOpening
 	GammaPrime       [][][]uint64
@@ -362,6 +363,10 @@ func EvaluateConstraintsOnTailOpen(eval ConstraintEvaluator, in EvalTailInput) (
 		}
 	}
 	rowCount := in.RowCount
+	selectedRows := in.SelectedRows
+	if len(selectedRows) > 0 {
+		rowCount = len(selectedRows)
+	}
 	if rowCount <= 0 {
 		if in.RowOpen.R > 0 {
 			rowCount = in.RowOpen.R
@@ -412,8 +417,17 @@ func EvaluateConstraintsOnTailOpen(eval ConstraintEvaluator, in EvalTailInput) (
 			return false, fmt.Errorf("Q opening missing idx %d", idx)
 		}
 		rowVals := make([]uint64, rowCount)
-		for j := 0; j < rowCount; j++ {
-			rowVals[j] = decs.GetOpeningPval(in.RowOpen, posRow, j) % q
+		if len(selectedRows) > 0 {
+			for j, rowIdx := range selectedRows {
+				if rowIdx < 0 || rowIdx >= openRowCount {
+					return false, fmt.Errorf("selected row idx %d out of range (rows=%d)", rowIdx, openRowCount)
+				}
+				rowVals[j] = decs.GetOpeningPval(in.RowOpen, posRow, rowIdx) % q
+			}
+		} else {
+			for j := 0; j < rowCount; j++ {
+				rowVals[j] = decs.GetOpeningPval(in.RowOpen, posRow, j) % q
+			}
 		}
 		fpar, fagg, err := eval(uint64(idx), rowVals)
 		if err != nil {

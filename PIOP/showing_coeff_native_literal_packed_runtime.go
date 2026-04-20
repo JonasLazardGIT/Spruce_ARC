@@ -633,15 +633,19 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	rows = append(rows, makeRowFromHead(carrierMHead))
 	idxCarrierCtr := len(rows)
 	rows = append(rows, makeRowFromHead(carrierCtrHead))
-	idxTSource := len(rows)
-	for block := 0; block < blocks; block++ {
-		start := block * ncols
-		end := start + ncols
-		tSourceHead := append([]uint64(nil), cn.T.Coeffs[0][start:end]...)
-		for i := range tSourceHead {
-			tSourceHead[i] %= q
+	idxTSource := -1
+	usesCommittedTSourceBridge := opts.ShowingReplayMode == ShowingReplayModeFull
+	if usesCommittedTSourceBridge {
+		idxTSource = len(rows)
+		for block := 0; block < blocks; block++ {
+			start := block * ncols
+			end := start + ncols
+			tSourceHead := append([]uint64(nil), cn.T.Coeffs[0][start:end]...)
+			for i := range tSourceHead {
+				tSourceHead[i] %= q
+			}
+			rows = append(rows, makeRowFromHead(tSourceHead))
 		}
-		rows = append(rows, makeRowFromHead(tSourceHead))
 	}
 
 	msgDecode1, msgDecode2, derr := buildPackedMessageCarrierDecodePolys(pub.BoundB, q)
@@ -755,33 +759,35 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 
 	replayTHatCount := replayBlockCount
 	idxTHatBase := len(rows)
-	tHatHeads, terr := buildReplayHeadsFromSourceRows(ringQ, rows[idxTSource:idxTSource+blocks], explicitOmega, replayTHatCount, "T source")
-	if terr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build T replay heads: %w", terr)
+	var tHatHeads [][]uint64
+	if usesCommittedTSourceBridge {
+		var terr error
+		tHatHeads, terr = buildReplayHeadsFromSourceRows(ringQ, rows[idxTSource:idxTSource+blocks], explicitOmega, replayTHatCount, "T source")
+		if terr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build T replay heads: %w", terr)
+		}
+	} else {
+		sigHatHeads, terr := buildSigHatHeadsFromPackedSigHeads(ringQ, packedWitness.SigHeads, ncols)
+		if terr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build sig hats from packed heads: %w", terr)
+		}
+		tHatHeads, terr = buildTHatHeadsFromSigHatHeads(ringQ, pub, explicitOmega, sigHatHeads, replayTHatCount, blocks)
+		if terr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build T replay heads from signature hats: %w", terr)
+		}
 	}
 	for block := 0; block < replayTHatCount; block++ {
 		rows = append(rows, makeRowFromHead(tHatHeads[block]))
 	}
+
+	packedSigBase := -1
+	packedSigCount := 0
 
 	packedSigChainBase := -1
 	packedSigChainGroupCount := 0
 	packedSigChainGroupSize := 0
 	packedSigChainRowsPerGroup := 0
 	sigSignedChain := false
-	packedSigChainBase = len(rows)
-	for block := 0; block < blocks; block++ {
-		for comp := 0; comp < len(packedWitness.SigLimbs); comp++ {
-			for lane := 0; lane < len(packedWitness.SigLimbs[comp][block]); lane++ {
-				coeff := ringQ.NewPoly()
-				ringQ.InvNTT(packedWitness.SigLimbs[comp][block][lane], coeff)
-				rows = append(rows, coeff)
-			}
-		}
-	}
-	packedSigChainGroupCount = len(cn.Sig) * blocks
-	packedSigChainGroupSize = ncols
-	packedSigChainRowsPerGroup = spec.L
-	sigSignedChain = true
 
 	if prfGroupRounds <= 0 {
 		prfGroupRounds = 1
@@ -847,9 +853,9 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.RndRangeBase = -1
 	layout.X1RangeBase = -1
 	layout.NonSigBoundRowsPer = 0
-	layout.SigPrimaryLimbRows = packedSigChainGroupCount * packedSigChainRowsPerGroup
+	layout.SigPrimaryLimbRows = 0
 	layout.ScalarBundleRows = 0
-	layout.SigBoundSliceRows = layout.SigPrimaryLimbRows
+	layout.SigBoundSliceRows = 0
 	layout.PostSignScalarProjectionRows = 0
 	layout.PostSignScalarCertificateRows = 0
 	layout.PRFScalarBundleRows = len(rows) - startIdx
@@ -878,8 +884,8 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		OutputBlockWidth:    ncols,
 		W1SigBase:           -1,
 		W1SigCount:          0,
-		PackedSigBase:       -1,
-		PackedSigCount:      0,
+		PackedSigBase:       packedSigBase,
+		PackedSigCount:      packedSigCount,
 		PackedSigBlocks:     blocks,
 		PackedSigComponents: len(cn.Sig),
 		PackedSigBlockWidth: ncols,
@@ -930,6 +936,7 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			CheckpointSlots:    packed.CheckpointSlots,
 			FinalTagSlots:      packed.FinalTagSlots,
 			HelperFamilies:     helperFamilies,
+			ReplayRows:         len(packed.Rows),
 			PackedRows:         len(packed.Rows),
 			PackedLogicalCount: packed.TotalLogicalScalars,
 			HelperRowCount:     helperRows,
@@ -943,6 +950,27 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	}
 	layout.PRFScalarBundleRows = len(rows) - startIdx
 	layout.SigCount = len(rows)
+
+	packedSigChainBase = len(rows)
+	for block := 0; block < blocks; block++ {
+		for comp := 0; comp < len(packedWitness.SigLimbs); comp++ {
+			for lane := 0; lane < len(packedWitness.SigLimbs[comp][block]); lane++ {
+				coeff := ringQ.NewPoly()
+				ringQ.InvNTT(packedWitness.SigLimbs[comp][block][lane], coeff)
+				rows = append(rows, coeff)
+			}
+		}
+	}
+	packedSigChainGroupCount = len(cn.Sig) * blocks
+	packedSigChainGroupSize = ncols
+	packedSigChainRowsPerGroup = spec.L
+	sigSignedChain = true
+	layout.PackedSigChainBase = packedSigChainBase
+	layout.PackedSigChainGroupCount = packedSigChainGroupCount
+	layout.PackedSigChainGroupSize = packedSigChainGroupSize
+	layout.PackedSigChainRowsPerGroup = packedSigChainRowsPerGroup
+	layout.SigSignedChain = sigSignedChain
+	layout.SigBoundSliceRows = packedSigChainGroupCount * packedSigChainRowsPerGroup
 
 	witnessCount = len(rows)
 	if opts.DomainMode == DomainModeExplicit {
@@ -997,59 +1025,74 @@ func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, 
 	if cfg.Model != CoeffNativeSigModelLiteralPackedAggregatedV3 {
 		return ConstraintSet{}, fmt.Errorf("unsupported literal packed coeff-native model %q", cfg.Model)
 	}
-	if layout.PackedSigChainBase >= 0 && layout.PackedSigChainRowsPerGroup > 0 {
-		specSig, serr := signatureChainSpecForLayoutAndOpts(q, layout, opts)
-		if serr != nil {
-			return ConstraintSet{}, fmt.Errorf("signature chain spec: %w", serr)
-		}
-		wantRowsPer, serr := signaturePackedChainRowsPerGroupForOpts(specSig, opts, layout.PackedSigChainGroupSize)
-		if serr != nil {
-			return ConstraintSet{}, fmt.Errorf("signature shortness rows-per-group: %w", serr)
-		}
-		if layout.PackedSigChainRowsPerGroup != wantRowsPer {
-			return ConstraintSet{}, fmt.Errorf("signature shortness rows/group=%d want %d", layout.PackedSigChainRowsPerGroup, wantRowsPer)
-		}
-		wantGroupCount := cfg.PackedSigComponents * cfg.PackedSigBlocks
-		if layout.PackedSigChainGroupCount != wantGroupCount {
-			return ConstraintSet{}, fmt.Errorf("signature shortness group count=%d want %d", layout.PackedSigChainGroupCount, wantGroupCount)
-		}
-		if layout.PackedSigChainBase+layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup > len(rowsNTT) {
-			return ConstraintSet{}, fmt.Errorf("signature shortness rows [%d,%d) out of range (rows=%d)", layout.PackedSigChainBase, layout.PackedSigChainBase+layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup, len(rowsNTT))
-		}
-		packedRows := make([][]*ring.Poly, layout.PackedSigChainGroupCount)
-		for g := 0; g < layout.PackedSigChainGroupCount; g++ {
-			packedRows[g] = make([]*ring.Poly, layout.PackedSigChainRowsPerGroup)
-			for i := 0; i < layout.PackedSigChainRowsPerGroup; i++ {
-				packedRows[g][i] = rowsNTT[layout.PackedSigChainBase+g*layout.PackedSigChainRowsPerGroup+i]
-			}
-		}
-		var chainPolys []*ring.Poly
-		var chainCoeffs [][]uint64
-		var err error
-		if cfg.PackedSigCount > 0 && cfg.PackedSigBase >= 0 {
-			if cfg.PackedSigBase+cfg.PackedSigCount > len(rowsNTT) {
-				return ConstraintSet{}, fmt.Errorf("packed signature source rows [%d,%d) out of range (rows=%d)", cfg.PackedSigBase, cfg.PackedSigBase+cfg.PackedSigCount, len(rowsNTT))
-			}
-			packedSourceRows := make([]*ring.Poly, layout.PackedSigChainGroupCount)
-			for g := 0; g < layout.PackedSigChainGroupCount; g++ {
-				packedSourceRows[g] = rowsNTT[cfg.PackedSigBase+g]
-			}
-			chainPolys, chainCoeffs, err = buildSigShortnessPackedMembershipFormalCoeffs(ringQ, packedSourceRows, packedRows, specSig)
-		} else {
-			chainPolys, chainCoeffs, err = buildSigShortnessPackedMembershipFormalCoeffs(ringQ, nil, packedRows, specSig)
-		}
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("literal packed signature shortness: %w", err)
-		}
-		baseSet.FparNorm = append(baseSet.FparNorm, chainPolys...)
-		baseSet.FparNormCoeffs = append(baseSet.FparNormCoeffs, chainCoeffs...)
-		deg, derr := signatureShortnessMaxDegree(specSig, opts)
-		if derr != nil {
-			return ConstraintSet{}, fmt.Errorf("signature shortness degree: %w", derr)
-		}
-		if deg > baseSet.ParallelAlgDeg {
-			baseSet.ParallelAlgDeg = deg
+	_ = q
+	return baseSet, nil
+}
+
+func buildLiteralPackedSignatureShortnessConstraintSet(ringQ *ring.Ring, layout RowLayout, rowsNTT []*ring.Poly, opts SimOpts) (ConstraintSet, error) {
+	if ringQ == nil {
+		return ConstraintSet{}, fmt.Errorf("nil ring")
+	}
+	opts.applyDefaults()
+	cfg := layout.CoeffNativeSig
+	if cfg.Model != CoeffNativeSigModelLiteralPackedAggregatedV3 {
+		return ConstraintSet{}, fmt.Errorf("unsupported literal packed coeff-native model %q", cfg.Model)
+	}
+	if layout.PackedSigChainBase < 0 || layout.PackedSigChainRowsPerGroup <= 0 {
+		return ConstraintSet{}, nil
+	}
+	q := ringQ.Modulus[0]
+	specSig, err := signatureChainSpecForLayoutAndOpts(q, layout, opts)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("signature chain spec: %w", err)
+	}
+	wantRowsPer, err := signaturePackedChainRowsPerGroupForOpts(specSig, opts, layout.PackedSigChainGroupSize)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("signature shortness rows-per-group: %w", err)
+	}
+	if layout.PackedSigChainRowsPerGroup != wantRowsPer {
+		return ConstraintSet{}, fmt.Errorf("signature shortness rows/group=%d want %d", layout.PackedSigChainRowsPerGroup, wantRowsPer)
+	}
+	wantGroupCount := cfg.PackedSigComponents * cfg.PackedSigBlocks
+	if layout.PackedSigChainGroupCount != wantGroupCount {
+		return ConstraintSet{}, fmt.Errorf("signature shortness group count=%d want %d", layout.PackedSigChainGroupCount, wantGroupCount)
+	}
+	if layout.PackedSigChainBase+layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup > len(rowsNTT) {
+		return ConstraintSet{}, fmt.Errorf("signature shortness rows [%d,%d) out of range (rows=%d)", layout.PackedSigChainBase, layout.PackedSigChainBase+layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup, len(rowsNTT))
+	}
+	packedRows := make([][]*ring.Poly, layout.PackedSigChainGroupCount)
+	for g := 0; g < layout.PackedSigChainGroupCount; g++ {
+		packedRows[g] = make([]*ring.Poly, layout.PackedSigChainRowsPerGroup)
+		for i := 0; i < layout.PackedSigChainRowsPerGroup; i++ {
+			packedRows[g][i] = rowsNTT[layout.PackedSigChainBase+g*layout.PackedSigChainRowsPerGroup+i]
 		}
 	}
-	return baseSet, nil
+	var (
+		chainPolys  []*ring.Poly
+		chainCoeffs [][]uint64
+	)
+	if cfg.PackedSigCount > 0 && cfg.PackedSigBase >= 0 {
+		if cfg.PackedSigBase+cfg.PackedSigCount > len(rowsNTT) {
+			return ConstraintSet{}, fmt.Errorf("packed signature source rows [%d,%d) out of range (rows=%d)", cfg.PackedSigBase, cfg.PackedSigBase+cfg.PackedSigCount, len(rowsNTT))
+		}
+		packedSourceRows := make([]*ring.Poly, layout.PackedSigChainGroupCount)
+		for g := 0; g < layout.PackedSigChainGroupCount; g++ {
+			packedSourceRows[g] = rowsNTT[cfg.PackedSigBase+g]
+		}
+		chainPolys, chainCoeffs, err = buildSigShortnessPackedMembershipFormalCoeffs(ringQ, packedSourceRows, packedRows, specSig)
+	} else {
+		chainPolys, chainCoeffs, err = buildSigShortnessPackedMembershipFormalCoeffs(ringQ, nil, packedRows, specSig)
+	}
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("literal packed signature shortness: %w", err)
+	}
+	deg, err := signatureShortnessMaxDegree(specSig, opts)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("signature shortness degree: %w", err)
+	}
+	return ConstraintSet{
+		FparNorm:       append([]*ring.Poly{}, chainPolys...),
+		FparNormCoeffs: append([][]uint64{}, chainCoeffs...),
+		ParallelAlgDeg: deg,
+	}, nil
 }

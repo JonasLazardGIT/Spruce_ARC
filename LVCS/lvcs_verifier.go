@@ -174,7 +174,7 @@ func (v *VerifierState) EvalStep2(
 			return false
 		}
 	}
-	if !prepareOpeningForEvalStep2(open, C, bar, ncols, maskEnd, v.points, Qcoefs, mod) {
+	if !prepareOpeningForEvalStep2(open, C, bar, ncols, maskEnd, v.points, Qcoefs, v.Gamma, v.RFormal, mod) {
 		if debug {
 			fmt.Println("[LVCS_DEBUG_EVALSTEP2] prepareOpeningForEvalStep2 rejected")
 		}
@@ -347,6 +347,8 @@ func prepareOpeningForEvalStep2(
 	maskEnd int,
 	points []uint64,
 	qcoefs [][]uint64,
+	gamma [][]uint64,
+	rFormal [][]uint64,
 	mod uint64,
 ) bool {
 	if open == nil {
@@ -356,88 +358,87 @@ func prepareOpeningForEvalStep2(
 	if n <= 0 {
 		return false
 	}
-	if !materializeMvals(open, n) {
-		return false
-	}
 	if open.FormatVersion != 1 {
-		return materializeLegacyPvals(open, n)
-	}
-	if open.R <= 0 || len(C) == 0 || len(C[0]) < open.R {
-		return false
-	}
-	omitCols, fullRank := pivotColumnsFullRank(C, open.R, mod)
-	if !fullRank || len(omitCols) == 0 {
-		return false
-	}
-	if !equalIntSlicesExact(omitCols, open.POmitCols) {
-		return false
-	}
-	keepCols := complementCols(open.R, omitCols)
-	if open.PColsEncoded <= 0 || open.PColsEncoded != len(keepCols) {
-		return false
-	}
-	encodedRows, ok := materializeEncodedPvals(open, n, open.PColsEncoded)
-	if !ok {
-		return false
-	}
-	if len(C) != len(omitCols) {
-		// The first compressed mode uses full-rank square systems only.
-		return false
-	}
-	a := make([][]uint64, len(C))
-	for i := range C {
-		a[i] = make([]uint64, len(omitCols))
-		for j, col := range omitCols {
-			a[i][j] = C[i][col] % mod
-		}
-	}
-	aInv, ok := invertMatrixMod(a, mod)
-	if !ok {
-		return false
-	}
-	fullRows := make([][]uint64, n)
-	for t := 0; t < n; t++ {
-		idx := open.IndexAt(t)
-		if idx < 0 || idx >= len(points) {
+		if !materializeLegacyPvals(open, n) {
 			return false
 		}
-		rhs := make([]uint64, len(C))
-		switch {
-		case idx >= ncols && idx < maskEnd:
-			maskPos := idx - ncols
-			if maskPos < 0 || maskPos >= len(bar[0]) {
+	} else {
+		if open.R <= 0 || len(C) == 0 || len(C[0]) < open.R {
+			return false
+		}
+		omitCols, fullRank := pivotColumnsFullRank(C, open.R, mod)
+		if !fullRank || len(omitCols) == 0 {
+			return false
+		}
+		if !equalIntSlicesExact(omitCols, open.POmitCols) {
+			return false
+		}
+		keepCols := complementCols(open.R, omitCols)
+		if open.PColsEncoded <= 0 || open.PColsEncoded != len(keepCols) {
+			return false
+		}
+		encodedRows, ok := materializeEncodedPvals(open, n, open.PColsEncoded)
+		if !ok {
+			return false
+		}
+		if len(C) != len(omitCols) {
+			return false
+		}
+		a := make([][]uint64, len(C))
+		for i := range C {
+			a[i] = make([]uint64, len(omitCols))
+			for j, col := range omitCols {
+				a[i][j] = C[i][col] % mod
+			}
+		}
+		aInv, ok := invertMatrixMod(a, mod)
+		if !ok {
+			return false
+		}
+		fullRows := make([][]uint64, n)
+		for t := 0; t < n; t++ {
+			idx := open.IndexAt(t)
+			if idx < 0 || idx >= len(points) {
+				return false
+			}
+			rhs := make([]uint64, len(C))
+			switch {
+			case idx >= ncols && idx < maskEnd:
+				maskPos := idx - ncols
+				if maskPos < 0 || maskPos >= len(bar[0]) {
+					return false
+				}
+				for k := 0; k < len(C); k++ {
+					rhs[k] = bar[k][maskPos] % mod
+				}
+			case idx >= maskEnd:
+				x := points[idx] % mod
+				for k := 0; k < len(C); k++ {
+					rhs[k] = evalPolyCoeffs(qcoefs[k], x, mod)
+				}
+			default:
 				return false
 			}
 			for k := 0; k < len(C); k++ {
-				rhs[k] = bar[k][maskPos] % mod
+				known := uint64(0)
+				for j, col := range keepCols {
+					known = MulAddMod64(known, C[k][col], encodedRows[t][j], mod)
+				}
+				rhs[k] = subMod64(rhs[k], known, mod)
 			}
-		case idx >= maskEnd:
-			x := points[idx] % mod
-			for k := 0; k < len(C); k++ {
-				rhs[k] = evalPolyCoeffs(qcoefs[k], x, mod)
-			}
-		default:
-			return false
-		}
-		for k := 0; k < len(C); k++ {
-			known := uint64(0)
+			missing := mulMatVecMod(aInv, rhs, mod)
+			row := make([]uint64, open.R)
 			for j, col := range keepCols {
-				known = MulAddMod64(known, C[k][col], encodedRows[t][j], mod)
+				row[col] = encodedRows[t][j] % mod
 			}
-			rhs[k] = subMod64(rhs[k], known, mod)
+			for j, col := range omitCols {
+				row[col] = missing[j] % mod
+			}
+			fullRows[t] = row
 		}
-		missing := mulMatVecMod(aInv, rhs, mod)
-		row := make([]uint64, open.R)
-		for j, col := range keepCols {
-			row[col] = encodedRows[t][j] % mod
-		}
-		for j, col := range omitCols {
-			row[col] = missing[j] % mod
-		}
-		fullRows[t] = row
+		open.Pvals = fullRows
 	}
-	open.Pvals = fullRows
-	return true
+	return materializeOrReconstructMvals(open, n, points, gamma, rFormal, mod)
 }
 
 func materializeLegacyPvals(open *decs.DECSOpening, entryCount int) bool {
@@ -521,6 +522,101 @@ func materializeMvals(open *decs.DECSOpening, entryCount int) bool {
 		open.Mvals[i] = row
 	}
 	return true
+}
+
+func materializeOrReconstructMvals(open *decs.DECSOpening, entryCount int, points []uint64, gamma [][]uint64, rFormal [][]uint64, mod uint64) bool {
+	if open == nil || open.Eta < 0 {
+		return false
+	}
+	if open.MFormatVersion != 1 {
+		return materializeMvals(open, entryCount)
+	}
+	if len(gamma) < open.Eta || len(rFormal) < open.Eta || open.R <= 0 {
+		return false
+	}
+	omitCols := append([]int(nil), open.MOmitCols...)
+	if !equalIntSlicesExact(omitCols, sortedIntsCopy(omitCols)) {
+		return false
+	}
+	keepCols := complementCols(open.Eta, omitCols)
+	if open.MColsEncoded != len(keepCols) {
+		return false
+	}
+	encodedRows, ok := materializeEncodedMvals(open, entryCount, len(keepCols))
+	if !ok {
+		return false
+	}
+	fullRows := make([][]uint64, entryCount)
+	for t := 0; t < entryCount; t++ {
+		idx := open.IndexAt(t)
+		if idx < 0 || idx >= len(points) {
+			return false
+		}
+		x := points[idx] % mod
+		row := make([]uint64, open.Eta)
+		for j, col := range keepCols {
+			row[col] = encodedRows[t][j] % mod
+		}
+		for _, k := range omitCols {
+			if len(gamma[k]) < open.R {
+				return false
+			}
+			rkx := evalPolyCoeffs(rFormal[k], x, mod)
+			sum := uint64(0)
+			for j := 0; j < open.R; j++ {
+				sum = MulAddMod64(sum, gamma[k][j], open.Pvals[t][j], mod)
+			}
+			row[k] = subMod64(rkx, sum, mod)
+		}
+		fullRows[t] = row
+	}
+	open.Mvals = fullRows
+	return true
+}
+
+func materializeEncodedMvals(open *decs.DECSOpening, entryCount, cols int) ([][]uint64, bool) {
+	if open == nil || cols < 0 {
+		return nil, false
+	}
+	if len(open.Mvals) == entryCount {
+		for i := 0; i < entryCount; i++ {
+			if len(open.Mvals[i]) != cols {
+				return nil, false
+			}
+		}
+		return open.Mvals, true
+	}
+	if cols == 0 {
+		rows := make([][]uint64, entryCount)
+		for i := range rows {
+			rows[i] = []uint64{}
+		}
+		open.Mvals = rows
+		return rows, true
+	}
+	if len(open.MvalsBits) == 0 {
+		return nil, false
+	}
+	rows := make([][]uint64, entryCount)
+	for i := 0; i < entryCount; i++ {
+		row := make([]uint64, cols)
+		for j := 0; j < cols; j++ {
+			row[j] = decs.GetOpeningMval(open, i, j)
+		}
+		rows[i] = row
+	}
+	open.Mvals = rows
+	return rows, true
+}
+
+func sortedIntsCopy(in []int) []int {
+	out := append([]int(nil), in...)
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j-1] > out[j]; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	return out
 }
 
 func equalIntSlicesExact(a, b []int) bool {

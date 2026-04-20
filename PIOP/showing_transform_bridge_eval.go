@@ -29,9 +29,9 @@ type transformBridgePostSignConfig struct {
 	TransformH      [][]uint64
 	TransformHEval  [][]uint64
 	BlockFactors    [][]uint64
-	RPows           []uint64
 	ComponentCount  int
 	SourceBlocks    int
+	UsesCommittedT  bool
 
 	MsgDecode1        []uint64
 	MsgDecode2        []uint64
@@ -44,6 +44,7 @@ type transformBridgePostSignConfig struct {
 }
 
 func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, omegaWitness, domainPoints []uint64, bound int64, prfLayout *PRFLayout, prfCompanionLayout *PRFCompanionLayout, opts SimOpts) (*transformBridgePostSignConfig, error) {
+	_ = opts
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -55,9 +56,6 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	}
 	if len(pub.B) < 4 {
 		return nil, fmt.Errorf("transform-bridge replay requires 4 B rows, got %d", len(pub.B))
-	}
-	if rowLayoutPostSignTSource(layout) < 0 {
-		return nil, fmt.Errorf("transform-bridge replay requires a committed T source row")
 	}
 	if publicUsesBBTran(pub) && (layout.IdxMSigmaR1 < 0 || layout.IdxR0R1 < 0 || layout.IdxMSigmaR1Hat < 0 || layout.IdxR0R1Hat < 0) {
 		return nil, fmt.Errorf("bb_tran transform-bridge replay requires product rows and hats")
@@ -97,11 +95,6 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	if componentCount != len(pub.A[0]) {
 		return nil, fmt.Errorf("signature component mismatch: layout=%d want %d", componentCount, len(pub.A[0]))
 	}
-	spec, err := signatureChainSpecForLayoutAndOpts(q, layout, opts)
-	if err != nil {
-		return nil, fmt.Errorf("signature chain spec: %w", err)
-	}
-
 	thetaAHeads := make([][][]uint64, replayTHatCount)
 	for b := 0; b < replayTHatCount; b++ {
 		thetaAHeads[b] = make([][]uint64, componentCount)
@@ -192,9 +185,9 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		TransformH:        bridgeBasis.TransformH,
 		TransformHEval:    bridgeBasis.TransformHEval,
 		BlockFactors:      bridgeBasis.BlockFactors,
-		RPows:             append([]uint64(nil), spec.RPows...),
 		ComponentCount:    componentCount,
 		SourceBlocks:      sourceBlocks,
+		UsesCommittedT:    rowLayoutUsesCommittedTSourceBridge(layout),
 		MsgDecode1:        msgDecode1,
 		MsgDecode2:        msgDecode2,
 		CtrDecode1:        ctrDecode1,
@@ -241,9 +234,6 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 		layout := cfg.Layout
 		replayBlocks := len(cfg.ThetaAHeads)
 		tSourceBlocks := rowLayoutPostSignTSourceCount(layout)
-		if tSourceBlocks <= 0 {
-			tSourceBlocks = cfg.SourceBlocks
-		}
 		useBBTran := relationUsesBBTran(cfg.HashRelation)
 		fpar := make([]uint64, 0, replayBlocks+4+cfg.KeyBindLayout.KeyCount)
 		for b := 0; b < replayBlocks; b++ {
@@ -358,69 +348,37 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 			hVals[j] = EvalPoly(cfg.TransformH[j], x, q) % q
 		}
 
-		fagg := make([]uint64, 0, 2*replayBlocks*len(lagrangeVals)+3*replayBlocks*len(lagrangeVals))
-		for b := 0; b < replayBlocks; b++ {
-			tVal, err := getRow(layout.IdxTHatBase + b)
-			if err != nil {
-				return nil, nil, err
-			}
-			for j := 0; j < len(lagrangeVals); j++ {
-				t := b*len(lagrangeVals) + j
-				if t < 0 || t >= len(cfg.BlockFactors) || t >= len(hVals) {
-					return nil, nil, fmt.Errorf("signature bridge index t=%d out of range", t)
+		fagg := make([]uint64, 0, (1+3+2)*replayBlocks*len(lagrangeVals))
+		if cfg.UsesCommittedT && tSourceBlocks > 0 {
+			for b := 0; b < replayBlocks; b++ {
+				tVal, err := getRow(layout.IdxTHatBase + b)
+				if err != nil {
+					return nil, nil, err
 				}
-				inner := uint64(0)
-				for comp := 0; comp < cfg.ComponentCount; comp++ {
-					aScale := cfg.ThetaAHeads[b][comp][j] % q
-					if aScale == 0 {
-						continue
+				for j := 0; j < len(lagrangeVals); j++ {
+					t := b*len(lagrangeVals) + j
+					if t < 0 || t >= len(cfg.BlockFactors) || t >= len(hVals) {
+						return nil, nil, fmt.Errorf("T source bridge index t=%d out of range", t)
 					}
-					for bSrc := 0; bSrc < cfg.SourceBlocks; bSrc++ {
-						blockScale := cfg.BlockFactors[t][bSrc] % q
-						for lane := 0; lane < len(cfg.RPows); lane++ {
-							limbIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, bSrc, lane)
-							limbVal, err := getRow(limbIdx)
-							if err != nil {
-								return nil, nil, err
-							}
-							scale := modMul(aScale, modMul(blockScale, cfg.RPows[lane]%q, q), q)
-							inner = modAdd(inner, modMul(scale, limbVal, q), q)
+					inner := uint64(0)
+					for bSrc := 0; bSrc < tSourceBlocks; bSrc++ {
+						tSourceVal, err := getRow(layout.IdxTSource + bSrc)
+						if err != nil {
+							return nil, nil, err
 						}
+						scale := cfg.BlockFactors[t][bSrc] % q
+						inner = modAdd(inner, modMul(scale, tSourceVal, q), q)
 					}
+					left := modMul(hVals[t], inner, q)
+					right := modMul(tVal, lagrangeVals[j], q)
+					fagg = append(fagg, modSub(left, right, q))
 				}
-				left := modMul(hVals[t], inner, q)
-				right := modMul(tVal, lagrangeVals[j], q)
-				fagg = append(fagg, modSub(left, right, q))
-			}
-		}
-		for b := 0; b < replayBlocks; b++ {
-			tVal, err := getRow(layout.IdxTHatBase + b)
-			if err != nil {
-				return nil, nil, err
-			}
-			for j := 0; j < len(lagrangeVals); j++ {
-				t := b*len(lagrangeVals) + j
-				if t < 0 || t >= len(cfg.BlockFactors) || t >= len(hVals) {
-					return nil, nil, fmt.Errorf("T source bridge index t=%d out of range", t)
-				}
-				inner := uint64(0)
-				for bSrc := 0; bSrc < tSourceBlocks; bSrc++ {
-					tSourceVal, err := getRow(layout.IdxTSource + bSrc)
-					if err != nil {
-						return nil, nil, err
-					}
-					scale := cfg.BlockFactors[t][bSrc] % q
-					inner = modAdd(inner, modMul(scale, tSourceVal, q), q)
-				}
-				left := modMul(hVals[t], inner, q)
-				right := modMul(tVal, lagrangeVals[j], q)
-				fagg = append(fagg, modSub(left, right, q))
 			}
 		}
 
 		mSigma := modAdd(m1, m2, q)
 		for _, pair := range []struct {
-			val uint64
+			val     uint64
 			hatBase int
 		}{
 			{val: mSigma, hatBase: layout.IdxMHatSigma},
@@ -500,9 +458,6 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 		layout := cfg.Layout
 		replayBlocks := len(cfg.ThetaAHeads)
 		tSourceBlocks := rowLayoutPostSignTSourceCount(layout)
-		if tSourceBlocks <= 0 {
-			tSourceBlocks = cfg.SourceBlocks
-		}
 		useBBTran := relationUsesBBTran(cfg.HashRelation)
 		fpar := make([]kf.Elem, 0, replayBlocks+4+cfg.KeyBindLayout.KeyCount)
 		for b := 0; b < replayBlocks; b++ {
@@ -617,69 +572,36 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 			hVals[j] = K.EvalFPolyAtK(cfg.TransformH[j], e)
 		}
 
-		fagg := make([]kf.Elem, 0, 2*replayBlocks*len(lagrangeVals)+3*replayBlocks*len(lagrangeVals))
-		for b := 0; b < replayBlocks; b++ {
-			tVal, err := getRow(layout.IdxTHatBase + b)
-			if err != nil {
-				return nil, nil, err
-			}
-			for j := 0; j < len(lagrangeVals); j++ {
-				t := b*len(lagrangeVals) + j
-				if t < 0 || t >= len(cfg.BlockFactors) || t >= len(hVals) {
-					return nil, nil, fmt.Errorf("signature bridge index t=%d out of range", t)
+		fagg := make([]kf.Elem, 0, (1+3+2)*replayBlocks*len(lagrangeVals))
+		if cfg.UsesCommittedT && tSourceBlocks > 0 {
+			for b := 0; b < replayBlocks; b++ {
+				tVal, err := getRow(layout.IdxTHatBase + b)
+				if err != nil {
+					return nil, nil, err
 				}
-				inner := K.Zero()
-				for comp := 0; comp < cfg.ComponentCount; comp++ {
-					aScale := cfg.ThetaAHeads[b][comp][j] % K.Q
-					if aScale == 0 {
-						continue
+				for j := 0; j < len(lagrangeVals); j++ {
+					t := b*len(lagrangeVals) + j
+					if t < 0 || t >= len(cfg.BlockFactors) || t >= len(hVals) {
+						return nil, nil, fmt.Errorf("T source bridge index t=%d out of range", t)
 					}
-					aElem := K.EmbedF(aScale)
-					for bSrc := 0; bSrc < cfg.SourceBlocks; bSrc++ {
-						blockElem := K.EmbedF(cfg.BlockFactors[t][bSrc] % K.Q)
-						for lane := 0; lane < len(cfg.RPows); lane++ {
-							limbIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, bSrc, lane)
-							limbVal, err := getRow(limbIdx)
-							if err != nil {
-								return nil, nil, err
-							}
-							weight := K.Mul(aElem, K.Mul(blockElem, K.EmbedF(cfg.RPows[lane]%K.Q)))
-							inner = K.Add(inner, K.Mul(weight, limbVal))
+					inner := K.Zero()
+					for bSrc := 0; bSrc < tSourceBlocks; bSrc++ {
+						tSourceVal, err := getRow(layout.IdxTSource + bSrc)
+						if err != nil {
+							return nil, nil, err
 						}
+						inner = K.Add(inner, K.Mul(K.EmbedF(cfg.BlockFactors[t][bSrc]%K.Q), tSourceVal))
 					}
+					left := K.Mul(hVals[t], inner)
+					right := K.Mul(tVal, lagrangeVals[j])
+					fagg = append(fagg, K.Sub(left, right))
 				}
-				left := K.Mul(hVals[t], inner)
-				right := K.Mul(tVal, lagrangeVals[j])
-				fagg = append(fagg, K.Sub(left, right))
-			}
-		}
-		for b := 0; b < replayBlocks; b++ {
-			tVal, err := getRow(layout.IdxTHatBase + b)
-			if err != nil {
-				return nil, nil, err
-			}
-			for j := 0; j < len(lagrangeVals); j++ {
-				t := b*len(lagrangeVals) + j
-				if t < 0 || t >= len(cfg.BlockFactors) || t >= len(hVals) {
-					return nil, nil, fmt.Errorf("T source bridge index t=%d out of range", t)
-				}
-				inner := K.Zero()
-				for bSrc := 0; bSrc < tSourceBlocks; bSrc++ {
-					tSourceVal, err := getRow(layout.IdxTSource + bSrc)
-					if err != nil {
-						return nil, nil, err
-					}
-					inner = K.Add(inner, K.Mul(K.EmbedF(cfg.BlockFactors[t][bSrc]%K.Q), tSourceVal))
-				}
-				left := K.Mul(hVals[t], inner)
-				right := K.Mul(tVal, lagrangeVals[j])
-				fagg = append(fagg, K.Sub(left, right))
 			}
 		}
 
 		mSigma := K.Add(m1, m2)
 		for _, pair := range []struct {
-			val kf.Elem
+			val     kf.Elem
 			hatBase int
 		}{
 			{val: mSigma, hatBase: layout.IdxMHatSigma},

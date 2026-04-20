@@ -11,6 +11,7 @@ const (
 	RowFamilySigTransformAlias    = "sig_transform_alias"
 	RowFamilyNonSigTransformAlias = "nonsig_transform_alias"
 	RowFamilyReplayImage          = "replay_image"
+	RowFamilySigPackedSource      = "sig_packed_source"
 	RowFamilySigPrimaryLimb       = "sig_primary_limb"
 )
 
@@ -28,6 +29,7 @@ func BuildShowingRowDependencyMap(layout RowLayout, prfLayout *PRFLayout) RowDep
 		RowFamilySigTransformAlias:    {},
 		RowFamilyNonSigTransformAlias: {},
 		RowFamilyReplayImage:          {},
+		RowFamilySigPackedSource:      {},
 		RowFamilySigPrimaryLimb:       {},
 	}
 
@@ -79,9 +81,9 @@ func addCoeffNativeLiteralPackedRows(
 		if layout.IdxTHatBase >= 0 && rowLayoutReplayTHatCount(layout) > 0 {
 			addRange(RowFamilyReplayImage, layout.IdxTHatBase, rowLayoutReplayTHatCount(layout))
 		}
-		addRange(RowFamilySigPrimaryLimb, layout.PackedSigChainBase, layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup)
 		return
 	}
+	addRange(RowFamilySigPackedSource, layout.CoeffNativeSig.PackedSigBase, layout.CoeffNativeSig.PackedSigCount)
 	addRange(RowFamilySigPrimaryLimb, layout.PackedSigChainBase, layout.PackedSigChainGroupCount*layout.PackedSigChainRowsPerGroup)
 }
 

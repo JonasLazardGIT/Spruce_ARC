@@ -26,7 +26,10 @@ type PCSGeometry struct {
 	BlockCount          int
 	LogicalWitnessPolys int
 	WitnessRows         int
+	ReplayWitnessRows   int
 	MaskRows            int
+	ShortnessTailOffset int
+	ShortnessTailRows   int
 	OracleLayout        lvcs.OracleLayout
 }
 
@@ -123,6 +126,7 @@ func makeLegacyPCSGeometry(witnessPackingCols, pcsNCols, theta, ell, logicalWitn
 		BlockCount:          witnessRows,
 		LogicalWitnessPolys: logicalWitnessPolys,
 		WitnessRows:         witnessRows,
+		ReplayWitnessRows:   witnessRows,
 		MaskRows:            maskRowCount,
 		OracleLayout: lvcs.OracleLayout{
 			Witness: lvcs.LayoutSegment{Offset: 0, Count: witnessRows},
@@ -182,7 +186,7 @@ func buildSmallFieldPCSRows(
 	}
 	return &builtPCSRows{
 		RowInputs:     rowInputs,
-		WitnessCount:  len(witnessRows),
+		WitnessCount:  maskRowOffset,
 		MaskRowOffset: maskRowOffset,
 		MaskRowCount:  len(maskRows),
 		PCSGeometry: PCSGeometry{
@@ -193,10 +197,11 @@ func buildSmallFieldPCSRows(
 			Ell:                 ell,
 			BlockCount:          blocks,
 			LogicalWitnessPolys: len(witnessPolys),
-			WitnessRows:         len(witnessRows),
+			WitnessRows:         maskRowOffset,
+			ReplayWitnessRows:   len(witnessRows),
 			MaskRows:            len(maskRows),
 			OracleLayout: lvcs.OracleLayout{
-				Witness: lvcs.LayoutSegment{Offset: 0, Count: len(witnessRows)},
+				Witness: lvcs.LayoutSegment{Offset: 0, Count: maskRowOffset},
 				Mask:    lvcs.LayoutSegment{Offset: maskRowOffset, Count: len(maskRows)},
 			},
 		},
