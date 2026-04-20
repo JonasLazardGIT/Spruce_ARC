@@ -326,7 +326,7 @@ func optimizationCompactNColsCandidates() []int {
 func optimizationCompactEtaCandidates(preset string) []int {
 	switch preset {
 	case PIOP.ShowingPresetCompactL1Research:
-		return []int{19, 23, 27, 31, 35}
+		return []int{19, 23, 26, 27, 31, 35}
 	default:
 		return []int{27, 31, 35, 39, 43}
 	}
@@ -627,8 +627,8 @@ func TestShowingCompactPresetNColsSweepRetunesWidthEtaAndNLeaves(t *testing.T) {
 				t.Fatalf("compact_l2 sweep best total=%d want <= 53517", presetBest.total)
 			}
 		case PIOP.ShowingPresetCompactL1Research:
-			if presetBest.total > 39465 {
-				t.Fatalf("compact_l1_research sweep best total=%d want <= 39465", presetBest.total)
+			if presetBest.total > 27000 {
+				t.Fatalf("compact_l1_research sweep best total=%d want <= 27000", presetBest.total)
 			}
 		}
 	}
@@ -883,7 +883,7 @@ func presetLVCSNColsForOptimization(preset string) int {
 	case PIOP.ShowingPresetCompactL2:
 		return 70
 	case PIOP.ShowingPresetCompactL1Research:
-		return 50
+		return 32
 	case PIOP.ShowingPresetTranscriptFirst, PIOP.ShowingPresetProductionBalance:
 		return 32
 	default:
@@ -981,6 +981,185 @@ func TestShowingShortnessSweepFindsCompactOneDigitPreset(t *testing.T) {
 	}
 	if bestRadix != 12285 || bestDigits != 1 {
 		t.Fatalf("best shortness candidate=%s resolved to (R=%d,L=%d) want (12285,1)", best.label, bestRadix, bestDigits)
+	}
+}
+
+func TestShowingCompactL1Research128BitSweepFindsSmallestSmallKappaCandidate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+
+	type geometryCandidate struct {
+		proof       *PIOP.Proof
+		opts        PIOP.SimOpts
+		theta       int
+		ellPrime    int
+		lvcsNCols   int
+		witnessRows int
+		dQ          int
+	}
+	type measured struct {
+		theta     int
+		eta       int
+		ellPrime  int
+		rho       int
+		ncols     int
+		lvcsNCols int
+		nLeaves   int
+		kappa     [4]int
+		total     int
+		soundness float64
+	}
+	maxKappa := func(kappa [4]int) int {
+		best := 0
+		for _, v := range kappa {
+			if v > best {
+				best = v
+			}
+		}
+		return best
+	}
+	sumKappa := func(kappa [4]int) int {
+		sum := 0
+		for _, v := range kappa {
+			sum += v
+		}
+		return sum
+	}
+	better := func(got, best measured) bool {
+		switch {
+		case got.total != best.total:
+			return got.total < best.total
+		case maxKappa(got.kappa) != maxKappa(best.kappa):
+			return maxKappa(got.kappa) < maxKappa(best.kappa)
+		case sumKappa(got.kappa) != sumKappa(best.kappa):
+			return sumKappa(got.kappa) < sumKappa(best.kappa)
+		case got.lvcsNCols != best.lvcsNCols:
+			return got.lvcsNCols < best.lvcsNCols
+		case got.eta != best.eta:
+			return got.eta < best.eta
+		case got.ellPrime != best.ellPrime:
+			return got.ellPrime < best.ellPrime
+		default:
+			return got.theta < best.theta
+		}
+	}
+
+	state := buildDeterministicCredentialStateForPackedNCols(t, 16)
+	ringQ, err := credential.LoadDefaultRing()
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+
+	var geometries []geometryCandidate
+	for _, theta := range []int{3, 4} {
+		for _, ellPrime := range []int{2, 3, 4} {
+			for _, lvcsNCols := range []int{24, 26, 28, 30, 32, 34, 36, 40} {
+				opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+					Credential:           true,
+					NCols:                16,
+					Ell:                  18,
+					DomainMode:           PIOP.DomainModeExplicit,
+					PRFGroupRounds:       2,
+					CoeffPacking:         true,
+					CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+					ShowingPreset:        PIOP.ShowingPresetCustom,
+					SigShortnessProfile:  PIOP.SigShortnessProfileR12285L1Research,
+					PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
+					PRFCheckpointSamples: 8,
+					LVCSNCols:            lvcsNCols,
+					PostSignLVCSNCols:    lvcsNCols,
+					PRFLVCSNCols:         lvcsNCols,
+					NLeaves:              4096,
+					PostSignNLeaves:      4096,
+					PRFNLeaves:           4096,
+					Theta:                theta,
+					Rho:                  2,
+					EllPrime:             ellPrime,
+					Eta:                  26,
+					Kappa:                [4]int{},
+				})
+				proof, rep, err := tryBuildShowingProofForOptimizationState(t, state, opts)
+				if err != nil {
+					t.Logf("skip compact l1 128 geometry theta=%d ellPrime=%d lvcs=%d: %v", theta, ellPrime, lvcsNCols, err)
+					continue
+				}
+				geometries = append(geometries, geometryCandidate{
+					proof:       proof,
+					opts:        opts,
+					theta:       theta,
+					ellPrime:    ellPrime,
+					lvcsNCols:   lvcsNCols,
+					witnessRows: rep.Geometry.ActualWitnessPolys,
+					dQ:          rep.DQ,
+				})
+			}
+		}
+	}
+	if len(geometries) == 0 {
+		t.Fatalf("no l1 geometry candidates built")
+	}
+
+	var best *measured
+	for _, geom := range geometries {
+		for _, eta := range []int{26, 27, 28, 29, 30, 31} {
+			reportOpts := geom.opts
+			reportOpts.Eta = eta
+			reportProof := *geom.proof
+			reportProof.Kappa = [4]int{}
+			rep, err := PIOP.BuildProofReport(&reportProof, reportOpts, ringQ)
+			if err != nil {
+				t.Fatalf("proof report theta=%d ellPrime=%d lvcs=%d eta=%d: %v", geom.theta, geom.ellPrime, geom.lvcsNCols, eta, err)
+			}
+			if rep.TranscriptFocus.SigShortnessProfile != PIOP.SigShortnessProfileR12285L1Research {
+				t.Fatalf("unexpected l1 profile=%q for theta=%d ellPrime=%d lvcs=%d eta=%d", rep.TranscriptFocus.SigShortnessProfile, geom.theta, geom.ellPrime, geom.lvcsNCols, eta)
+			}
+			for kappa2 := 5; kappa2 <= 12; kappa2++ {
+				for kappa4 := 5; kappa4 <= 12; kappa4++ {
+					soundnessOpts := reportOpts
+					soundnessOpts.Kappa = [4]int{0, kappa2, 0, kappa4}
+					sb := PIOP.ComputeSoundnessBudgetForParams(
+						soundnessOpts,
+						ringQ.Modulus[0],
+						geom.dQ,
+						soundnessOpts.NCols,
+						geom.lvcsNCols,
+						soundnessOpts.NLeaves,
+						geom.witnessRows,
+					)
+					if sb.TotalBits < 128 {
+						continue
+					}
+					got := measured{
+						theta:     geom.theta,
+						eta:       eta,
+						ellPrime:  geom.ellPrime,
+						rho:       2,
+						ncols:     16,
+						lvcsNCols: geom.lvcsNCols,
+						nLeaves:   4096,
+						kappa:     [4]int{0, kappa2, 0, kappa4},
+						total:     rep.PaperTranscript.OptimizedBytes,
+						soundness: sb.TotalBits,
+					}
+					if best == nil || better(got, *best) {
+						copy := got
+						best = &copy
+					}
+				}
+			}
+		}
+	}
+	if best == nil {
+		t.Fatalf("no compact l1 candidate reached 128-bit theorem floor")
+	}
+	t.Logf("compact l1 128-bit winner -> total=%d soundness=%.2f theta=%d eta=%d ellPrime=%d rho=%d ncols=%d lvcs=%d nleaves=%d kappa=%v",
+		best.total, best.soundness, best.theta, best.eta, best.ellPrime, best.rho, best.ncols, best.lvcsNCols, best.nLeaves, best.kappa)
+	if best.theta != 3 || best.eta != 26 || best.ellPrime != 3 || best.rho != 2 || best.ncols != 16 || best.lvcsNCols != 32 || best.nLeaves != 4096 || best.kappa != [4]int{0, 11, 0, 11} {
+		t.Fatalf("unexpected compact l1 128-bit winner: %+v", *best)
+	}
+	if best.total > 27000 {
+		t.Fatalf("compact l1 128-bit winner total=%d want <= 27000", best.total)
 	}
 }
 

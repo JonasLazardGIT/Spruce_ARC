@@ -4,6 +4,17 @@ This memo tracks the current SmallWood-style showing path in this repository and
 focuses on one question: after the current compact preset pass, what can still
 drive the paper transcript below `30 KB`?
 
+Current note on the shipped `l_1` path:
+
+- On the current hidden-V6 codepath, the live `compact_l1_research` preset is
+  now tuned for a `128`-bit theorem floor, not the older `~103`-bit floor.
+- The current shipped tuple is:
+  `lvcs=32, eta=26, ell'=3, nLeaves=4096, kappa={0,11,0,11}, R/L=12285/1`.
+- Recent live CLI measurements place it at about `25.8 KB` paper transcript
+  and about `128.1` theorem bits.
+- The historical body below predates that preset promotion and should be read
+  as an earlier optimization snapshot, not the current shipped `l_1` tuple.
+
 The source-of-truth order for this note is:
 
 1. current code

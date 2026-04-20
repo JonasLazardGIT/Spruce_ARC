@@ -414,8 +414,8 @@ func TestResolveSimOptsDefaultsCompactPresets(t *testing.T) {
 			name:        "compact_l1_research",
 			preset:      ShowingPresetCompactL1Research,
 			wantProfile: SigShortnessProfileR12285L1Research,
-			wantLVCS:    50,
-			wantEta:     31,
+			wantLVCS:    32,
+			wantEta:     26,
 		},
 	}
 
@@ -435,14 +435,20 @@ func TestResolveSimOptsDefaultsCompactPresets(t *testing.T) {
 			if opts.LVCSNCols != tc.wantLVCS || opts.PostSignLVCSNCols != tc.wantLVCS || opts.PRFLVCSNCols != tc.wantLVCS {
 				t.Fatalf("unexpected lvcs preset resolution: %+v", opts)
 			}
-			if opts.Theta != 3 || opts.Rho != 2 || opts.EllPrime != 2 || opts.Eta != tc.wantEta {
+			wantEllPrime := 2
+			wantKappa := [4]int{0, 0, 0, 5}
+			if tc.preset == ShowingPresetCompactL1Research {
+				wantEllPrime = 3
+				wantKappa = [4]int{0, 11, 0, 11}
+			}
+			if opts.Theta != 3 || opts.Rho != 2 || opts.EllPrime != wantEllPrime || opts.Eta != tc.wantEta {
 				t.Fatalf("unexpected compact tuple: theta=%d rho=%d ellPrime=%d eta=%d", opts.Theta, opts.Rho, opts.EllPrime, opts.Eta)
 			}
 			if opts.NLeaves != 4096 || opts.PostSignNLeaves != 4096 || opts.PRFNLeaves != 4096 {
 				t.Fatalf("unexpected compact nleaves resolution: n=%d post=%d prf=%d", opts.NLeaves, opts.PostSignNLeaves, opts.PRFNLeaves)
 			}
-			if opts.Kappa != [4]int{0, 0, 0, 5} {
-				t.Fatalf("unexpected compact kappa=%v want [0 0 0 5]", opts.Kappa)
+			if opts.Kappa != wantKappa {
+				t.Fatalf("unexpected compact kappa=%v want %v", opts.Kappa, wantKappa)
 			}
 		})
 	}

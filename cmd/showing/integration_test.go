@@ -622,28 +622,31 @@ func TestShowingV3CompactL1ResearchPreset(t *testing.T) {
 	if rep.SigShortness.ProofBytes >= 12000 {
 		t.Fatalf("compact-l1 sig shortness bytes=%d want < 12000", rep.SigShortness.ProofBytes)
 	}
-	if rep.TranscriptFocus.LVCSNCols != 50 || rep.TranscriptFocus.WitnessRows != 22 || rep.TranscriptFocus.RowsBlock != 1 || rep.TranscriptFocus.MaskChunks != 7 {
+	if rep.TranscriptFocus.LVCSNCols != 32 || rep.TranscriptFocus.WitnessRows != 22 || rep.TranscriptFocus.RowsBlock != 1 || rep.TranscriptFocus.MaskChunks != 10 {
 		t.Fatalf("unexpected compact-l1 geometry: lvcs=%d witness=%d rowsBlock=%d maskChunks=%d", rep.TranscriptFocus.LVCSNCols, rep.TranscriptFocus.WitnessRows, rep.TranscriptFocus.RowsBlock, rep.TranscriptFocus.MaskChunks)
 	}
-	if rep.PaperTranscript.OptimizedBytes < 26200 || rep.PaperTranscript.OptimizedBytes > 27200 {
-		t.Fatalf("compact-l1 total=%d want in [26200,27200]", rep.PaperTranscript.OptimizedBytes)
+	if rep.Kappa != [4]int{0, 11, 0, 11} {
+		t.Fatalf("compact-l1 kappa=%v want [0 11 0 11]", rep.Kappa)
 	}
-	if rep.PaperTranscript.Pdecs.OptimizedBytes != 5207 {
-		t.Fatalf("compact-l1 Pdecs=%d want 5207", rep.PaperTranscript.Pdecs.OptimizedBytes)
+	if rep.PaperTranscript.OptimizedBytes < 25800 || rep.PaperTranscript.OptimizedBytes > 26850 {
+		t.Fatalf("compact-l1 total=%d want in [25800,26850]", rep.PaperTranscript.OptimizedBytes)
 	}
-	if rep.PaperTranscript.VTargets.OptimizedBytes > 798 {
-		t.Fatalf("compact-l1 VTargets=%d want <= 798", rep.PaperTranscript.VTargets.OptimizedBytes)
+	if rep.PaperTranscript.Pdecs.OptimizedBytes < 6400 || rep.PaperTranscript.Pdecs.OptimizedBytes > 6900 {
+		t.Fatalf("compact-l1 Pdecs=%d want in [6400,6900]", rep.PaperTranscript.Pdecs.OptimizedBytes)
 	}
-	if rep.PaperTranscript.BarSets.OptimizedBytes > 294 {
-		t.Fatalf("compact-l1 BarSets=%d want <= 294", rep.PaperTranscript.BarSets.OptimizedBytes)
+	if rep.PaperTranscript.VTargets.OptimizedBytes > 850 {
+		t.Fatalf("compact-l1 VTargets=%d want <= 850", rep.PaperTranscript.VTargets.OptimizedBytes)
 	}
-	if rep.PaperTranscript.Q.OptimizedBytes != 4637 {
-		t.Fatalf("compact-l1 Q=%d want 4637", rep.PaperTranscript.Q.OptimizedBytes)
+	if rep.PaperTranscript.BarSets.OptimizedBytes > 450 {
+		t.Fatalf("compact-l1 BarSets=%d want <= 450", rep.PaperTranscript.BarSets.OptimizedBytes)
 	}
-	if rep.TranscriptFocus.NRows != 61 || rep.TranscriptFocus.M != 6 || rep.TranscriptFocus.PCols != 55 {
+	if rep.PaperTranscript.Q.OptimizedBytes < 4600 || rep.PaperTranscript.Q.OptimizedBytes > 4700 {
+		t.Fatalf("compact-l1 Q=%d want in [4600,4700]", rep.PaperTranscript.Q.OptimizedBytes)
+	}
+	if rep.TranscriptFocus.NRows != 79 || rep.TranscriptFocus.M != 9 || rep.TranscriptFocus.PCols != 70 {
 		t.Fatalf("unexpected compact-l1 transcript geometry: nrows=%d m=%d pcols=%d", rep.TranscriptFocus.NRows, rep.TranscriptFocus.M, rep.TranscriptFocus.PCols)
 	}
-	if rep.Soundness.TotalBits < 103.4 {
+	if rep.Soundness.TotalBits < 128 {
 		t.Fatalf("unexpected compact-l1 theorem floor: total=%.2f", rep.Soundness.TotalBits)
 	}
 }

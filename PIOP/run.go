@@ -91,7 +91,7 @@ func showingPresetLVCSNCols(preset string) int {
 	case ShowingPresetCompactL2:
 		return 70
 	case ShowingPresetCompactL1Research:
-		return 50
+		return 32
 	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
 		return 32
 	default:
@@ -132,7 +132,12 @@ func showingPresetRho(preset string) int {
 }
 
 func showingPresetEllPrime(preset string) int {
-	return 2
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetCompactL1Research:
+		return 3
+	default:
+		return 2
+	}
 }
 
 func showingPresetEta(preset string) int {
@@ -142,7 +147,7 @@ func showingPresetEta(preset string) int {
 	case ShowingPresetCompactL3, ShowingPresetCompactL2:
 		return 36
 	case ShowingPresetCompactL1Research:
-		return 31
+		return 26
 	default:
 		return 31
 	}
@@ -159,8 +164,10 @@ func showingPresetNLeaves(preset string) int {
 
 func showingPresetKappa(preset string) [4]int {
 	switch normalizeShowingPreset(preset) {
-	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2, ShowingPresetCompactL1Research:
+	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2:
 		return [4]int{0, 0, 0, 5}
+	case ShowingPresetCompactL1Research:
+		return [4]int{0, 11, 0, 11}
 	default:
 		return [4]int{}
 	}
@@ -237,17 +244,17 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 			resolved.Kappa == [4]int{0, 0, 0, 5}
 	case ShowingPresetCompactL1Research:
 		return resolved.SigShortnessProfile == SigShortnessProfileR12285L1Research &&
-			resolved.LVCSNCols == 50 &&
-			resolved.PostSignLVCSNCols == 50 &&
-			resolved.PRFLVCSNCols == 50 &&
+			resolved.LVCSNCols == 32 &&
+			resolved.PostSignLVCSNCols == 32 &&
+			resolved.PRFLVCSNCols == 32 &&
 			resolved.Theta == 3 &&
 			resolved.Rho == 2 &&
-			resolved.EllPrime == 2 &&
-			resolved.Eta == 31 &&
+			resolved.EllPrime == 3 &&
+			resolved.Eta == 26 &&
 			resolved.NLeaves == 4096 &&
 			resolved.PostSignNLeaves == 4096 &&
 			resolved.PRFNLeaves == 4096 &&
-			resolved.Kappa == [4]int{0, 0, 0, 5}
+			resolved.Kappa == [4]int{0, 11, 0, 11}
 	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
 		return resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
 			resolved.LVCSNCols == 32 &&
@@ -735,10 +742,10 @@ type SigShortnessProof struct {
 }
 
 type SigShortnessProofV5 struct {
-	Mode       uint8
-	Radix      int
-	Digits     int
-	ExactHeads SigShortnessPackedMatrix
+	Mode        uint8
+	Radix       int
+	Digits      int
+	ExactHeads  SigShortnessPackedMatrix
 	THatOpening *decs.DECSOpening
 }
 
