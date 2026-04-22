@@ -1,151 +1,481 @@
 # Full Baseline Proof Study
 
-This note is the current-state study for the live theorem-clean full baseline only:
+This note is the retained current-state study for the live theorem-clean full
+showing baseline only.
 
-- `go run ./cmd/showing -showing-preset compact_l1_research -full`
-- default `PRFCompanionMode=output_audit`
+The live commands are:
 
-It is a feasibility map, not an optimization patch. Reduced replay and `aux_instance` remain comparison controls only and do not drive the lever classifications below.
+- reduced engineering control:
+  `go run ./cmd/showing -showing-preset compact_l1_research`
+- theorem-clean full replay:
+  `go run ./cmd/showing -showing-preset compact_l1_research -full`
 
-## Baseline Snapshot
+The purpose of this note is to hand a new research/implementation agent the
+actual state of the repo after the shipped outer `THat` relayout and after the
+failed first `source_product` bridge activation attempt.
 
-- Statement: `theorem_clean_full_replay`
-- Replay mode: `full`
-- PRF mode: `output_audit`
-- Optimized transcript: `66465` bytes
-- Buckets: `SigShortness=23543`, `Pdecs=18130`, `VTargets=9838`, `BarSets=5539`, `Q=4622`
-- Soundness: `128.11` bits
-- Replay selector: `16/400` rows, `3` active blocks, replay blocks `64`
-- Hidden shortness: opening `14469` bytes, hidden proof `9051` bytes
+This note is not an optimization patch. It is decision prep plus handoff
+context.
 
-## Main Witness Families
+## Executive State
 
-| Family | Rows | Selected | Blocks | Authenticated By | Notes |
-| --- | ---: | ---: | ---: | --- | --- |
-| `carrier_m` | 1 | 1 | 1 | `main_root`, `main_pcs_row_opening` | Packed message carrier row; decoded into `m1/m2` and consumed directly by the main transform-bridge replay. |
-| `carrier_ctr` | 1 | 1 | 1 | `main_root`, `main_pcs_row_opening` | Packed counter carrier row; decoded into `r0/r1` and consumed directly by the main transform-bridge replay. |
-| `t_source` | 0 | 0 | 0 | `main_root`, `main_pcs_row_opening` | Committed `T`-source rows are already absent on the live theorem-clean full baseline; `THat` is derived directly from signature replay heads. |
-| `mhat_sigma` | 64 | 0 | 12 | `main_root`, `main_pcs_row_opening` | Replay-image row family for `M1+M2` over every full replay block. |
-| `rhat0` | 64 | 0 | 12 | `main_root`, `main_pcs_row_opening` | Replay-image row family for `R0` over every full replay block. |
-| `rhat1` | 64 | 0 | 13 | `main_root`, `main_pcs_row_opening` | Replay-image row family for `R1` over every full replay block. |
-| `msigmar1_source` | 1 | 1 | 1 | `main_root`, `main_pcs_row_opening` | Committed omega-interpolated source-product row for `(M1+M2)*R1`. Still live in the baseline full proof. |
-| `r0r1_source` | 1 | 1 | 1 | `main_root`, `main_pcs_row_opening` | Committed omega-interpolated source-product row for `R0*R1`. Still live in the baseline full proof. |
-| `msigmar1_hat` | 64 | 0 | 13 | `main_root`, `main_pcs_row_opening` | Replay-image row family for `(M1+M2)*R1` over all replay blocks. |
-| `r0r1_hat` | 64 | 0 | 13 | `main_root`, `main_pcs_row_opening` | Replay-image row family for `R0*R1` over all replay blocks. |
-| `t_hat` | 64 | 0 | 13 | `main_root`, `main_pcs_row_opening`, `sig_shortness_t_hat_subset_opening` | Replay-image `THat` rows over all replay blocks. They are also re-opened through the outer sig-shortness same-root subset opening. |
-| `prf_key` | 1 | 1 | 1 | `main_root`, `main_pcs_row_opening` | Packed PRF key row retained for key binding and scalar opening checks in the baseline path. |
-| `prf_checkpoint` | 10 | 10 | 1 | `main_root`, `main_pcs_row_opening` | Packed PRF checkpoint rows consumed by the live `Q`-bridge and scalar opening checks. |
-| `prf_final_tag` | 2 | 2 | 1 | `main_root`, `main_pcs_row_opening` | Packed PRF final-tag rows consumed by the live `Q`-bridge and scalar opening checks. |
-| `prf_helper` | 1 | 1 | 1 | `main_root`, `main_pcs_row_opening` | Packed PRF helper rows still live in the baseline `Q`-bridge mix. |
-| `outer_sig_shortness_support` | 64 | 0 | 13 | `main_root`, `sig_shortness_t_hat_subset_opening` | Outer sig-shortness support rows authenticated by the same-root `THat` subset opening; on V6 these coincide with `THat` rows. |
+Three facts are now settled.
 
-## Hidden Sig Shortness
+1. The outer same-root `THat` opening was the right next lever and has already
+   been harvested.
+   - The live full transcript dropped from about `66.2 KB` to about `57.3 KB`.
+   - The outer `THat` opening dropped from about `14.4 KB` to about `5.45 KB`.
+   - The outer shortness surface is now `6` support slots and `11` opened
+     blocks on the compact full preset.
 
-- Witness geometry: `ncols=16`, `lvcs_ncols=256`, `nleaves=512`
-- Outer support slots: `16`
-- Hidden proof bytes: `9071`, outer opening bytes: `14469`
-- Hidden footprint: `Fpar=0`, `Fagg=0`, `Q=1001`, `Pdecs=364`, `VTargets=2698`, `BarSets=30`
-- Binding: The outer proof authenticates `THat` under the main root via a same-root subset opening. The hidden proof then receives the encoded `THat` heads, the main root, and the shortness spec as public inputs and proves the `linf` statement under its own root.
+2. The first-pass `source_product` bridge plan is blocked under current
+   authenticated surfaces.
+   - A same-root opening over the current physical rows `2/3` does not
+     round-trip the exact committed `MSigmaR1` / `R0R1` witness object.
+   - The derived K-evaluations from that opening do not match the committed
+     source-product rows at verifier points either.
+   - So the naive plan "build a bridge directly on current rows `2/3` and move
+     source-product checks out of Q" is not sound.
 
-## Constraint Families
+3. The next credible research target is still `source_product`, but no longer
+   as a direct activation of the current bridge scaffolding.
+   - The next viable path is a new same-root extraction shape, most likely a
+     projected / alias stripe under the existing main root.
+   - The first realistic cut is to move only
+     `bb_tran_source_product_source_to_hat_bridge` out of Q.
+   - The `bb_tran_source_product_source_residual` family should stay in Q in a
+     first shipped pass unless carrier authentication is strengthened enough to
+     remove it soundly.
 
-| Constraint | Layer | Witness Families | Authenticated By | Notes |
-| --- | --- | --- | --- | --- |
-| `transform_hash_residual_all_blocks` | `Fpar` | `mhat_sigma`, `rhat0`, `rhat1`, `msigmar1_hat`, `r0r1_hat`, `t_hat` | `main_pcs_row_opening`, `q_opening`, `main_root` | All-block replay residual over the exact replay-image hats. This is the theorem-clean full replay core. |
-| `carrier_decode_and_membership` | `Fpar` | `carrier_m`, `carrier_ctr` | `main_pcs_row_opening`, `q_opening`, `main_root` | Decodes carrier rows into message/counter source polynomials and enforces membership on the packed carriers. |
-| `non_sign_source_to_hat_bridge` | `Fagg` | `carrier_m`, `carrier_ctr`, `mhat_sigma`, `rhat0`, `rhat1` | `main_pcs_row_opening`, `q_opening`, `main_root` | Bridges carrier-derived non-sign source polynomials to the exact replay-image hats on every replay block. |
-| `bb_tran_source_product_source_residual` | `Fpar` | `carrier_m`, `carrier_ctr`, `msigmar1_source`, `r0r1_source` | `main_pcs_row_opening`, `q_opening`, `main_root` | Checks that the committed source-product rows equal the omega-interpolated products reconstructed from the carrier rows. |
-| `bb_tran_source_product_source_to_hat_bridge` | `Fagg` | `msigmar1_source`, `r0r1_source`, `msigmar1_hat`, `r0r1_hat` | `main_pcs_row_opening`, `q_opening`, `main_root` | Bridges committed source-product rows to their replay-image hats over every replay block. |
-| `prf_companion_q_bridge` | `Q` | `prf_key`, `prf_checkpoint`, `prf_final_tag`, `prf_helper` | `main_pcs_row_opening`, `q_opening`, `main_root` | Packed PRF bridge families aggregated into the main `Q` path under the baseline `output_audit` mode. |
-| `prf_companion_scalar_openings` | `outer_verification` | `prf_key`, `prf_checkpoint`, `prf_final_tag` | `prf_companion_scalar_payload`, `main_root` | Scalar direct-auth openings over checkpoint outputs, final tag, and key truncation. These validate scalar semantics but do not replace the packed `Q`-bridge on `Ω_s`. |
-| `sig_shortness_outer_subset_opening` | `outer_shortness_verification` | `t_hat`, `outer_sig_shortness_support` | `sig_shortness_t_hat_subset_opening`, `main_root` | Same-root subset opening that authenticates `THat` support rows for the outer V6 shortness binding. |
-| `sig_shortness_hidden_t_hat_bridge` | `hidden_shortness_subproof` | `hidden_linf_digit_rows` | `sig_shortness_hidden_public_digest`, `sig_shortness_hidden_root` | Bridges hidden digit rows to the public `THat` rows inside the nested hidden shortness proof. |
-| `sig_shortness_hidden_linf` | `hidden_shortness_subproof` | `hidden_linf_digit_rows` | `sig_shortness_hidden_root` | Hidden `linf` certificate over packed signature digits inside the nested V6 proof. |
+## Current Live Commands
 
-## Authenticated Surfaces
+Re-run these first in any new research pass:
 
-| Surface | Kind | Active | Bytes | Witness Families | Notes |
-| --- | --- | --- | ---: | --- | --- |
-| `main_pcs_row_opening` | `row_opening` | yes | 20617 | `carrier_m`, `carrier_ctr`, `t_source`, `mhat_sigma`, `rhat0`, `rhat1`, `msigmar1_source`, `r0r1_source`, `msigmar1_hat`, `r0r1_hat`, `t_hat`, `prf_key`, `prf_checkpoint`, `prf_final_tag`, `prf_helper` | Authenticated main PCS row opening reconstructed at mask/tail indices. It binds the main witness rows under the main root, but it does not expose exact witness-`Ω_s` values for every potential extraction lever. |
-| `q_opening` | `q_opening` | yes | 6372 | `` | Authenticated `Q` opening for the aggregated formal constraint families in the main theorem-clean proof. |
-| `main_root` | `root` | yes | 16 | `carrier_m`, `carrier_ctr`, `t_source`, `mhat_sigma`, `rhat0`, `rhat1`, `msigmar1_source`, `r0r1_source`, `msigmar1_hat`, `r0r1_hat`, `t_hat`, `prf_key`, `prf_checkpoint`, `prf_final_tag`, `prf_helper` | Main proof root authenticating the one-root baseline witness surface and the same-root subset openings derived from it. |
-| `sig_shortness_t_hat_subset_opening` | `same_root_subset_opening` | yes | 14469 | `t_hat`, `outer_sig_shortness_support` | Same-root subset opening over `THat` support rows used by the outer hidden shortness binding. |
-| `sig_shortness_hidden_public_digest` | `public_input_digest` | yes | 32 | `t_hat`, `hidden_linf_digit_rows` | Hidden-shortness public extras digest carrying the encoded `THat` heads, main root, and shortness spec into the nested proof. |
-| `sig_shortness_hidden_root` | `root` | yes | 16 | `hidden_linf_digit_rows` | Root of the nested hidden shortness proof; verified independently and bound back to the outer proof through the hidden public-input digest. |
-| `prf_companion_scalar_payload` | `masked_scalar_openings` | yes | 1102 | `prf_key`, `prf_checkpoint`, `prf_final_tag` | Masked scalar opening payload for PRF direct-auth checks. It validates scalar semantics but does not authenticate the packed bridge rows on `Ω_s`. |
-| `prf_aux_same_root_bridge` | `same_root_subset_bridge` | no (control) | 0 | `prf_key`, `prf_checkpoint`, `prf_final_tag`, `prf_helper` | Research-only control surface from the `aux_instance` path. It is sound, but the same-root bridge and stripe still make the total transcript larger than the baseline. |
+```bash
+go run ./cmd/showing -showing-preset compact_l1_research
+go run ./cmd/showing -showing-preset compact_l1_research -full
+go test ./PIOP -run 'TestSourceProductBridge.*|TestTransformBridge.*|TestSigShortness.*|TestReplayFamilyAudit.*|TestReporting.*' -count=1
+go test ./cmd/showing -run 'TestShowingV3CompactL1ResearchFullReplayPreset|TestShowingFullBaselineStudy.*|TestShowingReplayFamilyAuditShippedDefault|TestShowingReplaySubfamilyAuditShippedDefault|TestShowingRowOpeningReconstructsOmittedMvals' -count=1
+```
 
-## Lever Matrix
+These are the minimum sanity controls for the current state.
 
-| Lever | Status | Feasibility | Byte Leverage | Witness Families | Rationale |
-| --- | --- | ---: | --- | --- | --- |
-| `hidden_sig_shortness_geometry_tuning` | `doable_with_current_openings` | 1 | `medium` | `hidden_linf_digit_rows` | The hidden V6 subproof is already separately factorized, independently authenticated, and tunable through its own SmallWood geometry without changing the main theorem-clean statement. |
-| `hidden_sig_shortness_outer_t_hat_opening` | `needs_same_root_subset_bridge` | 2 | `high` | `t_hat`, `outer_sig_shortness_support` | The outer `THat` opening is a large authenticated object on the current baseline. Shrinking it requires a new same-root subset-bridge shape, not local evaluator reuse. |
-| `source_product_extraction` | `needs_same_root_subset_bridge` | 3 | `medium_high` | `carrier_m`, `carrier_ctr`, `msigmar1_source`, `r0r1_source`, `msigmar1_hat`, `r0r1_hat` | The current main-opening recovery path does not authenticate the omega-interpolated source-product polynomials strongly enough for live extraction. The failed direct-auth attempt shows this lever needs a dedicated same-root bridge object. |
-| `prf_packed_rows_master_root_bridge` | `needs_separate_oracle_or_master_root` | 5 | `medium` | `prf_key`, `prf_checkpoint`, `prf_final_tag`, `prf_helper` | PRF packed rows can only become economically separate if their bridge geometry is decoupled from the main PCS. That requires a separate PRF oracle/subroot under one protocol-level master root. |
-| `carrier_row_extraction` | `changes_statement` | 6 | `high_but_statement_changing` | `carrier_m`, `carrier_ctr` | Carrier rows are still the live source of decoded message/counter semantics in the theorem-clean baseline. Removing them would change the implemented statement, not just the authenticated surface. |
-| `prf_same_root_aux_instance` | `not_worth_it_after_measurement` | 4 | `negative_after_measurement` | `prf_key`, `prf_checkpoint`, `prf_final_tag`, `prf_helper` | The same-root PRF aux split is sound but still larger than the baseline after measurement. It should remain a control path, not the next optimization target. |
-| `t_source_derivation` | `already_derived_now` | 1 | `none` | `t_source`, `t_hat` | The theorem-clean full baseline already derives `THat` directly from signature replay heads and no longer commits `T`-source rows. This lever is complete on the current baseline. |
+## Current Measurements
 
-## Ranked Recommendation
+All measurements below were re-run locally on `2026-04-22`.
 
-- Next baseline-doable lever: `hidden_sig_shortness_geometry_tuning`
-- Next bridge-required lever: `hidden_sig_shortness_outer_t_hat_opening`
-- Next architecture-required lever: `prf_packed_rows_master_root_bridge`
+### Reduced control
 
-The resulting feasibility order is:
+Command:
 
-1. Retune the already-factorized hidden V6 proof geometry.
-2. Redesign the outer `THat` same-root opening if the hidden tuning is exhausted.
-3. Only then revisit `source_product` with a real same-root bridge object.
-4. Keep PRF master-root split as the next architecture step, not the next baseline-only step.
+```bash
+go run ./cmd/showing -showing-preset compact_l1_research
+```
 
-## Full Replay Repair Summary
+Measured facts from the latest run:
 
-The live theorem-clean full path is stable because the outer `SigShortnessV6`
-same-root `THat` opening now treats reduced and full replay differently:
+- statement class: `reduced_engineering_replay`
+- optimized transcript: `26493` bytes
+- buckets:
+  - `SigShortness=9452`
+  - `Pdecs=6627`
+  - `Q=4622`
+  - `VTargets=766`
+  - `BarSets=436`
+- outer shortness surface:
+  - `slots=1`
+  - `blocks=1`
+  - `opening=464`
+- replay selector:
+  - `16/22` rows
+  - `2/2` active blocks
 
-- reduced one-block openings may omit serialized `M` values
-- full multi-slot openings keep explicit authenticated `M` values
+### Full theorem-clean replay
 
-That repair lives in
-[PIOP/sig_shortness_replay.go](../PIOP/sig_shortness_replay.go). It fixed the
-earlier full-replay verifier divergence without weakening hidden shortness or
-reintroducing exact-head disclosure.
+Command:
 
-## PRF Aux Research Summary
+```bash
+go run ./cmd/showing -showing-preset compact_l1_research -full
+```
 
-The same-root PRF auxiliary split remains a retained research control, not a
-promotion candidate for the live baseline.
+Measured facts across repeated runs:
 
-Measured on the compact theorem-clean full path:
+- statement class: `theorem_clean_full_replay`
+- optimized transcript: observed in the `57200..57360` byte range
+- stable buckets:
+  - `Pdecs=18130`
+  - `VTargets=9838`
+  - `BarSets=5539`
+  - `Q=4622`
+- shortness bucket:
+  - observed in the `14466..14539` byte range
+- outer shortness surface:
+  - `slots=6`
+  - `blocks=11`
+  - opening observed in the `5445..5465` byte range
+- replay selector:
+  - `16/400` rows
+  - `3/22` active blocks
+- replay family state:
+  - `source_product` still selected `2/2`
+  - `carrier` still selected `2/2`
+  - `t_source` selected `0/0`
+  - `replay_image` selected `0/64`
 
-- baseline full `output_audit`: about `64.7 KB`
-- same-root striped `aux_instance`: about `83.5 KB`
-- PRF bridge opening: about `12.9 KB`
-- aux PRF proof: about `10.0 KB`
+Measurement note:
 
-The important conclusion is that the same-root PRF split is sound but still not
-economically positive. Even after shrinking the bridge opening, the extra
-same-root stripe rows inflate the main PCS witness too much. The next PRF
-architecture step is therefore a master-root multi-oracle design, not another
-local same-root tuning pass.
+- There is small run-to-run jitter in `SigShortness`, `Auth`, and total
+  optimized bytes.
+- Treat the current full control as a range, not a single frozen exact byte
+  count.
+- The stable control gates already encoded in tests are:
+  - full optimized bytes in `57000..57600`
+  - full outer shortness opening in `5400..5500`
+  - `Q=4622`
+  - outer shortness support slots remain `6`
 
-## Hidden Retuning Follow-Up
+## Current Test Status
 
-The hidden-shortness retuning cycle landed one lasting change:
+These suites were rerun after the latest source-product bridge attempt was
+turned back off:
 
-- the live proof/report path now surfaces the selected hidden shortness shape explicitly as profile, radix, digits, `lvcs_ncols`, and `nleaves`
+- `go test ./PIOP -run 'TestSourceProductBridge.*|TestTransformBridge.*|TestSigShortness.*|TestReplayFamilyAudit.*|TestReporting.*' -count=1`
+- `go test ./cmd/showing -run 'TestShowingV3CompactL1ResearchFullReplayPreset|TestShowingFullBaselineStudy.*|TestShowingReplayFamilyAuditShippedDefault|TestShowingReplaySubfamilyAuditShippedDefault|TestShowingRowOpeningReconstructsOmittedMvals' -count=1`
 
-The exact-search experiment did not earn a place in the default code path and
-was removed during cleanup. The current measured outcome remains:
+Both passed in the current tree.
 
-- the shipped theorem-clean full baseline still uses the legacy first-fit hidden selector
-- that live hidden shape is `r11_l4_production` with hidden geometry `256/512`
-- the resulting hidden contribution is about `9051` hidden-proof bytes plus `14469` outer `THat` opening bytes
+## What Was Achieved Since The Older Study
 
-So the ranked next steps remain unchanged:
+The following older conclusions are now obsolete:
 
-1. `hidden_sig_shortness_outer_t_hat_opening`
-2. `source_product_extraction`
-3. `prf_packed_rows_master_root_bridge`
+- the outer `THat` opening is no longer the next implementation target
+- the old full baseline around `66 KB` is no longer the live control
+- the old outer `THat` opening around `14.4 KB` is no longer the live surface
+- the old ranking "hidden geometry first, outer `THat` second, `source_product`
+  later" is stale
+
+The current shipped state is:
+
+- `THat` replay-window relayout is done
+- full theorem-clean replay keeps committed `T` source rows out of the witness
+- hidden shortness still binds only to authenticated outer `THat`
+- `source_product` remains the next bridge-required lever
+- but the first local bridge activation attempt failed structurally
+
+One important repo-level caveat:
+
+- some reporting helpers are currently coarser than the real feasibility state
+- in particular, replay-family audit output can still describe
+  `source_product` as `derivable_after_local_refactor`
+- the generated `BuildFullProofStudyReport` ranking in
+  [PIOP/full_proof_study.go](../PIOP/full_proof_study.go) also still reflects
+  the older pre-`THat` ranking
+- that string is not authoritative for the next cycle
+- the blocker tests in [PIOP/source_product_bridge_test.go](../PIOP/source_product_bridge_test.go)
+  and the gating in [PIOP/source_product_bridge.go](../PIOP/source_product_bridge.go)
+  are the stronger source of truth for current feasibility
+
+## Current Full Witness Families
+
+The live full baseline still uses these witness families:
+
+| Family | Committed Rows | Selected Rows | Current State |
+| --- | ---: | ---: | --- |
+| `carrier_m` | 1 | 1 | Still live and directly consumed by replay decoding. |
+| `carrier_ctr` | 1 | 1 | Still live and directly consumed by replay decoding. |
+| `t_source` | 0 | 0 | Already derived away in theorem-clean full replay. |
+| `mhat_sigma` | 64 | 0 | Replay-image rows, committed under main PCS only. |
+| `rhat0` | 64 | 0 | Replay-image rows, committed under main PCS only. |
+| `rhat1` | 64 | 0 | Replay-image rows, committed under main PCS only. |
+| `msigmar1_source` | 1 | 1 | Still live. This is one of the blocked extraction targets. |
+| `r0r1_source` | 1 | 1 | Still live. This is one of the blocked extraction targets. |
+| `msigmar1_hat` | 64 | 0 | Replay-image source-product hats over all replay blocks. |
+| `r0r1_hat` | 64 | 0 | Replay-image source-product hats over all replay blocks. |
+| `t_hat` | 64 | 0 | Replay-image `THat` rows, now placed so the outer opening hits only `6` slots. |
+| `prf_key` | 1 | 1 | Still live in the baseline `output_audit` path. |
+| `prf_checkpoint` | 10 | 10 | Still live in the baseline `Q`-bridge. |
+| `prf_final_tag` | 2 | 2 | Still live in the baseline `Q`-bridge. |
+| `prf_helper` | 1 | 1 | Still live in the baseline `Q`-bridge. |
+
+The most important current fact is:
+
+- the only post-`THat` replay rows still selected in the full theorem-clean
+  path are:
+  - carrier rows `0/1`
+  - source-product rows `2/3`
+  - PRF companion rows `388..399`
+
+## Current Constraint Families That Matter For The Next Step
+
+These are the exact live families to reason about for `source_product`.
+
+| Constraint Family | Layer | Role |
+| --- | --- | --- |
+| `bb_tran_source_product_source_residual` | `Fpar` | Checks that committed `MSigmaR1` / `R0R1` source rows equal the `Ω_s`-interpolated products reconstructed from carriers. |
+| `bb_tran_source_product_source_to_hat_bridge` | `Fagg` | Bridges the committed source-product rows to the committed replay hats over all replay blocks. |
+| `transform_hash_residual_all_blocks` | `Fpar` | Consumes the replay hats `MSigmaR1Hat` / `R0R1Hat` as part of the exact replay image. |
+
+Important current interpretation:
+
+- `source_product` is split between:
+  - a source residual against carrier-derived interpolants
+  - a source-to-hat bridge over the full replay image
+- a first shipped same-root redesign only needs to replace the second one to
+  be useful
+- it does not need to solve carrier extraction at the same time
+
+## Current Authenticated Surface Reality
+
+The current live authenticated objects are enough to verify the theorem-clean
+full proof, but they are not enough to justify the naive source-product bridge.
+
+What is true now:
+
+- the main PCS opening authenticates the committed witness rows under the main
+  root
+- the outer hidden shortness opening authenticates exact `THat` under the same
+  root
+- the current PRF scalar payload authenticates scalar outputs, not packed
+  witness rows on `Ω_s`
+
+What is not true now:
+
+- the current main opening does not expose an exact, shipped, same-root
+  `Ω_s`-witness object for `MSigmaR1` / `R0R1`
+- a direct same-root opening over current physical rows `2/3` does not
+  round-trip the committed source-product witness object
+
+## Source-Product Bridge Attempt: Exact Blocker
+
+This was the most important research result after the `THat` win.
+
+The current bridge scaffolding remains in the tree, but activation is disabled
+in:
+
+- [PIOP/source_product_bridge.go](../PIOP/source_product_bridge.go)
+
+The blocking probes live in:
+
+- [PIOP/source_product_bridge_test.go](../PIOP/source_product_bridge_test.go)
+
+Those tests now establish two negative facts:
+
+1. `TestSourceProductBridgeCurrentPhysicalRowsDoNotRoundTripThroughSameRootOpening`
+   - opening the current physical rows `2/3` under the main root does not
+     reconstruct the exact committed `MSigmaR1` / `R0R1` `Ω_s` heads
+
+2. `TestSourceProductBridgeCurrentPhysicalRowsDoNotMatchCommittedKValues`
+   - even after taking the `Ω_{s+1}` limbs into account, the values derived
+     from that same-root opening do not match the committed source-product rows
+     at verifier K-points
+
+This is the exact reason the previous activation attempt was turned back off.
+
+The current gating comment in code is the authoritative short version:
+
+- the retained bridge scaffolding stays disabled until there is a same-root
+  extraction shape that actually round-trips the exact `MSigmaR1` / `R0R1`
+  rows
+
+## Why The Naive Plan Failed
+
+The failed plan was:
+
+- build `SourceProductBridge` directly over current physical rows `2/3`
+- use that same-root opening as the shipped source-product witness surface
+- move both source-product families out of Q
+
+It failed because the current physical rows are in the main packed witness
+geometry, not in a projection that is guaranteed to reconstruct the exact
+`Ω_s` object the verifier needs for source-product extraction.
+
+The practical consequence is:
+
+- "same root" alone is not enough
+- "same physical rows" is the broken assumption
+
+## Viable Redesign Direction
+
+The next credible path is a projected / alias stripe under the same main root.
+
+The repo already contains the same general design pattern for PRF stripe work
+in:
+
+- [PIOP/prf_bridge_stripe.go](../PIOP/prf_bridge_stripe.go)
+
+That file is research-only control work, but it proves the repo already has
+the right conceptual tool:
+
+- copy a source witness family into a compact physical stripe
+- authenticate the stripe under the existing main root
+- bind source rows to stripe rows with equality constraints
+- then open the stripe rather than the original packed geometry
+
+For `source_product`, the viable v1 redesign should be:
+
+1. add alias rows for `MSigmaR1` and `R0R1`
+2. place them in a compact stripe whose same-root opening actually round-trips
+   exact `Ω_s` heads
+3. enforce equality between source rows and alias rows
+4. build `SourceProductBridge` over the alias stripe, not rows `2/3`
+5. use the bridge to replace only
+   `bb_tran_source_product_source_to_hat_bridge`
+6. keep `bb_tran_source_product_source_residual` in Q in the first shipped cut
+
+Why this is the right first cut:
+
+- it avoids the current blocker on carrier extraction
+- it should let the verifier authenticate exact source-product values without
+  changing the theorem-clean full statement
+- it attacks the bridge-heavy part of `source_product` first
+
+## Expected Byte Economics
+
+The current post-`THat` source-product opportunity is no longer a `THat`-class
+win.
+
+Expected economics for the alias-stripe redesign:
+
+- likely net gain: about `1.5 KB` to `3 KB`
+- best case: somewhat above that if the bridge opening packs unusually well
+- why the gain is capped:
+  - source-product rows share the first active selector block with the carrier
+    rows, so removing them does not shrink active-block count by itself
+  - some bytes move from `Q` into a new same-root bridge opening
+
+The key expectation is:
+
+- `source_product` is still worth doing next
+- but only as a medium-sized same-root bridge win, not as another `8-9 KB`
+  event
+
+## No-Go Routes
+
+The next agent should not spend time re-proving these.
+
+### Not viable now
+
+- flip `sourceProductBridgeEnabled(...)` back on for current rows `2/3`
+- try to justify the current bridge scaffolding as already sound
+- derive source-product values only locally from carrier values at challenge
+  `x`
+
+Why:
+
+- current rows `2/3` do not round-trip the exact committed source-product
+  object
+- local derivation at `x` is not equivalent to authenticating the committed
+  `Ω_s`-interpolated source-product polynomials
+
+### Not the next step
+
+- second SmallWood instance for source-product
+- separate root / master-root architecture for source-product
+- another `THat`-only layout pass
+
+Why:
+
+- source-product still has a plausible same-root redesign path
+- `THat` already gave the large layout-based win
+- the next `THat` upside would require a new projected same-root shape, which
+  is now a smaller payoff than fixing source-product first
+
+## PRF Context
+
+The PRF same-root aux / stripe work remains research-only control work.
+
+Current conclusion:
+
+- same-root PRF stripe work is sound
+- it is not economically better than the live baseline
+- so it should remain a design reference, not the next optimization target
+
+Why it still matters here:
+
+- it is the closest existing in-repo template for a projected same-root alias
+  stripe under the main root
+
+## Ranked Recommendation Now
+
+The current ranking after the shipped `THat` relayout is:
+
+1. `source_product` via a projected / alias same-root stripe under the current
+   main root
+2. projected same-root `THat` bridge if source-product does not pay enough
+3. PRF master-root / multi-oracle architecture only after same-root levers are
+   exhausted
+
+## Concrete Handoff For The Next Agent
+
+The next agent should start with these files:
+
+- [PIOP/source_product_bridge.go](../PIOP/source_product_bridge.go)
+- [PIOP/source_product_bridge_test.go](../PIOP/source_product_bridge_test.go)
+- [PIOP/prf_bridge_stripe.go](../PIOP/prf_bridge_stripe.go)
+- [PIOP/showing_transform_bridge_constraints.go](../PIOP/showing_transform_bridge_constraints.go)
+- [PIOP/showing_transform_bridge_eval.go](../PIOP/showing_transform_bridge_eval.go)
+- [PIOP/replay_selector.go](../PIOP/replay_selector.go)
+- [PIOP/full_proof_study.go](../PIOP/full_proof_study.go)
+- [docs/protocol.md](./protocol.md)
+- [docs/nizk_alignment_notes.md](./nizk_alignment_notes.md)
+
+The next agent should answer these exact design questions before coding:
+
+1. What alias-row layout guarantees exact round-trip of `MSigmaR1` / `R0R1`
+   under a same-root opening?
+2. What equality constraints bind source rows to alias rows with minimal byte
+   cost?
+3. Can the first pass move only
+   `bb_tran_source_product_source_to_hat_bridge` out of Q while leaving the
+   source residual in Q?
+4. What is the smallest support-slot geometry that keeps the alias stripe
+   economical?
+5. What is the measured net win after counting both removed Q families and the
+   new bridge opening?
+
+The next agent should not claim success unless all of these are true:
+
+- theorem-clean full replay still verifies
+- hidden shortness is unchanged
+- no second unrelated root is introduced
+- the bridge authenticates an exact source-product object, not a local proxy
+- the source-product bridge test suite proves round-trip on the new alias rows
+- the full compact baseline drops materially below the current `57.2-57.4 KB`
+  range
+
+## Measurement Log Used For This Note
+
+Commands rerun for this update:
+
+```bash
+go run ./cmd/showing -showing-preset compact_l1_research
+go run ./cmd/showing -showing-preset compact_l1_research -full
+go test ./PIOP -run 'TestSourceProductBridge.*|TestTransformBridge.*|TestSigShortness.*|TestReplayFamilyAudit.*|TestReporting.*' -count=1
+go test ./cmd/showing -run 'TestShowingV3CompactL1ResearchFullReplayPreset|TestShowingFullBaselineStudy.*|TestShowingReplayFamilyAuditShippedDefault|TestShowingReplaySubfamilyAuditShippedDefault|TestShowingRowOpeningReconstructsOmittedMvals' -count=1
+```
+
+Latest observed reduced run:
+
+- optimized bytes: `26493`
+- shortness opening: `464`
+- selector: `16/22`
+
+Latest observed full runs:
+
+- optimized bytes: `57202`, `57309`, `57356`
+- shortness opening: `5445`, `5465`
+- shortness bucket: `14466`, `14502`, `14539`
+- `Q=4622` on every run
+- selector: `16/400` on every run
+
+## Bottom Line
+
+The state of the research is now clean:
+
+- the outer `THat` win is shipped
+- the full theorem-clean baseline is about `57.3 KB`
+- the naive source-product bridge is proven blocked
+- the next serious step is a projected / alias same-root source-product stripe
+  under the current main root
+- the correct first target is the source-to-hat bridge family, not immediate
+  full source-product removal from Q
