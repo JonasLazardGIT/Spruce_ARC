@@ -154,6 +154,51 @@ func TestFormatStatementSummaryDistinguishesReducedAndFull(t *testing.T) {
 	}
 }
 
+func TestFormatReplayFamilyAuditSummaryListsSelectedFamilies(t *testing.T) {
+	line := formatReplayFamilyAuditSummary(PIOP.ProofReport{
+		ReplayAudit: PIOP.ReplayFamilyAuditReport{
+			Selector: PIOP.ReplayActiveRowStats{
+				SelectedRows: 16,
+				WitnessRows:  22,
+				ActiveBlocks: 2,
+				FullBlocks:   2,
+				ReductionPct: 27.27,
+			},
+			Families: []PIOP.ReplayFamilyAuditEntry{
+				{Family: PIOP.ReplayFamilyTSource, SelectedRowCount: 0},
+				{Family: PIOP.ReplayFamilySourceProduct, SelectedRowCount: 2},
+				{Family: PIOP.ReplayFamilyCarrier, SelectedRowCount: 2},
+				{Family: PIOP.ReplayFamilyPRFCompanion, SelectedRowCount: 12},
+			},
+		},
+	})
+	if !strings.Contains(line, "selectedFamilies=source_product, carrier, prf_companion") {
+		t.Fatalf("missing selected family summary: %q", line)
+	}
+	if strings.Contains(line, "top_stage_b") {
+		t.Fatalf("stale stage-B wording still present: %q", line)
+	}
+}
+
+func TestFormatReplaySubfamilyAuditSummaryListsSelectedKinds(t *testing.T) {
+	line := formatReplaySubfamilyAuditSummary(PIOP.ReplaySubfamilyAuditReport{
+		Entries: []PIOP.ReplaySubfamilyAuditEntry{
+			{Kind: PIOP.ReplaySubfamilySourceProductMSigmaR1, SelectedRowCount: 1},
+			{Kind: PIOP.ReplaySubfamilySourceProductR0R1, SelectedRowCount: 1},
+			{Kind: PIOP.ReplaySubfamilyPRFKeyRows, SelectedRowCount: 1},
+			{Kind: PIOP.ReplaySubfamilyPRFCheckpointRows, SelectedRowCount: 10},
+			{Kind: PIOP.ReplaySubfamilyPRFFinalTagRows, SelectedRowCount: 2},
+			{Kind: PIOP.ReplaySubfamilyPRFHelperRows, SelectedRowCount: 1},
+		},
+	})
+	if !strings.Contains(line, "selectedSubfamilies=source_product_msigmar1, source_product_r0r1, prf_key_rows, prf_checkpoint_rows, prf_final_tag_rows, prf_helper_rows") {
+		t.Fatalf("missing selected subfamily summary: %q", line)
+	}
+	if strings.Contains(line, "top_remaining") {
+		t.Fatalf("stale ranked-target wording still present: %q", line)
+	}
+}
+
 func TestFormatSoundnessComponentShowsClampReason(t *testing.T) {
 	line := formatSoundnessComponent("eps1", -336.91, 0)
 	if !strings.Contains(line, "eps1=0.00 (clamped from raw -336.91)") {

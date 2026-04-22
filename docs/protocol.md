@@ -6,7 +6,7 @@ branch.
 It is intentionally strict about source-of-truth boundaries:
 
 - target semantics and claimed protocol properties come from
-  [ARC_Spruce/main.pdf](ARC_Spruce/main.pdf)
+  [ARC_Spruce/Spruce_ARC_htran.pdf](ARC_Spruce/Spruce_ARC_htran.pdf)
 - live behavior comes from the current code and tracked runtime assets
 - this note exists to say exactly where those two currently coincide and where
   they do not

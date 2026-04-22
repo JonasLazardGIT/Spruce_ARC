@@ -801,36 +801,36 @@ func TestShowingReplayFamilyAuditShippedDefault(t *testing.T) {
 	if audit.Selector.ActiveBlocks != audit.Selector.FullBlocks {
 		t.Fatalf("expected shipped replay audit to remain block-dense: active=%d full=%d", audit.Selector.ActiveBlocks, audit.Selector.FullBlocks)
 	}
-	wantTargets := []PIOP.ReplayFamilyKind{
-		PIOP.ReplayFamilyPRFCompanion,
-		PIOP.ReplayFamilySourceProduct,
-		PIOP.ReplayFamilyCarrier,
-	}
-	if len(audit.StageBTargets) != len(wantTargets) {
-		t.Fatalf("stage B target count=%d want %d (%v)", len(audit.StageBTargets), len(wantTargets), audit.StageBTargets)
-	}
-	for i := range wantTargets {
-		if audit.StageBTargets[i] != wantTargets[i] {
-			t.Fatalf("stage B target[%d]=%q want %q (full order=%v)", i, audit.StageBTargets[i], wantTargets[i], audit.StageBTargets)
-		}
-	}
 	entries := make(map[PIOP.ReplayFamilyKind]PIOP.ReplayFamilyAuditEntry, len(audit.Families))
+	selectedFamilies := make([]PIOP.ReplayFamilyKind, 0, len(audit.Families))
 	for _, entry := range audit.Families {
 		entries[entry.Family] = entry
+		if entry.SelectedRowCount > 0 {
+			selectedFamilies = append(selectedFamilies, entry.Family)
+		}
 	}
-	top := entries[audit.StageBTargets[0]]
-	if top.Derivability == PIOP.ReplayFamilyAlreadyDerivedNow {
-		t.Fatalf("top Stage B target %q should not already be derived", top.Family)
+	wantSelectedFamilies := []PIOP.ReplayFamilyKind{
+		PIOP.ReplayFamilySourceProduct,
+		PIOP.ReplayFamilyCarrier,
+		PIOP.ReplayFamilyPRFCompanion,
+	}
+	if len(selectedFamilies) != len(wantSelectedFamilies) {
+		t.Fatalf("selected family count=%d want %d (%v)", len(selectedFamilies), len(wantSelectedFamilies), selectedFamilies)
+	}
+	for i := range wantSelectedFamilies {
+		if selectedFamilies[i] != wantSelectedFamilies[i] {
+			t.Fatalf("selected family[%d]=%q want %q (full order=%v)", i, selectedFamilies[i], wantSelectedFamilies[i], selectedFamilies)
+		}
 	}
 	coveredBlocks := make(map[int]struct{})
-	for _, family := range audit.StageBTargets[:3] {
+	for _, family := range selectedFamilies {
 		entry := entries[family]
 		for _, idx := range entry.SelectedRows {
 			coveredBlocks[idx/audit.Selector.LayerSize] = struct{}{}
 		}
 	}
 	if len(coveredBlocks) != audit.Selector.FullBlocks {
-		t.Fatalf("top three Stage B targets should jointly cover all active blocks: covered=%d full=%d", len(coveredBlocks), audit.Selector.FullBlocks)
+		t.Fatalf("selected families should jointly cover all active blocks: covered=%d full=%d", len(coveredBlocks), audit.Selector.FullBlocks)
 	}
 	if entries[PIOP.ReplayFamilyPRFCompanion].ActiveBlockCount != 2 || entries[PIOP.ReplayFamilyTSource].ActiveBlockCount != 0 {
 		t.Fatalf("unexpected shipped block split: prf_companion=%d t_source=%d", entries[PIOP.ReplayFamilyPRFCompanion].ActiveBlockCount, entries[PIOP.ReplayFamilyTSource].ActiveBlockCount)
@@ -874,46 +874,33 @@ func TestShowingReplaySubfamilyAuditShippedDefault(t *testing.T) {
 	if got := byKind[PIOP.ReplaySubfamilyPRFFinalTagRows].Consumption; got != PIOP.ReplaySubfamilyMixed {
 		t.Fatalf("prf final-tag rows consumption=%q want %q", got, PIOP.ReplaySubfamilyMixed)
 	}
-	if sub.PRFBridgeBlocker == "" {
-		t.Fatalf("missing prf bridge blocker summary")
-	}
-	if sub.SigBasisBlocker != "" {
-		t.Fatalf("unexpected sig basis blocker summary=%q", sub.SigBasisBlocker)
-	}
-	wantPRF := []PIOP.ReplaySubfamilyKind{
-		PIOP.ReplaySubfamilyPRFCheckpointRows,
-		PIOP.ReplaySubfamilyPRFFinalTagRows,
-		PIOP.ReplaySubfamilyPRFHelperRows,
-	}
-	if len(sub.PRFBridgeTargets) < len(wantPRF) {
-		t.Fatalf("prf bridge target count=%d want at least %d", len(sub.PRFBridgeTargets), len(wantPRF))
-	}
-	for i := range wantPRF {
-		if sub.PRFBridgeTargets[i] != wantPRF[i] {
-			t.Fatalf("prf bridge target[%d]=%q want %q (full order=%v)", i, sub.PRFBridgeTargets[i], wantPRF[i], sub.PRFBridgeTargets)
-		}
-	}
-	if len(sub.SigBasisTargets) != 0 {
-		t.Fatalf("unexpected sig basis targets=%v", sub.SigBasisTargets)
-	}
 	if got := byKind[PIOP.ReplaySubfamilySourceProductMSigmaR1].SelectedRowCount; got != 1 {
 		t.Fatalf("source_product_msigmar1 selected=%d want 1", got)
 	}
 	if got := byKind[PIOP.ReplaySubfamilySourceProductR0R1].SelectedRowCount; got != 1 {
 		t.Fatalf("source_product_r0r1 selected=%d want 1", got)
 	}
-	wantTop := []PIOP.ReplaySubfamilyKind{
+	selectedKinds := make([]PIOP.ReplaySubfamilyKind, 0, len(sub.Entries))
+	for _, entry := range sub.Entries {
+		if entry.SelectedRowCount == 0 {
+			continue
+		}
+		selectedKinds = append(selectedKinds, entry.Kind)
+	}
+	wantSelectedKinds := []PIOP.ReplaySubfamilyKind{
 		PIOP.ReplaySubfamilySourceProductMSigmaR1,
 		PIOP.ReplaySubfamilySourceProductR0R1,
+		PIOP.ReplaySubfamilyPRFKeyRows,
 		PIOP.ReplaySubfamilyPRFCheckpointRows,
 		PIOP.ReplaySubfamilyPRFFinalTagRows,
+		PIOP.ReplaySubfamilyPRFHelperRows,
 	}
-	if len(sub.StageBTargets) < len(wantTop) {
-		t.Fatalf("subfamily target count=%d want at least %d", len(sub.StageBTargets), len(wantTop))
+	if len(selectedKinds) != len(wantSelectedKinds) {
+		t.Fatalf("selected subfamily count=%d want %d (%v)", len(selectedKinds), len(wantSelectedKinds), selectedKinds)
 	}
-	for i := range wantTop {
-		if sub.StageBTargets[i] != wantTop[i] {
-			t.Fatalf("subfamily target[%d]=%q want %q (full order=%v)", i, sub.StageBTargets[i], wantTop[i], sub.StageBTargets)
+	for i := range wantSelectedKinds {
+		if selectedKinds[i] != wantSelectedKinds[i] {
+			t.Fatalf("selected subfamily[%d]=%q want %q (full order=%v)", i, selectedKinds[i], wantSelectedKinds[i], selectedKinds)
 		}
 	}
 }

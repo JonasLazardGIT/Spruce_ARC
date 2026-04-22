@@ -8,17 +8,30 @@ roles:
 - **showing**, where the holder proves possession of a valid credential and a
   correctly derived PRF tag without revealing the credential secret.
 
-The current repository is the reduced, shipped codebase. It keeps only the
-credential path that is still wired end to end:
+The current repository keeps the live credential path that is still wired end
+to end:
 
 - NTRU key generation, signing, and verification
 - blind issuance / pre-sign proving
-- showing with the retained coeff-native `v3` layout, PRF companion route, and
-  `SigShortness` V4
+- showing with the retained coeff-native `v3` layout, PRF companion
+  `output_audit`, and hidden `SigShortnessV6`
+- the concrete credential relation `bb_tran`
 - the SmallWood-style proof stack used by those flows
 
-The protocol framing in this repo follows the current paper source.
-The code remains the source of truth for live defaults and supported behavior.
+Two showing surfaces remain intentionally distinct:
+
+- shipped default: `go run ./cmd/showing`
+  runs `soundness_balanced` with reduced replay
+- theorem-clean baseline: `go run ./cmd/showing -showing-preset compact_l1_research -full`
+  runs the full replay study/control path described in
+  [docs/full_baseline_proof_study.md](docs/full_baseline_proof_study.md)
+
+Source of truth is ordered deliberately:
+
+1. paper semantics and claimed properties
+2. live code and tracked runtime assets
+3. measured commands/tests
+4. repo summaries like this README
 
 ## Reading Order
 
@@ -28,10 +41,12 @@ Start here, then read:
    model
 2. [docs/nizk_alignment_notes.md](docs/nizk_alignment_notes.md) for the
    detailed paper-vs-code reconciliation
-3. [docs/modulus_choice.md](docs/modulus_choice.md) for the modulus and packing
+3. [docs/full_baseline_proof_study.md](docs/full_baseline_proof_study.md) for
+   the retained manual full-baseline study and `source_product` handoff
+4. [docs/modulus_choice.md](docs/modulus_choice.md) for the modulus and packing
    rationale
-4. [Commands.md](Commands.md) for operator-facing command usage
-5. package READMEs for subsystem context:
+5. [Commands.md](Commands.md) for operator-facing command usage
+6. package READMEs for subsystem context:
    [PIOP](PIOP/README.md),
    [ntru](ntru/README.md),
    [prf](prf/README.md),
@@ -71,17 +86,18 @@ Current showing defaults from code:
 - shared parameters:
   `NCols=16`, `Ell=18`, `PRFGroupRounds=2`, explicit domain, replay `reduced`
 - default preset `soundness_balanced` resolves to:
-  `Theta=3`, `Eta=43`, `EllPrime=2`, `Rho=2`, `LVCSNCols=96`,
+  `Theta=3`, `Eta=43`, `EllPrime=2`, `Rho=2`, `LVCSNCols=89`,
   `NLeaves=4096`, `Kappa={0,0,0,5}`
 - PRF companion mode defaults to `output_audit`
-- shortness defaults to `SigShortness` `v4`
+- shortness defaults to hidden `SigShortness` `v6`
+- the live relation remains `bb_tran`
 
-Fresh local default measurement on this checkout (`2026-04-20`):
+The theorem-clean full baseline used by the study note is:
 
-- paper transcript `80,630` bytes (`78.74 KB`)
-- witness rows `534`
-- PCS blocks `6`
-- dominant paper bucket: `SigShortness = 42,739`
+- `go run ./cmd/showing -showing-preset compact_l1_research -full`
+
+The retained study note tracks the current control range for that path at about
+`57.2..57.4 KB`, with `source_product` as the next meaningful same-root lever.
 
 ## Runtime Assets
 

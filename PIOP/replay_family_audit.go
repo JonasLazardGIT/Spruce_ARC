@@ -3,7 +3,6 @@ package PIOP
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
 type ReplayFamilyKind string
@@ -18,28 +17,12 @@ const (
 	ReplayFamilyReplayImage     ReplayFamilyKind = "replay_image"
 )
 
-type ReplayFamilyDerivability string
-
-const (
-	ReplayFamilyAlreadyDerivedNow              ReplayFamilyDerivability = "already_derived_now"
-	ReplayFamilyDerivableAfterLocalRefactor    ReplayFamilyDerivability = "derivable_after_local_refactor"
-	ReplayFamilyStructurallyRequiredForCurrent ReplayFamilyDerivability = "structurally_required_unless_statement_changes"
-)
-
 type ReplayFamilyReductionEffect string
 
 const (
 	ReplayFamilyAlreadyExcludedFromSelector ReplayFamilyReductionEffect = "already_excluded_from_selector"
 	ReplayFamilyReducesLogicalRowsOnly      ReplayFamilyReductionEffect = "reduces_logical_rows_only"
 	ReplayFamilyReducesActiveBlocks         ReplayFamilyReductionEffect = "reduces_active_blocks"
-)
-
-type ReplayFamilyChangeClass string
-
-const (
-	ReplayFamilyStatementPreserving ReplayFamilyChangeClass = "statement_preserving"
-	ReplayFamilyVerifierRefactor    ReplayFamilyChangeClass = "verifier_refactor"
-	ReplayFamilyProtocolLevel       ReplayFamilyChangeClass = "protocol_level"
 )
 
 type ReplayFamilyAuditEntry struct {
@@ -51,20 +34,15 @@ type ReplayFamilyAuditEntry struct {
 	ActiveBlockCount     int                         `json:"active_block_count"`
 	TotalBlockCount      int                         `json:"total_block_count"`
 	SpansAllActiveBlocks bool                        `json:"spans_all_active_blocks"`
-	Derivability         ReplayFamilyDerivability    `json:"derivability"`
 	ReductionEffect      ReplayFamilyReductionEffect `json:"reduction_effect"`
-	ChangeClass          ReplayFamilyChangeClass     `json:"change_class"`
-	PriorityRank         int                         `json:"priority_rank"`
-	PriorityReason       string                      `json:"priority_reason"`
 	Notes                string                      `json:"notes"`
 }
 
 type ReplayFamilyAuditReport struct {
-	Selector      ReplayActiveRowStats       `json:"selector"`
-	FamilyOrder   []ReplayFamilyKind         `json:"family_order"`
-	Families      []ReplayFamilyAuditEntry   `json:"families"`
-	Subfamilies   ReplaySubfamilyAuditReport `json:"subfamilies"`
-	StageBTargets []ReplayFamilyKind         `json:"stage_b_targets"`
+	Selector    ReplayActiveRowStats       `json:"selector"`
+	FamilyOrder []ReplayFamilyKind         `json:"family_order"`
+	Families    []ReplayFamilyAuditEntry   `json:"families"`
+	Subfamilies ReplaySubfamilyAuditReport `json:"subfamilies"`
 }
 
 var replayFamilyKinds = []ReplayFamilyKind{
@@ -103,7 +81,6 @@ func BuildReplayFamilyAuditReport(proof *Proof) (ReplayFamilyAuditReport, error)
 	sourceProductBridgeActive := sourceProductBridgeEnabledForProof(proof)
 
 	unionSelected := make([]int, 0, len(selector))
-	entryIndexByKind := make(map[ReplayFamilyKind]int, len(replayFamilyKinds))
 	for _, kind := range replayFamilyKinds {
 		logicalRows := append([]int(nil), families[kind]...)
 		selectedRows := intersectSortedIntSlices(logicalRows, selector)
@@ -117,43 +94,17 @@ func BuildReplayFamilyAuditReport(proof *Proof) (ReplayFamilyAuditReport, error)
 			ActiveBlockCount:     replayActiveBlockCountForRows(selectedRows, stats.WitnessRows, stats.LayerSize),
 			TotalBlockCount:      stats.FullBlocks,
 			SpansAllActiveBlocks: len(selectedRows) > 0 && stats.FullBlocks > 0 && replayActiveBlockCountForRows(selectedRows, stats.WitnessRows, stats.LayerSize) == stats.FullBlocks,
-			Derivability:         replayFamilyDerivability(kind),
-			ChangeClass:          replayFamilyChangeClass(kind),
 			Notes:                replayFamilyNotes(kind),
 		}
-		if sourceProductBridgeActive && kind == ReplayFamilySourceProduct {
-			entry.Derivability = ReplayFamilyAlreadyDerivedNow
-			entry.ChangeClass = ReplayFamilyStatementPreserving
-			entry.Notes = "MSigmaR1/R0R1 now leave the replay selector on theorem-clean full replay and are authenticated by the same-root source-product bridge."
-		}
 		entry.ReductionEffect = replayFamilyReductionEffect(selector, selectedRows, stats)
+		if sourceProductBridgeActive && kind == ReplayFamilySourceProduct {
+			entry.Notes = "MSigmaR1/R0R1 leave the active replay selector once the same-root source-product bridge authenticates them directly."
+		}
 		report.Families = append(report.Families, entry)
-		entryIndexByKind[kind] = len(report.Families) - 1
 	}
 	sort.Ints(unionSelected)
 	if !equalIntSlices(unionSelected, selector) {
 		return ReplayFamilyAuditReport{}, fmt.Errorf("replay family selected-row union=%v want selector=%v", unionSelected, selector)
-	}
-
-	rankedKinds := rankReplayFamiliesForStageB(report.Families)
-	for rank, kind := range rankedKinds {
-		idx, ok := entryIndexByKind[kind]
-		if !ok {
-			return ReplayFamilyAuditReport{}, fmt.Errorf("missing replay family entry for %q", kind)
-		}
-		report.Families[idx].PriorityRank = rank + 1
-		report.Families[idx].PriorityReason = replayFamilyPriorityReason(report.Families[idx])
-	}
-	for _, kind := range rankedKinds {
-		idx, ok := entryIndexByKind[kind]
-		if !ok {
-			return ReplayFamilyAuditReport{}, fmt.Errorf("missing replay family entry for %q", kind)
-		}
-		entry := report.Families[idx]
-		if entry.SelectedRowCount == 0 || entry.Derivability == ReplayFamilyAlreadyDerivedNow {
-			continue
-		}
-		report.StageBTargets = append(report.StageBTargets, kind)
 	}
 	subfamilies, err := buildReplaySubfamilyAuditReport(proof, selector, stats)
 	if err != nil {
@@ -289,40 +240,18 @@ func replaySigTransformAliasCount(layout RowLayout) int {
 	return layout.SigBlocks * componentCount
 }
 
-func replayFamilyDerivability(kind ReplayFamilyKind) ReplayFamilyDerivability {
-	switch kind {
-	case ReplayFamilyTransformAlias, ReplayFamilyReplayImage:
-		return ReplayFamilyAlreadyDerivedNow
-	case ReplayFamilyTSource, ReplayFamilySourceProduct:
-		return ReplayFamilyDerivableAfterLocalRefactor
-	default:
-		return ReplayFamilyStructurallyRequiredForCurrent
-	}
-}
-
-func replayFamilyChangeClass(kind ReplayFamilyKind) ReplayFamilyChangeClass {
-	switch kind {
-	case ReplayFamilyTransformAlias, ReplayFamilyReplayImage:
-		return ReplayFamilyStatementPreserving
-	case ReplayFamilyTSource, ReplayFamilySourceProduct:
-		return ReplayFamilyVerifierRefactor
-	default:
-		return ReplayFamilyProtocolLevel
-	}
-}
-
 func replayFamilyNotes(kind ReplayFamilyKind) string {
 	switch kind {
 	case ReplayFamilyTSource:
-		return "Reduced replay now derives THat directly; committed T-source rows remain only on paths that still open the full source bridge."
+		return "Committed T-source rows are absent on theorem-clean full replay and excluded from the active replay selector."
 	case ReplayFamilySourceProduct:
-		return "MSigmaR1/R0R1 remain live replay inputs; a reduced-only local derivation attempt broke Eq.(4) because the committed rows are omega-interpolated product polynomials."
+		return "MSigmaR1/R0R1 remain selected because the verifier still consumes the committed omega-interpolated source-product rows directly on the current baseline."
 	case ReplayFamilyCarrier:
-		return "Carrier rows remain direct replay inputs for decode and key binding."
+		return "Carrier rows remain selected because replay decoding and key binding still consume them directly."
 	case ReplayFamilyPRFCompanion:
-		return "PRF companion rows stay live for grouped nonlinear and key-binding replay until a direct-auth bridge object replaces the current Q path."
+		return "PRF companion packed rows remain selected because the live proof still authenticates their packed bridge path through Q and key-binding checks."
 	case ReplayFamilyTransformAlias:
-		return "Transform-hat alias rows are already treated as verifier-derivable."
+		return "Transform-hat alias rows are committed but excluded from the active replay selector."
 	case ReplayFamilyReplayImage:
 		return "THat replay rows are already excluded from the active selector."
 	default:
@@ -339,77 +268,6 @@ func replayFamilyReductionEffect(selector, selectedRows []int, stats ReplayActiv
 		return ReplayFamilyReducesActiveBlocks
 	}
 	return ReplayFamilyReducesLogicalRowsOnly
-}
-
-func rankReplayFamiliesForStageB(entries []ReplayFamilyAuditEntry) []ReplayFamilyKind {
-	ordered := make([]ReplayFamilyAuditEntry, len(entries))
-	copy(ordered, entries)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		a := ordered[i]
-		b := ordered[j]
-		if a.SpansAllActiveBlocks != b.SpansAllActiveBlocks {
-			return a.SpansAllActiveBlocks
-		}
-		if (a.Derivability != ReplayFamilyAlreadyDerivedNow) != (b.Derivability != ReplayFamilyAlreadyDerivedNow) {
-			return a.Derivability != ReplayFamilyAlreadyDerivedNow
-		}
-		if replayFamilyReductionEffectOrder(a.ReductionEffect) != replayFamilyReductionEffectOrder(b.ReductionEffect) {
-			return replayFamilyReductionEffectOrder(a.ReductionEffect) < replayFamilyReductionEffectOrder(b.ReductionEffect)
-		}
-		if replayFamilyChangeClassOrder(a.ChangeClass) != replayFamilyChangeClassOrder(b.ChangeClass) {
-			return replayFamilyChangeClassOrder(a.ChangeClass) < replayFamilyChangeClassOrder(b.ChangeClass)
-		}
-		if a.SelectedRowCount != b.SelectedRowCount {
-			return a.SelectedRowCount > b.SelectedRowCount
-		}
-		return a.Family < b.Family
-	})
-	out := make([]ReplayFamilyKind, len(ordered))
-	for i := range ordered {
-		out[i] = ordered[i].Family
-	}
-	return out
-}
-
-func replayFamilyReductionEffectOrder(effect ReplayFamilyReductionEffect) int {
-	switch effect {
-	case ReplayFamilyReducesActiveBlocks:
-		return 0
-	case ReplayFamilyReducesLogicalRowsOnly:
-		return 1
-	case ReplayFamilyAlreadyExcludedFromSelector:
-		return 2
-	default:
-		return 3
-	}
-}
-
-func replayFamilyChangeClassOrder(class ReplayFamilyChangeClass) int {
-	switch class {
-	case ReplayFamilyVerifierRefactor:
-		return 0
-	case ReplayFamilyProtocolLevel:
-		return 1
-	case ReplayFamilyStatementPreserving:
-		return 2
-	default:
-		return 3
-	}
-}
-
-func replayFamilyPriorityReason(entry ReplayFamilyAuditEntry) string {
-	parts := make([]string, 0, 4)
-	if entry.SpansAllActiveBlocks {
-		parts = append(parts, "all_blocks")
-	} else if entry.ActiveBlockCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d_of_%d_blocks", entry.ActiveBlockCount, entry.TotalBlockCount))
-	} else {
-		parts = append(parts, "no_selected_blocks")
-	}
-	parts = append(parts, string(entry.Derivability))
-	parts = append(parts, string(entry.ReductionEffect))
-	parts = append(parts, string(entry.ChangeClass))
-	return strings.Join(parts, "; ")
 }
 
 func intersectSortedIntSlices(a, b []int) []int {

@@ -1,7 +1,10 @@
 # Full Baseline Proof Study
 
-This note is the retained current-state study for the live theorem-clean full
-showing baseline only.
+This Markdown file is the retained, human-maintained current-state study and
+handoff note for the live theorem-clean full showing baseline only.
+
+The older generated full-study report layer has been removed from code and
+tests. This note is now the study artifact to keep up to date.
 
 The live commands are:
 
@@ -55,7 +58,7 @@ Re-run these first in any new research pass:
 go run ./cmd/showing -showing-preset compact_l1_research
 go run ./cmd/showing -showing-preset compact_l1_research -full
 go test ./PIOP -run 'TestSourceProductBridge.*|TestTransformBridge.*|TestSigShortness.*|TestReplayFamilyAudit.*|TestReporting.*' -count=1
-go test ./cmd/showing -run 'TestShowingV3CompactL1ResearchFullReplayPreset|TestShowingFullBaselineStudy.*|TestShowingReplayFamilyAuditShippedDefault|TestShowingReplaySubfamilyAuditShippedDefault|TestShowingRowOpeningReconstructsOmittedMvals' -count=1
+go test ./cmd/showing -run 'TestShowingV3CompactL1ResearchFullReplayPreset|TestShowingReplayFamilyAuditShippedDefault|TestShowingReplaySubfamilyAuditShippedDefault|TestShowingRowOpeningReconstructsOmittedMvals|TestFormat.*' -count=1
 ```
 
 These are the minimum sanity controls for the current state.
@@ -75,9 +78,9 @@ go run ./cmd/showing -showing-preset compact_l1_research
 Measured facts from the latest run:
 
 - statement class: `reduced_engineering_replay`
-- optimized transcript: `26493` bytes
+- optimized transcript: `26586` bytes
 - buckets:
-  - `SigShortness=9452`
+  - `SigShortness=9528`
   - `Pdecs=6627`
   - `Q=4622`
   - `VTargets=766`
@@ -85,7 +88,7 @@ Measured facts from the latest run:
 - outer shortness surface:
   - `slots=1`
   - `blocks=1`
-  - `opening=464`
+  - `opening=454`
 - replay selector:
   - `16/22` rows
   - `2/2` active blocks
@@ -108,7 +111,7 @@ Measured facts across repeated runs:
   - `BarSets=5539`
   - `Q=4622`
 - shortness bucket:
-  - observed in the `14466..14539` byte range
+  - observed in the `14417..14539` byte range
 - outer shortness surface:
   - `slots=6`
   - `blocks=11`
@@ -140,7 +143,7 @@ These suites were rerun after the latest source-product bridge attempt was
 turned back off:
 
 - `go test ./PIOP -run 'TestSourceProductBridge.*|TestTransformBridge.*|TestSigShortness.*|TestReplayFamilyAudit.*|TestReporting.*' -count=1`
-- `go test ./cmd/showing -run 'TestShowingV3CompactL1ResearchFullReplayPreset|TestShowingFullBaselineStudy.*|TestShowingReplayFamilyAuditShippedDefault|TestShowingReplaySubfamilyAuditShippedDefault|TestShowingRowOpeningReconstructsOmittedMvals' -count=1`
+- `go test ./cmd/showing -run 'TestShowingV3CompactL1ResearchFullReplayPreset|TestShowingReplayFamilyAuditShippedDefault|TestShowingReplaySubfamilyAuditShippedDefault|TestShowingRowOpeningReconstructsOmittedMvals|TestFormat.*' -count=1`
 
 Both passed in the current tree.
 
@@ -164,13 +167,10 @@ The current shipped state is:
 
 One important repo-level caveat:
 
-- some reporting helpers are currently coarser than the real feasibility state
-- in particular, replay-family audit output can still describe
-  `source_product` as `derivable_after_local_refactor`
-- the generated `BuildFullProofStudyReport` ranking in
-  [PIOP/full_proof_study.go](../PIOP/full_proof_study.go) also still reflects
-  the older pre-`THat` ranking
-- that string is not authoritative for the next cycle
+- replay-family and replay-subfamily audit output is intentionally a coarse
+  factual inventory
+- those reports describe selected rows, active blocks, and current consumption
+  state; they do not encode the next optimization ranking
 - the blocker tests in [PIOP/source_product_bridge_test.go](../PIOP/source_product_bridge_test.go)
   and the gating in [PIOP/source_product_bridge.go](../PIOP/source_product_bridge.go)
   are the stronger source of truth for current feasibility
@@ -415,7 +415,7 @@ The next agent should start with these files:
 - [PIOP/showing_transform_bridge_constraints.go](../PIOP/showing_transform_bridge_constraints.go)
 - [PIOP/showing_transform_bridge_eval.go](../PIOP/showing_transform_bridge_eval.go)
 - [PIOP/replay_selector.go](../PIOP/replay_selector.go)
-- [PIOP/full_proof_study.go](../PIOP/full_proof_study.go)
+- [docs/full_baseline_proof_study.md](./full_baseline_proof_study.md)
 - [docs/protocol.md](./protocol.md)
 - [docs/nizk_alignment_notes.md](./nizk_alignment_notes.md)
 
@@ -451,20 +451,20 @@ Commands rerun for this update:
 go run ./cmd/showing -showing-preset compact_l1_research
 go run ./cmd/showing -showing-preset compact_l1_research -full
 go test ./PIOP -run 'TestSourceProductBridge.*|TestTransformBridge.*|TestSigShortness.*|TestReplayFamilyAudit.*|TestReporting.*' -count=1
-go test ./cmd/showing -run 'TestShowingV3CompactL1ResearchFullReplayPreset|TestShowingFullBaselineStudy.*|TestShowingReplayFamilyAuditShippedDefault|TestShowingReplaySubfamilyAuditShippedDefault|TestShowingRowOpeningReconstructsOmittedMvals' -count=1
+go test ./cmd/showing -run 'TestShowingV3CompactL1ResearchFullReplayPreset|TestShowingReplayFamilyAuditShippedDefault|TestShowingReplaySubfamilyAuditShippedDefault|TestShowingRowOpeningReconstructsOmittedMvals|TestFormat.*' -count=1
 ```
 
 Latest observed reduced run:
 
-- optimized bytes: `26493`
-- shortness opening: `464`
+- optimized bytes: `26586`
+- shortness opening: `454`
 - selector: `16/22`
 
 Latest observed full runs:
 
-- optimized bytes: `57202`, `57309`, `57356`
+- optimized bytes: `57202`, `57237`, `57309`, `57356`
 - shortness opening: `5445`, `5465`
-- shortness bucket: `14466`, `14502`, `14539`
+- shortness bucket: `14417`, `14466`, `14502`, `14539`
 - `Q=4622` on every run
 - selector: `16/400` on every run
 

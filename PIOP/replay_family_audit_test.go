@@ -108,8 +108,8 @@ func TestReplayFamilyAuditDerivedFamiliesAreAlreadyExcluded(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing replay family %q", family)
 		}
-		if entry.Derivability != ReplayFamilyAlreadyDerivedNow {
-			t.Fatalf("%s derivability=%q want %q", family, entry.Derivability, ReplayFamilyAlreadyDerivedNow)
+		if entry.SelectedRowCount != 0 {
+			t.Fatalf("%s selected rows=%d want 0", family, entry.SelectedRowCount)
 		}
 		if entry.ReductionEffect != ReplayFamilyAlreadyExcludedFromSelector {
 			t.Fatalf("%s reduction effect=%q want %q", family, entry.ReductionEffect, ReplayFamilyAlreadyExcludedFromSelector)
@@ -117,44 +117,30 @@ func TestReplayFamilyAuditDerivedFamiliesAreAlreadyExcluded(t *testing.T) {
 	}
 }
 
-func TestReplayFamilyAuditRankingIsStable(t *testing.T) {
+func TestReplayFamilyAuditSelectedFamiliesAreStable(t *testing.T) {
 	proof := buildReplayFamilyAuditFixture(t)
 	audit, err := BuildReplayFamilyAuditReport(proof)
 	if err != nil {
 		t.Fatalf("build replay family audit: %v", err)
 	}
-	if len(audit.Families) != len(replayFamilyKinds) {
-		t.Fatalf("family count=%d want %d", len(audit.Families), len(replayFamilyKinds))
-	}
 	got := make([]ReplayFamilyKind, 0, len(audit.Families))
-	for rank := 1; rank <= len(audit.Families); rank++ {
-		found := false
-		for _, entry := range audit.Families {
-			if entry.PriorityRank != rank {
-				continue
-			}
-			got = append(got, entry.Family)
-			found = true
-			break
+	for _, entry := range audit.Families {
+		if entry.SelectedRowCount == 0 {
+			continue
 		}
-		if !found {
-			t.Fatalf("missing family with priority rank=%d", rank)
-		}
+		got = append(got, entry.Family)
 	}
 	want := []ReplayFamilyKind{
 		ReplayFamilySourceProduct,
-		ReplayFamilyPRFCompanion,
 		ReplayFamilyCarrier,
-		ReplayFamilyTSource,
-		ReplayFamilyReplayImage,
-		ReplayFamilyTransformAlias,
+		ReplayFamilyPRFCompanion,
 	}
 	if len(got) != len(want) {
-		t.Fatalf("ranked family count=%d want %d", len(got), len(want))
+		t.Fatalf("selected family count=%d want %d", len(got), len(want))
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("ranked family[%d]=%q want %q (full order=%v)", i, got[i], want[i], got)
+			t.Fatalf("selected family[%d]=%q want %q (full order=%v)", i, got[i], want[i], got)
 		}
 	}
 }
@@ -186,9 +172,6 @@ func TestReplaySubfamilyAuditIncludesCanonicalKinds(t *testing.T) {
 		if entry.Family == ReplayFamilySigPackedSource {
 			t.Fatalf("unexpected signature replay-basis subfamily after packed-source removal: %+v", entry)
 		}
-	}
-	if len(sub.SigBasisTargets) != 0 {
-		t.Fatalf("unexpected sig basis targets=%v", sub.SigBasisTargets)
 	}
 }
 
@@ -233,7 +216,7 @@ func TestReplaySubfamilyAuditRowsAreSortedAndReconcileFamilies(t *testing.T) {
 	}
 }
 
-func TestReplaySubfamilyAuditPRFUsageAndRankingAreStable(t *testing.T) {
+func TestReplaySubfamilyAuditPRFUsageAndSelectedKindsAreStable(t *testing.T) {
 	proof := buildReplayFamilyAuditFixture(t)
 	audit, err := BuildReplayFamilyAuditReport(proof)
 	if err != nil {
@@ -249,40 +232,27 @@ func TestReplaySubfamilyAuditPRFUsageAndRankingAreStable(t *testing.T) {
 	if got := byKind[ReplaySubfamilyPRFFinalTagRows].Consumption; got != ReplaySubfamilyMixed {
 		t.Fatalf("prf final-tag rows consumption=%q want %q", got, ReplaySubfamilyMixed)
 	}
-	if audit.Subfamilies.PRFBridgeBlocker == "" {
-		t.Fatalf("missing prf bridge blocker summary")
+	got := make([]ReplaySubfamilyKind, 0, len(audit.Subfamilies.Entries))
+	for _, entry := range audit.Subfamilies.Entries {
+		if entry.SelectedRowCount == 0 {
+			continue
+		}
+		got = append(got, entry.Kind)
 	}
-	if audit.Subfamilies.SigBasisBlocker != "" {
-		t.Fatalf("unexpected sig basis blocker summary=%q", audit.Subfamilies.SigBasisBlocker)
-	}
-	wantPRF := []ReplaySubfamilyKind{
+	want := []ReplaySubfamilyKind{
+		ReplaySubfamilySourceProductMSigmaR1,
+		ReplaySubfamilySourceProductR0R1,
+		ReplaySubfamilyPRFKeyRows,
 		ReplaySubfamilyPRFCheckpointRows,
 		ReplaySubfamilyPRFFinalTagRows,
 		ReplaySubfamilyPRFHelperRows,
 	}
-	if len(audit.Subfamilies.PRFBridgeTargets) < len(wantPRF) {
-		t.Fatalf("prf bridge target count=%d want at least %d", len(audit.Subfamilies.PRFBridgeTargets), len(wantPRF))
+	if len(got) != len(want) {
+		t.Fatalf("selected subfamily count=%d want %d", len(got), len(want))
 	}
-	for i := range wantPRF {
-		if audit.Subfamilies.PRFBridgeTargets[i] != wantPRF[i] {
-			t.Fatalf("prf bridge target[%d]=%q want %q (full order=%v)", i, audit.Subfamilies.PRFBridgeTargets[i], wantPRF[i], audit.Subfamilies.PRFBridgeTargets)
-		}
-	}
-	if len(audit.Subfamilies.SigBasisTargets) != 0 {
-		t.Fatalf("unexpected sig basis targets=%v", audit.Subfamilies.SigBasisTargets)
-	}
-	wantTop := []ReplaySubfamilyKind{
-		ReplaySubfamilySourceProductMSigmaR1,
-		ReplaySubfamilySourceProductR0R1,
-		ReplaySubfamilyPRFCheckpointRows,
-		ReplaySubfamilyPRFFinalTagRows,
-	}
-	if len(audit.Subfamilies.StageBTargets) < len(wantTop) {
-		t.Fatalf("subfamily target count=%d want at least %d", len(audit.Subfamilies.StageBTargets), len(wantTop))
-	}
-	for i := range wantTop {
-		if audit.Subfamilies.StageBTargets[i] != wantTop[i] {
-			t.Fatalf("subfamily target[%d]=%q want %q (full order=%v)", i, audit.Subfamilies.StageBTargets[i], wantTop[i], audit.Subfamilies.StageBTargets)
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("selected subfamily[%d]=%q want %q (full order=%v)", i, got[i], want[i], got)
 		}
 	}
 }

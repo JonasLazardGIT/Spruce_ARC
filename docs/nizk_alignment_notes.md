@@ -1,7 +1,7 @@
 # NIZK Alignment Notes
 
 This note records paper-to-code alignment for the current SPRUCE checkout
-against [ARC_Spruce/main.pdf](ARC_Spruce/main.pdf).
+against [ARC_Spruce/Spruce_ARC_htran.pdf](ARC_Spruce/Spruce_ARC_htran.pdf).
 
 ## Reading Rule
 

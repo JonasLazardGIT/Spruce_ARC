@@ -18,7 +18,8 @@ retained SmallWood-style proof flow:
 - drive DECS/LVCS commitments and openings
 - run the Fiat-Shamir flow
 - replay verifier checks from opened rows and public inputs
-- produce proof reports that classify the certified statement surface
+- produce proof reports and factual replay audits for the certified statement
+  surface
 
 ## Main Entry Points
 
@@ -44,5 +45,6 @@ retained SmallWood-style proof flow:
 - [../docs/protocol.md](../docs/protocol.md)
 - [../docs/nizk_alignment_notes.md](../docs/nizk_alignment_notes.md)
 - [../docs/full_baseline_proof_study.md](../docs/full_baseline_proof_study.md)
+  for the retained manual full-baseline study/handoff note
 - [../DECS/README.md](../DECS/README.md)
 - [../LVCS/README.md](../LVCS/README.md)

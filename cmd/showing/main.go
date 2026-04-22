@@ -994,27 +994,18 @@ func printReplayFamilyAudit(prefix string, rep PIOP.ProofReport) {
 		return
 	}
 	cli.printf(categoryGeometry, prefix, "%s", formatReplayFamilyAuditSummary(rep))
-	ordered := make([]PIOP.ReplayFamilyAuditEntry, len(audit.Families))
-	copy(ordered, audit.Families)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].PriorityRank != ordered[j].PriorityRank {
-			return ordered[i].PriorityRank < ordered[j].PriorityRank
-		}
-		return ordered[i].Family < ordered[j].Family
-	})
-	for _, entry := range ordered {
-		cli.printf(categoryGeometry, prefix, "  replay[%d] %-16s selected=%3d/%-3d blocks=%2d/%-2d derivability=%-42s",
-			entry.PriorityRank,
+	for _, entry := range audit.Families {
+		cli.printf(categoryGeometry, prefix, "  replay[%s] selected=%3d/%-3d blocks=%2d/%-2d reduction=%s",
 			entry.Family,
 			entry.SelectedRowCount,
 			entry.LogicalRowCount,
 			entry.ActiveBlockCount,
 			entry.TotalBlockCount,
-			entry.Derivability,
+			entry.ReductionEffect,
 		)
 	}
 	printReplaySubfamilyAudit(prefix, audit.Subfamilies)
-	cli.printf(categoryGeometry, prefix, "Replay audit note: selector-derived rows are authoritative for Stage A; the older logical-row summary above is intentionally coarse.")
+	cli.printf(categoryGeometry, prefix, "Replay audit note: selector-derived rows are authoritative; the family inventory above is intentionally a coarse factual summary.")
 }
 
 func printReplaySubfamilyAudit(prefix string, audit PIOP.ReplaySubfamilyAuditReport) {
@@ -1022,20 +1013,11 @@ func printReplaySubfamilyAudit(prefix string, audit PIOP.ReplaySubfamilyAuditRep
 		return
 	}
 	cli.printf(categoryGeometry, prefix, "%s", formatReplaySubfamilyAuditSummary(audit))
-	ordered := make([]PIOP.ReplaySubfamilyAuditEntry, len(audit.Entries))
-	copy(ordered, audit.Entries)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].PriorityRank != ordered[j].PriorityRank {
-			return ordered[i].PriorityRank < ordered[j].PriorityRank
+	for _, entry := range audit.Entries {
+		if entry.SelectedRowCount == 0 {
+			continue
 		}
-		return ordered[i].Kind < ordered[j].Kind
-	})
-	if len(ordered) > 8 {
-		ordered = ordered[:8]
-	}
-	for _, entry := range ordered {
-		cli.printf(categoryGeometry, prefix, "  replay_sub[%d] %-34s selected=%3d/%-3d blocks=%2d/%-2d consumption=%-16s",
-			entry.PriorityRank,
+		cli.printf(categoryGeometry, prefix, "  replay_sub[%s] selected=%3d/%-3d blocks=%2d/%-2d consumption=%s",
 			entry.Kind,
 			entry.SelectedRowCount,
 			entry.LogicalRowCount,
@@ -1044,18 +1026,6 @@ func printReplaySubfamilyAudit(prefix string, audit PIOP.ReplaySubfamilyAuditRep
 			entry.Consumption,
 		)
 	}
-	if audit.PRFBridgeBlocker != "" {
-		cli.printf(categoryGeometry, prefix, "  prf_bridge_blocker: %s", audit.PRFBridgeBlocker)
-	}
-	if len(audit.PRFBridgeTargets) > 0 {
-		cli.printf(categoryGeometry, prefix, "  prf_bridge_targets: %s", formatReplaySubfamilyTargetList(audit.PRFBridgeTargets, 3))
-	}
-	if audit.SigBasisBlocker != "" {
-		cli.printf(categoryGeometry, prefix, "  sig_basis_blocker: %s", audit.SigBasisBlocker)
-	}
-	if len(audit.SigBasisTargets) > 0 {
-		cli.printf(categoryGeometry, prefix, "  sig_basis_targets: %s", formatReplaySubfamilyTargetList(audit.SigBasisTargets, 4))
-	}
 }
 
 func formatReplayFamilyAuditSummary(rep PIOP.ProofReport) string {
@@ -1063,26 +1033,25 @@ func formatReplayFamilyAuditSummary(rep PIOP.ProofReport) string {
 	if len(audit.Families) == 0 {
 		return ""
 	}
-	targetCap := len(audit.StageBTargets)
-	if targetCap > 3 {
-		targetCap = 3
+	selectedFamilies := make([]string, 0, len(audit.Families))
+	for _, entry := range audit.Families {
+		if entry.SelectedRowCount == 0 {
+			continue
+		}
+		selectedFamilies = append(selectedFamilies, string(entry.Family))
 	}
-	targets := make([]string, 0, targetCap)
-	for i := 0; i < len(audit.StageBTargets) && i < 3; i++ {
-		targets = append(targets, string(audit.StageBTargets[i]))
-	}
-	targetLabel := "none"
-	if len(targets) > 0 {
-		targetLabel = strings.Join(targets, ", ")
+	selectedLabel := "none"
+	if len(selectedFamilies) > 0 {
+		selectedLabel = strings.Join(selectedFamilies, ", ")
 	}
 	return fmt.Sprintf(
-		"Replay audit: selected=%d/%d rows reduction=%.2f%% activeBlocks=%d/%d top_stage_b=%s",
+		"Replay audit: selected=%d/%d rows reduction=%.2f%% activeBlocks=%d/%d selectedFamilies=%s",
 		audit.Selector.SelectedRows,
 		audit.Selector.WitnessRows,
 		audit.Selector.ReductionPct,
 		audit.Selector.ActiveBlocks,
 		audit.Selector.FullBlocks,
-		targetLabel,
+		selectedLabel,
 	)
 }
 
@@ -1090,22 +1059,17 @@ func formatReplaySubfamilyAuditSummary(audit PIOP.ReplaySubfamilyAuditReport) st
 	if len(audit.Entries) == 0 {
 		return ""
 	}
-	targetLabel := formatReplaySubfamilyTargetList(audit.StageBTargets, 4)
-	return fmt.Sprintf("Replay subaudit: top_remaining=%s", targetLabel)
-}
-
-func formatReplaySubfamilyTargetList(targets []PIOP.ReplaySubfamilyKind, limit int) string {
-	if len(targets) == 0 {
-		return "none"
+	selected := make([]string, 0, len(audit.Entries))
+	for _, entry := range audit.Entries {
+		if entry.SelectedRowCount == 0 {
+			continue
+		}
+		selected = append(selected, string(entry.Kind))
 	}
-	if limit <= 0 || limit > len(targets) {
-		limit = len(targets)
+	if len(selected) == 0 {
+		return "Replay subaudit: selectedSubfamilies=none"
 	}
-	labels := make([]string, 0, limit)
-	for i := 0; i < limit; i++ {
-		labels = append(labels, string(targets[i]))
-	}
-	return strings.Join(labels, ", ")
+	return fmt.Sprintf("Replay subaudit: selectedSubfamilies=%s", strings.Join(selected, ", "))
 }
 
 type paperTranscriptBreakdownRow struct {

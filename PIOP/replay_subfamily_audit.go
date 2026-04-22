@@ -3,7 +3,6 @@ package PIOP
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
 type ReplaySubfamilyKind string
@@ -39,34 +38,23 @@ type ReplaySubfamilyAuditEntry struct {
 	TotalBlockCount      int                         `json:"total_block_count"`
 	SpansAllActiveBlocks bool                        `json:"spans_all_active_blocks"`
 	Consumption          ReplaySubfamilyConsumption  `json:"consumption"`
-	Derivability         ReplayFamilyDerivability    `json:"derivability"`
 	ReductionEffect      ReplayFamilyReductionEffect `json:"reduction_effect"`
-	ChangeClass          ReplayFamilyChangeClass     `json:"change_class"`
 	Consumers            []string                    `json:"consumers,omitempty"`
-	PriorityRank         int                         `json:"priority_rank"`
-	PriorityReason       string                      `json:"priority_reason"`
 	Notes                string                      `json:"notes"`
 }
 
 type ReplaySubfamilyAuditReport struct {
-	SubfamilyOrder   []ReplaySubfamilyKind       `json:"subfamily_order"`
-	Entries          []ReplaySubfamilyAuditEntry `json:"entries"`
-	StageBTargets    []ReplaySubfamilyKind       `json:"stage_b_targets"`
-	PRFBridgeTargets []ReplaySubfamilyKind       `json:"prf_bridge_targets"`
-	SigBasisTargets  []ReplaySubfamilyKind       `json:"sig_basis_targets"`
-	PRFBridgeBlocker string                      `json:"prf_bridge_blocker"`
-	SigBasisBlocker  string                      `json:"sig_basis_blocker"`
+	SubfamilyOrder []ReplaySubfamilyKind       `json:"subfamily_order"`
+	Entries        []ReplaySubfamilyAuditEntry `json:"entries"`
 }
 
 type replaySubfamilySpec struct {
-	kind         ReplaySubfamilyKind
-	family       ReplayFamilyKind
-	logicalRows  []int
-	consumption  ReplaySubfamilyConsumption
-	derivability ReplayFamilyDerivability
-	changeClass  ReplayFamilyChangeClass
-	consumers    []string
-	notes        string
+	kind        ReplaySubfamilyKind
+	family      ReplayFamilyKind
+	logicalRows []int
+	consumption ReplaySubfamilyConsumption
+	consumers   []string
+	notes       string
 }
 
 func rowLayoutReducedReplayUsesDerivedSourceProducts(layout RowLayout) bool {
@@ -187,9 +175,7 @@ func buildReplaySubfamilyAuditReport(proof *Proof, selector []int, stats ReplayA
 			TotalBlockCount:      stats.FullBlocks,
 			SpansAllActiveBlocks: len(selectedRows) > 0 && stats.FullBlocks > 0 && replayActiveBlockCountForRows(selectedRows, stats.WitnessRows, stats.LayerSize) == stats.FullBlocks,
 			Consumption:          spec.consumption,
-			Derivability:         spec.derivability,
 			ReductionEffect:      replayFamilyReductionEffect(selector, selectedRows, stats),
-			ChangeClass:          spec.changeClass,
 			Consumers:            append([]string(nil), spec.consumers...),
 			Notes:                spec.notes,
 		}
@@ -198,23 +184,6 @@ func buildReplaySubfamilyAuditReport(proof *Proof, selector []int, stats ReplayA
 		}
 		report.Entries = append(report.Entries, entry)
 	}
-	ranked := rankReplaySubfamiliesForStageB(report.Entries)
-	indexByKind := make(map[ReplaySubfamilyKind]int, len(report.Entries))
-	for i, entry := range report.Entries {
-		indexByKind[entry.Kind] = i
-	}
-	for rank, kind := range ranked {
-		idx := indexByKind[kind]
-		report.Entries[idx].PriorityRank = rank + 1
-		report.Entries[idx].PriorityReason = replaySubfamilyPriorityReason(report.Entries[idx])
-		if report.Entries[idx].SelectedRowCount > 0 && report.Entries[idx].ReductionEffect != ReplayFamilyAlreadyExcludedFromSelector {
-			report.StageBTargets = append(report.StageBTargets, kind)
-		}
-	}
-	report.PRFBridgeTargets = rankReplaySubfamiliesForFamily(report.Entries, ReplayFamilyPRFCompanion)
-	report.SigBasisTargets = rankReplaySubfamiliesForFamily(report.Entries, ReplayFamilySigPackedSource)
-	report.PRFBridgeBlocker = replayPRFBridgeBlocker(report.Entries)
-	report.SigBasisBlocker = replaySigBasisBlocker(report.Entries)
 	return report, nil
 }
 
@@ -238,24 +207,20 @@ func replaySubfamilySpecsForProof(proof *Proof) []replaySubfamilySpec {
 
 	specs := []replaySubfamilySpec{
 		{
-			kind:         ReplaySubfamilySourceProductMSigmaR1,
-			family:       ReplayFamilySourceProduct,
-			logicalRows:  nonNegative(layout.IdxMSigmaR1),
-			consumption:  ReplaySubfamilyReplayConsumed,
-			derivability: replaySubfamilySourceProductDerivability(sourceProductDerivedNow),
-			changeClass:  replaySubfamilySourceProductChangeClass(sourceProductDerivedNow),
-			consumers:    []string{"transform_bridge_bb_tran"},
-			notes:        replaySubfamilySourceProductNote(sourceProductDerivedNow, "MSigmaR1"),
+			kind:        ReplaySubfamilySourceProductMSigmaR1,
+			family:      ReplayFamilySourceProduct,
+			logicalRows: nonNegative(layout.IdxMSigmaR1),
+			consumption: ReplaySubfamilyReplayConsumed,
+			consumers:   []string{"transform_bridge_bb_tran"},
+			notes:       replaySubfamilySourceProductNote(sourceProductDerivedNow, "MSigmaR1"),
 		},
 		{
-			kind:         ReplaySubfamilySourceProductR0R1,
-			family:       ReplayFamilySourceProduct,
-			logicalRows:  nonNegative(layout.IdxR0R1),
-			consumption:  ReplaySubfamilyReplayConsumed,
-			derivability: replaySubfamilySourceProductDerivability(sourceProductDerivedNow),
-			changeClass:  replaySubfamilySourceProductChangeClass(sourceProductDerivedNow),
-			consumers:    []string{"transform_bridge_bb_tran"},
-			notes:        replaySubfamilySourceProductNote(sourceProductDerivedNow, "R0R1"),
+			kind:        ReplaySubfamilySourceProductR0R1,
+			family:      ReplayFamilySourceProduct,
+			logicalRows: nonNegative(layout.IdxR0R1),
+			consumption: ReplaySubfamilyReplayConsumed,
+			consumers:   []string{"transform_bridge_bb_tran"},
+			notes:       replaySubfamilySourceProductNote(sourceProductDerivedNow, "R0R1"),
 		},
 	}
 	if companion != nil {
@@ -308,37 +273,21 @@ func proofPRFCompanionMode(proof *Proof) PRFCompanionMode {
 	return proof.PRFCompanion.Mode
 }
 
-func replaySubfamilySourceProductDerivability(derivedNow bool) ReplayFamilyDerivability {
-	if derivedNow {
-		return ReplayFamilyAlreadyDerivedNow
-	}
-	return ReplayFamilyDerivableAfterLocalRefactor
-}
-
-func replaySubfamilySourceProductChangeClass(derivedNow bool) ReplayFamilyChangeClass {
-	if derivedNow {
-		return ReplayFamilyStatementPreserving
-	}
-	return ReplayFamilyVerifierRefactor
-}
-
 func replaySubfamilySourceProductNote(derivedNow bool, name string) string {
 	if derivedNow {
-		return fmt.Sprintf("%s now leaves the replay selector on theorem-clean full replay and is authenticated by the same-root source-product bridge.", name)
+		return fmt.Sprintf("%s leaves the active replay selector once the same-root source-product bridge authenticates it directly.", name)
 	}
-	return fmt.Sprintf("%s remains committed on narrower replay paths because the verifier still needs the omega-interpolated source polynomial explicitly there.", name)
+	return fmt.Sprintf("%s remains selected because the current proof still consumes the committed omega-interpolated source-product row directly.", name)
 }
 
 func replayPRFSubfamilySpec(kind ReplaySubfamilyKind, rows, replayRows, keyRows, directAuthRows []int, consumers []string, notes string) replaySubfamilySpec {
 	return replaySubfamilySpec{
-		kind:         kind,
-		family:       ReplayFamilyPRFCompanion,
-		logicalRows:  rows,
-		consumption:  classifyReplaySubfamilyConsumption(rows, replayRows, keyRows, directAuthRows),
-		derivability: ReplayFamilyStructurallyRequiredForCurrent,
-		changeClass:  ReplayFamilyProtocolLevel,
-		consumers:    consumers,
-		notes:        notes,
+		kind:        kind,
+		family:      ReplayFamilyPRFCompanion,
+		logicalRows: rows,
+		consumption: classifyReplaySubfamilyConsumption(rows, replayRows, keyRows, directAuthRows),
+		consumers:   consumers,
+		notes:       notes,
 	}
 }
 
@@ -376,98 +325,4 @@ func hasIntIntersection(a, b []int) bool {
 		}
 	}
 	return false
-}
-
-func rankReplaySubfamiliesForStageB(entries []ReplaySubfamilyAuditEntry) []ReplaySubfamilyKind {
-	ordered := make([]ReplaySubfamilyAuditEntry, len(entries))
-	copy(ordered, entries)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		a := ordered[i]
-		b := ordered[j]
-		if (a.SelectedRowCount > 0) != (b.SelectedRowCount > 0) {
-			return a.SelectedRowCount > 0
-		}
-		if replayFamilyReductionEffectOrder(a.ReductionEffect) != replayFamilyReductionEffectOrder(b.ReductionEffect) {
-			return replayFamilyReductionEffectOrder(a.ReductionEffect) < replayFamilyReductionEffectOrder(b.ReductionEffect)
-		}
-		if replayFamilyChangeClassOrder(a.ChangeClass) != replayFamilyChangeClassOrder(b.ChangeClass) {
-			return replayFamilyChangeClassOrder(a.ChangeClass) < replayFamilyChangeClassOrder(b.ChangeClass)
-		}
-		if a.ActiveBlockCount != b.ActiveBlockCount {
-			return a.ActiveBlockCount > b.ActiveBlockCount
-		}
-		if a.SelectedRowCount != b.SelectedRowCount {
-			return a.SelectedRowCount > b.SelectedRowCount
-		}
-		return a.Kind < b.Kind
-	})
-	out := make([]ReplaySubfamilyKind, len(ordered))
-	for i := range ordered {
-		out[i] = ordered[i].Kind
-	}
-	return out
-}
-
-func replaySubfamilyPriorityReason(entry ReplaySubfamilyAuditEntry) string {
-	parts := make([]string, 0, 5)
-	if entry.ActiveBlockCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d_of_%d_blocks", entry.ActiveBlockCount, entry.TotalBlockCount))
-	} else {
-		parts = append(parts, "no_selected_blocks")
-	}
-	parts = append(parts, string(entry.Consumption))
-	parts = append(parts, string(entry.ReductionEffect))
-	parts = append(parts, string(entry.ChangeClass))
-	if len(entry.Consumers) > 0 {
-		parts = append(parts, strings.Join(entry.Consumers, ","))
-	}
-	return strings.Join(parts, "; ")
-}
-
-func rankReplaySubfamiliesForFamily(entries []ReplaySubfamilyAuditEntry, family ReplayFamilyKind) []ReplaySubfamilyKind {
-	filtered := make([]ReplaySubfamilyAuditEntry, 0, len(entries))
-	for _, entry := range entries {
-		if entry.Family != family || entry.SelectedRowCount == 0 || entry.ReductionEffect == ReplayFamilyAlreadyExcludedFromSelector {
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
-	sort.SliceStable(filtered, func(i, j int) bool {
-		a := filtered[i]
-		b := filtered[j]
-		if a.ActiveBlockCount != b.ActiveBlockCount {
-			return a.ActiveBlockCount > b.ActiveBlockCount
-		}
-		if a.SelectedRowCount != b.SelectedRowCount {
-			return a.SelectedRowCount > b.SelectedRowCount
-		}
-		return a.Kind < b.Kind
-	})
-	out := make([]ReplaySubfamilyKind, len(filtered))
-	for i := range filtered {
-		out[i] = filtered[i].Kind
-	}
-	return out
-}
-
-func replayPRFBridgeBlocker(entries []ReplaySubfamilyAuditEntry) string {
-	for _, entry := range entries {
-		if entry.Family != ReplayFamilyPRFCompanion || entry.SelectedRowCount == 0 {
-			continue
-		}
-		if entry.Consumption == ReplaySubfamilyReplayConsumed || entry.Consumption == ReplaySubfamilyMixed {
-			return "checkpoint/final-tag rows only leave replay once the packed PRF bridge is authenticated directly; the current direct-auth openings audit scalar outputs, not the packed bridge mix on Ω_s"
-		}
-	}
-	return ""
-}
-
-func replaySigBasisBlocker(entries []ReplaySubfamilyAuditEntry) string {
-	for _, entry := range entries {
-		if entry.Family != ReplayFamilySigPackedSource || entry.SelectedRowCount == 0 {
-			continue
-		}
-		return "committed packed signature source rows are now the live replay basis; the next signature reduction must redesign that packed-source basis itself, not the retired chain rows"
-	}
-	return ""
 }

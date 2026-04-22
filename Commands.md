@@ -117,7 +117,7 @@ go run ./cmd/issuance holder-finalize
 
 `cmd/showing` builds and verifies the retained showing proof.
 
-Default retained layout:
+Default shipped command:
 
 ```bash
 go run ./cmd/showing
@@ -134,10 +134,22 @@ Current shipped defaults:
 - replay mode: `reduced`
 - preset: `soundness_balanced`
 - PRF route: packed companion, `output_audit`
-- shortness proof: `SigShortness` `v4`
+- shortness proof: hidden `SigShortness` `v6`
+- concrete relation: `bb_tran`
 - shipped preset resolution:
-  `Theta=3`, `Eta=43`, `EllPrime=2`, `Rho=2`, `LVCSNCols=96`,
+  `Theta=3`, `Eta=43`, `EllPrime=2`, `Rho=2`, `LVCSNCols=89`,
   `NLeaves=4096`, `Kappa={0,0,0,5}`
+
+The theorem-clean full replay baseline used by the retained study note is:
+
+```bash
+go run ./cmd/showing -showing-preset compact_l1_research -full
+```
+
+That path keeps the same retained coeff-native `v3` layout, but switches to
+the full replay statement class `theorem_clean_full_replay`. Use
+[docs/full_baseline_proof_study.md](docs/full_baseline_proof_study.md) for the
+current measured compact baseline and the `source_product` handoff.
 
 Other retained flags tune transcript geometry and reporting, for example:
 
@@ -160,4 +172,6 @@ For protocol meaning, read [docs/protocol.md](docs/protocol.md). For the
 current modulus and packing rationale, read
 [docs/modulus_choice.md](docs/modulus_choice.md). For the detailed
 paper-vs-code alignment note, read
-[docs/nizk_alignment_notes.md](docs/nizk_alignment_notes.md).
+[docs/nizk_alignment_notes.md](docs/nizk_alignment_notes.md). For the retained
+full-baseline study/handoff note, read
+[docs/full_baseline_proof_study.md](docs/full_baseline_proof_study.md).
