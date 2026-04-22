@@ -19,6 +19,46 @@ type literalPackedPolyWitness struct {
 	SigLimbHeads [][][][]uint64
 }
 
+var fullReplayTHatStripeSlots = []int{26, 27, 28, 29, 30, 31}
+
+func planFullReplayTHatRows(startRow, replayRows, pcsNCols, tHatCount int) ([]int, []int, error) {
+	if startRow < 0 {
+		return nil, nil, fmt.Errorf("invalid replay window start row %d", startRow)
+	}
+	if replayRows < 0 {
+		return nil, nil, fmt.Errorf("invalid replay window row count %d", replayRows)
+	}
+	if pcsNCols <= 0 {
+		return nil, nil, fmt.Errorf("invalid pcs ncols %d", pcsNCols)
+	}
+	if tHatCount < 0 || tHatCount > replayRows {
+		return nil, nil, fmt.Errorf("invalid T-hat row count %d for replay window rows %d", tHatCount, replayRows)
+	}
+	stripe := make(map[int]struct{}, len(fullReplayTHatStripeSlots))
+	for _, slot := range fullReplayTHatStripeSlots {
+		if slot < 0 || slot >= pcsNCols {
+			return nil, nil, fmt.Errorf("T-hat stripe slot %d out of range for pcs ncols %d", slot, pcsNCols)
+		}
+		stripe[slot] = struct{}{}
+	}
+	tHatRows := make([]int, 0, tHatCount)
+	otherRows := make([]int, 0, replayRows-tHatCount)
+	for row := startRow; row < startRow+replayRows; row++ {
+		if _, ok := stripe[row%pcsNCols]; ok && len(tHatRows) < tHatCount {
+			tHatRows = append(tHatRows, row)
+			continue
+		}
+		otherRows = append(otherRows, row)
+	}
+	if len(tHatRows) != tHatCount {
+		return nil, nil, fmt.Errorf("full replay T-hat stripe reserved %d rows, need %d", len(tHatRows), tHatCount)
+	}
+	if len(otherRows) != replayRows-tHatCount {
+		return nil, nil, fmt.Errorf("full replay replay-window non-T-hat rows=%d want %d", len(otherRows), replayRows-tHatCount)
+	}
+	return tHatRows, otherRows, nil
+}
+
 func buildLiteralPackedPolyWitness(ringQ *ring.Ring, cn *CoeffNativeShowingWitness, omega []uint64, ncols int, model string, opts SimOpts) (*literalPackedPolyWitness, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
@@ -415,9 +455,22 @@ func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 			rowCount = idx + replayBlocks
 		}
 	}
-	if idx := rowLayoutPostSignTHatBase(layout); idx >= 0 && rowLayoutReplayTHatCount(layout) > 0 {
-		if end := idx + rowLayoutReplayTHatCount(layout); end > rowCount {
-			rowCount = end
+	for _, idx := range rowLayoutPostSignTHatRows(layout) {
+		if idx >= 0 && idx+1 > rowCount {
+			rowCount = idx + 1
+		}
+	}
+	for _, rows := range [][]int{
+		rowLayoutPostSignMHatSigmaRows(layout),
+		rowLayoutPostSignRHat0Rows(layout),
+		rowLayoutPostSignRHat1Rows(layout),
+		rowLayoutPostSignMSigmaR1HatRows(layout),
+		rowLayoutPostSignR0R1HatRows(layout),
+	} {
+		for _, idx := range rows {
+			if idx >= 0 && idx+1 > rowCount {
+				rowCount = idx + 1
+			}
 		}
 	}
 	if layout.PackedSigChainBase >= 0 && layout.PackedSigChainRowsPerGroup > 0 {
@@ -633,20 +686,6 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	rows = append(rows, makeRowFromHead(carrierMHead))
 	idxCarrierCtr := len(rows)
 	rows = append(rows, makeRowFromHead(carrierCtrHead))
-	idxTSource := -1
-	usesCommittedTSourceBridge := opts.ShowingReplayMode == ShowingReplayModeFull
-	if usesCommittedTSourceBridge {
-		idxTSource = len(rows)
-		for block := 0; block < blocks; block++ {
-			start := block * ncols
-			end := start + ncols
-			tSourceHead := append([]uint64(nil), cn.T.Coeffs[0][start:end]...)
-			for i := range tSourceHead {
-				tSourceHead[i] %= q
-			}
-			rows = append(rows, makeRowFromHead(tSourceHead))
-		}
-	}
 
 	msgDecode1, msgDecode2, derr := buildPackedMessageCarrierDecodePolys(pub.BoundB, q)
 	if derr != nil {
@@ -701,7 +740,6 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		rows = append(rows, r0R1SourcePoly)
 	}
 
-	idxMHatSigma := len(rows)
 	mHat1Heads, berr := buildReplayHeadsFromSourcePoly(ringQ, rawAliasSurface.AliasRows[PreSignAliasM1], explicitOmega, replayBlockCount, "M hat 1")
 	if berr != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M hat1: %w", berr)
@@ -717,67 +755,141 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			mSigmaHatHeads[block][col] = modAdd(mHat1Heads[block][col]%q, mHat2Heads[block][col]%q, q)
 		}
 	}
-	for block := 0; block < replayBlockCount; block++ {
-		rows = append(rows, makeRowFromHead(mSigmaHatHeads[block]))
-	}
-	idxRHat0 := len(rows)
 	r0HatHeads, berr := buildReplayHeadsFromSourcePoly(ringQ, rawAliasSurface.AliasRows[PreSignAliasR0], explicitOmega, replayBlockCount, "R0")
 	if berr != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R0 hats: %w", berr)
 	}
-	for block := 0; block < replayBlockCount; block++ {
-		rows = append(rows, makeRowFromHead(r0HatHeads[block]))
-	}
-	idxRHat1 := len(rows)
 	r1HatHeads, berr := buildReplayHeadsFromSourcePoly(ringQ, rawAliasSurface.AliasRows[PreSignAliasR1], explicitOmega, replayBlockCount, "R1")
 	if berr != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R1 hats: %w", berr)
 	}
-	for block := 0; block < replayBlockCount; block++ {
-		rows = append(rows, makeRowFromHead(r1HatHeads[block]))
-	}
-	idxMSigmaR1Hat := -1
-	idxR0R1Hat := -1
+	var mSigmaR1HatHeads, r0R1HatHeads [][]uint64
 	if useBBTran {
-		idxMSigmaR1Hat = len(rows)
-		mSigmaR1HatHeads, derr := buildReplayHeadsFromSourcePoly(ringQ, mSigmaR1SourcePoly, explicitOmega, replayBlockCount, "MSigmaR1")
+		mSigmaR1HatHeads, derr = buildReplayHeadsFromSourcePoly(ringQ, mSigmaR1SourcePoly, explicitOmega, replayBlockCount, "MSigmaR1")
 		if derr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native MSigmaR1 hats: %w", derr)
 		}
-		for block := 0; block < replayBlockCount; block++ {
-			rows = append(rows, makeRowFromHead(mSigmaR1HatHeads[block]))
-		}
-		idxR0R1Hat = len(rows)
-		r0R1HatHeads, derr := buildReplayHeadsFromSourcePoly(ringQ, r0R1SourcePoly, explicitOmega, replayBlockCount, "R0R1")
+		r0R1HatHeads, derr = buildReplayHeadsFromSourcePoly(ringQ, r0R1SourcePoly, explicitOmega, replayBlockCount, "R0R1")
 		if derr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R0R1 hats: %w", derr)
-		}
-		for block := 0; block < replayBlockCount; block++ {
-			rows = append(rows, makeRowFromHead(r0R1HatHeads[block]))
 		}
 	}
 
 	replayTHatCount := replayBlockCount
-	idxTHatBase := len(rows)
-	var tHatHeads [][]uint64
-	if usesCommittedTSourceBridge {
-		var terr error
-		tHatHeads, terr = buildReplayHeadsFromSourceRows(ringQ, rows[idxTSource:idxTSource+blocks], explicitOmega, replayTHatCount, "T source")
-		if terr != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build T replay heads: %w", terr)
+	sigHatHeads, terr := buildSigHatHeadsFromPackedSigHeads(ringQ, packedWitness.SigHeads, ncols)
+	if terr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build sig hats from packed heads: %w", terr)
+	}
+	tHatHeads, terr := buildTHatHeadsFromSigHatHeads(ringQ, pub, explicitOmega, sigHatHeads, replayTHatCount, blocks)
+	if terr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build T replay heads from signature hats: %w", terr)
+	}
+	replayMHatSigmaRows := make([]int, replayBlockCount)
+	replayRHat0Rows := make([]int, replayBlockCount)
+	replayRHat1Rows := make([]int, replayBlockCount)
+	replayMSigmaR1HatRows := make([]int, replayBlockCount)
+	replayR0R1HatRows := make([]int, replayBlockCount)
+	replayTHatRows := make([]int, replayTHatCount)
+	packedFullReplay := false
+	if opts.ShowingReplayMode == ShowingReplayModeFull && replayBlockCount > 1 {
+		replayRowsPerBlock := 4
+		if useBBTran {
+			replayRowsPerBlock += 2
 		}
-	} else {
-		sigHatHeads, terr := buildSigHatHeadsFromPackedSigHeads(ringQ, packedWitness.SigHeads, ncols)
-		if terr != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build sig hats from packed heads: %w", terr)
+		replayWindowStart := len(rows)
+		replayWindowRows := replayBlockCount * replayRowsPerBlock
+		pcsNCols := opts.PostSignLVCSNCols
+		if pcsNCols <= 0 {
+			pcsNCols = resolvePCSNCols(opts, ncols)
 		}
-		tHatHeads, terr = buildTHatHeadsFromSigHatHeads(ringQ, pub, explicitOmega, sigHatHeads, replayTHatCount, blocks)
-		if terr != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build T replay heads from signature hats: %w", terr)
+		tHatPlanRows, otherPlanRows, planErr := planFullReplayTHatRows(replayWindowStart, replayWindowRows, pcsNCols, replayTHatCount)
+		if planErr == nil {
+			replayRowsPacked := make([]*ring.Poly, replayWindowRows)
+			assignReplayRow := func(row int, poly *ring.Poly) error {
+				if row < replayWindowStart || row >= replayWindowStart+replayWindowRows {
+					return fmt.Errorf("replay row %d outside packed window [%d,%d)", row, replayWindowStart, replayWindowStart+replayWindowRows)
+				}
+				idx := row - replayWindowStart
+				if replayRowsPacked[idx] != nil {
+					return fmt.Errorf("replay row %d assigned twice", row)
+				}
+				replayRowsPacked[idx] = poly
+				return nil
+			}
+			otherPos := 0
+			assignOther := func(poly *ring.Poly) (int, error) {
+				if otherPos >= len(otherPlanRows) {
+					return -1, fmt.Errorf("replay row planner exhausted non-T-hat positions")
+				}
+				row := otherPlanRows[otherPos]
+				otherPos++
+				if err := assignReplayRow(row, poly); err != nil {
+					return -1, err
+				}
+				return row, nil
+			}
+			for block := 0; block < replayBlockCount; block++ {
+				row, err := assignOther(makeRowFromHead(mSigmaHatHeads[block]))
+				if err != nil {
+					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack full replay M-hat-sigma block %d: %w", block, err)
+				}
+				replayMHatSigmaRows[block] = row
+				row, err = assignOther(makeRowFromHead(r0HatHeads[block]))
+				if err != nil {
+					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack full replay R-hat0 block %d: %w", block, err)
+				}
+				replayRHat0Rows[block] = row
+				row, err = assignOther(makeRowFromHead(r1HatHeads[block]))
+				if err != nil {
+					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack full replay R-hat1 block %d: %w", block, err)
+				}
+				replayRHat1Rows[block] = row
+				if useBBTran {
+					row, err = assignOther(makeRowFromHead(mSigmaR1HatHeads[block]))
+					if err != nil {
+						return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack full replay MSigmaR1-hat block %d: %w", block, err)
+					}
+					replayMSigmaR1HatRows[block] = row
+					row, err = assignOther(makeRowFromHead(r0R1HatHeads[block]))
+					if err != nil {
+						return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack full replay R0R1-hat block %d: %w", block, err)
+					}
+					replayR0R1HatRows[block] = row
+				}
+				replayTHatRows[block] = tHatPlanRows[block]
+				if err := assignReplayRow(replayTHatRows[block], makeRowFromHead(tHatHeads[block])); err != nil {
+					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack full replay T-hat block %d: %w", block, err)
+				}
+			}
+			if otherPos != len(otherPlanRows) {
+				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("packed %d non-T-hat replay rows want %d", otherPos, len(otherPlanRows))
+			}
+			for i, row := range replayRowsPacked {
+				if row == nil {
+					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("missing packed replay row at window offset %d", i)
+				}
+			}
+			rows = append(rows, replayRowsPacked...)
+			packedFullReplay = true
 		}
 	}
-	for block := 0; block < replayTHatCount; block++ {
-		rows = append(rows, makeRowFromHead(tHatHeads[block]))
+	if !packedFullReplay {
+		for block := 0; block < replayBlockCount; block++ {
+			replayMHatSigmaRows[block] = len(rows)
+			rows = append(rows, makeRowFromHead(mSigmaHatHeads[block]))
+			replayRHat0Rows[block] = len(rows)
+			rows = append(rows, makeRowFromHead(r0HatHeads[block]))
+			replayRHat1Rows[block] = len(rows)
+			rows = append(rows, makeRowFromHead(r1HatHeads[block]))
+			if useBBTran {
+				replayMSigmaR1HatRows[block] = len(rows)
+				rows = append(rows, makeRowFromHead(mSigmaR1HatHeads[block]))
+				replayR0R1HatRows[block] = len(rows)
+				rows = append(rows, makeRowFromHead(r0R1HatHeads[block]))
+			}
+			replayTHatRows[block] = len(rows)
+			rows = append(rows, makeRowFromHead(tHatHeads[block]))
+		}
 	}
 
 	packedSigBase := -1
@@ -822,21 +934,32 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.IdxK1 = -1
 	layout.IdxCarrierM = idxCarrierM
 	layout.IdxCarrierCtr = idxCarrierCtr
-	layout.IdxTSource = idxTSource
+	layout.IdxTSource = -1
 	layout.IdxSigHatBase = -1
 	layout.SigHatExtraBase = -1
-	layout.IdxTHatBase = idxTHatBase
+	layout.IdxTHatBase = replayTHatRows[0]
+	layout.ReplayTHatRows = append([]int(nil), replayTHatRows...)
 	layout.ReplayTHatCount = replayTHatCount
 	layout.ReplayBlockCount = replayBlockCount
-	layout.IdxMHatSigma = idxMHatSigma
+	layout.IdxMHatSigma = replayMHatSigmaRows[0]
+	layout.ReplayMHatSigmaRows = append([]int(nil), replayMHatSigmaRows...)
 	layout.IdxMHat1 = -1
 	layout.IdxMHat2 = -1
-	layout.IdxRHat0 = idxRHat0
-	layout.IdxRHat1 = idxRHat1
+	layout.IdxRHat0 = replayRHat0Rows[0]
+	layout.ReplayRHat0Rows = append([]int(nil), replayRHat0Rows...)
+	layout.IdxRHat1 = replayRHat1Rows[0]
+	layout.ReplayRHat1Rows = append([]int(nil), replayRHat1Rows...)
 	layout.IdxMSigmaR1 = idxMSigmaR1
 	layout.IdxR0R1 = idxR0R1
-	layout.IdxMSigmaR1Hat = idxMSigmaR1Hat
-	layout.IdxR0R1Hat = idxR0R1Hat
+	if useBBTran {
+		layout.IdxMSigmaR1Hat = replayMSigmaR1HatRows[0]
+		layout.ReplayMSigmaR1HatRows = append([]int(nil), replayMSigmaR1HatRows...)
+		layout.IdxR0R1Hat = replayR0R1HatRows[0]
+		layout.ReplayR0R1HatRows = append([]int(nil), replayR0R1HatRows...)
+	} else {
+		layout.IdxMSigmaR1Hat = -1
+		layout.IdxR0R1Hat = -1
+	}
 	layout.SigBlocks = blocks
 	layout.SigUCount = 0
 	layout.SigCoeffBase = -1
@@ -947,6 +1070,13 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			TagCount:           len(pub.Tag),
 			RowSemantics:       rowSemantics,
 		}
+		if companionMode == PRFCompanionModeAuxInstance {
+			pcsNCols := resolvePCSNCols(opts, ncols)
+			rows, err = appendPRFBridgeStripeRows(ringQ, rows, prfCompanionLayout, pcsNCols)
+			if err != nil {
+				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("append prf bridge stripe rows: %w", err)
+			}
+		}
 	}
 	layout.PRFScalarBundleRows = len(rows) - startIdx
 	layout.SigCount = len(rows)
@@ -1012,6 +1142,17 @@ func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, 
 		return ConstraintSet{}, fmt.Errorf("unsupported literal packed coeff-native model %q", cfg.Model)
 	}
 	_ = q
+	if normalizePRFCompanionMode(opts.PRFCompanionMode) == PRFCompanionModeAuxInstance && prfCompanionLayout != nil && prfCompanionLayout.BridgeStripe != nil {
+		eqFamilies, eqCoeffs, err := buildPRFBridgeStripeEqualityConstraints(ringQ, rowsNTT, prfCompanionLayout)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("prf bridge stripe equality constraints: %w", err)
+		}
+		baseSet.FparNorm = append(baseSet.FparNorm, eqFamilies...)
+		baseSet.FparNormCoeffs = append(baseSet.FparNormCoeffs, eqCoeffs...)
+		if len(eqFamilies) > 0 && baseSet.ParallelAlgDeg < 1 {
+			baseSet.ParallelAlgDeg = 1
+		}
+	}
 	return baseSet, nil
 }
 

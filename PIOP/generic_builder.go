@@ -25,9 +25,10 @@ type preparedCredentialBuild struct {
 	maskRowCount          int
 	witnessCount          int
 	witnessNCols          int
-	omega                []uint64
-	omegaWitness         []uint64
-	domainPoints         []uint64
+	omega                 []uint64
+	omegaWitness          []uint64
+	domainPoints          []uint64
+	builtPK               *lvcs.ProverKey
 	skipConstraintRebuild bool
 }
 
@@ -84,7 +85,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			}
 			omegaWitness = derivedWitnessOmega
 		}
-		if len(set.FparInt)+len(set.FparNorm)+len(set.FaggInt)+len(set.FaggNorm) == 0 {
+		if len(set.FparInt)+len(set.FparNorm)+len(set.FaggInt)+len(set.FaggNorm) == 0 && set.PRFCompanionLayout == nil {
 			return nil, fmt.Errorf("empty constraint set for credential mode")
 		}
 		// Map witness inputs to rows/layout/decs params.
@@ -344,6 +345,9 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if err != nil {
 			return nil, fmt.Errorf("commit rows: %w", err)
 		}
+		if prepared != nil {
+			prepared.builtPK = pk
+		}
 		pcsGeometry.OracleLayout = oracleLayout
 		if rowLayoutHasCoeffNativeSig(rowLayout) && rowLayoutCoeffNativeUsesLiteralPacked(rowLayout) && wit.CoeffNativeShowing != nil {
 			pcsNCols := ncols
@@ -472,28 +476,29 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			PRFCompanionRows:   companionRowInputs,
 			PRFTagPublic:       copyInt64Matrix(pub.Tag),
 			PRFNoncePublic:     copyInt64Matrix(pub.Nonce),
+			HashRelation:       pub.HashRelation,
 			RowInputs:          rowInputs,
 			// Theta>1 derives row heads from PK and layout on Ω.
-			WitnessPolys:      witnessPolys,
-			MaskPolys:         maskPolys,
-			MaskPolyCoeffs:    maskCoeffRows,
-			MaskPolysK:        maskPolysK,
-			MaskRowOffset:     maskRowOffset,
-			MaskRowCount:      maskRowCount,
-			PCSGeometry:       pcsGeometry,
-			MaskDegreeTarget:  maskTarget,
-			MaskDegreeBound:   maskBound,
-			Personalization:   personalization,
-			NCols:             witnessNCols,
-			PCSNCols:          sfNCols,
-			LVCSNCols:         sfNCols,
-			DecsParams:        decsParams,
-			LabelsDigest:      labelsDigest,
+			WitnessPolys:              witnessPolys,
+			MaskPolys:                 maskPolys,
+			MaskPolyCoeffs:            maskCoeffRows,
+			MaskPolysK:                maskPolysK,
+			MaskRowOffset:             maskRowOffset,
+			MaskRowCount:              maskRowCount,
+			PCSGeometry:               pcsGeometry,
+			MaskDegreeTarget:          maskTarget,
+			MaskDegreeBound:           maskBound,
+			Personalization:           personalization,
+			NCols:                     witnessNCols,
+			PCSNCols:                  sfNCols,
+			LVCSNCols:                 sfNCols,
+			DecsParams:                decsParams,
+			LabelsDigest:              labelsDigest,
 			SigShortnessBindingDigest: sigShortnessBindingDigest,
-			SmallFieldChi:     sfChi,
-			SmallFieldOmegaS1: sfOmegaS1,
-			SmallFieldMuInv:   sfMuInv,
-			SmallFieldK:       sfK,
+			SmallFieldChi:             sfChi,
+			SmallFieldOmegaS1:         sfOmegaS1,
+			SmallFieldMuInv:           sfMuInv,
+			SmallFieldK:               sfK,
 		}
 		proof, err := RunMaskingFS(mfsIn)
 		if err != nil {
@@ -509,6 +514,16 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			proof.SigShortness = sigShortness
 			if serr := VerifySigShortnessProof(proof, ringQ, omegaWitness, pub, opts); serr != nil {
 				return nil, fmt.Errorf("build sig shortness self-check: %w", serr)
+			}
+		}
+		if sourceProductBridgeEnabled(pub, opts, rowLayout) {
+			bridge, _, berr := buildSourceProductBridge(ringQ, pk, root, pub, rowLayout, omegaWitness, proof.PCSGeometry)
+			if berr != nil {
+				return nil, fmt.Errorf("build source-product bridge: %w", berr)
+			}
+			proof.SourceProductBridge = bridge
+			if _, berr := prepareSourceProductBridgeView(ringQ, proof, pub); berr != nil {
+				return nil, fmt.Errorf("build source-product bridge self-check: %w", berr)
 			}
 		}
 		return proof, nil
@@ -649,6 +664,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			carryBound        int64
 			prfCompanionEval  ConstraintEvaluator
 			prfCompanionEvalK KConstraintEvaluator
+			cfgPost           *transformBridgePostSignConfig
 		)
 		if proof.Theta > 1 {
 			if len(proof.Chi) == 0 {
@@ -672,7 +688,8 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			if cfgLayout.PackedSigComponents <= 0 || cfgLayout.PackedSigBlocks <= 0 || cfgLayout.PackedSigBlockWidth <= 0 {
 				return false, fmt.Errorf("invalid literal packed coeff-native layout: comps=%d blocks=%d width=%d", cfgLayout.PackedSigComponents, cfgLayout.PackedSigBlocks, cfgLayout.PackedSigBlockWidth)
 			}
-			cfgPost, cerr := newTransformBridgePostSignConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, pub.BoundB, set.PRFLayout, set.PRFCompanionLayout, opts)
+			var cerr error
+			cfgPost, cerr = newTransformBridgePostSignConfig(ringQ, proof, pub, proof.RowLayout, omegaWitness, domainPoints, pub.BoundB, set.PRFLayout, set.PRFCompanionLayout, opts)
 			if cerr != nil {
 				return false, cerr
 			}
@@ -772,7 +789,30 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				evalK = composeKEvaluators(evalK, prfCompanionEvalK)
 			}
 		}
+		staticZeroPar := 0
+		staticZeroAgg := 0
+		if coeffRowsAllZero(append(append([][]uint64{}, set.FparIntCoeffs...), set.FparNormCoeffs...)) {
+			staticZeroPar = len(set.FparInt) + len(set.FparNorm)
+		}
+		if coeffRowsAllZero(append(append([][]uint64{}, set.FaggIntCoeffs...), set.FaggNormCoeffs...)) {
+			staticZeroAgg = len(set.FaggInt) + len(set.FaggNorm)
+		}
 		if !haveCred && !havePRF {
+			formalParRows := append(append([][]uint64{}, set.FparIntCoeffs...), set.FparNormCoeffs...)
+			formalAggRows := append(append([][]uint64{}, set.FaggIntCoeffs...), set.FaggNormCoeffs...)
+			if len(formalParRows) > 0 || len(formalAggRows) > 0 {
+				eval = composeEvaluators(eval, formalCoeffConstraintEvaluator(domainPoints, formalParRows, formalAggRows, ringQ.Modulus[0]))
+				if proof.Theta > 1 && K != nil {
+					evalK = composeKEvaluators(evalK, formalCoeffKConstraintEvaluator(K, formalParRows, formalAggRows))
+				}
+			}
+		} else if staticZeroPar > 0 || staticZeroAgg > 0 {
+			eval = composeEvaluators(eval, zeroConstraintEvaluator(staticZeroPar, staticZeroAgg))
+			if proof.Theta > 1 && K != nil {
+				evalK = composeKEvaluators(evalK, zeroKConstraintEvaluator(K, staticZeroPar, staticZeroAgg))
+			}
+		}
+		if !haveCred && !havePRF && eval == nil && evalK == nil {
 			return false, fmt.Errorf("no evaluators available for replay")
 		}
 		replayFparCoeffs := append(append([][]uint64{}, set.FparIntCoeffs...), set.FparNormCoeffs...)
@@ -814,20 +854,39 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		}
 		if set.PRFCompanionLayout != nil && proof.PRFCompanion != nil {
 			if !proof.PRFCompanion.BridgeInQ {
-				if err := verifyPRFCompanionBridgeFromOpening(ringQ, set.PRFCompanionLayout, proof, omegaWitness, domainPoints); err != nil {
-					return false, err
+				if proof.PRFCompanion.AuxInstance != nil {
+					params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+					if perr != nil {
+						return false, fmt.Errorf("load prf params: %w", perr)
+					}
+					if err := verifyPRFCompanionAuxInstance(ringQ, proof, pub, opts, params); err != nil {
+						return false, err
+					}
+				} else {
+					if err := verifyPRFCompanionBridgeFromOpening(ringQ, set.PRFCompanionLayout, proof, omegaWitness, domainPoints); err != nil {
+						return false, err
+					}
 				}
 			}
 			params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
 			if perr != nil {
 				return false, fmt.Errorf("load prf params: %w", perr)
 			}
-			if cerr := verifyPRFCompanionOpenings(set.PRFCompanionLayout, proof, params, pub.Tag, pub.Nonce); cerr != nil {
+			if proof.PRFCompanion.AuxInstance != nil && !proof.PRFCompanion.BridgeInQ {
+				// The aux-instance verifier re-authenticates the scalar PRF companion
+				// openings against the same-root subset opening, so the legacy
+				// self-consistency-only check is intentionally skipped here.
+			} else if cerr := verifyPRFCompanionOpenings(set.PRFCompanionLayout, proof, params, pub.Tag, pub.Nonce); cerr != nil {
 				return false, cerr
 			}
 		}
 		if err := VerifySigShortnessProof(proof, ringQ, omegaWitness, pub, opts); err != nil {
 			return false, fmt.Errorf("verify sig shortness: %w", err)
+		}
+		if cfgPost != nil {
+			if err := cfgPost.verifySourceProductBridgeChecks(proof, pub); err != nil {
+				return false, err
+			}
 		}
 		return true, nil
 	}

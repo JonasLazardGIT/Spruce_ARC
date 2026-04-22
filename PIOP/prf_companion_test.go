@@ -80,6 +80,33 @@ func fixedSeed3Test() []byte {
 	return bytes.Repeat([]byte{0x24}, 32)
 }
 
+func buildPRFCompanionAuxProofFixture(t *testing.T, replayMode ShowingReplayMode) (transformBridgeFixture, SimOpts, *Proof) {
+	t.Helper()
+	base := buildTransformBridgeFixtureWithReplayModeAndShortness(t, replayMode, SigShortnessProfileR11L4Production, 0, 0)
+	opts := base.opts
+	opts.EnablePackedPRFWitnessRows = true
+	opts.EnablePRFCompanion = true
+	opts.PRFCompanionMode = PRFCompanionModeAuxInstance
+	opts.PRFCheckpointSamples = 8
+	proof, err := BuildShowingCombined(base.pub, base.wit, opts)
+	if err != nil {
+		t.Fatalf("build prf aux proof: %v", err)
+	}
+	if proof.PRFCompanion == nil || proof.PRFCompanion.Layout == nil {
+		t.Fatal("missing prf companion proof/layout")
+	}
+	if proof.PRFCompanion.Bridge == nil {
+		t.Fatal("missing prf witness omega bridge")
+	}
+	if proof.PRFCompanion.AuxInstance == nil || proof.PRFCompanion.AuxInstance.Proof == nil {
+		t.Fatal("missing prf aux instance proof")
+	}
+	if proof.PRFCompanion.BridgeInQ {
+		t.Fatal("aux_instance should move prf bridge out of Q")
+	}
+	return base, opts, proof
+}
+
 func TestPRFCompanionLayoutEmission(t *testing.T) {
 	fx := buildPRFCompanionFixture(t)
 	if fx.companion == nil {
@@ -572,5 +599,186 @@ func TestPRFCompanionOpeningPayloadRoundTrip(t *testing.T) {
 	proof.PRFCompanion.CheckpointAudits[0].Z.Mask[0]++
 	if err := verifyPRFCompanionOpenings(fx.companion, proof, fx.params, fx.base.pub.Tag, fx.base.pub.Nonce); err == nil {
 		t.Fatal("tampered opening mask unexpectedly verified")
+	}
+}
+
+func TestPRFWitnessOmegaBridgeRoundTripAgainstMainPCSOpening(t *testing.T) {
+	base, _, proof := buildPRFCompanionAuxProofFixture(t, ShowingReplayModeReduced)
+	view, err := preparePRFWitnessOmegaBridgeView(base.ringQ, proof, base.pub)
+	if err != nil {
+		t.Fatalf("prepare prf witness omega bridge view: %v", err)
+	}
+	bridge := proof.PRFCompanion.Bridge
+	if len(bridge.SupportSlots) == 0 {
+		t.Fatal("missing prf witness omega support slots")
+	}
+	if len(view.PackedHeads) != len(bridge.RowIndices) {
+		t.Fatalf("bridge packed rows=%d want %d", len(view.PackedHeads), len(bridge.RowIndices))
+	}
+	bridgeLayout, err := prfCompanionBridgeLayout(proof.PRFCompanion)
+	if err != nil {
+		t.Fatalf("resolve prf bridge layout: %v", err)
+	}
+	directHeads, _, err := packedHeadsFromRowsOnOmegaAtRows(base.ringQ, base.omegaWitness, base.rows[:base.witnessCount], bridge.RowIndices, bridgeLayout.PackWidth)
+	if err != nil {
+		t.Fatalf("extract direct prf packed heads from witness rows: %v", err)
+	}
+	for rel := range bridge.RowIndices {
+		if !equalU64SliceTrimmed(view.PackedHeads[rel], directHeads[rel]) {
+			pos, got, want, _ := firstU64Mismatch(view.PackedHeads[rel], directHeads[rel])
+			t.Fatalf("bridge packed row %d mismatch at col %d: got=%d want=%d", rel, pos, got, want)
+		}
+	}
+}
+
+func TestPRFBridgeStripeProjectionAndSchedule(t *testing.T) {
+	_, _, proof := buildPRFCompanionAuxProofFixture(t, ShowingReplayModeReduced)
+	layout := proof.PRFCompanion.Layout
+	if layout == nil || layout.BridgeStripe == nil {
+		t.Fatal("missing prf bridge stripe layout")
+	}
+	wantSource := sortedUniqueInts(append(prfCompanionKeyRowIndices(layout), prfCompanionDirectAuthRowIndices(layout)...))
+	if !reflect.DeepEqual(layout.BridgeStripe.SourceRows, wantSource) {
+		t.Fatalf("bridge stripe source rows=%v want %v", layout.BridgeStripe.SourceRows, wantSource)
+	}
+	if !hasIntIntersection(layout.BridgeStripe.SourceRows, prfCompanionKeyRowIndices(layout)) {
+		t.Fatal("bridge stripe source rows unexpectedly exclude key rows")
+	}
+	if err := validateSortedUniqueIndices("bridge stripe physical rows", layout.BridgeStripe.PhysicalRows); err != nil {
+		t.Fatalf("validate stripe physical rows: %v", err)
+	}
+	if err := validateSortedUniqueIndices("bridge stripe support slots", layout.BridgeStripe.SupportSlots); err != nil {
+		t.Fatalf("validate stripe support slots: %v", err)
+	}
+	if got, want := len(layout.BridgeStripe.SupportSlots), minInt(4, len(layout.BridgeStripe.SourceRows)); got != want {
+		t.Fatalf("bridge stripe support slots=%d want %d", got, want)
+	}
+	pcsNCols := resolveProofPCSNCols(proof, 0)
+	for i, row := range layout.BridgeStripe.PhysicalRows {
+		want := i % len(layout.BridgeStripe.SupportSlots)
+		if got := row % pcsNCols; got != want {
+			t.Fatalf("bridge stripe physical row[%d]=%d slot=%d want %d", i, row, got, want)
+		}
+	}
+}
+
+func TestPRFCompanionAuxInstanceReplaySelectorDropsDirectAuthRows(t *testing.T) {
+	_, _, proof := buildPRFCompanionAuxProofFixture(t, ShowingReplayModeReduced)
+	layout := proof.PRFCompanion.Layout
+	selector := BuildShowingReplayActiveRowSelector(proof.RowLayout, layout, proof.PRFCompanion.Mode)
+	if hasIntIntersection(selector, prfCompanionCheckpointRowIndices(layout)) {
+		t.Fatal("aux_instance replay selector still includes checkpoint rows")
+	}
+	if hasIntIntersection(selector, prfCompanionFinalTagRowIndices(layout)) {
+		t.Fatal("aux_instance replay selector still includes final-tag rows")
+	}
+	if hasIntIntersection(selector, prfCompanionHelperRowIndices(layout)) {
+		t.Fatal("aux_instance replay selector still includes helper rows")
+	}
+	if !hasIntIntersection(selector, prfCompanionKeyRowIndices(layout)) {
+		t.Fatal("aux_instance replay selector dropped PRF key rows")
+	}
+}
+
+func TestPRFCompanionAuxInstanceTamperRejects(t *testing.T) {
+	base, opts, proof := buildPRFCompanionAuxProofFixture(t, ShowingReplayModeReduced)
+	verifySet := ConstraintSet{PRFCompanionLayout: proof.PRFCompanion.Layout}
+	mustMutateByte := func(label string, buf []byte) {
+		t.Helper()
+		if len(buf) == 0 {
+			t.Fatalf("missing bytes for %s", label)
+		}
+		buf[0] ^= 0x01
+	}
+	mustMutateUint64 := func(label string, vals []uint64) {
+		t.Helper()
+		if len(vals) == 0 {
+			t.Fatalf("missing values for %s", label)
+		}
+		vals[0]++
+	}
+	mustMutateInt := func(label string, vals []int) {
+		t.Helper()
+		if len(vals) == 0 {
+			t.Fatalf("missing ints for %s", label)
+		}
+		vals[0]++
+	}
+	cases := []struct {
+		name   string
+		mutate func(*Proof)
+	}{
+		{
+			name: "bridge_digest",
+			mutate: func(p *Proof) {
+				mustMutateByte("bridge digest", p.PRFCompanion.Bridge.BridgeDigest)
+			},
+		},
+		{
+			name: "bridge_support_slots",
+			mutate: func(p *Proof) {
+				mustMutateInt("bridge support slots", p.PRFCompanion.Bridge.SupportSlots)
+			},
+		},
+		{
+			name: "bridge_row_indices",
+			mutate: func(p *Proof) {
+				mustMutateInt("bridge row indices", p.PRFCompanion.Bridge.RowIndices)
+			},
+		},
+		{
+			name: "bridge_physical_rows",
+			mutate: func(p *Proof) {
+				mustMutateInt("bridge physical rows", p.PRFCompanion.Bridge.PhysicalRows)
+			},
+		},
+		{
+			name: "bridge_packed_digest",
+			mutate: func(p *Proof) {
+				mustMutateByte("bridge packed digest", p.PRFCompanion.Bridge.PackedDigest)
+			},
+		},
+		{
+			name: "bridge_coord_digest",
+			mutate: func(p *Proof) {
+				mustMutateByte("bridge coord digest", p.PRFCompanion.Bridge.CoordDigest)
+			},
+		},
+		{
+			name: "bridge_rows_opening",
+			mutate: func(p *Proof) {
+				if p.PRFCompanion.Bridge.RowsOpening == nil {
+					t.Fatal("missing bridge rows opening")
+				}
+				if len(p.PRFCompanion.Bridge.RowsOpening.PvalsBits) > 0 {
+					p.PRFCompanion.Bridge.RowsOpening.PvalsBits[0] ^= 0x01
+					return
+				}
+				if len(p.PRFCompanion.Bridge.RowsOpening.Pvals) == 0 || len(p.PRFCompanion.Bridge.RowsOpening.Pvals[0]) == 0 {
+					t.Fatal("missing bridge opening values")
+				}
+				p.PRFCompanion.Bridge.RowsOpening.Pvals[0][0]++
+			},
+		},
+		{
+			name: "checkpoint_opening",
+			mutate: func(p *Proof) {
+				if len(p.PRFCompanion.CheckpointAudits) == 0 {
+					t.Fatal("missing checkpoint audits")
+				}
+				mustMutateUint64("checkpoint opening", p.PRFCompanion.CheckpointAudits[0].Z.Masked)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tampered := *proof
+			tampered.PRFCompanion = ClonePRFCompanionProofForTest(proof.PRFCompanion)
+			tc.mutate(&tampered)
+			ok, err := VerifyWithConstraints(&tampered, verifySet, base.pub, opts, FSModeCredential)
+			if err == nil && ok {
+				t.Fatalf("tampered aux-instance proof unexpectedly verified")
+			}
+		})
 	}
 }

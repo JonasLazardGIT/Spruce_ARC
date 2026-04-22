@@ -183,8 +183,12 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if err := ValidatePRFCompanionLayout(proof.PRFCompanion.Layout, companionWitnessRows); err != nil {
 			return false, false, false, fmt.Errorf("VerifyNIZK: invalid prf companion layout: %w", err)
 		}
+		bridgeLayout, derr := prfCompanionBridgeLayout(proof.PRFCompanion)
+		if derr != nil {
+			return false, false, false, fmt.Errorf("VerifyNIZK: resolve prf companion bridge layout: %w", derr)
+		}
 		expectedCoordDigest := buildPRFCompanionCoordDigest(
-			proof.PRFCompanion.Layout,
+			bridgeLayout,
 			seed2,
 			proof.PRFCompanion.BridgeChecks,
 			len(proof.PRFCompanion.BridgeChecks),

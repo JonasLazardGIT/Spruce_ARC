@@ -93,10 +93,17 @@ func runHolderCommit(args []string) error {
 	commitRequestPath := fs.String("commit-request", defaultCommitRequestPath, "commit request artifact path")
 	expertInputPath := fs.String("expert-input", "", "optional expert witness JSON path")
 	seed := fs.Int64("seed", 0, "optional deterministic sampling seed")
+	ncols := fs.Int("ncols", 0, "optional witness packing width override for issuance research")
+	lvcsNCols := fs.Int("lvcs-ncols", 0, "optional LVCS width override for issuance research")
+	nLeaves := fs.Int("nleaves", 0, "optional explicit-domain size override for issuance research")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, *expertInputPath, *seed)
+	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, *expertInputPath, *seed, issuanceRuntimeOverrides{
+		NCols:    *ncols,
+		LVCSNCols: *lvcsNCols,
+		NLeaves:  *nLeaves,
+	})
 }
 
 func runIssuerChallenge(args []string) error {
@@ -162,8 +169,15 @@ func runDemoLocal(args []string) error {
 	signaturePath := fs.String("signature-out", defaultCredentialSignaturePath, "final signature artifact path")
 	seed := fs.Int64("seed", 0, "optional deterministic sampling seed")
 	maxTrials := fs.Int("max-trials", 2048, "maximum NTRU signer trials")
+	ncols := fs.Int("ncols", 0, "optional witness packing width override for issuance research")
+	lvcsNCols := fs.Int("lvcs-ncols", 0, "optional LVCS width override for issuance research")
+	nLeaves := fs.Int("nleaves", 0, "optional explicit-domain size override for issuance research")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return demoLocal(*publicPath, *prfPath, *artifactDir, *statePath, *signaturePath, *seed, *maxTrials)
+	return demoLocal(*publicPath, *prfPath, *artifactDir, *statePath, *signaturePath, *seed, *maxTrials, issuanceRuntimeOverrides{
+		NCols:    *ncols,
+		LVCSNCols: *lvcsNCols,
+		NLeaves:  *nLeaves,
+	})
 }

@@ -56,9 +56,9 @@ type WitnessGeometrySnapshot struct {
 	ReplayToWitnessExpansion   float64 `json:"replay_to_witness_expansion"`
 }
 
-func replayPRFRowCount(layout *PRFLayout, companion *PRFCompanionLayout) int {
+func replayPRFRowCount(layout *PRFLayout, companion *PRFCompanionLayout, mode PRFCompanionMode) int {
 	if companion != nil {
-		return len(prfCompanionSelectedReplayRows(companion))
+		return len(prfCompanionSelectedReplayRows(companion, mode))
 	}
 	if layout == nil {
 		return 0
@@ -149,7 +149,7 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 			out.SigShortnessRows = layout.ChainRowsPerSig * cfg.W1SigCount
 		}
 	}
-	out.PRFRows = replayPRFRowCount(prfLayout, prfCompanionLayout)
+	out.PRFRows = replayPRFRowCount(prfLayout, prfCompanionLayout, PRFCompanionMode(""))
 	out.TotalRows = out.SigReplayRows + out.SigShortnessRows + out.NonSigRows + out.PRFRows
 	return out
 }
@@ -272,7 +272,7 @@ func BuildWitnessGeometrySnapshotFromLayout(
 	if blockCount > 0 && committedCols > 0 {
 		blockCapacity = blockCount * committedCols
 	}
-	replayPRF := replayPRFRowCount(prfLayout, prfCompanionLayout)
+	replayPRF := replayPRFRowCount(prfLayout, prfCompanionLayout, PRFCompanionMode(""))
 	out.ActualWitnessPolys = actualWitness
 	out.ActualPostSignWitnessPolys = postSignWitness
 	out.ActualPRFWitnessPolys = prfWitness

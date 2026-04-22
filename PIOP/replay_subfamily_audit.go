@@ -134,14 +134,18 @@ func prfCompanionHelperRowIndices(layout *PRFCompanionLayout) []int {
 }
 
 func prfCompanionDirectAuthRowIndices(layout *PRFCompanionLayout) []int {
-	rows := append([]int(nil), prfCompanionKeyRowIndices(layout)...)
+	rows := make([]int, 0)
 	rows = append(rows, prfCompanionCheckpointRowIndices(layout)...)
 	rows = append(rows, prfCompanionFinalTagRowIndices(layout)...)
+	rows = append(rows, prfCompanionHelperRowIndices(layout)...)
 	return sortedUniqueInts(rows)
 }
 
-func prfCompanionReplayConsumedRows(layout *PRFCompanionLayout) []int {
+func prfCompanionReplayConsumedRows(layout *PRFCompanionLayout, mode PRFCompanionMode) []int {
 	if layout == nil {
+		return nil
+	}
+	if normalizePRFCompanionMode(mode) == PRFCompanionModeAuxInstance {
 		return nil
 	}
 	rows := layout.ReplayRows
@@ -155,8 +159,8 @@ func prfCompanionReplayConsumedRows(layout *PRFCompanionLayout) []int {
 	return out
 }
 
-func prfCompanionSelectedReplayRows(layout *PRFCompanionLayout) []int {
-	rows := append([]int(nil), prfCompanionReplayConsumedRows(layout)...)
+func prfCompanionSelectedReplayRows(layout *PRFCompanionLayout, mode PRFCompanionMode) []int {
+	rows := append([]int(nil), prfCompanionReplayConsumedRows(layout, mode)...)
 	rows = append(rows, prfCompanionKeyRowIndices(layout)...)
 	return sortedUniqueInts(rows)
 }
@@ -217,30 +221,41 @@ func buildReplaySubfamilyAuditReport(proof *Proof, selector []int, stats ReplayA
 func replaySubfamilySpecsForProof(proof *Proof) []replaySubfamilySpec {
 	layout := proof.RowLayout
 	companion := replayCompanionLayoutFromProof(proof)
-	replayRows := prfCompanionReplayConsumedRows(companion)
+	mode := proofPRFCompanionMode(proof)
+	replayRows := prfCompanionReplayConsumedRows(companion, mode)
 	keyRows := prfCompanionKeyRowIndices(companion)
 	directAuthRows := prfCompanionDirectAuthRowIndices(companion)
+	sourceProductDerivedNow := sourceProductBridgeEnabledForProof(proof) || (layout.IdxMSigmaR1 < 0 && layout.IdxR0R1 < 0)
+	nonNegative := func(rows ...int) []int {
+		out := make([]int, 0, len(rows))
+		for _, row := range rows {
+			if row >= 0 {
+				out = append(out, row)
+			}
+		}
+		return sortedUniqueInts(out)
+	}
 
 	specs := []replaySubfamilySpec{
 		{
 			kind:         ReplaySubfamilySourceProductMSigmaR1,
 			family:       ReplayFamilySourceProduct,
-			logicalRows:  sortedUniqueInts([]int{layout.IdxMSigmaR1}),
+			logicalRows:  nonNegative(layout.IdxMSigmaR1),
 			consumption:  ReplaySubfamilyReplayConsumed,
-			derivability: ReplayFamilyDerivableAfterLocalRefactor,
-			changeClass:  ReplayFamilyVerifierRefactor,
+			derivability: replaySubfamilySourceProductDerivability(sourceProductDerivedNow),
+			changeClass:  replaySubfamilySourceProductChangeClass(sourceProductDerivedNow),
 			consumers:    []string{"transform_bridge_bb_tran"},
-			notes:        "A reduced-only local derivation was tested but rejected: the committed row is an omega-interpolated product polynomial, not the raw K-point product of decoded carriers.",
+			notes:        replaySubfamilySourceProductNote(sourceProductDerivedNow, "MSigmaR1"),
 		},
 		{
 			kind:         ReplaySubfamilySourceProductR0R1,
 			family:       ReplayFamilySourceProduct,
-			logicalRows:  sortedUniqueInts([]int{layout.IdxR0R1}),
+			logicalRows:  nonNegative(layout.IdxR0R1),
 			consumption:  ReplaySubfamilyReplayConsumed,
-			derivability: ReplayFamilyDerivableAfterLocalRefactor,
-			changeClass:  ReplayFamilyVerifierRefactor,
+			derivability: replaySubfamilySourceProductDerivability(sourceProductDerivedNow),
+			changeClass:  replaySubfamilySourceProductChangeClass(sourceProductDerivedNow),
 			consumers:    []string{"transform_bridge_bb_tran"},
-			notes:        "A reduced-only local derivation was tested but rejected for the same omega-interpolated product-row reason as MSigmaR1.",
+			notes:        replaySubfamilySourceProductNote(sourceProductDerivedNow, "R0R1"),
 		},
 	}
 	if companion != nil {
@@ -284,6 +299,34 @@ func replaySubfamilySpecsForProof(proof *Proof) []replaySubfamilySpec {
 		)
 	}
 	return specs
+}
+
+func proofPRFCompanionMode(proof *Proof) PRFCompanionMode {
+	if proof == nil || proof.PRFCompanion == nil {
+		return PRFCompanionMode("")
+	}
+	return proof.PRFCompanion.Mode
+}
+
+func replaySubfamilySourceProductDerivability(derivedNow bool) ReplayFamilyDerivability {
+	if derivedNow {
+		return ReplayFamilyAlreadyDerivedNow
+	}
+	return ReplayFamilyDerivableAfterLocalRefactor
+}
+
+func replaySubfamilySourceProductChangeClass(derivedNow bool) ReplayFamilyChangeClass {
+	if derivedNow {
+		return ReplayFamilyStatementPreserving
+	}
+	return ReplayFamilyVerifierRefactor
+}
+
+func replaySubfamilySourceProductNote(derivedNow bool, name string) string {
+	if derivedNow {
+		return fmt.Sprintf("%s now leaves the replay selector on theorem-clean full replay and is authenticated by the same-root source-product bridge.", name)
+	}
+	return fmt.Sprintf("%s remains committed on narrower replay paths because the verifier still needs the omega-interpolated source polynomial explicitly there.", name)
 }
 
 func replayPRFSubfamilySpec(kind ReplaySubfamilyKind, rows, replayRows, keyRows, directAuthRows []int, consumers []string, notes string) replaySubfamilySpec {

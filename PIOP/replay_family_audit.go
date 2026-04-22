@@ -99,7 +99,8 @@ func BuildReplayFamilyAuditReport(proof *Proof) (ReplayFamilyAuditReport, error)
 	if err != nil {
 		return ReplayFamilyAuditReport{}, err
 	}
-	selector := BuildShowingReplayActiveRowSelector(proof.RowLayout, replayCompanionLayoutFromProof(proof))
+	selector := BuildShowingReplayActiveRowSelectorFromProof(proof)
+	sourceProductBridgeActive := sourceProductBridgeEnabledForProof(proof)
 
 	unionSelected := make([]int, 0, len(selector))
 	entryIndexByKind := make(map[ReplayFamilyKind]int, len(replayFamilyKinds))
@@ -119,6 +120,11 @@ func BuildReplayFamilyAuditReport(proof *Proof) (ReplayFamilyAuditReport, error)
 			Derivability:         replayFamilyDerivability(kind),
 			ChangeClass:          replayFamilyChangeClass(kind),
 			Notes:                replayFamilyNotes(kind),
+		}
+		if sourceProductBridgeActive && kind == ReplayFamilySourceProduct {
+			entry.Derivability = ReplayFamilyAlreadyDerivedNow
+			entry.ChangeClass = ReplayFamilyStatementPreserving
+			entry.Notes = "MSigmaR1/R0R1 now leave the replay selector on theorem-clean full replay and are authenticated by the same-root source-product bridge."
 		}
 		entry.ReductionEffect = replayFamilyReductionEffect(selector, selectedRows, stats)
 		report.Families = append(report.Families, entry)
@@ -241,14 +247,23 @@ func canonicalReplayFamilyRows(proof *Proof) (map[ReplayFamilyKind][]int, error)
 	if err := addRange(ReplayFamilyTransformAlias, rowLayoutPostSignSigHatBase(layout), replaySigTransformAliasCount(layout)); err != nil {
 		return nil, err
 	}
-	replayBlocks := rowLayoutReplayBlockCount(layout)
-	for _, idx := range []int{layout.IdxMHatSigma, layout.IdxRHat0, layout.IdxRHat1, layout.IdxMSigmaR1Hat, layout.IdxR0R1Hat} {
-		if err := addRange(ReplayFamilyTransformAlias, idx, replayBlocks); err != nil {
-			return nil, err
+	for _, replayRows := range [][]int{
+		rowLayoutPostSignMHatSigmaRows(layout),
+		rowLayoutPostSignRHat0Rows(layout),
+		rowLayoutPostSignRHat1Rows(layout),
+		rowLayoutPostSignMSigmaR1HatRows(layout),
+		rowLayoutPostSignR0R1HatRows(layout),
+	} {
+		for _, idx := range replayRows {
+			if err := add(ReplayFamilyTransformAlias, idx); err != nil {
+				return nil, err
+			}
 		}
 	}
-	if err := addRange(ReplayFamilyReplayImage, layout.IdxTHatBase, rowLayoutReplayTHatCount(layout)); err != nil {
-		return nil, err
+	for _, idx := range rowLayoutPostSignTHatRows(layout) {
+		if err := add(ReplayFamilyReplayImage, idx); err != nil {
+			return nil, err
+		}
 	}
 
 	for _, kind := range replayFamilyKinds {
@@ -305,7 +320,7 @@ func replayFamilyNotes(kind ReplayFamilyKind) string {
 	case ReplayFamilyCarrier:
 		return "Carrier rows remain direct replay inputs for decode and key binding."
 	case ReplayFamilyPRFCompanion:
-		return "PRF companion rows stay live for grouped nonlinear and key-binding replay."
+		return "PRF companion rows stay live for grouped nonlinear and key-binding replay until a direct-auth bridge object replaces the current Q path."
 	case ReplayFamilyTransformAlias:
 		return "Transform-hat alias rows are already treated as verifier-derivable."
 	case ReplayFamilyReplayImage:

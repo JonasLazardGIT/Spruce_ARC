@@ -1,0 +1,114 @@
+\section{Parameters and Integration}
+\label{sec:parameters}
+
+This section explains how parameters interact across the ARC-SPRUCE stack: the lattice signature layer, the rational
+hash, the SmallWood proof system, and the PRF. Detailed parameter tables and extended benchmark data are deferred to
+Appendix~\ref{app:ext-params}.
+
+\subsection{Parameter dependencies}
+All components share the same base ring \(\Rq\) and modulus \(q\):
+\begin{itemize}[leftmargin=1.25em]
+  \item The signature map \(A\in\Rq^{n\times m}\) and hash key \(B\) are defined over \(\Rq\).
+  \item SmallWood constraints are evaluated over the base field \(\Fq\) and therefore use the same modulus \(q\).
+  \item The PRF is instantiated over \(\Fq\) so that its constraints are native to the same field.
+\end{itemize}
+The coefficient bound \(\BoundMsg\) governs the sampling ranges for the message and bounded randomness and the
+membership polynomials used by the NIZKs. For the aligned commitment and hiding theorem, the linear-side distributions
+\(\chi_s,\chi_e\) are instantiated as bounded-support or truncated distributions inside
+\([-\BoundMsg,\BoundMsg]\).
+
+\subsection{Sampler parameters}
+The trapdoor sampler must output short signatures \(u\) with overwhelming probability and with a distribution close to
+a discrete Gaussian over the appropriate lattice coset. This requires choosing:
+\begin{itemize}[leftmargin=1.25em]
+  \item ring degree \(N\) and modulus \(q\),
+  \item trapdoor quality,
+  \item Gaussian widths for the sampler, and
+  \item an acceptance predicate that yields a public verification bound \(\BoundSig\).
+\end{itemize}
+We use an NTRU-style trapdoor together with a Gaussian preimage sampler; details and tuning rules are given in
+Appendix~\ref{app:gaussian-sampler}.
+
+\subsection{vSIS and rational-hash parameters}
+\paragraph{Rational-hash admissibility.}
+The BB-tran target is evaluated only when \(B_3-R_1\in \Rq^\times\). In the issuance model, this admissibility
+condition is enforced during honest target derivation by restart. The compiled pre-sign proof of
+Section~\ref{subsec:presign-compiled} certifies the aligned public identity
+\[
+T = B_0 + U\vecc + Z,
+\qquad
+(B_3-R_1)\Had Z = 1,
+\]
+while the compiled post-sign proof certifies the eliminated coefficient-domain relation
+\[
+(B_3-R_1)\Had\bigl(T-L_B(m,R_0)\bigr)=1.
+\]
+
+\paragraph{No wrap-around in bounds.}
+Membership checks for \([ -\BoundMsg,\BoundMsg]\) are implemented via vanishing polynomials over \(\Fq\), so one
+requires \(\BoundMsg \ll q\) to avoid modular wrap-around artifacts.
+
+\paragraph{Non-blind reduction parameters.}
+The non-blind reduction imported from DKLW25 is parameterized by a norm bound
+\(\beta_{\mathrm{DKLW}}\) in the norm used in \cite{EPRINT:DKLW25}, by the inadmissibility bound \(\delta\), and by
+the predicate condition \(P\). For the present instantiation, the external reduction basis is the BB-tran /
+\(\mathsf{GenISIS}_f\) / \(\mathsf{IntGenISIS}_f\) line summarized in Lemma~\ref{lem:vsis-unforgeability}, which
+places the non-blind signature layer on the corresponding sEUF-CMA footing. The public verifier bound
+\(\BoundSig\) used by ARC-SPRUCE should therefore not be identified with \(\beta_{\mathrm{DKLW}}\) without a separate
+norm-comparison lemma. In this section, \(\BoundSig\) is recorded only as the public acceptance bound of the concrete
+verifier.
+
+\subsection{SmallWood parameters}
+SmallWood introduces parameters controlling packing, masking, and soundness:
+\begin{itemize}[leftmargin=1.25em]
+  \item the packing size \(s=|\Omega|\),
+  \item the tail length \(\ell\) for HVZK masking and degree enforcement,
+  \item the spot-check count \(\ell'\) and the number of masks \(\rho\) for PIOP soundness,
+  \item the degree bounds for witness rows and constraint-derived masks, and
+  \item the small-field knob \(\theta\) when using an extension-field variant.
+\end{itemize}
+The pre-sign proof is dominated by carrier membership, decode bridges, the inverse-witness check, and the
+aligned public-target identity \(T=B_0+U\vecc+Z\). The post-sign proof adds the signature shortness gadget, the full
+replay-image showing relation in eliminated BB-tran form, and the PRF checkpoint constraints.
+
+\paragraph{Full replay-image geometry.}
+Let \(n_{\mathrm{cols}}^{\mathrm{rep}}\) denote the row width used for the replay blocks, and write
+\[
+B_{\mathrm{rep}} := \left\lceil \frac{N}{n_{\mathrm{cols}}^{\mathrm{rep}}} \right\rceil .
+\]
+In the full replay-image showing model, each replayed ring object is represented by \(B_{\mathrm{rep}}\) replay blocks.
+Accordingly, the post-sign witness carries
+\[
+4B_{\mathrm{rep}}
+\]
+replay rows for the full images of \(Au\), \(M+K\), \(R_0\), and \(R_1\), in addition to the cert-side signature
+surface, source rows, and PRF companion rows.
+
+\paragraph{Replay width as a proof-size knob.}
+Increasing \(n_{\mathrm{cols}}^{\mathrm{rep}}\) decreases the replay block count \(B_{\mathrm{rep}}\) and hence the number
+of replay-image rows and associated bridge families. This tends to reduce transcript size. The tradeoff is that larger
+row width increases the degree of the committed row polynomials and therefore affects the LVCS/PCS soundness and opening
+costs. The sizing discussion should therefore treat \(n_{\mathrm{cols}}^{\mathrm{rep}}\) as the main knob controlling the
+transcript-size tradeoff of the full replay-image showing proof.
+
+\paragraph{Replay-transform obligations for the showing theorem.}
+The coefficient-domain consequence theorem of Section~\ref{subsec:statement-strength} relies on the exact full replay
+transform \(\mathcal F_{\mathrm{rep}}\) and on the exact bridge equalities for the replay-image rows. In the full
+replay-image model, injectivity is supplied by the transform itself rather than by an additional zero-detection
+assumption on a reduced replay map; the replay residual transports the eliminated BB-tran relation directly.
+
+\subsection{PRF parameters}
+The PRF must be secure at the target security level, efficiently representable in constraints, and compatible with the
+base field \(\Fq\). We use a Poseidon2-like permutation with feed-forward and truncation as a concrete instantiation.
+Its parameters include the state width \(t\), round counts \((R_F,R_P)\), MDS matrices, round constants, S-box exponent
+\(d\), and truncation length \(\ell_{\prftag}\). We require
+\(\ell_{\prftag}\ge \lceil \lambda/\log_2(q)\rceil\) so the tag contains \(\lambda\) bits of entropy. The algorithm is
+given in Section~\ref{subsec:poseidon-prf}, while the checkpointed constraint shape used in the post-sign proof is
+stated in Section~\ref{subsec:prf-checkpointed}. Appendix~\ref{app:prf} records extended notes.
+
+\subsection{Sizing discussion}
+Concrete proof sizes depend jointly on the sampler parameters, the SmallWood masking parameters, the replay-block width,
+and the PRF checkpoint schedule. In the full replay-image showing model, enlarging the replay-block width decreases the
+number of committed replay rows, while the degree and opening costs of each row increase. Appendix~\ref{app:ext-params}
+records representative parameter tuples and measurement data; the present section records only the qualitative coupling
+between those choices.

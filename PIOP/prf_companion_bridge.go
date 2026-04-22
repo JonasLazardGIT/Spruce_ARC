@@ -174,54 +174,13 @@ func preparePRFCompanionBridgeOpening(
 	ringQ *ring.Ring,
 	proof *Proof,
 	omegaWitness []uint64,
+	domainPoints []uint64,
 ) (*decs.DECSOpening, error) {
-	if ringQ == nil {
-		return nil, fmt.Errorf("nil ring")
-	}
-	if proof == nil {
-		return nil, fmt.Errorf("nil proof")
-	}
-	opening := expandPackedOpening(resolveProofPCSOpening(proof))
-	if opening == nil {
-		return nil, fmt.Errorf("missing row opening for direct-auth bridge verification")
-	}
-	maskBase := proof.NColsUsed
-	if maskBase <= 0 {
-		maskBase = len(omegaWitness)
-	}
-	if maskBase <= 0 {
-		return nil, fmt.Errorf("missing witness width for direct-auth bridge")
-	}
-	maskIdx := make([]int, len(proof.Tail))
-	for i := range maskIdx {
-		maskIdx[i] = maskBase + i
-	}
-	opening, err := subsetOpeningRowsForIndices(opening, maskIdx)
+	prepared, err := prepareMaskSubsetRowRecovery(ringQ, proof, omegaWitness, domainPoints)
 	if err != nil {
-		return nil, fmt.Errorf("direct-auth bridge mask subset: %w", err)
+		return nil, err
 	}
-	if opening.FormatVersion != 1 {
-		return opening, nil
-	}
-	coeffMatrix := proof.CoeffMatrix
-	if len(coeffMatrix) == 0 {
-		return nil, fmt.Errorf("missing coefficient matrix for direct-auth bridge")
-	}
-	barSets := proof.BarSetsMatrix()
-	if len(barSets) == 0 {
-		return nil, fmt.Errorf("missing bar sets for direct-auth bridge")
-	}
-	// The direct-auth bridge only interpolates packed companion rows from the
-	// mask openings on Ω'. It does not need the sampled tail indices, so
-	// reconstruct only the mask-side subset of the compressed row opening here.
-	qVals := make([]*ring.Poly, len(coeffMatrix))
-	for i := range qVals {
-		qVals[i] = ringQ.NewPoly()
-	}
-	if err := reconstructRowOpeningPvals(opening, coeffMatrix, qVals, barSets, maskIdx, nil, maskBase, nil, ringQ); err != nil {
-		return nil, fmt.Errorf("prepare P row opening for direct-auth bridge: %w", err)
-	}
-	return opening, nil
+	return prepared.Opening, nil
 }
 
 func buildPRFCompanionCoordDigest(layout *PRFCompanionLayout, seed2 []byte, bridgeChecks [][]uint64, checks int, mode PRFCompanionMode, checkpointSamples int) []byte {
@@ -319,7 +278,11 @@ func (cfg PRFCompanionBridgeConfig) verifyDigest(proof *PRFCompanionProof) error
 	if proof.Layout == nil {
 		return fmt.Errorf("missing prf companion layout")
 	}
-	expected := buildPRFCompanionCoordDigest(proof.Layout, cfg.Seed2, proof.BridgeChecks, len(proof.BridgeChecks), proof.Mode, proof.CheckpointSamples)
+	layout, err := prfCompanionBridgeLayout(proof)
+	if err != nil {
+		return err
+	}
+	expected := buildPRFCompanionCoordDigest(layout, cfg.Seed2, proof.BridgeChecks, len(proof.BridgeChecks), proof.Mode, proof.CheckpointSamples)
 	if !bytes.Equal(expected, proof.CoordDigest) {
 		return fmt.Errorf("prf companion coord digest mismatch")
 	}
@@ -424,10 +387,6 @@ func (cfg PRFCompanionBridgeConfig) KEvaluator(K *kf.Field) (KConstraintEvaluato
 	}, nil
 }
 
-// verifyPRFCompanionBridgeFromOpening is experimental scaffolding for a future
-// same-root direct-auth bridge. The current BridgeChecks payload only
-// authenticates the bridge on Omega_s, so production keeps BridgeInQ=true
-// until a new bridge object is implemented.
 func verifyPRFCompanionBridgeFromOpening(
 	ringQ *ring.Ring,
 	layout *PRFCompanionLayout,
@@ -444,7 +403,7 @@ func verifyPRFCompanionBridgeFromOpening(
 	if len(domainPoints) == 0 {
 		return fmt.Errorf("missing domain points for direct-auth bridge verification")
 	}
-	opening, err := preparePRFCompanionBridgeOpening(ringQ, proof, omegaWitness)
+	opening, err := preparePRFCompanionBridgeOpening(ringQ, proof, omegaWitness, domainPoints)
 	if err != nil {
 		return err
 	}
@@ -465,39 +424,21 @@ func verifyPRFCompanionBridgeFromOpening(
 	if err != nil {
 		return err
 	}
-	ell := len(proof.Tail)
-	if ell <= 0 {
-		return fmt.Errorf("missing tail length for direct-auth bridge verification")
-	}
-	maskBase := proof.NColsUsed
-	if maskBase <= 0 {
-		maskBase = len(omegaWitness)
-	}
-	maskPoints := make([]uint64, ell)
-	indexPos := make(map[int]int, len(opening.Indices))
-	for i, idx := range opening.Indices {
-		indexPos[idx] = i
-	}
-	for i := 0; i < ell; i++ {
-		maskIdx := maskBase + i
-		if maskIdx < 0 || maskIdx >= len(domainPoints) {
-			return fmt.Errorf("mask domain index %d out of range", maskIdx)
-		}
-		if _, ok := indexPos[maskIdx]; !ok {
-			return fmt.Errorf("row opening missing mask index %d", maskIdx)
-		}
-		maskPoints[i] = domainPoints[maskIdx] % ringQ.Modulus[0]
-	}
-	rowCoeffs := make([][]uint64, layout.PackedRows)
+	rowIndices := make([]int, layout.PackedRows)
 	for rel := 0; rel < layout.PackedRows; rel++ {
-		rowIdx := layout.StartRow + rel
-		values := make([]uint64, ell)
-		for i := 0; i < ell; i++ {
-			maskIdx := maskBase + i
-			pos := indexPos[maskIdx]
-			values[i] = opening.Pvals[pos][rowIdx] % ringQ.Modulus[0]
+		rowIndices[rel] = layout.StartRow + rel
+	}
+	witnessView, err := prepareMaskSubsetWitnessView(ringQ, proof, rowIndices, omegaWitness, domainPoints)
+	if err != nil {
+		return err
+	}
+	rowHeads := make([][]uint64, layout.PackedRows)
+	for rel, rowIdx := range rowIndices {
+		head, err := witnessView.witnessHead(rowIdx)
+		if err != nil {
+			return err
 		}
-		rowCoeffs[rel] = trimPoly(Interpolate(maskPoints, values, ringQ.Modulus[0]), ringQ.Modulus[0])
+		rowHeads[rel] = head
 	}
 	for t := range proof.PRFCompanion.BridgeChecks {
 		if len(proof.PRFCompanion.BridgeChecks[t]) != layout.PackWidth {
@@ -510,7 +451,7 @@ func verifyPRFCompanionBridgeFromOpening(
 				continue
 			}
 			for col := 0; col < layout.PackWidth; col++ {
-				val := EvalPoly(rowCoeffs[rel], omegaWitness[col]%ringQ.Modulus[0], ringQ.Modulus[0])
+				val := rowHeads[rel][col] % ringQ.Modulus[0]
 				mixHead[col] = modAdd(mixHead[col], modMul(alpha, val, ringQ.Modulus[0]), ringQ.Modulus[0])
 			}
 		}

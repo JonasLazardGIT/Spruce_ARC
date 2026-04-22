@@ -1,0 +1,102 @@
+\section{Parameter Constraints and Chosen Parameters}\label{sec:parameters}
+\noindent Parameters are governed by three classes of constraints:
+(i) sampler/statistical (\emph{smoothing}, per-slot $\sigma$); 
+(ii) vSIS--BBS correctness (cleared identity, invertibility budget); 
+(iii) SmallWood soundness (DECS/LVCS and PACS budgets). 
+We summarize each and point to \S\ref{sec:results} for the instantiated bundles.
+
+This section summarizes the constraints that govern parameters across all building blocks (vSIS--BBS, the Gaussian preimage sampler, and the SmallWood proof system), and states a concrete parameter set we use in our implementation.
+
+\subsection{Global constraints}
+
+\paragraph{Smoothing factor.}
+$\eta_\varepsilon(\mathbb{Z}^{2\varphi})=\sqrt{\ln\!\bigl(4\varphi(1+2^{\lambda})\bigr)/\pi}\ \approx 5.558.$
+
+\paragraph{Smoothing and sampler widths.}
+Let $\eta_\varepsilon(\Lambda)$ denote the smoothing parameter. For statistical hiding in hash-and-sign and for Gaussian preimage sampling, it suffices to choose per-slot widths $\sigma_k[i]$ so that $\sigma_k[i]\ge \sigma_{\min}\ge \eta_\varepsilon\big(\Lambda_\perp(\mathbf{A})\big)$ (see \S\ref{sec:gaussian-preimage}). In our hybrid sampler, $\sigma$ scales with the NTRU trapdoor quality $\alpha$ as $\sigma\approx \alpha\sqrt{q}$.
+
+\begin{definition}[Admissibility]\label{def:admissibility}
+A parameter tuple $(q,B,\beta,\{\sigma_k\},N,n_{\mathrm{cols}},d_Q,\eta,\rho,\ell,\ell')$ is \emph{admissible} if
+\begin{enumerate}[leftmargin=1.25em]
+  \item $B\ll q$, so that vanishing-polynomial checks over $[-B,B]$ do not wrap modulo $q$;
+  \item each sampler width satisfies $\sigma_k[i]\ge \eta_\varepsilon\big(\Lambda_\perp(\mathbf{A})\big)$ for the relevant cosets;
+  \item the invertibility condition $\Pr[(b_1-\mathbf{1}_\varphi\!\cdot x_1)[j]=0]\le B/q$ holds, enabling rejection sampling on $x_1$;
+  \item SmallWood degree bounds are respected: $d_{\mathrm{decs}}=n_{\mathrm{cols}}+\ell-1$, the mask degree $d_Q$ follows Eq.~\eqref{eq:dQ}, and the DECS domain size $N$ matches the commitment grid.
+\end{enumerate}
+\end{definition}
+
+\noindent\emph{Admissibility reference.}
+All parameter choices below are made to satisfy Def.~\ref{def:admissibility} (no wrap‑around, invertibility budget, per‑slot smoothing).
+
+\noindent\emph{Checklist.}
+\begin{itemize}[leftmargin=1.25em]
+  \item $B \ll q$ so vanishing polynomials do not wrap modulo $q$.
+  \item Per-slot sampler width $\sigma(\cdot)\ge \eta_\varepsilon$ on the relevant cosets.
+  \item DECS domain $N$ and degree bounds $(d_{\mathrm{decs}},d_Q)$ satisfy the prescribed inequalities (Eq.~\eqref{eq:dQ} and~\cite{cryptoeprint:2025/1085}).
+\end{itemize}
+
+\paragraph{Range bounds and norm constraints.}
+We restrict $u,x_0,x_1$ coefficient-wise to $[-B,B]$ using vanishing-polynomial membership checks (SmallWood parallel constraints, \S\ref{sec:smallwood}). For the signature vector $s$ we enforce $\|s\|_\infty\le \beta$ (implied by the global $\ell_2$ bound below).
+
+\paragraph{SmallWood soundness budget (explicit).}
+We map $(\rho,\ell',\ell,N,n_{\mathrm{cols}},d_Q,\eta)$ to SmallWood’s four error terms:
+\[
+\varepsilon_{\mathrm{decs}}\le \binom{N}{d_{\mathrm{decs}}+2}\,q^{-\eta},\quad
+\varepsilon_{\mathrm{sum}}=q^{-\rho},\quad
+\varepsilon_{\mathrm{tail}}=\frac{\binom{d_Q}{\ell'}}{\binom{|S|}{\ell'}},\quad
+\varepsilon_{\mathrm{lvcs}}=\frac{\binom{n_{\mathrm{cols}}+\ell-1}{\ell}}{\binom{N}{\ell}},
+\]
+and use Fiat–Shamir grinding counters $(\kappa_1,\dots,\kappa_4)$ as in~\cite{cryptoeprint:2025/1085} to achieve $\varepsilon\le 2^{-\lambda}$. Instantiated values are listed in \S\ref{sec:results}.
+
+\paragraph{ISIS relation and cleared identity.}
+Correctness requires the ISIS preimage relation $A s\equiv h_{u,\chi}(B)\pmod q$ and the cleared identity of Eq.~\Cref{eq:cleared-bbs-merged}. These drive the linear and quadratic rows in SmallWood.
+
+\paragraph{Full-witness $\ell_2$ bound.}
+If $u,x_0,x_1\in[-B,B]$ coefficient-wise, then
+\[
+\|(s,u,x_0,x_1)\|_2^2\;\le\; B_s^2\; +\; (kN)B^2\; +\; (k_0N)B^2\; +\; N B^2,
+\]
+for a preimage budget $B_s$ derived from the SIS/vSIS parameters (see \S\ref{sec:Everything-Merges}).
+
+\noindent\emph{Remark (resampling cost).}
+With $x_1 \gets \mathrm{Unif}([{-}B,B])$ independent of $b_1[j]$, we have $\Pr[b_1[j]-x_1\equiv 0 \pmod q] \le (2B{+}1)/q$ per slot; the expected trials are $(1-(2B{+}1)/q)^{-1}$.
+
+\begin{lemma}[Invertibility by resampling]\label{lem:invertibility-resampling}
+Let $x_1$ be sampled uniformly from $[-B,B]^N$ with $B\ll q$ and $b_1\leftarrow U(\Rq^\varphi)$ be public. Then
+\[
+\Pr\big[\exists j:\,(b_1-\mathbf{1}_\varphi\cdot x_1)[j]=0\big]\ \le\ N\cdot\frac{2B+1}{q}.
+\]
+Resampling $x_1$ until invertible succeeds in expected at most $1/\big(1- N(2B{+}1)/q\big)$ trials.
+\end{lemma}
+
+\subsection{Concrete parameters}
+
+Below is the parameter instantiation for the lattice signature. The parameters were tuned using the open source lattice-estimator project~\cite{albrecht-player-scott-2015} and we did not change them throughout the performance testing of the Zero-Knowledge Proof.
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Knob / Result} & \textbf{Symbol} & \textbf{Value (this instantiation)} \\
+\midrule
+Ring degree & $(\varphi)$ & $1024$ \\
+Modulus & $(q)$ & $1038337$ \\
+Security target & $(\lambda)$ & $128$ (targeting $\ge 128$ bits) \\
+\midrule
+Smoothing factor (natural log) & $\eta_\varepsilon(\mathbb{Z}^{2\varphi})$ & $\sqrt{\dfrac{\ln\!\bigl(4\varphi(1+2^\lambda)\bigr)}{\pi}}\ \approx\ 5.558$ \\
+Trapdoor constant & $(c_{\mathrm{trap}})$ & $1.17$ \\
+\textbf{Preimage Gaussian} & $(s)$ & $s=c_{\mathrm{trap}}\sqrt{q}\,\eta_\varepsilon\ \approx\ 6.626\times 10^3\ (\log_2 s \approx 12.69)$ \\
+Sampler Standard deviation & $(\sigma)$ & $\sigma=\dfrac{s}{\sqrt{2\pi}}\ \approx\ 2.643\times 10^3\ (\log_2 \sigma \approx 11.37)$ \\
+\midrule
+Message / randomness arity & $(\ell_m,\ell_r)$ & $(1,2)$ \\
+Verifier bound & $(\beta)$ & $\beta \ge s\sqrt{3+\ell_m+\ell_r}\sqrt{\varphi}\ \approx\ 5.194\times 10^5\ (\log_2 \beta \approx 18.99)$ \\
+\midrule
+Estimated security & -- & $\ge 128$ bits ($\approx 193$) \\
+\bottomrule
+\end{tabular}
+\caption{Parameters for $n=\varphi=1024$ and $q=1038337$. Logs are base-2 unless `$\ln$' is explicit.}
+\label{tab:lattice-params}
+\end{table}
+
+We instantiate $(\ell,\ell',\rho,d_Q,n_{\mathrm{cols}},N,\eta,\kappa_i)$ in \S\ref{sec:results}, satisfying the budget above.

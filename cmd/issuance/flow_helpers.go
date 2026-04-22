@@ -37,12 +37,16 @@ type holderSecretFile struct {
 	CredentialPublicPath string   `json:"credential_public_path"`
 	PRFParamsPath        string   `json:"prf_params_path"`
 	PackedNCols          int      `json:"packed_ncols"`
+	LVCSNCols            int      `json:"lvcs_ncols,omitempty"`
+	NLeaves              int      `json:"nleaves,omitempty"`
 	Omega                []uint64 `json:"omega"`
 	holderWitnessSpec
 }
 
 type commitRequestFile struct {
 	CredentialPublicPath string    `json:"credential_public_path"`
+	LVCSNCols            int       `json:"lvcs_ncols,omitempty"`
+	NLeaves              int       `json:"nleaves,omitempty"`
 	Omega                []uint64  `json:"omega"`
 	Com                  [][]int64 `json:"com"`
 }
@@ -85,6 +89,23 @@ type issuanceRuntime struct {
 	prfParams  *prf.Params
 	opts       PIOP.SimOpts
 	omega      []uint64
+}
+
+type issuanceRuntimeOverrides struct {
+	NCols     int
+	LVCSNCols int
+	NLeaves   int
+}
+
+func persistedIssuanceRuntimeOverrides(ncols, lvcsNCols, nLeaves int, omega []uint64) issuanceRuntimeOverrides {
+	if ncols <= 0 && len(omega) > 0 {
+		ncols = len(omega)
+	}
+	return issuanceRuntimeOverrides{
+		NCols:     ncols,
+		LVCSNCols: lvcsNCols,
+		NLeaves:   nLeaves,
+	}
 }
 
 func credentialPublicPathDefault() string {
@@ -137,8 +158,8 @@ func setupDemoPublic(outPath string, force bool, bPath, hashRelation string) err
 	return nil
 }
 
-func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath string, seed int64) error {
-	rt, err := loadIssuanceRuntime(publicPath, prfPath)
+func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath string, seed int64, overrides issuanceRuntimeOverrides) error {
+	rt, err := loadIssuanceRuntime(publicPath, prfPath, overrides)
 	if err != nil {
 		return err
 	}
@@ -167,11 +188,15 @@ func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expe
 		CredentialPublicPath: publicPath,
 		PRFParamsPath:        prfPath,
 		PackedNCols:          rt.opts.NCols,
+		LVCSNCols:            rt.opts.LVCSNCols,
+		NLeaves:              rt.opts.NLeaves,
 		Omega:                append([]uint64(nil), rt.omega...),
 		holderWitnessSpec:    witnessSpecFromInputs(rt.ringQ, inputs),
 	}
 	request := commitRequestFile{
 		CredentialPublicPath: publicPath,
+		LVCSNCols:            rt.opts.LVCSNCols,
+		NLeaves:              rt.opts.NLeaves,
 		Omega:                append([]uint64(nil), rt.omega...),
 		Com:                  polyVecToInt64(rt.ringQ, com, true),
 	}
@@ -190,7 +215,7 @@ func issuerChallenge(commitRequestPath, challengePath string, seed int64) error 
 	if err := readJSONFile(commitRequestPath, &req); err != nil {
 		return fmt.Errorf("read commit request: %w", err)
 	}
-	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, defaultPRFParamsPath)
+	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, defaultPRFParamsPath, issuanceRuntimeOverrides{})
 	if err != nil {
 		return err
 	}
@@ -224,7 +249,7 @@ func holderProve(holderSecretPath, challengePath, submissionPath string) error {
 	if err := readJSONFile(challengePath, &challenge); err != nil {
 		return fmt.Errorf("read challenge: %w", err)
 	}
-	rt, err := loadIssuanceRuntime(secret.CredentialPublicPath, secret.PRFParamsPath)
+	rt, err := loadIssuanceRuntime(secret.CredentialPublicPath, secret.PRFParamsPath, persistedIssuanceRuntimeOverrides(secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega))
 	if err != nil {
 		return err
 	}
@@ -277,7 +302,7 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 	if err := readJSONFile(submissionPath, &submission); err != nil {
 		return fmt.Errorf("read submission: %w", err)
 	}
-	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, defaultPRFParamsPath)
+	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, defaultPRFParamsPath, persistedIssuanceRuntimeOverrides(0, req.LVCSNCols, req.NLeaves, req.Omega))
 	if err != nil {
 		return err
 	}
@@ -372,7 +397,7 @@ func holderFinalize(holderSecretPath, commitRequestPath, challengePath, response
 	return nil
 }
 
-func demoLocal(publicPath, prfPath, artifactDir, statePath, signaturePath string, seed int64, maxTrials int) error {
+func demoLocal(publicPath, prfPath, artifactDir, statePath, signaturePath string, seed int64, maxTrials int, overrides issuanceRuntimeOverrides) error {
 	holderSecretPath := filepath.Join(artifactDir, "holder_secret.json")
 	commitRequestPath := filepath.Join(artifactDir, "commit_request.json")
 	challengePath := filepath.Join(artifactDir, "issue_challenge.json")
@@ -382,7 +407,7 @@ func demoLocal(publicPath, prfPath, artifactDir, statePath, signaturePath string
 	if seed != 0 {
 		challengeSeed = seed + 1
 	}
-	if err := holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, "", seed); err != nil {
+	if err := holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, "", seed, overrides); err != nil {
 		return err
 	}
 	if err := issuerChallenge(commitRequestPath, challengePath, challengeSeed); err != nil {
@@ -397,7 +422,7 @@ func demoLocal(publicPath, prfPath, artifactDir, statePath, signaturePath string
 	return holderFinalize(holderSecretPath, commitRequestPath, challengePath, responsePath, statePath, signaturePath)
 }
 
-func loadIssuanceRuntime(publicPath, prfPath string) (*issuanceRuntime, error) {
+func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOverrides) (*issuanceRuntime, error) {
 	ringQ, err := credential.LoadDefaultRing()
 	if err != nil {
 		return nil, fmt.Errorf("load ring: %w", err)
@@ -415,6 +440,20 @@ func loadIssuanceRuntime(publicPath, prfPath string) (*issuanceRuntime, error) {
 		return nil, fmt.Errorf("load prf params: %w", err)
 	}
 	opts := defaultIssuanceOpts(prfParams)
+	if overrides.NCols > 0 {
+		opts.NCols = overrides.NCols
+	}
+	if overrides.LVCSNCols > 0 {
+		opts.LVCSNCols = overrides.LVCSNCols
+		opts.PostSignLVCSNCols = overrides.LVCSNCols
+		opts.PRFLVCSNCols = overrides.LVCSNCols
+	}
+	if overrides.NLeaves > 0 {
+		opts.NLeaves = overrides.NLeaves
+		opts.PostSignNLeaves = overrides.NLeaves
+		opts.PRFNLeaves = overrides.NLeaves
+	}
+	opts = defaultIssuanceOptsResolved(prfParams, opts)
 	omega, err := deriveOmegaForIssuanceOpts(ringQ, opts)
 	if err != nil {
 		return nil, fmt.Errorf("derive omega: %w", err)
@@ -432,7 +471,7 @@ func loadIssuanceRuntime(publicPath, prfPath string) (*issuanceRuntime, error) {
 }
 
 func defaultIssuanceOpts(prfParams *prf.Params) PIOP.SimOpts {
-	opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+	return defaultIssuanceOptsResolved(prfParams, PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
 		Credential: true,
 		Theta:      1,
 		EllPrime:   2,
@@ -442,7 +481,10 @@ func defaultIssuanceOpts(prfParams *prf.Params) PIOP.SimOpts {
 		Eta:        19,
 		DomainMode: PIOP.DomainModeExplicit,
 		NLeaves:    4096,
-	})
+	}))
+}
+
+func defaultIssuanceOptsResolved(prfParams *prf.Params, opts PIOP.SimOpts) PIOP.SimOpts {
 	if prfParams != nil && opts.NCols < 2*prfParams.LenKey {
 		opts.NCols = 2 * prfParams.LenKey
 	}
@@ -592,7 +634,7 @@ func loadFinalizeInput(holderSecretPath, commitRequestPath, challengePath, respo
 	if err := readJSONFile(responsePath, &in.response); err != nil {
 		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("read response: %w", err)
 	}
-	rt, err := loadIssuanceRuntime(in.secret.CredentialPublicPath, in.secret.PRFParamsPath)
+	rt, err := loadIssuanceRuntime(in.secret.CredentialPublicPath, in.secret.PRFParamsPath, persistedIssuanceRuntimeOverrides(in.secret.PackedNCols, in.secret.LVCSNCols, in.secret.NLeaves, in.secret.Omega))
 	if err != nil {
 		return in, nil, issuance.Inputs{}, nil, err
 	}

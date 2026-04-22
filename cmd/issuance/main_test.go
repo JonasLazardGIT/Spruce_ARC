@@ -145,3 +145,64 @@ func TestDemoLocalDoesNotRewriteCanonicalPublicParams(t *testing.T) {
 		t.Fatal("demo-local rewrote canonical credential public params")
 	}
 }
+
+func TestDemoLocalWidthOverridesWriteTempStateWithoutTouchingCanonicalOutputs(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	readCanonical := func(path string) []byte {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read canonical file %s: %v", path, err)
+		}
+		return data
+	}
+
+	beforeState := readCanonical(defaultCredentialStatePath)
+	beforeSig := readCanonical(defaultCredentialSignaturePath)
+
+	tmp := t.TempDir()
+	artifactDir := filepath.Join(tmp, "artifacts")
+	statePath := filepath.Join(tmp, "credential_state.json")
+	signaturePath := filepath.Join(tmp, "signature.json")
+	if err := run([]string{
+		"demo-local",
+		"-artifact-dir", artifactDir,
+		"-state-out", statePath,
+		"-signature-out", signaturePath,
+		"-seed", "21",
+		"-ncols", "32",
+		"-lvcs-ncols", "96",
+		"-nleaves", "4096",
+	}); err != nil {
+		t.Fatalf("demo-local with width overrides: %v", err)
+	}
+
+	state, err := credential.LoadState(statePath)
+	if err != nil {
+		t.Fatalf("load overridden credential state: %v", err)
+	}
+	if state.PackedNCols != 32 {
+		t.Fatalf("packed_ncols=%d want 32", state.PackedNCols)
+	}
+	for _, rel := range []string{
+		"holder_secret.json",
+		"commit_request.json",
+		"issue_challenge.json",
+		"presign_submission.json",
+		"issue_response.json",
+	} {
+		if _, err := os.Stat(filepath.Join(artifactDir, rel)); err != nil {
+			t.Fatalf("artifact %s missing: %v", rel, err)
+		}
+	}
+
+	afterState := readCanonical(defaultCredentialStatePath)
+	afterSig := readCanonical(defaultCredentialSignaturePath)
+	if string(beforeState) != string(afterState) {
+		t.Fatal("demo-local width override rewrote canonical credential state")
+	}
+	if string(beforeSig) != string(afterSig) {
+		t.Fatal("demo-local width override rewrote canonical credential signature")
+	}
+}

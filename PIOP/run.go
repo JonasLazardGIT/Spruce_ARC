@@ -34,6 +34,23 @@ const (
 	ShowingReplayModeFull    ShowingReplayMode = "full"
 )
 
+type ShowingStatementClass string
+
+const (
+	ShowingStatementClassReducedEngineeringReplay ShowingStatementClass = "reduced_engineering_replay"
+	ShowingStatementClassTheoremCleanFullReplay   ShowingStatementClass = "theorem_clean_full_replay"
+	ShowingStatementClassCustom                   ShowingStatementClass = "custom_replay_surface"
+)
+
+const (
+	SigShortnessModeNone        = "none"
+	SigShortnessModeLegacyV2    = "sig_shortness_v2_same_root"
+	SigShortnessModeLegacyV3    = "sig_shortness_v3_same_root"
+	SigShortnessModeLegacyV4    = "sig_shortness_v4_same_root"
+	SigShortnessModeExactHeadV5 = "sig_shortness_v5_exact_head"
+	SigShortnessModeHiddenV6    = "sig_shortness_v6_hidden"
+)
+
 func normalizeShowingReplayMode(mode ShowingReplayMode) ShowingReplayMode {
 	switch mode {
 	case ShowingReplayModeReduced, ShowingReplayModeFull:
@@ -45,16 +62,80 @@ func normalizeShowingReplayMode(mode ShowingReplayMode) ShowingReplayMode {
 	}
 }
 
+func ResolveShowingStatementClass(proof *Proof, opts SimOpts) string {
+	mode := normalizeShowingReplayMode(opts.ShowingReplayMode)
+	if proof == nil {
+		switch mode {
+		case ShowingReplayModeReduced:
+			return string(ShowingStatementClassReducedEngineeringReplay)
+		case ShowingReplayModeFull:
+			return string(ShowingStatementClassCustom)
+		default:
+			return string(ShowingStatementClassCustom)
+		}
+	}
+	if showingLayoutIsTheoremCleanFullReplay(proof.RowLayout, mode) {
+		return string(ShowingStatementClassTheoremCleanFullReplay)
+	}
+	if mode == ShowingReplayModeReduced {
+		return string(ShowingStatementClassReducedEngineeringReplay)
+	}
+	return string(ShowingStatementClassCustom)
+}
+
+func showingLayoutIsTheoremCleanFullReplay(layout RowLayout, mode ShowingReplayMode) bool {
+	if normalizeShowingReplayMode(mode) != ShowingReplayModeFull {
+		return false
+	}
+	replayBlocks := rowLayoutReplayBlockCount(layout)
+	if replayBlocks <= 0 {
+		return false
+	}
+	if rowLayoutReplayTHatCount(layout) != replayBlocks {
+		return false
+	}
+	if layout.SigBlocks > 0 && layout.SigBlocks != replayBlocks {
+		return false
+	}
+	return rowLayoutPostSignTHatBase(layout) >= 0 &&
+		rowLayoutPostSignMHatSigma(layout) >= 0 &&
+		rowLayoutPostSignRHat0(layout) >= 0 &&
+		rowLayoutPostSignRHat1(layout) >= 0 &&
+		rowLayoutPostSignMSigmaR1Hat(layout) >= 0 &&
+		rowLayoutPostSignR0R1Hat(layout) >= 0
+}
+
+func ResolveSigShortnessMode(proof *Proof) string {
+	if proof == nil || proof.SigShortness == nil {
+		return SigShortnessModeNone
+	}
+	switch proof.SigShortness.Version {
+	case sigShortnessProofVersionV2:
+		return SigShortnessModeLegacyV2
+	case sigShortnessProofVersionV3:
+		return SigShortnessModeLegacyV3
+	case sigShortnessProofVersionV4:
+		return SigShortnessModeLegacyV4
+	case sigShortnessProofVersionV5:
+		return SigShortnessModeExactHeadV5
+	case sigShortnessProofVersionV6:
+		return SigShortnessModeHiddenV6
+	default:
+		return fmt.Sprintf("sig_shortness_v%d_unknown", proof.SigShortness.Version)
+	}
+}
+
 type PRFCompanionMode string
 
 const (
 	PRFCompanionModeOutputAudit PRFCompanionMode = "output_audit"
 	PRFCompanionModeDirectAuth  PRFCompanionMode = "direct_auth"
+	PRFCompanionModeAuxInstance PRFCompanionMode = "aux_instance"
 )
 
 func normalizePRFCompanionMode(mode PRFCompanionMode) PRFCompanionMode {
 	switch mode {
-	case PRFCompanionModeOutputAudit, PRFCompanionModeDirectAuth:
+	case PRFCompanionModeOutputAudit, PRFCompanionModeDirectAuth, PRFCompanionModeAuxInstance:
 		return mode
 	case "":
 		return ""
@@ -560,39 +641,45 @@ type RowLayout struct {
 	RndCount int
 	// Explicit base indices for post-sign witness rows.
 	// When false, the standard issuance row order is used.
-	HasExplicitBaseIdx bool
-	IdxM1              int
-	IdxM2              int
-	IdxRU0             int
-	IdxRU1             int
-	IdxR               int
-	IdxR0              int
-	IdxR1              int
-	IdxK0              int
-	IdxK1              int
-	IdxMSigmaR1        int
-	IdxR0R1            int
-	IdxCarrierM        int
-	IdxCarrierPreRU    int
-	IdxCarrierPreR     int
-	IdxCarrierCtr      int
-	IdxCarrierK        int
-	IdxTSource         int
-	IdxSigHatBase      int
-	SigHatExtraBase    int
-	IdxTHatBase        int
-	ReplayTHatCount    int
-	ReplayBlockCount   int
-	IdxMHatSigma       int
-	IdxMHat1           int
-	IdxMHat2           int
-	IdxRHat0           int
-	IdxRHat1           int
-	IdxMSigmaR1Hat     int
-	IdxR0R1Hat         int
-	ChainBase          int
-	ChainRowsPerSig    int
-	PackedSigChainBase int
+	HasExplicitBaseIdx    bool
+	IdxM1                 int
+	IdxM2                 int
+	IdxRU0                int
+	IdxRU1                int
+	IdxR                  int
+	IdxR0                 int
+	IdxR1                 int
+	IdxK0                 int
+	IdxK1                 int
+	IdxMSigmaR1           int
+	IdxR0R1               int
+	IdxCarrierM           int
+	IdxCarrierPreRU       int
+	IdxCarrierPreR        int
+	IdxCarrierCtr         int
+	IdxCarrierK           int
+	IdxTSource            int
+	IdxSigHatBase         int
+	SigHatExtraBase       int
+	IdxTHatBase           int
+	ReplayTHatRows        []int
+	ReplayTHatCount       int
+	ReplayBlockCount      int
+	IdxMHatSigma          int
+	ReplayMHatSigmaRows   []int
+	IdxMHat1              int
+	IdxMHat2              int
+	IdxRHat0              int
+	ReplayRHat0Rows       []int
+	IdxRHat1              int
+	ReplayRHat1Rows       []int
+	IdxMSigmaR1Hat        int
+	ReplayMSigmaR1HatRows []int
+	IdxR0R1Hat            int
+	ReplayR0R1HatRows     []int
+	ChainBase             int
+	ChainRowsPerSig       int
+	PackedSigChainBase    int
 	// Packed signature shortness metadata for modes that use one shortness row
 	// per digit lane and coefficient group instead of per coefficient.
 	PackedSigChainGroupCount   int
@@ -727,6 +814,8 @@ type Proof struct {
 	PRFLayout *PRFLayout
 	// Optional Phase-2 PRF companion proof metadata.
 	PRFCompanion *PRFCompanionProof
+	// Optional same-root source-product bridge for theorem-clean full replay.
+	SourceProductBridge *SourceProductBridge
 	// Optional signature shortness proof for retained packed-signature showing.
 	SigShortness *SigShortnessProof
 }
@@ -1975,6 +2064,8 @@ func estimateProofSize(proof *Proof) int {
 	sum += len(proof.BarSetsBits)
 	sum += sizeDECSOpening(resolveProofPCSOpening(proof))
 	sum += sizeDECSOpening(proof.QOpening)
+	sum += sizePRFCompanionProof(proof.PRFCompanion)
+	sum += sizeSourceProductBridge(proof.SourceProductBridge)
 	sum += sizeSigShortnessProof(proof.SigShortness)
 	return sum
 }
@@ -2011,6 +2102,8 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 	sizes["BarSets"] = len(proof.BarSetsBits)
 	sizes["RowOpening"] = sizeDECSOpening(resolveProofPCSOpening(proof))
 	sizes["QOpening"] = sizeDECSOpening(proof.QOpening)
+	sizes["PRFCompanion"] = sizePRFCompanionProof(proof.PRFCompanion)
+	sizes["SourceProductBridge"] = sizeSourceProductBridge(proof.SourceProductBridge)
 	sizes["SigShortness"] = sizeSigShortnessProof(proof.SigShortness)
 	total := 0
 	for _, v := range sizes {
@@ -2053,6 +2146,64 @@ func sizeSigShortnessProof(sig *SigShortnessProof) int {
 		return size
 	}
 	return sizeDECSOpening(sig.Opening)
+}
+
+func sizePRFCompanionOpening(open PRFCompanionOpening) int {
+	return len(open.Masked)*8 + len(open.Mask)*8
+}
+
+func sizePRFCompanionProof(companion *PRFCompanionProof) int {
+	if companion == nil {
+		return 0
+	}
+	size := 0
+	if companion.Mode != "" {
+		size += len(companion.Mode)
+	}
+	size += varintSize(companion.CheckpointSamples)
+	size += 1 // BridgeInQ
+	size += sizeUint64Matrix(companion.BridgeChecks)
+	size += len(companion.BridgeChecksBits)
+	size += len(companion.CoordDigest)
+	for i := range companion.CheckpointAudits {
+		size += sizePRFCompanionOpening(companion.CheckpointAudits[i].Z)
+		size += sizePRFCompanionOpening(companion.CheckpointAudits[i].Wire)
+	}
+	size += sizePRFCompanionOpening(companion.TagFinal)
+	size += sizePRFCompanionOpening(companion.KeyTrunc)
+	if companion.Bridge != nil {
+		size += varintSize(companion.Bridge.Version)
+		size += len(companion.Bridge.RowIndices) * 4
+		size += len(companion.Bridge.PhysicalRows) * 4
+		size += len(companion.Bridge.SupportSlots) * 4
+		size += sizeDECSOpening(companion.Bridge.RowsOpening)
+		size += len(companion.Bridge.PackedDigest)
+		size += len(companion.Bridge.CoordDigest)
+		size += len(companion.Bridge.GeometryDigest)
+		size += len(companion.Bridge.BridgeDigest)
+	}
+	if companion.AuxInstance != nil {
+		if companion.AuxInstance.Proof != nil {
+			_, nestedTotal := proofSizeBreakdown(companion.AuxInstance.Proof)
+			size += nestedTotal
+		}
+	}
+	return size
+}
+
+func sizeSourceProductBridge(bridge *SourceProductBridge) int {
+	if bridge == nil {
+		return 0
+	}
+	size := varintSize(bridge.Version)
+	size += len(bridge.RowIndices) * 4
+	size += len(bridge.PhysicalRows) * 4
+	size += len(bridge.SupportSlots) * 4
+	size += sizeDECSOpening(bridge.RowsOpening)
+	size += len(bridge.PackedDigest)
+	size += len(bridge.GeometryDigest)
+	size += len(bridge.BridgeDigest)
+	return size
 }
 
 // ProofSizeReport summarises the byte footprint of a proof as consumed by the verifier.

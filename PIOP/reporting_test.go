@@ -142,6 +142,49 @@ func TestMeasureProofSizeUnaffectedByPaperTranscriptReport(t *testing.T) {
 	}
 }
 
+func TestResolveShowingStatementClassDistinguishesReducedAndTheoremCleanFull(t *testing.T) {
+	reduced := ResolveShowingStatementClass(&Proof{
+		RowLayout: RowLayout{
+			IdxTHatBase:      4,
+			ReplayTHatCount:  1,
+			ReplayBlockCount: 1,
+			SigBlocks:        3,
+		},
+	}, SimOpts{ShowingReplayMode: ShowingReplayModeReduced})
+	if reduced != string(ShowingStatementClassReducedEngineeringReplay) {
+		t.Fatalf("reduced statement class=%q want %q", reduced, ShowingStatementClassReducedEngineeringReplay)
+	}
+	full := ResolveShowingStatementClass(&Proof{
+		RowLayout: RowLayout{
+			HasExplicitBaseIdx: true,
+			IdxTHatBase:        3,
+			IdxMHatSigma:       6,
+			IdxRHat0:           9,
+			IdxRHat1:           12,
+			IdxMSigmaR1Hat:     15,
+			IdxR0R1Hat:         18,
+			ReplayTHatCount:    3,
+			ReplayBlockCount:   3,
+			SigBlocks:          3,
+		},
+	}, SimOpts{ShowingReplayMode: ShowingReplayModeFull})
+	if full != string(ShowingStatementClassTheoremCleanFullReplay) {
+		t.Fatalf("full statement class=%q want %q", full, ShowingStatementClassTheoremCleanFullReplay)
+	}
+}
+
+func TestResolveSigShortnessModeUsesHiddenV6Label(t *testing.T) {
+	got := ResolveSigShortnessMode(&Proof{
+		SigShortness: &SigShortnessProof{
+			Version: sigShortnessProofVersionV6,
+			V6:      &SigShortnessProofV6{},
+		},
+	})
+	if got != SigShortnessModeHiddenV6 {
+		t.Fatalf("sig shortness mode=%q want %q", got, SigShortnessModeHiddenV6)
+	}
+}
+
 func cloneProofForPaperTest(src *Proof) *Proof {
 	if src == nil {
 		return nil

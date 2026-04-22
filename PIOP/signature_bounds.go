@@ -148,6 +148,29 @@ func ResolveSignatureShortnessProfileLabelForOpts(opts SimOpts) string {
 	return normalizeSigShortnessProfile(opts.SigShortnessProfile)
 }
 
+func signatureShortnessProfileLabelFromMetrics(radix, digits int) string {
+	switch {
+	case radix == signaturePackedProductionRadix && digits == signaturePackedProductionL:
+		return SigShortnessProfileR11L4Production
+	case radix == signaturePackedCompactL3Radix && digits == signaturePackedCompactL3L:
+		return SigShortnessProfileR24L3Compact
+	case radix == signaturePackedCompactL2Radix && digits == signaturePackedCompactL2L:
+		return SigShortnessProfileR111L2Compact
+	case radix == signaturePackedResearchL1Radix && digits == signaturePackedResearchL1L:
+		return SigShortnessProfileR12285L1Research
+	case radix == signaturePackedDefaultRadix && digits == signaturePackedDefaultL:
+		return SigShortnessProfileR12L3Default
+	case radix == signaturePackedLegacyRadix && digits == signaturePackedLegacyL:
+		return SigShortnessProfileR13L3Legacy
+	case radix == signaturePackedExperimentalRadix && digits == signaturePackedExperimentalL:
+		return SigShortnessProfileR7L4Experimental
+	case radix > 0 && digits > 0:
+		return SigShortnessProfileCustomBalanced
+	default:
+		return ""
+	}
+}
+
 func normalizeChainCaps(label string, caps []int, L int) ([]int, error) {
 	if len(caps) == 0 {
 		return nil, nil

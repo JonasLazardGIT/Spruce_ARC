@@ -1,0 +1,69 @@
+\section{Implementation Results}
+\label{sec:implementation-results}
+
+We implemented ARC-SPRUCE in Go. Ring arithmetic and NTTs are provided by Lattigo~v4.1.1, while the
+credential and commitment logic, the retained SmallWood proof stack (PIOP together with DECS/LVCS), and the
+Poseidon2-like PRF are implemented in custom Go code over the same field \(\Fq\). Table~\ref{tab:implementation-results}
+reports the single measured issuance instance and the retained reduced-replay showing instance used by the current
+implementation. Benchmarks were obtained on a Linux \texttt{x86\_64} host with Go~1.26.0 on an Intel i7-10875H.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}p{0.23\columnwidth}p{0.35\columnwidth}p{0.35\columnwidth}@{}}
+\toprule
+\textbf{Metric} & \textbf{Issuance} & \textbf{Showing} \\
+\midrule
+Arithmetic / relation &
+Shared \(\Rq\) with \(N=1024\), \(q=1054721\), \texttt{bb\_tran}; public-target pre-sign proof &
+Same ring and relation; retained reduced-replay post-sign proof \\
+
+PRF / shortness &
+Credential fixes a Poseidon2-like PRF with \(t=20\), \(d=3\), \(R_F=8\), \(R_P=19\), and key/nonce/tag lengths \(8/12/7\); no shortness subproof &
+Same PRF instance with \texttt{output\_audit}, group rounds \(=2\), checkpoint samples \(=8\); nested hidden shortness proof (\texttt{SigShortnessV6}), outer profile \texttt{r12285\_l1\_research} \\
+
+SmallWood tuple &
+\((16,18,2,2,1,19,96,4096)\), \(d_Q=312\) &
+\((16,18,3,2,3,26,32,4096)\), \(\kappa=\{0,11,0,11\}\), \(d_Q=312\) \\
+
+Witness geometry &
+\(22\) witness rows, \(2\) mask rows &
+\(22\) logical rows, \(19\) committed rows, \(60\) mask rows \\
+
+Paper transcript &
+\(15{,}915\)~B &
+\(26{,}587\)~B \\
+
+Verifier payload &
+\(49{,}153\)~B &
+\(47{,}848\)~B \\
+
+Prover time &
+\(0.194\)~s &
+\(2.854\)~s \\
+
+Verifier time &
+n/a &
+\(86.1\)~ms \\
+
+Dominant terms &
+Payload: RowOpening \(17{,}399\), QR \(15{,}621\), QOpening \(15{,}063\). Paper: Auth \(4{,}998\), \(R\) \(4{,}562\), Pdecs \(2{,}269\) &
+Paper: SigShortness \(9{,}445\), Pdecs \(6{,}627\), \(Q\) \(4{,}622\), Auth \(2{,}358\), \(R\) \(2{,}081\) \\
+\bottomrule
+\end{tabular}
+\caption{Implementation measurements for the measured issuance instance and the retained reduced-replay showing instance.
+SmallWood tuples are listed in the order \((NCols,\ell,\ell',\rho,\theta,\eta,LVCSNCols,NLeaves)\).
+``Paper transcript'' denotes the paper-faithful transcript accounting, whereas ``verifier payload'' denotes the current
+serialized proof object consumed by the implementation.}
+\label{tab:implementation-results}
+\end{table}
+
+For the measured parameter sets, issuance is smaller because it only certifies the public-target pre-sign relation.
+Showing additionally carries the reduced replay surface, the PRF companion constraints, and a nested hidden shortness
+proof, so its size is dominated by the shortness bucket together with row-opening and quotient-related \(Q\) material.
+Beyond the shortness proof, the remaining replay burden is concentrated in the PRF checkpoint and final-tag rows and in
+the two source-product rows induced by the cleared \texttt{bb\_tran} relation. Conservatively, the retained reduced
+showing instance stays below \(26\)~KB in paper-transcript size and verifies in under \(0.1\)~s, while issuance proving
+stays below \(0.2\)~s for the measured instance.

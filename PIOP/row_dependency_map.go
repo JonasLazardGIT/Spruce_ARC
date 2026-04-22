@@ -69,17 +69,21 @@ func addCoeffNativeLiteralPackedRows(
 		}
 		add(RowFamilyPostSignCarriers, layout.IdxCarrierM)
 		add(RowFamilyPostSignCarriers, layout.IdxCarrierCtr)
-		if replayBlocks := rowLayoutReplayBlockCount(layout); replayBlocks > 0 {
-			addRange(RowFamilyNonSigTransformAlias, layout.IdxMHatSigma, replayBlocks)
-			addRange(RowFamilyNonSigTransformAlias, layout.IdxRHat0, replayBlocks)
-			addRange(RowFamilyNonSigTransformAlias, layout.IdxRHat1, replayBlocks)
-			addRange(RowFamilyNonSigTransformAlias, layout.IdxMSigmaR1Hat, replayBlocks)
-			addRange(RowFamilyNonSigTransformAlias, layout.IdxR0R1Hat, replayBlocks)
+		for _, rows := range [][]int{
+			rowLayoutPostSignMHatSigmaRows(layout),
+			rowLayoutPostSignRHat0Rows(layout),
+			rowLayoutPostSignRHat1Rows(layout),
+			rowLayoutPostSignMSigmaR1HatRows(layout),
+			rowLayoutPostSignR0R1HatRows(layout),
+		} {
+			for _, idx := range rows {
+				add(RowFamilyNonSigTransformAlias, idx)
+			}
 		}
 		add(RowFamilyPostSignCore, layout.IdxMSigmaR1)
 		add(RowFamilyPostSignCore, layout.IdxR0R1)
-		if layout.IdxTHatBase >= 0 && rowLayoutReplayTHatCount(layout) > 0 {
-			addRange(RowFamilyReplayImage, layout.IdxTHatBase, rowLayoutReplayTHatCount(layout))
+		for _, idx := range rowLayoutPostSignTHatRows(layout) {
+			add(RowFamilyReplayImage, idx)
 		}
 		return
 	}

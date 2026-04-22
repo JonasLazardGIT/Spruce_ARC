@@ -9,7 +9,7 @@ func TestReplayPRFRowCountUsesWitnessRowsForNonPackedLayout(t *testing.T) {
 		WitnessRows: 166,
 	}
 
-	if got := replayPRFRowCount(layout, nil); got != 166 {
+	if got := replayPRFRowCount(layout, nil, PRFCompanionMode("")); got != 166 {
 		t.Fatalf("replayPRFRowCount() = %d, want 166", got)
 	}
 }
@@ -29,7 +29,7 @@ func TestReplayPRFRowCountPackedRowsStillCountsUniqueRows(t *testing.T) {
 		WitnessRows: 99,
 	}
 
-	if got := replayPRFRowCount(layout, nil); got != 3 {
+	if got := replayPRFRowCount(layout, nil, PRFCompanionMode("")); got != 3 {
 		t.Fatalf("replayPRFRowCount() = %d, want 3 unique packed rows", got)
 	}
 }

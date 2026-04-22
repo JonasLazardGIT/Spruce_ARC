@@ -128,6 +128,82 @@ func composeKEvaluators(a, b KConstraintEvaluator) KConstraintEvaluator {
 	}
 }
 
+func coeffRowsAllZero(rows [][]uint64) bool {
+	for _, row := range rows {
+		for _, v := range row {
+			if v != 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func zeroConstraintEvaluator(parCount, aggCount int) ConstraintEvaluator {
+	if parCount <= 0 && aggCount <= 0 {
+		return nil
+	}
+	return func(evalIdx uint64, rows []uint64) ([]uint64, []uint64, error) {
+		return make([]uint64, parCount), make([]uint64, aggCount), nil
+	}
+}
+
+func zeroKConstraintEvaluator(K *kf.Field, parCount, aggCount int) KConstraintEvaluator {
+	if K == nil || (parCount <= 0 && aggCount <= 0) {
+		return nil
+	}
+	return func(e kf.Elem, rows []kf.Elem) ([]kf.Elem, []kf.Elem, error) {
+		fpar := make([]kf.Elem, parCount)
+		fagg := make([]kf.Elem, aggCount)
+		for i := 0; i < parCount; i++ {
+			fpar[i] = K.Zero()
+		}
+		for i := 0; i < aggCount; i++ {
+			fagg[i] = K.Zero()
+		}
+		return fpar, fagg, nil
+	}
+}
+
+func formalCoeffConstraintEvaluator(domainPoints []uint64, parRows, aggRows [][]uint64, q uint64) ConstraintEvaluator {
+	if len(parRows) == 0 && len(aggRows) == 0 {
+		return nil
+	}
+	return func(evalIdx uint64, rows []uint64) ([]uint64, []uint64, error) {
+		ptIdx := int(evalIdx)
+		if ptIdx < 0 || ptIdx >= len(domainPoints) {
+			return nil, nil, fmt.Errorf("formal coeff evaluator idx %d out of range (|E|=%d)", ptIdx, len(domainPoints))
+		}
+		x := domainPoints[ptIdx] % q
+		fpar := make([]uint64, len(parRows))
+		for i, coeffs := range parRows {
+			fpar[i] = EvalPoly(coeffs, x, q)
+		}
+		fagg := make([]uint64, len(aggRows))
+		for i, coeffs := range aggRows {
+			fagg[i] = EvalPoly(coeffs, x, q)
+		}
+		return fpar, fagg, nil
+	}
+}
+
+func formalCoeffKConstraintEvaluator(K *kf.Field, parRows, aggRows [][]uint64) KConstraintEvaluator {
+	if K == nil || (len(parRows) == 0 && len(aggRows) == 0) {
+		return nil
+	}
+	return func(e kf.Elem, rows []kf.Elem) ([]kf.Elem, []kf.Elem, error) {
+		fpar := make([]kf.Elem, len(parRows))
+		for i, coeffs := range parRows {
+			fpar[i] = K.EvalFPolyAtK(coeffs, e)
+		}
+		fagg := make([]kf.Elem, len(aggRows))
+		for i, coeffs := range aggRows {
+			fagg[i] = K.EvalFPolyAtK(coeffs, e)
+		}
+		return fpar, fagg, nil
+	}
+}
+
 func ringDomainSlots(r *ring.Ring) ([]uint64, error) {
 	if r == nil {
 		return nil, fmt.Errorf("nil ring")

@@ -13,6 +13,16 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
+const (
+	compactL1ResearchFullControlOptimizedBytes         = 57339
+	compactL1ResearchFullOptimizedBytesMin             = 57000
+	compactL1ResearchFullOptimizedBytesMax             = 57600
+	compactL1ResearchFullControlOuterShortnessOpeningB = 5465
+	compactL1ResearchFullOuterShortnessOpeningMin      = 5400
+	compactL1ResearchFullOuterShortnessOpeningMax      = 5500
+	compactL1ResearchFullControlQBytes                 = 4622
+)
+
 func showingTestRepoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -616,6 +626,12 @@ func TestShowingV3CompactL1ResearchPreset(t *testing.T) {
 	if rep.TranscriptFocus.SigShortnessRadix != 12285 || rep.TranscriptFocus.SigShortnessDigits != 1 || rep.TranscriptFocus.SigShortnessDegree != 12285 {
 		t.Fatalf("unexpected compact-l1 sig metrics: profile=%q radix=%d digits=%d degree=%d", rep.TranscriptFocus.SigShortnessProfile, rep.TranscriptFocus.SigShortnessRadix, rep.TranscriptFocus.SigShortnessDigits, rep.TranscriptFocus.SigShortnessDegree)
 	}
+	if rep.TranscriptFocus.StatementClass != string(PIOP.ShowingStatementClassReducedEngineeringReplay) {
+		t.Fatalf("compact-l1 statement class=%q want %q", rep.TranscriptFocus.StatementClass, PIOP.ShowingStatementClassReducedEngineeringReplay)
+	}
+	if rep.TranscriptFocus.ShortnessMode != PIOP.SigShortnessModeHiddenV6 || rep.SigShortness.Mode != PIOP.SigShortnessModeHiddenV6 {
+		t.Fatalf("compact-l1 shortness mode mismatch: focus=%q report=%q", rep.TranscriptFocus.ShortnessMode, rep.SigShortness.Mode)
+	}
 	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 6 || rep.SigShortness.SupportSlotCount != 1 || rep.SigShortness.OpenedBlockCount != 1 {
 		t.Fatalf("unexpected compact-l1 sig shortness report: %+v", rep.SigShortness)
 	}
@@ -651,6 +667,84 @@ func TestShowingV3CompactL1ResearchPreset(t *testing.T) {
 	}
 }
 
+func TestShowingV3CompactL1ResearchFullReplayPreset(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	resolved := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+		Credential:           true,
+		NCols:                16,
+		Ell:                  18,
+		DomainMode:           PIOP.DomainModeExplicit,
+		PRFGroupRounds:       2,
+		CoeffPacking:         true,
+		CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+		ShowingPreset:        PIOP.ShowingPresetCompactL1Research,
+		ShowingReplayMode:    PIOP.ShowingReplayModeFull,
+		PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
+		PRFCheckpointSamples: 8,
+	})
+	proof, rep, _, _, _, _ := buildShowingProofForTestConfigWithResearchKnobsAndMutator(
+		t,
+		PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+		false,
+		false,
+		"",
+		8,
+		PIOP.ShowingPresetCompactL1Research,
+		resolved.SigShortnessProfile,
+		0,
+		0,
+		16,
+		resolved.PostSignLVCSNCols,
+		func(opts *PIOP.SimOpts) {
+			opts.ShowingReplayMode = PIOP.ShowingReplayModeFull
+		},
+	)
+	if rep.TranscriptFocus.ReplayMode != string(PIOP.ShowingReplayModeFull) {
+		t.Fatalf("reported full compact-l1 replay mode=%q want %q", rep.TranscriptFocus.ReplayMode, PIOP.ShowingReplayModeFull)
+	}
+	if rep.TranscriptFocus.StatementClass != string(PIOP.ShowingStatementClassTheoremCleanFullReplay) {
+		t.Fatalf("reported full compact-l1 statement class=%q want %q", rep.TranscriptFocus.StatementClass, PIOP.ShowingStatementClassTheoremCleanFullReplay)
+	}
+	if rep.TranscriptFocus.ShortnessMode != PIOP.SigShortnessModeHiddenV6 || rep.SigShortness.Mode != PIOP.SigShortnessModeHiddenV6 {
+		t.Fatalf("reported full compact-l1 shortness mode mismatch: focus=%q report=%q", rep.TranscriptFocus.ShortnessMode, rep.SigShortness.Mode)
+	}
+	if proof.RowLayout.IdxTSource >= 0 {
+		t.Fatalf("full compact-l1 replay should derive T source rows locally")
+	}
+	if got, want := proof.RowLayout.ReplayBlockCount, proof.RowLayout.SigBlocks; got != want {
+		t.Fatalf("full compact-l1 replay blocks=%d want sig blocks=%d", got, want)
+	}
+	if got, want := proof.RowLayout.ReplayTHatCount, proof.RowLayout.SigBlocks; got != want {
+		t.Fatalf("full compact-l1 replay T-hat count=%d want sig blocks=%d", got, want)
+	}
+	if proof.PCSNColsUsed != resolved.PostSignLVCSNCols || proof.LVCSNColsUsed != resolved.PostSignLVCSNCols {
+		t.Fatalf("full compact-l1 pcs width=%d/%d want %d", proof.PCSNColsUsed, proof.LVCSNColsUsed, resolved.PostSignLVCSNCols)
+	}
+	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 6 {
+		t.Fatalf("unexpected full compact-l1 sig shortness report: %+v", rep.SigShortness)
+	}
+	if rep.SigShortness.SupportSlotCount != 6 || rep.SigShortness.OpenedBlockCount != 11 || rep.SigShortness.OpeningBytes < compactL1ResearchFullOuterShortnessOpeningMin || rep.SigShortness.OpeningBytes > compactL1ResearchFullOuterShortnessOpeningMax {
+		t.Fatalf("full compact-l1 sig shortness surface too small: %+v", rep.SigShortness)
+	}
+	if proof.SourceProductBridge != nil || rep.TranscriptFocus.SourceProductBridgeBytes != 0 || rep.TranscriptFocus.SourceProductBridgeSupportSlots != 0 || rep.TranscriptFocus.SourceProductBridgeOpenedBlocks != 0 {
+		t.Fatalf("full compact-l1 unexpectedly activated source-product bridge: proof=%v report_bytes=%d slots=%d blocks=%d", proof.SourceProductBridge != nil, rep.TranscriptFocus.SourceProductBridgeBytes, rep.TranscriptFocus.SourceProductBridgeSupportSlots, rep.TranscriptFocus.SourceProductBridgeOpenedBlocks)
+	}
+	if rep.ReplayAudit.Selector.SelectedRows != 16 || rep.ReplayAudit.Selector.ActiveBlocks != 3 {
+		t.Fatalf("full compact-l1 selector changed unexpectedly: %+v", rep.ReplayAudit.Selector)
+	}
+	if rep.PaperTranscript.Q.OptimizedBytes != compactL1ResearchFullControlQBytes {
+		t.Fatalf("full compact-l1 Q=%d want %d", rep.PaperTranscript.Q.OptimizedBytes, compactL1ResearchFullControlQBytes)
+	}
+	if rep.PaperTranscript.OptimizedBytes < compactL1ResearchFullOptimizedBytesMin || rep.PaperTranscript.OptimizedBytes > compactL1ResearchFullOptimizedBytesMax {
+		t.Fatalf("full compact-l1 total=%d want in [%d,%d] around control %d", rep.PaperTranscript.OptimizedBytes, compactL1ResearchFullOptimizedBytesMin, compactL1ResearchFullOptimizedBytesMax, compactL1ResearchFullControlOptimizedBytes)
+	}
+	if rep.Soundness.TotalBits < 128 {
+		t.Fatalf("unexpected full compact-l1 theorem floor: total=%.2f", rep.Soundness.TotalBits)
+	}
+}
+
 func TestShowingReplayDependencyClosureShippedDefault(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
@@ -660,7 +754,7 @@ func TestShowingReplayDependencyClosureShippedDefault(t *testing.T) {
 	if proof.PRFCompanion != nil {
 		companion = proof.PRFCompanion.Layout
 	}
-	selector := PIOP.BuildShowingReplayActiveRowSelector(proof.RowLayout, companion)
+	selector := PIOP.BuildShowingReplayActiveRowSelector(proof.RowLayout, companion, proof.PRFCompanion.Mode)
 	stats := PIOP.BuildShowingReplayActiveRowStats(proof)
 	if len(selector) == 0 {
 		t.Fatalf("empty replay selector")
@@ -909,6 +1003,96 @@ func TestShowingPRFCompanionDirectAuthEnabled(t *testing.T) {
 	}
 	if !ok {
 		t.Fatalf("verify direct_auth showing returned ok=false")
+	}
+}
+
+func TestShowingPRFCompanionAuxInstanceFullReplayEnabled(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	proof, rep, _, opts, _, pub := buildShowingProofForTestConfigWithResearchKnobsAndMutator(
+		t,
+		PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+		true,
+		true,
+		PIOP.PRFCompanionModeAuxInstance,
+		8,
+		PIOP.ShowingPresetCompactL1Research,
+		PIOP.SigShortnessProfileR12285L1Research,
+		0,
+		0,
+		16,
+		0,
+		func(opts *PIOP.SimOpts) {
+			opts.ShowingReplayMode = PIOP.ShowingReplayModeFull
+		},
+	)
+	if proof.PRFCompanion == nil || proof.PRFCompanion.Layout == nil {
+		t.Fatalf("missing PRF companion proof/layout")
+	}
+	if proof.PRFCompanion.Bridge == nil {
+		t.Fatalf("missing PRF witness omega bridge")
+	}
+	if proof.PRFCompanion.AuxInstance == nil || proof.PRFCompanion.AuxInstance.Proof == nil {
+		t.Fatalf("missing PRF aux instance proof")
+	}
+	if proof.PRFCompanion.BridgeInQ || rep.TranscriptFocus.PRFBridgeInQ {
+		t.Fatalf("aux_instance should keep PRF bridge out of Q")
+	}
+	if !rep.TranscriptFocus.PRFAuxInstance || rep.TranscriptFocus.PRFAuxProofBytes <= 0 || rep.TranscriptFocus.PRFAuxOpeningBytes <= 0 {
+		t.Fatalf("missing aux-instance transcript accounting: %+v", rep.TranscriptFocus)
+	}
+	if rep.TranscriptFocus.PRFBridgeOpeningBytes != rep.TranscriptFocus.PRFAuxOpeningBytes {
+		t.Fatalf("bridge opening bytes=%d want aux opening bytes=%d", rep.TranscriptFocus.PRFBridgeOpeningBytes, rep.TranscriptFocus.PRFAuxOpeningBytes)
+	}
+	if rep.TranscriptFocus.PRFBridgeSupportSlots <= 0 || rep.TranscriptFocus.PRFBridgeOpenedBlocks <= 0 || rep.TranscriptFocus.PRFBridgeRowCount <= 0 {
+		t.Fatalf("missing bridge stripe accounting: %+v", rep.TranscriptFocus)
+	}
+	if proof.PRFCompanion.Layout.BridgeStripe == nil {
+		t.Fatalf("missing prf bridge stripe layout")
+	}
+	if len(proof.PRFCompanion.Layout.BridgeStripe.SourceRows) != rep.TranscriptFocus.PRFBridgeRowCount {
+		t.Fatalf("bridge row count=%d want %d", rep.TranscriptFocus.PRFBridgeRowCount, len(proof.PRFCompanion.Layout.BridgeStripe.SourceRows))
+	}
+	if rep.TranscriptFocus.StatementClass != string(PIOP.ShowingStatementClassTheoremCleanFullReplay) {
+		t.Fatalf("statement class=%q want %q", rep.TranscriptFocus.StatementClass, PIOP.ShowingStatementClassTheoremCleanFullReplay)
+	}
+	if rep.TranscriptFocus.ReplayMode != string(PIOP.ShowingReplayModeFull) {
+		t.Fatalf("replay mode=%q want %q", rep.TranscriptFocus.ReplayMode, PIOP.ShowingReplayModeFull)
+	}
+	if rep.TranscriptFocus.PRFLVCSNCols != opts.PRFLVCSNCols || rep.TranscriptFocus.PRFNLeaves != opts.PRFNLeaves {
+		t.Fatalf("unexpected aux PRF geometry in report: lvcs=%d/%d nleaves=%d/%d", rep.TranscriptFocus.PRFLVCSNCols, opts.PRFLVCSNCols, rep.TranscriptFocus.PRFNLeaves, opts.PRFNLeaves)
+	}
+	if rep.TranscriptFocus.MainLVCSNCols != opts.LVCSNCols || rep.TranscriptFocus.MainNLeaves != opts.NLeaves {
+		t.Fatalf("unexpected main geometry in report: lvcs=%d/%d nleaves=%d/%d", rep.TranscriptFocus.MainLVCSNCols, opts.LVCSNCols, rep.TranscriptFocus.MainNLeaves, opts.NLeaves)
+	}
+	if rep.TranscriptFocus.HiddenShortnessLVCSNCols <= 0 || rep.TranscriptFocus.HiddenShortnessNLeaves <= 0 {
+		t.Fatalf("missing hidden shortness geometry in report: %+v", rep.TranscriptFocus)
+	}
+
+	subfamilyCounts := map[PIOP.ReplaySubfamilyKind]int{}
+	for _, entry := range rep.ReplayAudit.Subfamilies.Entries {
+		subfamilyCounts[entry.Kind] = entry.SelectedRowCount
+	}
+	if subfamilyCounts[PIOP.ReplaySubfamilyPRFCheckpointRows] != 0 {
+		t.Fatalf("checkpoint rows still selected under aux_instance: %d", subfamilyCounts[PIOP.ReplaySubfamilyPRFCheckpointRows])
+	}
+	if subfamilyCounts[PIOP.ReplaySubfamilyPRFFinalTagRows] != 0 {
+		t.Fatalf("final-tag rows still selected under aux_instance: %d", subfamilyCounts[PIOP.ReplaySubfamilyPRFFinalTagRows])
+	}
+	if subfamilyCounts[PIOP.ReplaySubfamilyPRFHelperRows] != 0 {
+		t.Fatalf("helper rows still selected under aux_instance: %d", subfamilyCounts[PIOP.ReplaySubfamilyPRFHelperRows])
+	}
+	if subfamilyCounts[PIOP.ReplaySubfamilyPRFKeyRows] <= 0 {
+		t.Fatalf("key rows unexpectedly dropped under aux_instance")
+	}
+
+	ok, err := PIOP.VerifyWithConstraints(proof, PIOP.ConstraintSet{PRFLayout: proof.PRFLayout, PRFCompanionLayout: proof.PRFCompanion.Layout}, pub, opts, PIOP.FSModeCredential)
+	if err != nil {
+		t.Fatalf("verify aux_instance full replay showing: %v", err)
+	}
+	if !ok {
+		t.Fatalf("verify aux_instance full replay showing returned ok=false")
 	}
 }
 

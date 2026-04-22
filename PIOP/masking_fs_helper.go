@@ -120,6 +120,7 @@ type maskFSArgs struct {
 	prfCompanionBridgeChecks int
 	prfTagPublic             [][]int64
 	prfNoncePublic           [][]int64
+	hashRelation             string
 	parallelDeg              int
 	aggDeg                   int
 
@@ -304,7 +305,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			companionMode = PRFCompanionModeOutputAudit
 		}
 		checkpointSamples := args.opts.PRFCheckpointSamples
-		bridgeInQ := true
+		bridgeInQ := companionMode != PRFCompanionModeAuxInstance
 		if args.prfCompanionLayout != nil && bridgeInQ {
 			totalAgg += args.prfCompanionBridgeChecks
 		}
@@ -333,12 +334,23 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		proof.GammaPrime = copyTensor3(GammaPrime)
 		proof.GammaAgg = copyMatrix(GammaAgg)
 		if args.prfCompanionLayout != nil {
+			bridgeLayout, lerr := resolvePRFCompanionBridgeLayout(args.prfCompanionLayout, companionMode)
+			if lerr != nil {
+				return fmt.Errorf("resolve prf companion bridge layout: %w", lerr)
+			}
+			bridgeRows := args.w1[:args.origW1Len]
+			if companionMode == PRFCompanionModeAuxInstance {
+				bridgeRows, lerr = clonePolysAtIndices(args.w1[:args.origW1Len], prfCompanionBridgeStripeSourceRows(args.prfCompanionLayout))
+				if lerr != nil {
+					return fmt.Errorf("clone projected prf companion bridge rows: %w", lerr)
+				}
+			}
 			bridge, berr := buildPRFCompanionBridgeFamiliesFormal(
 				ringQ,
 				args.omegaWitness,
-				args.prfCompanionLayout,
+				bridgeLayout,
 				args.prfCompanionRows,
-				args.w1[:args.origW1Len],
+				bridgeRows,
 				seed2,
 				args.prfCompanionBridgeChecks,
 				companionMode,
@@ -362,6 +374,30 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 					Layout:            layoutForProof,
 					BridgeChecks:      copyMatrix(bridge.BridgeChecks),
 					CoordDigest:       append([]byte(nil), bridge.CoordDigest...),
+				}
+				if companionMode == PRFCompanionModeAuxInstance {
+					bridgeObj, auxInstance, aerr := buildPRFCompanionAuxInstance(
+						ringQ,
+						args.root,
+						PublicInputs{
+							Tag:          args.prfTagPublic,
+							Nonce:        args.prfNoncePublic,
+							HashRelation: args.hashRelation,
+						},
+						proof.PRFCompanion,
+						args.w1[:args.origW1Len],
+						args.prfCompanionRows,
+						args.omegaWitness,
+						args.pcsGeometry,
+						args.PK,
+						seed2,
+						args.opts,
+					)
+					if aerr != nil {
+						return fmt.Errorf("build prf aux instance: %w", aerr)
+					}
+					proof.PRFCompanion.Bridge = bridgeObj
+					proof.PRFCompanion.AuxInstance = auxInstance
 				}
 			}
 			if bridgeInQ {

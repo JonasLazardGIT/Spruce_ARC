@@ -1,20 +1,24 @@
 # PIOP
 
-`PIOP/` contains the retained proving and verifying core for SPRUCE.
+`PIOP/` contains the proving and verifying core for the current SPRUCE branch.
 
-Its job is to turn the shipped statements into the current SmallWood-style proof
-stack:
+Its main job is to compile the live issuance and showing statements into the
+retained SmallWood-style proof flow:
 
-- issuance / pre-sign proving
-- showing in the one-root `v3` layout with PRF companion and `SigShortness` V4
+- issuance / pre-sign proving with public `T`
+- showing with two explicit modes:
+  - `reduced_engineering_replay`
+  - `theorem_clean_full_replay`
+- hidden `SigShortnessV6` binding for showing
 
 ## Main Responsibilities
 
-- build witness rows for issuance and showing
+- build issuance and showing witness rows
 - compile the active constraint families
-- run the Fiat-Shamir proof flow
 - drive DECS/LVCS commitments and openings
-- replay verifier checks from opened row values and public inputs
+- run the Fiat-Shamir flow
+- replay verifier checks from opened rows and public inputs
+- produce proof reports that classify the certified statement surface
 
 ## Main Entry Points
 
@@ -29,16 +33,16 @@ stack:
 ## Current Invariants
 
 - explicit-domain DECS/LVCS semantics
-- replay-based verification
-- only the retained showing layout:
-  `literal_packed_aggregated_v3`
-- coeff-native showing witness at the caller boundary
-- grouped PRF checkpoints in the showing statement
-- reduced showing authenticates the signature through committed `THat` plus
-  shortness, not through the legacy signature-source replay basis
+- canonical concrete relation `bb_tran`
+- hidden `SigShortnessV6` for live showing proofs
+- reduced replay kept only as a narrower engineering benchmark
+- full replay available as the theorem-clean paper-aligned showing path
+- PRF companion route retained on the live showing path
 
 ## Read Next
 
 - [../docs/protocol.md](../docs/protocol.md)
+- [../docs/nizk_alignment_notes.md](../docs/nizk_alignment_notes.md)
+- [../docs/full_baseline_proof_study.md](../docs/full_baseline_proof_study.md)
 - [../DECS/README.md](../DECS/README.md)
 - [../LVCS/README.md](../LVCS/README.md)

@@ -28,9 +28,9 @@ type replaySelectorGeometry struct {
 //
 // It retains rows that are still consumed directly by the showing K-replay:
 //   - post-sign carriers
-//   - committed T-source rows on full replay
+//   - bb_tran source-product rows on paths that still commit them explicitly
 //   - PRF companion rows still touched by the live replay bridge / key binding
-func BuildShowingReplayActiveRowSelector(layout RowLayout, companion *PRFCompanionLayout) []int {
+func buildShowingReplayActiveRowSelectorWithSourceProductBridge(layout RowLayout, companion *PRFCompanionLayout, mode PRFCompanionMode, bridgeActive bool) []int {
 	acc := map[int]struct{}{}
 	add := func(idx int) {
 		if idx < 0 {
@@ -53,8 +53,10 @@ func BuildShowingReplayActiveRowSelector(layout RowLayout, companion *PRFCompani
 		if rowLayoutUsesCommittedTSourceBridge(layout) {
 			addRange(layout.IdxTSource, rowLayoutPostSignTSourceCount(layout))
 		}
-		add(layout.IdxMSigmaR1)
-		add(layout.IdxR0R1)
+		if !bridgeActive && layout.IdxMSigmaR1 >= 0 && layout.IdxR0R1 >= 0 {
+			add(layout.IdxMSigmaR1)
+			add(layout.IdxR0R1)
+		}
 	} else {
 		deps := BuildShowingRowDependencyMap(layout, nil)
 		for _, family := range []string{
@@ -66,7 +68,7 @@ func BuildShowingReplayActiveRowSelector(layout RowLayout, companion *PRFCompani
 			}
 		}
 	}
-	for _, idx := range prfCompanionSelectedReplayRows(companion) {
+	for _, idx := range prfCompanionSelectedReplayRows(companion, mode) {
 		add(idx)
 	}
 
@@ -78,6 +80,17 @@ func BuildShowingReplayActiveRowSelector(layout RowLayout, companion *PRFCompani
 	return out
 }
 
+func BuildShowingReplayActiveRowSelector(layout RowLayout, companion *PRFCompanionLayout, mode PRFCompanionMode) []int {
+	return buildShowingReplayActiveRowSelectorWithSourceProductBridge(layout, companion, mode, false)
+}
+
+func BuildShowingReplayActiveRowSelectorFromProof(proof *Proof) []int {
+	if proof == nil {
+		return nil
+	}
+	return buildShowingReplayActiveRowSelectorWithSourceProductBridge(proof.RowLayout, replayCompanionLayoutFromProof(proof), proofPRFCompanionMode(proof), sourceProductBridgeEnabledForProof(proof))
+}
+
 // BuildShowingReplayActiveRowStats reports how much of the shipped showing
 // witness can currently be removed from the K-point replay basis before the
 // live block geometry stops shrinking.
@@ -85,7 +98,7 @@ func BuildShowingReplayActiveRowStats(proof *Proof) ReplayActiveRowStats {
 	if proof == nil {
 		return ReplayActiveRowStats{}
 	}
-	selector := BuildShowingReplayActiveRowSelector(proof.RowLayout, replayCompanionLayoutFromProof(proof))
+	selector := BuildShowingReplayActiveRowSelectorFromProof(proof)
 	geom := buildReplaySelectorGeometryFromProof(proof)
 	activeBlocks := replayActiveBlockCountForRows(selector, geom.witnessRows, geom.layerSize)
 	reductionPct := 0.0

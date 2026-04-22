@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+
+	decs "vSIS-Signature/DECS"
 )
 
 type RowSemantics uint8
@@ -43,6 +45,7 @@ type PRFCompanionLayout struct {
 	CheckpointCount    int
 	TagCount           int
 	RowSemantics       []RowSemantics
+	BridgeStripe       *PRFBridgeStripeLayout
 }
 
 type PRFCompanionOpening struct {
@@ -66,6 +69,80 @@ type PRFCompanionProof struct {
 	TagFinal          PRFCompanionOpening
 	KeyTrunc          PRFCompanionOpening
 	CoordDigest       []byte
+	Bridge            *PRFWitnessOmegaBridge
+	AuxInstance       *PRFCompanionAuxInstance
+}
+
+type PRFWitnessOmegaBridge struct {
+	Version        int
+	RowIndices     []int
+	PhysicalRows   []int
+	SupportSlots   []int
+	RowsOpening    *decs.DECSOpening
+	PackedDigest   []byte
+	CoordDigest    []byte
+	GeometryDigest []byte
+	BridgeDigest   []byte
+}
+
+type PRFBridgeStripeLayout struct {
+	Version      int
+	SourceRows   []int
+	PhysicalRows []int
+	SupportSlots []int
+	PackWidth    int
+}
+
+type PRFCompanionAuxInstance struct {
+	Proof *Proof
+}
+
+func cloneProofForPRFAux(src *Proof) *Proof {
+	if src == nil {
+		return nil
+	}
+	out := *src
+	if src.PRFCompanion != nil {
+		out.PRFCompanion = clonePRFCompanionProof(src.PRFCompanion)
+	}
+	if src.SourceProductBridge != nil {
+		out.SourceProductBridge = cloneSourceProductBridge(src.SourceProductBridge)
+	}
+	if src.SigShortness != nil {
+		out.SigShortness = &SigShortnessProof{
+			Version:      src.SigShortness.Version,
+			SupportSlots: append([]int(nil), src.SigShortness.SupportSlots...),
+			Opening:      cloneDECSOpening(src.SigShortness.Opening),
+		}
+		if src.SigShortness.V5 != nil {
+			v5 := *src.SigShortness.V5
+			v5.THatOpening = cloneDECSOpening(src.SigShortness.V5.THatOpening)
+			out.SigShortness.V5 = &v5
+		}
+		if src.SigShortness.V6 != nil {
+			v6 := *src.SigShortness.V6
+			v6.HiddenProof = cloneProofForPRFAux(src.SigShortness.V6.HiddenProof)
+			v6.THatOpening = cloneDECSOpening(src.SigShortness.V6.THatOpening)
+			out.SigShortness.V6 = &v6
+		}
+	}
+	return &out
+}
+
+func cloneSourceProductBridge(src *SourceProductBridge) *SourceProductBridge {
+	if src == nil {
+		return nil
+	}
+	return &SourceProductBridge{
+		Version:        src.Version,
+		RowIndices:     append([]int(nil), src.RowIndices...),
+		PhysicalRows:   append([]int(nil), src.PhysicalRows...),
+		SupportSlots:   append([]int(nil), src.SupportSlots...),
+		RowsOpening:    cloneDECSOpening(src.RowsOpening),
+		PackedDigest:   append([]byte(nil), src.PackedDigest...),
+		GeometryDigest: append([]byte(nil), src.GeometryDigest...),
+		BridgeDigest:   append([]byte(nil), src.BridgeDigest...),
+	}
 }
 
 func clonePRFCompanionOpening(src PRFCompanionOpening) PRFCompanionOpening {
@@ -98,6 +175,15 @@ func clonePRFCompanionLayout(src *PRFCompanionLayout) *PRFCompanionLayout {
 	if len(src.RowSemantics) > 0 {
 		out.RowSemantics = append([]RowSemantics(nil), src.RowSemantics...)
 	}
+	if src.BridgeStripe != nil {
+		out.BridgeStripe = &PRFBridgeStripeLayout{
+			Version:      src.BridgeStripe.Version,
+			SourceRows:   append([]int(nil), src.BridgeStripe.SourceRows...),
+			PhysicalRows: append([]int(nil), src.BridgeStripe.PhysicalRows...),
+			SupportSlots: append([]int(nil), src.BridgeStripe.SupportSlots...),
+			PackWidth:    src.BridgeStripe.PackWidth,
+		}
+	}
 	return &out
 }
 
@@ -127,6 +213,24 @@ func clonePRFCompanionProof(src *PRFCompanionProof) *PRFCompanionProof {
 	out.TagFinal = clonePRFCompanionOpening(src.TagFinal)
 	out.KeyTrunc = clonePRFCompanionOpening(src.KeyTrunc)
 	out.CoordDigest = append([]byte(nil), src.CoordDigest...)
+	if src.Bridge != nil {
+		out.Bridge = &PRFWitnessOmegaBridge{
+			Version:        src.Bridge.Version,
+			RowIndices:     append([]int(nil), src.Bridge.RowIndices...),
+			PhysicalRows:   append([]int(nil), src.Bridge.PhysicalRows...),
+			SupportSlots:   append([]int(nil), src.Bridge.SupportSlots...),
+			RowsOpening:    cloneDECSOpening(src.Bridge.RowsOpening),
+			PackedDigest:   append([]byte(nil), src.Bridge.PackedDigest...),
+			CoordDigest:    append([]byte(nil), src.Bridge.CoordDigest...),
+			GeometryDigest: append([]byte(nil), src.Bridge.GeometryDigest...),
+			BridgeDigest:   append([]byte(nil), src.Bridge.BridgeDigest...),
+		}
+	}
+	if src.AuxInstance != nil {
+		out.AuxInstance = &PRFCompanionAuxInstance{
+			Proof: cloneProofForPRFAux(src.AuxInstance.Proof),
+		}
+	}
 	return &out
 }
 
@@ -287,6 +391,41 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 	if layout.CheckpointCount != len(layout.CheckpointSlots) {
 		return fmt.Errorf("companion checkpoint count=%d want %d", layout.CheckpointCount, len(layout.CheckpointSlots))
 	}
+	if layout.BridgeStripe != nil {
+		if layout.BridgeStripe.Version <= 0 {
+			return fmt.Errorf("invalid bridge stripe version %d", layout.BridgeStripe.Version)
+		}
+		if layout.BridgeStripe.PackWidth != layout.PackWidth {
+			return fmt.Errorf("bridge stripe pack width=%d want %d", layout.BridgeStripe.PackWidth, layout.PackWidth)
+		}
+		if len(layout.BridgeStripe.SourceRows) != len(layout.BridgeStripe.PhysicalRows) {
+			return fmt.Errorf("bridge stripe source rows=%d want physical rows=%d", len(layout.BridgeStripe.SourceRows), len(layout.BridgeStripe.PhysicalRows))
+		}
+		if err := validateSortedUniqueIndices("prf bridge stripe source rows", layout.BridgeStripe.SourceRows); err != nil {
+			return err
+		}
+		if err := validateSortedUniqueIndices("prf bridge stripe physical rows", layout.BridgeStripe.PhysicalRows); err != nil {
+			return err
+		}
+		if err := validateSortedUniqueIndices("prf bridge stripe support slots", layout.BridgeStripe.SupportSlots); err != nil {
+			return err
+		}
+		for _, row := range layout.BridgeStripe.SourceRows {
+			if row < layout.StartRow || row >= layout.StartRow+layout.PackedRows {
+				return fmt.Errorf("bridge stripe source row=%d outside packed row window [%d,%d)", row, layout.StartRow, layout.StartRow+layout.PackedRows)
+			}
+		}
+		for _, row := range layout.BridgeStripe.PhysicalRows {
+			if row < 0 || row >= witnessRows {
+				return fmt.Errorf("bridge stripe physical row=%d outside witness rows=%d", row, witnessRows)
+			}
+		}
+		for _, slot := range layout.BridgeStripe.SupportSlots {
+			if slot < 0 || slot >= layout.BridgeStripe.PackWidth {
+				return fmt.Errorf("bridge stripe support slot=%d outside [0,%d)", slot, layout.BridgeStripe.PackWidth)
+			}
+		}
+	}
 	return nil
 }
 
@@ -339,6 +478,44 @@ func prfCompanionLayoutDigest(layout *PRFCompanionLayout) []byte {
 	for _, sem := range layout.RowSemantics {
 		writeUint8(uint8(sem))
 	}
+	if layout.BridgeStripe != nil {
+		writeInt(layout.BridgeStripe.Version)
+		writeInt(layout.BridgeStripe.PackWidth)
+		writeInt(len(layout.BridgeStripe.SourceRows))
+		for _, row := range layout.BridgeStripe.SourceRows {
+			writeInt(row)
+		}
+		writeInt(len(layout.BridgeStripe.PhysicalRows))
+		for _, row := range layout.BridgeStripe.PhysicalRows {
+			writeInt(row)
+		}
+		writeInt(len(layout.BridgeStripe.SupportSlots))
+		for _, slot := range layout.BridgeStripe.SupportSlots {
+			writeInt(slot)
+		}
+	} else {
+		writeInt(0)
+	}
 	sum := sha256.Sum256(buf.Bytes())
 	return append([]byte(nil), sum[:]...)
+}
+
+func prfCompanionSourceRowSet(rows []int) map[int]struct{} {
+	out := make(map[int]struct{}, len(rows))
+	for _, row := range rows {
+		out[row] = struct{}{}
+	}
+	return out
+}
+
+func prfCompanionBridgeStripeSourceRows(layout *PRFCompanionLayout) []int {
+	if layout == nil {
+		return nil
+	}
+	if layout.BridgeStripe != nil && len(layout.BridgeStripe.SourceRows) > 0 {
+		return append([]int(nil), layout.BridgeStripe.SourceRows...)
+	}
+	rows := append([]int(nil), prfCompanionKeyRowIndices(layout)...)
+	rows = append(rows, prfCompanionDirectAuthRowIndices(layout)...)
+	return sortedUniqueInts(rows)
 }

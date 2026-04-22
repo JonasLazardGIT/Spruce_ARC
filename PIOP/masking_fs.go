@@ -83,40 +83,41 @@ type MaskingFSInput struct {
 	Opts  SimOpts
 	Omega []uint64
 	// OmegaWitness is the witness packing domain Ω_s.
-	OmegaWitness       []uint64
-	DomainPoints       []uint64
-	Root               [16]byte
-	PK                 *lvcs.ProverKey
-	OracleLayout       lvcs.OracleLayout
-	RowLayout          RowLayout
-	FparInt            []*ring.Poly
-	FparNorm           []*ring.Poly
-	FaggInt            []*ring.Poly
-	FaggNorm           []*ring.Poly
-	FparIntCoeffs      [][]uint64
-	FparNormCoeffs     [][]uint64
-	FaggIntCoeffs      [][]uint64
-	FaggNormCoeffs     [][]uint64
-	PRFCompanionLayout *PRFCompanionLayout
-	PRFCompanionRows   []lvcs.RowInput
-	PRFTagPublic       [][]int64
-	PRFNoncePublic     [][]int64
-	RowInputs          []lvcs.RowInput
-	WitnessPolys       []*ring.Poly // layout base (w1)
-	MaskPolys          []*ring.Poly // independent masks (optional; can be empty)
-	MaskPolyCoeffs     [][]uint64   // formal coeff rows for independent masks
-	MaskPolysK         []*KPoly     // independent K masks (theta>1)
-	MaskRowOffset      int
-	MaskRowCount       int
-	PCSGeometry        PCSGeometry
-	MaskDegreeTarget   int
-	MaskDegreeBound    int
-	Personalization    string // FS personalization label (e.g., FSModeCredential)
-	NCols              int    // witness packing width s
-	PCSNCols           int    // PCS row width; 0 => LVCSNCols => NCols
-	LVCSNCols          int    // LVCS row width; 0 => NCols
-	DecsParams         decs.Params
-	LabelsDigest       []byte // hash of public labels included in FS binding
+	OmegaWitness              []uint64
+	DomainPoints              []uint64
+	Root                      [16]byte
+	PK                        *lvcs.ProverKey
+	OracleLayout              lvcs.OracleLayout
+	RowLayout                 RowLayout
+	FparInt                   []*ring.Poly
+	FparNorm                  []*ring.Poly
+	FaggInt                   []*ring.Poly
+	FaggNorm                  []*ring.Poly
+	FparIntCoeffs             [][]uint64
+	FparNormCoeffs            [][]uint64
+	FaggIntCoeffs             [][]uint64
+	FaggNormCoeffs            [][]uint64
+	PRFCompanionLayout        *PRFCompanionLayout
+	PRFCompanionRows          []lvcs.RowInput
+	PRFTagPublic              [][]int64
+	PRFNoncePublic            [][]int64
+	HashRelation              string
+	RowInputs                 []lvcs.RowInput
+	WitnessPolys              []*ring.Poly // layout base (w1)
+	MaskPolys                 []*ring.Poly // independent masks (optional; can be empty)
+	MaskPolyCoeffs            [][]uint64   // formal coeff rows for independent masks
+	MaskPolysK                []*KPoly     // independent K masks (theta>1)
+	MaskRowOffset             int
+	MaskRowCount              int
+	PCSGeometry               PCSGeometry
+	MaskDegreeTarget          int
+	MaskDegreeBound           int
+	Personalization           string // FS personalization label (e.g., FSModeCredential)
+	NCols                     int    // witness packing width s
+	PCSNCols                  int    // PCS row width; 0 => LVCSNCols => NCols
+	LVCSNCols                 int    // LVCS row width; 0 => NCols
+	DecsParams                decs.Params
+	LabelsDigest              []byte // hash of public labels included in FS binding
 	SigShortnessBindingDigest []byte
 	// Small-field (theta>1) parameters
 	SmallFieldChi     []uint64
@@ -160,14 +161,14 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 	o := in.Opts
 	o.applyDefaults()
 	args := maskFSArgs{
-		ringQ:              in.RingQ,
-		omega:              in.Omega,
-		domainPoints:       in.DomainPoints,
-		q:                  in.RingQ.Modulus[0],
-		rho:                o.Rho,
-		ell:                o.Ell,
-		ellPrime:           o.EllPrime,
-		opts:               o,
+		ringQ:        in.RingQ,
+		omega:        in.Omega,
+		domainPoints: in.DomainPoints,
+		q:            in.RingQ.Modulus[0],
+		rho:          o.Rho,
+		ell:          o.Ell,
+		ellPrime:     o.EllPrime,
+		opts:         o,
 		ncols: func() int {
 			if in.LVCSNCols > 0 {
 				return in.LVCSNCols
@@ -194,6 +195,7 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		prfCompanionRows:   append([]lvcs.RowInput(nil), in.PRFCompanionRows...),
 		prfTagPublic:       copyInt64Matrix(in.PRFTagPublic),
 		prfNoncePublic:     copyInt64Matrix(in.PRFNoncePublic),
+		hashRelation:       in.HashRelation,
 		FparAll:            append(append([]*ring.Poly{}, in.FparInt...), in.FparNorm...),
 		FaggAll:            append(append([]*ring.Poly{}, in.FaggInt...), in.FaggNorm...),
 		FparAllCoeffs: append(
@@ -220,13 +222,13 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 			}
 			return out
 		}(),
-		rowLayout:     in.RowLayout,
-		oracleLayout:  in.OracleLayout,
-		maskRowOffset: in.MaskRowOffset,
-		maskRowCount:  in.MaskRowCount,
-		decsParams:    in.DecsParams,
-		ncolsOverride: in.NCols,
-		labelsDigest:  append([]byte(nil), in.LabelsDigest...),
+		rowLayout:                 in.RowLayout,
+		oracleLayout:              in.OracleLayout,
+		maskRowOffset:             in.MaskRowOffset,
+		maskRowCount:              in.MaskRowCount,
+		decsParams:                in.DecsParams,
+		ncolsOverride:             in.NCols,
+		labelsDigest:              append([]byte(nil), in.LabelsDigest...),
 		sigShortnessBindingDigest: append([]byte(nil), in.SigShortnessBindingDigest...),
 	}
 	if in.PRFCompanionLayout != nil {

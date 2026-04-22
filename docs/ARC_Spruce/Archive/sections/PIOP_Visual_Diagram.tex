@@ -1,0 +1,185 @@
+% ---------- Standalone (single-page) figure : PACS/PIOP with explicit batching and oracle boundary ----------
+
+% ===== Colors =====
+\definecolor{heads}{RGB}{200,245,200}      % Ω (heads)
+\definecolor{tails}{RGB}{210,190,255}      % Ω' (tails)
+\definecolor{pcscol}{RGB}{198,223,255}     % PCS oracle
+\definecolor{aokcol}{RGB}{230,240,255}     % AoK/PIOP verifier panel
+\definecolor{lane}{RGB}{245,245,245}       % lane background
+\definecolor{parcol}{RGB}{255,245,210}     % parallel constraints
+\definecolor{aggcol}{RGB}{255,230,230}     % aggregated constraints
+\definecolor{stackcol}{RGB}{245,248,254}   % DECS/PCS stack backdrop
+
+% ===== Spacing knobs =====
+\newcommand\Cell{0.95}     % row height
+\newcommand\RowN{4}        % number of rows
+\newcommand\HGap{1.60}     % heads <-> tails gap
+\newcommand\RightPad{8.1}  % tails -> (DECS, PCS) centerline
+\newcommand\AokDrop{5.1}   % vertical drop to AoK top
+\newcommand\LaneWidth{2.2} % width reserved for vertical lanes
+\newcommand\LaneGap{1.0}   % vertical padding above/below lanes
+\newcommand\TitleY{6.1}    % title y
+\newcommand\BaseY{3.65}    % top row y
+\newcommand\LegendY{-3.75} % legend y
+
+% ===== X coordinates (derived) =====
+\pgfmathsetmacro{\XhL}{-10.6}
+\pgfmathsetmacro{\XhR}{-6.6}
+\pgfmathsetmacro{\XtL}{\XhR+\HGap}
+\pgfmathsetmacro{\XtR}{\XtL+4.4}
+\pgfmathsetmacro{\Xcenter}{\XtR+\RightPad} % centerline for (DECS, PCS)
+
+\begin{tikzpicture}[
+  >=Latex,
+  line cap=round,
+  font=\small,
+  scale=0.4,
+  every node/.style={transform shape}
+]
+
+% ---- Title ----
+\node[align=center,font=\bfseries] at ( -0.2, \TitleY )
+  {PACS/PIOP uses the \textbf{PCS oracle} — witnesses stay locked in $\Omega$};
+
+% ---- Grid blocks: Ω (heads) and Ω' (tails) ----
+\foreach \r in {0,...,\numexpr\RowN-1\relax}{
+  \fill[heads,rounded corners=2pt]
+    (\XhL, \BaseY-\r*\Cell) rectangle (\XhR, \BaseY-\r*\Cell-\Cell);
+  \fill[tails,rounded corners=2pt]
+    (\XtL, \BaseY-\r*\Cell) rectangle (\XtR, \BaseY-\r*\Cell-\Cell);
+}
+\foreach \r/\nm in {0/$P_1$,1/$P_2$,2/$\cdots$,3/$P_m$}{
+  \node[anchor=east] at (\XhL-0.5, \BaseY-\r*\Cell-0.5*\Cell) {\nm};
+}
+
+% ---- Braces & captions ----
+\draw[decorate,decoration={brace,amplitude=7pt,mirror}]
+  (\XhR,\BaseY+0.85) -- (\XhL,\BaseY+0.85)
+  node[midway,above=9pt,align=center] {\bfseries $\Omega$\\(heads; never opened)};
+\draw[decorate,decoration={brace,amplitude=7pt,mirror}]
+  (\XtR,\BaseY+0.85) -- (\XtL,\BaseY+0.85)
+  node[midway,above=9pt,align=center] {\bfseries $\Omega'$\\(tails; masked \& opened)};
+
+% ---- DECS/PCS stack (right) ----
+\node[fill=stackcol,draw,rounded corners,minimum width=10.6cm,minimum height=6.6cm,inner sep=0pt]
+  (stack) at (\Xcenter+3.3, 2.2) {};
+\node[font=\bfseries,anchor=south] at (stack.north) {SmallWood PCS stack};
+
+\node[draw,rounded corners,align=left,minimum width=5.9cm,minimum height=1.8cm,
+      text width=5.9cm,inner sep=7pt] (decs) at (\Xcenter+3.3, 3.9)
+  {\textbf{DECS / Merkle}\\
+   \footnotesize commit $(P(e),M(e))$ on $E$; degree test ($d_{\text{decs}}$), $\eta$ mixes\\[-1pt]};
+
+\node[draw,rounded corners,fill=pcscol!40,align=left,
+      minimum width=5.9cm,minimum height=2.25cm,text width=5.9cm,inner sep=9pt]
+  (pcs)  at (\Xcenter+3.3, 0.855)
+  {\textbf{Polynomial oracle interface}\\
+   \footnotesize answers $e\mapsto P_j(e)$ and $e\mapsto Q_k(e)=\sum_j c_{k,j}P_j(e)$\\[-2pt]
+   \footnotesize only at $e\in\Omega'$ (tails), with Merkle paths \& degree soundness\\[-1pt]};
+
+% Horizontal arrows from tails Ω' to DECS backend (commit + openings)
+\draw[-{Latex},shorten >=2pt,shorten <=6pt]
+  (\XtR, 3.20) -- (decs.west)
+  node[pos=0.50,below=2pt,align=center]
+    {\footnotesize commit leaves on $E$\\[-2pt]
+     \footnotesize \& open masked tails in $\Omega'$};
+
+% DECS To PCS Arrow
+  \draw[-{Latex},line width=0.7pt]
+  (decs.south) -- node[right=2pt,align=left]
+    {\footnotesize authenticated row evaluations\\[-1pt]
+     \footnotesize (Merkle paths \& degree-sound values)}
+  (pcs.north);
+
+
+% ---- AoK / PIOP VERIFIER (below; centered under DECS+PCS) ----
+\path coordinate (aokTop) at ($(pcs.south)+(0,-\AokDrop)$);
+\node[draw,rounded corners,fill=aokcol,align=left,
+      minimum width=11.4cm,minimum height=2.2cm,text width=11.4cm,inner sep=3pt,
+      anchor=north] (aok) at (aokTop)
+  {\textbf{PACS / PIOP Verifier}\\[-1pt]
+   \begin{minipage}{\linewidth}
+   \vspace{-1pt}
+   \begin{tikzpicture}[baseline=(current bounding box.center),font=\small,>=Latex]
+     % --- constraint boxes (left/right) ---
+     \node[draw,rounded corners,fill=parcol,align=left,inner sep=2pt,
+           minimum width=4.9cm,minimum height=1.55cm]
+       (par) at (-2,0.60)
+       {\textbf{Parallel constraints}\\[-1pt]
+        \footnotesize e.g.\ $w_3 = w_1\cdot w_2$ on each column};
+
+     \node[draw,rounded corners,fill=aggcol,align=left,inner sep=5pt,
+           minimum width=4.9cm,minimum height=1.55cm]
+       (agg) at (3.35,0.60)
+       {\textbf{Aggregated constraints}\\[-1pt]
+        \footnotesize e.g.\ $\sum_k f'_u(w_{\cdot,k},\theta_{\cdot,k})=0$};
+
+     % --- batching rectangle enclosing both constraints ---
+     \node[draw,rounded corners,inner sep=2pt,fit=(par)(agg),
+           label=above:{\footnotesize batching}] (batchbox) {};
+
+     % --- merge point near bottom-center of the batching box ---
+     \path (batchbox.south) ++(0,-0.30) coordinate (merge);
+
+     % --- arrows from constraints to merge point ---
+     \draw[-{Latex}] (par.south) to[out=-90,in=180] (merge);
+     \draw[-{Latex}] (agg.south) to[out=-90,in=0]   (merge);
+
+     % --- Q_i polynomial below the batching rectangle ---
+     \path (batchbox.south) ++(0,-0.15) coordinate (belowbox);
+     \node[below=0pt] (qeq) at (belowbox)
+       {\footnotesize $Q_i(X)=M_i+\sum \Gamma'_{i,t}(X)F_{\mathrm{par},t}(X)+\sum \gamma'_{i,u}F'_{\mathrm{agg},u}(X)$};
+
+     % --- arrow from merge (inside box) down to the Q_i equation ---
+     \draw[-{Latex}] (merge) -- (0.7,-2) ;
+
+     % --- randomness note under the equation (optional) ---
+     \node[align=center,below=2pt] at (0.7,-2)
+       {\footnotesize (random $\Gamma'_{i,j}(X)\in F[X]_{\le s-1}$,\; $\gamma'_{i,j}\in F$)};
+   \end{tikzpicture}
+   \end{minipage}\\[-1pt]
+   \footnotesize queries the PCS for two tests: \\
+   \footnotesize (1) \textbf{Checksum on $\Omega$}: $\sum_{\omega\in\Omega} Q_i(\omega)=0$ \quad \\  \textbf{Spot checks on $S$}: $Q_i(e)=0$ on $\ell'$ random $e\in S$ \quad};
+
+
+% ---- Vertical lanes between PCS and AoK (with labels) ----
+\path coordinate (laneTopLeft)     at ($(pcs.south)$);
+\path coordinate (laneBottomRight) at ($(aok.north)$);
+\draw[fill=lane,draw=none,rounded corners=2pt]
+  (laneTopLeft) rectangle (laneBottomRight);
+
+\path coordinate (railQueryTop)  at ($(pcs.south)+(-\LaneWidth/4,0)$);
+\path coordinate (railQueryBot)  at ($(aok.north)+(-\LaneWidth/4,0)$);
+\path coordinate (railRespTop)   at ($(pcs.south)+(\LaneWidth/4,0)$);
+\path coordinate (railRespBot)   at ($(aok.north)+(\LaneWidth/4,0)$);
+
+\draw[-{Latex},line width=0.7pt] (railQueryTop) -- (railQueryBot)
+  node[midway,left=3pt]
+    {\footnotesize queries: $\Gamma',\gamma'$,\; checksum recipe,\; $\ell'$ points};
+\draw[densely dashed,-{Latex},line width=0.7pt] (railRespBot) -- (railRespTop)
+  node[midway,right=3pt]
+    {\footnotesize responses: values + Merkle paths};
+
+% ---- Visual hooks & tails note ----
+\node[font=\large] at ({(\XhL+\XhR)/2}, \BaseY+0.65) {$\sum$}; % checksum icon
+\node[align=left] at (\XtL+1.2, -1.20) {\footnotesize tails include randomness rows $\bar r_j$};
+\draw[->] (\XtL+1.2, -1.00) -- (\XtL+1.2, 0.10);
+
+
+% ---- Legend ----
+\begin{scope}[shift={(0,\LegendY)}]
+  \draw[fill=heads,rounded corners=2pt] (-8.8,0.00) rectangle (-7.6,0.55);
+  \node[right] at (-7.35,0.28) {heads $\Omega$ (never shown)};
+  \draw[fill=tails,rounded corners=2pt] (-8.8,-0.90) rectangle (-7.6,-0.35);
+  \node[right] at (-7.35,-0.62) {tails $\Omega'$ (masked exposures)};
+  \draw[fill=pcscol!40,rounded corners=2pt] (-8.8,-1.80) rectangle (-7.6,-1.25);
+  \node[right] at (-7.35,-1.52) {PCS oracle (LVCS / point openings)};
+  \draw[fill=aokcol,rounded corners=2pt] (-8.8,-2.70) rectangle (-7.6,-2.15);
+  \node[right] at (-7.35,-2.42) {PACS/PIOP verifier (issues checks)};
+  \draw[fill=parcol,rounded corners=2pt] (-8.8,-3.60) rectangle (-7.6,-3.05);
+  \node[right] at (-7.35,-3.32) {parallel constraints};
+  \draw[fill=aggcol,rounded corners=2pt] (-8.8,-4.50) rectangle (-7.6,-3.95);
+  \node[right] at (-7.35,-4.22) {aggregated constraints};
+\end{scope}
+
+\end{tikzpicture}

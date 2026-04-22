@@ -121,7 +121,7 @@ func main() {
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
 	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default with tuned lvcs=89; compact_l3, compact_l2, and compact_l1_research select the measured low-size profiles; transcript_first and production_balance keep the wide-LVCS theorem presets)")
-	fullReplay := flag.Bool("full", false, "enable full replay-image showing mode")
+	fullReplay := flag.Bool("full", false, "enable the theorem-clean full replay-image showing mode")
 	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
 	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
 	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override for soundness research")
@@ -136,7 +136,7 @@ func main() {
 	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (named profiles: r11_l4_production, r24_l3_compact, r111_l2_compact, r12285_l1_research; r7_l4_experimental, r12_l3_default, r13_l3_legacy remain research/legacy)")
 	sigShortnessRadix := flag.Int("sig-shortness-radix", 0, "optional raw signature shortness radix override for transcript research")
 	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override for transcript research")
-	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth is research-only scaffolding)")
+	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth remains research-only scaffolding; aux_instance enables the research-only split PRF proof)")
 	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
 	flag.Parse()
 
@@ -295,11 +295,13 @@ func main() {
 		}
 	}
 	if opts.ShowingReplayMode == PIOP.ShowingReplayModeFull {
-		cli.printf(categoryWarning, "[showing-cli] ", "warning: full replay mode is experimental and increases the committed showing surface to obtain a theorem-clean full transform image")
+		cli.printf(categoryStatus, "[showing-cli] ", "full replay mode selected: theorem-clean full replay statement with a larger authenticated showing surface than reduced engineering mode")
 	}
 	switch opts.PRFCompanionMode {
 	case PIOP.PRFCompanionModeDirectAuth:
 		cli.printf(categoryWarning, "[showing-cli] ", "warning: direct_auth is research-only; the live proof still keeps the PRF bridge inside Q until a new bridge object lands")
+	case PIOP.PRFCompanionModeAuxInstance:
+		cli.printf(categoryWarning, "[showing-cli] ", "warning: aux_instance is research-only; it moves the PRF bridge into a separate same-root auxiliary proof for transcript experiments")
 	case "current":
 		cli.fatalf("[showing-cli] ", "prf companion mode %q is no longer supported", opts.PRFCompanionMode)
 	}
@@ -791,6 +793,7 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 	cli.printf(categoryTranscript, prefix, "Current verifier payload≈%.2f KB (%.0f bytes)", rep.ProofKB, float64(rep.ProofBytes))
 	printPaperTranscriptBreakdown(prefix, rep)
 	printTranscriptOptimizationFocus(prefix, rep)
+	printStatementSummary(prefix, rep)
 	printSigShortness(prefix, rep)
 	cli.printf(categoryStatus, prefix, "Prover time≈%s", proveDur)
 	cli.printf(categoryStatus, prefix, "Verifier time≈%s", verifyDur)
@@ -875,6 +878,12 @@ func printTranscriptOptimizationFocus(prefix string, rep PIOP.ProofReport) {
 	printReplayFamilyAudit(prefix, rep)
 }
 
+func printStatementSummary(prefix string, rep PIOP.ProofReport) {
+	if line := formatStatementSummary(rep); line != "" {
+		cli.printf(categoryStatus, prefix, "%s", line)
+	}
+}
+
 func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 	focus := rep.TranscriptFocus
 	if focus.NRows <= 0 {
@@ -884,8 +893,31 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 	if focus.PRFPacked {
 		layout = "packed"
 	}
+	instances := ""
+	if focus.MainLVCSNCols > 0 || focus.MainNLeaves > 0 || focus.PRFLVCSNCols > 0 || focus.PRFNLeaves > 0 || focus.HiddenShortnessLVCSNCols > 0 || focus.HiddenShortnessNLeaves > 0 {
+		instances = fmt.Sprintf(
+			" main=%d/%d prf=%d/%d hidden=%d/%d",
+			focus.MainLVCSNCols,
+			focus.MainNLeaves,
+			focus.PRFLVCSNCols,
+			focus.PRFNLeaves,
+			focus.HiddenShortnessLVCSNCols,
+			focus.HiddenShortnessNLeaves,
+		)
+	}
+	if focus.PRFAuxInstance {
+		instances += fmt.Sprintf(
+			" prf_aux=on auxProof=%d auxOpening=%d bridgeRows=%d bridgeSlots=%d bridgeBlocks=%d bridgePad=%d",
+			focus.PRFAuxProofBytes,
+			focus.PRFAuxOpeningBytes,
+			focus.PRFBridgeRowCount,
+			focus.PRFBridgeSupportSlots,
+			focus.PRFBridgeOpenedBlocks,
+			focus.PRFBridgePaddingRows,
+		)
+	}
 	return fmt.Sprintf(
-		"Transcript focus: preset=%s replay=%s blocks=%d lvcs=%d nleaves=%d rowsBlock=%d maskChunks=%d witness=%d nrows=%d m=%d pcols=%d omitP=%d prf_scalars=%d prf_rows=%d (%s) entries=%d",
+		"Transcript focus: preset=%s replay=%s blocks=%d lvcs=%d nleaves=%d rowsBlock=%d maskChunks=%d witness=%d nrows=%d m=%d pcols=%d omitP=%d prf_scalars=%d prf_rows=%d (%s) entries=%d%s",
 		focus.ShowingPreset,
 		focus.ReplayMode,
 		focus.ReplayBlocks,
@@ -902,7 +934,24 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 		focus.PRFPackedRows,
 		layout,
 		focus.RowOpeningEntries,
+		instances,
 	)
+}
+
+func formatStatementSummary(rep PIOP.ProofReport) string {
+	class := rep.TranscriptFocus.StatementClass
+	replay := rep.TranscriptFocus.ReplayMode
+	shortness := rep.SigShortness.Mode
+	if shortness == "" {
+		shortness = rep.TranscriptFocus.ShortnessMode
+	}
+	if class == "" && replay == "" && shortness == "" {
+		return ""
+	}
+	if shortness == "" {
+		shortness = PIOP.SigShortnessModeNone
+	}
+	return fmt.Sprintf("Statement: class=%s replay=%s shortness=%s", class, replay, shortness)
 }
 
 func formatTranscriptBucketFocusSummary(rep PIOP.ProofReport) string {
@@ -925,7 +974,12 @@ func printSigShortness(prefix string, rep PIOP.ProofReport) {
 	if !sig.Enabled {
 		return
 	}
-	cli.printf(categoryGeometry, prefix, "Sig shortness: v%d slots=%d blocks=%d opening=%d total=%d",
+	mode := sig.Mode
+	if mode == "" {
+		mode = fmt.Sprintf("v%d", sig.Version)
+	}
+	cli.printf(categoryGeometry, prefix, "Sig shortness: %s v%d slots=%d blocks=%d opening=%d total=%d",
+		mode,
 		sig.Version,
 		sig.SupportSlotCount,
 		sig.OpenedBlockCount,

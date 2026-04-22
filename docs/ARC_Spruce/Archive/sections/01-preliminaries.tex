@@ -1,0 +1,366 @@
+\section{Preliminaries - a'la Carsten}
+\label{sec:prelims}
+\paragraph{Notation.}
+We let $\negl(n)$ denote any positive function that is negligible in $n$, i.e. upper-bounded by $1/|p(n)|$ for any polynomial $p$ and large enough $n$. Let $\lambda$ denote the security parameter and we write PPT to denote probabilistic algorithms whose runtime is polynomial in $\lambda$. For $a,b\in \mathbb{Z},a<b$ write $[a,b]$ to denote the set $[a,a+1,\dots,b-1,b]$ and use $[b]$ as a short-hand for $[1,b]$.
+
+
+\subsection{Commitment Schemes}\label{subsec:commit}
+
+\begin{definition}[Non-interactive commitment]\label{def:commit}
+A \emph{commitment scheme} consists of the following polynomial-time algorithms:
+\begin{itemize}
+    \item $\Setup(\SecParam)\rightarrow \PP:$ Takes the security parameter as input and outputs a commitment public key $\PP$. $\PP$ also describes the message space $\ComMsg$, randomness space $\ComRand$ and commitment space $\ComSpace$.
+    \item $\Commit(\PP,\mu,r) \rightarrow c:$ Takes a commitment public key $\PP$, a message $\mu\in \ComMsg$ and randomness $r\in \ComRand$ as input and outputs a commitment $c\in\ComSpace$.
+\end{itemize}
+\end{definition}
+
+We say that a commitment scheme is correct if for any honestly generated $\PP$, the algorithm $\Commit$ is deterministic and always terminates except with negligible probability. In addition, we require that it is binding and hiding:
+\begin{definition}[Binding]\label{def:binding}
+    A commitment scheme $(\Setup,\Commit)$ is \emph{binding} if there exists a negligible function $\negl$, such that for any PPT algorithm $\adversary$ we have that  \[
+        \Pr \left[ \begin{matrix} c_1 = c_2, \\ c_1\neq \bot, \, \mu_1\neq \mu_2 \end{matrix} \, \middle | \, \begin{matrix}
+            \PP \gets \Setup(\SecParam), \\
+            (\mu_1,\mu_2,r_1,r_2) \gets \adversary(\PP),\\
+            c_1 \gets \Commit(\PP, \mu_1, r_1),\\
+            c_2 \gets \Commit(\PP, \mu_2, r_2)
+        \end{matrix} \right] \leq \negl(\lambda) \, .    
+    \] 
+\end{definition}
+
+\begin{definition}[Hiding]\label{def:hiding}
+    A commitment scheme $(\Setup,\Commit)$ is \emph{hiding} if there exists a negligible function $\negl$, such that for any PPT algorithm $\adversary$ we have that  \[
+       \left| \Pr \left[  b = \adversary(c, \state)  \, \middle | \, \begin{matrix}
+            \PP \gets \Setup(\SecParam), \\
+            (\mu_0,\mu_1,\state)\gets \adversary(\PP), \\
+            b\getsunif \{0,1\},\, r\getsunif \ComRand, \\
+            c \gets \Commit(\PP,\mu_b,r)  )
+        \end{matrix} \right] -\frac{1}{2} \right|     
+    \] 
+    is bounded by $\negl(\lambda)$.
+\end{definition}
+
+
+
+\subsection{Blind Signatures} \label{subsec:blind}
+
+
+We provide the correctness and security definitions of Blind signatures~\cite{C:Chaum82}. 
+
+\begin{definition}[Blind Signature]\label{def:blind}
+A round-optimal \emph{Blind signature} scheme consists of the following five PPT algorithms:
+
+\begin{itemize}
+    \item $\KeyGen(\SecParam)\rightarrow (\sk,\pk):$ Takes the security parameter as input and outputs a secret key $\sk$ and a public key $\pk$.
+    \item $\Sign_1(\pk,\mu) \rightarrow (\rho_1,S_\User):$ This is the first part of a signing protocol between a user $\User$ and a signer $\Signer$, where $\User$ uses a public key and a message $\mu \in \{0,1\}^\ast$, to compute a state $S_\User$ and a first message $\rho_1$, which they send to $\Signer$.
+    \item $\Sign_2(\sk, \rho_1) \rightarrow \rho_2 :$ The second part of the interaction, where $\Signer$ uses their signing key $\sk$ and a first message $\rho_1$ and outputs a second message $\rho_2$, which they send to $\User$.
+    \item $\Sign_3(\rho_2, S_\User) \rightarrow \sig:$ The last part of the interaction, where $\User$ uses $\rho_2$ and $S_\User$ to derive a signature $\sig$ or $\bot$ if the signing protocol failed.
+    \item $\Verify(\pk,\mu,\sig) \rightarrow \{0,1\}$: A verification algorithm that takes as input a public key $\pk$, a message $\mu$ and a signature $\sig$ and outputs a bit to indicate whether the signature is deemed valid (1) or invalid (0).
+\end{itemize}
+
+All the algorithms take the security parameter $\lambda$ as input (sometimes implicitly).
+\end{definition}
+
+We require Blind signatures to satisfy three properties: correctness, which says that honestly generated signatures should verify with probability close to 1, blindness, which says that the signer cannot link signatures to the interaction with which they were created, and existential unforgeability, which says that if a user is allowed to execute the signing protocol $Q$ times with chosen messages it cannot obtain valid signatures for any other messages.
+
+\begin{definition}[Correctness] \label{def:bs-correctness}
+    A Blind signature $(\KeyGen,(\Sign_i)_{i\in [3]},\Verify)$ is \emph{correct} if there exists a negligible function $\negl$, such that for any message $\mu$ we have \[
+        \Pr \left[ \Verify(\pk,\mu,\sig) = 1 \, \middle | \, \begin{matrix}
+            (\sk,\pk) \gets \KeyGen(\SecParam), \\
+            (\rho_1, S_\User) \gets \Sign_1(\pk, \mu), \\
+            \rho_2 \gets \Sign_2(\sk, \rho_1), \\
+            \sig \gets \Sign_3(\rho_2, S_\User)
+        \end{matrix} \right]    
+    \] 
+    is  $1$  except with probability $\negl(\lambda)$.
+\end{definition}
+
+
+\begin{definition}[Blindness] \label{def:bs-blindness}
+    A Blind signature $(\KeyGen,(\Sign_i)_{i\in [3]},\Verify)$ has \emph{blindness} if for every polynomial-time three-part stateful adversary $\adversary = (\adversary_1, \adversary_2, \adversary_3)$ there exists a negligible function $\negl$ such that for any two messages $\mu_0, \mu_1$ we have \[
+        \left| \Pr\left[ \adversary_3(\sig^0,\sig^1) = b \, \middle| \,
+        \begin{matrix} 
+            \pk \gets \adversary_1(\SecParam), b \getsunif \{0,1\}, \\
+            (\rho_1^0, S_\User^0) \gets \Sign_1(\pk,\mu_0), \\ (\rho_1^1, S_\User^1) \gets \Sign_1(\pk,\mu_1), \\
+            \rho_2^b,\rho_2^{1-b} \gets \adversary_{2}( \rho_1^b, \rho_1^{1-b} ), \\
+            \sig^0 \gets \Sign_3(\rho_2^0, S_\User^0), \\
+            \sig^1 \gets \Sign_3(\rho_2^1, S_\User^1), \\
+            \text{If } \bot \in \{ \sig^0,\sig^1\} \\  \text{ then } (\sig^0,\sig^{1}) \gets (\bot,\bot) \\
+        \end{matrix} \right] - \frac{1}{2} \right|
+    \]
+    is bounded by $\negl(\lambda)$.
+\end{definition} 
+
+
+
+\begin{definition}[One-more unforgeability] \label{def:bs-unforgeability}
+    A Blind signature $(\KeyGen,\allowbreak (\Sign_i)_{i\in [3]},\allowbreak \Verify)$ is \emph{one-more unforgeable} if for every polynomial-time adversary $\adversary$ making at most $Q$ queries ($Q$ is a function of $\lambda$, bounded by a polynomial) to the signing oracle $\Sign_2$ there exists a negligible function $\negl$ such that \[
+    \Pr\left[ \begin{matrix} \forall 1 \leq i < j \leq Q+1 : \\ \left( \mu_i \neq \mu_j \right) , \\
+        \forall 1 \leq i \leq Q+1 : \\ \left( \Verify(\pk, \mu_i, \sig_i) = 1 \right)\\
+    \end{matrix}  \, \middle| \, \begin{matrix}
+        (\sk,\pk) \gets \KeyGen(1^\lambda), \\
+        \{(\mu_i,\sig_i)\}_{i \in [Q+1]} \gets  \\
+        \,\, \adversary^{\Sign_2(\sk,\cdot))}(\pk) \\ 
+    \end{matrix} \right] \leq \negl(\lambda) \, .
+    \]
+\end{definition} 
+
+
+
+\subsection{Non-Interactive Zero-Knowledge Arguments}\label{subsec:nizk}
+We now describe the model of Non-Interactive Zero-Knowledge Arguments (NIZKs) that we use in this work.
+
+\paragraph{Computational model.}
+We model computation by applying a circuit  $C$ to an input $\vw\in \Z_q^{\ell}$. $C$ has $\ell$ input wires and a single output wire. We say that the input $\vw$, or witness, is valid if $C(\vw)=0$ and invalid otherwise.
+
+
+$C$ consists of wires and gates, where each gate has at least one input wire and exactly one output wire. The input wires of each gate are either the input wires of $C$, or output wires of other gates. The output of a gate may be input to multiple other gates, and the wires and gates form an acyclic directed graph. There are $3$ types of gates in a circuit:
+\begin{description}
+\item[Linear gates] apply public linear functions $\mathtt{lin}(\valpha,\beta,\vx)=\langle \valpha,\vx\rangle +\beta$ on the input wires $\vx\in \Z_q^h$. $\valpha \in \Z_q^h, \beta \in \Z_q$ are public inputs to the gate, while the output is a single element in $\Z_q$. Note that $h$ may be arbitrarily large.
+\item[Multiplication gates]  take as input a vector $\vx \in \Z_q^h$, compute the product of all input wires $\mathtt{mul}(\vx)=\prod_{i\in[h]} x_i $ and output the product as an element in $\Z_q$. $h$ can be larger than 2.
+\item[Assert gates] take as input a wire value $x\in \Z_q$ and output $\top$ if $x=0$ and $\bot$ otherwise. Note that the output wire of an assert gate may therefore never be input to another gate.
+\end{description}
+
+We define the evaluation of $C$ on input $\vw$ as follows:  $\vw$ is initially assigned to the input wires of the circuit, and then consecutively all gates whose input wires are fully assigned are evaluated and the output of the gate function is assigned to the output wire(s).
+This process is repeated until a) the single output wire of the circuit has a value assigned to it; and b) all \emph{assert gates} have been evaluated. If all assert gates have output $\top$ then $C(\vw)$ is equivalent to the value assigned to the output wire of $C$, otherwise $C(\vw)=\bot$.
+
+\paragraph{NIZKs.}
+We now define NIZK proof systems in the random oracle (RO) model. 
+\begin{definition}\label{def:nizk}
+A \emph{NIZK proof system} $\Pi$  is a tuple $\Pi = ( \Prove, \Verify)$ of PPT algorithms that have access to the random oracle $\RO$:
+\begin{itemize}
+    \item $\Prove^{\RO}(C,\vw) \rightarrow \pi$: Takes a circuit $C$ and a witness $\vw$  and outputs a proof $\pi$.
+    \item $\Verify^{\RO}(C,\pi) \rightarrow \{0,1\}$: Takes a circuit $C $, and a proof $\pi$, and outputs a bit to indicate whether the proof is deemed valid ($1$) or invalid ($0$).
+\end{itemize}
+\end{definition}
+In the following, we drop the superscript $\RO$ from $\Prove,\Verify$ to simplify notation.
+
+\begin{definition}[Correctness]
+    \label{def:nizk-correctness}
+    A NIZK proof system $(\Prove, \Verify)$ in the RO model has \emph{correctness error} $\correrr$
+    if for any $C$ and for all $\vw\in \F_q^\ell$ such that $C(\vw)=0$,
+    \begin{equation*}
+        \Pr\left[
+        \Verify( C,\pi) = 1
+        \middle |
+           \pi\gets \Prove(C,\vw)
+         \right]
+        \geq 1 - \correrr(\SecParam)
+    \end{equation*}
+    $( \Prove, \Verify)$ is \emph{correct} if $\correrr = \negl$.
+\end{definition}
+
+
+\begin{definition}[Non-interactive Zero-Knowledge]\label{def:nizk-zk}
+    A simulator $\Sim$ for a NIZK proof system $\Pi = ( \Prove, \Verify)$  is a  PPT algorithm  with implicit input $\SecParam$.
+    $\Sim$ on input $C$ outputs $\pi$.
+    Let $\adversary$ be a stateful algorithm and let
+    \begin{equation*}
+        \begin{aligned}
+            \Real_{\adversary}(\SecParam) &= \Pr%\left[
+            \begin{bmatrix}
+               b=1 \, | \, b \gets \adversary^{\RO, \mathcal{O}_{\Prove}}(\SecParam)
+                     \end{bmatrix} \\
+/            \Ideal_{\adversary}(\SecParam) &= \Pr%\left[
+            \begin{bmatrix}
+               b=1 \, | \, b \gets \adversary^{\RO, \mathcal{O}_{\Sim}}(\SecParam)
+            \end{bmatrix}
+            % \right]
+        \end{aligned}
+    \end{equation*}
+    The adversary has black-box access to the random oracle $\RO$ and to an oracle $\mathcal{O}_{\Prove}$ or $\mathcal{O}_{\Sim}$. These oracles take $C,\vw$ as input, check if $C(\vw)=0$ and then do the following: 
+    \begin{itemize}
+        \item $\mathcal{O}_{\Prove}(C,\vw)$ computes $\pi \gets \Prove^{\RO}(C,\vw)$ and outputs $\pi$.
+         \item $\mathcal{O}_{\Sim}(C,\vw)$ computes $\pi\gets \Sim^{\RO}(C)$.
+    \end{itemize}
+    The simulator $\Sim$ is allowed to \emph{program} the random oracle $\RO$ on any fresh input to $\RO$,
+       i.e.\ if $\RO(m)$ has not been queried by any party before, then $\adversary$ resp.\ $\Sim$ is free to choose $\RO(m)$, otherwise, programming fails. 
+       
+    We define the advantage of $\adversary$ by $ \left|\Real_{\adversary}(\SecParam) - \Ideal_{\adversary}(\SecParam)\right|$.
+    We call $\Sim$ a \emph{Non-interactive Zero-Knowledge Black-box} simulator for $\Pi$
+    if for any PPT $\adversary$ the advantage is negligible.
+\end{definition}
+Knowledge soundness for \emph{black-box} extraction in the  RO model for NIZKs is defined as follows:
+
+
+\begin{definition}
+    \label{def:nizk-knowledge}
+    Let $\Pi$ be a non-interactive proof system and $\KExt$ be a  PPT algorithm. 
+    Define the knowledge soundness experiment as follows:
+    \begin{enumerate}
+    \item The experiment obtains $C$  as input.
+    \item Run $\adversary^{\RO}(\SecParam,C)$ until it outputs $\pi$. Let $Q$ be all RO queries made by $\adversary$.
+    \item Return $0$ if $\Verify(C,\pi)=0$.
+        \item Return $1$ if   $C(\KExt(C, \pi, Q))\neq 0$, else return $0$.
+    \end{enumerate}
+    The advantage of $\adversary$ is defined as the probability that the experiment returns $1$.
+    If there exist $\KExt$ such that for every PPT $\adversary$ the advantage is negligible,     then we call $\Pi$ knowledge sound.
+
+\end{definition}
+
+
+
+
+\subsection{Lattice Primitives}
+
+\paragraph{Lattice preliminaries and evaluation basis.}
+Let $q\ge 2$ be an integer modulus and let $\varphi$ be a power of two. We work in the cyclotomic ring
+$R \coloneqq \Z[X]/(X^\varphi+1)$ and its $q$-adic reduction $R_q \coloneqq R/qR$. For vectors over $R$ we use
+boldface (e.g.\ $\mathbf{a}\in R^m$), and we write $\|\cdot\|_2,\ \|\cdot\|_\infty$ for coefficient-wise norms on $R$
+(extended component-wise to $R^m$). Via the NTT/evaluation basis, Hadamard product $\odot$ and Hadamard
+division $\oslash$ act coordinate-wise; division is understood only when all denominator coordinates are nonzero.
+
+\medskip
+We work with a NTT-friendly prime $q$ such that :
+\[
+\operatorname{ord}_{\,2\varphi}(q)=1 \quad\Longleftrightarrow\quad q\equiv 1 \pmod{2\varphi}.
+\]
+
+We thus can identify $R_q \cong \F_q^{N}$ (with $N=\varphi$) since the cyclotomic polynomial $X^\varphi+1$ splits completely over $\F_q$.
+
+% Equalities “$\equiv$ mod $q$” are understood coefficient‑wise unless stated otherwise.
+
+\begin{definition}[SIS and ISIS over $R_q$]\label{def:sis-isis}
+Fix integers $n,m,\varphi\ge 1$ where $\varphi$ is a power of $2$ and let  $q\ge 2$ be a modulus. Define $R_q$ as above.
+\begin{itemize}[leftmargin=1.25em]
+  \item \textbf{The homogeneous SIS  problem.} Given $\mathbf{A}\in R_q^{\,n\times m}$ and a bound $\beta>0$, find a non-zero $\mathbf{s}\in R^{m}$ such that $\mathbf{A}\mathbf{s}\equiv \mathbf{0}\pmod q$ and $\|\mathbf{s}\|\le\beta$ (for a prescribed norm, e.g., $\ell_\infty$ or $\ell_2$).
+  \item \textbf{The inhomogeneous SIS (ISIS) problem.} Given $(\mathbf{A},\mathbf{t})\in R_q^{\,n\times m}\times R_q^{\,n}$ and $\beta>0$, find $\mathbf{s}\in R^{m}$ with $\mathbf{A}\mathbf{s}\equiv \mathbf{t}\pmod q$ and $\|\mathbf{s}\|\le\beta$.
+\end{itemize}
+We say that an attacker $\adversary$ solves the SIS problem if $\adversary$, on input $\mathbf{A},\beta$ as well as all parameters of the SIS instance, outputs a valid solution $\mathbf{s}$. A similar definition can be made for the ISIS problem. On a formal level, we will assume that for the SIS/ISIS instances that we use, no PPT algorithm $\adversary$ solves them with non-negligible advantage. Concretely, we will later choose $q,n,m,\varphi$ such that attacks require a runtime of at least $2^{\lambda}$.
+\end{definition}
+
+\subsubsection{Trapdoors}
+
+Let $\mathbf{c}\in \mathbb{R}^m$ and $s>0$, then the Gaussian function on $\mathbb{R}^m$ with center $\mathbf{c}$ and parameter $s$ is defined as 
+\[
+\forall \mathbf{x}\in \mathbb{R}^m:~ \rho_{s,\mathbf{c}}(\mathbf{x}):=\exp{-\pi \|\mathbf{x}-\mathbf{c}\|^2/s^2}\text{.}
+\]
+\begin{definition}[Discrete Gaussian Distribution]
+For any $\mathbf{c}\in \mathbb{R}^m$, real $s>0$ and $m$-dimensional lattice $\Lambda$, the  \emph{discrete Gaussian distribution} over $\Lambda$ is defined as
+\[
+\forall \mathbf{x}\in \Lambda:~ D_{\Lambda,s,\mathbf{c}}:=\dfrac{\rho_{s,\mathbf{c}}(\mathbf{x})}{\rho_{s,\mathbf{c}}(\Lambda)}
+\]
+\end{definition}
+If $\mathbf{c}=\mathbf{0}$, i.e. the distribution is centered, then we drop $\mathbf{c}$ from the definition.
+
+
+For a matrix $\mathbf{A}\in R_q^{n\times m}$ and target $\mathbf{t}\in R_q^{n}$, denote by
+$\Lambda^\mathbf{t}_\perp(\mathbf{A}) \coloneqq \{\mathbf{e}\in R^m : \mathbf{A}\mathbf{e}\equiv \mathbf{t}\ (\bmod\ q)\}$ the corresponding coset of the lattice.
+
+
+\begin{definition}[Lattice trapdoor suite]\label{def:trapdoor}
+Let $R_q=R/qR$. A lattice trapdoor suite consists of two PPT algorithms $(\TrapGen,\SampPre)$:
+\begin{itemize}[leftmargin=1.25em]
+  \item $(\mathbf{A},\mathsf{td}_\mathbf{A})\leftarrow \TrapGen(1^\lambda,1^n,1^m,q)$ outputs $\mathbf{A}\in R_q^{\,n\times m}$  together with a trapdoor $\mathsf{td}_\mathbf{A}$.
+  \item $\mathbf{u}\leftarrow \SampPre(\mathsf{td}_\mathbf{A},\mathbf{v},s)$, on input $\mathbf{v}\in R_q^{\,n}$ and 
+  parameter $s>0$, samples a vector  $\mathbf{e}\in \Lambda^{\mathbf{t}}_{\perp}(\mathbf{A})$.
+\end{itemize}
+
+\end{definition}
+
+We now define security for  trapdoor sampler:
+\begin{definition}[Secure Trapdoor sampler]
+    Let $(\TrapGen,\SampPre)$ be a lattice trapdoor suite. 
+Let $\adversary$ be any algorithm and let
+    \begin{equation*}
+        \begin{aligned}
+            \Real_{\adversary}(\SecParam) &= \Pr%\left[
+            \begin{bmatrix}
+               b=1 \, | \, b \gets \adversary^{\mathcal{O}_{\Real,G},\mathcal{O}_{\Real,S}}(\SecParam)
+                     \end{bmatrix} \\
+            \Ideal_{\adversary}(\SecParam) &= \Pr%\left[
+            \begin{bmatrix}
+               b=1 \, | \, b \gets \adversary^{\mathcal{O}_{\Ideal,G},\mathcal{O}_{\Ideal,S}}(\SecParam)
+            \end{bmatrix}
+            % \right]
+        \end{aligned}
+    \end{equation*}
+    The adversary has black-box access to two pairs of oracles. These oracles do the following
+    \begin{itemize}
+        \item $\mathcal{O}_{\Real,G}()$ upon first call computes $(\mathbf{A},\mathsf{td}_\mathbf{A})\gets \TrapGen()$, stores them and outputs $\mathbf{A}$. It ignores all further calls.
+        \item $\mathcal{O}_{\Real,S}()$ samples $\mathbf{v}\gets R_q^n$ uniformly at random, computes $\mathbf{s}\gets \SampPre(\mathsf{td}_\mathbf{A},\mathbf{v},s)$ and outputs $(\mathbf{s},\mathbf{v})$.
+                \item $\mathcal{O}_{\Ideal,G}()$ upon first call samples $\mathbf{A}\gets R_q^{n\times m}$ uniformly at random, stores $\mathbf{A}$ and outputs it. It ignores all further calls.
+        \item $\mathcal{O}_{\Ideal,S}()$ samples $\mathbf{e}\gets D_{\Lambda_\bot^\mathbf{t}(\mathbf{A}),s}$, compute $\mathbf{v}= \mathbf{A}\mathbf{e}$ and outputs $(\mathbf{s},\mathbf{v})$.
+    \end{itemize}
+       
+    We define the advantage of $\adversary$ by $ \left|\Real_{\adversary}(\SecParam) - \Ideal_{\adversary}(\SecParam)\right|$.
+    We call the trapdoor suite \emph{secure} if for any potentially computationally unbounded $\adversary$, the advantage is negligible.
+
+\end{definition}
+
+
+\subsubsection{Rational Hashes}
+
+\begin{definition}[Rational hash family $H$]\label{def:rational-hash}
+Fix public $B=(B_0,b_1)\in R_q^{n\times \ell}$, message $u$, and randomness $\chi=(x_0,x_1)$ in prescribed ranges.
+Define $h_{u,\chi}: R_q^{n\times \ell}\to R_q^n$ by
+\[
+  h_{u,\chi}(B)\;=\; B_0\cdot(1;u;x_0)\ \oslash\ \bigl(b_1-\mathbf{1}_n\cdot x_1\bigr),
+\]
+% where $\oslash$ denotes \emph{Hadamard} (slot-wise) division in the evaluation basis.
+The denominator is required to
+be nonzero in \emph{every} slot (i.e., coordinate-wise invertible in $R_q$). We call $h_{u,\chi}$ the \emph{rational hash}
+and $t=h_{u,\chi}(B)$ the \emph{commitment image} of $(u,\chi)$.
+\end{definition}
+
+
+
+\paragraph{Security assumptions for rational hashes.}
+Our $H=\{h_{u,\chi}\}$ is analyzed in the framework given by A.Dubois \emph{et.al} \cite{cryptoeprint:2025/356} as follows.
+
+\begin{itemize}
+  \item \textbf{Natural predicate $P_{\gamma,\varepsilon}$.} We restrict function sets by the predicate
+  $P_{\gamma,\varepsilon}$: (i) the family is $\varepsilon$-\emph{strongly linearly independent} (SLI) and (ii) every denominator polynomial has coefficients bounded by $\gamma$. This prevents degenerate
+  choices (e.g.\ adaptively zeroing denominators) and rules out linear-dependency pitfalls. \cite[Defs~6-7]{cryptoeprint:2025/356}
+  % \cite[Def6-7]
+
+  \item \textbf{Hinted vSIS hardness.} For function families augmented with $P_{\gamma,\varepsilon}$, the signature’s
+  EUF security reduces to \emph{strong} hinted-vSIS (s-Hint-vSIS): given short preimages of $Q$ hints
+  $\{h_{u_i,\chi_i}(B)\}$, producing a short preimage for a \emph{fresh} target $h_{u^\star,\chi^\star}(B)$ is hard. \cite[§3.1]{cryptoeprint:2025/356}
+  % cite par.3.1]
+
+  \item \textbf{Equivalence to GenISIS\textsubscript{$f$}.} Our concrete family $h_{u,\chi}(B)$ instantiates $f(\cdot)$ in the
+  generalized ISIS\textsubscript{$f$} assumption, and s-EUF-RMA of the vSIS scheme is \emph{equivalent} to GenISIS\textsubscript{$f$}
+  (and conversely to s-$\,\$\,$Hint-vSIS under the same parameters). This pins the security definition to a standard
+  preimage-resistance style assumption with oracle access. \cite[Thm~7-8]{cryptoeprint:2025/356}
+  % Thm7-8]
+
+  \item \textbf{SLI in practice.} When $R_q$ \emph{splits} into a product of fields, ordinary
+  linear independence implies SLI with explicit $\varepsilon$. This corresponds to the setting induced by
+  the condition : $q\equiv 1\bmod 2\varphi$. 
+  % Thm1 footnote on splitting
+
+  \item \textbf{Robustness note.} The work from A.Dubois \emph{et.al} also analyzes linear-combination attacks and shows why the “natural’’
+  predicate (denominator bound + SLI) is the right guardrail for rational families (e.g., BB/BBS-type forms),
+  ensuring that easy linear relations in $\operatorname{im}(h_{u,\chi})$ do not yield short forgeries. 
+  
+  
+\end{itemize}
+
+% \todo[inline]{does this have a security definition?}
+
+\paragraph{Signed Lifting} When encoding integers into $\mathbb{F}_q$,  the \emph{signed lifting} $\langle i\rangle_q$ is defined by
+$\langle i\rangle_q = i \pmod q$ for $i\ge 0$ and $\langle i\rangle_q = q - ((-i)\pmod q)$ for $i<0$.
+
+
+\begin{definition}[Vanishing polynomial for set membership]\label{def:vanish}
+For a bound $B\in\mathbb{Z}_{>0}$, define
+\[
+  P_B(X)\;=\;\prod_{i=-B}^{B}\bigl(X-\langle i\rangle_q\bigr)\ \in \mathbb{Z}_q[X].
+\]
+For any $x\in\mathbb{Z}_q$, the predicate $x\in[-B,B]$ (w.r.t.\ signed lifting) is equivalent to 
+$P_B(x)\equiv 0\pmod q$.
+\end{definition}
+
+When instantiating the rational hash, each component is restricted coefficient-wise to a bounded alphabet:
+\[u \in [-B,B]^{kN},\qquad x_0 \in [-B,B]^{k_0N},\qquad x_1 \in [-B,B]^{N}.\]
+A verifier can therefore validate that $t$ is well-formed by verifying a ZK argument of knowledge of a preimage $u,x_0,x_1$ which fulfill the aforementioned bounds, where the computed circuit is given by Definition \ref{def:vanish}.
+
+\begin{comment}
+Inside the proof, each component is restricted coefficient-wise to a bounded alphabet:
+\[\nu \in [-B,B]^{kN},\qquad x_0 \in [-B,B]^{k_0N},\qquad x_1 \in [-B,B]^{N}.\]
+(When $B{=}1$ this matches the balanced-ternary alphabet $\{-1,0,1\}$.)
+We continue to compute $t=h_{u,\chi}(B)$ exactly in the NTT domain and resample $x_1$ until every coordinate of $b_1-x_1$ is invertible; the failure probability per coordinate is $(2B{+}1)/q$ and remains negligible.
+\end{comment}
+
+
+
+

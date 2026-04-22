@@ -34,47 +34,79 @@ type ProofReport struct {
 }
 
 type SigShortnessReport struct {
-	Enabled          bool `json:"enabled"`
-	Version          int  `json:"version"`
-	SupportSlotCount int  `json:"support_slot_count"`
-	OpenedBlockCount int  `json:"opened_block_count"`
-	OpeningBytes     int  `json:"opening_bytes"`
-	ProofBytes       int  `json:"proof_bytes"`
+	Enabled          bool   `json:"enabled"`
+	Mode             string `json:"mode"`
+	Version          int    `json:"version"`
+	SupportSlotCount int    `json:"support_slot_count"`
+	OpenedBlockCount int    `json:"opened_block_count"`
+	OpeningBytes     int    `json:"opening_bytes"`
+	HiddenProofBytes int    `json:"hidden_proof_bytes"`
+	BindingBytes     int    `json:"binding_bytes"`
+	ProofBytes       int    `json:"proof_bytes"`
+	HiddenProfile    string `json:"hidden_profile"`
+	HiddenRadix      int    `json:"hidden_radix"`
+	HiddenDigits     int    `json:"hidden_digits"`
 }
 
 // TranscriptOptimizationReport surfaces the geometry and bucket counters that
 // dominate the current paper transcript optimization pass.
 type TranscriptOptimizationReport struct {
-	ShowingPreset       string `json:"showing_preset"`
-	PRFPacked           bool   `json:"prf_packed"`
-	PRFMode             string `json:"prf_mode"`
-	PRFAuditSamples     int    `json:"prf_audit_samples"`
-	PRFBridgeInQ        bool   `json:"prf_bridge_in_q"`
-	PRFLogicalScalars   int    `json:"prf_logical_scalars"`
-	PRFPackedRows       int    `json:"prf_packed_rows"`
-	PRFDataRows         int    `json:"prf_data_rows"`
-	PRFHelperRows       int    `json:"prf_helper_rows"`
-	PRFTotalRows        int    `json:"prf_total_rows"`
-	SigShortnessProfile string `json:"sig_shortness_profile"`
-	SigShortnessRadix   int    `json:"sig_shortness_radix"`
-	SigShortnessDigits  int    `json:"sig_shortness_digits"`
-	SigShortnessDegree  int    `json:"sig_shortness_degree"`
-	ReplayMode          string `json:"replay_mode"`
-	ReplayBlocks        int    `json:"replay_blocks"`
-	LVCSNCols           int    `json:"lvcs_ncols"`
-	NLeaves             int    `json:"nleaves"`
-	WitnessRows         int    `json:"witness_rows"`
-	RowsBlock           int    `json:"rows_block"`
-	MaskChunks          int    `json:"mask_chunks"`
-	NRows               int    `json:"nrows"`
-	M                   int    `json:"m"`
-	PCols               int    `json:"pcols"`
-	OmitP               int    `json:"omit_p"`
-	RowOpeningEntries   int    `json:"row_opening_entries"`
-	PdecsBytes          int    `json:"pdecs_bytes"`
-	VTargetsBytes       int    `json:"vtargets_bytes"`
-	BarSetsBytes        int    `json:"barsets_bytes"`
-	QBytes              int    `json:"q_bytes"`
+	ShowingPreset             string `json:"showing_preset"`
+	PRFPacked                 bool   `json:"prf_packed"`
+	PRFMode                   string `json:"prf_mode"`
+	PRFAuditSamples           int    `json:"prf_audit_samples"`
+	PRFBridgeInQ              bool   `json:"prf_bridge_in_q"`
+	PRFLogicalScalars         int    `json:"prf_logical_scalars"`
+	PRFPackedRows             int    `json:"prf_packed_rows"`
+	PRFDataRows               int    `json:"prf_data_rows"`
+	PRFHelperRows             int    `json:"prf_helper_rows"`
+	PRFTotalRows              int    `json:"prf_total_rows"`
+	SigShortnessProfile       string `json:"sig_shortness_profile"`
+	SigShortnessRadix         int    `json:"sig_shortness_radix"`
+	SigShortnessDigits        int    `json:"sig_shortness_digits"`
+	SigShortnessDegree        int    `json:"sig_shortness_degree"`
+	ReplayMode                string `json:"replay_mode"`
+	StatementClass            string `json:"statement_class"`
+	ShortnessMode             string `json:"shortness_mode"`
+	SigShortnessSupportSlots  int    `json:"sig_shortness_support_slots"`
+	ReplayBlocks              int    `json:"replay_blocks"`
+	MainLVCSNCols             int    `json:"main_lvcs_ncols"`
+	MainNLeaves               int    `json:"main_nleaves"`
+	PRFLVCSNCols              int    `json:"prf_lvcs_ncols"`
+	PRFNLeaves                int    `json:"prf_nleaves"`
+	HiddenShortnessProfile    string `json:"hidden_shortness_profile"`
+	HiddenShortnessRadix      int    `json:"hidden_shortness_radix"`
+	HiddenShortnessDigits     int    `json:"hidden_shortness_digits"`
+	HiddenShortnessLVCSNCols  int    `json:"hidden_shortness_lvcs_ncols"`
+	HiddenShortnessNLeaves    int    `json:"hidden_shortness_nleaves"`
+	PRFAuxInstance            bool   `json:"prf_aux_instance"`
+	PRFAuxProofBytes          int    `json:"prf_aux_proof_bytes"`
+	PRFAuxOpeningBytes        int    `json:"prf_aux_opening_bytes"`
+	PRFBridgeOpeningBytes     int    `json:"prf_bridge_opening_bytes"`
+	PRFBridgeSupportSlots     int    `json:"prf_bridge_support_slots"`
+	PRFBridgeOpenedBlocks     int    `json:"prf_bridge_opened_blocks"`
+	PRFBridgeRowCount         int    `json:"prf_bridge_row_count"`
+	PRFBridgePaddingRows      int    `json:"prf_bridge_padding_rows"`
+	SourceProductBridgeBytes        int    `json:"source_product_bridge_bytes"`
+	SourceProductBridgeSupportSlots int    `json:"source_product_bridge_support_slots"`
+	SourceProductBridgeOpenedBlocks int    `json:"source_product_bridge_opened_blocks"`
+	CarrierSelectedRows       int    `json:"carrier_selected_rows"`
+	SourceProductSelectedRows int    `json:"source_product_selected_rows"`
+	PRFCompanionSelectedRows  int    `json:"prf_companion_selected_rows"`
+	LVCSNCols                 int    `json:"lvcs_ncols"`
+	NLeaves                   int    `json:"nleaves"`
+	WitnessRows               int    `json:"witness_rows"`
+	RowsBlock                 int    `json:"rows_block"`
+	MaskChunks                int    `json:"mask_chunks"`
+	NRows                     int    `json:"nrows"`
+	M                         int    `json:"m"`
+	PCols                     int    `json:"pcols"`
+	OmitP                     int    `json:"omit_p"`
+	RowOpeningEntries         int    `json:"row_opening_entries"`
+	PdecsBytes                int    `json:"pdecs_bytes"`
+	VTargetsBytes             int    `json:"vtargets_bytes"`
+	BarSetsBytes              int    `json:"barsets_bytes"`
+	QBytes                    int    `json:"q_bytes"`
 }
 
 // BuildProofReport derives proof size + soundness metrics for a given proof/options.
@@ -174,6 +206,42 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		DQ:       dQ,
 		DDECS:    lvcsNCols + ell - 1,
 	})
+	if proof.PRFCompanion != nil && proof.PRFCompanion.AuxInstance != nil && proof.PRFCompanion.AuxInstance.Proof != nil && proof.PRFCompanion.Layout != nil {
+		auxOpts, aerr := buildPRFCompanionAuxOpts(reportOpts, proof.PRFCompanion.Layout.PackWidth, proof.HashRelation)
+		if aerr != nil {
+			return ProofReport{}, fmt.Errorf("prf aux opts: %w", aerr)
+		}
+		auxPaper, aerr := BuildPaperTranscriptReport(proof.PRFCompanion.AuxInstance.Proof, auxOpts, ringQ)
+		if aerr != nil {
+			return ProofReport{}, fmt.Errorf("prf aux paper transcript: %w", aerr)
+		}
+		paperTranscript = mergePaperTranscriptReports(paperTranscript, auxPaper)
+		openingRep := openingPaperReport{}
+		if proof.PRFCompanion.Bridge != nil {
+			openingRep = BuildOpeningPaperReport(proof.PRFCompanion.Bridge.RowsOpening)
+		}
+		paperTranscript.Pdecs.NaiveBits += openingRep.PdecsBits
+		paperTranscript.Pdecs.OptimizedBits += openingRep.PdecsBits
+		paperTranscript.Mdecs.NaiveBits += openingRep.MdecsBits
+		paperTranscript.Mdecs.OptimizedBits += openingRep.MdecsBits
+		paperTranscript.Auth.NaiveBits += openingRep.AuthBits
+		paperTranscript.Auth.OptimizedBits += openingRep.AuthBits
+		paperTranscript.Tapes.NaiveBits += openingRep.TapeBits
+		paperTranscript.Tapes.OptimizedBits += openingRep.TapeBits
+		finalizePaperTranscriptReport(&paperTranscript)
+	}
+	if proof.SourceProductBridge != nil {
+		openingRep := BuildOpeningPaperReport(proof.SourceProductBridge.RowsOpening)
+		paperTranscript.Pdecs.NaiveBits += openingRep.PdecsBits
+		paperTranscript.Pdecs.OptimizedBits += openingRep.PdecsBits
+		paperTranscript.Mdecs.NaiveBits += openingRep.MdecsBits
+		paperTranscript.Mdecs.OptimizedBits += openingRep.MdecsBits
+		paperTranscript.Auth.NaiveBits += openingRep.AuthBits
+		paperTranscript.Auth.OptimizedBits += openingRep.AuthBits
+		paperTranscript.Tapes.NaiveBits += openingRep.TapeBits
+		paperTranscript.Tapes.OptimizedBits += openingRep.TapeBits
+		finalizePaperTranscriptReport(&paperTranscript)
+	}
 	return ProofReport{
 		ProofBytes:      size.Total,
 		ProofKB:         float64(size.Total) / 1024.0,
@@ -236,13 +304,30 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 		}
 		openingBytes = sizeDECSOpening(sig.V5.THatOpening)
 	}
+	proofBytes := sizeSigShortnessProof(sig)
+	hiddenBytes := 0
+	hiddenProfile := ""
+	hiddenRadix := 0
+	hiddenDigits := 0
+	if sig.Version == sigShortnessProofVersionV6 && sig.V6 != nil && sig.V6.HiddenProof != nil {
+		_, hiddenBytes = proofSizeBreakdown(sig.V6.HiddenProof)
+		hiddenRadix = sig.V6.Radix
+		hiddenDigits = sig.V6.Digits
+		hiddenProfile = signatureShortnessProfileLabelFromMetrics(hiddenRadix, hiddenDigits)
+	}
 	return SigShortnessReport{
 		Enabled:          true,
+		Mode:             ResolveSigShortnessMode(proof),
 		Version:          sig.Version,
 		SupportSlotCount: supportSlotCount,
 		OpenedBlockCount: openBlocks,
 		OpeningBytes:     openingBytes,
-		ProofBytes:       sizeSigShortnessProof(sig),
+		HiddenProofBytes: hiddenBytes,
+		BindingBytes:     maxInt(proofBytes-openingBytes-hiddenBytes, 0),
+		ProofBytes:       proofBytes,
+		HiddenProfile:    hiddenProfile,
+		HiddenRadix:      hiddenRadix,
+		HiddenDigits:     hiddenDigits,
 	}
 }
 
@@ -259,7 +344,11 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 		QBytes:            paper.Q.OptimizedBytes,
 	}
 	out.LVCSNCols = lvcsNCols
+	out.MainLVCSNCols = lvcsNCols
 	out.ReplayMode = string(normalizeShowingReplayMode(opts.ShowingReplayMode))
+	out.StatementClass = ResolveShowingStatementClass(proof, opts)
+	out.ShortnessMode = ResolveSigShortnessMode(proof)
+	out.SigShortnessSupportSlots = buildSigShortnessReport(proof).SupportSlotCount
 	out.ReplayBlocks = rowLayoutReplayBlockCount(proof.RowLayout)
 	if out.ReplayBlocks <= 0 {
 		out.ReplayBlocks = rowLayoutReplayTHatCount(proof.RowLayout)
@@ -267,6 +356,15 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	out.NLeaves = proof.NLeavesUsed
 	if out.NLeaves <= 0 {
 		out.NLeaves = opts.NLeaves
+	}
+	out.MainNLeaves = out.NLeaves
+	out.PRFLVCSNCols = opts.PRFLVCSNCols
+	if out.PRFLVCSNCols <= 0 {
+		out.PRFLVCSNCols = opts.LVCSNCols
+	}
+	out.PRFNLeaves = opts.PRFNLeaves
+	if out.PRFNLeaves <= 0 {
+		out.PRFNLeaves = opts.NLeaves
 	}
 	out.WitnessRows = geometry.ActualWitnessPolys
 	out.ShowingPreset = ResolveShowingPresetLabelForOpts(opts)
@@ -290,6 +388,63 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	if proof == nil {
 		return out
 	}
+	if proof.SigShortness != nil && proof.SigShortness.V6 != nil && proof.SigShortness.V6.HiddenProof != nil {
+		out.HiddenShortnessProfile = signatureShortnessProfileLabelFromMetrics(proof.SigShortness.V6.Radix, proof.SigShortness.V6.Digits)
+		out.HiddenShortnessRadix = proof.SigShortness.V6.Radix
+		out.HiddenShortnessDigits = proof.SigShortness.V6.Digits
+		out.HiddenShortnessLVCSNCols = resolveProofPCSNCols(proof.SigShortness.V6.HiddenProof, 0)
+		out.HiddenShortnessNLeaves = proof.SigShortness.V6.HiddenProof.NLeavesUsed
+	}
+	if proof.PRFCompanion != nil && proof.PRFCompanion.AuxInstance != nil {
+		out.PRFAuxInstance = true
+		if proof.PRFCompanion.Bridge != nil {
+			out.PRFAuxOpeningBytes = sizeDECSOpening(proof.PRFCompanion.Bridge.RowsOpening)
+			out.PRFBridgeOpeningBytes = out.PRFAuxOpeningBytes
+			out.PRFBridgeSupportSlots = len(proof.PRFCompanion.Bridge.SupportSlots)
+			out.PRFBridgeRowCount = len(proof.PRFCompanion.Bridge.RowIndices)
+			pcsNCols := resolveProofPCSNCols(proof, 0)
+			if pcsNCols > 0 {
+				seen := make(map[int]struct{}, len(proof.PRFCompanion.Bridge.PhysicalRows))
+				for _, row := range proof.PRFCompanion.Bridge.PhysicalRows {
+					seen[row/pcsNCols] = struct{}{}
+				}
+				out.PRFBridgeOpenedBlocks = len(seen)
+			}
+			out.PRFBridgePaddingRows = prfBridgeStripePaddingRows(proof.PRFCompanion.Layout)
+		}
+		if proof.PRFCompanion.AuxInstance.Proof != nil {
+			_, auxProofBytes := proofSizeBreakdown(proof.PRFCompanion.AuxInstance.Proof)
+			out.PRFAuxProofBytes = auxProofBytes
+			if auxLVCS := resolveProofPCSNCols(proof.PRFCompanion.AuxInstance.Proof, 0); auxLVCS > 0 {
+				out.PRFLVCSNCols = auxLVCS
+			}
+			if auxLeaves := proof.PRFCompanion.AuxInstance.Proof.NLeavesUsed; auxLeaves > 0 {
+				out.PRFNLeaves = auxLeaves
+			}
+		}
+	}
+	if proof.SourceProductBridge != nil {
+		out.SourceProductBridgeBytes = sizeSourceProductBridge(proof.SourceProductBridge)
+		out.SourceProductBridgeSupportSlots = len(proof.SourceProductBridge.SupportSlots)
+		pcsNCols := resolveProofPCSNCols(proof, 0)
+		if pcsNCols > 0 {
+			seen := make(map[int]struct{}, len(proof.SourceProductBridge.PhysicalRows))
+			for _, row := range proof.SourceProductBridge.PhysicalRows {
+				seen[row/pcsNCols] = struct{}{}
+			}
+			out.SourceProductBridgeOpenedBlocks = len(seen)
+		}
+	}
+	for _, count := range buildReplayFamilySelectedCounts(proof) {
+		switch count.kind {
+		case ReplayFamilyCarrier:
+			out.CarrierSelectedRows = count.count
+		case ReplayFamilySourceProduct:
+			out.SourceProductSelectedRows = count.count
+		case ReplayFamilyPRFCompanion:
+			out.PRFCompanionSelectedRows = count.count
+		}
+	}
 	if proof.PRFCompanion != nil && proof.PRFCompanion.Layout != nil {
 		out.PRFPacked = true
 		out.PRFMode = string(prfCompanionModeDefault(proof.PRFCompanion.Mode))
@@ -309,5 +464,28 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	out.PRFLogicalScalars = prfLogicalScalarCount(proof.PRFLayout)
 	out.PRFPackedRows = proof.PRFLayout.WitnessRows
 	out.PRFTotalRows = proof.PRFLayout.WitnessRows
+	return out
+}
+
+type replayFamilySelectedCount struct {
+	kind  ReplayFamilyKind
+	count int
+}
+
+func buildReplayFamilySelectedCounts(proof *Proof) []replayFamilySelectedCount {
+	if proof == nil {
+		return nil
+	}
+	report, err := BuildReplayFamilyAuditReport(proof)
+	if err != nil {
+		return nil
+	}
+	out := make([]replayFamilySelectedCount, 0, len(report.Families))
+	for _, family := range report.Families {
+		out = append(out, replayFamilySelectedCount{
+			kind:  family.Family,
+			count: family.SelectedRowCount,
+		})
+	}
 	return out
 }

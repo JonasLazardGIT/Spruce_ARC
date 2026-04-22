@@ -1,0 +1,451 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{chaum85-anonymous-credentials,EC:Brands95,EC:CamLys01}
+\citation{ietf-privacypass-arc-protocol-01,schlesinger-cfrg-act-00}
+\citation{CCS:BLNS23,CCS:AGJLRS24,EPRINT:PWFW23}
+\citation{google-pq}
+\citation{AC:CDLT25}
+\citation{C:Fischlin06}
+\citation{EPRINT:PWFW23}
+\citation{C:BLNS23,CCS:AGJLRS24,EPRINT:FenRiv25a}
+\citation{EPRINT:BFMRSV25a}
+\citation{EPRINT:LCLLW23}
+\citation{C:JeuRouSan23,AC:JeuSan25}
+\@writefile{toc}{\contentsline {section}{Abstract}{1}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}
+\newlabel{sec:intro@cref}{{[section][1][]1}{[1][1][]1}{}{}{}}
+\citation{EPRINT:DKLW25,PKC:DKLW25}
+\citation{EPRINT:ENSTW23}
+\citation{EPRINT:FenRiv25b}
+\citation{EPRINT:FenRiv25a}
+\citation{USENIX:GKRRS21,AFRICACRYPT:GraKhoSch23}
+\citation{ietf-privacypass-arc-protocol-01}
+\citation{C:BLNS23,CCS:LyuSeiSte24,PKC:DKLW25}
+\citation{STOC:GenPeiVai08}
+\citation{EPRINT:FenRiv25b}
+\citation{AFRICACRYPT:GraKhoSch23}
+\citation{rfc9578,ietf-privacypass-arc-protocol-01,schlesinger-cfrg-act-00}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Contributions}{2}{subsection.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}Technical overview}{2}{subsection.1.2}\protected@file@percent }
+\citation{EPRINT:FenRiv25b}
+\citation{EPRINT:FenRiv25b}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Issuance flow (ARC). The issuance proof $\ensuremath  {\pi _{\mathsf  {Issue}}}$ binds \(T\) to the commitment and the inverse-side randomness, while hiding \(\ensuremath  {\mathbf  {m}}, \ensuremath  {\mathbf  {k}}\).}}{3}{figure.caption.7}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:issuance-flow}{{1}{3}{Issuance flow (ARC). The issuance proof $\nizkIssue $ binds \(T\) to the commitment and the inverse-side randomness, while hiding \(\vecm , \veck \)}{figure.caption.7}{}}
+\newlabel{fig:issuance-flow@cref}{{[figure][1][]1}{[1][2][]3}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Blind Signatures and ARC Presentations.}{3}{section*.8}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Showing (ARC presentation). Using an unused $\ensuremath  {\mathsf  {nonce}}\leq \mathsf  {presentation_limit}$, the holder computes a deterministic $\ensuremath  {\mathsf  {tag}}$ from $(\ensuremath  {\mathbf  {k}},\ensuremath  {\mathsf  {nonce}})$ (rate limiting) and pseudorandom across unused nonces (unlinkability).}}{3}{figure.caption.9}\protected@file@percent }
+\newlabel{fig:showing-flow}{{2}{3}{Showing (ARC presentation). Using an unused $\nonce \leq \mathsf {presentation_limit}$, the holder computes a deterministic $\prftag $ from $(\veck ,\nonce )$ (rate limiting) and pseudorandom across unused nonces (unlinkability)}{figure.caption.9}{}}
+\newlabel{fig:showing-flow@cref}{{[figure][2][]2}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{SmallWood Proofs.}{3}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Preliminaries}{3}{section.2}\protected@file@percent }
+\newlabel{sec:preliminaries}{{2}{3}{Preliminaries}{section.2}{}}
+\newlabel{sec:preliminaries@cref}{{[section][2][]2}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Notation}{3}{subsection.2.1}\protected@file@percent }
+\citation{EPRINT:DKLW25}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Commitment schemes and aligned linear commitments}{4}{subsection.2.2}\protected@file@percent }
+\newlabel{subsec:prelim-commit}{{2.2}{4}{Commitment schemes and aligned linear commitments}{subsection.2.2}{}}
+\newlabel{subsec:prelim-commit@cref}{{[subsection][2][2]2.2}{[1][4][]4}{}{}{}}
+\newlabel{subsec:commitments}{{2.2}{4}{Commitment schemes and aligned linear commitments}{subsection.2.2}{}}
+\newlabel{subsec:commitments@cref}{{[subsection][2][2]2.2}{[1][4][]4}{}{}{}}
+\newlabel{def:commitment-scheme}{{2.1}{4}{Commitment scheme}{theorem.2.1}{}}
+\newlabel{def:commitment-scheme@cref}{{[theorem][1][2]2.1}{[1][4][]4}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1}Aligned linear commitment}{4}{subsubsection.2.2.1}\protected@file@percent }
+\newlabel{def:sis-isis}{{2.2}{4}{Module-SIS and Module-ISIS over \(R_q\)}{theorem.2.2}{}}
+\newlabel{def:sis-isis@cref}{{[theorem][2][2]2.2}{[1][4][]4}{}{}{}}
+\newlabel{lem:ajtai-binding}{{2.3}{4}{Binding of the aligned commitment}{theorem.2.3}{}}
+\newlabel{lem:ajtai-binding@cref}{{[theorem][3][2]2.3}{[1][4][]4}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Lattice trapdoors and rational hashing}{4}{subsection.2.3}\protected@file@percent }
+\newlabel{subsec:prelim-vsis}{{2.3}{4}{Lattice trapdoors and rational hashing}{subsection.2.3}{}}
+\newlabel{subsec:prelim-vsis@cref}{{[subsection][3][2]2.3}{[1][4][]4}{}{}{}}
+\newlabel{def:trapdoor-suite}{{2.4}{4}{Lattice trapdoor suite}{theorem.2.4}{}}
+\newlabel{def:trapdoor-suite@cref}{{[theorem][4][2]2.4}{[1][4][]4}{}{}{}}
+\citation{EPRINT:DKLW25}
+\newlabel{def:trapdoor-rational-hash}{{2.5}{5}{Trapdoor rational hash}{theorem.2.5}{}}
+\newlabel{def:trapdoor-rational-hash@cref}{{[theorem][5][2]2.5}{[1][4][]5}{}{}{}}
+\newlabel{def:rational-hash}{{2.6}{5}{Rational hash, admissibility, and eliminated form}{theorem.2.6}{}}
+\newlabel{def:rational-hash@cref}{{[theorem][6][2]2.6}{[1][5][]5}{}{}{}}
+\newlabel{eq:hash-cleared}{{1}{5}{Rational hash, admissibility, and eliminated form}{equation.1}{}}
+\newlabel{eq:hash-cleared@cref}{{[equation][1][]1}{[1][5][]5}{}{}{}}
+\newlabel{lem:hash-cleared-admissible}{{2.7}{5}{Eliminated form under admissibility}{theorem.2.7}{}}
+\newlabel{lem:hash-cleared-admissible@cref}{{[theorem][7][2]2.7}{[1][5][]5}{}{}{}}
+\newlabel{subsec:aligned-hiding}{{2.3.1}{5}{Aligned commitment and aligned BB-tran target}{subsubsection.2.3.1}{}}
+\newlabel{subsec:aligned-hiding@cref}{{[subsubsection][1][2,3]2.3.1}{[1][5][]5}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.1}Aligned commitment and aligned BB-tran target}{5}{subsubsection.2.3.1}\protected@file@percent }
+\newlabel{eq:aligned-commitment}{{2}{5}{Aligned commitment and aligned BB-tran target}{equation.2}{}}
+\newlabel{eq:aligned-commitment@cref}{{[equation][2][]2}{[1][5][]5}{}{}{}}
+\newlabel{eq:aligned-blocks}{{3}{5}{Aligned commitment and aligned BB-tran target}{equation.3}{}}
+\newlabel{eq:aligned-blocks@cref}{{[equation][3][]3}{[1][5][]5}{}{}{}}
+\newlabel{eq:aligned-linear-part}{{4}{5}{Aligned commitment and aligned BB-tran target}{equation.4}{}}
+\newlabel{eq:aligned-linear-part@cref}{{[equation][4][]4}{[1][5][]5}{}{}{}}
+\newlabel{eq:aligned-inverse}{{5}{5}{Aligned commitment and aligned BB-tran target}{equation.5}{}}
+\newlabel{eq:aligned-inverse@cref}{{[equation][5][]5}{[1][5][]5}{}{}{}}
+\newlabel{eq:aligned-target}{{6}{5}{Aligned commitment and aligned BB-tran target}{equation.6}{}}
+\newlabel{eq:aligned-target@cref}{{[equation][6][]6}{[1][5][]5}{}{}{}}
+\newlabel{eq:aligned-target-public}{{7}{5}{Aligned commitment and aligned BB-tran target}{equation.7}{}}
+\newlabel{eq:aligned-target-public@cref}{{[equation][7][]7}{[1][5][]5}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Hiding-view experiment.}{6}{section*.11}\protected@file@percent }
+\newlabel{eq:hide-view-adv}{{8}{6}{Hiding-view experiment}{equation.8}{}}
+\newlabel{eq:hide-view-adv@cref}{{[equation][8][]8}{[1][6][]6}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Target-only hiding experiment.}{6}{section*.12}\protected@file@percent }
+\newlabel{eq:hide-target-adv}{{9}{6}{Target-only hiding experiment}{equation.9}{}}
+\newlabel{eq:hide-target-adv@cref}{{[equation][9][]9}{[1][6][]6}{}{}{}}
+\newlabel{thm:tran-commit-hiding}{{2.8}{6}{Commitment-lifted hiding of aligned BB-tran}{theorem.2.8}{}}
+\newlabel{thm:tran-commit-hiding@cref}{{[theorem][8][2]2.8}{[1][6][]6}{}{}{}}
+\newlabel{eq:tran-commit-hiding-red}{{10}{6}{Commitment-lifted hiding of aligned BB-tran}{equation.10}{}}
+\newlabel{eq:tran-commit-hiding-red@cref}{{[equation][10][]10}{[1][6][]6}{}{}{}}
+\newlabel{eq:tran-commit-red-target}{{11}{6}{Target-only hiding experiment}{equation.11}{}}
+\newlabel{eq:tran-commit-red-target@cref}{{[equation][11][]11}{[1][6][]6}{}{}{}}
+\newlabel{eq:tran-commit-red-distribution}{{12}{6}{Target-only hiding experiment}{equation.12}{}}
+\newlabel{eq:tran-commit-red-distribution@cref}{{[equation][12][]12}{[1][6][]6}{}{}{}}
+\newlabel{thm:tran-lwe-hiding}{{2.9}{6}{LWE-based hiding of aligned BB-tran}{theorem.2.9}{}}
+\newlabel{thm:tran-lwe-hiding@cref}{{[theorem][9][2]2.9}{[1][6][]6}{}{}{}}
+\newlabel{eq:tran-lwe-real}{{13}{6}{LWE-based hiding of aligned BB-tran}{equation.13}{}}
+\newlabel{eq:tran-lwe-real@cref}{{[equation][13][]13}{[1][6][]6}{}{}{}}
+\newlabel{eq:tran-lwe-rand}{{14}{6}{LWE-based hiding of aligned BB-tran}{equation.14}{}}
+\newlabel{eq:tran-lwe-rand@cref}{{[equation][14][]14}{[1][6][]6}{}{}{}}
+\newlabel{eq:tran-lwe-adv}{{15}{6}{LWE-based hiding of aligned BB-tran}{equation.15}{}}
+\newlabel{eq:tran-lwe-adv@cref}{{[equation][15][]15}{[1][6][]6}{}{}{}}
+\newlabel{eq:tran-lwe-commitment}{{16}{6}{Target-only hiding experiment}{equation.16}{}}
+\newlabel{eq:tran-lwe-commitment@cref}{{[equation][16][]16}{[1][6][]6}{}{}{}}
+\newlabel{eq:tran-lwe-target}{{17}{6}{Target-only hiding experiment}{equation.17}{}}
+\newlabel{eq:tran-lwe-target@cref}{{[equation][17][]17}{[1][6][]6}{}{}{}}
+\citation{EPRINT:DKLW25}
+\citation{EPRINT:DKLW25}
+\citation{EPRINT:DKLW25}
+\citation{EPRINT:DKLW25}
+\newlabel{eq:tran-lwe-success-real}{{18}{7}{Target-only hiding experiment}{equation.18}{}}
+\newlabel{eq:tran-lwe-success-real@cref}{{[equation][18][]18}{[1][7][]7}{}{}{}}
+\newlabel{eq:tran-lwe-success-rand}{{19}{7}{Target-only hiding experiment}{equation.19}{}}
+\newlabel{eq:tran-lwe-success-rand@cref}{{[equation][19][]19}{[1][7][]7}{}{}{}}
+\newlabel{cor:tran-target-hiding}{{2.10}{7}{The rational-hash output itself is hiding}{theorem.2.10}{}}
+\newlabel{cor:tran-target-hiding@cref}{{[theorem][10][2]2.10}{[1][7][]7}{}{}{}}
+\newlabel{eq:tran-target-hiding}{{20}{7}{The rational-hash output itself is hiding}{equation.20}{}}
+\newlabel{eq:tran-target-hiding@cref}{{[equation][20][]20}{[1][7][]7}{}{}{}}
+\newlabel{rem:aligned-public-identity}{{2.11}{7}{}{theorem.2.11}{}}
+\newlabel{rem:aligned-public-identity@cref}{{[theorem][11][2]2.11}{[1][7][]7}{}{}{}}
+\newlabel{def:vsis-template}{{2.12}{7}{vSIS-style hash-and-sign}{theorem.2.12}{}}
+\newlabel{def:vsis-template@cref}{{[theorem][12][2]2.12}{[1][7][]7}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Security of vSIS-style signatures.}{7}{section*.13}\protected@file@percent }
+\newlabel{def:vsis-games}{{2.13}{7}{Unforgeability for vSIS-style signatures}{theorem.2.13}{}}
+\newlabel{def:vsis-games@cref}{{[theorem][13][2]2.13}{[1][7][]7}{}{}{}}
+\newlabel{lem:vsis-unforgeability}{{2.14}{7}{Imported security properties of the non-blind rational-hash signature layer}{theorem.2.14}{}}
+\newlabel{lem:vsis-unforgeability@cref}{{[theorem][14][2]2.14}{[1][7][]7}{}{}{}}
+\citation{EPRINT:DKLW25}
+\citation{EPRINT:DKLW25}
+\citation{EPRINT:DKLW25}
+\citation{EPRINT:FenRiv25b}
+\citation{EPRINT:FenRiv25b}
+\citation{C:Fischlin06}
+\newlabel{rem:vsis-unforgeability}{{2.15}{8}{Scope of the DKLW import}{theorem.2.15}{}}
+\newlabel{rem:vsis-unforgeability@cref}{{[theorem][15][2]2.15}{[1][8][]8}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}Non-interactive zero-knowledge arguments of knowledge (NIZKs)}{8}{subsection.2.4}\protected@file@percent }
+\newlabel{subsec:prelim-nizk}{{2.4}{8}{Non-interactive zero-knowledge arguments of knowledge (NIZKs)}{subsection.2.4}{}}
+\newlabel{subsec:prelim-nizk@cref}{{[subsection][4][2]2.4}{[1][8][]8}{}{}{}}
+\newlabel{subsec:nizk-ark}{{2.4}{8}{Non-interactive zero-knowledge arguments of knowledge (NIZKs)}{subsection.2.4}{}}
+\newlabel{subsec:nizk-ark@cref}{{[subsection][4][2]2.4}{[1][8][]8}{}{}{}}
+\newlabel{def:nizk-ark}{{2.16}{8}{NIZKs in the random oracle model}{theorem.2.16}{}}
+\newlabel{def:nizk-ark@cref}{{[theorem][16][2]2.16}{[1][8][]8}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Completeness.}{8}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Straightline-extractable knowledge soundness.}{8}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Zero knowledge.}{8}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Blind signatures}{8}{subsection.2.5}\protected@file@percent }
+\newlabel{def:bs-syntax}{{2.17}{8}{Blind Signature}{theorem.2.17}{}}
+\newlabel{def:bs-syntax@cref}{{[theorem][17][2]2.17}{[1][8][]8}{}{}{}}
+\newlabel{def:bs-correctness}{{2.18}{8}{Correctness}{theorem.2.18}{}}
+\newlabel{def:bs-correctness@cref}{{[theorem][18][2]2.18}{[1][8][]8}{}{}{}}
+\newlabel{def:bs-blindness}{{2.19}{8}{Blindness}{theorem.2.19}{}}
+\newlabel{def:bs-blindness@cref}{{[theorem][19][2]2.19}{[1][8][]8}{}{}{}}
+\newlabel{def:bs-euf-cma}{{2.20}{8}{One-more unforgeability}{theorem.2.20}{}}
+\newlabel{def:bs-euf-cma@cref}{{[theorem][20][2]2.20}{[1][8][]8}{}{}{}}
+\citation{ietf-privacypass-arc-protocol-01}
+\citation{JC:FucHanSla19,C:BLNS23}
+\@writefile{toc}{\contentsline {paragraph}{Rate limiting at the ARC layer.}{9}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Anonymous Rate-Limiting Credentials (ARCs)}{9}{subsection.2.6}\protected@file@percent }
+\newlabel{subsec:arc-security}{{2.6}{9}{Anonymous Rate-Limiting Credentials (ARCs)}{subsection.2.6}{}}
+\newlabel{subsec:arc-security@cref}{{[subsection][6][2]2.6}{[1][9][]9}{}{}{}}
+\newlabel{def:arc-syntax}{{2.21}{9}{ARC scheme syntax}{theorem.2.21}{}}
+\newlabel{def:arc-syntax@cref}{{[theorem][21][2]2.21}{[1][9][]9}{}{}{}}
+\newlabel{def:arc-soundness}{{2.22}{9}{ARC soundness}{theorem.2.22}{}}
+\newlabel{def:arc-soundness@cref}{{[theorem][22][2]2.22}{[1][9][]9}{}{}{}}
+\newlabel{def:pres-unlink}{{2.23}{9}{Presentation unlinkability}{theorem.2.23}{}}
+\newlabel{def:pres-unlink@cref}{{[theorem][23][2]2.23}{[1][9][]9}{}{}{}}
+\citation{AFRICACRYPT:GraKhoSch23}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.7}Pseudorandom functions}{10}{subsection.2.7}\protected@file@percent }
+\newlabel{subsec:prelim-prf}{{2.7}{10}{Pseudorandom functions}{subsection.2.7}{}}
+\newlabel{subsec:prelim-prf@cref}{{[subsection][7][2]2.7}{[1][9][]10}{}{}{}}
+\newlabel{subsec:prf}{{2.7}{10}{Pseudorandom functions}{subsection.2.7}{}}
+\newlabel{subsec:prf@cref}{{[subsection][7][2]2.7}{[1][9][]10}{}{}{}}
+\newlabel{def:prf}{{2.24}{10}{Pseudorandom function (PRF)}{theorem.2.24}{}}
+\newlabel{def:prf@cref}{{[theorem][24][2]2.24}{[1][9][]10}{}{}{}}
+\newlabel{def:poseidon-perm}{{2.25}{10}{Poseidon2-style permutation structure}{theorem.2.25}{}}
+\newlabel{def:poseidon-perm@cref}{{[theorem][25][2]2.25}{[1][10][]10}{}{}{}}
+\newlabel{def:poseidon-prf}{{2.26}{10}{Poseidon2 PRF}{theorem.2.26}{}}
+\newlabel{def:poseidon-prf@cref}{{[theorem][26][2]2.26}{[1][10][]10}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Blind Signature Construction}{10}{section.3}\protected@file@percent }
+\newlabel{sec:blind-signature}{{3}{10}{Blind Signature Construction}{section.3}{}}
+\newlabel{sec:blind-signature@cref}{{[section][3][]3}{[1][10][]10}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.0.1}Randomizing the rational-hash witness}{10}{subsubsection.3.0.1}\protected@file@percent }
+\newlabel{subsec:bs-protocol}{{3.0.2}{10}{Blind Signature protocol}{subsubsection.3.0.2}{}}
+\newlabel{subsec:bs-protocol@cref}{{[subsubsection][2][3,0]3.0.2}{[1][10][]10}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.0.2}Blind Signature protocol}{10}{subsubsection.3.0.2}\protected@file@percent }
+\newlabel{bs:step:issuancenizk}{{21}{11}{Blind Signature protocol}{equation.21}{}}
+\newlabel{bs:step:issuancenizk@cref}{{[equation][21][]21}{[1][11][]11}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.0.3}Security}{11}{subsubsection.3.0.3}\protected@file@percent }
+\newlabel{prop:bs-issuance-hiding}{{3.2}{11}{Issuer-view message hiding of issuance}{theorem.3.2}{}}
+\newlabel{prop:bs-issuance-hiding@cref}{{[theorem][2][3]3.2}{[1][11][]11}{}{}{}}
+\newlabel{rem:blind-security-roadmap}{{3.3}{11}{Security status of the blind protocol}{theorem.3.3}{}}
+\newlabel{rem:blind-security-roadmap@cref}{{[theorem][3][3]3.3}{[1][11][]11}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}From Blind Signatures to ARC}{11}{section.4}\protected@file@percent }
+\newlabel{sec:arc-construction}{{4}{11}{From Blind Signatures to ARC}{section.4}{}}
+\newlabel{sec:arc-construction@cref}{{[section][4][]4}{[1][11][]11}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Rate-limiting via the secret key \(\ensuremath  {\mathbf  {k}}\).}{11}{section*.18}\protected@file@percent }
+\newlabel{subsec:arc-protocol}{{4.0.1}{11}{ARC protocol}{subsubsection.4.0.1}{}}
+\newlabel{subsec:arc-protocol@cref}{{[subsubsection][1][4,0]4.0.1}{[1][11][]11}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.0.1}ARC protocol}{11}{subsubsection.4.0.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Concrete PRF instantiation (Poseidon2-like)}{12}{subsection.4.1}\protected@file@percent }
+\newlabel{subsec:poseidon-prf}{{4.1}{12}{Concrete PRF instantiation (Poseidon2-like)}{subsection.4.1}{}}
+\newlabel{subsec:poseidon-prf@cref}{{[subsection][1][4]4.1}{[1][12][]12}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces $\mathsf  {F}(k,n)$ (Poseidon2-like with feed-forward + truncation)}}{12}{algorithm.1}\protected@file@percent }
+\newlabel{alg:prf}{{1}{12}{$\PRF (k,n)$ (Poseidon2-like with feed-forward + truncation)}{algorithm.1}{}}
+\newlabel{alg:prf@cref}{{[algorithm][1][]1}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Proof-friendly arithmetization.}{12}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}ARC correctness and conditional security decomposition}{12}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Honest correctness.}{12}{section*.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Cryptographic decomposition of the ARC layer.}{12}{section*.21}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Conditional policy soundness.}{13}{section*.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Conditional presentation unlinkability.}{13}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Attribute privacy and selective disclosure.}{13}{section*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}SmallWood Programming Model}{13}{section.5}\protected@file@percent }
+\newlabel{sec:smallwood-model}{{5}{13}{SmallWood Programming Model}{section.5}{}}
+\newlabel{sec:smallwood-model@cref}{{[section][5][]5}{[1][13][]13}{}{}{}}
+\newlabel{sec:smallwood}{{5}{13}{SmallWood Programming Model}{section.5}{}}
+\newlabel{sec:smallwood@cref}{{[section][5][]5}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Proof interface}{13}{subsection.5.1}\protected@file@percent }
+\newlabel{subsec:smallwood-interface}{{5.1}{13}{Proof interface}{subsection.5.1}{}}
+\newlabel{subsec:smallwood-interface@cref}{{[subsection][1][5]5.1}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Issuance as a SmallWood statement}{13}{subsection.5.2}\protected@file@percent }
+\newlabel{subsec:smallwood-issuance}{{5.2}{13}{Issuance as a SmallWood statement}{subsection.5.2}{}}
+\newlabel{subsec:smallwood-issuance@cref}{{[subsection][2][5]5.2}{[1][13][]13}{}{}{}}
+\newlabel{subsec:presign-compiled}{{5.2}{13}{Issuance as a SmallWood statement}{subsection.5.2}{}}
+\newlabel{subsec:presign-compiled@cref}{{[subsection][2][5]5.2}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Showing as a SmallWood statement}{13}{subsection.5.3}\protected@file@percent }
+\newlabel{subsec:smallwood-showing}{{5.3}{13}{Showing as a SmallWood statement}{subsection.5.3}{}}
+\newlabel{subsec:smallwood-showing@cref}{{[subsection][3][5]5.3}{[1][13][]13}{}{}{}}
+\newlabel{subsec:showing-compiled}{{5.3}{13}{Showing as a SmallWood statement}{subsection.5.3}{}}
+\newlabel{subsec:showing-compiled@cref}{{[subsection][3][5]5.3}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}PRF companion relation}{14}{subsection.5.4}\protected@file@percent }
+\newlabel{subsec:prf-checkpointed}{{5.4}{14}{PRF companion relation}{subsection.5.4}{}}
+\newlabel{subsec:prf-checkpointed@cref}{{[subsection][4][5]5.4}{[1][14][]14}{}{}{}}
+\newlabel{subsec:prf-constraints}{{5.4}{14}{PRF companion relation}{subsection.5.4}{}}
+\newlabel{subsec:prf-constraints@cref}{{[subsection][4][5]5.4}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5}Hiding and statement strength}{14}{subsection.5.5}\protected@file@percent }
+\newlabel{subsec:statement-strength}{{5.5}{14}{Hiding and statement strength}{subsection.5.5}{}}
+\newlabel{subsec:statement-strength@cref}{{[subsection][5][5]5.5}{[1][14][]14}{}{}{}}
+\newlabel{lem:replay-transform}{{5.1}{14}{Exact replay transform}{theorem.5.1}{}}
+\newlabel{lem:replay-transform@cref}{{[theorem][1][5]5.1}{[1][14][]14}{}{}{}}
+\newlabel{lem:showing-to-cleared}{{5.2}{14}{Replay-space certification implies the eliminated coefficient-domain BB-tran identity}{theorem.5.2}{}}
+\newlabel{lem:showing-to-cleared@cref}{{[theorem][2][5]5.2}{[1][14][]14}{}{}{}}
+\newlabel{cor:showing-to-abstract}{{5.3}{14}{Abstract rational-hash consequence}{theorem.5.3}{}}
+\newlabel{cor:showing-to-abstract@cref}{{[theorem][3][5]5.3}{[1][14][]14}{}{}{}}
+\newlabel{cor:showing-proof-consequence}{{5.4}{14}{Consequence of an accepting post-sign proof}{theorem.5.4}{}}
+\newlabel{cor:showing-proof-consequence@cref}{{[theorem][4][5]5.4}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Parameters and Integration}{14}{section.6}\protected@file@percent }
+\newlabel{sec:parameters}{{6}{14}{Parameters and Integration}{section.6}{}}
+\newlabel{sec:parameters@cref}{{[section][6][]6}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Parameter dependencies}{14}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Sampler parameters}{14}{subsection.6.2}\protected@file@percent }
+\citation{EPRINT:DKLW25}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}vSIS and rational-hash parameters}{15}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Rational-hash admissibility.}{15}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{No wrap-around in bounds.}{15}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Non-blind reduction parameters.}{15}{section*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4}SmallWood parameters}{15}{subsection.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Full replay-image geometry.}{15}{section*.28}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Replay width as a proof-size knob.}{15}{section*.29}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Replay-transform obligations for the showing theorem.}{15}{section*.30}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.5}PRF parameters}{15}{subsection.6.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6}Sizing discussion}{15}{subsection.6.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Implementation Results}{15}{section.7}\protected@file@percent }
+\newlabel{sec:implementation-results}{{7}{15}{Implementation Results}{section.7}{}}
+\newlabel{sec:implementation-results@cref}{{[section][7][]7}{[1][15][]15}{}{}{}}
+\bibstyle{alpha}
+\bibdata{./biblio/crypto,./biblio/abbrev3,./biblio/references}
+\bibcite{CCS:AGJLRS24}{{AGJ{$^{+}$}24}{}{{}}{{}}}
+\bibcite{google-pq}{{AS26}{}{{}}{{}}}
+\bibcite{EPRINT:BFMRSV25a}{{BFM{$^{+}$}25}{}{{}}{{}}}
+\bibcite{CCS:BLNS23}{{BLNS23a}{}{{}}{{}}}
+\bibcite{C:BLNS23}{{BLNS23b}{}{{}}{{}}}
+\bibcite{EC:Brands95}{{Bra95}{}{{}}{{}}}
+\bibcite{AC:CDLT25}{{CADLT25}{}{{}}{{}}}
+\bibcite{rfc9578}{{CDVW24}{}{{}}{{}}}
+\bibcite{chaum85-anonymous-credentials}{{Cha85}{}{{}}{{}}}
+\bibcite{EC:CamLys01}{{CL01}{}{{}}{{}}}
+\bibcite{EPRINT:DKLW25}{{DKLW25a}{}{{}}{{}}}
+\bibcite{PKC:DKLW25}{{DKLW25b}{}{{}}{{}}}
+\bibcite{EPRINT:ENSTW23}{{ENS{$^{+}$}23}{}{{}}{{}}}
+\bibcite{JC:FucHanSla19}{{FHS19}{}{{}}{{}}}
+\bibcite{C:Fischlin06}{{Fis06}{}{{}}{{}}}
+\bibcite{EPRINT:FenRiv25a}{{FR25a}{}{{}}{{}}}
+\bibcite{EPRINT:FenRiv25b}{{FR25b}{}{{}}{{}}}
+\bibcite{USENIX:GKRRS21}{{GKR{$^{+}$}21}{}{{}}{{}}}
+\bibcite{AFRICACRYPT:GraKhoSch23}{{GKS23}{}{{}}{{}}}
+\bibcite{STOC:GenPeiVai08}{{GPV08}{}{{}}{{}}}
+\bibcite{C:JeuRouSan23}{{JRS23}{}{{}}{{}}}
+\bibcite{AC:JeuSan25}{{JS25}{}{{}}{{}}}
+\bibcite{EPRINT:LCLLW23}{{LCL{$^{+}$}23}{}{{}}{{}}}
+\bibcite{CCS:LyuSeiSte24}{{LSS24}{}{{}}{{}}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Implementation measurements for the measured issuance instance and the retained reduced-replay showing instance. SmallWood tuples are listed in the order \((NCols,\ell ,\ell ',\rho ,\theta ,\eta ,LVCSNCols,NLeaves)\). ``Paper transcript'' denotes the paper-faithful transcript accounting, whereas ``verifier payload'' denotes the current serialized proof object consumed by the implementation.}}{16}{table.caption.31}\protected@file@percent }
+\newlabel{tab:implementation-results}{{1}{16}{Implementation measurements for the measured issuance instance and the retained reduced-replay showing instance. SmallWood tuples are listed in the order \((NCols,\ell ,\ell ',\rho ,\theta ,\eta ,LVCSNCols,NLeaves)\). ``Paper transcript'' denotes the paper-faithful transcript accounting, whereas ``verifier payload'' denotes the current serialized proof object consumed by the implementation}{table.caption.31}{}}
+\newlabel{tab:implementation-results@cref}{{[table][1][]1}{[1][16][]16}{}{}{}}
+\@writefile{toc}{\contentsline {section}{References}{16}{section*.33}\protected@file@percent }
+\bibcite{EPRINT:PWFW23}{{PWFW23}{}{{}}{{}}}
+\bibcite{schlesinger-cfrg-act-00}{{SK25}{}{{}}{{}}}
+\bibcite{ietf-privacypass-arc-protocol-01}{{YWFH26}{}{{}}{{}}}
+\citation{PKC:DKLW25}
+\citation{EPRINT:DKLW25}
+\citation{EPRINT:ENSTW23}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Additional Preliminaries}{17}{appendix.A}\protected@file@percent }
+\newlabel{app:defs}{{A}{17}{Additional Preliminaries}{appendix.A}{}}
+\newlabel{app:defs@cref}{{[section][1][]A}{[1][17][]17}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.1}Security assumptions for Lattices}{17}{subsection.A.1}\protected@file@percent }
+\newlabel{app:assumptions lattices}{{A.1}{17}{Security assumptions for Lattices}{subsection.A.1}{}}
+\newlabel{app:assumptions lattices@cref}{{[subsection][1][1]A.1}{[1][17][]17}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.2}Centering map and carries}{17}{subsection.A.2}\protected@file@percent }
+\newlabel{lem:center-uniform}{{A.1}{17}{Centering preserves uniformity}{theorem.A.1}{}}
+\newlabel{lem:center-uniform@cref}{{[theorem][1][1]A.1}{[1][17][]17}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.3}Vanishing polynomials for membership constraints}{17}{subsection.A.3}\protected@file@percent }
+\newlabel{def:vanish-bound}{{A.2}{17}{Vanishing polynomial for \(\lbrack -\BoundB ,\BoundB \rbrack \)}{theorem.A.2}{}}
+\newlabel{def:vanish-bound@cref}{{[theorem][2][1]A.2}{[1][17][]17}{}{}{}}
+\newlabel{def:vanish-carry}{{A.3}{17}{Vanishing polynomial for \(\{-1,0,1\}\)}{theorem.A.3}{}}
+\newlabel{def:vanish-carry@cref}{{[theorem][3][1]A.3}{[1][17][]17}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {B}Gaussian Preimage Sampling}{17}{appendix.B}\protected@file@percent }
+\newlabel{app:gaussian-sampler}{{B}{17}{Gaussian Preimage Sampling}{appendix.B}{}}
+\newlabel{app:gaussian-sampler@cref}{{[section][2][]B}{[1][17][]17}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.1}The preimage sampling problem}{17}{subsection.B.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.2}NTRU trapdoor form and quality}{17}{subsection.B.2}\protected@file@percent }
+\newlabel{subsec:ntru-trapdoor}{{B.2}{17}{NTRU trapdoor form and quality}{subsection.B.2}{}}
+\newlabel{subsec:ntru-trapdoor@cref}{{[subsection][2][2]B.2}{[1][17][]17}{}{}{}}
+\citation{EPRINT:ENSTW23}
+\citation{EPRINT:ENSTW23}
+\citation{EPRINT:ENSTW23}
+\citation{EPRINT:ENSTW23}
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.3}Sampler definition and tuning}{18}{subsection.B.3}\protected@file@percent }
+\newlabel{subsec:sampler-tuning}{{B.3}{18}{Sampler definition and tuning}{subsection.B.3}{}}
+\newlabel{subsec:sampler-tuning@cref}{{[subsection][3][2]B.3}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Per-slot calibration.}{18}{section*.34}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Hiding threshold (smoothing).}{18}{section*.35}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.4}Annulus sampling (Antrag key generation)}{18}{subsection.B.4}\protected@file@percent }
+\newlabel{subsec:antrag}{{B.4}{18}{Annulus sampling (Antrag key generation)}{subsection.B.4}{}}
+\newlabel{subsec:antrag@cref}{{[subsection][4][2]B.4}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.5}Hybrid two-plane sampler (details)}{18}{subsection.B.5}\protected@file@percent }
+\newlabel{subsec:hybrid-sampler}{{B.5}{18}{Hybrid two-plane sampler (details)}{subsection.B.5}{}}
+\newlabel{subsec:hybrid-sampler@cref}{{[subsection][5][2]B.5}{[1][18][]18}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {2}{\ignorespaces \(\ensuremath  {\mathsf  {SampPre}}(\mathsf  {td}_A,t)\): two-plane hybrid sampler (sketch)}}{18}{algorithm.2}\protected@file@percent }
+\newlabel{alg:samppre}{{2}{18}{\(\SampPre (\mathsf {td}_A,t)\): two-plane hybrid sampler (sketch)}{algorithm.2}{}}
+\newlabel{alg:samppre@cref}{{[algorithm][2][]2}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Public relations.}{18}{section*.36}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {C}SmallWood proof-stack details}{18}{appendix.C}\protected@file@percent }
+\newlabel{app:smallwood}{{C}{18}{SmallWood proof-stack details}{appendix.C}{}}
+\newlabel{app:smallwood@cref}{{[section][3][]C}{[1][18][]18}{}{}{}}
+\newlabel{app:smallwood-details}{{C}{18}{SmallWood proof-stack details}{appendix.C}{}}
+\newlabel{app:smallwood-details@cref}{{[section][3][]C}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.1}Deferred row inventories and bridge formulas}{18}{subsection.C.1}\protected@file@percent }
+\newlabel{subsec:smallwood-row-inventories}{{C.1}{18}{Deferred row inventories and bridge formulas}{subsection.C.1}{}}
+\newlabel{subsec:smallwood-row-inventories@cref}{{[subsection][1][3]C.1}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Issuance witness surface.}{18}{section*.37}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Showing witness surface.}{19}{section*.38}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2}Domains and packing}{19}{subsection.C.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.3}DECS (Degree-Enforcing Commitment Scheme)}{19}{subsection.C.3}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {3}{\ignorespaces \textsf  {DECS.DeriveGamma}(\(\mathsf  {root},\eta ,r,q\)) \(\to \Gamma \) (verifier and prover)}}{19}{algorithm.3}\protected@file@percent }
+\newlabel{alg:decs-derivegamma}{{3}{19}{\textsf {DECS.DeriveGamma}(\(\mathsf {root},\eta ,r,q\)) \(\to \Gamma \) (verifier and prover)}{algorithm.3}{}}
+\newlabel{alg:decs-derivegamma@cref}{{[algorithm][3][]3}{[1][19][]19}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {4}{\ignorespaces \textsf  {DECS.VerifyEval}(\(\mathsf  {root},\Gamma ,R,\mathsf  {open}\)) (verifier)}}{19}{algorithm.4}\protected@file@percent }
+\newlabel{alg:decs-verifyeval}{{4}{19}{\textsf {DECS.VerifyEval}(\(\mathsf {root},\Gamma ,R,\mathsf {open}\)) (verifier)}{algorithm.4}{}}
+\newlabel{alg:decs-verifyeval@cref}{{[algorithm][4][]4}{[1][19][]19}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.4}LVCS (Linear Vector Commitments)}{19}{subsection.C.4}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {5}{\ignorespaces \textsf  {LVCS.CommitInitWithParams}(\(\mathrm  {ringQ},\{r_j\}_{j<r},\ell ,\mathrm  {params}\)) \(\to (\mathsf  {root},\mathsf  {ProverKey})\) (prover)}}{19}{algorithm.5}\protected@file@percent }
+\newlabel{alg:lvcs-commitinit}{{5}{19}{\textsf {LVCS.CommitInitWithParams}(\(\mathrm {ringQ},\{r_j\}_{j<r},\ell ,\mathrm {params}\)) \(\to (\mathsf {root},\mathsf {ProverKey})\) (prover)}{algorithm.5}{}}
+\newlabel{alg:lvcs-commitinit@cref}{{[algorithm][5][]5}{[1][19][]19}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {6}{\ignorespaces \textsf  {LVCS.CommitStep1}(\(\mathsf  {root}\)) \(\to \Gamma \) (verifier)}}{19}{algorithm.6}\protected@file@percent }
+\newlabel{alg:lvcs-commitstep1}{{6}{19}{\textsf {LVCS.CommitStep1}(\(\mathsf {root}\)) \(\to \Gamma \) (verifier)}{algorithm.6}{}}
+\newlabel{alg:lvcs-commitstep1@cref}{{[algorithm][6][]6}{[1][19][]19}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {7}{\ignorespaces \textsf  {LVCS.CommitStep2}(\(\{R_k\}_{k<\eta }\)) \(\to \) accept/reject (verifier)}}{20}{algorithm.7}\protected@file@percent }
+\newlabel{alg:lvcs-commitstep2}{{7}{20}{\textsf {LVCS.CommitStep2}(\(\{R_k\}_{k<\eta }\)) \(\to \) accept/reject (verifier)}{algorithm.7}{}}
+\newlabel{alg:lvcs-commitstep2@cref}{{[algorithm][7][]7}{[1][19][]20}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {8}{\ignorespaces \textsf  {LVCS.EvalInitMany}(\(\mathrm  {ringQ},\mathsf  {ProverKey},\{\mathrm  {Coeffs}_k\}_{k<m}\)) \(\to \{\bar  v_k\}_{k<m}\) (prover)}}{20}{algorithm.8}\protected@file@percent }
+\newlabel{alg:lvcs-evalinit}{{8}{20}{\textsf {LVCS.EvalInitMany}(\(\mathrm {ringQ},\mathsf {ProverKey},\{\mathrm {Coeffs}_k\}_{k<m}\)) \(\to \{\bar v_k\}_{k<m}\) (prover)}{algorithm.8}{}}
+\newlabel{alg:lvcs-evalinit@cref}{{[algorithm][8][]8}{[1][20][]20}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {9}{\ignorespaces \textsf  {LVCS.ChooseE}(\(\ell ,n_{\mathrm  {cols}}\)) \(\to E\) (verifier)}}{20}{algorithm.9}\protected@file@percent }
+\newlabel{alg:lvcs-choosee}{{9}{20}{\textsf {LVCS.ChooseE}(\(\ell ,n_{\mathrm {cols}}\)) \(\to E\) (verifier)}{algorithm.9}{}}
+\newlabel{alg:lvcs-choosee@cref}{{[algorithm][9][]9}{[1][20][]20}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {10}{\ignorespaces \textsf  {LVCS.EvalFinish}(\(\mathsf  {ProverKey},E\)) \(\to \mathsf  {Opening}\) (prover)}}{20}{algorithm.10}\protected@file@percent }
+\newlabel{alg:lvcs-evalfinish}{{10}{20}{\textsf {LVCS.EvalFinish}(\(\mathsf {ProverKey},E\)) \(\to \mathsf {Opening}\) (prover)}{algorithm.10}{}}
+\newlabel{alg:lvcs-evalfinish@cref}{{[algorithm][10][]10}{[1][20][]20}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {11}{\ignorespaces \textsf  {LVCS.EvalStep2}(\(\{\bar  v_k\},E,\mathsf  {open},C,v_{\mathrm  {targets}}\)) (verifier)}}{20}{algorithm.11}\protected@file@percent }
+\newlabel{alg:lvcs-evalstep2}{{11}{20}{\textsf {LVCS.EvalStep2}(\(\{\bar v_k\},E,\mathsf {open},C,v_{\mathrm {targets}}\)) (verifier)}{algorithm.11}{}}
+\newlabel{alg:lvcs-evalstep2@cref}{{[algorithm][11][]11}{[1][20][]20}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.5}LVCS and PCS/PIOP}{20}{subsection.C.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.6}What DECS/LVCS/PCS bind in ARC-SPRUCE}{20}{subsection.C.6}\protected@file@percent }
+\newlabel{app:smallwood-binds}{{C.6}{20}{What DECS/LVCS/PCS bind in ARC-SPRUCE}{subsection.C.6}{}}
+\newlabel{app:smallwood-binds@cref}{{[subsection][6][3]C.6}{[1][20][]20}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.7}Openings requested in issuance and showing}{20}{subsection.C.7}\protected@file@percent }
+\newlabel{app:smallwood-openings}{{C.7}{20}{Openings requested in issuance and showing}{subsection.C.7}{}}
+\newlabel{app:smallwood-openings@cref}{{[subsection][7][3]C.7}{[1][20][]20}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Pre-sign witness surface and replay.}{20}{section*.39}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Post-sign witness surface and replay.}{21}{section*.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Replay-transform realization.}{21}{section*.41}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Proof of Lemma\nonbreakingspace \ref {lem:replay-transform}.}{21}{section*.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Proof of Lemma\nonbreakingspace \ref {lem:showing-to-cleared}.}{21}{section*.43}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The \(\Omega \)-sum check.}{21}{section*.44}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.8}PACS/PIOP interface}{21}{subsection.C.8}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {12}{\ignorespaces \textsf  {PACS.PIOPCommitOracle}\(_{\mathrm  {Prover}}(\textsf  {params})\to \textsf  {pcsCom}\)}}{21}{algorithm.12}\protected@file@percent }
+\newlabel{alg:pacs-commitoracle}{{12}{21}{\textsf {PACS.PIOPCommitOracle}\(_{\mathrm {Prover}}(\textsf {params})\to \textsf {pcsCom}\)}{algorithm.12}{}}
+\newlabel{alg:pacs-commitoracle@cref}{{[algorithm][12][]12}{[1][21][]21}{}{}{}}
+\citation{EPRINT:FenRiv25b}
+\citation{EPRINT:FenRiv25b}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {13}{\ignorespaces \textsf  {PACS.PIOPBatchCombine}\(_{\mathrm  {Prover}}(\textsf  {pcsCom},\Gamma ')\to Q\)}}{22}{algorithm.13}\protected@file@percent }
+\newlabel{alg:pacs-batchcombine}{{13}{22}{\textsf {PACS.PIOPBatchCombine}\(_{\mathrm {Prover}}(\textsf {pcsCom},\Gamma ')\to Q\)}{algorithm.13}{}}
+\newlabel{alg:pacs-batchcombine@cref}{{[algorithm][13][]13}{[1][21][]22}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {14}{\ignorespaces \textsf  {PACS.PIOPOpenAndCheck}(\(\textsf  {pcsCom},Q\)) (verifier)}}{22}{algorithm.14}\protected@file@percent }
+\newlabel{alg:pacs-openandcheck}{{14}{22}{\textsf {PACS.PIOPOpenAndCheck}(\(\textsf {pcsCom},Q\)) (verifier)}{algorithm.14}{}}
+\newlabel{alg:pacs-openandcheck@cref}{{[algorithm][14][]14}{[1][22][]22}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.9}Fiat--Shamir compilation}{22}{subsection.C.9}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {15}{\ignorespaces \textsf  {PACS.ToNIZK} (Fiat--Shamir wrapper with grinding)}}{22}{algorithm.15}\protected@file@percent }
+\newlabel{alg:pacs-tonizk}{{15}{22}{\textsf {PACS.ToNIZK} (Fiat--Shamir wrapper with grinding)}{algorithm.15}{}}
+\newlabel{alg:pacs-tonizk@cref}{{[algorithm][15][]15}{[1][22][]22}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {D}Extended Parameters and Benchmarks}{22}{appendix.D}\protected@file@percent }
+\newlabel{app:ext-params}{{D}{22}{Extended Parameters and Benchmarks}{appendix.D}{}}
+\newlabel{app:ext-params@cref}{{[section][4][]D}{[1][22][]22}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.1}Admissibility checklist}{22}{subsection.D.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.2}Smoothing and sampler budgets}{22}{subsection.D.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.3}Example lattice parameters}{22}{subsection.D.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Example lattice parameters (illustrative; see Appendix\nonbreakingspace \ref {app:gaussian-sampler} for the sampling interface and tuning).}}{22}{table.caption.45}\protected@file@percent }
+\newlabel{tab:lattice-params}{{2}{22}{Example lattice parameters (illustrative; see Appendix~\ref {app:gaussian-sampler} for the sampling interface and tuning)}{table.caption.45}{}}
+\newlabel{tab:lattice-params@cref}{{[table][2][]2}{[1][22][]22}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.4}SmallWood soundness terms}{22}{subsection.D.4}\protected@file@percent }
+\newlabel{tocindent-1}{0pt}
+\newlabel{tocindent0}{0pt}
+\newlabel{tocindent1}{7.06522pt}
+\newlabel{tocindent2}{14.25961pt}
+\newlabel{tocindent3}{22.09708pt}
+\providecommand\NAT@force@numbers{}\NAT@force@numbers
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.5}SmallWood knobs (example)}{23}{subsection.D.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.6}Extended benchmark grid (SmallWood)}{23}{subsection.D.6}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Example sweep over SmallWood knobs (proof size, prover time, and soundness bits). Sizes exclude public parameters.}}{23}{table.caption.46}\protected@file@percent }
+\newlabel{tab:results-grid}{{3}{23}{Example sweep over SmallWood knobs (proof size, prover time, and soundness bits). Sizes exclude public parameters}{table.caption.46}{}}
+\newlabel{tab:results-grid@cref}{{[table][3][]3}{[1][23][]23}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {E}PRF Details and Miscellaneous}{23}{appendix.E}\protected@file@percent }
+\newlabel{app:prf}{{E}{23}{PRF Details and Miscellaneous}{appendix.E}{}}
+\newlabel{app:prf@cref}{{[section][5][]E}{[1][23][]23}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.1}PRF specification}{23}{subsection.E.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.2}Permutation structure}{23}{subsection.E.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{External and internal rounds.}{23}{section*.47}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.3}Parameter generation}{23}{subsection.E.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.4}Arithmetization strategy (System A with checkpoints)}{23}{subsection.E.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Status of the checkpoint schedule.}{23}{section*.48}\protected@file@percent }
+\newlabel{TotPages}{{23}{23}{}{page.23}{}}
+\gdef \@abspage@last{23}

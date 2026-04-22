@@ -1,6 +1,7 @@
 package PIOP
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -89,6 +90,19 @@ func TestSigShortnessProofV6RoundTripAndDigestBinding(t *testing.T) {
 	if hiddenRep.PaperTranscript.OptimizedBytes >= 12000 {
 		t.Fatalf("hidden sig shortness paper transcript=%d want < 12000", hiddenRep.PaperTranscript.OptimizedBytes)
 	}
+	fullRep, err := BuildProofReport(proof, fx.opts, fx.ringQ)
+	if err != nil {
+		t.Fatalf("build full sig shortness report: %v", err)
+	}
+	if fullRep.SigShortness.HiddenRadix != proof.SigShortness.V6.Radix || fullRep.SigShortness.HiddenDigits != proof.SigShortness.V6.Digits {
+		t.Fatalf("hidden shortness report shape mismatch: got R=%d L=%d want R=%d L=%d", fullRep.SigShortness.HiddenRadix, fullRep.SigShortness.HiddenDigits, proof.SigShortness.V6.Radix, proof.SigShortness.V6.Digits)
+	}
+	if fullRep.TranscriptFocus.HiddenShortnessRadix != proof.SigShortness.V6.Radix || fullRep.TranscriptFocus.HiddenShortnessDigits != proof.SigShortness.V6.Digits {
+		t.Fatalf("hidden transcript focus shape mismatch: got R=%d L=%d want R=%d L=%d", fullRep.TranscriptFocus.HiddenShortnessRadix, fullRep.TranscriptFocus.HiddenShortnessDigits, proof.SigShortness.V6.Radix, proof.SigShortness.V6.Digits)
+	}
+	if fullRep.SigShortness.HiddenProfile == "" || fullRep.TranscriptFocus.HiddenShortnessProfile == "" {
+		t.Fatalf("hidden shortness profile missing from report: sig=%q focus=%q", fullRep.SigShortness.HiddenProfile, fullRep.TranscriptFocus.HiddenShortnessProfile)
+	}
 
 	tampered := cloneProofWithSigShortnessForTest(proof)
 	tampered.SigShortness.V6.HiddenProof.Digests[0][0] ^= 1
@@ -121,6 +135,107 @@ func TestSigShortnessProofV6RejectsTHatAndHiddenLabelsTamper(t *testing.T) {
 			t.Fatalf("tampered hidden labels digest unexpectedly verified")
 		}
 	})
+}
+
+func TestSigShortnessProofV6FullReplayTHatOpeningRoundTripRetainsExplicitMvals(t *testing.T) {
+	fx := buildTransformBridgeFullFixture(t)
+	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
+	if err != nil {
+		t.Fatalf("build full replay showing combined: %v", err)
+	}
+	if proof.SigShortness == nil || proof.SigShortness.Version != sigShortnessProofVersionV6 || proof.SigShortness.V6 == nil || proof.SigShortness.V6.THatOpening == nil {
+		t.Fatalf("missing sig shortness V6 T-hat opening")
+	}
+	pcsNCols := resolveProofPCSNCols(proof, 0)
+	if pcsNCols <= 0 {
+		t.Fatalf("missing pcs ncols")
+	}
+	wantSlots, err := buildSigShortnessSupportSlotsForVersion(proof.RowLayout, pcsNCols, sigShortnessProofVersionV6)
+	if err != nil {
+		t.Fatalf("build support slots: %v", err)
+	}
+	gotSlots := expandPackedOpening(proof.SigShortness.V6.THatOpening).AllIndices()
+	if !equalIntSlices(gotSlots, wantSlots) {
+		t.Fatalf("full replay support slots=%v want %v", gotSlots, wantSlots)
+	}
+	packed := proof.SigShortness.V6.THatOpening
+	if packed.MFormatVersion != 0 || packed.MColsEncoded != 0 || len(packed.MOmitCols) != 0 {
+		t.Fatalf("full replay T-hat opening should keep explicit M-values, got format=%d cols=%d omit=%v", packed.MFormatVersion, packed.MColsEncoded, packed.MOmitCols)
+	}
+	if len(packed.MvalsBits) == 0 {
+		t.Fatalf("full replay T-hat opening lost serialized M-values")
+	}
+	expanded := expandPackedOpening(packed)
+	if len(expanded.Mvals) != expanded.EntryCount() {
+		t.Fatalf("expanded M row count=%d want %d", len(expanded.Mvals), expanded.EntryCount())
+	}
+	if len(expanded.Mvals) == 0 || len(expanded.Mvals[0]) != expanded.Eta {
+		t.Fatalf("expanded M width mismatch: rows=%d eta=%d", len(expanded.Mvals), expanded.Eta)
+	}
+	params, rowCount, err := deriveMainPCSSubsetParams(proof)
+	if err != nil {
+		t.Fatalf("derive main pcs subset params: %v", err)
+	}
+	gamma, err := deriveMainPCSSubsetGamma(proof, rowCount, fx.ringQ.Modulus[0])
+	if err != nil {
+		t.Fatalf("derive main pcs subset gamma: %v", err)
+	}
+	domainPoints, err := deriveProofExplicitDomainPoints(proof, fx.ringQ.Modulus[0], proof.NColsUsed, pcsNCols)
+	if err != nil {
+		t.Fatalf("derive proof explicit domain points: %v", err)
+	}
+	rPolys := make([]*ring.Poly, len(proof.R))
+	for i := range proof.R {
+		rPolys[i] = coeffsToNTTIfFits(fx.ringQ, proof.R[i])
+		if rPolys[i] == nil {
+			t.Fatalf("R polynomial %d too large to materialize", i)
+		}
+	}
+	replayWitnessRows, err := sigShortnessReplayWitnessRows(proof)
+	if err != nil {
+		t.Fatalf("sig shortness replay witness rows: %v", err)
+	}
+	prepared, err := prepareSigShortnessOpeningForVerify(packed, gamma, rPolys, domainPoints, fx.ringQ, replayWitnessRows)
+	if err != nil {
+		t.Fatalf("prepare sig shortness opening for verify: %v", err)
+	}
+	if !reflect.DeepEqual(prepared.Mvals, expanded.Mvals) {
+		t.Fatalf("prepared M-values changed across full replay round-trip")
+	}
+	if !reflect.DeepEqual(prepared.Pvals, expanded.Pvals) {
+		t.Fatalf("prepared P-values changed across full replay round-trip")
+	}
+	if err := verifyDECSSubset(fx.ringQ, proof.Root, params, gamma, rPolys, prepared, wantSlots, domainPoints); err != nil {
+		t.Fatalf("verify full replay T-hat subset: %v", err)
+	}
+}
+
+func TestPlanFullReplayTHatRowsUsesSixSlotStripe(t *testing.T) {
+	tHatRows, otherRows, err := planFullReplayTHatRows(4, 384, 32, 64)
+	if err != nil {
+		t.Fatalf("plan full replay T-hat rows: %v", err)
+	}
+	if got, want := len(tHatRows), 64; got != want {
+		t.Fatalf("planned T-hat rows=%d want %d", got, want)
+	}
+	if got, want := len(otherRows), 320; got != want {
+		t.Fatalf("planned non-T-hat rows=%d want %d", got, want)
+	}
+	slotSet := make(map[int]struct{}, len(fullReplayTHatStripeSlots))
+	for _, slot := range fullReplayTHatStripeSlots {
+		slotSet[slot] = struct{}{}
+	}
+	seenSlots := make(map[int]struct{}, len(fullReplayTHatStripeSlots))
+	for _, row := range tHatRows {
+		slot := row % 32
+		if _, ok := slotSet[slot]; !ok {
+			t.Fatalf("planned T-hat row=%d uses slot=%d outside stripe=%v", row, slot, fullReplayTHatStripeSlots)
+		}
+		seenSlots[slot] = struct{}{}
+	}
+	if got, want := len(seenSlots), len(fullReplayTHatStripeSlots); got != want {
+		t.Fatalf("planned T-hat slot count=%d want %d", got, want)
+	}
 }
 
 func TestSigShortnessProofV6DigestMatchesVerifierRound0Material(t *testing.T) {

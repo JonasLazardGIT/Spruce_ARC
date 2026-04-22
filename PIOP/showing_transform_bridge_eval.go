@@ -31,8 +31,6 @@ type transformBridgePostSignConfig struct {
 	BlockFactors    [][]uint64
 	ComponentCount  int
 	SourceBlocks    int
-	UsesCommittedT  bool
-
 	MsgDecode1        []uint64
 	MsgDecode2        []uint64
 	CtrDecode1        []uint64
@@ -41,10 +39,17 @@ type transformBridgePostSignConfig struct {
 	CtrMembershipPoly []uint64
 	KeyBindLayout     prfKeyBindingLayout
 	PRFConstRows      []int
+	UseSourceProductBridge bool
+	SourceProductMSigmaR1Coeff []uint64
+	SourceProductR0R1Coeff     []uint64
+	SourceProductHeads         [][]uint64
+	SourceProductOmegaS1Limbs  [][]uint64
+	SourceProductOmegaS1       []uint64
+	PRFBridgeStripeSourceRows   []int
+	PRFBridgeStripePhysicalRows []int
 }
 
-func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, omegaWitness, domainPoints []uint64, bound int64, prfLayout *PRFLayout, prfCompanionLayout *PRFCompanionLayout, opts SimOpts) (*transformBridgePostSignConfig, error) {
-	_ = opts
+func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub PublicInputs, layout RowLayout, omegaWitness, domainPoints []uint64, bound int64, prfLayout *PRFLayout, prfCompanionLayout *PRFCompanionLayout, opts SimOpts) (*transformBridgePostSignConfig, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -57,7 +62,11 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	if len(pub.B) < 4 {
 		return nil, fmt.Errorf("transform-bridge replay requires 4 B rows, got %d", len(pub.B))
 	}
-	if publicUsesBBTran(pub) && (layout.IdxMSigmaR1 < 0 || layout.IdxR0R1 < 0 || layout.IdxMSigmaR1Hat < 0 || layout.IdxR0R1Hat < 0) {
+	useBBTran := publicUsesBBTran(pub)
+	if useBBTran && (layout.IdxMSigmaR1Hat < 0 || layout.IdxR0R1Hat < 0) {
+		return nil, fmt.Errorf("bb_tran transform-bridge replay requires product hats")
+	}
+	if useBBTran && (layout.IdxMSigmaR1 < 0 || layout.IdxR0R1 < 0) {
 		return nil, fmt.Errorf("bb_tran transform-bridge replay requires product rows and hats")
 	}
 	if len(omegaWitness) == 0 {
@@ -171,6 +180,35 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 
 	_ = prfLayout
 	var prfConstRows []int
+	var prfBridgeStripeSourceRows []int
+	var prfBridgeStripePhysicalRows []int
+	useSourceProductBridge := useBBTran && sourceProductBridgeEnabledForProof(proof)
+	var sourceProductMSigmaR1Coeff []uint64
+	var sourceProductR0R1Coeff []uint64
+	var sourceProductHeads [][]uint64
+	var sourceProductOmegaS1Limbs [][]uint64
+	var sourceProductOmegaS1 []uint64
+	if useSourceProductBridge {
+		view, err := prepareSourceProductBridgeView(ringQ, proof, pub)
+		if err != nil {
+			return nil, fmt.Errorf("prepare source-product bridge view: %w", err)
+		}
+		if len(view.Coeffs) != 2 {
+			return nil, fmt.Errorf("source-product bridge coeff count=%d want 2", len(view.Coeffs))
+		}
+		sourceProductMSigmaR1Coeff = append([]uint64(nil), view.Coeffs[0]...)
+		sourceProductR0R1Coeff = append([]uint64(nil), view.Coeffs[1]...)
+		sourceProductHeads = copyMatrix(view.PackedHeads)
+		sourceProductOmegaS1Limbs = copyMatrix(view.OmegaS1Limbs)
+		sourceProductOmegaS1 = append([]uint64(nil), proof.Zeta...)
+	}
+	if normalizePRFCompanionMode(opts.PRFCompanionMode) == PRFCompanionModeAuxInstance && prfCompanionLayout != nil && prfCompanionLayout.BridgeStripe != nil {
+		prfBridgeStripeSourceRows = append([]int(nil), prfCompanionLayout.BridgeStripe.SourceRows...)
+		prfBridgeStripePhysicalRows = append([]int(nil), prfCompanionLayout.BridgeStripe.PhysicalRows...)
+		if len(prfBridgeStripeSourceRows) != len(prfBridgeStripePhysicalRows) {
+			return nil, fmt.Errorf("prf bridge stripe source rows=%d want physical rows=%d", len(prfBridgeStripeSourceRows), len(prfBridgeStripePhysicalRows))
+		}
+	}
 
 	return &transformBridgePostSignConfig{
 		Ring:              ringQ,
@@ -187,7 +225,6 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		BlockFactors:      bridgeBasis.BlockFactors,
 		ComponentCount:    componentCount,
 		SourceBlocks:      sourceBlocks,
-		UsesCommittedT:    rowLayoutUsesCommittedTSourceBridge(layout),
 		MsgDecode1:        msgDecode1,
 		MsgDecode2:        msgDecode2,
 		CtrDecode1:        ctrDecode1,
@@ -196,6 +233,14 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		CtrMembershipPoly: ctrMembershipPoly,
 		KeyBindLayout:     keyBindLayout,
 		PRFConstRows:      prfConstRows,
+		UseSourceProductBridge: useSourceProductBridge,
+		SourceProductMSigmaR1Coeff: sourceProductMSigmaR1Coeff,
+		SourceProductR0R1Coeff:     sourceProductR0R1Coeff,
+		SourceProductHeads:         sourceProductHeads,
+		SourceProductOmegaS1Limbs:  sourceProductOmegaS1Limbs,
+		SourceProductOmegaS1:       sourceProductOmegaS1,
+		PRFBridgeStripeSourceRows:   prfBridgeStripeSourceRows,
+		PRFBridgeStripePhysicalRows: prfBridgeStripePhysicalRows,
 	}, nil
 }
 
@@ -233,7 +278,6 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 
 		layout := cfg.Layout
 		replayBlocks := len(cfg.ThetaAHeads)
-		tSourceBlocks := rowLayoutPostSignTSourceCount(layout)
 		useBBTran := relationUsesBBTran(cfg.HashRelation)
 		fpar := make([]uint64, 0, replayBlocks+4+cfg.KeyBindLayout.KeyCount)
 		for b := 0; b < replayBlocks; b++ {
@@ -283,18 +327,24 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 		mSigmaR1 := uint64(0)
 		r0R1 := uint64(0)
 		if useBBTran {
-			mSigmaR1, err = getRow(layout.IdxMSigmaR1)
-			if err != nil {
-				return nil, nil, err
+			if cfg.UseSourceProductBridge {
+				mSigmaR1 = EvalPoly(cfg.SourceProductMSigmaR1Coeff, x, q) % q
+				r0R1 = EvalPoly(cfg.SourceProductR0R1Coeff, x, q) % q
+				fpar = append(fpar, 0, 0)
+			} else {
+				mSigmaR1, err = getRow(layout.IdxMSigmaR1)
+				if err != nil {
+					return nil, nil, err
+				}
+				r0R1, err = getRow(layout.IdxR0R1)
+				if err != nil {
+					return nil, nil, err
+				}
+				fpar = append(fpar,
+					modSub(mSigmaR1, modMul(modAdd(m1, m2, q), r1, q), q),
+					modSub(r0R1, modMul(r0, r1, q), q),
+				)
 			}
-			r0R1, err = getRow(layout.IdxR0R1)
-			if err != nil {
-				return nil, nil, err
-			}
-			fpar = append(fpar,
-				modSub(mSigmaR1, modMul(modAdd(m1, m2, q), r1, q), q),
-				modSub(r0R1, modMul(r0, r1, q), q),
-			)
 		}
 
 		sel := EvalPoly(cfg.PackingSelCoeff, x, q) % q
@@ -338,6 +388,17 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 				fpar = append(fpar, modMul(sel, modSub(keyVal, m2, q), q))
 			}
 		}
+		for i := range cfg.PRFBridgeStripeSourceRows {
+			sourceVal, err := getRow(cfg.PRFBridgeStripeSourceRows[i])
+			if err != nil {
+				return nil, nil, err
+			}
+			stripeVal, err := getRow(cfg.PRFBridgeStripePhysicalRows[i])
+			if err != nil {
+				return nil, nil, err
+			}
+			fpar = append(fpar, modSub(sourceVal, stripeVal, q))
+		}
 
 		lagrangeVals := make([]uint64, len(cfg.LagrangeBasis))
 		hVals := make([]uint64, len(cfg.TransformH))
@@ -349,44 +410,17 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 		}
 
 		fagg := make([]uint64, 0, (1+3+2)*replayBlocks*len(lagrangeVals))
-		if cfg.UsesCommittedT && tSourceBlocks > 0 {
-			for b := 0; b < replayBlocks; b++ {
-				tVal, err := getRow(layout.IdxTHatBase + b)
-				if err != nil {
-					return nil, nil, err
-				}
-				for j := 0; j < len(lagrangeVals); j++ {
-					t := b*len(lagrangeVals) + j
-					if t < 0 || t >= len(cfg.BlockFactors) || t >= len(hVals) {
-						return nil, nil, fmt.Errorf("T source bridge index t=%d out of range", t)
-					}
-					inner := uint64(0)
-					for bSrc := 0; bSrc < tSourceBlocks; bSrc++ {
-						tSourceVal, err := getRow(layout.IdxTSource + bSrc)
-						if err != nil {
-							return nil, nil, err
-						}
-						scale := cfg.BlockFactors[t][bSrc] % q
-						inner = modAdd(inner, modMul(scale, tSourceVal, q), q)
-					}
-					left := modMul(hVals[t], inner, q)
-					right := modMul(tVal, lagrangeVals[j], q)
-					fagg = append(fagg, modSub(left, right, q))
-				}
-			}
-		}
-
 		mSigma := modAdd(m1, m2, q)
 		for _, pair := range []struct {
 			val     uint64
-			hatBase int
+			idxAt   func(RowLayout, int) int
 		}{
-			{val: mSigma, hatBase: layout.IdxMHatSigma},
-			{val: r0, hatBase: layout.IdxRHat0},
-			{val: r1, hatBase: layout.IdxRHat1},
+			{val: mSigma, idxAt: rowLayoutPostSignMHatSigmaIndex},
+			{val: r0, idxAt: rowLayoutPostSignRHat0Index},
+			{val: r1, idxAt: rowLayoutPostSignRHat1Index},
 		} {
 			for b := 0; b < replayBlocks; b++ {
-				hat, err := getRow(pair.hatBase + b)
+				hat, err := getRow(pair.idxAt(layout, b))
 				if err != nil {
 					return nil, nil, err
 				}
@@ -401,16 +435,16 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 				}
 			}
 		}
-		if useBBTran {
+		if useBBTran && !cfg.UseSourceProductBridge {
 			for _, pair := range []struct {
 				val     uint64
-				hatBase int
+				idxAt   func(RowLayout, int) int
 			}{
-				{val: mSigmaR1, hatBase: layout.IdxMSigmaR1Hat},
-				{val: r0R1, hatBase: layout.IdxR0R1Hat},
+				{val: mSigmaR1, idxAt: rowLayoutPostSignMSigmaR1HatIndex},
+				{val: r0R1, idxAt: rowLayoutPostSignR0R1HatIndex},
 			} {
 				for b := 0; b < replayBlocks; b++ {
-					hat, err := getRow(pair.hatBase + b)
+					hat, err := getRow(pair.idxAt(layout, b))
 					if err != nil {
 						return nil, nil, err
 					}
@@ -457,7 +491,6 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 
 		layout := cfg.Layout
 		replayBlocks := len(cfg.ThetaAHeads)
-		tSourceBlocks := rowLayoutPostSignTSourceCount(layout)
 		useBBTran := relationUsesBBTran(cfg.HashRelation)
 		fpar := make([]kf.Elem, 0, replayBlocks+4+cfg.KeyBindLayout.KeyCount)
 		for b := 0; b < replayBlocks; b++ {
@@ -507,18 +540,31 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 		mSigmaR1 := K.Zero()
 		r0R1 := K.Zero()
 		if useBBTran {
-			mSigmaR1, err = getRow(layout.IdxMSigmaR1)
-			if err != nil {
-				return nil, nil, err
+			if cfg.UseSourceProductBridge {
+				omegaS1 := kf.Elem{Limb: append([]uint64(nil), cfg.SourceProductOmegaS1...)}
+				mSigmaR1, err = evalSourceProductBridgeValueAtK(K, cfg.Omega, omegaS1, cfg.SourceProductHeads[0], cfg.SourceProductOmegaS1Limbs[0], e)
+				if err != nil {
+					return nil, nil, err
+				}
+				r0R1, err = evalSourceProductBridgeValueAtK(K, cfg.Omega, omegaS1, cfg.SourceProductHeads[1], cfg.SourceProductOmegaS1Limbs[1], e)
+				if err != nil {
+					return nil, nil, err
+				}
+				fpar = append(fpar, K.Zero(), K.Zero())
+			} else {
+				mSigmaR1, err = getRow(layout.IdxMSigmaR1)
+				if err != nil {
+					return nil, nil, err
+				}
+				r0R1, err = getRow(layout.IdxR0R1)
+				if err != nil {
+					return nil, nil, err
+				}
+				fpar = append(fpar,
+					K.Sub(mSigmaR1, K.Mul(K.Add(m1, m2), r1)),
+					K.Sub(r0R1, K.Mul(r0, r1)),
+				)
 			}
-			r0R1, err = getRow(layout.IdxR0R1)
-			if err != nil {
-				return nil, nil, err
-			}
-			fpar = append(fpar,
-				K.Sub(mSigmaR1, K.Mul(K.Add(m1, m2), r1)),
-				K.Sub(r0R1, K.Mul(r0, r1)),
-			)
 		}
 
 		sel := K.EvalFPolyAtK(cfg.PackingSelCoeff, e)
@@ -562,6 +608,17 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 				fpar = append(fpar, K.Mul(sel, K.Sub(keyVal, m2)))
 			}
 		}
+		for i := range cfg.PRFBridgeStripeSourceRows {
+			sourceVal, err := getRow(cfg.PRFBridgeStripeSourceRows[i])
+			if err != nil {
+				return nil, nil, err
+			}
+			stripeVal, err := getRow(cfg.PRFBridgeStripePhysicalRows[i])
+			if err != nil {
+				return nil, nil, err
+			}
+			fpar = append(fpar, K.Sub(sourceVal, stripeVal))
+		}
 
 		lagrangeVals := make([]kf.Elem, len(cfg.LagrangeBasis))
 		hVals := make([]kf.Elem, len(cfg.TransformH))
@@ -573,43 +630,17 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 		}
 
 		fagg := make([]kf.Elem, 0, (1+3+2)*replayBlocks*len(lagrangeVals))
-		if cfg.UsesCommittedT && tSourceBlocks > 0 {
-			for b := 0; b < replayBlocks; b++ {
-				tVal, err := getRow(layout.IdxTHatBase + b)
-				if err != nil {
-					return nil, nil, err
-				}
-				for j := 0; j < len(lagrangeVals); j++ {
-					t := b*len(lagrangeVals) + j
-					if t < 0 || t >= len(cfg.BlockFactors) || t >= len(hVals) {
-						return nil, nil, fmt.Errorf("T source bridge index t=%d out of range", t)
-					}
-					inner := K.Zero()
-					for bSrc := 0; bSrc < tSourceBlocks; bSrc++ {
-						tSourceVal, err := getRow(layout.IdxTSource + bSrc)
-						if err != nil {
-							return nil, nil, err
-						}
-						inner = K.Add(inner, K.Mul(K.EmbedF(cfg.BlockFactors[t][bSrc]%K.Q), tSourceVal))
-					}
-					left := K.Mul(hVals[t], inner)
-					right := K.Mul(tVal, lagrangeVals[j])
-					fagg = append(fagg, K.Sub(left, right))
-				}
-			}
-		}
-
 		mSigma := K.Add(m1, m2)
 		for _, pair := range []struct {
 			val     kf.Elem
-			hatBase int
+			idxAt   func(RowLayout, int) int
 		}{
-			{val: mSigma, hatBase: layout.IdxMHatSigma},
-			{val: r0, hatBase: layout.IdxRHat0},
-			{val: r1, hatBase: layout.IdxRHat1},
+			{val: mSigma, idxAt: rowLayoutPostSignMHatSigmaIndex},
+			{val: r0, idxAt: rowLayoutPostSignRHat0Index},
+			{val: r1, idxAt: rowLayoutPostSignRHat1Index},
 		} {
 			for b := 0; b < replayBlocks; b++ {
-				hat, err := getRow(pair.hatBase + b)
+				hat, err := getRow(pair.idxAt(layout, b))
 				if err != nil {
 					return nil, nil, err
 				}
@@ -624,16 +655,16 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 				}
 			}
 		}
-		if useBBTran {
+		if useBBTran && !cfg.UseSourceProductBridge {
 			for _, pair := range []struct {
 				val     kf.Elem
-				hatBase int
+				idxAt   func(RowLayout, int) int
 			}{
-				{val: mSigmaR1, hatBase: layout.IdxMSigmaR1Hat},
-				{val: r0R1, hatBase: layout.IdxR0R1Hat},
+				{val: mSigmaR1, idxAt: rowLayoutPostSignMSigmaR1HatIndex},
+				{val: r0R1, idxAt: rowLayoutPostSignR0R1HatIndex},
 			} {
 				for b := 0; b < replayBlocks; b++ {
-					hat, err := getRow(pair.hatBase + b)
+					hat, err := getRow(pair.idxAt(layout, b))
 					if err != nil {
 						return nil, nil, err
 					}
@@ -664,4 +695,101 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 
 		return fpar, fagg, nil
 	}
+}
+
+func (cfg *transformBridgePostSignConfig) verifySourceProductBridgeChecks(proof *Proof, pub PublicInputs) error {
+	if cfg == nil || !cfg.UseSourceProductBridge {
+		return nil
+	}
+	if proof == nil {
+		return fmt.Errorf("missing proof for source-product bridge checks")
+	}
+	if cfg.Ring == nil {
+		return fmt.Errorf("nil ring for source-product bridge checks")
+	}
+	if _, err := prepareSourceProductBridgeView(cfg.Ring, proof, pub); err != nil {
+		return fmt.Errorf("prepare source-product bridge view: %w", err)
+	}
+	if proof.Theta <= 1 || len(proof.Chi) == 0 {
+		return fmt.Errorf("source-product bridge checks require theta>1")
+	}
+	if len(proof.KPoint) == 0 {
+		return fmt.Errorf("missing K points for source-product bridge checks")
+	}
+	K, err := kf.New(cfg.Ring.Modulus[0], proof.Theta, proof.Chi)
+	if err != nil {
+		return fmt.Errorf("source-product bridge K field: %w", err)
+	}
+	vTargets := proof.VTargetsMatrix()
+	if len(vTargets) == 0 {
+		return fmt.Errorf("missing VTargets for source-product bridge checks")
+	}
+	witnessCount := proof.RowLayout.SigCount
+	if witnessCount <= 0 {
+		witnessCount = proof.PCSGeometry.LogicalWitnessPolys
+	}
+	if witnessCount <= 0 {
+		witnessCount = proof.MaskRowOffset
+	}
+	if witnessCount <= 0 {
+		return fmt.Errorf("missing witness row count for source-product bridge checks")
+	}
+	replayBlocks := len(cfg.ThetaAHeads)
+	for kpIdx, limbs := range proof.KPoint {
+		e := K.Phi(limbs)
+		rowVals, err := buildRowValsFromVTargets(K, vTargets, kpIdx, len(proof.KPoint), witnessCount)
+		if err != nil {
+			return err
+		}
+		getRow := func(idx int) (kf.Elem, error) {
+			if idx < 0 || idx >= len(rowVals) {
+				return K.Zero(), fmt.Errorf("row idx %d out of range (rows=%d)", idx, len(rowVals))
+			}
+			return rowVals[idx], nil
+		}
+
+		mSigmaR1, err := getRow(cfg.Layout.IdxMSigmaR1)
+		if err != nil {
+			return err
+		}
+		r0R1, err := getRow(cfg.Layout.IdxR0R1)
+		if err != nil {
+			return err
+		}
+		lagrangeVals := make([]kf.Elem, len(cfg.LagrangeBasis))
+		hVals := make([]kf.Elem, len(cfg.TransformH))
+		for j := 0; j < len(cfg.LagrangeBasis); j++ {
+			lagrangeVals[j] = K.EvalFPolyAtK(cfg.LagrangeBasis[j], e)
+		}
+		for j := 0; j < len(cfg.TransformH); j++ {
+			hVals[j] = K.EvalFPolyAtK(cfg.TransformH[j], e)
+		}
+		for _, pair := range []struct {
+			val   kf.Elem
+			idxAt func(RowLayout, int) int
+			name  string
+		}{
+			{val: mSigmaR1, idxAt: rowLayoutPostSignMSigmaR1HatIndex, name: "MSigmaR1Hat"},
+			{val: r0R1, idxAt: rowLayoutPostSignR0R1HatIndex, name: "R0R1Hat"},
+		} {
+			for b := 0; b < replayBlocks; b++ {
+				hat, err := getRow(pair.idxAt(cfg.Layout, b))
+				if err != nil {
+					return err
+				}
+				for j := 0; j < len(lagrangeVals); j++ {
+					t := b*len(lagrangeVals) + j
+					if t < 0 || t >= len(hVals) {
+						return fmt.Errorf("source-product bridge index t=%d out of range", t)
+					}
+					left := K.Mul(pair.val, hVals[t])
+					right := K.Mul(hat, lagrangeVals[j])
+					if !elemEqual(K, left, right) {
+						return fmt.Errorf("source-product bridge hat mismatch at kp=%d block=%d lane=%d family=%s", kpIdx, b, j, pair.name)
+					}
+				}
+			}
+		}
+	}
+	return nil
 }

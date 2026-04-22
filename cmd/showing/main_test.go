@@ -64,6 +64,96 @@ func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T)
 	}
 }
 
+func TestFormatTranscriptOptimizationSummaryShowsFactorizedInstanceGeometry(t *testing.T) {
+	line := formatTranscriptOptimizationSummary(PIOP.ProofReport{
+		TranscriptFocus: PIOP.TranscriptOptimizationReport{
+			ShowingPreset:            PIOP.ShowingPresetCompactL1Research,
+			ReplayMode:               string(PIOP.ShowingReplayModeFull),
+			ReplayBlocks:             32,
+			LVCSNCols:                32,
+			NLeaves:                  4096,
+			WitnessRows:              561,
+			RowsBlock:                18,
+			MaskChunks:               10,
+			PRFPacked:                true,
+			PRFLogicalScalars:        165,
+			PRFPackedRows:            11,
+			NRows:                    560,
+			M:                        288,
+			PCols:                    272,
+			OmitP:                    288,
+			RowOpeningEntries:        36,
+			MainLVCSNCols:            32,
+			MainNLeaves:              4096,
+			PRFLVCSNCols:             24,
+			PRFNLeaves:               1024,
+			HiddenShortnessLVCSNCols: 128,
+			HiddenShortnessNLeaves:   1024,
+			PRFAuxInstance:           true,
+			PRFAuxProofBytes:         4096,
+			PRFAuxOpeningBytes:       8192,
+		},
+	})
+	if !strings.Contains(line, "main=32/4096 prf=24/1024 hidden=128/1024") {
+		t.Fatalf("missing factorized instance geometry: %q", line)
+	}
+	if !strings.Contains(line, "prf_aux=on auxProof=4096 auxOpening=8192 bridgeRows=0 bridgeSlots=0 bridgeBlocks=0 bridgePad=0") {
+		t.Fatalf("missing aux-instance size summary: %q", line)
+	}
+}
+
+func TestFormatStatementSummaryShowsClassReplayAndShortness(t *testing.T) {
+	line := formatStatementSummary(PIOP.ProofReport{
+		TranscriptFocus: PIOP.TranscriptOptimizationReport{
+			StatementClass: string(PIOP.ShowingStatementClassTheoremCleanFullReplay),
+			ReplayMode:     string(PIOP.ShowingReplayModeFull),
+			ShortnessMode:  PIOP.SigShortnessModeHiddenV6,
+		},
+		SigShortness: PIOP.SigShortnessReport{
+			Enabled: true,
+			Mode:    PIOP.SigShortnessModeHiddenV6,
+		},
+	})
+	if !strings.Contains(line, "class=theorem_clean_full_replay") {
+		t.Fatalf("missing statement class: %q", line)
+	}
+	if !strings.Contains(line, "replay=full") {
+		t.Fatalf("missing replay mode: %q", line)
+	}
+	if !strings.Contains(line, "shortness=sig_shortness_v6_hidden") {
+		t.Fatalf("missing shortness mode: %q", line)
+	}
+}
+
+func TestFormatStatementSummaryDistinguishesReducedAndFull(t *testing.T) {
+	reduced := formatStatementSummary(PIOP.ProofReport{
+		TranscriptFocus: PIOP.TranscriptOptimizationReport{
+			StatementClass: string(PIOP.ShowingStatementClassReducedEngineeringReplay),
+			ReplayMode:     string(PIOP.ShowingReplayModeReduced),
+		},
+		SigShortness: PIOP.SigShortnessReport{
+			Enabled: true,
+			Mode:    PIOP.SigShortnessModeHiddenV6,
+		},
+	})
+	full := formatStatementSummary(PIOP.ProofReport{
+		TranscriptFocus: PIOP.TranscriptOptimizationReport{
+			StatementClass: string(PIOP.ShowingStatementClassTheoremCleanFullReplay),
+			ReplayMode:     string(PIOP.ShowingReplayModeFull),
+		},
+		SigShortness: PIOP.SigShortnessReport{
+			Enabled: true,
+			Mode:    PIOP.SigShortnessModeHiddenV6,
+		},
+	})
+	if reduced == full {
+		t.Fatalf("reduced/full statement summaries unexpectedly identical: %q", reduced)
+	}
+	if !strings.Contains(reduced, "reduced_engineering_replay") || !strings.Contains(full, "theorem_clean_full_replay") {
+		t.Fatalf("unexpected statement summaries: reduced=%q full=%q", reduced, full)
+	}
+}
+
 func TestFormatSoundnessComponentShowsClampReason(t *testing.T) {
 	line := formatSoundnessComponent("eps1", -336.91, 0)
 	if !strings.Contains(line, "eps1=0.00 (clamped from raw -336.91)") {
@@ -154,6 +244,31 @@ func TestPrintPaperTranscriptBreakdownUsesPaperHeaderNotLegacyBreakdown(t *testi
 	}
 	if !strings.Contains(got, "Q                20") || !strings.Contains(got, "R                12") {
 		t.Fatalf("missing paper bucket lines: %q", got)
+	}
+}
+
+func TestPrintSigShortnessShowsSupportSlots(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	old := cli
+	cli = cliRenderer{out: &out, err: &errBuf, colorEnabled: false}
+	defer func() { cli = old }()
+
+	printSigShortness("[showing-cli] ", PIOP.ProofReport{
+		SigShortness: PIOP.SigShortnessReport{
+			Enabled:          true,
+			Mode:             PIOP.SigShortnessModeHiddenV6,
+			Version:          6,
+			SupportSlotCount: 16,
+			OpenedBlockCount: 13,
+			OpeningBytes:     14469,
+			ProofBytes:       23370,
+		},
+	})
+
+	got := out.String()
+	if !strings.Contains(got, "slots=16") || !strings.Contains(got, "blocks=13") {
+		t.Fatalf("missing shortness slot summary: %q", got)
 	}
 }
 

@@ -38,6 +38,7 @@ type transformBridgeFixture struct {
 
 type decsRowInput struct {
 	Head       []uint64
+	Tail       []uint64
 	Poly       *ring.Poly
 	PolyCoeffs []uint64
 }
@@ -408,6 +409,7 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 	for i := range rowInputs {
 		outInputs[i] = decsRowInput{
 			Head:       append([]uint64(nil), rowInputs[i].Head...),
+			Tail:       append([]uint64(nil), rowInputs[i].Tail...),
 			Poly:       rowInputs[i].Poly,
 			PolyCoeffs: append([]uint64(nil), rowInputs[i].PolyCoeffs...),
 		}
@@ -707,9 +709,6 @@ func TestTransformBridgeTamperedFullHiddenTBreaksSourceBridge(t *testing.T) {
 		t.Skip("integration-like fixture")
 	}
 	fx := buildTransformBridgeFullFixture(t)
-	if fx.layout.IdxTSource < 0 {
-		t.Fatalf("full replay should keep committed T source rows")
-	}
 	tamperedRowsNTT := make([]*ring.Poly, len(fx.rowsNTT))
 	for i := range fx.rowsNTT {
 		if fx.rowsNTT[i] == nil {
@@ -719,17 +718,21 @@ func TestTransformBridgeTamperedFullHiddenTBreaksSourceBridge(t *testing.T) {
 		ring.Copy(fx.rowsNTT[i], tamperedRowsNTT[i])
 	}
 	q := fx.ringQ.Modulus[0]
-	tamperedRowsNTT[fx.layout.IdxTSource].Coeffs[0][0] = modAdd(tamperedRowsNTT[fx.layout.IdxTSource].Coeffs[0][0], 1, q)
+	idx := rowLayoutPostSignTHatIndex(fx.layout, 0)
+	if idx < 0 {
+		t.Fatalf("missing full replay T-hat row 0")
+	}
+	tamperedRowsNTT[idx].Coeffs[0][0] = modAdd(tamperedRowsNTT[idx].Coeffs[0][0], 1, q)
 	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, tamperedRowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
 	if err != nil {
 		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
 	}
-	nonZero, err := bucketHasNonZeroOmegaSum(fx.ringQ, fx.omegaWitness, postSet.FaggNorm, postSet.FaggNormCoeffs)
+	nonZero, err := bucketHasNonZeroOmegaSum(fx.ringQ, fx.omegaWitness, postSet.FparInt, postSet.FparIntCoeffs)
 	if err != nil {
-		t.Fatalf("check tampered T source bridge: %v", err)
+		t.Fatalf("check tampered full T-hat residual: %v", err)
 	}
 	if !nonZero {
-		t.Fatal("tampered hidden T left all aggregated bridge families satisfied")
+		t.Fatal("tampered hidden T left all parallel replay families satisfied")
 	}
 }
 
@@ -744,11 +747,11 @@ func TestTransformBridgeFullReplaySurfaceUsesAllBlocks(t *testing.T) {
 	if got, want := rowLayoutReplayTHatCount(fx.layout), fx.layout.SigBlocks; got != want {
 		t.Fatalf("replay T-hat count=%d want %d", got, want)
 	}
-	if fx.layout.IdxTSource < 0 {
-		t.Fatalf("full replay should keep committed T source rows")
-	}
 	if fx.layout.IdxMHatSigma < 0 || fx.layout.IdxRHat0 < 0 || fx.layout.IdxRHat1 < 0 || fx.layout.IdxTHatBase < 0 {
 		t.Fatalf("missing full replay family base indices: %+v", fx.layout)
+	}
+	if fx.layout.IdxTSource >= 0 {
+		t.Fatalf("full replay should derive T source rows locally")
 	}
 }
 

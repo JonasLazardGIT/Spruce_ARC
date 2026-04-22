@@ -62,7 +62,7 @@ func TestReplayFamilyAuditRowSetsAreSortedAndCoverSelector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build replay family audit: %v", err)
 	}
-	selector := BuildShowingReplayActiveRowSelector(proof.RowLayout, replayCompanionLayoutFromProof(proof))
+	selector := BuildShowingReplayActiveRowSelector(proof.RowLayout, replayCompanionLayoutFromProof(proof), proofPRFCompanionMode(proof))
 	seen := make(map[int]struct{}, len(selector))
 	for _, entry := range audit.Families {
 		if !isStrictlyIncreasing(entry.LogicalRows) {
