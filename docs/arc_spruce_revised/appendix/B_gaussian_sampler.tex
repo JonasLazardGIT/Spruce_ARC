@@ -5,7 +5,7 @@ This appendix details the Gaussian preimage sampler used by the issuer to sign a
 short preimage \(u\in\R^m\) such that \(A u = t\) in \(\Rq^n\). Our instantiation follows the vSIS--BB-tran
 setting \cite{EPRINT:DKLW25} and relies on an NTRU trapdoor generated via Antrag together with a hybrid two-plane
 sampler \cite{EPRINT:ENSTW23}. In the concrete ARC-SPRUCE instantiation, the signed target is the single-coordinate
-\(h_{\mathrm{tran}}\) value produced by the aligned issuance layer.
+\(h_{\mathrm{tran}}\) value produced from the message and centered shared randomness.
 
 \subsection{The preimage sampling problem}
 Given a public linear map \(A\in\Rq^{n\times m}\) and a target \(t\in\Rq^n\), the signer samples

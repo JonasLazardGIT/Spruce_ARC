@@ -5,6 +5,7 @@ import (
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 	lvcs "vSIS-Signature/LVCS"
+	"vSIS-Signature/credential"
 	"vSIS-Signature/internal/fpoly"
 	"vSIS-Signature/prf"
 )
@@ -206,6 +207,63 @@ func BuildHashConstraintsRelationNTT(ringQ *ring.Ring, relation string, B []*rin
 	}
 }
 
+func BuildTargetConstraintsRelationNTT(ringQ *ring.Ring, relation string, B []*ring.Poly, m1NTT, m2NTT, r0NTT, zNTT, tNTT *ring.Poly) ([]*ring.Poly, error) {
+	switch normalizePublicHashRelation(PublicInputs{HashRelation: relation}) {
+	case credential.HashRelationBBTran:
+		if ringQ == nil {
+			return nil, fmt.Errorf("nil ring")
+		}
+		if len(B) != 4 {
+			return nil, fmt.Errorf("b must have 4 polys, got %d", len(B))
+		}
+		if m1NTT == nil || m2NTT == nil || r0NTT == nil || zNTT == nil || tNTT == nil {
+			return nil, fmt.Errorf("nil bb_tran target input poly")
+		}
+		mCombined := ringQ.NewPoly()
+		ring.Copy(m1NTT, mCombined)
+		ringQ.Add(mCombined, m2NTT, mCombined)
+		target := ringQ.NewPoly()
+		tmp := ringQ.NewPoly()
+		ring.Copy(B[0], target)
+		ringQ.MulCoeffs(B[1], mCombined, tmp)
+		ringQ.Add(target, tmp, target)
+		ringQ.MulCoeffs(B[2], r0NTT, tmp)
+		ringQ.Add(target, tmp, target)
+		ringQ.Add(target, zNTT, target)
+		res := ringQ.NewPoly()
+		ringQ.Sub(tNTT, target, res)
+		return []*ring.Poly{res}, nil
+	default:
+		return nil, fmt.Errorf("unsupported target relation %q", relation)
+	}
+}
+
+func BuildInverseConstraintsRelationNTT(ringQ *ring.Ring, relation string, B []*ring.Poly, r1NTT, zNTT *ring.Poly) ([]*ring.Poly, error) {
+	switch normalizePublicHashRelation(PublicInputs{HashRelation: relation}) {
+	case credential.HashRelationBBTran:
+		if ringQ == nil {
+			return nil, fmt.Errorf("nil ring")
+		}
+		if len(B) != 4 {
+			return nil, fmt.Errorf("b must have 4 polys, got %d", len(B))
+		}
+		if r1NTT == nil || zNTT == nil {
+			return nil, fmt.Errorf("nil bb_tran inverse input poly")
+		}
+		den := ringQ.NewPoly()
+		ringQ.Sub(B[3], r1NTT, den)
+		res := ringQ.NewPoly()
+		ringQ.MulCoeffs(den, zNTT, res)
+		one := ringQ.NewPoly()
+		one.Coeffs[0][0] = 1 % ringQ.Modulus[0]
+		ringQ.NTT(one, one)
+		ringQ.Sub(res, one, res)
+		return []*ring.Poly{res}, nil
+	default:
+		return nil, fmt.Errorf("unsupported inverse relation %q", relation)
+	}
+}
+
 // BuildSignatureConstraintNTT builds residual polys for A·U - T with all
 // inputs in the evaluation domain (NTT).
 func BuildSignatureConstraintNTT(ringQ *ring.Ring, A [][]*ring.Poly, U []*ring.Poly, tNTT *ring.Poly) ([]*ring.Poly, error) {
@@ -248,6 +306,9 @@ func BuildCredentialConstraintSetPre(ringQ *ring.Ring, bound int64, pub PublicIn
 	}
 	if len(wit.M1) == 0 || len(wit.M2) == 0 || len(wit.RU0) == 0 || len(wit.RU1) == 0 || len(wit.R) == 0 || len(wit.R0) == 0 || len(wit.R1) == 0 || len(wit.K0) == 0 || len(wit.K1) == 0 {
 		return ConstraintSet{}, fmt.Errorf("missing pre-sign witness rows")
+	}
+	if publicUsesBBTran(pub) && len(wit.Z) == 0 {
+		return ConstraintSet{}, fmt.Errorf("missing Z witness rows")
 	}
 	ncols := len(omega)
 	if ncols > int(ringQ.N) {
@@ -318,18 +379,15 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 	r1Idx := rowLayoutPostSignR1(layout)
 	k0Idx := rowLayoutPreSignK0(layout)
 	k1Idx := rowLayoutPreSignK1(layout)
-	mSigmaR1Idx := rowLayoutMSigmaR1(layout)
-	r0R1Idx := rowLayoutR0R1(layout)
 	mHat1Idx := rowLayoutPostSignMHat1(layout)
 	mHat2Idx := rowLayoutPostSignMHat2(layout)
 	rHat0Idx := rowLayoutPostSignRHat0(layout)
 	rHat1Idx := rowLayoutPostSignRHat1(layout)
-	mSigmaR1HatIdx := rowLayoutPostSignMSigmaR1Hat(layout)
-	r0R1HatIdx := rowLayoutPostSignR0R1Hat(layout)
+	zHatIdx := rowLayoutPostSignZHat(layout)
 	useBBTran := publicUsesBBTran(pub)
 	rowIdxs := []int{carrierMIdx, carrierRUIdx, carrierRIdx, carrierCtrIdx, carrierKIdx, m1Idx, m2Idx, ru0Idx, ru1Idx, rIdx, r0Idx, r1Idx, k0Idx, k1Idx, mHat1Idx, mHat2Idx, rHat0Idx, rHat1Idx}
 	if useBBTran {
-		rowIdxs = append(rowIdxs, mSigmaR1Idx, r0R1Idx, mSigmaR1HatIdx, r0R1HatIdx)
+		rowIdxs = append(rowIdxs, zHatIdx)
 	}
 	maxIdx := -1
 	for _, idx := range rowIdxs {
@@ -450,21 +508,9 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 	if err != nil {
 		return ConstraintSet{}, err
 	}
-	var mSigmaR1Coeffs, r0R1Coeffs, mSigmaR1HatCoeffs, r0R1HatCoeffs []uint64
+	var zHatCoeffs []uint64
 	if useBBTran {
-		mSigmaR1Coeffs, err = rowCoeff(mSigmaR1Idx, "bb_tran source MSigmaR1")
-		if err != nil {
-			return ConstraintSet{}, err
-		}
-		r0R1Coeffs, err = rowCoeff(r0R1Idx, "bb_tran source R0R1")
-		if err != nil {
-			return ConstraintSet{}, err
-		}
-		mSigmaR1HatCoeffs, err = rowCoeff(mSigmaR1HatIdx, "bb_tran hat MSigmaR1")
-		if err != nil {
-			return ConstraintSet{}, err
-		}
-		r0R1HatCoeffs, err = rowCoeff(r0R1HatIdx, "bb_tran hat R0R1")
+		zHatCoeffs, err = rowCoeff(zHatIdx, "bb_tran hat Z")
 		if err != nil {
 			return ConstraintSet{}, err
 		}
@@ -520,6 +566,9 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 
 	thetaFromCoeffs := func(coeffs []uint64, name string) (*ring.Poly, []uint64, error) {
 		trimmed := trimPoly(coeffs, q)
+		if domainMode == DomainModeExplicit {
+			trimmed = reducePolyModXN1(trimmed, int(ringQ.N), q)
+		}
 		p := nttPolyFromFormalCoeffsIfFits(ringQ, trimmed)
 		if p == nil {
 			return nil, nil, fmt.Errorf("%s degree=%d exceeds ring dimension %d", name, len(trimmed)-1, ringQ.N)
@@ -563,23 +612,6 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 	if err != nil {
 		return ConstraintSet{}, err
 	}
-	var productMSigmaR1, productR0R1 *ring.Poly
-	var productMSigmaR1Coeffs, productR0R1Coeffs []uint64
-	if useBBTran {
-		expectedMSigmaR1Coeffs, expectedR0R1Coeffs, derr := buildBBTranProductInterpCoeffs(q, omega, m1AliasCoeffs, m2AliasCoeffs, r0AliasCoeffs, r1AliasCoeffs)
-		if derr != nil {
-			return ConstraintSet{}, fmt.Errorf("bb_tran source product interpolants: %w", derr)
-		}
-		productMSigmaR1, productMSigmaR1Coeffs, err = thetaFromCoeffs(polySub(mSigmaR1Coeffs, expectedMSigmaR1Coeffs, q), "bb_tran source MSigmaR1")
-		if err != nil {
-			return ConstraintSet{}, err
-		}
-		productR0R1, productR0R1Coeffs, err = thetaFromCoeffs(polySub(r0R1Coeffs, expectedR0R1Coeffs, q), "bb_tran source R0R1")
-		if err != nil {
-			return ConstraintSet{}, err
-		}
-	}
-
 	m1NTT := rowsNTT[m1Idx]
 	m2NTT := rowsNTT[m2Idx]
 	ru0NTT := rowsNTT[ru0Idx]
@@ -593,12 +625,9 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 	mHat2NTT := rowsNTT[mHat2Idx]
 	rHat0NTT := rowsNTT[rHat0Idx]
 	rHat1NTT := rowsNTT[rHat1Idx]
-	var mSigmaR1NTT, r0R1NTT, mSigmaR1HatNTT, r0R1HatNTT *ring.Poly
+	var zHatNTT *ring.Poly
 	if useBBTran {
-		mSigmaR1NTT = rowsNTT[mSigmaR1Idx]
-		r0R1NTT = rowsNTT[r0R1Idx]
-		mSigmaR1HatNTT = rowsNTT[mSigmaR1HatIdx]
-		r0R1HatNTT = rowsNTT[r0R1HatIdx]
+		zHatNTT = rowsNTT[zHatIdx]
 	}
 
 	thetaAc := make([][]*ring.Poly, len(pub.Ac))
@@ -680,7 +709,7 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 	ringQ.MulCoeffs(selNTT, m1NTT, m1Pack)
 	ringQ.MulCoeffs(oneMinusSel, m2NTT, m2Pack)
 
-	var hashResCoeffsExplicit []uint64
+	var hashResCoeffsExplicit [][]uint64
 	var hashRes []*ring.Poly
 	if domainMode == DomainModeExplicit {
 		thetaBCoeffs := make([][]uint64, 4)
@@ -695,28 +724,65 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 		if cerr != nil {
 			return ConstraintSet{}, fmt.Errorf("theta public T coeffs: %w", cerr)
 		}
-		hashResCoeffsExplicit = buildTransformHashResidualCoeffs(
-			q,
-			pub.HashRelation,
-			thetaBCoeffs,
-			mHat1Coeffs,
-			mHat2Coeffs,
-			rHat0Coeffs,
-			rHat1Coeffs,
-			trimPoly(tThetaCoeff, q),
-			mSigmaR1HatCoeffs,
-			r0R1HatCoeffs,
-		)
-		p := nttPolyFromFormalCoeffsIfFits(ringQ, hashResCoeffsExplicit)
-		if p == nil {
-			return ConstraintSet{}, fmt.Errorf("pre-sign explicit hash degree=%d exceeds ring dimension %d", len(hashResCoeffsExplicit)-1, ringQ.N)
+		tThetaTrimmed := trimPoly(tThetaCoeff, q)
+		if useBBTran {
+			targetResCoeffsExplicit := reducePolyModXN1(buildTransformTargetResidualCoeffs(
+				q,
+				pub.HashRelation,
+				thetaBCoeffs,
+				mHat1Coeffs,
+				mHat2Coeffs,
+				rHat0Coeffs,
+				zHatCoeffs,
+				tThetaTrimmed,
+			), int(ringQ.N), q)
+			inverseResCoeffsExplicit := reducePolyModXN1(buildTransformInverseResidualCoeffs(
+				q,
+				pub.HashRelation,
+				thetaBCoeffs,
+				rHat1Coeffs,
+				zHatCoeffs,
+			), int(ringQ.N), q)
+			pTarget := nttPolyFromFormalCoeffsIfFits(ringQ, targetResCoeffsExplicit)
+			if pTarget == nil {
+				return ConstraintSet{}, fmt.Errorf("pre-sign explicit target degree=%d exceeds ring dimension %d", len(targetResCoeffsExplicit)-1, ringQ.N)
+			}
+			pInverse := nttPolyFromFormalCoeffsIfFits(ringQ, inverseResCoeffsExplicit)
+			if pInverse == nil {
+				return ConstraintSet{}, fmt.Errorf("pre-sign explicit inverse degree=%d exceeds ring dimension %d", len(inverseResCoeffsExplicit)-1, ringQ.N)
+			}
+			hashResCoeffsExplicit = [][]uint64{targetResCoeffsExplicit, inverseResCoeffsExplicit}
+			hashRes = []*ring.Poly{pTarget, pInverse}
+		} else {
+			hashCoeff := reducePolyModXN1(buildTransformHashResidualCoeffs(
+				q,
+				pub.HashRelation,
+				thetaBCoeffs,
+				mHat1Coeffs,
+				mHat2Coeffs,
+				rHat0Coeffs,
+				rHat1Coeffs,
+				tThetaTrimmed,
+				nil,
+				nil,
+			), int(ringQ.N), q)
+			pHash := nttPolyFromFormalCoeffsIfFits(ringQ, hashCoeff)
+			if pHash == nil {
+				return ConstraintSet{}, fmt.Errorf("pre-sign explicit hash degree=%d exceeds ring dimension %d", len(hashCoeff)-1, ringQ.N)
+			}
+			hashResCoeffsExplicit = [][]uint64{hashCoeff}
+			hashRes = []*ring.Poly{pHash}
 		}
-		hashRes = []*ring.Poly{p}
 	} else {
-		hashRes, err = BuildHashConstraintsRelationNTT(ringQ, pub.HashRelation, thetaB, mHat1NTT, mHat2NTT, rHat0NTT, rHat1NTT, publicTTheta, mSigmaR1HatNTT, r0R1HatNTT)
+		targetRes, err := BuildTargetConstraintsRelationNTT(ringQ, pub.HashRelation, thetaB, mHat1NTT, mHat2NTT, rHat0NTT, zHatNTT, publicTTheta)
 		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("hash residuals: %w", err)
+			return ConstraintSet{}, fmt.Errorf("target residuals: %w", err)
 		}
+		inverseRes, err := BuildInverseConstraintsRelationNTT(ringQ, pub.HashRelation, thetaB, rHat1NTT, zHatNTT)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("inverse residuals: %w", err)
+		}
+		hashRes = append(targetRes, inverseRes...)
 	}
 
 	memMNTT, _, err := thetaFromCoeffs(memMCoeffs, "membership M")
@@ -766,9 +832,6 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 	}
 
 	fparInt := []*ring.Poly{bridgeM1, bridgeM2, bridgeRU0, bridgeRU1, bridgeR, bridgeR0, bridgeR1, bridgeK0, bridgeK1}
-	if useBBTran {
-		fparInt = append(fparInt, productMSigmaR1, productR0R1)
-	}
 	fparInt = append(fparInt, comRes...)
 	fparInt = append(fparInt, centerRes0, centerRes1)
 	fparInt = append(fparInt, hashRes...)
@@ -839,9 +902,6 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 			bridgeK0Coeffs,
 			bridgeK1Coeffs,
 		}
-		if useBBTran {
-			explicitFparCoeffs = append(explicitFparCoeffs, productMSigmaR1Coeffs, productR0R1Coeffs)
-		}
 		for i := range acCoeff {
 			sum := fpoly.Zero(q)
 			if i < len(comCoeff) {
@@ -871,18 +931,19 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 		res0 := ru0P.Add(ri0Coeff).Sub(r0P).Sub(k0P.Scale(delta))
 		res1 := ru1P.Add(ri1Coeff).Sub(r1P).Sub(k1P.Scale(delta))
 		explicitFparCoeffs = append(explicitFparCoeffs, res0.Coeffs, res1.Coeffs)
-		explicitFparCoeffs = append(explicitFparCoeffs, hashResCoeffsExplicit)
+		explicitFparCoeffs = append(explicitFparCoeffs, hashResCoeffsExplicit...)
 		explicitFparCoeffs = append(explicitFparCoeffs, selP.Mul(m1P).Coeffs, oneMinusSelP.Mul(m2P).Coeffs)
 
 		fparInt = make([]*ring.Poly, len(explicitFparCoeffs))
 		fparIntCoeffs = make([][]uint64, len(explicitFparCoeffs))
 		for i, coeffs := range explicitFparCoeffs {
-			p := nttPolyFromFormalCoeffsIfFits(ringQ, coeffs)
+			reduced := reducePolyModXN1(coeffs, int(ringQ.N), q)
+			p := nttPolyFromFormalCoeffsIfFits(ringQ, reduced)
 			if p == nil {
-				return ConstraintSet{}, fmt.Errorf("pre-sign explicit family %d degree=%d exceeds ring dimension %d", i, len(trimPoly(coeffs, q))-1, ringQ.N)
+				return ConstraintSet{}, fmt.Errorf("pre-sign explicit family %d degree=%d exceeds ring dimension %d", i, len(trimPoly(reduced, q))-1, ringQ.N)
 			}
 			fparInt[i] = p
-			fparIntCoeffs[i] = trimPoly(coeffs, q)
+			fparIntCoeffs[i] = trimPoly(reduced, q)
 		}
 	} else {
 		for i, p := range fparInt {
@@ -930,7 +991,7 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 	} {
 		for j := 0; j < ncols; j++ {
 			if domainMode == DomainModeExplicit {
-				bridgeCoeff := buildTransformBridgeResidualCoeff(q, transformHCoeff[j], lagrangeBasis[j], pair.srcCoeff, pair.hatCoeff)
+				bridgeCoeff := reducePolyModXN1(buildTransformBridgeResidualCoeff(q, transformHCoeff[j], lagrangeBasis[j], pair.srcCoeff, pair.hatCoeff), int(ringQ.N), q)
 				p := nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff)
 				if p == nil {
 					return ConstraintSet{}, fmt.Errorf("pre-sign transform bridge degree=%d exceeds ring dimension %d", len(bridgeCoeff)-1, ringQ.N)
@@ -947,32 +1008,6 @@ func buildCredentialConstraintSetPreFromRows(ringQ *ring.Ring, bound int64, pub 
 			faggNorm = append(faggNorm, left)
 		}
 	}
-	if useBBTran {
-		for _, pair := range []bridgePair{
-			{srcNTT: mSigmaR1NTT, hatNTT: mSigmaR1HatNTT, srcCoeff: mSigmaR1Coeffs, hatCoeff: mSigmaR1HatCoeffs},
-			{srcNTT: r0R1NTT, hatNTT: r0R1HatNTT, srcCoeff: r0R1Coeffs, hatCoeff: r0R1HatCoeffs},
-		} {
-			for j := 0; j < ncols; j++ {
-				if domainMode == DomainModeExplicit {
-					bridgeCoeff := buildTransformBridgeResidualCoeff(q, transformHCoeff[j], lagrangeBasis[j], pair.srcCoeff, pair.hatCoeff)
-					p := nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff)
-					if p == nil {
-						return ConstraintSet{}, fmt.Errorf("pre-sign bb_tran transform bridge degree=%d exceeds ring dimension %d", len(bridgeCoeff)-1, ringQ.N)
-					}
-					faggNorm = append(faggNorm, p)
-					faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
-					continue
-				}
-				left := ringQ.NewPoly()
-				ringQ.MulCoeffs(pair.srcNTT, hThetaEval[j], left)
-				right := ringQ.NewPoly()
-				ringQ.MulCoeffs(pair.hatNTT, lagrangeTheta[j], right)
-				ringQ.Sub(left, right, left)
-				faggNorm = append(faggNorm, left)
-			}
-		}
-	}
-
 	return ConstraintSet{
 		FparInt:          fparInt,
 		FparIntCoeffs:    fparIntCoeffs,

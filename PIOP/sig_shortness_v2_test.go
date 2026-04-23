@@ -56,6 +56,16 @@ func cloneSigShortnessProofForTest(src *SigShortnessProof) *SigShortnessProof {
 				THatOpening: cloneDECSOpening(src.V6.THatOpening),
 			}
 		}(),
+		V7: func() *SigShortnessProofV7 {
+			if src.V7 == nil {
+				return nil
+			}
+			return &SigShortnessProofV7{
+				Mode:   src.V7.Mode,
+				Radix:  src.V7.Radix,
+				Digits: src.V7.Digits,
+			}
+		}(),
 	}
 }
 

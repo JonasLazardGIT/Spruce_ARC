@@ -275,7 +275,7 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 	sig := proof.SigShortness
 	pcsNCols := resolveProofPCSNCols(proof, 0)
 	openBlocks := 0
-	if pcsNCols > 0 {
+	if pcsNCols > 0 && sig.Version != sigShortnessProofVersionV7 {
 		rows := buildSigShortnessWitnessPolyIndicesForVersion(proof.RowLayout, sig.Version)
 		seen := make(map[int]struct{}, len(rows))
 		for _, row := range rows {
@@ -288,6 +288,11 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 	}
 	supportSlotCount := len(sig.SupportSlots)
 	openingBytes := sizeDECSOpening(sig.Opening)
+	if sig.Version == sigShortnessProofVersionV7 && sig.V7 != nil {
+		supportSlotCount = 0
+		openingBytes = 0
+		openBlocks = 0
+	}
 	if sig.Version == sigShortnessProofVersionV6 && sig.V6 != nil {
 		if sig.V6.THatOpening != nil {
 			supportSlotCount = len(expandPackedOpening(sig.V6.THatOpening).AllIndices())

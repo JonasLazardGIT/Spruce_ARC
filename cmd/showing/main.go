@@ -210,6 +210,9 @@ func main() {
 	if state.HashRelation != "" && credential.NormalizeHashRelation(state.HashRelation) != credential.NormalizeHashRelation(publicParams.HashRelation) {
 		cli.fatalf("[showing-cli] ", "credential state hash relation %q does not match public params relation %q", state.HashRelation, publicParams.HashRelation)
 	}
+	if err := credential.ValidateLiveHashRelation(publicParams.HashRelation); err != nil {
+		cli.fatalf("[showing-cli] ", "%v", err)
+	}
 	boundB := publicParams.BoundB
 	params, err := loadPRFParamsFromState(state)
 	if err != nil {
@@ -344,7 +347,7 @@ func main() {
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "load B: %v", err)
 	}
-	wit, err := buildWitnessFromState(ringQ, state)
+	wit, err := buildWitnessFromState(ringQ, state, B)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "build witness: %v", err)
 	}
@@ -357,7 +360,7 @@ func main() {
 	}
 
 	// Active showing uses the coeff-native PRF key witness directly.
-	key, err := prfKeyFromSignedWitness(ringQ, wit.CoeffNativeShowing, params.LenKey)
+	key, err := prfKeyFromState(ringQ, state, params.LenKey)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "prf key: %v", err)
 	}
@@ -479,8 +482,8 @@ func buildSignatureMatrix(r *ring.Ring, st credential.State, uCount int) ([][]*r
 	return [][]*ring.Poly{{negHNTT, one}}, nil
 }
 
-func buildWitnessFromState(r *ring.Ring, st credential.State) (PIOP.WitnessInputs, error) {
-	coeffNative, err := buildCoeffNativeShowingWitnessFromState(r, st)
+func buildWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly) (PIOP.WitnessInputs, error) {
+	coeffNative, err := buildCoeffNativeShowingWitnessFromState(r, st, B)
 	if err != nil {
 		return PIOP.WitnessInputs{}, err
 	}
@@ -489,7 +492,7 @@ func buildWitnessFromState(r *ring.Ring, st credential.State) (PIOP.WitnessInput
 	}, nil
 }
 
-func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State) (*PIOP.CoeffNativeShowingWitness, error) {
+func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly) (*PIOP.CoeffNativeShowingWitness, error) {
 	if r == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -504,27 +507,52 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State) 
 	if uint64(maxSig) > par.Beta {
 		return nil, fmt.Errorf("signature shortness blocker: max(|sig_s1|,|sig_s2|)=%d exceeds beta=%d under q=%d", maxSig, par.Beta, par.Q)
 	}
-	if len(st.M1) == 0 || len(st.M2) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.T) == 0 {
-		return nil, fmt.Errorf("missing signed base rows in credential state")
+	if len(st.M) == 0 || len(st.K) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
+		return nil, fmt.Errorf("missing semantic witness rows in credential state")
 	}
-	legacyNCols := 0
-	if st.CoeffNativeShowing != nil {
-		legacyNCols = st.CoeffNativeShowing.NCols
+	if len(B) != 4 {
+		return nil, fmt.Errorf("missing B matrix for target reconstruction")
 	}
-	packedNCols, err := PIOP.ResolvePackedNCols(st.PackedNCols, legacyNCols, int(r.N))
+	packedNCols, err := PIOP.ResolvePackedNCols(st.PackedNCols, 0, int(r.N))
 	if err != nil {
 		return nil, fmt.Errorf("resolve packed ncols: %w", err)
 	}
+	mPoly := polyFromInt64(r, st.M[0])
+	kPoly := polyFromInt64(r, st.K[0])
+	r0Poly := polyFromInt64(r, st.R0[0])
+	r1Poly := polyFromInt64(r, st.R1[0])
+	zPoly := polyFromInt64(r, st.Z[0])
+	tPoly := r.NewPoly()
+	tNTT := r.NewPoly()
+	muNTT := r.NewPoly()
+	r0NTT := r.NewPoly()
+	zNTT := r.NewPoly()
+	ring.Copy(mPoly, muNTT)
+	r.Add(muNTT, kPoly, muNTT)
+	r.NTT(muNTT, muNTT)
+	ring.Copy(r0Poly, r0NTT)
+	r.NTT(r0NTT, r0NTT)
+	ring.Copy(zPoly, zNTT)
+	r.NTT(zNTT, zNTT)
+	ring.Copy(B[0], tNTT)
+	tmp := r.NewPoly()
+	r.MulCoeffs(B[1], muNTT, tmp)
+	r.Add(tNTT, tmp, tNTT)
+	r.MulCoeffs(B[2], r0NTT, tmp)
+	r.Add(tNTT, tmp, tNTT)
+	r.Add(tNTT, zNTT, tNTT)
+	r.InvNTT(tNTT, tPoly)
 	wit := &PIOP.CoeffNativeShowingWitness{
 		Sig: []*ring.Poly{
 			polyFromInt64(r, st.SigS1),
 			polyFromInt64(r, st.SigS2),
 		},
-		M1:          polyFromInt64(r, st.M1[0]),
-		M2:          polyFromInt64(r, st.M2[0]),
-		R0:          polyFromInt64(r, st.R0[0]),
-		R1:          polyFromInt64(r, st.R1[0]),
-		T:           polyFromInt64(r, st.T),
+		M1:          mPoly,
+		M2:          kPoly,
+		R0:          r0Poly,
+		R1:          r1Poly,
+		Z:           zPoly,
+		T:           tPoly,
 		PackedNCols: packedNCols,
 	}
 	if err := wit.Validate(int(r.N)); err != nil {
@@ -537,14 +565,17 @@ func showingSignatureComponentCount(wit PIOP.WitnessInputs) int {
 	if wit.CoeffNativeShowing != nil && len(wit.CoeffNativeShowing.Sig) > 0 {
 		return len(wit.CoeffNativeShowing.Sig)
 	}
-	return len(wit.U)
+	return 0
 }
 
-func prfKeyFromSignedWitness(ringQ *ring.Ring, wit *PIOP.CoeffNativeShowingWitness, lenKey int) ([]prf.Elem, error) {
-	if wit == nil {
-		return nil, fmt.Errorf("missing coeff-native showing witness")
+func prfKeyFromState(r *ring.Ring, st credential.State, lenKey int) ([]prf.Elem, error) {
+	if r == nil {
+		return nil, fmt.Errorf("nil ring")
 	}
-	ncols, err := PIOP.ResolvePackedNCols(wit.PackedNCols, 0, int(ringQ.N))
+	if len(st.K) == 0 {
+		return nil, fmt.Errorf("credential state missing k")
+	}
+	ncols, err := PIOP.ResolvePackedNCols(st.PackedNCols, 0, int(r.N))
 	if err != nil {
 		return nil, err
 	}
@@ -553,9 +584,17 @@ func prfKeyFromSignedWitness(ringQ *ring.Ring, wit *PIOP.CoeffNativeShowingWitne
 		return nil, fmt.Errorf("packed ncols=%d leaves only %d upper-half lanes for lenKey=%d", ncols, half, lenKey)
 	}
 	out := make([]prf.Elem, lenKey)
-	q := ringQ.Modulus[0]
+	q := int64(r.Modulus[0])
 	for i := 0; i < lenKey; i++ {
-		out[i] = prf.Elem(wit.M2.Coeffs[0][half+i] % q)
+		idx := half + i
+		if idx >= len(st.K[0]) {
+			return nil, fmt.Errorf("credential key row length %d is shorter than key slot %d", len(st.K[0]), idx)
+		}
+		v := st.K[0][idx] % q
+		if v < 0 {
+			v += q
+		}
+		out[i] = prf.Elem(v)
 	}
 	return out, nil
 }

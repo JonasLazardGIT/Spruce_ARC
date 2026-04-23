@@ -114,33 +114,14 @@ func TestApplyChallengeMatchesHashMessageAndProofVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply challenge: %v", err)
 	}
-	surface, err := PIOP.DerivePreSignCarrierAndAliasRows(ringQ, bound, omega, PIOP.DomainModeExplicit, PIOP.PreSignRawRows{
-		M1: inputs.M1[0],
-		M2: inputs.M2[0],
-		R0: st.R0[0],
-		R1: st.R1[0],
-	})
-	if err != nil {
-		t.Fatalf("derive canonical target rows: %v", err)
-	}
-	polyFromAliasOmega := func(coeffs []uint64) *ring.Poly {
-		head := make([]uint64, len(omega))
-		q := ringQ.Modulus[0]
-		for i, w := range omega {
-			head[i] = PIOP.EvalPoly(coeffs, w%q, q)
-		}
-		p := ringQ.NewPoly()
-		copy(p.Coeffs[0], head)
-		return p
-	}
 	wantT, err := credential.HashMessage(
 		ringQ,
 		st.B,
 		params.HashRelation,
-		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasM1]),
-		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasM2]),
-		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasR0]),
-		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasR1]),
+		inputs.M1[0],
+		inputs.M2[0],
+		st.R0[0],
+		st.R1[0],
 	)
 	if err != nil {
 		t.Fatalf("hash message: %v", err)

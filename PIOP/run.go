@@ -49,6 +49,7 @@ const (
 	SigShortnessModeLegacyV4    = "sig_shortness_v4_same_root"
 	SigShortnessModeExactHeadV5 = "sig_shortness_v5_exact_head"
 	SigShortnessModeHiddenV6    = "sig_shortness_v6_hidden"
+	SigShortnessModeHiddenV7    = "sig_shortness_v7_inlined_target_hiding"
 )
 
 func normalizeShowingReplayMode(mode ShowingReplayMode) ShowingReplayMode {
@@ -120,9 +121,31 @@ func ResolveSigShortnessMode(proof *Proof) string {
 		return SigShortnessModeExactHeadV5
 	case sigShortnessProofVersionV6:
 		return SigShortnessModeHiddenV6
+	case sigShortnessProofVersionV7:
+		return SigShortnessModeHiddenV7
 	default:
 		return fmt.Sprintf("sig_shortness_v%d_unknown", proof.SigShortness.Version)
 	}
+}
+
+func compactL1ResearchFullV7Profile() string {
+	// The inlined V7 path places shortness directly into the main SmallWood
+	// instance, so its formal coefficient families must stay tractable.
+	// The high-radix L=1 research profile is fine for the nested V6 path but
+	// explodes the inlined membership composition degree here.
+	return SigShortnessProfileR11L4Production
+}
+
+func sigShortnessV7EnabledForOpts(opts SimOpts) bool {
+	resolved := opts
+	resolved.applyDefaults()
+	if normalizeShowingReplayMode(resolved.ShowingReplayMode) != ShowingReplayModeFull {
+		return false
+	}
+	if ResolveShowingPresetLabelForOpts(resolved) != ShowingPresetCompactL1Research {
+		return false
+	}
+	return ResolveSignatureShortnessProfileLabelForOpts(resolved) == compactL1ResearchFullV7Profile()
 }
 
 type PRFCompanionMode string
@@ -180,7 +203,7 @@ func showingPresetLVCSNCols(preset string) int {
 	}
 }
 
-func showingPresetSigShortnessProfile(preset string) string {
+func showingPresetSigShortnessProfile(preset string, replayMode ShowingReplayMode) string {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
 		return SigShortnessProfileR11L4Production
@@ -189,6 +212,9 @@ func showingPresetSigShortnessProfile(preset string) string {
 	case ShowingPresetCompactL2:
 		return SigShortnessProfileR111L2Compact
 	case ShowingPresetCompactL1Research:
+		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+			return compactL1ResearchFullV7Profile()
+		}
 		return SigShortnessProfileR12285L1Research
 	case ShowingPresetTranscriptFirst:
 		return SigShortnessProfileR11L4Production
@@ -243,11 +269,14 @@ func showingPresetNLeaves(preset string) int {
 	}
 }
 
-func showingPresetKappa(preset string) [4]int {
+func showingPresetKappa(preset string, replayMode ShowingReplayMode) [4]int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2:
 		return [4]int{0, 0, 0, 5}
 	case ShowingPresetCompactL1Research:
+		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+			return [4]int{}
+		}
 		return [4]int{0, 11, 0, 11}
 	default:
 		return [4]int{}
@@ -324,7 +353,11 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 			resolved.PRFNLeaves == 4096 &&
 			resolved.Kappa == [4]int{0, 0, 0, 5}
 	case ShowingPresetCompactL1Research:
-		return resolved.SigShortnessProfile == SigShortnessProfileR12285L1Research &&
+		expectedKappa := [4]int{0, 11, 0, 11}
+		if normalizeShowingReplayMode(resolved.ShowingReplayMode) == ShowingReplayModeFull {
+			expectedKappa = [4]int{}
+		}
+		return resolved.SigShortnessProfile == showingPresetSigShortnessProfile(ShowingPresetCompactL1Research, resolved.ShowingReplayMode) &&
 			resolved.LVCSNCols == 32 &&
 			resolved.PostSignLVCSNCols == 32 &&
 			resolved.PRFLVCSNCols == 32 &&
@@ -335,7 +368,7 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 			resolved.NLeaves == 4096 &&
 			resolved.PostSignNLeaves == 4096 &&
 			resolved.PRFNLeaves == 4096 &&
-			resolved.Kappa == [4]int{0, 11, 0, 11}
+			resolved.Kappa == expectedKappa
 	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
 		return resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
 			resolved.LVCSNCols == 32 &&
@@ -480,7 +513,7 @@ func (o *SimOpts) applyDefaults() {
 	if o.Credential && resolveCoeffNativeSigModel(*o) == CoeffNativeSigModelLiteralPackedAggregatedV3 {
 		o.ShowingPreset = normalizeShowingPreset(o.ShowingPreset)
 		if !sigShortnessRawOverrideActive(*o) && o.SigShortnessProfile == "" {
-			o.SigShortnessProfile = showingPresetSigShortnessProfile(o.ShowingPreset)
+			o.SigShortnessProfile = showingPresetSigShortnessProfile(o.ShowingPreset, o.ShowingReplayMode)
 		}
 		if o.Theta <= 0 {
 			o.Theta = showingPresetTheta(o.ShowingPreset)
@@ -515,7 +548,7 @@ func (o *SimOpts) applyDefaults() {
 			o.PRFLVCSNCols = presetLVCS
 		}
 		if o.Kappa == [4]int{} {
-			o.Kappa = showingPresetKappa(o.ShowingPreset)
+			o.Kappa = showingPresetKappa(o.ShowingPreset, o.ShowingReplayMode)
 		}
 	}
 	if o.Rho <= 0 {
@@ -651,8 +684,11 @@ type RowLayout struct {
 	IdxR1                 int
 	IdxK0                 int
 	IdxK1                 int
+	IdxZ                  int
 	IdxMSigmaR1           int
 	IdxR0R1               int
+	IdxMSigmaR1Alias      int
+	IdxR0R1Alias          int
 	IdxCarrierM           int
 	IdxCarrierPreRU       int
 	IdxCarrierPreR        int
@@ -673,6 +709,8 @@ type RowLayout struct {
 	ReplayRHat0Rows       []int
 	IdxRHat1              int
 	ReplayRHat1Rows       []int
+	IdxZHat               int
+	ReplayZHatRows        []int
 	IdxMSigmaR1Hat        int
 	ReplayMSigmaR1HatRows []int
 	IdxR0R1Hat            int
@@ -828,6 +866,7 @@ type SigShortnessProof struct {
 	Opening      *decs.DECSOpening
 	V5           *SigShortnessProofV5
 	V6           *SigShortnessProofV6
+	V7           *SigShortnessProofV7
 }
 
 type SigShortnessProofV5 struct {
@@ -844,6 +883,12 @@ type SigShortnessProofV6 struct {
 	Digits      int
 	HiddenProof *Proof
 	THatOpening *decs.DECSOpening
+}
+
+type SigShortnessProofV7 struct {
+	Mode   uint8
+	Radix  int
+	Digits int
 }
 
 type SigShortnessPackedMatrix struct {
@@ -2115,6 +2160,15 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 func sizeSigShortnessProof(sig *SigShortnessProof) int {
 	if sig == nil {
 		return 0
+	}
+	if sig.Version == sigShortnessProofVersionV7 && sig.V7 != nil {
+		size := 0
+		if sig.V7.Mode != 0 {
+			size++
+		}
+		size += varintSize(sig.V7.Radix)
+		size += varintSize(sig.V7.Digits)
+		return size
 	}
 	if sig.Version == sigShortnessProofVersionV6 && sig.V6 != nil {
 		size := 0

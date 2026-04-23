@@ -8,53 +8,21 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-// CoeffNativeShowingState is retained only as a compatibility shim for older
-// credential-state JSON files. Production showing derives its semantic witness
-// directly from the top-level signed state.
-type CoeffNativeShowingState struct {
-	NCols int `json:"ncols"`
-}
-
-// Validate checks the legacy packed-width metadata before using it as a
-// fallback when PackedNCols is absent from the top-level state.
-func (st *CoeffNativeShowingState) Validate(ringN int) error {
-	if st == nil {
-		return fmt.Errorf("nil coeff-native showing state")
-	}
-	if st.NCols <= 0 {
-		return fmt.Errorf("invalid coeff-native ncols=%d", st.NCols)
-	}
-	if ringN > 0 {
-		if st.NCols > ringN {
-			return fmt.Errorf("coeff-native ncols=%d exceeds ringN=%d", st.NCols, ringN)
-		}
-		if ringN%st.NCols != 0 {
-			return fmt.Errorf("coeff-native ncols=%d does not divide ringN=%d", st.NCols, ringN)
-		}
-	}
-	return nil
-}
+const StateVersion = 1
 
 // State captures all holder-side data needed to persist a credential.
 // All polys are stored in coefficient form (no seeds).
 type State struct {
-	M1  [][]int64 `json:"m1"`
-	M2  [][]int64 `json:"m2"`
-	RU0 [][]int64 `json:"ru0"`
-	RU1 [][]int64 `json:"ru1"`
-	R   [][]int64 `json:"r"`
-	R0  [][]int64 `json:"r0"`
-	R1  [][]int64 `json:"r1"`
-	// Optional carry rows if used.
-	K0 [][]int64 `json:"k0,omitempty"`
-	K1 [][]int64 `json:"k1,omitempty"`
-	// Hash target and showing-signature rows.
-	T []int64 `json:"t"`
+	Version int `json:"version"`
+	M       [][]int64 `json:"m"`
+	K       [][]int64 `json:"k"`
+	R0      [][]int64 `json:"r0"`
+	R1      [][]int64 `json:"r1"`
+	Z       [][]int64 `json:"z"`
 	// Showing-signature rows s1 and s2 are the bounded rows.
 	SigS1 []int64 `json:"sig_s1,omitempty"`
 	SigS2 []int64 `json:"sig_s2,omitempty"`
-	// PackedNCols fixes the issuance/showing witness packing width used when
-	// extracting the signed PRF key from M2.
+	// PackedNCols fixes the issuance/showing witness packing width.
 	PackedNCols int       `json:"packed_ncols,omitempty"`
 	Com         [][]int64 `json:"com"`
 	RI0         [][]int64 `json:"ri0"`
@@ -68,8 +36,6 @@ type State struct {
 	B [][]int64 `json:"b,omitempty"`
 	// PRF params path used when deriving tag in showing.
 	PRFParamsPath string `json:"prf_params_path,omitempty"`
-	// Optional paper-level semantic witness for coeff-native showing.
-	CoeffNativeShowing *CoeffNativeShowingState `json:"coeff_native_showing,omitempty"`
 	// NTRU keys (coeff form).
 	NTRUPublic [][]int64 `json:"ntru_public,omitempty"`
 }
@@ -172,6 +138,9 @@ func matrixToInt64(mat [][]*ring.Poly, ringQ *ring.Ring, ntt bool) [][][]int64 {
 
 // SaveState writes the credential state to the given path.
 func SaveState(path string, ringQ *ring.Ring, st State) error {
+	if st.Version == 0 {
+		st.Version = StateVersion
+	}
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
@@ -191,6 +160,9 @@ func LoadState(path string) (State, error) {
 	}
 	if err := json.Unmarshal(data, &st); err != nil {
 		return st, fmt.Errorf("unmarshal state: %w", err)
+	}
+	if st.Version != StateVersion {
+		return st, fmt.Errorf("unsupported credential state version %d in %s; regenerate the credential with the shared-randomness issuance flow", st.Version, path)
 	}
 	return st, nil
 }

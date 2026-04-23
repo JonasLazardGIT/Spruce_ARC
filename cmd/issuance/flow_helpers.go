@@ -26,14 +26,15 @@ import (
 )
 
 type holderWitnessSpec struct {
-	M1  [][]int64 `json:"m1"`
-	M2  [][]int64 `json:"m2"`
-	RU0 [][]int64 `json:"ru0"`
-	RU1 [][]int64 `json:"ru1"`
-	R   [][]int64 `json:"r"`
+	M    [][]int64 `json:"m"`
+	K    [][]int64 `json:"k"`
+	R0H  [][]int64 `json:"r0h"`
+	R1H  [][]int64 `json:"r1h"`
+	RBar [][]int64 `json:"rbar"`
 }
 
 type holderSecretFile struct {
+	Version              int      `json:"version"`
 	CredentialPublicPath string   `json:"credential_public_path"`
 	PRFParamsPath        string   `json:"prf_params_path"`
 	PackedNCols          int      `json:"packed_ncols"`
@@ -44,6 +45,7 @@ type holderSecretFile struct {
 }
 
 type commitRequestFile struct {
+	Version              int       `json:"version"`
 	CredentialPublicPath string    `json:"credential_public_path"`
 	LVCSNCols            int       `json:"lvcs_ncols,omitempty"`
 	NLeaves              int       `json:"nleaves,omitempty"`
@@ -52,6 +54,7 @@ type commitRequestFile struct {
 }
 
 type issueChallengeFile struct {
+	Version              int       `json:"version"`
 	CredentialPublicPath string    `json:"credential_public_path"`
 	Omega                []uint64  `json:"omega"`
 	RI0                  [][]int64 `json:"ri0"`
@@ -59,12 +62,14 @@ type issueChallengeFile struct {
 }
 
 type preSignSubmissionFile struct {
+	Version              int         `json:"version"`
 	CredentialPublicPath string      `json:"credential_public_path"`
 	T                    []int64     `json:"t"`
 	Proof                *PIOP.Proof `json:"proof"`
 }
 
 type issueResponseFile struct {
+	Version              int             `json:"version"`
 	CredentialPublicPath string          `json:"credential_public_path"`
 	T                    []int64         `json:"t"`
 	SigS1                []int64         `json:"sig_s1"`
@@ -96,6 +101,8 @@ type issuanceRuntimeOverrides struct {
 	LVCSNCols int
 	NLeaves   int
 }
+
+const issuanceArtifactVersion = 1
 
 func persistedIssuanceRuntimeOverrides(ncols, lvcsNCols, nLeaves int, omega []uint64) issuanceRuntimeOverrides {
 	if ncols <= 0 && len(omega) > 0 {
@@ -141,15 +148,16 @@ func setupDemoPublic(outPath string, force bool, bPath, hashRelation string) err
 		return fmt.Errorf("generate Ac: %w", err)
 	}
 	params := credential.PublicParams{
+		Version:      credential.PublicParamsVersion,
 		Ac:           ac,
 		HashRelation: hashRelation,
 		BPath:        bPath,
 		BoundB:       1,
-		LenM1:        1,
-		LenM2:        1,
-		LenRU0:       1,
-		LenRU1:       1,
-		LenR:         1,
+		LenM:         1,
+		LenK:         1,
+		LenR0H:       1,
+		LenR1H:       1,
+		LenRBar:      1,
 	}
 	if err := credential.SavePublicParams(outPath, params); err != nil {
 		return err
@@ -185,6 +193,7 @@ func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expe
 		return fmt.Errorf("prepare commit: %w", err)
 	}
 	secret := holderSecretFile{
+		Version:              issuanceArtifactVersion,
 		CredentialPublicPath: publicPath,
 		PRFParamsPath:        prfPath,
 		PackedNCols:          rt.opts.NCols,
@@ -194,6 +203,7 @@ func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expe
 		holderWitnessSpec:    witnessSpecFromInputs(rt.ringQ, inputs),
 	}
 	request := commitRequestFile{
+		Version:              issuanceArtifactVersion,
 		CredentialPublicPath: publicPath,
 		LVCSNCols:            rt.opts.LVCSNCols,
 		NLeaves:              rt.opts.NLeaves,
@@ -215,6 +225,9 @@ func issuerChallenge(commitRequestPath, challengePath string, seed int64) error 
 	if err := readJSONFile(commitRequestPath, &req); err != nil {
 		return fmt.Errorf("read commit request: %w", err)
 	}
+	if req.Version != issuanceArtifactVersion {
+		return fmt.Errorf("unsupported commit request version %d", req.Version)
+	}
 	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, defaultPRFParamsPath, issuanceRuntimeOverrides{})
 	if err != nil {
 		return err
@@ -228,6 +241,7 @@ func issuerChallenge(commitRequestPath, challengePath string, seed int64) error 
 		return fmt.Errorf("sample challenge: %w", err)
 	}
 	out := issueChallengeFile{
+		Version:              issuanceArtifactVersion,
 		CredentialPublicPath: req.CredentialPublicPath,
 		Omega:                append([]uint64(nil), req.Omega...),
 		RI0:                  polyVecToInt64(rt.ringQ, ch.RI0, true),
@@ -245,9 +259,15 @@ func holderProve(holderSecretPath, challengePath, submissionPath string) error {
 	if err := readJSONFile(holderSecretPath, &secret); err != nil {
 		return fmt.Errorf("read holder secret: %w", err)
 	}
+	if secret.Version != issuanceArtifactVersion {
+		return fmt.Errorf("unsupported holder secret version %d", secret.Version)
+	}
 	var challenge issueChallengeFile
 	if err := readJSONFile(challengePath, &challenge); err != nil {
 		return fmt.Errorf("read challenge: %w", err)
+	}
+	if challenge.Version != issuanceArtifactVersion {
+		return fmt.Errorf("unsupported challenge version %d", challenge.Version)
 	}
 	rt, err := loadIssuanceRuntime(secret.CredentialPublicPath, secret.PRFParamsPath, persistedIssuanceRuntimeOverrides(secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega))
 	if err != nil {
@@ -278,6 +298,7 @@ func holderProve(holderSecretPath, challengePath, submissionPath string) error {
 		return fmt.Errorf("prove pre-sign: %w", err)
 	}
 	out := preSignSubmissionFile{
+		Version:              issuanceArtifactVersion,
 		CredentialPublicPath: secret.CredentialPublicPath,
 		T:                    append([]int64(nil), st.T...),
 		Proof:                proof,
@@ -294,13 +315,22 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 	if err := readJSONFile(commitRequestPath, &req); err != nil {
 		return fmt.Errorf("read commit request: %w", err)
 	}
+	if req.Version != issuanceArtifactVersion {
+		return fmt.Errorf("unsupported commit request version %d", req.Version)
+	}
 	var challenge issueChallengeFile
 	if err := readJSONFile(challengePath, &challenge); err != nil {
 		return fmt.Errorf("read challenge: %w", err)
 	}
+	if challenge.Version != issuanceArtifactVersion {
+		return fmt.Errorf("unsupported challenge version %d", challenge.Version)
+	}
 	var submission preSignSubmissionFile
 	if err := readJSONFile(submissionPath, &submission); err != nil {
 		return fmt.Errorf("read submission: %w", err)
+	}
+	if submission.Version != issuanceArtifactVersion {
+		return fmt.Errorf("unsupported pre-sign submission version %d", submission.Version)
 	}
 	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, defaultPRFParamsPath, persistedIssuanceRuntimeOverrides(0, req.LVCSNCols, req.NLeaves, req.Omega))
 	if err != nil {
@@ -338,6 +368,7 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 		return fmt.Errorf("load public key: %w", err)
 	}
 	resp := issueResponseFile{
+		Version:              issuanceArtifactVersion,
 		CredentialPublicPath: req.CredentialPublicPath,
 		T:                    append([]int64(nil), submission.T...),
 		SigS1:                append([]int64(nil), sig.Signature.S1...),
@@ -429,6 +460,9 @@ func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOv
 	}
 	public, err := credential.LoadPublicParams(publicPath)
 	if err != nil {
+		return nil, err
+	}
+	if err := credential.ValidateLiveHashRelation(public.HashRelation); err != nil {
 		return nil, err
 	}
 	params, err := public.ToIssuanceParams(ringQ)
@@ -542,40 +576,40 @@ func sampleHolderInputs(r *ring.Ring, public credential.PublicParams, omega []ui
 		return issuance.Inputs{}, fmt.Errorf("nil rng")
 	}
 	alphabet := []int64{-1, 0, 1}
-	m1 := samplePackedHalfCoeffHeadNonZero(r, alphabet, len(omega), rng, true)
-	m2 := samplePackedHalfCoeffHeadNonZero(r, alphabet, len(omega), rng, false)
-	ru0 := sampleCoeffHead(r, alphabet, len(omega), rng)
-	ru1 := sampleCoeffHead(r, alphabet, len(omega), rng)
-	rPoly := sampleCoeffHead(r, alphabet, len(omega), rng)
+	m := samplePackedHalfCoeffHeadNonZero(r, alphabet, len(omega), rng, true)
+	k := samplePackedHalfCoeffHeadNonZero(r, alphabet, len(omega), rng, false)
+	r0h := sampleCoeffHead(r, alphabet, len(omega), rng)
+	r1h := sampleCoeffHead(r, alphabet, len(omega), rng)
+	rbar := sampleCoeffHead(r, alphabet, len(omega), rng)
 	return issuance.Inputs{
-		M1:  []*ring.Poly{m1},
-		M2:  []*ring.Poly{m2},
-		RU0: []*ring.Poly{ru0},
-		RU1: []*ring.Poly{ru1},
-		R:   []*ring.Poly{rPoly},
+		M:    []*ring.Poly{m},
+		K:    []*ring.Poly{k},
+		R0H:  []*ring.Poly{r0h},
+		R1H:  []*ring.Poly{r1h},
+		RBar: []*ring.Poly{rbar},
 	}, nil
 }
 
 func inputsFromWitnessSpec(r *ring.Ring, public credential.PublicParams, spec holderWitnessSpec) (issuance.Inputs, error) {
-	if len(spec.M1) != public.LenM1 || len(spec.M2) != public.LenM2 || len(spec.RU0) != public.LenRU0 || len(spec.RU1) != public.LenRU1 || len(spec.R) != public.LenR {
+	if len(spec.M) != public.LenM || len(spec.K) != public.LenK || len(spec.R0H) != public.LenR0H || len(spec.R1H) != public.LenR1H || len(spec.RBar) != public.LenRBar {
 		return issuance.Inputs{}, fmt.Errorf("expert witness row-count mismatch")
 	}
 	return issuance.Inputs{
-		M1:  polysFromInt64(r, spec.M1),
-		M2:  polysFromInt64(r, spec.M2),
-		RU0: polysFromInt64(r, spec.RU0),
-		RU1: polysFromInt64(r, spec.RU1),
-		R:   polysFromInt64(r, spec.R),
+		M:    polysFromInt64(r, spec.M),
+		K:    polysFromInt64(r, spec.K),
+		R0H:  polysFromInt64(r, spec.R0H),
+		R1H:  polysFromInt64(r, spec.R1H),
+		RBar: polysFromInt64(r, spec.RBar),
 	}, nil
 }
 
 func witnessSpecFromInputs(r *ring.Ring, in issuance.Inputs) holderWitnessSpec {
 	return holderWitnessSpec{
-		M1:  polyVecToInt64(r, in.M1, false),
-		M2:  polyVecToInt64(r, in.M2, false),
-		RU0: polyVecToInt64(r, in.RU0, false),
-		RU1: polyVecToInt64(r, in.RU1, false),
-		R:   polyVecToInt64(r, in.R, false),
+		M:    polyVecToInt64(r, in.M, false),
+		K:    polyVecToInt64(r, in.K, false),
+		R0H:  polyVecToInt64(r, in.R0H, false),
+		R1H:  polyVecToInt64(r, in.R1H, false),
+		RBar: polyVecToInt64(r, in.RBar, false),
 	}
 }
 
@@ -594,16 +628,12 @@ func buildCredentialState(rt *issuanceRuntime, in credentialFinalizeInput, input
 		return credential.State{}, fmt.Errorf("nil finalize runtime/state")
 	}
 	out := credential.State{
-		M1:                   polyVecToInt64(rt.ringQ, inputs.M1, false),
-		M2:                   polyVecToInt64(rt.ringQ, inputs.M2, false),
-		RU0:                  polyVecToInt64(rt.ringQ, inputs.RU0, false),
-		RU1:                  polyVecToInt64(rt.ringQ, inputs.RU1, false),
-		R:                    polyVecToInt64(rt.ringQ, inputs.R, false),
+		Version:              credential.StateVersion,
+		M:                    polyVecToInt64(rt.ringQ, inputs.M, false),
+		K:                    polyVecToInt64(rt.ringQ, inputs.K, false),
 		R0:                   polyVecToInt64(rt.ringQ, st.R0, false),
 		R1:                   polyVecToInt64(rt.ringQ, st.R1, false),
-		K0:                   polyVecToInt64(rt.ringQ, st.K0, false),
-		K1:                   polyVecToInt64(rt.ringQ, st.K1, false),
-		T:                    append([]int64(nil), st.T...),
+		Z:                    polyVecToInt64(rt.ringQ, st.Z, false),
 		SigS1:                append([]int64(nil), in.response.SigS1...),
 		SigS2:                append([]int64(nil), in.response.SigS2...),
 		PackedNCols:          in.secret.PackedNCols,
@@ -625,14 +655,26 @@ func loadFinalizeInput(holderSecretPath, commitRequestPath, challengePath, respo
 	if err := readJSONFile(holderSecretPath, &in.secret); err != nil {
 		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("read holder secret: %w", err)
 	}
+	if in.secret.Version != issuanceArtifactVersion {
+		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("unsupported holder secret version %d", in.secret.Version)
+	}
 	if err := readJSONFile(commitRequestPath, &in.request); err != nil {
 		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("read commit request: %w", err)
+	}
+	if in.request.Version != issuanceArtifactVersion {
+		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("unsupported commit request version %d", in.request.Version)
 	}
 	if err := readJSONFile(challengePath, &in.challenge); err != nil {
 		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("read challenge: %w", err)
 	}
+	if in.challenge.Version != issuanceArtifactVersion {
+		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("unsupported challenge version %d", in.challenge.Version)
+	}
 	if err := readJSONFile(responsePath, &in.response); err != nil {
 		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("read response: %w", err)
+	}
+	if in.response.Version != issuanceArtifactVersion {
+		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("unsupported response version %d", in.response.Version)
 	}
 	rt, err := loadIssuanceRuntime(in.secret.CredentialPublicPath, in.secret.PRFParamsPath, persistedIssuanceRuntimeOverrides(in.secret.PackedNCols, in.secret.LVCSNCols, in.secret.NLeaves, in.secret.Omega))
 	if err != nil {

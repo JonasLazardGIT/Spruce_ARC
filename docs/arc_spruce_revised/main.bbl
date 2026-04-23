@@ -1,0 +1,76 @@
+\newcommand{\etalchar}[1]{$^{#1}$}
+\begin{thebibliography}{DKLW25b}
+
+\bibitem[ACK21]{EPRINT:AttCraKoh21}
+Thomas Attema, Ronald Cramer, and Lisa Kohl.
+\newblock A compressed {$\Sigma$}-protocol theory for lattices.
+\newblock Cryptology ePrint Archive, Report 2021/307, 2021.
+
+\bibitem[Bra95]{EC:Brands95}
+Stefan Brands.
+\newblock Restrictive blinding of secret-key certificates.
+\newblock pages 231--247, 1995.
+
+\bibitem[Cha85]{chaum85-anonymous-credentials}
+David Chaum.
+\newblock Security without identification: Transaction systems to make big
+  brother obsolete.
+\newblock {\em Communications of the ACM}, 28(10):1030--1044, 1985.
+
+\bibitem[CL01]{EC:CamLys01}
+Jan Camenisch and Anna Lysyanskaya.
+\newblock An efficient system for non-transferable anonymous credentials with
+  optional anonymity revocation.
+\newblock pages 93--118, 2001.
+
+\bibitem[DKLW25a]{EPRINT:DKLW25}
+Adrien Dubois, Michael Kloo{\ss}, Russell W.~F. Lai, and Ivy K.~Y. Woo.
+\newblock Lattice-based proof-friendly signatures from vanishing short integer
+  solutions.
+\newblock Cryptology ePrint Archive, Report 2025/356, 2025.
+
+\bibitem[DKLW25b]{PKC:DKLW25}
+Adrien Dubois, Michael Kloo{\ss}, Russell W.~F. Lai, and Ivy K.~Y. Woo.
+\newblock Lattice-based proof-friendly signatures from vanishing short integer
+  solutions.
+\newblock pages 452--486, 2025.
+
+\bibitem[ENS{\etalchar{+}}23]{EPRINT:ENSTW23}
+Thomas Espitau, Thi Thu~Quyen Nguyen, Chao Sun, Mehdi Tibouchi, and Alexandre
+  Wallet.
+\newblock Antrag: Annular {NTRU} trapdoor generation.
+\newblock Cryptology {ePrint} Archive, Report 2023/1335, 2023.
+
+\bibitem[Fis06]{C:Fischlin06}
+Marc Fischlin.
+\newblock Round-optimal composable blind signatures in the common reference
+  string model.
+\newblock pages 60--77, 2006.
+
+\bibitem[FR25]{EPRINT:FenRiv25b}
+Thibauld Feneuil and Matthieu Rivain.
+\newblock {SmallWood}: Hash-based polynomial commitments and zero-knowledge
+  arguments for relatively small instances.
+\newblock Cryptology ePrint Archive, Report 2025/1085, 2025.
+
+\bibitem[GKS23]{AFRICACRYPT:GraKhoSch23}
+Lorenzo Grassi, Dmitry Khovratovich, and Markus Schofnegger.
+\newblock {Poseidon2}: {A} faster version of the poseidon hash function.
+\newblock pages 177--203, 2023.
+
+\bibitem[SK25]{schlesinger-cfrg-act-00}
+Samuel Schlesinger and Jonathan Katz.
+\newblock {Anonymous Credit Tokens}.
+\newblock Internet-Draft draft-schlesinger-cfrg-act-00, Internet Engineering
+  Task Force, August 2025.
+\newblock Work in Progress.
+
+\bibitem[YWFH26]{ietf-privacypass-arc-protocol-01}
+Cathie Yun, Christopher~A. Wood, and Armando Faz-Hernandez.
+\newblock {Privacy Pass Issuance Protocol for Anonymous Rate-Limited
+  Credentials}.
+\newblock Internet-Draft draft-ietf-privacypass-arc-protocol-01, Internet
+  Engineering Task Force, March 2026.
+\newblock Work in Progress.
+
+\end{thebibliography}

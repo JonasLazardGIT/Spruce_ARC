@@ -51,6 +51,36 @@ func polyInverseNTT(r *ring.Ring, a *ring.Poly) (*ring.Poly, bool) {
 	return out, true
 }
 
+func IsInvertibleDenominator(ringQ *ring.Ring, b3, x1 *ring.Poly) bool {
+	if ringQ == nil || b3 == nil || x1 == nil {
+		return false
+	}
+	d := ringQ.NewPoly()
+	ringQ.Sub(b3, x1, d)
+	_, ok := polyInverseNTT(ringQ, d)
+	return ok
+}
+
+func ComputeBBTranInverse(
+	ringQ *ring.Ring,
+	b3, x1 *ring.Poly,
+) (*ring.Poly, error) {
+	if ringQ == nil {
+		return nil, errors.New("nil ring")
+	}
+	if b3 == nil || x1 == nil {
+		return nil, errors.New("nil denominator input")
+	}
+	ringQ.NTT(x1, x1)
+	d := ringQ.NewPoly()
+	ringQ.Sub(b3, x1, d)
+	dInv, ok := polyInverseNTT(ringQ, d)
+	if !ok {
+		return nil, errors.New("denominator not invertible")
+	}
+	return dInv, nil
+}
+
 // ComputeBBSHash evaluates the BBS hash and returns the result in the NTT domain.
 func ComputeBBSHash(
 	ringQ *ring.Ring,
@@ -91,44 +121,43 @@ func ComputeBBSHash(
 }
 
 // ComputeBBTranHash evaluates the BB-tran target and returns it in the NTT
-// domain. The first public B polynomial must be identically zero in this
-// retained 4-slot encoding.
+// domain.
 func ComputeBBTranHash(
 	ringQ *ring.Ring,
 	B []*ring.Poly,
 	m, x0, x1 *ring.Poly,
 ) (*ring.Poly, error) {
+	_, t, err := ComputeBBTranTarget(ringQ, B, m, x0, x1)
+	return t, err
+}
+
+// ComputeBBTranTarget evaluates the live BB-tran target and returns both the
+// inverse witness Z=(B3-x1)^(-1) and T=B0+B1*m+B2*x0+Z in the NTT domain.
+func ComputeBBTranTarget(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	m, x0, x1 *ring.Poly,
+) (*ring.Poly, *ring.Poly, error) {
 	if len(B) != 4 {
-		return nil, errors.New("need four B polynomials")
-	}
-	for _, c := range B[0].Coeffs[0] {
-		if c != 0 {
-			return nil, errors.New("bb_tran requires B[0] = 0")
-		}
+		return nil, nil, errors.New("need four B polynomials")
 	}
 
 	ringQ.NTT(m, m)
 	ringQ.NTT(x0, x0)
-	ringQ.NTT(x1, x1)
-
-	tmp := ringQ.NewPoly()
-	linear := ringQ.NewPoly()
-	ringQ.MulCoeffs(B[1], m, tmp)
-	ring.Copy(tmp, linear)
-	ringQ.MulCoeffs(B[2], x0, tmp)
-	ringQ.Add(linear, tmp, linear)
-
-	d := ringQ.NewPoly()
-	ringQ.Sub(B[3], x1, d)
-	dInv, ok := polyInverseNTT(ringQ, d)
-	if !ok {
-		return nil, errors.New("denominator not invertible")
+	z, err := ComputeBBTranInverse(ringQ, B[3], x1)
+	if err != nil {
+		return nil, nil, err
 	}
 
+	tmp := ringQ.NewPoly()
 	t := ringQ.NewPoly()
-	ring.Copy(linear, t)
-	ringQ.Add(t, dInv, t)
-	return t, nil
+	ring.Copy(B[0], t)
+	ringQ.MulCoeffs(B[1], m, tmp)
+	ringQ.Add(t, tmp, t)
+	ringQ.MulCoeffs(B[2], x0, tmp)
+	ringQ.Add(t, tmp, t)
+	ringQ.Add(t, z, t)
+	return z, t, nil
 }
 
 func TestPolyInverseNTT(t *testing.T) {

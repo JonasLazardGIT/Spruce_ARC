@@ -17,7 +17,6 @@ type PublicInputs struct {
 	T      []int64
 	Tag    [][]int64
 	Nonce  [][]int64
-	U      []*ring.Poly
 	BoundB int64
 	HashRelation string
 	Extras map[string]interface{}
@@ -32,6 +31,7 @@ type CoeffNativeShowingWitness struct {
 	M2          *ring.Poly
 	R0          *ring.Poly
 	R1          *ring.Poly
+	Z           *ring.Poly
 	T           *ring.Poly
 	PackedNCols int
 }
@@ -56,13 +56,16 @@ func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
 	if wit.R1 == nil {
 		return fmt.Errorf("missing signed R1 witness row")
 	}
+	if wit.Z == nil {
+		return fmt.Errorf("missing signed Z witness row")
+	}
 	if wit.T == nil {
 		return fmt.Errorf("missing signed T witness row")
 	}
 	if wit.PackedNCols <= 0 {
 		return fmt.Errorf("invalid coeff-native packed ncols=%d", wit.PackedNCols)
 	}
-	rows := []*ring.Poly{wit.M1, wit.M2, wit.R0, wit.R1, wit.T}
+	rows := []*ring.Poly{wit.M1, wit.M2, wit.R0, wit.R1, wit.Z, wit.T}
 	for i, poly := range wit.Sig {
 		if poly == nil {
 			return fmt.Errorf("nil coeff-native signature row %d", i)
@@ -96,7 +99,7 @@ type WitnessInputs struct {
 	// K0/K1 satisfy RU* + RI* = R* + (2B+1)·K*.
 	K0 []*ring.Poly
 	K1 []*ring.Poly
-	U  []*ring.Poly
+	Z  []*ring.Poly
 	T  []int64
 	// CoeffNativeShowing is required when coeff-native showing is enabled.
 	CoeffNativeShowing *CoeffNativeShowingWitness

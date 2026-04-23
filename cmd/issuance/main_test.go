@@ -107,8 +107,8 @@ func TestRoleSeparatedIssuanceFlowPersistsTrapdoorFreeState(t *testing.T) {
 	if state.CredentialPublicPath != publicPath {
 		t.Fatalf("credential_public_path=%q want %q", state.CredentialPublicPath, publicPath)
 	}
-	if maxAbsRows(state.M2) <= 0 {
-		t.Fatal("default issuance sampled zero M2; want nonzero hidden key material")
+	if maxAbsRows(state.K) <= 0 {
+		t.Fatal("default issuance sampled zero K; want nonzero hidden key material")
 	}
 	if maxAbsRows(state.RI0) <= 0 && maxAbsRows(state.RI1) <= 0 {
 		t.Fatal("default issuance sampled zero issuer challenge")

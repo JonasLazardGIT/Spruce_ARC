@@ -131,7 +131,6 @@ func TestReplayFamilyAuditSelectedFamiliesAreStable(t *testing.T) {
 		got = append(got, entry.Family)
 	}
 	want := []ReplayFamilyKind{
-		ReplayFamilySourceProduct,
 		ReplayFamilyCarrier,
 		ReplayFamilyPRFCompanion,
 	}
@@ -240,8 +239,6 @@ func TestReplaySubfamilyAuditPRFUsageAndSelectedKindsAreStable(t *testing.T) {
 		got = append(got, entry.Kind)
 	}
 	want := []ReplaySubfamilyKind{
-		ReplaySubfamilySourceProductMSigmaR1,
-		ReplaySubfamilySourceProductR0R1,
 		ReplaySubfamilyPRFKeyRows,
 		ReplaySubfamilyPRFCheckpointRows,
 		ReplaySubfamilyPRFFinalTagRows,

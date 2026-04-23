@@ -147,31 +147,56 @@ func buildSignatureMatrixTest(r *ring.Ring, st credential.State, uCount int) ([]
 	return [][]*ring.Poly{{negHNTT, one}}, nil
 }
 
-func buildCoeffNativeShowingWitnessTest(r *ring.Ring, st credential.State) (*CoeffNativeShowingWitness, error) {
+func buildCoeffNativeShowingWitnessTest(r *ring.Ring, st credential.State, B []*ring.Poly) (*CoeffNativeShowingWitness, error) {
 	if len(st.SigS1) == 0 || len(st.SigS2) == 0 {
 		return nil, fmt.Errorf("missing sig_s1/sig_s2 in credential state")
 	}
-	if len(st.M1) == 0 || len(st.M2) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.T) == 0 {
-		return nil, fmt.Errorf("missing signed base rows in credential state")
+	if len(st.M) == 0 || len(st.K) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
+		return nil, fmt.Errorf("missing semantic witness rows in credential state")
 	}
-	legacyNCols := 0
-	if st.CoeffNativeShowing != nil {
-		legacyNCols = st.CoeffNativeShowing.NCols
+	if len(B) != 4 {
+		return nil, fmt.Errorf("missing B matrix for target reconstruction")
 	}
-	packedNCols, err := ResolvePackedNCols(st.PackedNCols, legacyNCols, int(r.N))
+	packedNCols, err := ResolvePackedNCols(st.PackedNCols, 0, int(r.N))
 	if err != nil {
 		return nil, fmt.Errorf("resolve packed ncols: %w", err)
 	}
+	mPoly := polyFromInt64Test(r, st.M[0])
+	kPoly := polyFromInt64Test(r, st.K[0])
+	r0Poly := polyFromInt64Test(r, st.R0[0])
+	r1Poly := polyFromInt64Test(r, st.R1[0])
+	zPoly := polyFromInt64Test(r, st.Z[0])
+	tPoly := r.NewPoly()
+	muNTT := r.NewPoly()
+	ring.Copy(mPoly, muNTT)
+	r.Add(muNTT, kPoly, muNTT)
+	r.NTT(muNTT, muNTT)
+	r0NTT := r.NewPoly()
+	zNTT := r.NewPoly()
+	ring.Copy(r0Poly, r0NTT)
+	r.NTT(r0NTT, r0NTT)
+	ring.Copy(zPoly, zNTT)
+	r.NTT(zNTT, zNTT)
+	tNTT := r.NewPoly()
+	ring.Copy(B[0], tNTT)
+	tmp := r.NewPoly()
+	r.MulCoeffs(B[1], muNTT, tmp)
+	r.Add(tNTT, tmp, tNTT)
+	r.MulCoeffs(B[2], r0NTT, tmp)
+	r.Add(tNTT, tmp, tNTT)
+	r.Add(tNTT, zNTT, tNTT)
+	r.InvNTT(tNTT, tPoly)
 	wit := &CoeffNativeShowingWitness{
 		Sig: []*ring.Poly{
 			polyFromInt64Test(r, st.SigS1),
 			polyFromInt64Test(r, st.SigS2),
 		},
-		M1:          polyFromInt64Test(r, st.M1[0]),
-		M2:          polyFromInt64Test(r, st.M2[0]),
-		R0:          polyFromInt64Test(r, st.R0[0]),
-		R1:          polyFromInt64Test(r, st.R1[0]),
-		T:           polyFromInt64Test(r, st.T),
+		M1:          mPoly,
+		M2:          kPoly,
+		R0:          r0Poly,
+		R1:          r1Poly,
+		Z:           zPoly,
+		T:           tPoly,
 		PackedNCols: packedNCols,
 	}
 	if err := wit.Validate(int(r.N)); err != nil {
@@ -341,7 +366,11 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 	}
 	omegaWitness := append([]uint64(nil), omegaLVCS[:opts.NCols]...)
 
-	cnWit, err := buildCoeffNativeShowingWitnessTest(ringQ, state)
+	B, err := loadBAsNTTTest(ringQ, publicParams.BPath)
+	if err != nil {
+		t.Fatalf("load B: %v", err)
+	}
+	cnWit, err := buildCoeffNativeShowingWitnessTest(ringQ, state, B)
 	if err != nil {
 		t.Fatalf("build coeff-native witness: %v", err)
 	}
@@ -350,10 +379,6 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 	A, err := buildSignatureMatrixTest(ringQ, state, len(cnWit.Sig))
 	if err != nil {
 		t.Fatalf("build A: %v", err)
-	}
-	B, err := loadBAsNTTTest(ringQ, publicParams.BPath)
-	if err != nil {
-		t.Fatalf("load B: %v", err)
 	}
 	nonce, noncePublic := fixedNonceTest(params.LenNonce, opts.NCols, ringQ.Modulus[0])
 
@@ -916,29 +941,12 @@ func TestTransformBridgeCombinedReplayDebugFull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
 	}
-	set := ConstraintSet{
-		FparInt:            append([]*ring.Poly{}, postSet.FparInt...),
-		FparIntCoeffs:      append([][]uint64{}, postSet.FparIntCoeffs...),
-		FparNorm:           postSet.FparNorm,
-		FparNormCoeffs:     postSet.FparNormCoeffs,
-		FaggInt:            postSet.FaggInt,
-		FaggIntCoeffs:      postSet.FaggIntCoeffs,
-		FaggNorm:           postSet.FaggNorm,
-		FaggNormCoeffs:     postSet.FaggNormCoeffs,
-		ParallelAlgDeg:     postSet.ParallelAlgDeg,
-		AggregatedAlgDeg:   postSet.AggregatedAlgDeg,
-		PRFLayout:          fx.prfLayout,
-		PRFCompanionLayout: fx.prfCompanion,
-	}
+	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparNorm", postSet.FparNorm, postSet.FparNormCoeffs)
 	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
 	if err != nil {
 		t.Fatalf("build showing combined: %v", err)
 	}
-	ok, err := VerifyWithConstraints(proof, set, fx.pub, fx.opts, FSModeCredential)
-	if err != nil {
-		t.Fatalf("verify with built set: %v", err)
-	}
-	if !ok {
-		t.Fatalf("verify with built set returned false")
+	if proof.SourceProductBridge != nil {
+		t.Fatalf("full replay proof should not carry source-product bridge: %+v", proof.SourceProductBridge)
 	}
 }

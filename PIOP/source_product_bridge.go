@@ -25,6 +25,13 @@ type SourceProductBridge struct {
 	BridgeDigest   []byte
 }
 
+type sourceProductAliasStripeLayout struct {
+	SourceRows   []int
+	PhysicalRows []int
+	SupportSlots []int
+	PaddingRows  int
+}
+
 type sourceProductBridgeView struct {
 	Opening      *decs.DECSOpening
 	PackedHeads  [][]uint64
@@ -43,16 +50,22 @@ type sourceProductCarrierWitnessView struct {
 	rowCoeffs         map[int][]uint64
 }
 
-func sourceProductBridgeEnabled(pub PublicInputs, opts SimOpts, layout RowLayout) bool {
-	_ = pub
-	_ = opts
-	_ = layout
-	// The retained bridge scaffolding stays disabled until the shipped verifier
-	// has a same-root extraction shape that round-trips the exact MSigmaR1/R0R1
-	// rows. Probes against the current physical rows 2/3 show that a direct
-	// same-root opening on those rows does not reconstruct the committed Ω_s
-	// heads or K-point values, so enabling this path today would be unsound.
+func sourceProductAliasStripeRequested(pub PublicInputs, opts SimOpts) bool {
 	return false
+}
+
+func sourceProductBridgePhysicalRows(layout RowLayout) []int {
+	return rowLayoutSourceProductAliasRows(layout)
+}
+
+func sourceProductBridgeEnabled(pub PublicInputs, opts SimOpts, layout RowLayout) bool {
+	if !sourceProductAliasStripeRequested(pub, opts) {
+		return false
+	}
+	if len(sourceProductBridgeRowIndices(layout)) != 2 {
+		return false
+	}
+	return len(sourceProductBridgePhysicalRows(layout)) == 2
 }
 
 func sourceProductBridgeEnabledForProof(proof *Proof) bool {
@@ -67,6 +80,107 @@ func sourceProductBridgeRowIndices(layout RowLayout) []int {
 		}
 	}
 	return rows
+}
+
+func buildSourceProductAliasStripeLayout(layout RowLayout, currentWitnessRows, pcsNCols int) (*sourceProductAliasStripeLayout, error) {
+	if currentWitnessRows < 0 {
+		return nil, fmt.Errorf("invalid current witness rows=%d", currentWitnessRows)
+	}
+	if pcsNCols <= 0 {
+		return nil, fmt.Errorf("invalid pcs ncols=%d", pcsNCols)
+	}
+	sourceRows := sourceProductBridgeRowIndices(layout)
+	if len(sourceRows) != 2 {
+		return nil, fmt.Errorf("source-product alias stripe requires 2 source rows, got %d", len(sourceRows))
+	}
+	if pcsNCols < len(sourceRows) {
+		return nil, fmt.Errorf("source-product alias stripe requires pcs ncols >= %d, got %d", len(sourceRows), pcsNCols)
+	}
+	start := currentWitnessRows
+	if rem := currentWitnessRows % pcsNCols; rem != 0 {
+		slotsLeft := pcsNCols - rem
+		if slotsLeft < len(sourceRows) {
+			start += slotsLeft
+		}
+	}
+	physicalRows := make([]int, len(sourceRows))
+	for i := range sourceRows {
+		physicalRows[i] = start + i
+	}
+	supportSlots, err := buildSigShortnessSupportSlotsForRows(physicalRows, pcsNCols)
+	if err != nil {
+		return nil, err
+	}
+	return &sourceProductAliasStripeLayout{
+		SourceRows:   append([]int(nil), sourceRows...),
+		PhysicalRows: physicalRows,
+		SupportSlots: supportSlots,
+		PaddingRows:  start - currentWitnessRows,
+	}, nil
+}
+
+func appendSourceProductAliasStripeRows(ringQ *ring.Ring, rows []*ring.Poly, stripe *sourceProductAliasStripeLayout) ([]*ring.Poly, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if stripe == nil {
+		return rows, nil
+	}
+	if len(stripe.SourceRows) != len(stripe.PhysicalRows) {
+		return nil, fmt.Errorf("source-product alias stripe source rows=%d want physical rows=%d", len(stripe.SourceRows), len(stripe.PhysicalRows))
+	}
+	for i, sourceRow := range stripe.SourceRows {
+		targetRow := stripe.PhysicalRows[i]
+		for len(rows) < targetRow {
+			rows = append(rows, ringQ.NewPoly())
+		}
+		if len(rows) != targetRow {
+			return nil, fmt.Errorf("source-product alias stripe target row=%d current rows=%d", targetRow, len(rows))
+		}
+		if sourceRow < 0 || sourceRow >= len(rows) {
+			return nil, fmt.Errorf("source-product alias stripe source row=%d out of range for rows=%d", sourceRow, len(rows))
+		}
+		if rows[sourceRow] == nil {
+			return nil, fmt.Errorf("nil source-product alias stripe source row %d", sourceRow)
+		}
+		rows = append(rows, rows[sourceRow].CopyNew())
+	}
+	return rows, nil
+}
+
+func buildSourceProductAliasStripeEqualityConstraints(ringQ *ring.Ring, rowsNTT []*ring.Poly, layout RowLayout) ([]*ring.Poly, [][]uint64, error) {
+	if ringQ == nil {
+		return nil, nil, fmt.Errorf("nil ring")
+	}
+	sourceRows := sourceProductBridgeRowIndices(layout)
+	physicalRows := sourceProductBridgePhysicalRows(layout)
+	if len(sourceRows) == 0 || len(physicalRows) == 0 {
+		return nil, nil, nil
+	}
+	if len(sourceRows) != len(physicalRows) {
+		return nil, nil, fmt.Errorf("source-product alias stripe source rows=%d want physical rows=%d", len(sourceRows), len(physicalRows))
+	}
+	q := ringQ.Modulus[0]
+	families := make([]*ring.Poly, 0, len(sourceRows))
+	coeffs := make([][]uint64, 0, len(sourceRows))
+	for i, sourceRow := range sourceRows {
+		physicalRow := physicalRows[i]
+		if sourceRow < 0 || sourceRow >= len(rowsNTT) || physicalRow < 0 || physicalRow >= len(rowsNTT) {
+			return nil, nil, fmt.Errorf("source-product alias equality rows source=%d physical=%d out of range (rows=%d)", sourceRow, physicalRow, len(rowsNTT))
+		}
+		sourceCoeff, err := coeffFromNTTPoly(ringQ, rowsNTT[sourceRow])
+		if err != nil {
+			return nil, nil, fmt.Errorf("source-product alias source coeff row %d: %w", sourceRow, err)
+		}
+		physicalCoeff, err := coeffFromNTTPoly(ringQ, rowsNTT[physicalRow])
+		if err != nil {
+			return nil, nil, fmt.Errorf("source-product alias physical coeff row %d: %w", physicalRow, err)
+		}
+		diff := trimPoly(polySub(sourceCoeff, physicalCoeff, q), q)
+		families = append(families, nttPolyFromFormalCoeffsIfFits(ringQ, diff))
+		coeffs = append(coeffs, diff)
+	}
+	return families, coeffs, nil
 }
 
 func buildSourceProductBridgeGeometryDigest(rowIndices, physicalRows, supportSlots []int, witnessNCols, pcsNCols int) []byte {
@@ -84,6 +198,45 @@ func buildSourceProductBridgePackedDigest(packedHeads [][]uint64) []byte {
 	h.Write(bytesFromUint64Matrix(packedHeads))
 	sum := h.Sum(nil)
 	return append([]byte(nil), sum...)
+}
+
+func buildReplayHeadsFromSourceHead(ringQ *ring.Ring, sourceHead, omega []uint64, replayBlockCount int, name string) ([][]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if len(sourceHead) == 0 {
+		return nil, fmt.Errorf("empty source head for %s", name)
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega for %s", name)
+	}
+	if len(sourceHead) != len(omega) {
+		return nil, fmt.Errorf("source head width=%d want omega width=%d for %s", len(sourceHead), len(omega), name)
+	}
+	if replayBlockCount <= 0 {
+		return nil, fmt.Errorf("invalid replay block count=%d", replayBlockCount)
+	}
+	ncols := len(omega)
+	basis, err := newTransformBridgeBasisCache(ringQ, omega, replayBlockCount*ncols, 1)
+	if err != nil {
+		return nil, fmt.Errorf("transform basis for %s: %w", name, err)
+	}
+	q := ringQ.Modulus[0]
+	out := make([][]uint64, replayBlockCount)
+	for block := 0; block < replayBlockCount; block++ {
+		head := make([]uint64, ncols)
+		for j := 0; j < ncols; j++ {
+			t := block*ncols + j
+			acc := uint64(0)
+			for k := 0; k < ncols; k++ {
+				weight := EvalPoly(basis.TransformH[t], omega[k]%q, q) % q
+				acc = modAdd(acc, modMul(weight, sourceHead[k]%q, q), q)
+			}
+			head[j] = acc
+		}
+		out[block] = head
+	}
+	return out, nil
 }
 
 func buildSourceProductBridgeDigest(mainRoot [16]byte, mainPub PublicInputs, bridge *SourceProductBridge) []byte {
@@ -233,7 +386,10 @@ func buildSourceProductBridge(
 	if len(rowIndices) != 2 {
 		return nil, nil, fmt.Errorf("source-product bridge requires 2 source rows, got %d", len(rowIndices))
 	}
-	physicalRows := append([]int(nil), rowIndices...)
+	physicalRows := sourceProductBridgePhysicalRows(layout)
+	if len(physicalRows) != 2 {
+		return nil, nil, fmt.Errorf("source-product bridge requires 2 physical rows, got %d", len(physicalRows))
+	}
 	pcsNCols := mainProofGeometry.PCSNCols
 	if pcsNCols <= 0 {
 		pcsNCols = mainProofGeometry.WitnessPackingCols
@@ -281,7 +437,10 @@ func prepareSourceProductBridgeView(ringQ *ring.Ring, proof *Proof, pub PublicIn
 	if !equalIntSlices(bridge.RowIndices, wantRows) {
 		return nil, fmt.Errorf("source-product bridge row indices mismatch")
 	}
-	wantPhysical := append([]int(nil), wantRows...)
+	wantPhysical := sourceProductBridgePhysicalRows(proof.RowLayout)
+	if len(wantPhysical) != len(wantRows) {
+		return nil, fmt.Errorf("source-product bridge physical rows missing from row layout")
+	}
 	if !equalIntSlices(bridge.PhysicalRows, wantPhysical) {
 		return nil, fmt.Errorf("source-product bridge physical rows mismatch")
 	}

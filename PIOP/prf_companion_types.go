@@ -125,6 +125,10 @@ func cloneProofForPRFAux(src *Proof) *Proof {
 			v6.THatOpening = cloneDECSOpening(src.SigShortness.V6.THatOpening)
 			out.SigShortness.V6 = &v6
 		}
+		if src.SigShortness.V7 != nil {
+			v7 := *src.SigShortness.V7
+			out.SigShortness.V7 = &v7
+		}
 	}
 	return &out
 }

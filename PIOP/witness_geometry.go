@@ -148,6 +148,9 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 		if layout.ChainRowsPerSig > 0 && cfg.W1SigCount > 0 {
 			out.SigShortnessRows = layout.ChainRowsPerSig * cfg.W1SigCount
 		}
+		if layout.PackedSigChainBase >= 0 && layout.PackedSigChainGroupCount > 0 && layout.PackedSigChainRowsPerGroup > 0 {
+			out.SigShortnessRows += layout.PackedSigChainGroupCount * layout.PackedSigChainRowsPerGroup
+		}
 	}
 	out.PRFRows = replayPRFRowCount(prfLayout, prfCompanionLayout, PRFCompanionMode(""))
 	out.TotalRows = out.SigReplayRows + out.SigShortnessRows + out.NonSigRows + out.PRFRows
@@ -217,34 +220,27 @@ func BuildWitnessGeometrySnapshotFromLayout(
 	if actualWitness < 0 {
 		actualWitness = 0
 	}
-	postSignWitness := actualWitness
-	if prfCompanionLayout != nil && prfCompanionLayout.StartRow >= 0 {
-		postSignWitness = prfCompanionLayout.StartRow
-		if postSignWitness > actualWitness {
-			postSignWitness = actualWitness
-		}
-	} else if prfLayout != nil && prfLayout.StartIdx >= 0 {
-		postSignWitness = prfLayout.StartIdx
-		if postSignWitness > actualWitness {
-			postSignWitness = actualWitness
-		}
-	}
 	prfWitness := 0
-	if prfCompanionLayout != nil {
+	if layout.PRFScalarBundleRows > 0 {
+		prfWitness = layout.PRFScalarBundleRows
+	} else if prfCompanionLayout != nil {
 		if prfCompanionLayout.PackedRows > 0 {
 			prfWitness = prfCompanionLayout.PackedRows
-		} else if actualWitness > postSignWitness {
-			prfWitness = actualWitness - postSignWitness
 		}
 	} else if prfLayout != nil {
 		if prfLayout.WitnessRows > 0 {
 			prfWitness = prfLayout.WitnessRows
-		} else if actualWitness > postSignWitness {
-			prfWitness = actualWitness - postSignWitness
 		}
 	}
 	if prfWitness < 0 {
 		prfWitness = 0
+	}
+	if prfWitness > actualWitness {
+		prfWitness = actualWitness
+	}
+	postSignWitness := actualWitness - prfWitness
+	if postSignWitness < 0 {
+		postSignWitness = 0
 	}
 	blockCount := 0
 	if pcsGeometry.BlockCount > 0 {

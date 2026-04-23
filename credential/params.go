@@ -14,6 +14,13 @@ type Params struct {
 	BPath  string
 	AcPath string
 	BoundB int64
+	LenM   int
+	LenK   int
+	LenR0H int
+	LenR1H int
+	LenRBar int
+	// Deprecated aliases retained so older tests can still build while the
+	// live runtime uses the semantic lengths above.
 	LenM1  int
 	LenM2  int
 	LenRU0 int

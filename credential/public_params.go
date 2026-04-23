@@ -12,22 +12,52 @@ import (
 )
 
 const DefaultPublicParamsPath = "Parameters/credential_public.json"
+const PublicParamsVersion = 1
 
 // PublicParams captures the stable credential-side public parameters used by
 // issuance and showing.
 type PublicParams struct {
+	Version      int                    `json:"version,omitempty"`
 	HashRelation string                 `json:"hash_relation"`
-	Ac     commitment.CoeffMatrix `json:"Ac"`
-	BPath  string                 `json:"BPath"`
-	BoundB int64                  `json:"BoundB"`
-	LenM1  int                    `json:"LenM1"`
-	LenM2  int                    `json:"LenM2"`
-	LenRU0 int                    `json:"LenRU0"`
-	LenRU1 int                    `json:"LenRU1"`
-	LenR   int                    `json:"LenR"`
+	Ac           commitment.CoeffMatrix `json:"Ac"`
+	BPath        string                 `json:"BPath"`
+	BoundB       int64                  `json:"BoundB"`
+	LenM         int                    `json:"LenM,omitempty"`
+	LenK         int                    `json:"LenK,omitempty"`
+	LenR0H       int                    `json:"LenR0H,omitempty"`
+	LenR1H       int                    `json:"LenR1H,omitempty"`
+	LenRBar      int                    `json:"LenRBar,omitempty"`
+
+	LegacyLenM1  int `json:"LenM1,omitempty"`
+	LegacyLenM2  int `json:"LenM2,omitempty"`
+	LegacyLenRU0 int `json:"LenRU0,omitempty"`
+	LegacyLenRU1 int `json:"LenRU1,omitempty"`
+	LegacyLenR   int `json:"LenR,omitempty"`
 }
 
-func (pp PublicParams) Validate() error {
+func (pp *PublicParams) normalizeLegacy() {
+	if pp.Version == 0 {
+		pp.Version = PublicParamsVersion
+	}
+	if pp.LenM == 0 {
+		pp.LenM = pp.LegacyLenM1
+	}
+	if pp.LenK == 0 {
+		pp.LenK = pp.LegacyLenM2
+	}
+	if pp.LenR0H == 0 {
+		pp.LenR0H = pp.LegacyLenRU0
+	}
+	if pp.LenR1H == 0 {
+		pp.LenR1H = pp.LegacyLenRU1
+	}
+	if pp.LenRBar == 0 {
+		pp.LenRBar = pp.LegacyLenR
+	}
+}
+
+func (pp *PublicParams) Validate() error {
+	pp.normalizeLegacy()
 	if err := ValidateHashRelation(pp.HashRelation); err != nil {
 		return err
 	}
@@ -40,8 +70,8 @@ func (pp PublicParams) Validate() error {
 	if pp.BoundB <= 0 {
 		return fmt.Errorf("invalid BoundB=%d", pp.BoundB)
 	}
-	if pp.LenM1 <= 0 || pp.LenM2 <= 0 || pp.LenRU0 <= 0 || pp.LenRU1 <= 0 || pp.LenR <= 0 {
-		return fmt.Errorf("invalid row lengths m1=%d m2=%d ru0=%d ru1=%d r=%d", pp.LenM1, pp.LenM2, pp.LenRU0, pp.LenRU1, pp.LenR)
+	if pp.LenM <= 0 || pp.LenK <= 0 || pp.LenR0H <= 0 || pp.LenR1H <= 0 || pp.LenRBar <= 0 {
+		return fmt.Errorf("invalid row lengths m=%d k=%d r0h=%d r1h=%d rbar=%d", pp.LenM, pp.LenK, pp.LenR0H, pp.LenR1H, pp.LenRBar)
 	}
 	return nil
 }
@@ -55,14 +85,17 @@ func LoadPublicParams(path string) (PublicParams, error) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		return out, fmt.Errorf("unmarshal public params: %w", err)
 	}
-	if err := out.Validate(); err != nil {
+	if err := (&out).Validate(); err != nil {
 		return out, fmt.Errorf("validate public params %s: %w", path, err)
 	}
 	return out, nil
 }
 
 func SavePublicParams(path string, params PublicParams) error {
-	if err := params.Validate(); err != nil {
+	if params.Version == 0 {
+		params.Version = PublicParamsVersion
+	}
+	if err := (&params).Validate(); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -82,7 +115,7 @@ func (pp PublicParams) ToIssuanceParams(ringQ *ring.Ring) (*Params, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
-	if err := pp.Validate(); err != nil {
+	if err := (&pp).Validate(); err != nil {
 		return nil, err
 	}
 	ac, err := commitment.MatrixFromCoeff(ringQ, pp.Ac)
@@ -91,14 +124,19 @@ func (pp PublicParams) ToIssuanceParams(ringQ *ring.Ring) (*Params, error) {
 	}
 	return &Params{
 		HashRelation: pp.HashRelation,
-		Ac:     ac,
-		BPath:  pp.BPath,
-		BoundB: pp.BoundB,
-		LenM1:  pp.LenM1,
-		LenM2:  pp.LenM2,
-		LenRU0: pp.LenRU0,
-		LenRU1: pp.LenRU1,
-		LenR:   pp.LenR,
-		RingQ:  ringQ,
+		Ac:       ac,
+		BPath:    pp.BPath,
+		BoundB:   pp.BoundB,
+		LenM:     pp.LenM,
+		LenK:     pp.LenK,
+		LenR0H:   pp.LenR0H,
+		LenR1H:   pp.LenR1H,
+		LenRBar: pp.LenRBar,
+		LenM1:    pp.LenM,
+		LenM2:    pp.LenK,
+		LenRU0:   pp.LenR0H,
+		LenRU1:   pp.LenR1H,
+		LenR:     pp.LenRBar,
+		RingQ:    ringQ,
 	}, nil
 }

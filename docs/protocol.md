@@ -1,35 +1,15 @@
 # Protocol
 
-This is the implementation-canonical protocol note for the current SPRUCE
-branch.
+This note is the implementation-canonical protocol description for the current
+SPRUCE branch.
 
-It is intentionally strict about source-of-truth boundaries:
-
-- target semantics and claimed protocol properties come from
-  [ARC_Spruce/Spruce_ARC_htran.pdf](ARC_Spruce/Spruce_ARC_htran.pdf)
-- live behavior comes from the current code and tracked runtime assets
-- this note exists to say exactly where those two currently coincide and where
-  they do not
+It documents the live shared-randomness `h_tran` / `bb_tran` flow only.
+Deprecated aligned or commitment-derived target paths are not part of the live
+protocol.
 
 ## Commands
 
 Run all commands from the repository root.
-
-### Reduced showing benchmark
-
-```bash
-go run ./cmd/showing -showing-preset compact_l1_research
-```
-
-This is the retained reduced engineering benchmark path.
-
-### Full replay showing
-
-```bash
-go run ./cmd/showing -showing-preset compact_l1_research -full
-```
-
-This is the theorem-clean full replay showing path.
 
 ### Issuance
 
@@ -37,306 +17,274 @@ This is the theorem-clean full replay showing path.
 go run ./cmd/issuance demo-local -seed 21
 ```
 
-This runs the role-separated public-target issuance flow locally and updates the
-tracked holder artifacts.
+### Reduced showing
 
-## Source Of Truth
+```bash
+go run ./cmd/showing
+```
 
-### Target semantics
-
-Use the paper first for these questions:
-
-- what issuance is supposed to prove
-- what showing is supposed to prove
-- which properties are proved, conditional, or explicitly left open
-
-The most important paper sections for current code alignment are:
-
-- Section 3: issuance / blind-sign flow
-- Section 4: ARC, PRF/tag, and conditional security decomposition
-- Section 5.2: issuance statement
-- Section 5.3: showing statement
-- Section 5.4: PRF companion relation
-- Section 5.5: hiding and statement strength
-- Section 6.4: full replay-image geometry
-- Section 7: retained reduced-replay implementation result
-
-### Live behavior
-
-Use the code and tracked assets first for these questions:
-
-- which path the CLI actually runs
-- which rows are committed
-- which openings are emitted
-- whether a command or test passes
-
-Primary runtime anchors:
-
-- [cmd/showing/main.go](../cmd/showing/main.go)
-- [cmd/showing/integration_test.go](../cmd/showing/integration_test.go)
-- [cmd/issuance/flow_helpers.go](../cmd/issuance/flow_helpers.go)
-- [issuance/flow.go](../issuance/flow.go)
-- [PIOP/showing_coeff_native_literal_packed_runtime.go](../PIOP/showing_coeff_native_literal_packed_runtime.go)
-- [PIOP/showing_transform_bridge_constraints.go](../PIOP/showing_transform_bridge_constraints.go)
-- [PIOP/showing_transform_bridge_eval.go](../PIOP/showing_transform_bridge_eval.go)
-- [PIOP/sig_shortness_replay.go](../PIOP/sig_shortness_replay.go)
-- [PIOP/generic_builder.go](../PIOP/generic_builder.go)
-- [PIOP/VerifyNIZK.go](../PIOP/VerifyNIZK.go)
-- [PIOP/proof_report.go](../PIOP/proof_report.go)
-
-Tracked runtime assets:
-
-- `Parameters/Parameters.json`
-- `Parameters/credential_public.json`
-- `prf/prf_params.json`
-- `ntru_keys/public.json`
-- `credential/keys/credential_state.json`
-
-## Shared Live Parameters
-
-### Canonical credential relation
-
-The canonical tracked public parameter file is
-`Parameters/credential_public.json`.
-
-Its live relation label is:
-
-- `hash_relation = bb_tran`
-
-So the concrete target relation implemented by issuance and showing is still
-the `bb_tran` target.
-
-### Shared proof-system ring
-
-The proof-system ring comes from `Parameters/Parameters.json`.
-
-The important live fact is not the exact numeric tuple by itself; it is that
-issuance, showing, PRF proving, and the replay bridge all share the same proof
-ring, while the NTRU signer uses its own modulus from `ntru_keys/public.json`.
-
-## Issuance
-
-Issuance remains the public-target pre-sign proof.
-
-The holder proves a public `T` before the issuer signs that `T`.
-
-### Public issuance surface
-
-At the semantic level, the live public issuance statement is still the paper's
-public-target object family:
-
-- commitment object `c` / `Com`
-- public target `T`
-- issuer challenge rows
-- public matrices `Ac` and `B`
-
-In the current code this surfaces through [issuance/flow.go](../issuance/flow.go):
-
-- `PrepareCommit` builds `Com`
-- `ApplyChallenge` derives `R0`, `R1`, carries, and `T`
-- `ProvePreSign` builds one proof with `Com` and `T` both public
-- `VerifyPreSign` checks that proof before signing
-
-### Hidden issuance witness
-
-At the semantic level the paper speaks about a witness surface that includes
-message rows, challenge-response rows, and inverse witness structure.
-
-The current code realizes that witness with:
-
-- `M1`, `M2`
-- `RU0`, `RU1`
-- `R`
-- derived `R0`, `R1`
-- carry rows `K0`, `K1`
-
-The important alignment fact is that one coherent hidden witness surface feeds
-both the commitment and the public target proof.
-
-### Issuance alignment status
-
-Current code-backed judgment:
-
-- issuance is already close to the paper
-- no semantic repair was needed in this pass
-- the repo still issues a signature on the verified public target and persists
-  the resulting credential state for showing
-
-## Showing Modes
-
-The current branch deliberately exposes two different showing modes.
-
-### `theorem_clean_full_replay`
-
-Command:
+### Theorem-clean full replay showing
 
 ```bash
 go run ./cmd/showing -showing-preset compact_l1_research -full
 ```
 
-This is the path that now aligns with the paper's theorem-facing full
-replay-image model.
+## Source Of Truth
 
-Live properties of this mode:
+- protocol semantics and claims: the paper sources under `docs/arc_spruce_revised/`
+- live behavior: current code and tracked runtime assets
+- operator workflow and compatibility rules: this note plus
+  [shared_randomness_migration.md](shared_randomness_migration.md)
 
-- full replay blocks are committed
-- `THat` is derived directly from signature replay heads; committed `T` source
-  rows are not part of the live baseline witness
-- exact source-to-replay bridges are enforced
-- replay residual is enforced across all replay blocks
-- the proof report labels the statement as
-  `theorem_clean_full_replay`
+Primary runtime anchors:
 
-This is the mode to use when the question is "does the live code instantiate
-the paper's full showing statement as closely as possible in this checkout?"
+- [cmd/issuance/flow_helpers.go](../cmd/issuance/flow_helpers.go)
+- [issuance/flow.go](../issuance/flow.go)
+- [cmd/showing/main.go](../cmd/showing/main.go)
+- [credential/state.go](../credential/state.go)
+- [credential/public_params.go](../credential/public_params.go)
+- [PIOP/credential_rows.go](../PIOP/credential_rows.go)
+- [PIOP/credential_constraints.go](../PIOP/credential_constraints.go)
+- [PIOP/showing_coeff_native_literal_packed_runtime.go](../PIOP/showing_coeff_native_literal_packed_runtime.go)
+- [PIOP/showing_transform_bridge_constraints.go](../PIOP/showing_transform_bridge_constraints.go)
+- [PIOP/showing_transform_bridge_eval.go](../PIOP/showing_transform_bridge_eval.go)
 
-### `reduced_engineering_replay`
+## Live Protocol Summary
 
-Command:
+The live credential relation is `bb_tran`.
 
-```bash
-go run ./cmd/showing -showing-preset compact_l1_research
+At the semantic level:
+
+```text
+mu = (m || k)
+c  = ACom [mu || r0H || r1H || rbar]^T
+
+r0 = center(r0H + r0I)
+r1 = center(r1H + r1I)
+
+Z = (B3 - r1)^(-1)
+T = B0 + B1 * mu + B2 * r0 + Z
+
+A u = T
+tag = F(k, nonce)
 ```
 
-This remains in the repo as the retained engineering benchmark path.
+The live implementation does **not** use:
 
-Live properties of this mode:
+- `T = B0 + Uc + Z`
+- aligned commitment randomness `(S, E)`
+- commitment-side witness `AsS + E`
+- source-product witness rows as part of the active showing relation
 
-- replay is intentionally reduced
-- committed `T` source rows are omitted
-- the proof report labels the statement as
-  `reduced_engineering_replay`
+## Public Parameters
 
-This mode is still useful for transcript engineering and local benchmarking,
-but it is not the paper's theorem-clean showing instance.
+The canonical credential public parameters live in
+`Parameters/credential_public.json`.
 
-## Hidden Shortness
+The live fields are:
 
-The live showing path uses hidden `SigShortnessV6`.
+- `version = 1`
+- `hash_relation = bb_tran`
+- `Ac`
+- `BPath`
+- `BoundB`
+- `LenM`
+- `LenK`
+- `LenR0H`
+- `LenR1H`
+- `LenRBar`
 
-It does not use:
+`Ac` is interpreted in block order:
 
-- the older same-root shortness opening as the live default
-- the leaking V5 exact-head path
+```text
+[A_m | A_k | A_r0h | A_r1h | A_rbar]
+```
 
-Current live shortness shape:
+The current shipped asset uses one row for each logical block:
 
-- a nested hidden SmallWood proof over the shortness witness
-- an authenticated outer `THat` opening under the main proof root
-- a round-0 binding digest that binds the nested proof back into the outer
-  transcript
+- `LenM = 1`
+- `LenK = 1`
+- `LenR0H = 1`
+- `LenR1H = 1`
+- `LenRBar = 1`
 
-The verifier learns that a hidden bounded signature witness induces the
-authenticated outer `THat`, without learning the exact packed signature heads.
+The loader still accepts the older `LenM1`, `LenM2`, `LenRU0`, `LenRU1`,
+`LenR` names when reading historical parameter files, but the live code and all
+documentation use the semantic names above.
 
-## Full Replay Fix
+## Issuance
 
-The previous full replay failure was in the `SigShortnessV6` `THat` opening
-path.
+Issuance is the shared-randomness pre-sign protocol.
 
-The repaired behavior is:
+### Holder secret witness
 
-- reduced one-block openings may still omit all serialized `M` values
-- full multi-slot openings keep explicit authenticated `M` values
+The holder samples:
 
-This keeps hidden shortness intact while making the full replay opening stable
-under verifier reconstruction.
+- `m`
+- `k`
+- `r0H`
+- `r1H`
+- `rbar`
 
-The bug surface was the outer `SigShortnessV6` same-root `THat` opening. The
-reduced one-block path safely reconstructs omitted `M` values on the verifier
-side, but the full multi-slot replay opening diverged when those `M` values
-were omitted before packing. The live repair is in
-[PIOP/sig_shortness_replay.go](../PIOP/sig_shortness_replay.go): reduced mode
-still omits `M` values, while full replay keeps them explicit so the verifier
-reconstructs the same authenticated subset opening the prover committed.
+and forms `mu = (m || k)`.
 
-## What Each Showing Mode Certifies
+### Commitment step
 
-### Full replay
+`holder-commit` computes:
 
-The full path certifies, at the live code level, a statement with:
+```text
+c = ACom [m || k || r0H || r1H || rbar]^T
+```
 
-- full replay-image geometry
-- exact source-to-replay bridges
-- replay residual over all replay blocks
-- hidden shortness bound back to the authenticated outer `THat`
-- PRF/tag correctness for the same hidden signed witness
+and writes:
 
-### Reduced replay
+- `credential/issuance/holder_secret.json`
+- `credential/issuance/commit_request.json`
 
-The reduced path certifies a narrower engineering statement:
+### Issuer challenge step
 
-- authenticated reduced replay surface
-- hidden shortness bound back through the authenticated outer `THat`
-- PRF/tag correctness
+`issuer-challenge` samples bounded public rows:
 
-It is intentionally smaller, but it should not be described as the paper's full
-replay-image theorem instance.
+- `r0I`
+- `r1I`
 
-## Measurement Notes
+and writes `credential/issuance/issue_challenge.json`.
 
-### Showing
+### Holder pre-sign proof step
 
-`cmd/showing` prints:
+`holder-prove` computes:
 
-- statement class
-- replay mode
-- shortness mode
-- paper transcript size
-- current verifier payload size
-- replay / witness geometry
-- theorem-style soundness summary
+- `r0 = center(r0H + r0I)`
+- `r1 = center(r1H + r1I)`
+- carry rows used internally by the centering gadget
+- `Z = (B3 - r1)^(-1)`
+- `T = B0 + B1 * (m || k) + B2 * r0 + Z`
 
-For the current branch, the two most important showing measurements are:
+and proves knowledge of a witness that simultaneously satisfies:
 
-- reduced engineering benchmark:
-  `go run ./cmd/showing -showing-preset compact_l1_research`
-- theorem-clean full replay path:
-  `go run ./cmd/showing -showing-preset compact_l1_research -full`
+- the Ajtai commitment opening
+- the centering equations
+- the inverse-witness equation `(B3 - r1) ⊙ Z = 1`
+- the target equation `T = B0 + B1 * (m || k) + B2 * r0 + Z`
+- the required boundedness checks
 
-A current measured snapshot and the current optimization feasibility map are
-recorded in [full_baseline_proof_study.md](full_baseline_proof_study.md).
+The public pre-sign statement contains:
 
-Do not compare reduced replay numbers directly to the paper's full replay-image
-theorem claims.
+- `com`
+- `r0I`
+- `r1I`
+- `T`
+- `Ac`
+- `B`
 
-### Issuance
+`holder-prove` writes `credential/issuance/presign_submission.json`.
 
-`cmd/issuance` is still artifact-first rather than report-first.
+### Issuer signing step
 
-It materializes the pre-sign proof at:
+`issuer-verify-sign` verifies the pre-sign proof, checks the public target
+relation, and then samples `u` such that:
 
-- `credential/issuance/presign_submission.json`
+```text
+A u = T
+```
 
-So issuance measurement currently means:
+It writes `credential/issuance/issue_response.json`.
 
-1. run `go run ./cmd/issuance demo-local -seed 21`
-2. inspect the generated artifact and success logs
-3. if needed, load the embedded proof and pass it through
-   `PIOP.BuildProofReport`
+### Finalization step
 
-## Security Status
+`holder-finalize` verifies the signature equation `A u = T` and persists the
+credential state used by showing.
 
-Implemented and live:
+## Stored Credential State
 
-- public-target issuance proof
-- reduced engineering showing path
-- theorem-clean full replay showing path
-- hidden `SigShortnessV6`
-- PRF/tag correctness inside the live showing proof
+The persisted holder state lives at `credential/keys/credential_state.json`.
 
-Still conditional or external:
+The live format is versioned and stores:
 
-- coefficient-domain theorem transport still follows the paper's proof
-- application-layer rate limiting still requires spent-tag state outside the
-  local CLI
+- `version`
+- semantic witness rows:
+  - `m`
+  - `k`
+  - `r0`
+  - `r1`
+  - `z`
+- signature witness rows:
+  - `sig_s1`
+  - `sig_s2`
+- packing and parameter anchors:
+  - `packed_ncols`
+  - `credential_public_path`
+  - `hash_relation`
+  - `b_path`
+  - `prf_params_path`
+- issuance audit artifacts:
+  - `com`
+  - `ri0`
+  - `ri1`
+- embedded public material:
+  - `b`
+  - `ntru_public`
 
-Still open because the paper leaves them open:
+The final credential state does **not** store `T`. `T` remains an issuance-time
+artifact carried by `presign_submission.json` and `issue_response.json`.
 
-- blindness
-- one-more unforgeability
+## Showing
 
-## Read Next
+Showing uses the stored credential witness:
 
-- [nizk_alignment_notes.md](nizk_alignment_notes.md)
-- [full_baseline_proof_study.md](full_baseline_proof_study.md)
+- `u` from `sig_s1` / `sig_s2`
+- `m`
+- `k`
+- `r0`
+- `r1`
+- `Z`
+
+and a public nonce.
+
+The tag relation is:
+
+```text
+tag = F(k, nonce)
+```
+
+The showing proof establishes knowledge of a witness satisfying:
+
+```text
+(B3 - r1) ⊙ Z = 1
+A u = B0 + B1 * (m || k) + B2 * r0 + Z
+tag = F(k, nonce)
+```
+
+The public transcript does not reveal `u`, `m`, `k`, `r0`, `r1`, or `Z`.
+
+### Showing surfaces
+
+- default shipped path: reduced replay, `soundness_balanced`
+- theorem-clean control path: full replay via
+  `-showing-preset compact_l1_research -full`
+
+Both surfaces use the same semantic credential witness and PRF/tag relation.
+The difference is replay geometry and transcript shape, not the credential
+semantics.
+
+## Testing
+
+The main end-to-end checks are:
+
+```bash
+go test ./issuance ./cmd/issuance ./credential ./PIOP ./cmd/showing
+go test ./...
+```
+
+To regenerate a fresh credential with the live issuance flow:
+
+```bash
+go run ./cmd/issuance demo-local
+go run ./cmd/showing
+```
+
+## Compatibility Note
+
+Old aligned credentials and old issuance artifacts are not part of the live
+format. See [shared_randomness_migration.md](shared_randomness_migration.md)
+before reusing persisted files across branches.

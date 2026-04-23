@@ -185,6 +185,18 @@ func TestResolveSigShortnessModeUsesHiddenV6Label(t *testing.T) {
 	}
 }
 
+func TestResolveSigShortnessModeUsesHiddenV7Label(t *testing.T) {
+	got := ResolveSigShortnessMode(&Proof{
+		SigShortness: &SigShortnessProof{
+			Version: sigShortnessProofVersionV7,
+			V7:      &SigShortnessProofV7{},
+		},
+	})
+	if got != SigShortnessModeHiddenV7 {
+		t.Fatalf("sig shortness mode=%q want %q", got, SigShortnessModeHiddenV7)
+	}
+}
+
 func cloneProofForPaperTest(src *Proof) *Proof {
 	if src == nil {
 		return nil

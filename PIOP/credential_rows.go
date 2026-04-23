@@ -60,6 +60,12 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 	if err = require(wit.K1, "K1"); err != nil {
 		return
 	}
+	useBBTran := relationUsesBBTran(relation)
+	if useBBTran {
+		if err = require(wit.Z, "Z"); err != nil {
+			return
+		}
+	}
 
 	var explicitOmega []uint64
 	if opts.DomainMode == DomainModeExplicit {
@@ -97,30 +103,6 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 	if terr != nil {
 		return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, terr
 	}
-	useBBTran := relationUsesBBTran(relation)
-	var mSigmaR1Row, r0R1Row *ring.Poly
-	if useBBTran {
-		q := ringQ.Modulus[0]
-		mSigmaR1Coeff, r0R1Coeff, derr := buildBBTranProductInterpCoeffs(
-			q,
-			omegaForSurface,
-			surface.AliasCoeffs[PreSignAliasM1],
-			surface.AliasCoeffs[PreSignAliasM2],
-			surface.AliasCoeffs[PreSignAliasR0],
-			surface.AliasCoeffs[PreSignAliasR1],
-		)
-		if derr != nil {
-			return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, derr
-		}
-		mSigmaR1Row, err = coeffPolyFromFormalCoeffs(ringQ, mSigmaR1Coeff, "pre-sign bb_tran mSigmaR1")
-		if err != nil {
-			return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, err
-		}
-		r0R1Row, err = coeffPolyFromFormalCoeffs(ringQ, r0R1Coeff, "pre-sign bb_tran r0R1")
-		if err != nil {
-			return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, err
-		}
-	}
 	rows = []*ring.Poly{
 		surface.CarrierRows[PreSignCarrierM],
 		surface.CarrierRows[PreSignCarrierPreRU],
@@ -137,9 +119,6 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		surface.AliasRows[PreSignAliasK0],
 		surface.AliasRows[PreSignAliasK1],
 	}
-	if useBBTran {
-		rows = append(rows, mSigmaR1Row, r0R1Row)
-	}
 	rows = append(rows,
 		transformSurface.Rows[PreSignTransformAliasMHat1],
 		transformSurface.Rows[PreSignTransformAliasMHat2],
@@ -147,15 +126,15 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		transformSurface.Rows[PreSignTransformAliasRHat1],
 	)
 	if useBBTran {
-		mSigmaR1HatRow, _, derr := deriveTransformAliasRowFromSource(ringQ, omegaForSurface, opts.DomainMode, mSigmaR1Row, "pre-sign bb_tran mSigmaR1")
+		zHead, derr := nttHeadFromCoeffPoly(ringQ, wit.Z[0], len(omegaForSurface))
+		if derr != nil {
+			return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, fmt.Errorf("pre-sign bb_tran z head: %w", derr)
+		}
+		zHatRow, derr := buildCommittedRowFromHead(ringQ, zHead, omegaForSurface, opts.DomainMode)
 		if derr != nil {
 			return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, derr
 		}
-		r0R1HatRow, _, derr := deriveTransformAliasRowFromSource(ringQ, omegaForSurface, opts.DomainMode, r0R1Row, "pre-sign bb_tran r0R1")
-		if derr != nil {
-			return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, derr
-		}
-		rows = append(rows, mSigmaR1HatRow, r0R1HatRow)
+		rows = append(rows, zHatRow)
 	}
 
 	if opts.DomainMode == DomainModeExplicit {
@@ -202,12 +181,14 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		IdxR1:              11,
 		IdxK0:              12,
 		IdxK1:              13,
+		IdxZ:               -1,
 		IdxMSigmaR1:        -1,
 		IdxR0R1:            -1,
 		IdxMHat1:           14,
 		IdxMHat2:           15,
 		IdxRHat0:           16,
 		IdxRHat1:           17,
+		IdxZHat:            -1,
 		IdxMSigmaR1Hat:     -1,
 		IdxR0R1Hat:         -1,
 		IdxCarrierM:        0,
@@ -231,14 +212,11 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		X1CoeffBase:        x1CoeffBase,
 	}
 	if useBBTran {
-		layout.IdxMSigmaR1 = 14
-		layout.IdxR0R1 = 15
-		layout.IdxMHat1 = 16
-		layout.IdxMHat2 = 17
-		layout.IdxRHat0 = 18
-		layout.IdxRHat1 = 19
-		layout.IdxMSigmaR1Hat = 20
-		layout.IdxR0R1Hat = 21
+		layout.IdxMHat1 = 14
+		layout.IdxMHat2 = 15
+		layout.IdxRHat0 = 16
+		layout.IdxRHat1 = 17
+		layout.IdxZHat = 18
 	}
 
 	// Masks start after witness rows.

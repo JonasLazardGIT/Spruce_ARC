@@ -2,14 +2,23 @@
 
 `PIOP/` contains the proving and verifying core for the current SPRUCE branch.
 
-Its main job is to compile the live issuance and showing statements into the
-retained SmallWood-style proof flow:
+Its main job is to compile the live issuance and showing relations into the
+retained SmallWood-style proof flow.
 
-- issuance / pre-sign proving with public `T`
-- showing with two explicit modes:
-  - `reduced_engineering_replay`
-  - `theorem_clean_full_replay`
-- hidden `SigShortnessV6` binding for showing
+## Live Statements
+
+Issuance / pre-sign proving compiles a witness that binds:
+
+- Ajtai commitment opening to `(m,k,r0H,r1H,rbar)`
+- centering relations for `(r0,r1)`
+- inverse witness `(B3 - r1) ⊙ Z = 1`
+- target equation `T = B0 + B1(m||k) + B2r0 + Z`
+
+Showing compiles a witness that binds:
+
+- signature witness `u`
+- semantic credential rows `(m,k,r0,r1,Z)`
+- PRF/tag relation `tag = F(k, nonce)`
 
 ## Main Responsibilities
 
@@ -18,8 +27,7 @@ retained SmallWood-style proof flow:
 - drive DECS/LVCS commitments and openings
 - run the Fiat-Shamir flow
 - replay verifier checks from opened rows and public inputs
-- produce proof reports and factual replay audits for the certified statement
-  surface
+- produce proof reports and replay audits for the certified statement surface
 
 ## Main Entry Points
 
@@ -35,9 +43,10 @@ retained SmallWood-style proof flow:
 
 - explicit-domain DECS/LVCS semantics
 - canonical concrete relation `bb_tran`
-- hidden `SigShortnessV6` for live showing proofs
-- reduced replay kept only as a narrower engineering benchmark
-- full replay available as the theorem-clean paper-aligned showing path
+- direct inverse-witness and target relations on semantic witness rows
+- no live `Uc` / source-product / aligned-commitment path
+- reduced replay kept as an engineering benchmark
+- full replay available as the theorem-clean showing control
 - PRF companion route retained on the live showing path
 
 ## Read Next
@@ -45,6 +54,5 @@ retained SmallWood-style proof flow:
 - [../docs/protocol.md](../docs/protocol.md)
 - [../docs/nizk_alignment_notes.md](../docs/nizk_alignment_notes.md)
 - [../docs/full_baseline_proof_study.md](../docs/full_baseline_proof_study.md)
-  for the retained manual full-baseline study/handoff note
 - [../DECS/README.md](../DECS/README.md)
 - [../LVCS/README.md](../LVCS/README.md)

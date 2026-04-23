@@ -1,8 +1,7 @@
 # Command Guide
 
-This file is the operator-facing guide for the retained command surface. It
-matches the shipped repository as it exists now: only `cmd/ntrucli`,
-`cmd/issuance`, and `cmd/showing` are supported.
+This file is the operator-facing guide for the retained command surface:
+`cmd/ntrucli`, `cmd/issuance`, and `cmd/showing`.
 
 Run all commands from the repository root.
 
@@ -10,10 +9,10 @@ Run all commands from the repository root.
 
 - Go with module support
 - tracked runtime assets present in the repository:
-  `Parameters/Parameters.json`,
-  `Parameters/Bmatrix_bb_tran.json`,
-  `Parameters/credential_public.json`,
-  `prf/prf_params.json`
+  - `Parameters/Parameters.json`
+  - `Parameters/Bmatrix_bb_tran.json`
+  - `Parameters/credential_public.json`
+  - `prf/prf_params.json`
 
 Most workflows also read or write:
 
@@ -21,9 +20,11 @@ Most workflows also read or write:
 - `credential/issuance/`
 - `credential/keys/`
 
-## `cmd/ntrucli`
+If a credential state or issuance artifact predates the shared-randomness
+migration, regenerate it. See
+[docs/shared_randomness_migration.md](docs/shared_randomness_migration.md).
 
-`cmd/ntrucli` is the shipped NTRU operator CLI.
+## `cmd/ntrucli`
 
 ### Generate keys
 
@@ -31,7 +32,7 @@ Most workflows also read or write:
 go run ./cmd/ntrucli gen
 ```
 
-This writes:
+Writes:
 
 - `ntru_keys/public.json`
 - `ntru_keys/private.json`
@@ -42,13 +43,7 @@ This writes:
 go run ./cmd/ntrucli sign -m test
 ```
 
-Required flag:
-
-- `-m <message>`
-
-This writes:
-
-- `ntru_keys/signature.json`
+Writes `ntru_keys/signature.json`.
 
 ### Verify a signature
 
@@ -56,27 +51,12 @@ This writes:
 go run ./cmd/ntrucli verify
 ```
 
-This verifies `ntru_keys/signature.json` against `ntru_keys/public.json`.
-
-### Bundle signing
-
-```bash
-go run ./cmd/ntrucli bundle-sign -bundle ./some_bundle -m test
-go run ./cmd/ntrucli bundle-verify -bundle ./some_bundle
-```
-
-Required flags:
-
-- `bundle-sign`: `-bundle`, `-m`
-- `bundle-verify`: `-bundle`
-
-The bundle directory is expected to contain the parameter, key, and signature
-files used by the bundle workflow.
+Verifies `ntru_keys/signature.json` against `ntru_keys/public.json`.
 
 ## `cmd/issuance`
 
-`cmd/issuance` is the role-separated issuance CLI. Running it without a
-subcommand prints usage and exits nonzero.
+`cmd/issuance` is the role-separated issuance CLI for the live shared-randomness
+protocol.
 
 Faithful one-machine wrapper:
 
@@ -94,7 +74,7 @@ Retained subcommands:
 - `holder-finalize`
 - `demo-local`
 
-Default issuance artifact flow:
+Default artifact flow:
 
 - `credential/issuance/holder_secret.json`
 - `credential/issuance/commit_request.json`
@@ -113,6 +93,15 @@ go run ./cmd/issuance issuer-verify-sign
 go run ./cmd/issuance holder-finalize
 ```
 
+Protocol meaning of the subcommands:
+
+- `holder-commit`: sample `(m,k,r0h,r1h,rbar)` and publish `com`
+- `issuer-challenge`: publish issuer rows `ri0`, `ri1`
+- `holder-prove`: derive centered `r0`, `r1`, compute `z`, `t`, and emit the
+  pre-sign proof
+- `issuer-verify-sign`: verify the proof and sign the public target `t`
+- `holder-finalize`: verify `A u = T` and persist the final credential state
+
 ## `cmd/showing`
 
 `cmd/showing` builds and verifies the retained showing proof.
@@ -127,31 +116,24 @@ Supported `-coeff-model` values:
 
 - `literal_packed_aggregated_v3`
 
-`cmd/showing` expects the credential state prepared by `cmd/issuance`.
+`cmd/showing` expects the versioned credential state prepared by
+`cmd/issuance`.
 
-Current shipped defaults:
+Current live semantics:
 
-- replay mode: `reduced`
-- preset: `soundness_balanced`
-- PRF route: packed companion, `output_audit`
-- shortness proof: hidden `SigShortness` `v6`
-- concrete relation: `bb_tran`
-- shipped preset resolution:
-  `Theta=3`, `Eta=43`, `EllPrime=2`, `Rho=2`, `LVCSNCols=89`,
-  `NLeaves=4096`, `Kappa={0,0,0,5}`
+- relation: `bb_tran`
+- witness: `(u,m,k,r0,r1,Z)`
+- tag: `F(k, nonce)`
+- reduced/default surface: shipped engineering benchmark
+- full `-full` surface: theorem-clean replay control
 
-The theorem-clean full replay baseline used by the retained study note is:
+The theorem-clean full replay control is:
 
 ```bash
 go run ./cmd/showing -showing-preset compact_l1_research -full
 ```
 
-That path keeps the same retained coeff-native `v3` layout, but switches to
-the full replay statement class `theorem_clean_full_replay`. Use
-[docs/full_baseline_proof_study.md](docs/full_baseline_proof_study.md) for the
-current measured compact baseline and the `source_product` handoff.
-
-Other retained flags tune transcript geometry and reporting, for example:
+Other retained flags tune transcript geometry and reporting:
 
 - `-showing-preset`
 - `-full`
@@ -162,16 +144,10 @@ Other retained flags tune transcript geometry and reporting, for example:
 
 ```bash
 go run ./cmd/ntrucli gen
-go run ./cmd/ntrucli sign -m test
-go run ./cmd/ntrucli verify
 go run ./cmd/issuance demo-local
 go run ./cmd/showing
 ```
 
-For protocol meaning, read [docs/protocol.md](docs/protocol.md). For the
-current modulus and packing rationale, read
-[docs/modulus_choice.md](docs/modulus_choice.md). For the detailed
-paper-vs-code alignment note, read
-[docs/nizk_alignment_notes.md](docs/nizk_alignment_notes.md). For the retained
-full-baseline study/handoff note, read
-[docs/full_baseline_proof_study.md](docs/full_baseline_proof_study.md).
+For protocol meaning, read [docs/protocol.md](docs/protocol.md). For
+compatibility and regeneration guidance, read
+[docs/shared_randomness_migration.md](docs/shared_randomness_migration.md).

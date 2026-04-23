@@ -1,0 +1,120 @@
+\section{From Blind Signatures to ARC}
+\label{sec:arc-construction}
+
+This section turns the blind-issuance protocol of Section~\ref{sec:blind-signature} into an anonymous
+rate-limited credential.  The holder signs the full message $\vecmu=\vecm\Vert\veck$, where $\vecm$ is the
+attribute vector and $\veck$ is a uniformly sampled secret PRF key.
+
+\paragraph{Credential witness.}
+After successful issuance the holder stores
+\[
+  \credential=(\vecu,\vecm,\veck,r_0,r_1),
+\]
+where $\mA\vecu=T$ and
+\[
+  T=B_0+B_1(\vecm\Vert\veck)+B_2r_0+Z,
+  \qquad
+  (B_3-r_1)\Had Z=1.
+\]
+The value $Z$ may either be stored or recomputed from $r_1$ when showing the credential.
+
+\subsection{Rate limiting via the signed key}
+Rate limiting is implemented by deterministic tags derived from the signed secret key $\veck$.  For a public
+nonce $\nonce\in\mathcal D$, the holder computes
+\[
+  \prftag=\PRF(\veck,\nonce).
+\]
+If the holder reuses a nonce, the tag repeats and the verifier can reject by consulting local state.  For fresh
+nonces, PRF security makes the tags computationally independent of previous tags.  Since $\veck$ is part of
+the signed message, the holder cannot change the PRF key without forging a new credential.
+
+\subsection{ARC protocol}
+\label{subsec:arc-protocol}
+The setup and issuer-key-generation algorithms are those of Section~\ref{subsec:bs-protocol}.
+
+\paragraph{Issue.}
+The holder executes the issuance protocol on message $\vecmu=\vecm\Vert\veck$.  If the final check
+$\mA\vecu=T$ succeeds, it stores $\credential=(\vecu,\vecm,\veck,r_0,r_1)$.
+
+\paragraph{Show.}
+On input $\credential$ and nonce $\nonce$, the holder computes
+\[
+  Z=(B_3-r_1)^{-1},\qquad \prftag=\PRF(\veck,\nonce),
+\]
+and produces a NIZK proof $\nizkShow$ of knowledge of
+\[
+  \vecu,\vecm,\veck,r_0,r_1,Z
+\]
+such that
+\begin{align*}
+  &(B_3-r_1)\Had Z=1,\\
+  &\mA\vecu=B_0+B_1(\vecm\Vert\veck)+B_2r_0+Z,\\
+  &\prftag=\PRF(\veck,\nonce),
+\end{align*}
+and all hidden values satisfy the relevant bounds.  It outputs
+\[
+  \presentation=(\nonce,\prftag,\nizkShow).
+\]
+
+\paragraph{Verify.}
+The verifier checks $\nizkShow$ against the public statement containing $(\vk,B,\nonce,\prftag)$ and the
+public bounds.  If the proof rejects, verification returns reject.  If $(\nonce,\prftag)$ is already present in
+verifier state, verification also rejects.  Otherwise the verifier stores $(\nonce,\prftag)$ and accepts.
+
+\subsection{Concrete PRF instantiation}
+\label{subsec:poseidon-prf}
+We instantiate the PRF using the Poseidon2-like construction of Definition~\ref{def:poseidon-prf}.  Algorithm~\ref{alg:poseidon-prf}
+summarizes the computation.
+
+\begin{algorithm}[h]
+\caption{$\PRF(\veck,\vecn)$: Poseidon2-like with feed-forward and truncation}\label{alg:poseidon-prf}
+\begin{algorithmic}[1]
+\State $x\gets \veck\Vert\vecn$; $x^{(0)}\gets x$
+\For{$i=1$ to $R_F/2$}
+  \State $x\gets E_i(x)$
+\EndFor
+\For{$i=1$ to $R_P$}
+  \State $x\gets I_i(x)$
+\EndFor
+\For{$i=R_F/2+1$ to $R_F$}
+  \State $x\gets E_i(x)$
+\EndFor
+\State $y\gets x+x^{(0)}$
+\State \Return $\Tr_{\ell_{\mathsf{tag}}}(y)$
+\end{algorithmic}
+\end{algorithm}
+
+In the showing proof, the equation $\prftag=\PRF(\veck,\nonce)$ is enforced with the checkpointed
+arithmetization described in Section~\ref{subsec:prf-checkpointed} and Appendix~\ref{app:prf}.
+
+\subsection{Security decomposition}
+\label{subsec:arc-security-decomp}
+The ARC layer combines the following ingredients:
+\begin{enumerate}[leftmargin=1.25em]
+  \item the non-blind signature security imported in Lemma~\ref{lem:vsis-unforgeability};
+  \item issuer-view hiding of the issuance surface from Proposition~\ref{prop:bs-issuer-view-hiding};
+  \item one-more unforgeability of the blind-issuance protocol;
+  \item knowledge soundness and zero knowledge of the showing NIZK;
+  \item correctness and pseudorandomness of the PRF; and
+  \item verifier-side state recording previously accepted $(\nonce,\prftag)$ pairs.
+\end{enumerate}
+The first two ingredients are established in the main text under the stated assumptions.  The third remains
+a separate reduction goal.  The last item is an application-layer enforcement rule rather than a standalone
+cryptographic assumption.
+
+\paragraph{Conditional policy soundness.}
+Knowledge soundness of the showing proof yields a witness satisfying the BB-tran signature relation and
+the PRF relation.  Assuming one-more unforgeability of the blind-issuance layer, an adversary cannot obtain
+more valid credential witnesses than issuance sessions allow.  Since $\prftag=\PRF(\veck,\nonce)$ is uniquely
+determined by the signed key and nonce, a verifier that records spent $(\nonce,\prftag)$ pairs rejects same-nonce
+replays deterministically.
+
+\paragraph{Conditional presentation unlinkability.}
+For distinct fresh nonces, zero knowledge hides the credential witness and PRF security makes the public tags
+pseudorandom.  Presentation unlinkability also relies on issuance-layer privacy because the adversary may
+control the issuer during issuance.  Under Proposition~\ref{prop:bs-issuer-view-hiding}, showing transcripts
+are unlinkable up to the intended nonce-reuse caveat.
+
+\paragraph{Attribute privacy and selective disclosure.}
+The message part $\vecm$ can encode attributes.  The showing NIZK can be extended to prove predicates over
+$\vecm$ or to selectively reveal components without changing the issuance protocol.

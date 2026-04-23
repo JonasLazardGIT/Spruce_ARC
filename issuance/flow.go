@@ -20,6 +20,12 @@ import (
 // Inputs groups the holder's secret values for issuance.
 // All polynomials are expected in coefficient form (non-NTT).
 type Inputs struct {
+	M    []*ring.Poly
+	K    []*ring.Poly
+	R0H  []*ring.Poly
+	R1H  []*ring.Poly
+	RBar []*ring.Poly
+	// Deprecated aliases retained only so older fixtures/tests can still build.
 	M1  []*ring.Poly
 	M2  []*ring.Poly
 	RU0 []*ring.Poly
@@ -64,6 +70,7 @@ type State struct {
 	R1  []*ring.Poly      // coeff
 	K0  []*ring.Poly      // coeff (carry)
 	K1  []*ring.Poly      // coeff (carry)
+	Z   []*ring.Poly      // coeff
 	T   []int64           // coeff
 	B   []*ring.Poly      // NTT
 }
@@ -75,6 +82,25 @@ func headEncodedPublicNTT(r *ring.Ring, head []uint64) *ring.Poly {
 		out.Coeffs[0][i] = head[i] % q
 	}
 	return out
+}
+
+func normalizeInputs(in Inputs) Inputs {
+	if len(in.M) == 0 {
+		in.M = in.M1
+	}
+	if len(in.K) == 0 {
+		in.K = in.M2
+	}
+	if len(in.R0H) == 0 {
+		in.R0H = in.RU0
+	}
+	if len(in.R1H) == 0 {
+		in.R1H = in.RU1
+	}
+	if len(in.RBar) == 0 {
+		in.RBar = in.R
+	}
+	return in
 }
 
 func coeffPolyFromHead(r *ring.Ring, head []uint64, omega []uint64) *ring.Poly {
@@ -157,6 +183,7 @@ func coeffPolyToInt64(r *ring.Ring, p *ring.Poly) []int64 {
 // coefficient slots (not evaluations) to match carrier-compressed rows.
 func PrepareCommit(p *credential.Params, in Inputs, omega []uint64) (commitment.Vector, error) {
 	log.Printf("[issuance] preparing commitment")
+	in = normalizeInputs(in)
 	if p == nil || p.RingQ == nil {
 		return nil, fmt.Errorf("nil params or ring")
 	}
@@ -172,11 +199,11 @@ func PrepareCommit(p *credential.Params, in Inputs, omega []uint64) (commitment.
 		return rows[0]
 	}
 	surface, err := PIOP.DerivePreSignCarrierAndAliasRows(p.RingQ, p.BoundB, omega, PIOP.DomainModeExplicit, PIOP.PreSignRawRows{
-		M1:  first(in.M1),
-		M2:  first(in.M2),
-		RU0: first(in.RU0),
-		RU1: first(in.RU1),
-		R:   first(in.R),
+		M1:  first(in.M),
+		M2:  first(in.K),
+		RU0: first(in.R0H),
+		RU1: first(in.R1H),
+		R:   first(in.RBar),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("derive canonical pre-sign commit rows: %w", err)
@@ -244,10 +271,12 @@ func loadB(r *ring.Ring, path string) ([]*ring.Poly, error) {
 	return out, nil
 }
 
-// ApplyChallenge computes R0/R1 = center(RU*+RI*), carries K0/K1, and T = HashMessage.
-// Inputs RU*, R*, M1/M2 are coeff; RI* and B are public/NTT.
+// ApplyChallenge computes R0/R1 = center(R*H+RI*), carries K0/K1, and the
+// live BB-tran target witness Z/T.
+// Inputs M/K/R*H/RBar are coeff; RI* and B are public/NTT.
 func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint64) (*State, error) {
 	log.Printf("[issuance] applying issuer challenge and hashing to target")
+	in = normalizeInputs(in)
 	if p == nil || p.RingQ == nil {
 		return nil, fmt.Errorf("nil params or ring")
 	}
@@ -261,8 +290,8 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	bound := p.BoundB
 	q := int64(r.Modulus[0])
 	delta := int64(2*bound + 1)
-	m1 := in.M1[0]
-	m2 := in.M2[0]
+	m := in.M[0]
+	k := in.K[0]
 	centered := func(v uint64) int64 {
 		x := int64(v % uint64(q))
 		if x > q/2 {
@@ -270,37 +299,38 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 		}
 		return x
 	}
-	sumCarryCoeff := func(ruPoly, riPoly *ring.Poly) (rPoly *ring.Poly, kPoly *ring.Poly, err error) {
-		if ruPoly == nil || riPoly == nil {
-			return nil, nil, fmt.Errorf("nil ru/ri poly")
+	sumCarryCoeff := func(holderPoly, issuerPoly *ring.Poly) (rPoly *ring.Poly, kPoly *ring.Poly, err error) {
+		if holderPoly == nil || issuerPoly == nil {
+			return nil, nil, fmt.Errorf("nil holder/issuer poly")
 		}
 		rPoly = r.NewPoly()
 		kPoly = r.NewPoly()
-		for i := 0; i < len(ruPoly.Coeffs[0]) && i < len(riPoly.Coeffs[0]); i++ {
-			ruVal := centered(ruPoly.Coeffs[0][i])
-			riVal := centered(riPoly.Coeffs[0][i])
-			c := credential.CenterBounded(ruVal+riVal, bound)
-			diff := ruVal + riVal - c
-			kVal := diff / delta
+		for i := 0; i < len(holderPoly.Coeffs[0]) && i < len(issuerPoly.Coeffs[0]); i++ {
+			holderVal := centered(holderPoly.Coeffs[0][i])
+			issuerVal := centered(issuerPoly.Coeffs[0][i])
+			c, carry, cerr := credential.CenterWithCarry(holderVal+issuerVal, bound)
+			if cerr != nil {
+				return nil, nil, cerr
+			}
 			if c < 0 {
 				rPoly.Coeffs[0][i] = uint64(c + q)
 			} else {
 				rPoly.Coeffs[0][i] = uint64(c)
 			}
-			if kVal < 0 {
-				kPoly.Coeffs[0][i] = uint64(kVal + q)
+			if carry < 0 {
+				kPoly.Coeffs[0][i] = uint64(carry + q)
 			} else {
-				kPoly.Coeffs[0][i] = uint64(kVal)
+				kPoly.Coeffs[0][i] = uint64(carry)
 			}
 		}
 		return rPoly, kPoly, nil
 	}
 
-	r0, k0, err := sumCarryCoeff(in.RU0[0], ch.RI0[0])
+	r0, k0, err := sumCarryCoeff(in.R0H[0], ch.RI0[0])
 	if err != nil {
 		return nil, err
 	}
-	r1, k1, err := sumCarryCoeff(in.RU1[0], ch.RI1[0])
+	r1, k1, err := sumCarryCoeff(in.R1H[0], ch.RI1[0])
 	if err != nil {
 		return nil, err
 	}
@@ -312,53 +342,43 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	if len(B) != 4 {
 		return nil, fmt.Errorf("B length=%d want 4", len(B))
 	}
-	surface, err := PIOP.DerivePreSignCarrierAndAliasRows(r, bound, omega, PIOP.DomainModeExplicit, PIOP.PreSignRawRows{
-		M1: m1,
-		M2: m2,
-		R0: r0,
-		R1: r1,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("derive canonical pre-sign target rows: %w", err)
-	}
-	polyFromCoeffs := func(coeffs []uint64) *ring.Poly {
-		p := r.NewPoly()
-		copy(p.Coeffs[0], coeffs)
-		return p
-	}
-	polyFromAliasOmega := func(coeffs []uint64) *ring.Poly {
-		head := headFromCoeffPoly(r, polyFromCoeffs(coeffs), omega)
-		p := r.NewPoly()
-		copy(p.Coeffs[0], head)
-		return p
-	}
-	tCoeff, err := credential.HashMessage(
-		r,
-		B,
-		p.HashRelation,
-		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasM1]),
-		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasM2]),
-		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasR0]),
-		polyFromAliasOmega(surface.AliasCoeffs[PIOP.PreSignAliasR1]),
-	)
-	if err != nil {
-		return nil, err
+	relation := credential.NormalizeHashRelation(p.HashRelation)
+	var zCoeff *ring.Poly
+	var tCoeff []int64
+	switch relation {
+	case credential.HashRelationBBTran:
+		zCoeff, tCoeff, err = credential.ComputeTarget(r, B, m, k, r0, r1)
+		if err != nil {
+			return nil, err
+		}
+	case credential.HashRelationBBS:
+		tCoeff, err = credential.HashMessage(r, B, relation, m, k, r0, r1)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unsupported hash relation %q", p.HashRelation)
 	}
 
-	log.Printf("[issuance] derived R0/R1 and T; bound=%d delta=%d", bound, delta)
-	return &State{
+	log.Printf("[issuance] derived R0/R1, Z, and T; bound=%d delta=%d", bound, delta)
+	state := &State{
 		R0: rPolys(r0),
 		R1: rPolys(r1),
 		K0: rPolys(k0),
 		K1: rPolys(k1),
 		T:  tCoeff,
 		B:  B,
-	}, nil
+	}
+	if zCoeff != nil {
+		state.Z = rPolys(zCoeff)
+	}
+	return state, nil
 }
 
 // ProvePreSign builds the credential pre-sign proof (π_t) with public T.
 func ProvePreSign(p *credential.Params, ch Challenge, com commitment.Vector, in Inputs, st *State, opts PIOP.SimOpts) (*PIOP.Proof, error) {
 	log.Printf("[issuance] building pre-sign proof (credential mode)")
+	in = normalizeInputs(in)
 	if p == nil || p.RingQ == nil {
 		return nil, fmt.Errorf("nil params or ring")
 	}
@@ -373,15 +393,16 @@ func ProvePreSign(p *credential.Params, ch Challenge, com commitment.Vector, in 
 		HashRelation: p.HashRelation,
 	}
 	wit := PIOP.WitnessInputs{
-		M1:  in.M1,
-		M2:  in.M2,
-		RU0: in.RU0,
-		RU1: in.RU1,
-		R:   in.R,
+		M1:  in.M,
+		M2:  in.K,
+		RU0: in.R0H,
+		RU1: in.R1H,
+		R:   in.RBar,
 		R0:  st.R0,
 		R1:  st.R1,
 		K0:  st.K0,
 		K1:  st.K1,
+		Z:   st.Z,
 	}
 	opts.Credential = true
 	if opts.Theta == 0 {

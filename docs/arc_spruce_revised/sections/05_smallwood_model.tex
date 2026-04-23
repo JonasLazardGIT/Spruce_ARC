@@ -1,0 +1,108 @@
+\section{SmallWood Programming Model}
+\label{sec:smallwood-model}
+
+This section records the semantic SmallWood statements used by ARC-SPRUCE.  The concrete row layouts,
+DECS/LVCS/PCS openings, and proof-stack details are deferred to Appendix~\ref{app:smallwood}.  The prover
+commits to packed witness rows over a set $\Omega$ and proves PACS-style constraints on those committed rows.
+
+\subsection{Proof interface}
+Fix a packing set $\Omega=\{\omega_1,\ldots,\omega_s\}\subset\Fq$ and a disjoint hiding set
+$\Omega'\subset\Fq\setminus\Omega$.  A compiled witness is a matrix of row values over $\Fq$.  Each row is
+interpolated to a low-degree polynomial whose values on $\Omega$ encode the witness and whose values on
+$\Omega'$ are random masks.  SmallWood then checks parallel constraints pointwise over $\Omega$ and, when
+needed, aggregated constraints through $\Omega$-sum identities.
+
+\subsection{Issuance as a SmallWood statement}
+\label{subsec:presign-compiled}
+The public issuance statement is
+\[
+  (\ComPublicParam,\vecc,T,r_0^I,r_1^I,\mA,B),
+\]
+and the hidden witness is
+\[
+  (\vecm,\veck,r_0^H,r_1^H,\bar r,r_0,r_1,Z).
+\]
+Semantically, the proof establishes four claims.
+First, the commitment opens to the same message and holder-side randomness used later:
+\[
+  \vecc=\mACom[\vecm\Vert\veck\Vert r_0^H\Vert r_1^H\Vert\bar r]^\top.
+\]
+Second, the public issuer randomness is combined correctly with the committed holder randomness:
+\[
+  r_0=\centerfunc(r_0^H+r_0^I),\qquad
+  r_1=\centerfunc(r_1^H+r_1^I).
+\]
+Third, the inverse witness is valid:
+\[
+  (B_3-r_1)\Had Z=1.
+\]
+Fourth, the public target is the BB-tran target for the same hidden message and centered randomness:
+\[
+  T=B_0+B_1(\vecm\Vert\veck)+B_2r_0+Z.
+\]
+All message and randomness rows are constrained to lie in the coefficient interval
+$[-\BoundMsg,\BoundMsg]$.
+
+The corresponding committed rows consist of carrier rows for the packed message, the holder-side
+randomness, commitment-only randomness, centered randomness, carry rows for the centering map, and the
+inverse witness $Z$.  The pre-sign proof is dominated by commitment linearity, centering, range membership,
+the inverse-witness equation, and the target identity above.
+
+\subsection{Showing as a SmallWood statement}
+\label{subsec:show-compiled}
+The public showing statement is
+\[
+  (\nonce,\prftag,\mA,B,\BoundMsg,\BoundSig)
+\]
+with verifier state handled outside the proof.  The hidden witness is
+\[
+  (\vecu,\vecm,\veck,r_0,r_1,Z).
+\]
+The proof certifies
+\begin{align*}
+  &(B_3-r_1)\Had Z=1,\\
+  &\mA\vecu=B_0+B_1(\vecm\Vert\veck)+B_2r_0+Z,\\
+  &\prftag=\PRF(\veck,\nonce),
+\end{align*}
+with coefficient bounds on $\vecm,\veck,r_0,r_1$ and the public shortness bound on $\vecu$.
+
+In the compiled statement, the signature surface proves shortness of $\vecu$ and binds the derived target to
+$\mA\vecu$.  The BB-tran part carries source rows for $T=\mA\vecu$, $\vecm\Vert\veck$, $r_0$, $r_1$, and
+$Z$.  The PRF companion rows bind the same hidden key $\veck$ to the public tag.
+
+\subsection{PRF companion relation}
+\label{subsec:prf-checkpointed}
+The PRF relation ties the public tag to the same hidden key that appears in the signed message.  Selector
+constraints bind the PRF key lanes to $\veck$; checkpoint constraints certify the nonlinear S-box steps of the
+Poseidon2-like permutation; and the final feed-forward and truncation constraints bind the resulting lanes to
+$(\nonce,\prftag)$.
+
+\subsection{Statement strength}
+\label{subsec:statement-strength}
+The showing statement certified by SmallWood is the coefficient-domain BB-tran identity in witness form:
+\[
+  (B_3-r_1)\Had Z=1,
+  \qquad
+  \mA\vecu=B_0+B_1(\vecm\Vert\veck)+B_2r_0+Z.
+\]
+Equivalently, it implies the eliminated identity
+\[
+  (B_3-r_1)\Had\bigl(\mA\vecu-B_0-B_1(\vecm\Vert\veck)-B_2r_0\bigr)=1.
+\]
+Thus any accepting showing proof yields, by knowledge soundness, a witness satisfying the abstract BB-tran
+signature relation and the PRF-tag relation.
+
+\begin{lemma}[Witness consequence of an accepting showing proof]\label{lem:showing-witness-consequence}
+If the post-sign NIZK is knowledge sound for the compiled showing relation, then every accepting proof yields
+a witness $(\vecu,\vecm,\veck,r_0,r_1,Z)$ satisfying
+\[
+  \mA\vecu=h_{\mathrm{tran},\vecm\Vert\veck,(r_0,r_1)}(B)
+\]
+and $\prftag=\PRF(\veck,\nonce)$.
+\end{lemma}
+
+\begin{proof}
+The extractor returns a witness satisfying the compiled equations above.  The inverse equation gives
+$Z=(B_3-r_1)^{-1}$ under admissibility, and substituting it into the target equation gives the abstract
+BB-tran relation.
+\end{proof}

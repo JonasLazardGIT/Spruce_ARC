@@ -217,6 +217,33 @@ func buildTransformHashResidualCombinedCoeffsBBTran(q uint64, bCoeff [][]uint64,
 	return trimPoly(res, q)
 }
 
+func buildTransformTargetResidualCoeffs(q uint64, relation string, bCoeff [][]uint64, m1Coeff, m2Coeff, r0Coeff, zCoeff, tCoeff []uint64) []uint64 {
+	mCombined := polyAdd(m1Coeff, m2Coeff, q)
+	return buildTransformTargetResidualCombinedCoeffs(q, relation, bCoeff, mCombined, r0Coeff, zCoeff, tCoeff)
+}
+
+func buildTransformTargetResidualCombinedCoeffs(q uint64, relation string, bCoeff [][]uint64, mCombinedCoeff, r0Coeff, zCoeff, tCoeff []uint64) []uint64 {
+	switch credential.NormalizeHashRelation(relation) {
+	case credential.HashRelationBBTran:
+		res := polyAdd(bCoeff[0], polyMul(bCoeff[1], mCombinedCoeff, q), q)
+		res = polyAdd(res, polyMul(bCoeff[2], r0Coeff, q), q)
+		res = polyAdd(res, zCoeff, q)
+		return trimPoly(polySub(tCoeff, res, q), q)
+	default:
+		return []uint64{0}
+	}
+}
+
+func buildTransformInverseResidualCoeffs(q uint64, relation string, bCoeff [][]uint64, r1Coeff, zCoeff []uint64) []uint64 {
+	switch credential.NormalizeHashRelation(relation) {
+	case credential.HashRelationBBTran:
+		den := polySub(bCoeff[3], r1Coeff, q)
+		return trimPoly(polySub(polyMul(den, zCoeff, q), []uint64{1}, q), q)
+	default:
+		return []uint64{0}
+	}
+}
+
 func buildTransformBridgeResidualCoeff(q uint64, transformHCoeff, lagrangeCoeff, srcCoeff, hatCoeff []uint64) []uint64 {
 	leftCoeff := polyMul(transformHCoeff, srcCoeff, q)
 	rightCoeff := polyMul(lagrangeCoeff, hatCoeff, q)
@@ -264,6 +291,35 @@ func transformHashResidualCombinedEvalBBTran(q, x uint64, thetaB [][]uint64, mCo
 	return modSub(res, 1, q)
 }
 
+func transformTargetResidualEval(q, x uint64, relation string, thetaB [][]uint64, mHat1, mHat2, rHat0, zHat, tTheta uint64) uint64 {
+	return transformTargetResidualCombinedEval(q, x, relation, thetaB, modAdd(mHat1, mHat2, q), rHat0, zHat, tTheta)
+}
+
+func transformTargetResidualCombinedEval(q, x uint64, relation string, thetaB [][]uint64, mCombined, rHat0, zHat, tTheta uint64) uint64 {
+	switch credential.NormalizeHashRelation(relation) {
+	case credential.HashRelationBBTran:
+		b0 := EvalPoly(thetaB[0], x, q) % q
+		b1 := EvalPoly(thetaB[1], x, q) % q
+		b2 := EvalPoly(thetaB[2], x, q) % q
+		target := modAdd(b0, modMul(b1, mCombined, q), q)
+		target = modAdd(target, modMul(b2, rHat0, q), q)
+		target = modAdd(target, zHat, q)
+		return modSub(tTheta, target, q)
+	default:
+		return 0
+	}
+}
+
+func transformInverseResidualEval(q, x uint64, relation string, thetaB [][]uint64, rHat1, zHat uint64) uint64 {
+	switch credential.NormalizeHashRelation(relation) {
+	case credential.HashRelationBBTran:
+		b3 := EvalPoly(thetaB[3], x, q) % q
+		return modSub(modMul(modSub(b3, rHat1, q), zHat, q), 1, q)
+	default:
+		return 0
+	}
+}
+
 func transformHashResidualKEval(K *kf.Field, e kf.Elem, relation string, thetaB [][]uint64, mHat1, mHat2, rHat0, rHat1, tTheta, mSigmaR1Hat, r0R1Hat kf.Elem) kf.Elem {
 	return transformHashResidualCombinedKEval(K, e, relation, thetaB, K.Add(mHat1, mHat2), rHat0, rHat1, tTheta, mSigmaR1Hat, r0R1Hat)
 }
@@ -303,4 +359,33 @@ func transformHashResidualCombinedKEvalBBTran(K *kf.Field, e kf.Elem, thetaB [][
 	res = K.Add(res, K.Mul(b1, K.Mul(mCombined, rHat1)))
 	res = K.Add(res, K.Mul(b2, K.Mul(rHat0, rHat1)))
 	return K.Sub(res, K.One())
+}
+
+func transformTargetResidualKEval(K *kf.Field, e kf.Elem, relation string, thetaB [][]uint64, mHat1, mHat2, rHat0, zHat, tTheta kf.Elem) kf.Elem {
+	return transformTargetResidualCombinedKEval(K, e, relation, thetaB, K.Add(mHat1, mHat2), rHat0, zHat, tTheta)
+}
+
+func transformTargetResidualCombinedKEval(K *kf.Field, e kf.Elem, relation string, thetaB [][]uint64, mCombined, rHat0, zHat, tTheta kf.Elem) kf.Elem {
+	switch credential.NormalizeHashRelation(relation) {
+	case credential.HashRelationBBTran:
+		b0 := K.EvalFPolyAtK(thetaB[0], e)
+		b1 := K.EvalFPolyAtK(thetaB[1], e)
+		b2 := K.EvalFPolyAtK(thetaB[2], e)
+		target := K.Add(b0, K.Mul(b1, mCombined))
+		target = K.Add(target, K.Mul(b2, rHat0))
+		target = K.Add(target, zHat)
+		return K.Sub(tTheta, target)
+	default:
+		return K.Zero()
+	}
+}
+
+func transformInverseResidualKEval(K *kf.Field, e kf.Elem, relation string, thetaB [][]uint64, rHat1, zHat kf.Elem) kf.Elem {
+	switch credential.NormalizeHashRelation(relation) {
+	case credential.HashRelationBBTran:
+		b3 := K.EvalFPolyAtK(thetaB[3], e)
+		return K.Sub(K.Mul(K.Sub(b3, rHat1), zHat), K.One())
+	default:
+		return K.Zero()
+	}
 }

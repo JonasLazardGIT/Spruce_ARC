@@ -94,9 +94,6 @@ func BuildPublicLabels(pub PublicInputs) []PublicLabel {
 	if len(pub.Nonce) > 0 {
 		appendInt64Slices("Nonce", pub.Nonce)
 	}
-	if len(pub.U) > 0 {
-		appendPoly("U", pub.U)
-	}
 	appendString("HashRelation", pub.HashRelation)
 	if len(pub.Extras) > 0 {
 		keys := make([]string, 0, len(pub.Extras))

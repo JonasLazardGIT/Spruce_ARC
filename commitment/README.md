@@ -1,13 +1,22 @@
 # commitment
 
-`commitment/` contains the linear commitment helper used in the issuance flow.
+`commitment/` contains the linear commitment helper used by issuance.
 
-It computes the Ajtai-style commitment that binds the holder message and
-issuance randomness before the pre-sign proof is produced.
+It computes the Ajtai-style commitment for the live witness vector:
+
+```text
+[m || k || r0H || r1H || rbar]
+```
+
+so the public commitment is:
+
+```text
+com = ACom [m || k || r0H || r1H || rbar]^T
+```
 
 ## Main Responsibility
 
-- compute `com = A_c · vec` over ring polynomials
+- compute `com = Ac · vec` over ring polynomials
 
 ## Main Entry Point
 
@@ -20,6 +29,7 @@ The package intentionally stays small. Higher-level proof logic lives in
 
 - inputs must live in a consistent ring/domain
 - matrix dimensions must match the committed vector
+- the live column order is semantic, not legacy-aligned randomness
 
 ## Read Next
 

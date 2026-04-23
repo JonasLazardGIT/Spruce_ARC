@@ -39,15 +39,16 @@ func TestPublicParamsRoundTripAndLift(t *testing.T) {
 		t.Fatalf("generate coeff matrix: %v", err)
 	}
 	public := PublicParams{
+		Version:      PublicParamsVersion,
 		Ac:           ac,
-		HashRelation: HashRelationBBS,
+		HashRelation: HashRelationBBTran,
 		BPath:        filepath.Join("Parameters", "Bmatrix.json"),
 		BoundB:       1,
-		LenM1:        1,
-		LenM2:        1,
-		LenRU0:       1,
-		LenRU1:       1,
-		LenR:         1,
+		LenM:         1,
+		LenK:         1,
+		LenR0H:       1,
+		LenR1H:       1,
+		LenRBar:      1,
 	}
 	path := filepath.Join(t.TempDir(), "credential_public.json")
 	if err := SavePublicParams(path, public); err != nil {
@@ -57,7 +58,7 @@ func TestPublicParamsRoundTripAndLift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load public params: %v", err)
 	}
-	if loaded.BoundB != public.BoundB || loaded.LenM1 != public.LenM1 || loaded.LenM2 != public.LenM2 || loaded.LenRU0 != public.LenRU0 || loaded.LenRU1 != public.LenRU1 || loaded.LenR != public.LenR || loaded.BPath != public.BPath {
+	if loaded.BoundB != public.BoundB || loaded.LenM != public.LenM || loaded.LenK != public.LenK || loaded.LenR0H != public.LenR0H || loaded.LenR1H != public.LenR1H || loaded.LenRBar != public.LenRBar || loaded.BPath != public.BPath {
 		t.Fatalf("loaded public params mismatch: got %+v want %+v", loaded, public)
 	}
 	params, err := loaded.ToIssuanceParams(ringQ)

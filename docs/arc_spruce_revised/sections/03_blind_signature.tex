@@ -1,0 +1,139 @@
+\section{Blind Signature Construction}
+\label{sec:blind-signature}
+
+This section presents the blind-issuance protocol underlying ARC-SPRUCE.  It combines the Ajtai commitment
+of Section~\ref{subsec:prelim-commit}, the BB-tran rational hash of Section~\ref{subsec:prelim-vsis}, and
+the NIZK model of Section~\ref{subsec:prelim-nizk}.  The full signed message is
+$\vecmu=\vecm\Vert\veck$.
+
+\subsection{Relations}
+\label{subsec:bs-relations}
+The issuance relation binds three objects to one hidden witness: the Ajtai commitment, the centered
+shared randomness, and the BB-tran target.  The public statement is
+\[
+  (\ComPublicParam,\vecc,T,r_0^I,r_1^I,\mA,B),
+\]
+and the hidden witness is
+\[
+  (\vecmu,r_0^H,r_1^H,\bar r,r_0,r_1,Z).
+\]
+Define $\relIssueBS$ as the set of all such statement-witness pairs satisfying
+\begin{align*}
+  &\vecc=\mACom[\vecmu\Vert r_0^H\Vert r_1^H\Vert\bar r]^\top,\qquad
+    \|\vecmu,r_0^H,r_1^H,\bar r,r_0,r_1\|_\infty\le\BoundMsg,\\
+  &r_0=\centerfunc(r_0^H+r_0^I),\qquad
+    r_1=\centerfunc(r_1^H+r_1^I),\\
+  &(B_3-r_1)\Had Z=1,\qquad
+    T=B_0+B_1\vecmu+B_2r_0+Z.
+\end{align*}
+The signing relation used for a standalone blind signature has public statement
+$(\vecmu,\mA,B,\BoundMsg,\BoundSig)$ and hidden witness $(\vecu,r_0,r_1,Z)$ satisfying
+\begin{align*}
+  &\|r_0,r_1\|_\infty\le\BoundMsg,
+    \qquad \|\vecu\|_\infty\le\BoundSig,\\
+  &(B_3-r_1)\Had Z=1,\qquad
+    \mA\vecu=B_0+B_1\vecmu+B_2r_0+Z.
+\end{align*}
+A standalone blind signature can therefore be represented as a NIZK proof for this second relation.  In the
+ARC layer, the holder instead stores the witness and proves the corresponding relation during showing.
+
+\subsection{Protocol}
+\label{subsec:bs-protocol}
+Let $\nizkscheme=(\ZKProve,\ZKVerify)$ be a NIZK for the above relations.
+
+\paragraph{Setup.}
+Generate the public commitment key $\ComPublicParam=(\mACom,\ell_r,\ell_{\ComScheme},\BoundMsg)$ and
+the BB-tran public description $B=(B_0,B_1,B_2,B_3)$.  The maps $B_1$ and $B_2$ are public linear maps
+with domains matching the full message $\vecmu$ and the first hash-randomness component $r_0$.  The public
+parameters also include the admissibility and bound parameters for the rational hash.
+
+\paragraph{Issuer key generation.}
+The issuer runs $(\mA,\trapdoor)\gets\TrapGen$ and outputs $\vk=\mA$ and $\sk=\trapdoor$.
+
+\paragraph{Issuance.}
+The issuer holds $\sk$ and the holder has input $\vecmu$ and $\vk$.
+\begin{enumerate}[leftmargin=1.25em]
+  \item The holder samples $r_0^H,r_1^H,\bar r$ coefficient-wise in $[-\BoundMsg,\BoundMsg]$ and sends
+  \[
+    \vecc=\mACom[\vecmu\Vert r_0^H\Vert r_1^H\Vert\bar r]^\top
+  \]
+  to the issuer.
+  \item The issuer samples $r_0^I,r_1^I$ coefficient-wise in $[-\BoundMsg,\BoundMsg]$ and sends them to the
+  holder.
+  \item The holder computes
+  \[
+    r_0=\centerfunc(r_0^H+r_0^I),\qquad
+    r_1=\centerfunc(r_1^H+r_1^I).
+  \]
+  If $B_3-r_1\notin\Rq^\times$, the holder restarts the target derivation.  Otherwise it sets
+  \[
+    Z=(B_3-r_1)^{-1},\qquad
+    T=B_0+B_1\vecmu+B_2r_0+Z.
+  \]
+  \item The holder sends $(T,\nizkIssue)$, where $\nizkIssue$ proves membership in $\relIssueBS$.
+  \item The issuer verifies $\nizkIssue$.  If it rejects, the issuer aborts.  Otherwise it samples
+  \[
+    \vecu\gets\SampPre(\trapdoor,T)
+  \]
+  and sends $\vecu$ to the holder.
+  \item The holder checks $\mA\vecu=T$ and $\|\vecu\|_\infty\le\BoundSig$.  If the check fails, it aborts.
+  For a standalone blind signature, the holder outputs a proof $\nizkSign$ for $\relSign$.  For ARC issuance,
+  it stores the credential witness $(\vecu,\vecm,\veck,r_0,r_1)$.
+\end{enumerate}
+
+\paragraph{Standalone verification.}
+For a standalone signature $\sig=\nizkSign$ on message $\vecmu$, the verifier checks the proof for
+$\relSign$.  In the ARC construction below, verification is performed through the showing proof instead.
+
+\subsection{Correctness and issuer-view hiding}
+\label{subsec:bs-security}
+
+\begin{proposition}[Correctness]\label{prop:bs-correctness}
+Assume correctness of the NIZK and of the trapdoor sampler.  Then honest issuance produces an accepting
+standalone signature, and in the ARC variant produces a credential witness satisfying the showing relation.
+\end{proposition}
+
+\begin{proof}
+By construction, the holder computes $r_0,r_1,Z,T$ satisfying the issuance relation.  Hence the pre-sign
+NIZK verifies by completeness.  The trapdoor sampler returns $\vecu$ with $\mA\vecu=T$ and
+$\|\vecu\|_\infty\le\BoundSig$ except with negligible probability, so the post-sign or showing relation is
+satisfiable.
+\end{proof}
+
+\begin{proposition}[Issuer-view hiding of issuance]\label{prop:bs-issuer-view-hiding}
+Assume the pre-sign NIZK is zero knowledge, the Ajtai commitment is hiding, the centering map preserves
+uniformity as in Lemma~\ref{lem:center-uniform}, and the instantiated BB-tran family satisfies the direct
+target-hiding property of Definition~\ref{def:htran-direct-hiding}.  Then the public issuance surface
+\[
+  (\vecc,r_0^I,r_1^I,T,\nizkIssue)
+\]
+is computationally hiding with respect to the holder message $\vecmu$.
+\end{proposition}
+
+\begin{proof}
+First replace the real proof $\nizkIssue$ by a simulated proof for the same public statement.  By zero
+knowledge, this changes the issuer view only negligibly.  It remains to analyze
+$(\vecc,r_0^I,r_1^I,T)$.
+
+The commitment $\vecc$ hides the full committed vector, in particular $\vecmu,r_0^H,r_1^H$, up to the
+commitment-hiding error.  The issuer contributions $r_0^I,r_1^I$ are sampled independently of $\vecmu$.
+For each fixed holder contribution $r_b^H$, Lemma~\ref{lem:center-uniform} implies that
+$\centerfunc(r_b^H+r_b^I)$ is uniform over the bounded interval when $r_b^I$ is uniform.  Thus the final
+hash randomness $(r_0,r_1)$ has the distribution required by the direct BB-tran hiding statement, even though
+$r_0^H,r_1^H$ were committed before the issuer challenge.
+
+Finally, under the direct target-hiding property of BB-tran, the target
+\[
+  T=B_0+B_1\vecmu+B_2r_0+(B_3-r_1)^{-1}
+\]
+hides $\vecmu$ for this randomness distribution, conditioned on admissibility.  The admissibility restart depends
+only on the sampled randomness and the public value $B_3$, not on the hidden message.  Combining the simulated
+proof, the hiding commitment, independent issuer randomness, centering uniformity, and target hiding proves the
+claim.
+\end{proof}
+
+\begin{remark}[Security status]\label{rem:bs-security-status}
+Lemma~\ref{lem:vsis-unforgeability} justifies the non-blind hash-and-preimage signature layer.  Proposition~\ref{prop:bs-issuer-view-hiding} establishes issuer-view hiding of the issuance surface.  A full two-session
+blindness theorem and a one-more unforgeability theorem for the blind-issuance protocol require additional
+reductions and are not claimed here.
+\end{remark}

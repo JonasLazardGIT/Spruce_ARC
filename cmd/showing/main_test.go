@@ -107,11 +107,11 @@ func TestFormatStatementSummaryShowsClassReplayAndShortness(t *testing.T) {
 		TranscriptFocus: PIOP.TranscriptOptimizationReport{
 			StatementClass: string(PIOP.ShowingStatementClassTheoremCleanFullReplay),
 			ReplayMode:     string(PIOP.ShowingReplayModeFull),
-			ShortnessMode:  PIOP.SigShortnessModeHiddenV6,
+			ShortnessMode:  PIOP.SigShortnessModeHiddenV7,
 		},
 		SigShortness: PIOP.SigShortnessReport{
 			Enabled: true,
-			Mode:    PIOP.SigShortnessModeHiddenV6,
+			Mode:    PIOP.SigShortnessModeHiddenV7,
 		},
 	})
 	if !strings.Contains(line, "class=theorem_clean_full_replay") {
@@ -120,7 +120,7 @@ func TestFormatStatementSummaryShowsClassReplayAndShortness(t *testing.T) {
 	if !strings.Contains(line, "replay=full") {
 		t.Fatalf("missing replay mode: %q", line)
 	}
-	if !strings.Contains(line, "shortness=sig_shortness_v6_hidden") {
+	if !strings.Contains(line, "shortness=sig_shortness_v7_inlined_target_hiding") {
 		t.Fatalf("missing shortness mode: %q", line)
 	}
 }
@@ -143,7 +143,7 @@ func TestFormatStatementSummaryDistinguishesReducedAndFull(t *testing.T) {
 		},
 		SigShortness: PIOP.SigShortnessReport{
 			Enabled: true,
-			Mode:    PIOP.SigShortnessModeHiddenV6,
+			Mode:    PIOP.SigShortnessModeHiddenV7,
 		},
 	})
 	if reduced == full {

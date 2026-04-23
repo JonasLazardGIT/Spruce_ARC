@@ -1,46 +1,63 @@
 # credential
 
-`credential/` defines the persisted holder state used by the retained issuance
-and showing flows.
+`credential/` defines the persisted holder state used by the live issuance and
+showing flows.
 
 It is the bridge between the operator commands and the proving code.
 
 ## What It Stores
 
-The current state includes:
+The live state is versioned and stores:
 
-- issuance witness rows and public commitment/challenge artifacts
-- `credential_public_path`, the stable credential public-parameter source
-- pre-sign witness outputs such as `T`
-- showing signature rows and packed-width metadata
-- references to PRF parameters and issuer public key data
+- semantic credential witness rows:
+  - `m`
+  - `k`
+  - `r0`
+  - `r1`
+  - `z`
+- signature witness rows:
+  - `sig_s1`
+  - `sig_s2`
+- shared runtime anchors:
+  - `packed_ncols`
+  - `credential_public_path`
+  - `hash_relation`
+  - `b_path`
+  - `prf_params_path`
+- issuance audit artifacts:
+  - `com`
+  - `ri0`
+  - `ri1`
+- embedded public material:
+  - `b`
+  - `ntru_public`
 
-Showing reconstructs its coeff-native semantic witness directly from the
-top-level signed state; there is no separate runtime showing blob.
-Both reduced and theorem-clean full showing derive the hidden shortness witness
-and committed `THat` surface from that same state at runtime.
+Showing reconstructs its coeff-native witness directly from this state. There is
+no separate persisted showing blob.
+
+The final credential state does **not** store `T`. `T` is issuance-time data
+only.
 
 ## Main Entry Points
 
 - `LoadDefaultRing`
 - `LoadState`
+- `SaveState`
 
 `cmd/issuance` writes the state under `credential/keys/`, and `cmd/showing`
 reads it back to build the post-sign proof.
 
 ## Current Invariants
 
-- the persisted state is aligned with the current shared modulus
-- showing uses the coeff-native semantic payload, not a legacy layout-specific
-  witness file
-- reduced showing no longer relies on a persisted packed-signature replay basis
-- full showing still reconstructs the theorem-clean replay surface from the
-  same signed state rather than a second persisted showing blob
+- the live state format is `version = 1`
+- old aligned or unversioned credential states are rejected
+- the state stores semantic witness data, not the old split/aligned commitment
+  witness
 - the state must not contain issuer trapdoor material
-- the state is treated as command/runtime data, not as the protocol
-  specification
+- the state is runtime data, not the protocol specification
 
 ## Read Next
 
 - [../docs/protocol.md](../docs/protocol.md)
+- [../docs/shared_randomness_migration.md](../docs/shared_randomness_migration.md)
 - [../cmd/README.md](../cmd/README.md)

@@ -56,7 +56,7 @@ func newPreSignTransformBridgeConfig(ringQ *ring.Ring, pub PublicInputs, layout 
 		layout.IdxMHat1, layout.IdxMHat2, layout.IdxRHat0, layout.IdxRHat1,
 	}
 	if publicUsesBBTran(pub) {
-		required = append(required, layout.IdxMSigmaR1, layout.IdxR0R1, layout.IdxMSigmaR1Hat, layout.IdxR0R1Hat)
+		required = append(required, layout.IdxZHat)
 	}
 	for _, idx := range required {
 		if idx < 0 {
@@ -304,24 +304,9 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 			return nil, nil, err
 		}
 		useBBTran := relationUsesBBTran(cfg.HashRelation)
-		mSigmaR1Src := uint64(0)
-		r0R1Src := uint64(0)
-		mSigmaR1Hat := uint64(0)
-		r0R1Hat := uint64(0)
+		zHat := uint64(0)
 		if useBBTran {
-			mSigmaR1Src, err = getRow(layout.IdxMSigmaR1)
-			if err != nil {
-				return nil, nil, err
-			}
-			r0R1Src, err = getRow(layout.IdxR0R1)
-			if err != nil {
-				return nil, nil, err
-			}
-			mSigmaR1Hat, err = getRow(layout.IdxMSigmaR1Hat)
-			if err != nil {
-				return nil, nil, err
-			}
-			r0R1Hat, err = getRow(layout.IdxR0R1Hat)
+			zHat, err = getRow(layout.IdxZHat)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -337,12 +322,6 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 			modSub(r1v, r1Dec, q),
 			modSub(k0, k0Dec, q),
 			modSub(k1, k1Dec, q),
-		}
-		if useBBTran {
-			fpar = append(fpar,
-				modSub(mSigmaR1Src, modMul(modAdd(m1, m2, q), r1v, q), q),
-				modSub(r0R1Src, modMul(r0v, r1v, q), q),
-			)
 		}
 		for i := range cfg.AcCoeff {
 			sum := uint64(0)
@@ -375,7 +354,14 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 		fpar = append(fpar, res0, res1)
 
 		tTheta := EvalPoly(cfg.TPublicTheta, x, q) % q
-		fpar = append(fpar, transformHashResidualEval(q, x, cfg.HashRelation, cfg.ThetaB, mHat1, mHat2, rHat0, rHat1, tTheta, mSigmaR1Hat, r0R1Hat))
+		if useBBTran {
+			fpar = append(fpar,
+				transformTargetResidualEval(q, x, cfg.HashRelation, cfg.ThetaB, mHat1, mHat2, rHat0, zHat, tTheta),
+				transformInverseResidualEval(q, x, cfg.HashRelation, cfg.ThetaB, rHat1, zHat),
+			)
+		} else {
+			fpar = append(fpar, transformHashResidualEval(q, x, cfg.HashRelation, cfg.ThetaB, mHat1, mHat2, rHat0, rHat1, tTheta, 0, 0))
+		}
 
 		sel := EvalPoly(cfg.PackingSelCoeff, x, q) % q
 		fpar = append(fpar, modMul(sel, m1, q))
@@ -407,19 +393,6 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 		} {
 			for j := 0; j < len(cfg.LagrangeBasis); j++ {
 				fagg = append(fagg, modSub(modMul(pair.src, hVals[j], q), modMul(pair.hat, lagrangeVals[j], q), q))
-			}
-		}
-		if useBBTran {
-			for _, pair := range []struct {
-				src uint64
-				hat uint64
-			}{
-				{src: mSigmaR1Src, hat: mSigmaR1Hat},
-				{src: r0R1Src, hat: r0R1Hat},
-			} {
-				for j := 0; j < len(cfg.LagrangeBasis); j++ {
-					fagg = append(fagg, modSub(modMul(pair.src, hVals[j], q), modMul(pair.hat, lagrangeVals[j], q), q))
-				}
 			}
 		}
 		return fpar, fagg, nil
@@ -528,24 +501,9 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 			return nil, nil, err
 		}
 		useBBTran := relationUsesBBTran(cfg.HashRelation)
-		mSigmaR1Src := K.Zero()
-		r0R1Src := K.Zero()
-		mSigmaR1Hat := K.Zero()
-		r0R1Hat := K.Zero()
+		zHat := K.Zero()
 		if useBBTran {
-			mSigmaR1Src, err = getRow(layout.IdxMSigmaR1)
-			if err != nil {
-				return nil, nil, err
-			}
-			r0R1Src, err = getRow(layout.IdxR0R1)
-			if err != nil {
-				return nil, nil, err
-			}
-			mSigmaR1Hat, err = getRow(layout.IdxMSigmaR1Hat)
-			if err != nil {
-				return nil, nil, err
-			}
-			r0R1Hat, err = getRow(layout.IdxR0R1Hat)
+			zHat, err = getRow(layout.IdxZHat)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -561,12 +519,6 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 			K.Sub(r1v, r1Dec),
 			K.Sub(k0, k0Dec),
 			K.Sub(k1, k1Dec),
-		}
-		if useBBTran {
-			fpar = append(fpar,
-				K.Sub(mSigmaR1Src, K.Mul(K.Add(m1, m2), r1v)),
-				K.Sub(r0R1Src, K.Mul(r0v, r1v)),
-			)
 		}
 		for i := range cfg.AcCoeff {
 			sum := K.Zero()
@@ -597,7 +549,14 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 			K.Sub(K.Sub(K.Add(ru1, ri1), r1v), K.Mul(deltaK, k1)),
 		)
 		tTheta := K.EvalFPolyAtK(cfg.TPublicTheta, e)
-		fpar = append(fpar, transformHashResidualKEval(K, e, cfg.HashRelation, cfg.ThetaB, mHat1, mHat2, rHat0, rHat1, tTheta, mSigmaR1Hat, r0R1Hat))
+		if useBBTran {
+			fpar = append(fpar,
+				transformTargetResidualKEval(K, e, cfg.HashRelation, cfg.ThetaB, mHat1, mHat2, rHat0, zHat, tTheta),
+				transformInverseResidualKEval(K, e, cfg.HashRelation, cfg.ThetaB, rHat1, zHat),
+			)
+		} else {
+			fpar = append(fpar, transformHashResidualKEval(K, e, cfg.HashRelation, cfg.ThetaB, mHat1, mHat2, rHat0, rHat1, tTheta, K.Zero(), K.Zero()))
+		}
 		sel := K.EvalFPolyAtK(cfg.PackingSelCoeff, e)
 		fpar = append(fpar, K.Mul(sel, m1), K.Mul(K.Sub(K.One(), sel), m2))
 		fpar = append(fpar,
@@ -626,19 +585,6 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 		} {
 			for j := 0; j < len(cfg.LagrangeBasis); j++ {
 				fagg = append(fagg, K.Sub(K.Mul(pair.src, hVals[j]), K.Mul(pair.hat, lagrangeVals[j])))
-			}
-		}
-		if useBBTran {
-			for _, pair := range []struct {
-				src kf.Elem
-				hat kf.Elem
-			}{
-				{src: mSigmaR1Src, hat: mSigmaR1Hat},
-				{src: r0R1Src, hat: r0R1Hat},
-			} {
-				for j := 0; j < len(cfg.LagrangeBasis); j++ {
-					fagg = append(fagg, K.Sub(K.Mul(pair.src, hVals[j]), K.Mul(pair.hat, lagrangeVals[j])))
-				}
 			}
 		}
 		return fpar, fagg, nil

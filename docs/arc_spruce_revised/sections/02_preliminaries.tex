@@ -1,0 +1,322 @@
+\section{Preliminaries}
+\label{sec:preliminaries}
+
+\paragraph{Notation.}
+Let $\lambda$ denote the security parameter and let $\negl(\lambda)$ be any positive function negligible in
+$\lambda$.  We write PPT for probabilistic polynomial time.  For integers $a<b$, write
+$[a,b]=\{a,a+1,\ldots,b\}$ and use $[b]$ as shorthand for $[1,b]$.  Vectors are written in bold lower-case
+letters and matrices in bold upper-case letters.
+
+We work over the cyclotomic ring $\R=\Z[X]/(X^N+1)$ for power-of-two $N$ and its quotient
+$\Rq=\R/q\R$, identified with polynomials of degree $<N$ with coefficients in $\Z_q$.  For $a\in\Z$, let
+$\langle a\rangle_q\in\{0,\ldots,q-1\}$ denote reduction modulo $q$.  When a field element represents a
+signed value, we use the centered representative.  For $x\in\Rq$, the notation $\|x\|_\infty\le B$ means that
+every coefficient of $x$ lies in $[-B,B]$; the same convention is applied component-wise to vectors over
+$\Rq$.
+
+The full signed message is written
+\[
+  \vecmu=\vecm\Vert \veck,
+\]
+where $\vecm$ encodes holder attributes and $\veck$ is the secret PRF key used for rate limiting.  The public
+coefficient bound for message and hash randomness is denoted $\BoundMsg$.
+
+\subsection{Commitment schemes and Ajtai commitments}
+\label{subsec:prelim-commit}
+\label{subsec:commitments}
+
+\begin{definition}[Commitment scheme]\label{def:commitment-scheme}
+A non-interactive commitment scheme is a tuple of PPT algorithms
+\[
+  \ComScheme=(\ComSetup,\Commit,\ComVerify)
+\]
+with the following syntax.  The setup algorithm outputs public parameters $\ComPublicParam$; the commit
+algorithm on input a message $m$ outputs a commitment $c$ and an opening $d$; and
+$\ComVerify(c,m,d)$ deterministically checks validity of the opening.  Correctness, computational binding,
+and hiding are defined in the usual way.
+\end{definition}
+
+\subsubsection{Ajtai's commitment scheme.}
+We use the standard bounded linear commitment over $\Rq$, matching the compact Ajtai-style commitment
+of~\cite[Definition~13]{EPRINT:AttCraKoh21}.  Fix an input length $\ell_{\mathsf{in}}$, randomness dimension
+$\ell_r$, output length $\ell_{\ComScheme}$, and coefficient bound $\BoundMsg$.  Setup samples
+\[
+  \mACom \getsunif \Rq^{\ell_{\ComScheme}\times \ell_{\mathsf{in}}}
+\]
+and outputs $\ComPublicParam=(\mACom,\ell_r,\ell_{\ComScheme},\BoundMsg)$.  In the blind-signature and
+ARC protocols, the committed vector has the form
+\[
+  \vecw=[\vecmu\Vert r_0^H\Vert r_1^H\Vert \bar r]^\top,
+\]
+where $r_0^H,r_1^H$ are holder-side rational-hash randomnesses and $\bar r$ is commitment-only randomness.
+The holder computes
+\[
+  \vecc=\mACom\vecw.
+\]
+Equivalently, if
+\[
+  \mACom=[A_\mu\mid A_{r_0}\mid A_{r_1}\mid A_{\bar r}],
+\]
+then
+\[
+  \vecc=A_\mu\vecmu+A_{r_0}r_0^H+A_{r_1}r_1^H+A_{\bar r}\bar r.
+\]
+The verification algorithm accepts an opening iff the committed vector is coefficient-wise bounded by
+$\BoundMsg$ and the displayed linear identity holds.
+
+\begin{definition}[Module-SIS and Module-ISIS over $\Rq$]\label{def:sis-isis}
+Fix integers $n,m\ge 1$, modulus $q\ge 2$, and bound $\beta>0$.
+\begin{itemize}[leftmargin=1.25em]
+  \item $\mathsf{M\text{-}SIS}_\infty(n,m,q,\beta)$: given $A\in\Rq^{n\times m}$, find non-zero
+  $s\in R^m$ such that $As=0$ in $\Rq^n$ and $\|s\|_\infty\le \beta$.
+  \item $\mathsf{M\text{-}ISIS}_\infty(n,m,q,\beta)$: given $(A,t)\in\Rq^{n\times m}\times\Rq^n$, find
+  $s\in R^m$ such that $As=t$ in $\Rq^n$ and $\|s\|_\infty\le\beta$.
+\end{itemize}
+\end{definition}
+
+\begin{lemma}[Binding of the Ajtai commitment]\label{lem:ajtai-binding}
+Let $\Adv$ be any PPT adversary that opens an Ajtai commitment to two distinct bounded vectors with
+probability $p$.  Then there is a PPT adversary that solves the corresponding
+$\mathsf{M\text{-}SIS}_\infty$ instance with essentially the same probability and runtime.
+\end{lemma}
+
+\begin{proof}
+Two valid openings of the same commitment give two distinct bounded vectors $\vecw,\vecw'$ such that
+$\mACom(\vecw-\vecw')=0$ in $\Rq^{\ell_{\ComScheme}}$.  The difference is non-zero and coefficient-wise
+bounded by $2\BoundMsg$, hence it is an SIS solution for the commitment matrix.
+\end{proof}
+
+\begin{lemma}[Statistical hiding of the Ajtai commitment]\label{lem:ajtai-hiding}
+Let $B_r$ be the coefficient bound of the commitment-randomness alphabet.  If
+\[
+  N\ell_r\log_2(2B_r+1)\ge N\ell_{\ComScheme}\log_2 q+2\lambda,
+\]
+then the commitment distribution is statistically $2^{-\lambda}$-close to a distribution independent of the
+committed message.  In the instantiation above, $B_r=\BoundMsg$ is sufficient.
+\end{lemma}
+
+\begin{proof}
+This is the direct leftover-hash-lemma argument for the bounded linear Ajtai commitment, specialized to
+$\Rq$.  The commitment randomness contributes $N\ell_r\log_2(2B_r+1)$ bits of min-entropy and the
+commitment output space has size $q^{N\ell_{\ComScheme}}$.
+\end{proof}
+
+\subsection{Lattice trapdoors and rational hashing}
+\label{subsec:prelim-vsis}
+We recall only the definitions needed to state the construction.  Additional lattice-assumption syntax is
+deferred to Appendix~\ref{app:assumptions lattices}.
+
+\begin{definition}[Lattice trapdoor suite]\label{def:trapdoor-suite}
+A lattice trapdoor suite over $\Rq$ consists of PPT algorithms $(\Setup,\TrapGen,\SampPre)$ such that:
+\begin{itemize}[leftmargin=1.25em]
+  \item $\Setup$ generates admissible public parameters $(n,m,\BoundSig)$.
+  \item $(\mA,\trapdoor)\gets\TrapGen$ outputs a public matrix $\mA\in\Rq^{n\times m}$ and a trapdoor,
+  with $\mA$ statistically close to uniform over $\Rq^{n\times m}$.
+  \item On input $(\trapdoor,T)$, $\SampPre$ outputs $\vecu\in R^m$ such that $\mA\vecu=T$ in $\Rq^n$
+  and $\|\vecu\|_\infty\le\BoundSig$, except with negligible failure probability.
+\end{itemize}
+\end{definition}
+
+\begin{definition}[Trapdoor rational hash]\label{def:trapdoor-rational-hash}
+A trapdoor rational hash scheme over $\Rq$ is a tuple
+\[
+  \TDRH=(\Setup,\TrapGen,\Eval,\SampPre)
+\]
+consisting of the lattice trapdoor suite above together with a public evaluation algorithm.  Its setup also
+outputs a public hash description $B$, a randomness space $\mathcal X$, and an admissibility error bound
+$\delta$.  For fixed $B$, the algorithm $\Eval(B,\mu,\chi)$ takes a message $\mu$ and witness randomness
+$\chi\in\mathcal X$ and outputs either a target $T\in\Rq^n$ or $\bot$.
+\end{definition}
+
+\subsubsection{The BB-tran rational hash.}
+We instantiate the rational hash with the BB-tran form of~\cite[Table~1]{EPRINT:DKLW25}.  The generic
+DKLW expression is
+\[
+  h_{\mu,\chi}(\tilde b^\top)=(u^\top,x_0^\top)\tilde b_0+\frac{1}{\tilde b_1-x_1}.
+\]
+In the notation used in this paper, the public description is
+$B=(B_0,B_1,B_2,B_3)$, where $B_1$ and $B_2$ are public linear maps into $\Rq$.  For message $\vecmu$ and randomness
+$(r_0,r_1)$, define
+\[
+  L_B(\vecmu,r_0):=B_0+B_1\vecmu+B_2r_0.
+\]
+The input is admissible if $B_3-r_1\in\Rq^\times$.  When admissible, let
+\[
+  Z=(B_3-r_1)^{-1}.
+\]
+The BB-tran target is
+\begin{equation}\label{eq:htran-target}
+  T=h_{\mathrm{tran},\vecmu,(r_0,r_1)}(B):=B_0+B_1\vecmu+B_2r_0+Z.
+\end{equation}
+Equivalently, the witness form is
+\begin{equation}\label{eq:htran-witness-form}
+  (B_3-r_1)\Had Z=1,
+  \qquad
+  T=B_0+B_1\vecmu+B_2r_0+Z,
+\end{equation}
+and the eliminated form is
+\begin{equation}\label{eq:htran-eliminated}
+  (B_3-r_1)\Had\bigl(T-B_0-B_1\vecmu-B_2r_0\bigr)=1.
+\end{equation}
+The witness form is used in the issuance and showing relations because it separates the inverse check from
+the linear target equation.
+
+\begin{lemma}[Eliminated form under admissibility]\label{lem:hash-cleared-admissible}
+Let $\Rq\cong\prod_i F_i$ be the CRT decomposition and write $B_3-r_1=(d_i)_i$,
+$T-L_B(\vecmu,r_0)=(z_i)_i$.  If $d_i\ne0$ for all $i$, then
+\[
+  T=h_{\mathrm{tran},\vecmu,(r_0,r_1)}(B)
+  \quad\Longleftrightarrow\quad
+  (B_3-r_1)\Had\bigl(T-B_0-B_1\vecmu-B_2r_0\bigr)=1.
+\]
+\end{lemma}
+
+\begin{proof}
+In each CRT slot the defining statement is $z_i=d_i^{-1}$, which is equivalent to $d_i z_i=1$ when
+$d_i\ne0$.  Reassembling the CRT slots gives the claim.
+\end{proof}
+
+\begin{definition}[Direct target hiding of BB-tran]\label{def:htran-direct-hiding}
+We say that the instantiated BB-tran family is directly target-hiding if the following distributions are
+computationally indistinguishable for all bounded challenge messages $\vecmu_0,\vecmu_1$.  Sample
+$b\getsunif\{0,1\}$, sample $r_0,r_1$ from the protocol randomness distribution conditioned on
+$B_3-r_1\in\Rq^\times$, and output
+\[
+  T=B_0+B_1\vecmu_b+B_2r_0+(B_3-r_1)^{-1}.
+\]
+No PPT distinguisher, given the public parameters and $T$, can guess $b$ with non-negligible advantage.
+\end{definition}
+
+The security proof in Section~\ref{sec:blind-signature} uses this direct target-hiding property as the
+privacy input for the rational-hash layer.  It is separate from the non-blind unforgeability import from
+DKLW and does not require the target to be computed from the commitment value.
+
+\begin{definition}[vSIS-style hash-and-sign]\label{def:vsis-template}
+Let $\TDRH$ be a trapdoor rational hash scheme with parameters $B,\mathcal X,\delta,\BoundSig$.  The
+associated signature scheme $\vsisscheme=(\KeyGen,\Sign,\SigVerify)$ is:
+\begin{itemize}[leftmargin=1.25em]
+  \item $\KeyGen$ runs $(\mA,\trapdoor)\gets\TrapGen$ and outputs $\vk=\mA$, $\sk=\trapdoor$.
+  \item $\Sign(\sk,\mu)$ samples $\chi\gets\mathcal X$ until $T=\Eval(B,\mu,\chi)\ne\bot$, samples
+  $\vecu\gets\SampPre(\trapdoor,T)$, and outputs $\sigma=(\vecu,\chi)$.
+  \item $\SigVerify(\vk,\mu,\sigma)$ for $\sigma=(\vecu,\chi)$ checks $\chi\in\mathcal X$,
+  $\Eval(B,\mu,\chi)\ne\bot$, $\|\vecu\|_\infty\le\BoundSig$, and
+  $\mA\vecu=\Eval(B,\mu,\chi)$.
+\end{itemize}
+\end{definition}
+
+\begin{lemma}[Imported non-blind security]\label{lem:vsis-unforgeability}
+Assume the trapdoor parameters are admissible, the BB-tran inadmissibility probability is negligible, the
+accepted preimages satisfy the norm bound required by~\cite{EPRINT:DKLW25}, and the denominator-bound,
+strong-linear-independence, and predicate side conditions required by the BB-tran analysis of~\cite{EPRINT:DKLW25}
+hold.  Then the non-blind hash-and-preimage signature layer of Definition~\ref{def:vsis-template} inherits
+the corresponding DKLW unforgeability guarantees under the stated strong hinted-vSIS/GenISIS assumptions.
+\end{lemma}
+
+\begin{proof}
+This is the specialization of~\cite[Theorems~4, 5, 7, 8 and Corollary~1]{EPRINT:DKLW25} to the BB-tran
+family, together with the BB-tran-specific GenISIS/IntGenISIS lift of~\cite[Section~5.2]{EPRINT:DKLW25}.
+\end{proof}
+
+\subsection{Non-interactive zero-knowledge arguments of knowledge}
+\label{subsec:prelim-nizk}
+\label{subsec:nizk-ark}
+We use the NIZK-ARK syntax of the SmallWood framework instantiated in the random-oracle model
+\cite[Definition~3]{EPRINT:FenRiv25b}.
+
+\begin{definition}[NIZKs in the random oracle model]\label{def:nizk-ark}
+Let $\mathcal R\subseteq\mathcal X\times\mathcal W$ be a family of relations.  A transparent non-interactive
+zero-knowledge argument of knowledge for $\mathcal R$ in the random-oracle model is a pair
+$(\ZKProve^{\RO},\ZKVerify^{\RO})$ satisfying correctness, straightline-extractable knowledge soundness,
+and zero knowledge.  In particular, zero knowledge means that there exists a simulator
+$\Sim^{\RO}$ which, given only the public statement, outputs a proof indistinguishable from a real proof.
+\end{definition}
+
+We instantiate these proofs using the SmallWood PACS/PIOP framework compiled with Fiat--Shamir in the
+random-oracle model~\cite{EPRINT:FenRiv25b}.
+
+\subsection{Blind signatures}
+\label{subsec:blind-sig-defs}
+A blind signature scheme allows a holder $\Holder$ to obtain a signature valid under an issuer's verification
+key without revealing the signed message to the issuer.  We follow the standard syntax of~\cite{C:Fischlin06}.
+
+\begin{definition}[Blind signature syntax]\label{def:bs-syntax}
+A blind signature scheme is a tuple
+\[
+  \BlindSignature=(\Setup,\IKeyGen,\Issue,\Verify)
+\]
+where $\Setup$ generates public parameters, $\IKeyGen$ generates issuer keys $(\vk,\sk)$, $\Issue$ is an
+interactive protocol between issuer and holder, and $\Verify(\vk,\mu,\sig)$ checks signatures.
+\end{definition}
+
+\begin{definition}[Correctness]\label{def:bs-correctness}
+A blind signature scheme is correct if an honestly issued signature verifies except with negligible probability.
+\end{definition}
+
+\begin{definition}[Blindness]\label{def:bs-blindness}
+A blind signature scheme is blind if, for any two messages $\mu_0,\mu_1$, no PPT issuer-side adversary can
+distinguish the order of two completed issuance transcripts/signatures except with negligible advantage.
+\end{definition}
+
+\begin{definition}[One-more unforgeability]\label{def:bs-one-more}
+A blind signature scheme is one-more unforgeable if any PPT adversary that interacts with the honest issuer
+in at most $Q$ issuance sessions cannot output $Q+1$ valid signatures on distinct messages except with
+negligible probability.
+\end{definition}
+
+\paragraph{Rate limiting at the ARC layer.}
+We do not introduce a separate stand-alone rate-limiting primitive.  In this paper, rate limiting is part of
+the ARC syntax: the holder presents a credential together with a public nonce and a PRF-derived public tag,
+and the verifier enforces the policy through state on previously accepted $(\nonce,\prftag)$ pairs.
+
+\subsection{Anonymous Rate-Limiting Credentials}
+\label{subsec:arc-security}
+Anonymous rate-limited credentials~\cite{ietf-privacypass-arc-protocol-01} extend blind signatures by adding
+a showing algorithm that may create multiple presentations of a previously issued credential.
+
+\begin{definition}[ARC scheme syntax]\label{def:arc-syntax}
+Let $\nonceSpace$ be a finite nonce set.  An ARC scheme is a tuple
+\[
+  \ARC=(\Setup,\IKeyGen,\Issue,\Show,\Verify)
+\]
+where $\Issue$ outputs a credential, $\Show(\credential,\nonce)$ outputs a presentation, and
+$\Verify(\vk,\presentation,\algstate)$ checks the presentation and updates verifier state.
+\end{definition}
+
+\begin{definition}[ARC soundness]\label{def:arc-soundness}
+Let $\ARC$ have nonce space $\nonceSpace$.  For $Q=Q(\lambda)$, set $K=Q|\nonceSpace|+1$.  After at most
+$Q$ issuance interactions, no PPT adversary can produce $K$ presentations all accepted by a stateful verifier,
+except with negligible probability.
+\end{definition}
+
+\begin{definition}[Presentation unlinkability]\label{def:pres-unlink}
+An ARC scheme has presentation unlinkability if, for distinct fresh nonces, presentations produced from the
+same credential are indistinguishable from presentations produced from independently issued credentials,
+except with negligible advantage.
+\end{definition}
+
+\subsection{Pseudorandom functions}
+\label{subsec:prelim-prf}
+\label{subsec:prf}
+
+\begin{definition}[Pseudorandom function]\label{def:prf}
+Let $\mathcal K,\mathcal D,\mathcal T$ be sets with $|\mathcal K|$ exponential in $\lambda$.  A function family
+$\PRF:\mathcal K\times\mathcal D\to\mathcal T$ is a PRF if oracle access to $\PRF(k,\cdot)$ for uniform
+$k\getsunif\mathcal K$ is computationally indistinguishable from oracle access to a uniform random function.
+\end{definition}
+
+We instantiate the PRF with a Poseidon2-style permutation~\cite{AFRICACRYPT:GraKhoSch23}.
+
+\begin{definition}[Poseidon2-style permutation]\label{def:poseidon-perm}
+Let $q$ be prime, let $d\ge3$ satisfy $\gcd(d,q-1)=1$, and let $t,R_F,R_P\in\mathbb N$ with $R_F$ even.
+A Poseidon2-style permutation alternates external rounds, which apply the S-box to all lanes, and internal
+rounds, which apply it to one lane, together with public round constants and invertible linear mixing maps.
+\end{definition}
+
+\begin{definition}[Poseidon2 PRF]\label{def:poseidon-prf}
+For key $\veck\in\Fq^{\ell_{\mathsf{key}}}$ and public input $\vecn\in\Fq^{\ell_{\mathsf{in}}}$, define
+\[
+  \PRF(\veck,\vecn)=\Tr_{\ell_{\mathsf{tag}}}\bigl(P(\veck\Vert\vecn)+(\veck\Vert\vecn)\bigr),
+\]
+where $P$ is the Poseidon2-style permutation and $\Tr_{\ell_{\mathsf{tag}}}$ outputs the first
+$\ell_{\mathsf{tag}}$ lanes.
+\end{definition}

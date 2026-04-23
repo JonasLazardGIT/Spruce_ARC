@@ -96,6 +96,11 @@ func validateWitnesses(wit WitnessInputs) error {
 			return err
 		}
 	}
+	if len(wit.Z) > 0 {
+		if err := checkOne("Z", wit.Z); err != nil {
+			return err
+		}
+	}
 	// Centered randomness rows require matching carry rows.
 	if len(wit.R0) > 0 || len(wit.R1) > 0 {
 		if err := checkOne("K0", wit.K0); err != nil {

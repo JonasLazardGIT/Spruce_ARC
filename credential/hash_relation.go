@@ -24,3 +24,10 @@ func ValidateHashRelation(relation string) error {
 	}
 	return nil
 }
+
+func ValidateLiveHashRelation(relation string) error {
+	if NormalizeHashRelation(relation) != HashRelationBBTran {
+		return fmt.Errorf("unsupported live hash_relation %q: only %q is allowed", relation, HashRelationBBTran)
+	}
+	return nil
+}

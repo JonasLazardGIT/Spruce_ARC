@@ -47,8 +47,21 @@ func rowLayoutPostSignR0(layout RowLayout) int { return resolveRowLayoutIdx(layo
 func rowLayoutPostSignR1(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxR1, 6) }
 func rowLayoutPreSignK0(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxK0, 7) }
 func rowLayoutPreSignK1(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxK1, 8) }
+func rowLayoutZ(layout RowLayout) int          { return resolveRowLayoutIdx(layout, layout.IdxZ, -1) }
 func rowLayoutMSigmaR1(layout RowLayout) int   { return resolveRowLayoutIdx(layout, layout.IdxMSigmaR1, -1) }
 func rowLayoutR0R1(layout RowLayout) int       { return resolveRowLayoutIdx(layout, layout.IdxR0R1, -1) }
+func rowLayoutMSigmaR1Alias(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxMSigmaR1Alias, -1)
+}
+func rowLayoutR0R1Alias(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxR0R1Alias, -1)
+}
+func rowLayoutSourceProductAliasRows(layout RowLayout) []int {
+	return copyNonNegativeIndices([]int{
+		rowLayoutMSigmaR1Alias(layout),
+		rowLayoutR0R1Alias(layout),
+	})
+}
 func rowLayoutPostSignCarrierM(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxCarrierM, -1)
 }
@@ -121,6 +134,9 @@ func rowLayoutPostSignRHat0(layout RowLayout) int {
 func rowLayoutPostSignRHat1(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxRHat1, -1)
 }
+func rowLayoutPostSignZHat(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxZHat, -1)
+}
 func rowLayoutPostSignMSigmaR1Hat(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxMSigmaR1Hat, -1)
 }
@@ -183,6 +199,20 @@ func rowLayoutPostSignRHat1Index(layout RowLayout, block int) int {
 	}
 	return base + block
 }
+func rowLayoutPostSignZHatIndex(layout RowLayout, block int) int {
+	if len(layout.ReplayZHatRows) > 0 {
+		if block < 0 || block >= len(layout.ReplayZHatRows) {
+			return -1
+		}
+		return layout.ReplayZHatRows[block]
+	}
+	base := rowLayoutPostSignZHat(layout)
+	count := rowLayoutReplayBlockCount(layout)
+	if base < 0 || block < 0 || block >= count {
+		return -1
+	}
+	return base + block
+}
 func rowLayoutPostSignMSigmaR1HatIndex(layout RowLayout, block int) int {
 	if len(layout.ReplayMSigmaR1HatRows) > 0 {
 		if block < 0 || block >= len(layout.ReplayMSigmaR1HatRows) {
@@ -226,6 +256,10 @@ func rowLayoutPostSignRHat0Rows(layout RowLayout) []int {
 
 func rowLayoutPostSignRHat1Rows(layout RowLayout) []int {
 	return resolveReplayRowIndices(layout.ReplayRHat1Rows, rowLayoutPostSignRHat1(layout), rowLayoutReplayBlockCount(layout))
+}
+
+func rowLayoutPostSignZHatRows(layout RowLayout) []int {
+	return resolveReplayRowIndices(layout.ReplayZHatRows, rowLayoutPostSignZHat(layout), rowLayoutReplayBlockCount(layout))
 }
 
 func rowLayoutPostSignMSigmaR1HatRows(layout RowLayout) []int {

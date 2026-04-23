@@ -350,24 +350,32 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		}
 		pcsGeometry.OracleLayout = oracleLayout
 		if rowLayoutHasCoeffNativeSig(rowLayout) && rowLayoutCoeffNativeUsesLiteralPacked(rowLayout) && wit.CoeffNativeShowing != nil {
-			pcsNCols := ncols
-			if pcsNCols <= 0 {
-				pcsNCols = witnessNCols
-			}
-			sigShortness, sigShortnessBindingDigest, err = buildSigShortnessProofV6(
-				ringQ,
-				pk,
-				root,
-				rowLayout,
-				wit.CoeffNativeShowing,
-				pub,
-				omegaWitness,
-				witnessNCols,
-				pcsNCols,
-				opts,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("build sig shortness V6: %w", err)
+			if sigShortnessV7EnabledForOpts(opts) {
+				sigShortness, err = buildSigShortnessProofV7Metadata(ringQ, rowLayout, opts)
+				if err != nil {
+					return nil, fmt.Errorf("build sig shortness V7 metadata: %w", err)
+				}
+				sigShortnessBindingDigest = nil
+			} else {
+				pcsNCols := ncols
+				if pcsNCols <= 0 {
+					pcsNCols = witnessNCols
+				}
+				sigShortness, sigShortnessBindingDigest, err = buildSigShortnessProofV6(
+					ringQ,
+					pk,
+					root,
+					rowLayout,
+					wit.CoeffNativeShowing,
+					pub,
+					omegaWitness,
+					witnessNCols,
+					pcsNCols,
+					opts,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("build sig shortness V6: %w", err)
+				}
 			}
 		}
 
@@ -701,6 +709,40 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				}
 				evalK = ek
 			}
+			if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV7 {
+				sigReplay, serr := buildSigShortnessV7Replay(ringQ, proof, pub, omegaWitness, domainPoints, opts)
+				if serr != nil {
+					return false, serr
+				}
+				eval = composeEvaluators(eval, sigReplay.Eval)
+				if proof.Theta > 1 && K != nil && sigReplay.EvalK != nil {
+					evalK = composeKEvaluators(evalK, sigReplay.EvalK)
+				}
+			}
+			if aliasEval := cfgPost.SourceProductAliasEqualityEvaluator(); aliasEval != nil {
+				eval = composeEvaluators(eval, aliasEval)
+				if proof.Theta > 1 && K != nil {
+					aliasEvalK, err := cfgPost.SourceProductAliasEqualityKEvaluator(K)
+					if err != nil {
+						return false, err
+					}
+					if aliasEvalK != nil {
+						evalK = composeKEvaluators(evalK, aliasEvalK)
+					}
+				}
+			}
+			if prfStripeEval := cfgPost.PRFBridgeStripeEqualityEvaluator(); prfStripeEval != nil {
+				eval = composeEvaluators(eval, prfStripeEval)
+				if proof.Theta > 1 && K != nil {
+					prfStripeEvalK, err := cfgPost.PRFBridgeStripeEqualityKEvaluator(K)
+					if err != nil {
+						return false, err
+					}
+					if prfStripeEvalK != nil {
+						evalK = composeKEvaluators(evalK, prfStripeEvalK)
+					}
+				}
+			}
 			rowCount = literalPackedPostSignReplayRowCount(proof.RowLayout)
 			haveCred = true
 
@@ -741,6 +783,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				proof.RowLayout.IdxMHat2,
 				proof.RowLayout.IdxRHat0,
 				proof.RowLayout.IdxRHat1,
+				proof.RowLayout.IdxZHat,
 				proof.RowLayout.IdxMSigmaR1,
 				proof.RowLayout.IdxR0R1,
 				proof.RowLayout.IdxMSigmaR1Hat,

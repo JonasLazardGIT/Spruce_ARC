@@ -118,6 +118,7 @@ type preSignStateTest struct {
 	R1 []*ring.Poly
 	K0 []*ring.Poly
 	K1 []*ring.Poly
+	Z  []*ring.Poly
 	T  []int64
 }
 
@@ -278,35 +279,17 @@ func applyChallengePreSignTest(p *credential.Params, in WitnessInputs, ch preSig
 	if err != nil {
 		return nil, err
 	}
-	surface, err := DerivePreSignCarrierAndAliasRows(r, bound, omega, DomainModeExplicit, PreSignRawRows{
-		M1: in.M1[0],
-		M2: in.M2[0],
-		R0: r0,
-		R1: r1,
-	})
+	tCoeff, err := credential.HashMessage(r, B, p.HashRelation, in.M1[0], in.M2[0], r0, r1)
 	if err != nil {
 		return nil, err
 	}
-	polyFromAliasOmega := func(coeffs []uint64) *ring.Poly {
-		head := make([]uint64, len(omega))
-		for i, w := range omega {
-			head[i] = EvalPoly(coeffs, w%uint64(q), uint64(q))
+	var z []*ring.Poly
+	if credential.NormalizeHashRelation(p.HashRelation) == credential.HashRelationBBTran {
+		zCoeff, _, herr := credential.ComputeTarget(r, B, in.M1[0], in.M2[0], r0, r1)
+		if herr != nil {
+			return nil, herr
 		}
-		p := r.NewPoly()
-		copy(p.Coeffs[0], head)
-		return p
-	}
-	tCoeff, err := credential.HashMessage(
-		r,
-		B,
-		p.HashRelation,
-		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasM1]),
-		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasM2]),
-		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasR0]),
-		polyFromAliasOmega(surface.AliasCoeffs[PreSignAliasR1]),
-	)
-	if err != nil {
-		return nil, err
+		z = []*ring.Poly{zCoeff}
 	}
 	return &preSignStateTest{
 		B:  B,
@@ -314,6 +297,7 @@ func applyChallengePreSignTest(p *credential.Params, in WitnessInputs, ch preSig
 		R1: []*ring.Poly{r1},
 		K0: []*ring.Poly{k0},
 		K1: []*ring.Poly{k1},
+		Z:  z,
 		T:  tCoeff,
 	}, nil
 }
@@ -417,6 +401,7 @@ func TestCredentialPreSignConstraintFamiliesOnOmega(t *testing.T) {
 		R1:  st.R1,
 		K0:  st.K0,
 		K1:  st.K1,
+		Z:   st.Z,
 	}
 	rows, _, layout, _, _, _, witnessCount, _, err := buildCredentialRows(ringQ, credential.HashRelationBBS, wit, opts, bound)
 	if err != nil {
@@ -623,6 +608,7 @@ func TestCredentialPreSignProofVerifies(t *testing.T) {
 		R1:  st.R1,
 		K0:  st.K0,
 		K1:  st.K1,
+		Z:   st.Z,
 	}
 	rows, _, layout, _, _, _, _, _, err := buildCredentialRows(ringQ, params.HashRelation, wit, opts, bound)
 	if err != nil {
@@ -815,6 +801,7 @@ func TestCredentialPreSignProofVerifiesBBTran(t *testing.T) {
 		R1:  st.R1,
 		K0:  st.K0,
 		K1:  st.K1,
+		Z:   st.Z,
 	}
 	_, rowInputs, _, _, _, _, _, _, err := buildCredentialRows(ringQ, pub.HashRelation, wit, opts, pub.BoundB)
 	if err != nil {

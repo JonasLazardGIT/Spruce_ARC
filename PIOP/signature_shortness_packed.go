@@ -67,7 +67,7 @@ func buildPackedDigitMembershipFormalCoeffs(
 		if err != nil {
 			return fpoly.Zero(q), err
 		}
-		return fpoly.New(q, coeff), nil
+		return fpoly.New(q, trimPoly(coeff, q)), nil
 	}
 	outPolys := make([]*ring.Poly, 0, len(packedRows)*spec.L)
 	outCoeffs := make([][]uint64, 0, len(packedRows)*spec.L)
