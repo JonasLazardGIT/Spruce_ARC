@@ -275,9 +275,9 @@ func proofPRFCompanionMode(proof *Proof) PRFCompanionMode {
 
 func replaySubfamilySourceProductNote(derivedNow bool, name string) string {
 	if derivedNow {
-		return fmt.Sprintf("%s leaves the active replay selector once the same-root source-product bridge authenticates it directly.", name)
+		return fmt.Sprintf("%s is a deprecated zero-row compatibility placeholder on the maintained selector.", name)
 	}
-	return fmt.Sprintf("%s remains selected because the current proof still consumes the committed omega-interpolated source-product row directly.", name)
+	return fmt.Sprintf("%s remains selected only on legacy proofs that still carry committed source-product rows.", name)
 }
 
 func replayPRFSubfamilySpec(kind ReplaySubfamilyKind, rows, replayRows, keyRows, directAuthRows []int, consumers []string, notes string) replaySubfamilySpec {

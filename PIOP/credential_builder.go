@@ -49,7 +49,7 @@ func (b *credentialBuilder) Build(pub PublicInputs, wit WitnessInputs, _ MaskCon
 			if err != nil {
 				return nil, fmt.Errorf("explicit witness omega: %w", err)
 			}
-			_, rowInputs, _, _, _, _, _, _, buildErr := buildCredentialRows(ringQ, pub.HashRelation, wit, opts, pub.BoundB)
+			_, rowInputs, _, _, _, _, _, _, buildErr := buildCredentialRows(ringQ, pub.HashRelation, wit, opts, pub.BoundB, pub.X0CoeffBound)
 			if buildErr != nil {
 				return nil, fmt.Errorf("build credential rows: %w", buildErr)
 			}

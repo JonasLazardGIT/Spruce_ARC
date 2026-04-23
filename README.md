@@ -1,63 +1,88 @@
 # SPRUCE
 
-SPRUCE is a lattice-based anonymous credential prototype with two live proof
-roles:
+SPRUCE is a lattice-based anonymous credential prototype with a live
+shared-randomness `bb_tran` issuance path and a live post-sign showing proof.
 
-- **issuance**: the holder commits to `(mu, r0H, r1H, rbar)`, derives the
-  shared-randomness `bb_tran` target, and proves the public target before the
-  issuer signs it
-- **showing**: the holder proves possession of a valid credential witness and a
-  correctly derived PRF tag without revealing the hidden credential data
+The current implementation surface is:
 
-The current live credential path is the shared-randomness `h_tran` flow:
-
-- `mu = (m || k)`
-- `c = ACom [m || k || r0H || r1H || rbar]^T`
-- issuer challenge rows `r0I`, `r1I`
-- centered rows `r0 = center(r0H + r0I)`, `r1 = center(r1H + r1I)`
+- semantic message `mu = (m || k)`
+- Ajtai commitment to `(m, k, r0H[0..ell0-1], r1H, rbar)`
+- shared randomness with issuer challenge rows `r0I[0..ell0-1]`, `r1I`
+- centered hidden rows
+  - `r0[j] = center(r0H[j] + r0I[j])`
+  - `r1 = center(r1H + r1I)`
 - direct `bb_tran` target
-  `T = B0 + B1 * mu + B2 * r0 + (B3 - r1)^(-1)`
+  - `Z = (B3 - r1)^(-1)`
+  - `T = B0 + B1 * (m || k) + sum_j B2[j] * r0[j] + Z`
 - issuer sampling `u` such that `A u = T`
 - showing tag `tag = F(k, nonce)`
 
-The old live path is no longer the implementation surface:
+The live code does not use:
 
-- no target-from-commitment `T = B0 + Uc + Z`
-- no aligned commitment randomness `(S, E)`
-- no live dependence on `Uc`, `MSigmaR1`, `R0R1`, or source-product replay rows
+- target-from-commitment `T = B0 + Uc + Z`
+- aligned commitment randomness `(S, E)`
+- live `Uc`, `MSigmaR1`, `R0R1`, or source-product witness rows
 
-Two showing surfaces remain:
+## Current Shipped Configuration
 
-- shipped default: `go run ./cmd/showing`
-  uses reduced replay under the `soundness_balanced` preset
-- theorem-clean control: `go run ./cmd/showing -showing-preset compact_l1_research -full`
-  runs the full replay statement used by the baseline study note
+The checked-in canonical profile is:
+
+- hash relation: `bb_tran`
+- `x0` profile: `lhl_default`
+  - `X0Len = 6`
+  - `X0CoeffBound = 5`
+- target dimension: `1`
+- target-hiding lambda: `128`
+- showing preset: `soundness_balanced`
+- replay mode: `reduced`
+- PRF companion mode: `output_audit`
+- hidden shortness path: `v6`
+
+The current theorem-clean full-replay control remains a research path. The
+intended CLI is still:
+
+```bash
+go run ./cmd/showing -showing-preset compact_l1_research -full
+```
+
+but the checked-in canonical vector-`x0` artifacts should currently be treated
+as reduced-replay-first engineering artifacts, not a maintained full-replay
+baseline.
 
 ## Reading Order
 
-1. [docs/protocol.md](docs/protocol.md) for the current issuance/showing model
+1. [docs/protocol.md](docs/protocol.md)
+   Implementation-canonical protocol description, parameter surface, artifact
+   flow, and command semantics.
 2. [docs/shared_randomness_migration.md](docs/shared_randomness_migration.md)
-   for artifact and credential-format migration notes
-3. [docs/nizk_alignment_notes.md](docs/nizk_alignment_notes.md) for
-   paper-to-code alignment at the current protocol surface
-4. [docs/full_baseline_proof_study.md](docs/full_baseline_proof_study.md) for
-   the current theorem-clean full replay workflow
-5. [docs/modulus_choice.md](docs/modulus_choice.md) for modulus and packing
-   rationale
-6. [Commands.md](Commands.md) for operator-facing command usage
-7. package READMEs for subsystem context:
-   [PIOP](PIOP/README.md),
-   [ntru](ntru/README.md),
-   [prf](prf/README.md),
-   [credential](credential/README.md),
-   [DECS](DECS/README.md),
-   [LVCS](LVCS/README.md),
-   [Preimage_Sampler](Preimage_Sampler/README.md),
-   [commitment](commitment/README.md)
+   Versioning, regeneration rules, compatibility notes, and migration summary.
+3. [docs/transcript_reduction_analysis.md](docs/transcript_reduction_analysis.md)
+   Measured transcript bottlenecks, profile comparisons, and optimization
+   roadmap after the singleton-`x0` carrier pass.
+4. [docs/nizk_alignment_notes.md](docs/nizk_alignment_notes.md)
+   Paper-to-code alignment matrix for the live branch.
+5. [docs/full_baseline_proof_study.md](docs/full_baseline_proof_study.md)
+   Research-only note for the theorem-clean full replay control.
+6. [docs/modulus_choice.md](docs/modulus_choice.md)
+   Shared field rationale and the interaction between `q`, `BoundB`,
+   `X0CoeffBound`, and the PRF.
+
+Subsystem context:
+
+- [Commands.md](Commands.md)
+- [cmd/README.md](cmd/README.md)
+- [credential/README.md](credential/README.md)
+- [commitment/README.md](commitment/README.md)
+- [PIOP/README.md](PIOP/README.md)
+- [ntru/README.md](ntru/README.md)
+- [prf/README.md](prf/README.md)
+- [DECS/README.md](DECS/README.md)
+- [LVCS/README.md](LVCS/README.md)
+- [Preimage_Sampler/README.md](Preimage_Sampler/README.md)
 
 ## Quick Start
 
-Run everything from the repository root.
+Run all commands from the repository root.
 
 ```bash
 go run ./cmd/ntrucli gen
@@ -65,36 +90,61 @@ go run ./cmd/issuance demo-local
 go run ./cmd/showing
 ```
 
-Typical order:
+Meaning:
 
-1. `cmd/ntrucli gen` creates the issuer trapdoor and public key
-2. `cmd/issuance demo-local` runs the shared-randomness holder/issuer flow and
-   writes `credential/keys/credential_state.json`
-3. `cmd/showing` builds and verifies a post-sign proof from that state
+1. `cmd/ntrucli gen` creates the issuer trapdoor and public key.
+2. `cmd/issuance demo-local` runs the full shared-randomness holder/issuer
+   issuance flow and writes the canonical credential state.
+3. `cmd/showing` builds and verifies the shipped reduced-replay showing proof.
 
 ## Runtime Assets
 
-The shipped commands rely on tracked runtime files:
+Tracked runtime files used by the live branch:
 
 - `Parameters/Parameters.json`
-- `Parameters/Bmatrix_bb_tran.json`
 - `Parameters/credential_public.json`
-- `credential/issuance/*.json`
-- `credential/keys/*.json`
+- `Parameters/Bmatrix_bb_tran_x0len6.json`
 - `prf/prf_params.json`
 - `ntru_keys/*.json`
+- `credential/issuance/*.json`
+- `credential/keys/*.json`
+
+The emitted live formats are currently:
+
+- public params: `version = 2`
+- issuance artifacts: `version = 2`
+- credential state: `version = 2`
+- `benchmark-x0` JSON: `version = 2`
+
+## Benchmarking
+
+The first-pass singleton-`x0` transcript reduction is already in the live code.
+Use the benchmark matrix to compare `legacy_scalar`, `lhl_default`, and
+`lhl_alt`:
+
+```bash
+go run ./cmd/issuance benchmark-x0 -profiles legacy_scalar,lhl_default,lhl_alt -runs 1
+```
+
+This now exports per-run:
+
+- total proof bytes
+- paper transcript bytes
+- paper bucket breakdowns
+- transcript-focus geometry
+- LHL slack
 
 ## Repository Map
 
-- [cmd/README.md](cmd/README.md): executable entrypoints and artifact flow
+- [cmd/README.md](cmd/README.md): command entrypoints and artifact flow
 - [credential/README.md](credential/README.md): persisted holder state and
-  migration rules
-- [ntru/README.md](ntru/README.md): trapdoor sampler and signature logic
-- [prf/README.md](prf/README.md): PRF definition and grouped trace helpers
-- [PIOP/README.md](PIOP/README.md): proof orchestration for issuance and showing
+  versioning
+- [commitment/README.md](commitment/README.md): Ajtai commitment helper and
+  column order
+- [PIOP/README.md](PIOP/README.md): proof construction, replay surfaces, and
+  proof reporting
+- [ntru/README.md](ntru/README.md): trapdoor signing layer
+- [prf/README.md](prf/README.md): PRF and grouped checkpoint traces
 - [DECS/README.md](DECS/README.md): degree-enforcing commitment layer
-- [LVCS/README.md](LVCS/README.md): row-oracle commitment and linear openings
-- [Preimage_Sampler/README.md](Preimage_Sampler/README.md): FFT support for the
-  sampler
-- [commitment/README.md](commitment/README.md): Ajtai-style linear commitment
-  helper used by issuance
+- [LVCS/README.md](LVCS/README.md): authenticated row-oracle layer
+- [Preimage_Sampler/README.md](Preimage_Sampler/README.md): sampler support

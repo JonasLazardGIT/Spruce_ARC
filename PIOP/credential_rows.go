@@ -9,10 +9,17 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
+func firstIndex(indices []int) int {
+	if len(indices) == 0 {
+		return -1
+	}
+	return indices[0]
+}
+
 // buildCredentialRows maps credential witnesses into the pre-sign row order.
 // The retained pre-sign layout commits carriers, decoded aliases, and the
 // minimal replay-facing transform aliases for the public-target hash.
-func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, opts SimOpts, bound int64) (rows []*ring.Poly, rowInputs []lvcs.RowInput, layout RowLayout, decsParams decs.Params, maskRowOffset, maskRowCount, witnessCount, ncols int, err error) {
+func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, opts SimOpts, boundB int64, x0Bound int64) (rows []*ring.Poly, rowInputs []lvcs.RowInput, layout RowLayout, decsParams decs.Params, maskRowOffset, maskRowCount, witnessCount, ncols int, err error) {
 	if ringQ == nil {
 		err = fmt.Errorf("nil ring")
 		return
@@ -22,8 +29,12 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		opts.NCols = int(ringQ.N)
 	}
 	ncols = opts.NCols
-	if bound <= 0 {
-		err = fmt.Errorf("invalid bound %d for carrier encoding", bound)
+	if boundB <= 0 {
+		err = fmt.Errorf("invalid bounded scalar carrier bound %d", boundB)
+		return
+	}
+	if x0Bound <= 0 {
+		err = fmt.Errorf("invalid x0 carrier bound %d", x0Bound)
 		return
 	}
 
@@ -85,15 +96,15 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 	if opts.DomainMode != DomainModeExplicit {
 		omegaForSurface = make([]uint64, ncols)
 	}
-	surface, derr := DerivePreSignCarrierAndAliasRows(ringQ, bound, omegaForSurface, opts.DomainMode, PreSignRawRows{
+	surface, derr := DerivePreSignCarrierAndAliasRows(ringQ, boundB, x0Bound, omegaForSurface, opts.DomainMode, PreSignRawRows{
 		M1:  wit.M1[0],
 		M2:  wit.M2[0],
-		RU0: wit.RU0[0],
+		RU0: wit.RU0,
 		RU1: wit.RU1[0],
 		R:   wit.R[0],
-		R0:  wit.R0[0],
+		R0:  wit.R0,
 		R1:  wit.R1[0],
-		K0:  wit.K0[0],
+		K0:  wit.K0,
 		K1:  wit.K1[0],
 	})
 	if derr != nil {
@@ -103,28 +114,72 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 	if terr != nil {
 		return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, terr
 	}
-	rows = []*ring.Poly{
-		surface.CarrierRows[PreSignCarrierM],
-		surface.CarrierRows[PreSignCarrierPreRU],
-		surface.CarrierRows[PreSignCarrierPreR],
-		surface.CarrierRows[PreSignCarrierCtr],
-		surface.CarrierRows[PreSignCarrierK],
-		surface.AliasRows[PreSignAliasM1],
-		surface.AliasRows[PreSignAliasM2],
-		surface.AliasRows[PreSignAliasRU0],
-		surface.AliasRows[PreSignAliasRU1],
-		surface.AliasRows[PreSignAliasR],
-		surface.AliasRows[PreSignAliasR0],
-		surface.AliasRows[PreSignAliasR1],
-		surface.AliasRows[PreSignAliasK0],
-		surface.AliasRows[PreSignAliasK1],
+	x0Len := len(surface.AliasR0Rows)
+	rows = []*ring.Poly{surface.CarrierM}
+	carrierRU0Rows := make([]int, 0, len(surface.CarrierRU0Rows))
+	for _, row := range surface.CarrierRU0Rows {
+		carrierRU0Rows = append(carrierRU0Rows, len(rows))
+		rows = append(rows, row)
 	}
-	rows = append(rows,
-		transformSurface.Rows[PreSignTransformAliasMHat1],
-		transformSurface.Rows[PreSignTransformAliasMHat2],
-		transformSurface.Rows[PreSignTransformAliasRHat0],
-		transformSurface.Rows[PreSignTransformAliasRHat1],
-	)
+	idxCarrierRU1 := len(rows)
+	rows = append(rows, surface.CarrierRU1)
+	idxCarrierRBar := len(rows)
+	rows = append(rows, surface.CarrierRBar)
+	carrierR0Rows := make([]int, 0, len(surface.CarrierR0Rows))
+	for _, row := range surface.CarrierR0Rows {
+		carrierR0Rows = append(carrierR0Rows, len(rows))
+		rows = append(rows, row)
+	}
+	idxCarrierR1 := len(rows)
+	rows = append(rows, surface.CarrierR1)
+	carrierK0Rows := make([]int, 0, len(surface.CarrierK0Rows))
+	for _, row := range surface.CarrierK0Rows {
+		carrierK0Rows = append(carrierK0Rows, len(rows))
+		rows = append(rows, row)
+	}
+	idxCarrierK1 := len(rows)
+	rows = append(rows, surface.CarrierK1)
+
+	idxM1 := len(rows)
+	rows = append(rows, surface.AliasM1)
+	idxM2 := len(rows)
+	rows = append(rows, surface.AliasM2)
+	aliasRU0Rows := make([]int, 0, len(surface.AliasRU0Rows))
+	for _, row := range surface.AliasRU0Rows {
+		aliasRU0Rows = append(aliasRU0Rows, len(rows))
+		rows = append(rows, row)
+	}
+	idxRU1 := len(rows)
+	rows = append(rows, surface.AliasRU1)
+	idxR := len(rows)
+	rows = append(rows, surface.AliasRBar)
+	aliasR0Rows := make([]int, 0, len(surface.AliasR0Rows))
+	for _, row := range surface.AliasR0Rows {
+		aliasR0Rows = append(aliasR0Rows, len(rows))
+		rows = append(rows, row)
+	}
+	idxR1 := len(rows)
+	rows = append(rows, surface.AliasR1)
+	aliasK0Rows := make([]int, 0, len(surface.AliasK0Rows))
+	for _, row := range surface.AliasK0Rows {
+		aliasK0Rows = append(aliasK0Rows, len(rows))
+		rows = append(rows, row)
+	}
+	idxK1 := len(rows)
+	rows = append(rows, surface.AliasK1)
+
+	idxMHat1 := len(rows)
+	rows = append(rows, transformSurface.MHat1)
+	idxMHat2 := len(rows)
+	rows = append(rows, transformSurface.MHat2)
+	replayRHat0Rows := make([]int, 0, len(transformSurface.RHat0Rows))
+	for _, row := range transformSurface.RHat0Rows {
+		replayRHat0Rows = append(replayRHat0Rows, len(rows))
+		rows = append(rows, row)
+	}
+	idxRHat1 := len(rows)
+	rows = append(rows, transformSurface.RHat1)
+	idxZHat := -1
 	if useBBTran {
 		zHead, derr := nttHeadFromCoeffPoly(ringQ, wit.Z[0], len(omegaForSurface))
 		if derr != nil {
@@ -134,6 +189,7 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		if derr != nil {
 			return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, derr
 		}
+		idxZHat = len(rows)
 		rows = append(rows, zHatRow)
 	}
 
@@ -172,34 +228,46 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		MsgCount:           0,
 		RndCount:           0,
 		HasExplicitBaseIdx: hasBaseIdx,
-		IdxM1:              5,
-		IdxM2:              6,
-		IdxRU0:             7,
-		IdxRU1:             8,
-		IdxR:               9,
-		IdxR0:              10,
-		IdxR1:              11,
-		IdxK0:              12,
-		IdxK1:              13,
+		X0Len:              x0Len,
+		IdxM1:              idxM1,
+		IdxM2:              idxM2,
+		IdxRU0:             firstIndex(aliasRU0Rows),
+		IdxRU1:             idxRU1,
+		IdxR:               idxR,
+		IdxR0:              firstIndex(aliasR0Rows),
+		IdxR1:              idxR1,
+		IdxK0:              firstIndex(aliasK0Rows),
+		IdxK1:              idxK1,
 		IdxZ:               -1,
 		IdxMSigmaR1:        -1,
 		IdxR0R1:            -1,
-		IdxMHat1:           14,
-		IdxMHat2:           15,
-		IdxRHat0:           16,
-		IdxRHat1:           17,
+		IdxMHat1:           idxMHat1,
+		IdxMHat2:           idxMHat2,
+		IdxRHat0:           firstIndex(replayRHat0Rows),
+		IdxRHat1:           idxRHat1,
 		IdxZHat:            -1,
 		IdxMSigmaR1Hat:     -1,
 		IdxR0R1Hat:         -1,
 		IdxCarrierM:        0,
-		IdxCarrierPreRU:    1,
-		IdxCarrierPreR:     2,
-		IdxCarrierCtr:      3,
-		IdxCarrierK:        4,
+		IdxCarrierPreRU:    firstIndex(carrierRU0Rows),
+		IdxCarrierRU1:      idxCarrierRU1,
+		IdxCarrierPreR:     idxCarrierRBar,
+		IdxCarrierCtr:      firstIndex(carrierR0Rows),
+		IdxCarrierR1:       idxCarrierR1,
+		IdxCarrierK:        firstIndex(carrierK0Rows),
+		IdxCarrierK1:       idxCarrierK1,
+		CarrierRU0Rows:     carrierRU0Rows,
+		CarrierR0Rows:      carrierR0Rows,
+		CarrierK0Rows:      carrierK0Rows,
+		AliasRU0Rows:       aliasRU0Rows,
+		AliasR0Rows:        aliasR0Rows,
+		AliasK0Rows:        aliasK0Rows,
 		IdxTSource:         -1,
 		IdxSigHatBase:      -1,
 		SigHatExtraBase:    -1,
 		IdxTHatBase:        -1,
+		ReplayBlockCount:   1,
+		ReplayRHat0Rows:    replayRHat0Rows,
 		NonSigBlocks:       nonSigBlocks,
 		MsgCompCount:       msgCompCount,
 		MsgExtraNTTBase:    msgExtraNTTBase,
@@ -212,11 +280,7 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		X1CoeffBase:        x1CoeffBase,
 	}
 	if useBBTran {
-		layout.IdxMHat1 = 14
-		layout.IdxMHat2 = 15
-		layout.IdxRHat0 = 16
-		layout.IdxRHat1 = 17
-		layout.IdxZHat = 18
+		layout.IdxZHat = idxZHat
 	}
 
 	// Masks start after witness rows.

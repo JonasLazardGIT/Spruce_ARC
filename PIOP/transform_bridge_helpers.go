@@ -61,6 +61,122 @@ func newTransformBridgeBasisCache(ringQ *ring.Ring, omega []uint64, outputCount 
 	}, nil
 }
 
+// newRowTransformBridgeBasisCache derives the transform basis for explicit-domain
+// source rows represented by their evaluations on Ω. In this setting the source
+// row is expanded in the Lagrange basis on Ω, so the replay transform must map
+// those Lagrange coordinates to the desired NTT outputs.
+func newRowTransformBridgeBasisCache(ringQ *ring.Ring, omega []uint64, outputCount int) (*transformBridgeBasisCache, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega")
+	}
+	if outputCount <= 0 {
+		return nil, fmt.Errorf("invalid H row count=%d", outputCount)
+	}
+	if outputCount > int(ringQ.N) {
+		return nil, fmt.Errorf("H row count=%d exceeds ring dimension %d", outputCount, ringQ.N)
+	}
+	lagrangeBasis, err := buildLagrangeBasisCoeffs(omega, ringQ.Modulus[0])
+	if err != nil {
+		return nil, fmt.Errorf("lagrange basis: %w", err)
+	}
+	transformH, err := buildTransformBridgeHFromLagrangeBasis(ringQ, omega, lagrangeBasis, outputCount)
+	if err != nil {
+		return nil, err
+	}
+	transformHEval := transformH
+	if len(transformHEval) > len(omega) {
+		transformHEval = transformHEval[:len(omega)]
+	}
+	blockFactors := make([][]uint64, outputCount)
+	for t := range blockFactors {
+		blockFactors[t] = []uint64{1}
+	}
+	return &transformBridgeBasisCache{
+		LagrangeBasis:  lagrangeBasis,
+		TransformH:     transformH,
+		TransformHEval: transformHEval,
+		BlockFactors:   blockFactors,
+	}, nil
+}
+
+// newRowBlockTransformBridgeBasisCache is the explicit-domain analogue of
+// newTransformBridgeBasisCache for source rows that are represented by their
+// evaluations on Ω and additionally organized into sourceBlocks coefficient
+// blocks. The H rows are derived from the Lagrange basis on Ω, while the
+// per-block factors retain the same monomial-shift scaling used by the packed
+// signature replay path.
+func newRowBlockTransformBridgeBasisCache(ringQ *ring.Ring, omega []uint64, outputCount int, sourceBlocks int) (*transformBridgeBasisCache, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega")
+	}
+	if outputCount <= 0 {
+		return nil, fmt.Errorf("invalid H row count=%d", outputCount)
+	}
+	if outputCount > int(ringQ.N) {
+		return nil, fmt.Errorf("H row count=%d exceeds ring dimension %d", outputCount, ringQ.N)
+	}
+	if sourceBlocks <= 0 {
+		return nil, fmt.Errorf("invalid source blocks=%d", sourceBlocks)
+	}
+	ncols := len(omega)
+	if sourceBlocks*ncols > int(ringQ.N) {
+		return nil, fmt.Errorf("invalid source blocks=%d for ncols=%d ringN=%d", sourceBlocks, ncols, ringQ.N)
+	}
+	lagrangeBasis, err := buildLagrangeBasisCoeffs(omega, ringQ.Modulus[0])
+	if err != nil {
+		return nil, fmt.Errorf("lagrange basis: %w", err)
+	}
+	transformH, err := buildTransformBridgeHFromLagrangeBasis(ringQ, omega, lagrangeBasis, outputCount)
+	if err != nil {
+		return nil, err
+	}
+	q := ringQ.Modulus[0]
+	base := ringQ.NewPoly()
+	base.Coeffs[0][0] = 1
+	baseNTT := ringQ.NewPoly()
+	ringQ.NTT(base, baseNTT)
+	blockFactors := make([][]uint64, outputCount)
+	blockWeights := make([][]uint64, sourceBlocks)
+	for b := 0; b < sourceBlocks; b++ {
+		basis := ringQ.NewPoly()
+		basis.Coeffs[0][b*ncols] = 1
+		ntt := ringQ.NewPoly()
+		ringQ.NTT(basis, ntt)
+		vec := make([]uint64, outputCount)
+		for t := 0; t < outputCount; t++ {
+			vec[t] = ntt.Coeffs[0][t] % q
+		}
+		blockWeights[b] = vec
+	}
+	for t := 0; t < outputCount; t++ {
+		w0 := baseNTT.Coeffs[0][t] % q
+		if w0 == 0 {
+			return nil, fmt.Errorf("row transform bridge weight zero at t=%d", t)
+		}
+		blockFactors[t] = make([]uint64, sourceBlocks)
+		for b := 0; b < sourceBlocks; b++ {
+			wb := blockWeights[b][t] % q
+			blockFactors[t][b] = modMul(wb, modInv(w0, q), q)
+		}
+	}
+	transformHEval := transformH
+	if len(transformHEval) > ncols {
+		transformHEval = transformHEval[:ncols]
+	}
+	return &transformBridgeBasisCache{
+		LagrangeBasis:  lagrangeBasis,
+		TransformH:     transformH,
+		TransformHEval: transformHEval,
+		BlockFactors:   blockFactors,
+	}, nil
+}
+
 // buildTransformBridgeHFromNTTMatrix builds H rows directly from the NTT
 // matrix entries H_{t,k} = NTT(e_k)[t] for k in [0,|Ω|). This maps the
 // coefficient-slot surface used by the explicit-domain rows to the exact NTT
@@ -127,6 +243,44 @@ func buildTransformBridgeHFromNTTMatrix(ringQ *ring.Ring, omega []uint64, output
 		}
 	}
 	return hCoeffs, blockFactors, nil
+}
+
+func buildTransformBridgeHFromLagrangeBasis(ringQ *ring.Ring, omega []uint64, lagrangeBasis [][]uint64, outputCount int) ([][]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega")
+	}
+	if outputCount <= 0 {
+		return nil, fmt.Errorf("invalid H row count=%d", outputCount)
+	}
+	if outputCount > int(ringQ.N) {
+		return nil, fmt.Errorf("H row count=%d exceeds ring dimension %d", outputCount, ringQ.N)
+	}
+	ncols := len(omega)
+	if len(lagrangeBasis) != ncols {
+		return nil, fmt.Errorf("lagrange basis count=%d want ncols=%d", len(lagrangeBasis), ncols)
+	}
+	q := ringQ.Modulus[0]
+	weights := make([][]uint64, outputCount)
+	for t := 0; t < outputCount; t++ {
+		weights[t] = make([]uint64, ncols)
+	}
+	for k := 0; k < ncols; k++ {
+		basis := ringQ.NewPoly()
+		copy(basis.Coeffs[0], lagrangeBasis[k])
+		ntt := ringQ.NewPoly()
+		ringQ.NTT(basis, ntt)
+		for t := 0; t < outputCount; t++ {
+			weights[t][k] = ntt.Coeffs[0][t] % q
+		}
+	}
+	hCoeffs := make([][]uint64, outputCount)
+	for t := 0; t < outputCount; t++ {
+		hCoeffs[t] = Interpolate(omega, weights[t], q)
+	}
+	return hCoeffs, nil
 }
 
 // thetaHeadFromNTTBlock returns the Θ values on Ω for a block of a public NTT-head
@@ -219,14 +373,36 @@ func buildTransformHashResidualCombinedCoeffsBBTran(q uint64, bCoeff [][]uint64,
 
 func buildTransformTargetResidualCoeffs(q uint64, relation string, bCoeff [][]uint64, m1Coeff, m2Coeff, r0Coeff, zCoeff, tCoeff []uint64) []uint64 {
 	mCombined := polyAdd(m1Coeff, m2Coeff, q)
-	return buildTransformTargetResidualCombinedCoeffs(q, relation, bCoeff, mCombined, r0Coeff, zCoeff, tCoeff)
+	return buildTransformTargetResidualCombinedCoeffsVector(q, relation, bCoeff, mCombined, [][]uint64{r0Coeff}, zCoeff, tCoeff)
 }
 
 func buildTransformTargetResidualCombinedCoeffs(q uint64, relation string, bCoeff [][]uint64, mCombinedCoeff, r0Coeff, zCoeff, tCoeff []uint64) []uint64 {
+	return buildTransformTargetResidualCombinedCoeffsVector(q, relation, bCoeff, mCombinedCoeff, [][]uint64{r0Coeff}, zCoeff, tCoeff)
+}
+
+func buildTransformB2LinearCoeffs(q uint64, bCoeff [][]uint64, r0Coeffs [][]uint64) ([]uint64, error) {
+	if len(r0Coeffs) == 0 {
+		return nil, fmt.Errorf("missing r0 coefficients")
+	}
+	if len(bCoeff) != 3+len(r0Coeffs) {
+		return nil, fmt.Errorf("b coeff length=%d mismatches x0Len=%d", len(bCoeff), len(r0Coeffs))
+	}
+	acc := []uint64{0}
+	for i := range r0Coeffs {
+		acc = polyAdd(acc, polyMul(bCoeff[2+i], r0Coeffs[i], q), q)
+	}
+	return acc, nil
+}
+
+func buildTransformTargetResidualCombinedCoeffsVector(q uint64, relation string, bCoeff [][]uint64, mCombinedCoeff []uint64, r0Coeffs [][]uint64, zCoeff, tCoeff []uint64) []uint64 {
 	switch credential.NormalizeHashRelation(relation) {
 	case credential.HashRelationBBTran:
+		lin, err := buildTransformB2LinearCoeffs(q, bCoeff, r0Coeffs)
+		if err != nil {
+			return []uint64{1}
+		}
 		res := polyAdd(bCoeff[0], polyMul(bCoeff[1], mCombinedCoeff, q), q)
-		res = polyAdd(res, polyMul(bCoeff[2], r0Coeff, q), q)
+		res = polyAdd(res, lin, q)
 		res = polyAdd(res, zCoeff, q)
 		return trimPoly(polySub(tCoeff, res, q), q)
 	default:
@@ -237,7 +413,10 @@ func buildTransformTargetResidualCombinedCoeffs(q uint64, relation string, bCoef
 func buildTransformInverseResidualCoeffs(q uint64, relation string, bCoeff [][]uint64, r1Coeff, zCoeff []uint64) []uint64 {
 	switch credential.NormalizeHashRelation(relation) {
 	case credential.HashRelationBBTran:
-		den := polySub(bCoeff[3], r1Coeff, q)
+		if len(bCoeff) < 4 {
+			return []uint64{1}
+		}
+		den := polySub(bCoeff[len(bCoeff)-1], r1Coeff, q)
 		return trimPoly(polySub(polyMul(den, zCoeff, q), []uint64{1}, q), q)
 	default:
 		return []uint64{0}
@@ -292,17 +471,25 @@ func transformHashResidualCombinedEvalBBTran(q, x uint64, thetaB [][]uint64, mCo
 }
 
 func transformTargetResidualEval(q, x uint64, relation string, thetaB [][]uint64, mHat1, mHat2, rHat0, zHat, tTheta uint64) uint64 {
-	return transformTargetResidualCombinedEval(q, x, relation, thetaB, modAdd(mHat1, mHat2, q), rHat0, zHat, tTheta)
+	return transformTargetResidualCombinedEvalVector(q, x, relation, thetaB, modAdd(mHat1, mHat2, q), []uint64{rHat0}, zHat, tTheta)
 }
 
 func transformTargetResidualCombinedEval(q, x uint64, relation string, thetaB [][]uint64, mCombined, rHat0, zHat, tTheta uint64) uint64 {
+	return transformTargetResidualCombinedEvalVector(q, x, relation, thetaB, mCombined, []uint64{rHat0}, zHat, tTheta)
+}
+
+func transformTargetResidualCombinedEvalVector(q, x uint64, relation string, thetaB [][]uint64, mCombined uint64, rHat0 []uint64, zHat, tTheta uint64) uint64 {
 	switch credential.NormalizeHashRelation(relation) {
 	case credential.HashRelationBBTran:
+		if len(thetaB) != 3+len(rHat0) {
+			return 1
+		}
 		b0 := EvalPoly(thetaB[0], x, q) % q
 		b1 := EvalPoly(thetaB[1], x, q) % q
-		b2 := EvalPoly(thetaB[2], x, q) % q
 		target := modAdd(b0, modMul(b1, mCombined, q), q)
-		target = modAdd(target, modMul(b2, rHat0, q), q)
+		for i := range rHat0 {
+			target = modAdd(target, modMul(EvalPoly(thetaB[2+i], x, q)%q, rHat0[i], q), q)
+		}
 		target = modAdd(target, zHat, q)
 		return modSub(tTheta, target, q)
 	default:
@@ -313,7 +500,10 @@ func transformTargetResidualCombinedEval(q, x uint64, relation string, thetaB []
 func transformInverseResidualEval(q, x uint64, relation string, thetaB [][]uint64, rHat1, zHat uint64) uint64 {
 	switch credential.NormalizeHashRelation(relation) {
 	case credential.HashRelationBBTran:
-		b3 := EvalPoly(thetaB[3], x, q) % q
+		if len(thetaB) < 4 {
+			return 1 % q
+		}
+		b3 := EvalPoly(thetaB[len(thetaB)-1], x, q) % q
 		return modSub(modMul(modSub(b3, rHat1, q), zHat, q), 1, q)
 	default:
 		return 0
@@ -362,17 +552,25 @@ func transformHashResidualCombinedKEvalBBTran(K *kf.Field, e kf.Elem, thetaB [][
 }
 
 func transformTargetResidualKEval(K *kf.Field, e kf.Elem, relation string, thetaB [][]uint64, mHat1, mHat2, rHat0, zHat, tTheta kf.Elem) kf.Elem {
-	return transformTargetResidualCombinedKEval(K, e, relation, thetaB, K.Add(mHat1, mHat2), rHat0, zHat, tTheta)
+	return transformTargetResidualCombinedKEvalVector(K, e, relation, thetaB, K.Add(mHat1, mHat2), []kf.Elem{rHat0}, zHat, tTheta)
 }
 
 func transformTargetResidualCombinedKEval(K *kf.Field, e kf.Elem, relation string, thetaB [][]uint64, mCombined, rHat0, zHat, tTheta kf.Elem) kf.Elem {
+	return transformTargetResidualCombinedKEvalVector(K, e, relation, thetaB, mCombined, []kf.Elem{rHat0}, zHat, tTheta)
+}
+
+func transformTargetResidualCombinedKEvalVector(K *kf.Field, e kf.Elem, relation string, thetaB [][]uint64, mCombined kf.Elem, rHat0 []kf.Elem, zHat, tTheta kf.Elem) kf.Elem {
 	switch credential.NormalizeHashRelation(relation) {
 	case credential.HashRelationBBTran:
+		if len(thetaB) != 3+len(rHat0) {
+			return K.One()
+		}
 		b0 := K.EvalFPolyAtK(thetaB[0], e)
 		b1 := K.EvalFPolyAtK(thetaB[1], e)
-		b2 := K.EvalFPolyAtK(thetaB[2], e)
 		target := K.Add(b0, K.Mul(b1, mCombined))
-		target = K.Add(target, K.Mul(b2, rHat0))
+		for i := range rHat0 {
+			target = K.Add(target, K.Mul(K.EvalFPolyAtK(thetaB[2+i], e), rHat0[i]))
+		}
 		target = K.Add(target, zHat)
 		return K.Sub(tTheta, target)
 	default:
@@ -383,7 +581,10 @@ func transformTargetResidualCombinedKEval(K *kf.Field, e kf.Elem, relation strin
 func transformInverseResidualKEval(K *kf.Field, e kf.Elem, relation string, thetaB [][]uint64, rHat1, zHat kf.Elem) kf.Elem {
 	switch credential.NormalizeHashRelation(relation) {
 	case credential.HashRelationBBTran:
-		b3 := K.EvalFPolyAtK(thetaB[3], e)
+		if len(thetaB) < 4 {
+			return K.One()
+		}
+		b3 := K.EvalFPolyAtK(thetaB[len(thetaB)-1], e)
 		return K.Sub(K.Mul(K.Sub(b3, rHat1), zHat), K.One())
 	default:
 		return K.Zero()

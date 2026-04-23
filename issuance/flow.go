@@ -44,6 +44,10 @@ type Challenge struct {
 // stores it as a public NTT row. The holder and verifier both derive the same
 // low-degree Θ polynomial from that row during proof construction.
 func SampleChallenge(r *ring.Ring, omega []uint64, bound int64, rng *rand.Rand) (Challenge, error) {
+	return SampleChallengeVector(r, omega, 1, bound, bound, rng)
+}
+
+func SampleChallengeVector(r *ring.Ring, omega []uint64, x0Len int, x0Bound int64, r1Bound int64, rng *rand.Rand) (Challenge, error) {
 	if r == nil {
 		return Challenge{}, fmt.Errorf("nil ring")
 	}
@@ -53,12 +57,19 @@ func SampleChallenge(r *ring.Ring, omega []uint64, bound int64, rng *rand.Rand) 
 	if rng == nil {
 		return Challenge{}, fmt.Errorf("nil rng")
 	}
-	if bound <= 0 {
-		return Challenge{}, fmt.Errorf("invalid bound %d", bound)
+	if x0Len <= 0 {
+		return Challenge{}, fmt.Errorf("invalid x0Len=%d", x0Len)
+	}
+	if x0Bound <= 0 || r1Bound <= 0 {
+		return Challenge{}, fmt.Errorf("invalid x0/r1 bounds %d/%d", x0Bound, r1Bound)
+	}
+	ri0 := make([]*ring.Poly, x0Len)
+	for i := range ri0 {
+		ri0[i] = sampleBoundedHeadNTT(r, len(omega), x0Bound, rng)
 	}
 	return Challenge{
-		RI0: []*ring.Poly{sampleBoundedHeadNTT(r, len(omega), bound, rng)},
-		RI1: []*ring.Poly{sampleBoundedHeadNTT(r, len(omega), bound, rng)},
+		RI0: ri0,
+		RI1: []*ring.Poly{sampleBoundedHeadNTT(r, len(omega), r1Bound, rng)},
 	}, nil
 }
 
@@ -190,38 +201,73 @@ func PrepareCommit(p *credential.Params, in Inputs, omega []uint64) (commitment.
 	if len(omega) == 0 {
 		return nil, fmt.Errorf("missing omega")
 	}
+	if p.X0Len == 1 {
+		ncols := len(omega)
+		q := p.RingQ.Modulus[0]
+		first := func(rows []*ring.Poly) *ring.Poly {
+			if len(rows) == 0 {
+				return nil
+			}
+			return rows[0]
+		}
+		surface, err := PIOP.DerivePreSignCarrierAndAliasRows(p.RingQ, p.BoundB, p.X0CoeffBound, omega, PIOP.DomainModeExplicit, PIOP.PreSignRawRows{
+			M1:  first(in.M),
+			M2:  first(in.K),
+			RU0: in.R0H,
+			RU1: first(in.R1H),
+			R:   first(in.RBar),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("derive canonical pre-sign commit rows: %w", err)
+		}
+		headFromCoeffs := func(coeffs []uint64) []uint64 {
+			head := make([]uint64, ncols)
+			for i, w := range omega {
+				head[i] = PIOP.EvalPoly(coeffs, w%q, q)
+			}
+			return head
+		}
+		vecHead := [][]uint64{
+			headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasM1]),
+			headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasM2]),
+			headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasRU0]),
+			headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasRU1]),
+			headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasR]),
+		}
+		com := make(commitment.Vector, len(p.Ac))
+		for i := range p.Ac {
+			if len(p.Ac[i]) != len(vecHead) {
+				return nil, fmt.Errorf("Ac row %d length=%d want %d", i, len(p.Ac[i]), len(vecHead))
+			}
+			head := make([]uint64, ncols)
+			for j := range p.Ac[i] {
+				if p.Ac[i][j] == nil || vecHead[j] == nil {
+					return nil, fmt.Errorf("nil Ac/vector poly at row=%d col=%d", i, j)
+				}
+				for k := 0; k < ncols; k++ {
+					head[k] = lvcs.MulAddMod64(head[k], p.Ac[i][j].Coeffs[0][k]%q, vecHead[j][k]%q, q)
+				}
+			}
+			com[i] = headEncodedPublicNTT(p.RingQ, head)
+		}
+		log.Printf("[issuance] commitment computed with %d outputs", len(com))
+		return com, nil
+	}
+	vec := make(commitment.Vector, 0, len(in.M)+len(in.K)+len(in.R0H)+len(in.R1H)+len(in.RBar))
+	vec = append(vec, in.M...)
+	vec = append(vec, in.K...)
+	vec = append(vec, in.R0H...)
+	vec = append(vec, in.R1H...)
+	vec = append(vec, in.RBar...)
+	if len(vec) != len(p.Ac[0]) {
+		return nil, fmt.Errorf("commit witness length=%d want %d", len(vec), len(p.Ac[0]))
+	}
+	vecHead := make([][]uint64, len(vec))
+	for i := range vec {
+		vecHead[i] = headFromCoeffPoly(p.RingQ, vec[i], omega)
+	}
 	ncols := len(omega)
 	q := p.RingQ.Modulus[0]
-	first := func(rows []*ring.Poly) *ring.Poly {
-		if len(rows) == 0 {
-			return nil
-		}
-		return rows[0]
-	}
-	surface, err := PIOP.DerivePreSignCarrierAndAliasRows(p.RingQ, p.BoundB, omega, PIOP.DomainModeExplicit, PIOP.PreSignRawRows{
-		M1:  first(in.M),
-		M2:  first(in.K),
-		RU0: first(in.R0H),
-		RU1: first(in.R1H),
-		R:   first(in.RBar),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("derive canonical pre-sign commit rows: %w", err)
-	}
-	headFromCoeffs := func(coeffs []uint64) []uint64 {
-		head := make([]uint64, ncols)
-		for i, w := range omega {
-			head[i] = PIOP.EvalPoly(coeffs, w%q, q)
-		}
-		return head
-	}
-	vecHead := [][]uint64{
-		headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasM1]),
-		headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasM2]),
-		headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasRU0]),
-		headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasRU1]),
-		headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasR]),
-	}
 	com := make(commitment.Vector, len(p.Ac))
 	for i := range p.Ac {
 		if len(p.Ac[i]) != len(vecHead) {
@@ -243,8 +289,8 @@ func PrepareCommit(p *credential.Params, in Inputs, omega []uint64) (commitment.
 }
 
 // loadB loads the B-matrix from the configured path and lifts to NTT.
-func loadB(r *ring.Ring, path string) ([]*ring.Poly, error) {
-	coeffs, err := ntrurio.LoadBMatrixCoeffs(path)
+func loadB(r *ring.Ring, path string, x0Len int, targetDim int) ([]*ring.Poly, error) {
+	meta, err := ntrurio.LoadBMatrixMetadata(path)
 	if err != nil {
 		alt := []string{
 			"Parameters/Bmatrix.json",
@@ -252,7 +298,7 @@ func loadB(r *ring.Ring, path string) ([]*ring.Poly, error) {
 			"../../Parameters/Bmatrix.json",
 		}
 		for _, pth := range alt {
-			coeffs, err = ntrurio.LoadBMatrixCoeffs(pth)
+			meta, err = ntrurio.LoadBMatrixMetadata(pth)
 			if err == nil {
 				break
 			}
@@ -261,6 +307,13 @@ func loadB(r *ring.Ring, path string) ([]*ring.Poly, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load B: %w", err)
 	}
+	if meta.TargetDim != targetDim {
+		return nil, fmt.Errorf("B target_dim=%d want %d", meta.TargetDim, targetDim)
+	}
+	if meta.X0Len != x0Len {
+		return nil, fmt.Errorf("B x0_len=%d want %d", meta.X0Len, x0Len)
+	}
+	coeffs := meta.B
 	out := make([]*ring.Poly, len(coeffs))
 	for i := range coeffs {
 		p := r.NewPoly()
@@ -283,15 +336,21 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	if len(ch.RI0) == 0 || len(ch.RI1) == 0 {
 		return nil, fmt.Errorf("missing RI0/RI1")
 	}
+	if len(ch.RI0) != p.X0Len {
+		return nil, fmt.Errorf("RI0 length=%d want %d", len(ch.RI0), p.X0Len)
+	}
+	if len(in.R0H) != p.X0Len {
+		return nil, fmt.Errorf("R0H length=%d want %d", len(in.R0H), p.X0Len)
+	}
 	if len(omega) == 0 {
 		return nil, fmt.Errorf("missing omega")
 	}
 	r := p.RingQ
-	bound := p.BoundB
+	r0Bound := p.X0CoeffBound
+	r1Bound := p.BoundB
 	q := int64(r.Modulus[0])
-	delta := int64(2*bound + 1)
-	m := in.M[0]
-	k := in.K[0]
+	m := coeffPolyFromHead(r, headFromCoeffPoly(r, in.M[0], omega), omega)
+	k := coeffPolyFromHead(r, headFromCoeffPoly(r, in.K[0], omega), omega)
 	centered := func(v uint64) int64 {
 		x := int64(v % uint64(q))
 		if x > q/2 {
@@ -299,60 +358,84 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 		}
 		return x
 	}
-	sumCarryCoeff := func(holderPoly, issuerPoly *ring.Poly) (rPoly *ring.Poly, kPoly *ring.Poly, err error) {
+	sumCarryCoeff := func(holderPoly, issuerPoly *ring.Poly, bound int64) (rPoly *ring.Poly, kPoly *ring.Poly, err error) {
 		if holderPoly == nil || issuerPoly == nil {
 			return nil, nil, fmt.Errorf("nil holder/issuer poly")
 		}
-		rPoly = r.NewPoly()
-		kPoly = r.NewPoly()
-		for i := 0; i < len(holderPoly.Coeffs[0]) && i < len(issuerPoly.Coeffs[0]); i++ {
-			holderVal := centered(holderPoly.Coeffs[0][i])
-			issuerVal := centered(issuerPoly.Coeffs[0][i])
+		holderHead := headFromCoeffPoly(r, holderPoly, omega)
+		if len(holderHead) == 0 {
+			return nil, nil, fmt.Errorf("empty holder head")
+		}
+		issuerHead := append([]uint64(nil), issuerPoly.Coeffs[0][:len(omega)]...)
+		rHead := make([]uint64, len(omega))
+		kHead := make([]uint64, len(omega))
+		for i := 0; i < len(omega); i++ {
+			holderVal := centered(holderHead[i])
+			issuerVal := centered(issuerHead[i])
 			c, carry, cerr := credential.CenterWithCarry(holderVal+issuerVal, bound)
 			if cerr != nil {
 				return nil, nil, cerr
 			}
 			if c < 0 {
-				rPoly.Coeffs[0][i] = uint64(c + q)
+				rHead[i] = uint64(c + q)
 			} else {
-				rPoly.Coeffs[0][i] = uint64(c)
+				rHead[i] = uint64(c)
 			}
 			if carry < 0 {
-				kPoly.Coeffs[0][i] = uint64(carry + q)
+				kHead[i] = uint64(carry + q)
 			} else {
-				kPoly.Coeffs[0][i] = uint64(carry)
+				kHead[i] = uint64(carry)
 			}
 		}
-		return rPoly, kPoly, nil
+		return coeffPolyFromHead(r, rHead, omega), coeffPolyFromHead(r, kHead, omega), nil
 	}
 
-	r0, k0, err := sumCarryCoeff(in.R0H[0], ch.RI0[0])
-	if err != nil {
-		return nil, err
+	r0 := make([]*ring.Poly, p.X0Len)
+	k0 := make([]*ring.Poly, p.X0Len)
+	var err error
+	for i := 0; i < p.X0Len; i++ {
+		r0[i], k0[i], err = sumCarryCoeff(in.R0H[i], ch.RI0[i], r0Bound)
+		if err != nil {
+			return nil, err
+		}
 	}
-	r1, k1, err := sumCarryCoeff(in.R1H[0], ch.RI1[0])
+	r1, k1, err := sumCarryCoeff(in.R1H[0], ch.RI1[0], r1Bound)
 	if err != nil {
 		return nil, err
 	}
 
-	B, err := loadB(r, p.BPath)
+	B, err := loadB(r, p.BPath, p.X0Len, p.TargetDim)
 	if err != nil {
 		return nil, err
-	}
-	if len(B) != 4 {
-		return nil, fmt.Errorf("B length=%d want 4", len(B))
 	}
 	relation := credential.NormalizeHashRelation(p.HashRelation)
 	var zCoeff *ring.Poly
 	var tCoeff []int64
 	switch relation {
 	case credential.HashRelationBBTran:
-		zCoeff, tCoeff, err = credential.ComputeTarget(r, B, m, k, r0, r1)
+		if p.TargetDim != 1 {
+			return nil, fmt.Errorf("unsupported TargetDim=%d", p.TargetDim)
+		}
+		zCoeff, tCoeff, err = credential.ComputeTargetVector(r, B, m, k, r0, r1)
 		if err != nil {
 			return nil, err
 		}
+		tPoly := r.NewPoly()
+		for i := 0; i < len(tCoeff) && i < len(tPoly.Coeffs[0]); i++ {
+			v := tCoeff[i] % q
+			if v < 0 {
+				v += q
+			}
+			tPoly.Coeffs[0][i] = uint64(v)
+		}
+		if err := credential.VerifyTargetRelationVector(r, B, m, k, r0, r1, zCoeff, tPoly); err != nil {
+			return nil, fmt.Errorf("internal target relation check failed: %w", err)
+		}
 	case credential.HashRelationBBS:
-		tCoeff, err = credential.HashMessage(r, B, relation, m, k, r0, r1)
+		if len(r0) != 1 {
+			return nil, fmt.Errorf("bbs only supports scalar x0")
+		}
+		tCoeff, err = credential.HashMessage(r, B, relation, m, k, r0[0], r1)
 		if err != nil {
 			return nil, err
 		}
@@ -360,11 +443,11 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 		return nil, fmt.Errorf("unsupported hash relation %q", p.HashRelation)
 	}
 
-	log.Printf("[issuance] derived R0/R1, Z, and T; bound=%d delta=%d", bound, delta)
+	log.Printf("[issuance] derived R0/R1, Z, and T; x0_len=%d x0_bound=%d r1_bound=%d", p.X0Len, r0Bound, r1Bound)
 	state := &State{
-		R0: rPolys(r0),
+		R0: r0,
 		R1: rPolys(r1),
-		K0: rPolys(k0),
+		K0: k0,
 		K1: rPolys(k1),
 		T:  tCoeff,
 		B:  B,
@@ -383,14 +466,18 @@ func ProvePreSign(p *credential.Params, ch Challenge, com commitment.Vector, in 
 		return nil, fmt.Errorf("nil params or ring")
 	}
 	pub := PIOP.PublicInputs{
-		Com:          com,
-		RI0:          ch.RI0,
-		RI1:          ch.RI1,
-		Ac:           p.Ac,
-		B:            st.B,
-		T:            st.T,
-		BoundB:       p.BoundB,
-		HashRelation: p.HashRelation,
+		Com:                com,
+		RI0:                ch.RI0,
+		RI1:                ch.RI1,
+		Ac:                 p.Ac,
+		B:                  st.B,
+		T:                  st.T,
+		BoundB:             p.BoundB,
+		X0Len:              p.X0Len,
+		X0CoeffBound:       p.X0CoeffBound,
+		TargetDim:          p.TargetDim,
+		TargetHidingLambda: p.TargetHidingLambda,
+		HashRelation:       p.HashRelation,
 	}
 	wit := PIOP.WitnessInputs{
 		M1:  in.M,
@@ -431,14 +518,18 @@ func VerifyPreSign(p *credential.Params, ch Challenge, com commitment.Vector, st
 		return false, fmt.Errorf("nil params or ring")
 	}
 	pub := PIOP.PublicInputs{
-		Com:          com,
-		RI0:          ch.RI0,
-		RI1:          ch.RI1,
-		Ac:           p.Ac,
-		B:            st.B,
-		T:            st.T,
-		BoundB:       p.BoundB,
-		HashRelation: p.HashRelation,
+		Com:                com,
+		RI0:                ch.RI0,
+		RI1:                ch.RI1,
+		Ac:                 p.Ac,
+		B:                  st.B,
+		T:                  st.T,
+		BoundB:             p.BoundB,
+		X0Len:              p.X0Len,
+		X0CoeffBound:       p.X0CoeffBound,
+		TargetDim:          p.TargetDim,
+		TargetHidingLambda: p.TargetHidingLambda,
+		HashRelation:       p.HashRelation,
 	}
 	opts.Credential = true
 	builder := PIOP.NewCredentialBuilder(opts)

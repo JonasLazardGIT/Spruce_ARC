@@ -23,7 +23,7 @@ const (
 )
 
 func usage() {
-	fmt.Println(`usage: issuance <setup-demo-public|holder-commit|issuer-challenge|holder-prove|issuer-verify-sign|holder-finalize|demo-local> [options]
+	fmt.Println(`usage: issuance <setup-demo-public|holder-commit|issuer-challenge|holder-prove|issuer-verify-sign|holder-finalize|demo-local|benchmark-x0> [options]
 
 Subcommands:
   setup-demo-public  Generate credential public parameters with a full random Ac matrix
@@ -32,7 +32,8 @@ Subcommands:
   holder-prove       Build the pre-sign proof from holder secret + issuer challenge
   issuer-verify-sign Verify the pre-sign proof and sign the public target T
   holder-finalize    Verify and persist the final credential state
-  demo-local         Run the full role-separated issuance flow in one process`)
+  demo-local         Run the full role-separated issuance flow in one process
+  benchmark-x0      Benchmark issuance + showing across x0 profiles`)
 }
 
 func main() {
@@ -62,6 +63,8 @@ func run(args []string) error {
 		return runHolderFinalize(args[1:])
 	case "demo-local":
 		return runDemoLocal(args[1:])
+	case "benchmark-x0":
+		return runBenchmarkX0(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -78,10 +81,13 @@ func runSetupDemoPublic(args []string) error {
 	force := fs.Bool("force", false, "overwrite an existing output path")
 	bPath := fs.String("b-path", "", "B-matrix path recorded in the public params (defaults from -hash-relation)")
 	hashRelation := fs.String("hash-relation", credential.HashRelationBBTran, "hash relation recorded in the public params (bbs or bb_tran)")
+	x0Profile := fs.String("x0-profile", "lhl_default", "x0 profile (legacy_scalar, lhl_default, lhl_alt)")
+	x0Len := fs.Int("x0-len", 0, "optional x0 vector length override")
+	x0Bound := fs.Int64("x0-bound", 0, "optional x0 coefficient bound override")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return setupDemoPublic(*outPath, *force, *bPath, *hashRelation)
+	return setupDemoPublic(*outPath, *force, *bPath, *hashRelation, *x0Profile, *x0Len, *x0Bound)
 }
 
 func runHolderCommit(args []string) error {
@@ -100,9 +106,9 @@ func runHolderCommit(args []string) error {
 		return err
 	}
 	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, *expertInputPath, *seed, issuanceRuntimeOverrides{
-		NCols:    *ncols,
+		NCols:     *ncols,
 		LVCSNCols: *lvcsNCols,
-		NLeaves:  *nLeaves,
+		NLeaves:   *nLeaves,
 	})
 }
 
@@ -176,8 +182,20 @@ func runDemoLocal(args []string) error {
 		return err
 	}
 	return demoLocal(*publicPath, *prfPath, *artifactDir, *statePath, *signaturePath, *seed, *maxTrials, issuanceRuntimeOverrides{
-		NCols:    *ncols,
+		NCols:     *ncols,
 		LVCSNCols: *lvcsNCols,
-		NLeaves:  *nLeaves,
+		NLeaves:   *nLeaves,
 	})
+}
+
+func runBenchmarkX0(args []string) error {
+	fs := flag.NewFlagSet("benchmark-x0", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	profiles := fs.String("profiles", "legacy_scalar,lhl_default,lhl_alt", "comma-separated x0 benchmark profiles")
+	runs := fs.Int("runs", 1, "number of benchmark runs per profile")
+	jsonOut := fs.String("json-out", "", "optional JSON output path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return benchmarkX0(*profiles, *runs, *jsonOut)
 }

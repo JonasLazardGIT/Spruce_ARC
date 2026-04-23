@@ -9,16 +9,21 @@ import (
 
 // Params captures the public inputs required during issuance.
 type Params struct {
-	HashRelation string
-	Ac     commitment.Matrix
-	BPath  string
-	AcPath string
-	BoundB int64
-	LenM   int
-	LenK   int
-	LenR0H int
-	LenR1H int
-	LenRBar int
+	HashRelation       string
+	Ac                 commitment.Matrix
+	BPath              string
+	AcPath             string
+	BoundB             int64
+	X0Len              int
+	X0CoeffBound       int64
+	TargetDim          int
+	TargetHidingLambda int
+	X0Distribution     string
+	LenM               int
+	LenK               int
+	LenR0H             int
+	LenR1H             int
+	LenRBar            int
 	// Deprecated aliases retained so older tests can still build while the
 	// live runtime uses the semantic lengths above.
 	LenM1  int
@@ -28,6 +33,12 @@ type Params struct {
 	LenR   int
 	RingQ  *ring.Ring
 }
+
+const (
+	DefaultTargetDim              = 1
+	DefaultTargetHidingLambda     = 128
+	X0DistributionUniformInterval = "uniform_interval"
+)
 
 // paramsFile mirrors the JSON schema stored on disk.
 func LoadDefaultRing() (*ring.Ring, error) {

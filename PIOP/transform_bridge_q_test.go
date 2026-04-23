@@ -9,6 +9,7 @@ import (
 
 	decs "vSIS-Signature/DECS"
 	"vSIS-Signature/credential"
+	kf "vSIS-Signature/internal/kfield"
 	ntrurio "vSIS-Signature/ntru/io"
 	"vSIS-Signature/ntru/keys"
 	"vSIS-Signature/prf"
@@ -154,7 +155,17 @@ func buildCoeffNativeShowingWitnessTest(r *ring.Ring, st credential.State, B []*
 	if len(st.M) == 0 || len(st.K) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
 		return nil, fmt.Errorf("missing semantic witness rows in credential state")
 	}
-	if len(B) != 4 {
+	x0Len := st.X0Len
+	if x0Len <= 0 {
+		x0Len = len(st.R0)
+	}
+	if x0Len <= 0 {
+		x0Len = 1
+	}
+	if len(st.R0) != x0Len {
+		return nil, fmt.Errorf("credential state R0 len=%d want x0Len=%d", len(st.R0), x0Len)
+	}
+	if len(B) < 3+x0Len {
 		return nil, fmt.Errorf("missing B matrix for target reconstruction")
 	}
 	packedNCols, err := ResolvePackedNCols(st.PackedNCols, 0, int(r.N))
@@ -163,29 +174,17 @@ func buildCoeffNativeShowingWitnessTest(r *ring.Ring, st credential.State, B []*
 	}
 	mPoly := polyFromInt64Test(r, st.M[0])
 	kPoly := polyFromInt64Test(r, st.K[0])
-	r0Poly := polyFromInt64Test(r, st.R0[0])
+	r0Polys := make([]*ring.Poly, len(st.R0))
+	for i := range st.R0 {
+		r0Polys[i] = polyFromInt64Test(r, st.R0[i])
+	}
 	r1Poly := polyFromInt64Test(r, st.R1[0])
 	zPoly := polyFromInt64Test(r, st.Z[0])
-	tPoly := r.NewPoly()
-	muNTT := r.NewPoly()
-	ring.Copy(mPoly, muNTT)
-	r.Add(muNTT, kPoly, muNTT)
-	r.NTT(muNTT, muNTT)
-	r0NTT := r.NewPoly()
-	zNTT := r.NewPoly()
-	ring.Copy(r0Poly, r0NTT)
-	r.NTT(r0NTT, r0NTT)
-	ring.Copy(zPoly, zNTT)
-	r.NTT(zNTT, zNTT)
-	tNTT := r.NewPoly()
-	ring.Copy(B[0], tNTT)
-	tmp := r.NewPoly()
-	r.MulCoeffs(B[1], muNTT, tmp)
-	r.Add(tNTT, tmp, tNTT)
-	r.MulCoeffs(B[2], r0NTT, tmp)
-	r.Add(tNTT, tmp, tNTT)
-	r.Add(tNTT, zNTT, tNTT)
-	r.InvNTT(tNTT, tPoly)
+	_, tCoeffs, err := credential.ComputeTargetVector(r, B, mPoly, kPoly, r0Polys, r1Poly)
+	if err != nil {
+		return nil, fmt.Errorf("recompute target from credential state: %w", err)
+	}
+	tPoly := polyFromInt64Test(r, tCoeffs)
 	wit := &CoeffNativeShowingWitness{
 		Sig: []*ring.Poly{
 			polyFromInt64Test(r, st.SigS1),
@@ -193,7 +192,7 @@ func buildCoeffNativeShowingWitnessTest(r *ring.Ring, st credential.State, B []*
 		},
 		M1:          mPoly,
 		M2:          kPoly,
-		R0:          r0Poly,
+		R0:          r0Polys,
 		R1:          r1Poly,
 		Z:           zPoly,
 		T:           tPoly,
@@ -384,12 +383,16 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 
 	dummyTagPublic := lanesFromElemsTest(make([]prf.Elem, params.LenTag), opts.NCols)
 	pub := PublicInputs{
-		A:            A,
-		B:            B,
-		Tag:          dummyTagPublic,
-		Nonce:        noncePublic,
-		BoundB:       publicParams.BoundB,
-		HashRelation: publicParams.HashRelation,
+		A:                  A,
+		B:                  B,
+		Tag:                dummyTagPublic,
+		Nonce:              noncePublic,
+		BoundB:             publicParams.BoundB,
+		X0Len:              publicParams.X0Len,
+		X0CoeffBound:       publicParams.X0CoeffBound,
+		TargetDim:          publicParams.TargetDim,
+		TargetHidingLambda: publicParams.TargetHidingLambda,
+		HashRelation:       publicParams.HashRelation,
 	}
 
 	rows, rowInputs, layout, prfLayout, prfCompanion, decsParams, maskRowOffset, maskRowCount, witnessCount, _, _, err := BuildCredentialRowsShowing(
@@ -942,11 +945,84 @@ func TestTransformBridgeCombinedReplayDebugFull(t *testing.T) {
 		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
 	}
 	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "FparNorm", postSet.FparNorm, postSet.FparNormCoeffs)
+	set := ConstraintSet{
+		FparInt:            append([]*ring.Poly{}, postSet.FparInt...),
+		FparIntCoeffs:      append([][]uint64{}, postSet.FparIntCoeffs...),
+		FparNorm:           postSet.FparNorm,
+		FparNormCoeffs:     postSet.FparNormCoeffs,
+		FaggInt:            postSet.FaggInt,
+		FaggIntCoeffs:      postSet.FaggIntCoeffs,
+		FaggNorm:           postSet.FaggNorm,
+		FaggNormCoeffs:     postSet.FaggNormCoeffs,
+		ParallelAlgDeg:     postSet.ParallelAlgDeg,
+		AggregatedAlgDeg:   postSet.AggregatedAlgDeg,
+		PRFLayout:          fx.prfLayout,
+		PRFCompanionLayout: fx.prfCompanion,
+	}
 	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
 	if err != nil {
 		t.Fatalf("build showing combined: %v", err)
 	}
 	if proof.SourceProductBridge != nil {
 		t.Fatalf("full replay proof should not carry source-product bridge: %+v", proof.SourceProductBridge)
+	}
+	ok, err := VerifyWithConstraints(proof, set, fx.pub, fx.opts, FSModeCredential)
+	if err != nil {
+		t.Fatalf("verify full replay with rebuilt set: %v", err)
+	}
+	if !ok {
+		t.Fatalf("verify full replay with rebuilt set returned false")
+	}
+}
+
+func TestTransformBridgeFullReplayKEvaluatorMatchesCoeffs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration-like fixture")
+	}
+	fx := buildTransformBridgeFullFixture(t)
+	postSet, err := rebuildPostSignConstraintSetWithBridges(fx.ringQ, fx.pub, fx.layout, fx.rowsNTT, fx.omegaWitness, fx.opts, fx.root, fx.prfLayout, fx.prfCompanion)
+	if err != nil {
+		t.Fatalf("rebuild transform-bridge post-sign set: %v", err)
+	}
+	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
+	if err != nil {
+		t.Fatalf("build showing combined: %v", err)
+	}
+	cfg, err := newTransformBridgePostSignConfig(fx.ringQ, proof, fx.pub, fx.layout, fx.omegaWitness, fx.domainPoints, fx.pub.BoundB, fx.prfLayout, fx.prfCompanion, fx.opts)
+	if err != nil {
+		t.Fatalf("build transform-bridge config: %v", err)
+	}
+	sf, err := deriveSmallFieldParamsNoRows(fx.ringQ, fx.omegaWitness, fx.opts.Theta)
+	if err != nil {
+		t.Fatalf("derive small field: %v", err)
+	}
+	ek, err := cfg.CoreKEvaluator(sf.K)
+	if err != nil {
+		t.Fatalf("transform-bridge K evaluator: %v", err)
+	}
+	limbs := []uint64{2, 3, 5, 7, 11, 13}
+	if len(limbs) > fx.opts.Theta {
+		limbs = limbs[:fx.opts.Theta]
+	}
+	for len(limbs) < fx.opts.Theta {
+		limbs = append(limbs, uint64(len(limbs)+17))
+	}
+	point := sf.K.Phi(limbs)
+	rowsK := make([]kf.Elem, len(fx.rows))
+	for rowIdx := range fx.rows {
+		rowsK[rowIdx] = sf.K.EvalFPolyAtK(fx.rows[rowIdx].Coeffs[0], point)
+	}
+	_, fagg, err := ek(point, rowsK)
+	if err != nil {
+		t.Fatalf("evaluate transform-bridge K families: %v", err)
+	}
+	if len(fagg) != len(postSet.FaggNormCoeffs) {
+		t.Fatalf("fagg len=%d want %d", len(fagg), len(postSet.FaggNormCoeffs))
+	}
+	for i := range fagg {
+		want := sf.K.EvalFPolyAtK(postSet.FaggNormCoeffs[i], point)
+		if !elemEqual(sf.K, fagg[i], want) {
+			t.Fatalf("full replay K evaluator mismatch at family %d", i)
+		}
 	}
 }

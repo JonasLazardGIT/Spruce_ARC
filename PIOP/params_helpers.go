@@ -71,9 +71,25 @@ func deriveExplicitWitnessOmega(q uint64, nLeaves, witnessNCols, lvcsNCols, ell 
 	return append([]uint64(nil), omegaLVCS[:witnessNCols]...), nil
 }
 
+const stableBBTranWitnessNLeaves = 4096
+
+func deriveStableWitnessOmega(q uint64, witnessNCols, ell int, relation string) ([]uint64, error) {
+	if !relationUsesBBTran(relation) {
+		return nil, fmt.Errorf("stable witness omega only supports bb_tran, got %q", relation)
+	}
+	omegaWitness, _, err := deriveExplicitDomain(q, stableBBTranWitnessNLeaves, witnessNCols, ell)
+	if err != nil {
+		return nil, err
+	}
+	if len(omegaWitness) < witnessNCols {
+		return nil, fmt.Errorf("derived stable witness omega len=%d < witness ncols=%d", len(omegaWitness), witnessNCols)
+	}
+	return append([]uint64(nil), omegaWitness[:witnessNCols]...), nil
+}
+
 func deriveRelationWitnessOmega(q uint64, nLeaves, witnessNCols, lvcsNCols, ell int, relation string) ([]uint64, error) {
 	if relationUsesBBTran(relation) {
-		omegaWitness, _, err := deriveExplicitDomain(q, nLeaves, witnessNCols, ell)
+		omegaWitness, err := deriveStableWitnessOmega(q, witnessNCols, ell, relation)
 		if err != nil {
 			return nil, err
 		}
@@ -83,6 +99,10 @@ func deriveRelationWitnessOmega(q uint64, nLeaves, witnessNCols, lvcsNCols, ell 
 		return append([]uint64(nil), omegaWitness[:witnessNCols]...), nil
 	}
 	return deriveExplicitWitnessOmega(q, nLeaves, witnessNCols, lvcsNCols, ell)
+}
+
+func DeriveRelationWitnessOmega(q uint64, nLeaves, witnessNCols, lvcsNCols, ell int, relation string) ([]uint64, error) {
+	return deriveRelationWitnessOmega(q, nLeaves, witnessNCols, lvcsNCols, ell, relation)
 }
 
 func sampleUniformModDeterministic(xof sha3.ShakeHash, q uint64) (uint64, error) {
@@ -128,11 +148,11 @@ func deriveExplicitDomainWithWitnessPrefix(q uint64, nLeaves, witnessNCols, lvcs
 		prefix = append(prefix, v)
 	}
 	xof := sha3.NewShake256()
-	_, _ = xof.Write([]byte("SmallWood:E:bb_tran:prefix"))
+	// Keep the full witness+mask prefix stable across NLeaves. Varying NLeaves
+	// should only extend the tail of E, not change the witness embedding.
+	_, _ = xof.Write([]byte("SmallWood:E:bb_tran:prefix:v2"))
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], q)
-	_, _ = xof.Write(buf[:])
-	binary.LittleEndian.PutUint64(buf[:], uint64(nLeaves))
 	_, _ = xof.Write(buf[:])
 	binary.LittleEndian.PutUint64(buf[:], uint64(witnessNCols))
 	_, _ = xof.Write(buf[:])
@@ -171,6 +191,10 @@ func deriveExplicitDomainForRelation(q uint64, nLeaves, witnessNCols, lvcsNCols,
 		return nil, nil, err
 	}
 	return deriveExplicitDomainWithWitnessPrefix(q, nLeaves, witnessNCols, lvcsNCols, ell, witnessOmega)
+}
+
+func DeriveExplicitDomainForRelation(q uint64, nLeaves, witnessNCols, lvcsNCols, ell int, relation string) ([]uint64, []uint64, error) {
+	return deriveExplicitDomainForRelation(q, nLeaves, witnessNCols, lvcsNCols, ell, relation)
 }
 
 func loadParamsAndOmegaForRelation(opts SimOpts, relation string) (*ring.Ring, []uint64, int, error) {

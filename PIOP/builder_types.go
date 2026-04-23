@@ -8,18 +8,22 @@ import (
 
 // PublicInputs holds the public statement values.
 type PublicInputs struct {
-	Com    []*ring.Poly
-	RI0    []*ring.Poly
-	RI1    []*ring.Poly
-	Ac     [][]*ring.Poly
-	A      [][]*ring.Poly
-	B      []*ring.Poly
-	T      []int64
-	Tag    [][]int64
-	Nonce  [][]int64
-	BoundB int64
-	HashRelation string
-	Extras map[string]interface{}
+	Com                []*ring.Poly
+	RI0                []*ring.Poly
+	RI1                []*ring.Poly
+	Ac                 [][]*ring.Poly
+	A                  [][]*ring.Poly
+	B                  []*ring.Poly
+	T                  []int64
+	Tag                [][]int64
+	Nonce              [][]int64
+	BoundB             int64
+	X0Len              int
+	X0CoeffBound       int64
+	TargetDim          int
+	TargetHidingLambda int
+	HashRelation       string
+	Extras             map[string]interface{}
 }
 
 // CoeffNativeShowingWitness holds the retained literal-packed post-sign
@@ -29,7 +33,7 @@ type CoeffNativeShowingWitness struct {
 	Sig         []*ring.Poly
 	M1          *ring.Poly
 	M2          *ring.Poly
-	R0          *ring.Poly
+	R0          []*ring.Poly
 	R1          *ring.Poly
 	Z           *ring.Poly
 	T           *ring.Poly
@@ -50,8 +54,16 @@ func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
 	if wit.M2 == nil {
 		return fmt.Errorf("missing signed M2 witness row")
 	}
-	if wit.R0 == nil {
+	if len(wit.R0) == 0 {
 		return fmt.Errorf("missing signed R0 witness row")
+	}
+	for i, poly := range wit.R0 {
+		if poly == nil {
+			return fmt.Errorf("nil signed R0 witness row %d", i)
+		}
+		if ringN > 0 && (len(poly.Coeffs) == 0 || len(poly.Coeffs[0]) != ringN) {
+			return fmt.Errorf("signed R0 witness row %d width=%d want ringN=%d", i, len(poly.Coeffs[0]), ringN)
+		}
 	}
 	if wit.R1 == nil {
 		return fmt.Errorf("missing signed R1 witness row")
@@ -65,7 +77,7 @@ func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
 	if wit.PackedNCols <= 0 {
 		return fmt.Errorf("invalid coeff-native packed ncols=%d", wit.PackedNCols)
 	}
-	rows := []*ring.Poly{wit.M1, wit.M2, wit.R0, wit.R1, wit.Z, wit.T}
+	rows := []*ring.Poly{wit.M1, wit.M2, wit.R1, wit.Z, wit.T}
 	for i, poly := range wit.Sig {
 		if poly == nil {
 			return fmt.Errorf("nil coeff-native signature row %d", i)

@@ -57,30 +57,9 @@ func deriveTransformAliasRowFromSource(ringQ *ring.Ring, omega []uint64, domainM
 	ncols := len(omega)
 	q := ringQ.Modulus[0]
 	var head []uint64
-	if domainMode == DomainModeExplicit {
-		bridgeBasis, err := newTransformBridgeBasisCache(ringQ, omega, ncols, 1)
-		if err != nil {
-			return nil, nil, fmt.Errorf("transform bridge basis for %s: %w", name, err)
-		}
-		srcHead, err := rowHeadOnOmega(ringQ, omega, src, ncols)
-		if err != nil {
-			return nil, nil, fmt.Errorf("source head for %s: %w", name, err)
-		}
-		head = make([]uint64, ncols)
-		for j := 0; j < ncols; j++ {
-			acc := uint64(0)
-			for k := 0; k < ncols; k++ {
-				weight := EvalPoly(bridgeBasis.TransformHEval[j], omega[k]%q, q)
-				acc = modAdd(acc, modMul(weight, srcHead[k]%q, q), q)
-			}
-			head[j] = acc
-		}
-	} else {
-		var err error
-		head, err = nttHeadFromCoeffPoly(ringQ, src, ncols)
-		if err != nil {
-			return nil, nil, fmt.Errorf("ntt head for %s: %w", name, err)
-		}
+	head, err := nttHeadFromCoeffPoly(ringQ, src, ncols)
+	if err != nil {
+		return nil, nil, fmt.Errorf("ntt head for %s: %w", name, err)
 	}
 	row, err := buildCommittedRowFromHead(ringQ, head, omega, domainMode)
 	if err != nil {

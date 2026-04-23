@@ -14,15 +14,16 @@ import (
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
-	"vSIS-Signature/internal/domain"
 	"vSIS-Signature/issuance"
 	"vSIS-Signature/ntru"
 	ntrurio "vSIS-Signature/ntru/io"
 	"vSIS-Signature/ntru/keys"
 	"vSIS-Signature/ntru/signverify"
 	"vSIS-Signature/prf"
+	vsishash "vSIS-Signature/vSIS-HASH"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
+	"github.com/tuneinsight/lattigo/v4/utils"
 )
 
 type holderWitnessSpec struct {
@@ -102,7 +103,41 @@ type issuanceRuntimeOverrides struct {
 	NLeaves   int
 }
 
-const issuanceArtifactVersion = 1
+const issuanceArtifactVersion = 2
+
+type x0Profile struct {
+	Name         string
+	X0Len        int
+	X0CoeffBound int64
+}
+
+func resolveX0Profile(name string, x0Len int, x0Bound int64) (x0Profile, error) {
+	profile := x0Profile{Name: name}
+	switch name {
+	case "", "lhl_default":
+		profile.Name = "lhl_default"
+		profile.X0Len = 6
+		profile.X0CoeffBound = 5
+	case "lhl_alt":
+		profile.X0Len = 5
+		profile.X0CoeffBound = 8
+	case "legacy_scalar":
+		profile.X0Len = 1
+		profile.X0CoeffBound = 1
+	default:
+		return x0Profile{}, fmt.Errorf("unsupported x0 profile %q", name)
+	}
+	if x0Len > 0 {
+		profile.X0Len = x0Len
+	}
+	if x0Bound > 0 {
+		profile.X0CoeffBound = x0Bound
+	}
+	if profile.X0Len <= 0 || profile.X0CoeffBound <= 0 {
+		return x0Profile{}, fmt.Errorf("invalid x0 profile len=%d bound=%d", profile.X0Len, profile.X0CoeffBound)
+	}
+	return profile, nil
+}
 
 func persistedIssuanceRuntimeOverrides(ncols, lvcsNCols, nLeaves int, omega []uint64) issuanceRuntimeOverrides {
 	if ncols <= 0 && len(omega) > 0 {
@@ -119,10 +154,14 @@ func credentialPublicPathDefault() string {
 	return credential.DefaultPublicParamsPath
 }
 
-func setupDemoPublic(outPath string, force bool, bPath, hashRelation string) error {
+func setupDemoPublic(outPath string, force bool, bPath, hashRelation, x0ProfileName string, x0Len int, x0Bound int64) error {
 	ringQ, err := credential.LoadDefaultRing()
 	if err != nil {
 		return fmt.Errorf("load ring: %w", err)
+	}
+	profile, err := resolveX0Profile(x0ProfileName, x0Len, x0Bound)
+	if err != nil {
+		return err
 	}
 	hashRelation = credential.NormalizeHashRelation(hashRelation)
 	if hashRelation == "" {
@@ -131,7 +170,7 @@ func setupDemoPublic(outPath string, force bool, bPath, hashRelation string) err
 	if bPath == "" {
 		switch hashRelation {
 		case credential.HashRelationBBTran:
-			bPath = filepath.Join("Parameters", "Bmatrix_bb_tran.json")
+			bPath = filepath.Join(filepath.Dir(outPath), fmt.Sprintf("Bmatrix_bb_tran_x0len%d.json", profile.X0Len))
 		default:
 			bPath = filepath.Join("Parameters", "Bmatrix.json")
 		}
@@ -143,26 +182,61 @@ func setupDemoPublic(outPath string, force bool, bPath, hashRelation string) err
 			return fmt.Errorf("stat %s: %w", outPath, err)
 		}
 	}
-	ac, err := commitment.GenerateUniformCoeffMatrix(ringQ, 5, 5)
+	if hashRelation == credential.HashRelationBBTran {
+		prng, err := utils.NewPRNG()
+		if err != nil {
+			return fmt.Errorf("new prng: %w", err)
+		}
+		B, err := vsishash.GenerateBWithX0Len(ringQ, prng, profile.X0Len)
+		if err != nil {
+			return fmt.Errorf("generate B: %w", err)
+		}
+		coeffs := make([][]uint64, len(B))
+		for i := range B {
+			coeffs[i] = append([]uint64(nil), B[i].Coeffs[0]...)
+		}
+		if err := os.MkdirAll(filepath.Dir(bPath), 0o755); err != nil {
+			return fmt.Errorf("mkdir B dir: %w", err)
+		}
+		if err := ntrurio.SaveBMatrixCoeffs(bPath, coeffs); err != nil {
+			return fmt.Errorf("save B matrix: %w", err)
+		}
+	}
+	commitCols := 1 + 1 + profile.X0Len + 1 + 1
+	ac, err := commitment.GenerateUniformCoeffMatrix(ringQ, commitCols, commitCols)
 	if err != nil {
 		return fmt.Errorf("generate Ac: %w", err)
 	}
 	params := credential.PublicParams{
-		Version:      credential.PublicParamsVersion,
-		Ac:           ac,
-		HashRelation: hashRelation,
-		BPath:        bPath,
-		BoundB:       1,
-		LenM:         1,
-		LenK:         1,
-		LenR0H:       1,
-		LenR1H:       1,
-		LenRBar:      1,
+		Version:            credential.PublicParamsVersion,
+		Ac:                 ac,
+		HashRelation:       hashRelation,
+		BPath:              bPath,
+		BoundB:             1,
+		X0Len:              profile.X0Len,
+		X0CoeffBound:       profile.X0CoeffBound,
+		TargetDim:          credential.DefaultTargetDim,
+		TargetHidingLambda: credential.DefaultTargetHidingLambda,
+		X0Distribution:     credential.X0DistributionUniformInterval,
+		LenM:               1,
+		LenK:               1,
+		LenR0H:             profile.X0Len,
+		LenR1H:             1,
+		LenRBar:            1,
 	}
 	if err := credential.SavePublicParams(outPath, params); err != nil {
 		return err
 	}
+	issuanceParams, err := params.ToIssuanceParams(ringQ)
+	if err != nil {
+		return err
+	}
+	lhl, err := credential.BuildLHLReport(issuanceParams)
+	if err != nil {
+		return err
+	}
 	log.Printf("[issuance-cli] wrote credential public params to %s", outPath)
+	log.Printf("[issuance-cli] x0 profile=%s len=%d bound=%d lhl_slack_bits=%.2f satisfies=%v", profile.Name, profile.X0Len, profile.X0CoeffBound, lhl.SlackBits, lhl.SatisfiesLHL)
 	return nil
 }
 
@@ -236,7 +310,7 @@ func issuerChallenge(commitRequestPath, challengePath string, seed int64) error 
 		return fmt.Errorf("commit request missing omega")
 	}
 	rng := newLocalRNG(seed)
-	ch, err := issuance.SampleChallenge(rt.ringQ, req.Omega, rt.public.BoundB, rng)
+	ch, err := issuance.SampleChallengeVector(rt.ringQ, req.Omega, rt.params.X0Len, rt.params.X0CoeffBound, rt.public.BoundB, rng)
 	if err != nil {
 		return fmt.Errorf("sample challenge: %w", err)
 	}
@@ -488,7 +562,7 @@ func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOv
 		opts.PRFNLeaves = overrides.NLeaves
 	}
 	opts = defaultIssuanceOptsResolved(prfParams, opts)
-	omega, err := deriveOmegaForIssuanceOpts(ringQ, opts)
+	omega, err := deriveOmegaForIssuanceOpts(ringQ, public.HashRelation, opts)
 	if err != nil {
 		return nil, fmt.Errorf("derive omega: %w", err)
 	}
@@ -535,7 +609,7 @@ func defaultIssuanceOptsResolved(prfParams *prf.Params, opts PIOP.SimOpts) PIOP.
 	return opts
 }
 
-func deriveOmegaForIssuanceOpts(ringQ *ring.Ring, opts PIOP.SimOpts) ([]uint64, error) {
+func deriveOmegaForIssuanceOpts(ringQ *ring.Ring, relation string, opts PIOP.SimOpts) ([]uint64, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -554,14 +628,14 @@ func deriveOmegaForIssuanceOpts(ringQ *ring.Ring, opts PIOP.SimOpts) ([]uint64, 
 	if lvcsNCols < ncols {
 		return nil, fmt.Errorf("invalid lvcs ncols=%d < witness ncols=%d", lvcsNCols, ncols)
 	}
-	dom, err := domain.NewDomain(ringQ.Modulus[0], nLeaves, lvcsNCols, opts.Ell, nil)
+	omegaWitness, err := PIOP.DeriveRelationWitnessOmega(ringQ.Modulus[0], nLeaves, ncols, lvcsNCols, opts.Ell, relation)
 	if err != nil {
 		return nil, err
 	}
-	if len(dom.Omega) < ncols {
-		return nil, fmt.Errorf("derived omega len=%d < witness ncols=%d", len(dom.Omega), ncols)
+	if len(omegaWitness) < ncols {
+		return nil, fmt.Errorf("derived omega len=%d < witness ncols=%d", len(omegaWitness), ncols)
 	}
-	return append([]uint64(nil), dom.Omega[:ncols]...), nil
+	return append([]uint64(nil), omegaWitness[:ncols]...), nil
 }
 
 func newLocalRNG(seed int64) *rand.Rand {
@@ -576,15 +650,22 @@ func sampleHolderInputs(r *ring.Ring, public credential.PublicParams, omega []ui
 		return issuance.Inputs{}, fmt.Errorf("nil rng")
 	}
 	alphabet := []int64{-1, 0, 1}
-	m := samplePackedHalfCoeffHeadNonZero(r, alphabet, len(omega), rng, true)
-	k := samplePackedHalfCoeffHeadNonZero(r, alphabet, len(omega), rng, false)
-	r0h := sampleCoeffHead(r, alphabet, len(omega), rng)
-	r1h := sampleCoeffHead(r, alphabet, len(omega), rng)
-	rbar := sampleCoeffHead(r, alphabet, len(omega), rng)
+	m := samplePackedHalfCoeffHeadNonZero(r, alphabet, omega, rng, true)
+	k := samplePackedHalfCoeffHeadNonZero(r, alphabet, omega, rng, false)
+	r0Alphabet := make([]int64, 0, 2*public.X0CoeffBound+1)
+	for v := -public.X0CoeffBound; v <= public.X0CoeffBound; v++ {
+		r0Alphabet = append(r0Alphabet, v)
+	}
+	r0h := make([]*ring.Poly, public.X0Len)
+	for i := range r0h {
+		r0h[i] = sampleCoeffHead(r, r0Alphabet, omega, rng)
+	}
+	r1h := sampleCoeffHead(r, alphabet, omega, rng)
+	rbar := sampleCoeffHead(r, alphabet, omega, rng)
 	return issuance.Inputs{
 		M:    []*ring.Poly{m},
 		K:    []*ring.Poly{k},
-		R0H:  []*ring.Poly{r0h},
+		R0H:  r0h,
 		R1H:  []*ring.Poly{r1h},
 		RBar: []*ring.Poly{rbar},
 	}, nil
@@ -634,6 +715,10 @@ func buildCredentialState(rt *issuanceRuntime, in credentialFinalizeInput, input
 		R0:                   polyVecToInt64(rt.ringQ, st.R0, false),
 		R1:                   polyVecToInt64(rt.ringQ, st.R1, false),
 		Z:                    polyVecToInt64(rt.ringQ, st.Z, false),
+		X0Len:                rt.params.X0Len,
+		X0CoeffBound:         rt.params.X0CoeffBound,
+		TargetDim:            rt.params.TargetDim,
+		TargetHidingLambda:   rt.params.TargetHidingLambda,
 		SigS1:                append([]int64(nil), in.response.SigS1...),
 		SigS2:                append([]int64(nil), in.response.SigS2...),
 		PackedNCols:          in.secret.PackedNCols,
@@ -796,9 +881,9 @@ func cloneRows(rows [][]int64) [][]int64 {
 	return out
 }
 
-func samplePackedHalfCoeffHeadNonZero(r *ring.Ring, alphabet []int64, ncols int, rng *rand.Rand, keepLower bool) *ring.Poly {
+func samplePackedHalfCoeffHeadNonZero(r *ring.Ring, alphabet []int64, omega []uint64, rng *rand.Rand, keepLower bool) *ring.Poly {
 	for attempt := 0; attempt < 128; attempt++ {
-		p := samplePackedHalfCoeffHead(r, alphabet, ncols, rng, keepLower)
+		p := samplePackedHalfCoeffHead(r, alphabet, omega, rng, keepLower)
 		if maxAbsSlice(polyToInt64Local(p, r)) > 0 {
 			return p
 		}
@@ -806,39 +891,56 @@ func samplePackedHalfCoeffHeadNonZero(r *ring.Ring, alphabet []int64, ncols int,
 	panic("failed to sample nonzero packed-half polynomial")
 }
 
-func sampleCoeffHead(r *ring.Ring, alphabet []int64, ncols int, rng *rand.Rand) *ring.Poly {
-	p := r.NewPoly()
-	q := int64(r.Modulus[0])
-	if ncols <= 0 || ncols > r.N {
-		ncols = r.N
-	}
+func sampleHeadValues(alphabet []int64, ncols int, q int64, rng *rand.Rand) []uint64 {
+	head := make([]uint64, ncols)
 	for i := 0; i < ncols; i++ {
 		v := alphabet[rng.Intn(len(alphabet))]
 		if v < 0 {
-			p.Coeffs[0][i] = uint64(v + q)
+			head[i] = uint64(v + q)
 		} else {
-			p.Coeffs[0][i] = uint64(v)
+			head[i] = uint64(v)
 		}
 	}
+	return head
+}
+
+func interpolateHeadToCoeffPoly(r *ring.Ring, omega []uint64, head []uint64) *ring.Poly {
+	p := r.NewPoly()
+	if len(head) == 0 {
+		return p
+	}
+	copy(p.Coeffs[0], PIOP.Interpolate(omega[:len(head)], head, r.Modulus[0]))
 	return p
 }
 
-func samplePackedHalfCoeffHead(r *ring.Ring, alphabet []int64, ncols int, rng *rand.Rand, keepLower bool) *ring.Poly {
-	p := sampleCoeffHead(r, alphabet, ncols, rng)
+func sampleCoeffHead(r *ring.Ring, alphabet []int64, omega []uint64, rng *rand.Rand) *ring.Poly {
+	q := int64(r.Modulus[0])
+	ncols := len(omega)
 	if ncols <= 0 || ncols > r.N {
 		ncols = r.N
 	}
+	head := sampleHeadValues(alphabet, ncols, q, rng)
+	return interpolateHeadToCoeffPoly(r, omega, head)
+}
+
+func samplePackedHalfCoeffHead(r *ring.Ring, alphabet []int64, omega []uint64, rng *rand.Rand, keepLower bool) *ring.Poly {
+	ncols := len(omega)
+	if ncols <= 0 || ncols > r.N {
+		ncols = r.N
+	}
+	q := int64(r.Modulus[0])
+	head := sampleHeadValues(alphabet, ncols, q, rng)
 	half := ncols / 2
 	if keepLower {
 		for i := half; i < ncols; i++ {
-			p.Coeffs[0][i] = 0
+			head[i] = 0
 		}
 	} else {
 		for i := 0; i < half; i++ {
-			p.Coeffs[0][i] = 0
+			head[i] = 0
 		}
 	}
-	return p
+	return interpolateHeadToCoeffPoly(r, omega, head)
 }
 
 func maxAbsSlice(vals []int64) int64 {

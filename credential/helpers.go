@@ -70,6 +70,43 @@ func combineMessageRows(ringQ *ring.Ring, m, k *ring.Poly) *ring.Poly {
 	return combined
 }
 
+func SplitBBTranB(B []*ring.Poly, x0Len int, targetDim int) (*ring.Poly, *ring.Poly, []*ring.Poly, *ring.Poly, error) {
+	if targetDim != 1 {
+		return nil, nil, nil, nil, fmt.Errorf("unsupported TargetDim=%d", targetDim)
+	}
+	if x0Len <= 0 {
+		return nil, nil, nil, nil, fmt.Errorf("invalid X0Len=%d", x0Len)
+	}
+	if want := 3 + x0Len; len(B) != want {
+		return nil, nil, nil, nil, fmt.Errorf("b must contain %d polynomials for X0Len=%d, got %d", want, x0Len, len(B))
+	}
+	return B[0], B[1], B[2 : 2+x0Len], B[len(B)-1], nil
+}
+
+func computeB2LinearTermNTT(ringQ *ring.Ring, b2 []*ring.Poly, r0 []*ring.Poly) (*ring.Poly, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if len(b2) == 0 || len(r0) == 0 {
+		return nil, fmt.Errorf("empty b2/r0")
+	}
+	if len(b2) != len(r0) {
+		return nil, fmt.Errorf("b2 length=%d mismatches r0 length=%d", len(b2), len(r0))
+	}
+	acc := ringQ.NewPoly()
+	tmp := ringQ.NewPoly()
+	for i := range b2 {
+		if b2[i] == nil || r0[i] == nil {
+			return nil, fmt.Errorf("nil b2/r0 poly at index %d", i)
+		}
+		r0NTT := clonePoly(ringQ, r0[i])
+		ringQ.NTT(r0NTT, r0NTT)
+		ringQ.MulCoeffs(b2[i], r0NTT, tmp)
+		ringQ.Add(acc, tmp, acc)
+	}
+	return acc, nil
+}
+
 func IsAdmissible(
 	ringQ *ring.Ring,
 	B []*ring.Poly,
@@ -78,13 +115,14 @@ func IsAdmissible(
 	if ringQ == nil {
 		return false, fmt.Errorf("nil ring")
 	}
-	if len(B) != 4 {
-		return false, fmt.Errorf("b must contain 4 polynomials, got %d", len(B))
+	if len(B) < 4 {
+		return false, fmt.Errorf("b must contain at least 4 polynomials, got %d", len(B))
 	}
 	if r1 == nil {
 		return false, fmt.Errorf("nil r1 polynomial")
 	}
-	return vsishash.IsInvertibleDenominator(ringQ, B[3], clonePoly(ringQ, r1)), nil
+	b3 := B[len(B)-1]
+	return vsishash.IsInvertibleDenominator(ringQ, b3, clonePoly(ringQ, r1)), nil
 }
 
 func ComputeInverseWitness(
@@ -95,13 +133,13 @@ func ComputeInverseWitness(
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
-	if len(B) != 4 {
-		return nil, fmt.Errorf("b must contain 4 polynomials, got %d", len(B))
+	if len(B) < 4 {
+		return nil, fmt.Errorf("b must contain at least 4 polynomials, got %d", len(B))
 	}
 	if r1 == nil {
 		return nil, fmt.Errorf("nil r1 polynomial")
 	}
-	zNTT, err := vsishash.ComputeBBTranInverse(ringQ, B[3], clonePoly(ringQ, r1))
+	zNTT, err := vsishash.ComputeBBTranInverse(ringQ, B[len(B)-1], clonePoly(ringQ, r1))
 	if err != nil {
 		return nil, err
 	}
@@ -110,25 +148,26 @@ func ComputeInverseWitness(
 	return zCoeff, nil
 }
 
-func ComputeTargetPolys(
+func ComputeTargetPolysVector(
 	ringQ *ring.Ring,
 	B []*ring.Poly,
 	m,
-	k,
-	r0,
+	k *ring.Poly,
+	r0 []*ring.Poly,
 	r1 *ring.Poly,
 ) (*ring.Poly, *ring.Poly, error) {
 	if ringQ == nil {
 		return nil, nil, fmt.Errorf("nil ring")
 	}
-	if len(B) != 4 {
-		return nil, nil, fmt.Errorf("b must contain 4 polynomials, got %d", len(B))
+	b0, b1, b2, b3, err := SplitBBTranB(B, len(r0), DefaultTargetDim)
+	if err != nil {
+		return nil, nil, err
 	}
-	if m == nil || k == nil || r0 == nil || r1 == nil {
+	if m == nil || k == nil || len(r0) == 0 || r1 == nil {
 		return nil, nil, fmt.Errorf("nil input polynomial")
 	}
 	mu := combineMessageRows(ringQ, m, k)
-	zNTT, tNTT, err := vsishash.ComputeBBTranTarget(ringQ, B, clonePoly(ringQ, mu), clonePoly(ringQ, r0), clonePoly(ringQ, r1))
+	zNTT, tNTT, err := vsishash.ComputeBBTranTargetVector(ringQ, b0, b1, b2, b3, clonePoly(ringQ, mu), clonePolySlice(ringQ, r0), clonePoly(ringQ, r1))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -139,6 +178,40 @@ func ComputeTargetPolys(
 	return zCoeff, tCoeff, nil
 }
 
+func clonePolySlice(ringQ *ring.Ring, polys []*ring.Poly) []*ring.Poly {
+	out := make([]*ring.Poly, len(polys))
+	for i := range polys {
+		out[i] = clonePoly(ringQ, polys[i])
+	}
+	return out
+}
+
+func ComputeTargetPolys(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	m,
+	k,
+	r0,
+	r1 *ring.Poly,
+) (*ring.Poly, *ring.Poly, error) {
+	return ComputeTargetPolysVector(ringQ, B, m, k, []*ring.Poly{r0}, r1)
+}
+
+func ComputeTargetVector(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	m,
+	k *ring.Poly,
+	r0 []*ring.Poly,
+	r1 *ring.Poly,
+) (*ring.Poly, []int64, error) {
+	zCoeff, tCoeff, err := ComputeTargetPolysVector(ringQ, B, m, k, r0, r1)
+	if err != nil {
+		return nil, nil, err
+	}
+	return zCoeff, coeffPolyToInt64(ringQ, tCoeff), nil
+}
+
 func ComputeTarget(
 	ringQ *ring.Ring,
 	B []*ring.Poly,
@@ -147,19 +220,15 @@ func ComputeTarget(
 	r0,
 	r1 *ring.Poly,
 ) (*ring.Poly, []int64, error) {
-	zCoeff, tCoeff, err := ComputeTargetPolys(ringQ, B, m, k, r0, r1)
-	if err != nil {
-		return nil, nil, err
-	}
-	return zCoeff, coeffPolyToInt64(ringQ, tCoeff), nil
+	return ComputeTargetVector(ringQ, B, m, k, []*ring.Poly{r0}, r1)
 }
 
-func VerifyTargetRelation(
+func VerifyTargetRelationVector(
 	ringQ *ring.Ring,
 	B []*ring.Poly,
 	m,
-	k,
-	r0,
+	k *ring.Poly,
+	r0 []*ring.Poly,
 	r1,
 	z,
 	t *ring.Poly,
@@ -167,25 +236,28 @@ func VerifyTargetRelation(
 	if ringQ == nil {
 		return fmt.Errorf("nil ring")
 	}
-	if len(B) != 4 {
-		return fmt.Errorf("b must contain 4 polynomials, got %d", len(B))
+	b0, b1, b2, b3, err := SplitBBTranB(B, len(r0), DefaultTargetDim)
+	if err != nil {
+		return err
 	}
-	if m == nil || k == nil || r0 == nil || r1 == nil || z == nil || t == nil {
+	if m == nil || k == nil || len(r0) == 0 || r1 == nil || z == nil || t == nil {
 		return fmt.Errorf("nil input polynomial")
 	}
 	muNTT := combineMessageRows(ringQ, clonePoly(ringQ, m), clonePoly(ringQ, k))
 	ringQ.NTT(muNTT, muNTT)
-	r0NTT := clonePoly(ringQ, r0)
 	r1NTT := clonePoly(ringQ, r1)
 	zNTT := clonePoly(ringQ, z)
 	tNTT := clonePoly(ringQ, t)
-	ringQ.NTT(r0NTT, r0NTT)
 	ringQ.NTT(r1NTT, r1NTT)
 	ringQ.NTT(zNTT, zNTT)
 	ringQ.NTT(tNTT, tNTT)
+	r0TermNTT, err := computeB2LinearTermNTT(ringQ, b2, r0)
+	if err != nil {
+		return err
+	}
 
 	den := ringQ.NewPoly()
-	ringQ.Sub(B[3], r1NTT, den)
+	ringQ.Sub(b3, r1NTT, den)
 	inverseResidual := ringQ.NewPoly()
 	ringQ.MulCoeffs(den, zNTT, inverseResidual)
 	one := ringQ.NewPoly()
@@ -194,12 +266,11 @@ func VerifyTargetRelation(
 	ringQ.Sub(inverseResidual, one, inverseResidual)
 
 	targetResidual := ringQ.NewPoly()
-	ring.Copy(B[0], targetResidual)
+	ring.Copy(b0, targetResidual)
 	tmp := ringQ.NewPoly()
-	ringQ.MulCoeffs(B[1], muNTT, tmp)
+	ringQ.MulCoeffs(b1, muNTT, tmp)
 	ringQ.Add(targetResidual, tmp, targetResidual)
-	ringQ.MulCoeffs(B[2], r0NTT, tmp)
-	ringQ.Add(targetResidual, tmp, targetResidual)
+	ringQ.Add(targetResidual, r0TermNTT, targetResidual)
 	ringQ.Add(targetResidual, zNTT, targetResidual)
 	ringQ.Sub(targetResidual, tNTT, targetResidual)
 
@@ -213,19 +284,46 @@ func VerifyTargetRelation(
 	return nil
 }
 
+func VerifyTargetRelation(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	m,
+	k,
+	r0,
+	r1,
+	z,
+	t *ring.Poly,
+) error {
+	return VerifyTargetRelationVector(ringQ, B, m, k, []*ring.Poly{r0}, r1, z, t)
+}
+
 func HashMessage(
 	ringQ *ring.Ring,
 	B []*ring.Poly,
 	relation string,
 	m1, m2, r0, r1 *ring.Poly,
 ) ([]int64, error) {
+	return HashMessageVector(ringQ, B, relation, m1, m2, []*ring.Poly{r0}, r1)
+}
+
+func HashMessageVector(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	relation string,
+	m1, m2 *ring.Poly,
+	r0 []*ring.Poly,
+	r1 *ring.Poly,
+) ([]int64, error) {
 	relation = NormalizeHashRelation(relation)
 	switch relation {
 	case HashRelationBBTran:
-		_, tCoeff, err := ComputeTarget(ringQ, B, m1, m2, r0, r1)
+		_, tCoeff, err := ComputeTargetVector(ringQ, B, m1, m2, r0, r1)
 		return tCoeff, err
 	case HashRelationBBS:
-		tNTT, err := vsishash.ComputeBBSHash(ringQ, B, clonePoly(ringQ, combineMessageRows(ringQ, m1, m2)), clonePoly(ringQ, r0), clonePoly(ringQ, r1))
+		if len(r0) != 1 {
+			return nil, fmt.Errorf("bbs only supports scalar r0, got %d rows", len(r0))
+		}
+		tNTT, err := vsishash.ComputeBBSHash(ringQ, B, clonePoly(ringQ, combineMessageRows(ringQ, m1, m2)), clonePoly(ringQ, r0[0]), clonePoly(ringQ, r1))
 		if err != nil {
 			return nil, err
 		}

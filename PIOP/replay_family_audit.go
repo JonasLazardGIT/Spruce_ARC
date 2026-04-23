@@ -78,8 +78,6 @@ func BuildReplayFamilyAuditReport(proof *Proof) (ReplayFamilyAuditReport, error)
 		return ReplayFamilyAuditReport{}, err
 	}
 	selector := BuildShowingReplayActiveRowSelectorFromProof(proof)
-	sourceProductBridgeActive := sourceProductBridgeEnabledForProof(proof)
-
 	unionSelected := make([]int, 0, len(selector))
 	for _, kind := range replayFamilyKinds {
 		logicalRows := append([]int(nil), families[kind]...)
@@ -97,8 +95,8 @@ func BuildReplayFamilyAuditReport(proof *Proof) (ReplayFamilyAuditReport, error)
 			Notes:                replayFamilyNotes(kind),
 		}
 		entry.ReductionEffect = replayFamilyReductionEffect(selector, selectedRows, stats)
-		if sourceProductBridgeActive && kind == ReplayFamilySourceProduct {
-			entry.Notes = "MSigmaR1/R0R1 leave the active replay selector once the same-root source-product bridge authenticates them directly."
+		if kind == ReplayFamilySourceProduct {
+			entry.Notes = replayFamilySourceProductNotes(len(selectedRows), sourceProductBridgeEnabledForProof(proof))
 		}
 		report.Families = append(report.Families, entry)
 	}
@@ -185,7 +183,12 @@ func canonicalReplayFamilyRows(proof *Proof) (map[ReplayFamilyKind][]int, error)
 			return nil, err
 		}
 	}
-	for _, idx := range []int{layout.IdxCarrierM, layout.IdxCarrierCtr} {
+	for _, idx := range []int{layout.IdxCarrierM, rowLayoutPostSignCarrierR1(layout)} {
+		if err := add(ReplayFamilyCarrier, idx); err != nil {
+			return nil, err
+		}
+	}
+	for _, idx := range rowLayoutPostSignCarrierR0Rows(layout) {
 		if err := add(ReplayFamilyCarrier, idx); err != nil {
 			return nil, err
 		}
@@ -245,7 +248,7 @@ func replayFamilyNotes(kind ReplayFamilyKind) string {
 	case ReplayFamilyTSource:
 		return "Committed T-source rows are absent on theorem-clean full replay and excluded from the active replay selector."
 	case ReplayFamilySourceProduct:
-		return "MSigmaR1/R0R1 remain selected because the verifier still consumes the committed omega-interpolated source-product rows directly on the current baseline."
+		return "Source-product is a deprecated compatibility/reporting bucket. Maintained proofs keep it at zero selected rows."
 	case ReplayFamilyCarrier:
 		return "Carrier rows remain selected because replay decoding and key binding still consume them directly."
 	case ReplayFamilyPRFCompanion:
@@ -256,6 +259,17 @@ func replayFamilyNotes(kind ReplayFamilyKind) string {
 		return "THat replay rows are already excluded from the active selector."
 	default:
 		return ""
+	}
+}
+
+func replayFamilySourceProductNotes(selectedRows int, bridgeActive bool) string {
+	switch {
+	case bridgeActive:
+		return "Source-product is a deprecated compatibility/reporting bucket. This proof carries the legacy bridge payload, so the active selector cost stays at zero."
+	case selectedRows == 0:
+		return "Source-product is a deprecated compatibility/reporting bucket. Maintained proofs keep it at zero selected rows."
+	default:
+		return "Source-product is a deprecated compatibility/reporting bucket. This proof still carries committed source-product rows, so the selector reports their legacy cost."
 	}
 }
 

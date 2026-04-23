@@ -8,26 +8,43 @@ import (
 
 // validatePublics checks public input shape in credential mode.
 func validatePublics(pub PublicInputs) error {
-	checkOne := func(name string, v []*ring.Poly) error {
+	checkCount := func(name string, v []*ring.Poly, want int, allowZero bool) error {
 		if len(v) == 0 {
-			return nil
+			if allowZero {
+				return nil
+			}
+			return fmt.Errorf("%s: missing polys", name)
 		}
-		if len(v) != 1 {
-			return fmt.Errorf("%s: expected 1 poly, got %d", name, len(v))
+		if want > 0 && len(v) != want {
+			return fmt.Errorf("%s: expected %d polys, got %d", name, want, len(v))
 		}
-		if v[0] == nil {
-			return fmt.Errorf("%s: nil poly", name)
+		for i := range v {
+			if v[i] == nil {
+				return fmt.Errorf("%s: nil poly at index %d", name, i)
+			}
 		}
 		return nil
 	}
-	if err := checkOne("RI0", pub.RI0); err != nil {
+	if pub.X0Len <= 0 {
+		pub.X0Len = 1
+	}
+	if pub.TargetDim <= 0 {
+		pub.TargetDim = 1
+	}
+	if pub.X0CoeffBound <= 0 {
+		pub.X0CoeffBound = pub.BoundB
+	}
+	if err := checkCount("RI0", pub.RI0, pub.X0Len, true); err != nil {
 		return err
 	}
-	if err := checkOne("RI1", pub.RI1); err != nil {
+	if err := checkCount("RI1", pub.RI1, 1, true); err != nil {
 		return err
 	}
-	if len(pub.B) != 0 && len(pub.B) != 1 && len(pub.B) != 4 {
-		return fmt.Errorf("b: expected 1 or 4 polys, got %d", len(pub.B))
+	if len(pub.B) != 0 {
+		wantB := 3 + pub.X0Len
+		if len(pub.B) != wantB {
+			return fmt.Errorf("b: expected %d polys, got %d", wantB, len(pub.B))
+		}
 	}
 	if err := validateHashRelationPublicInputs(pub); err != nil {
 		return err
@@ -62,53 +79,64 @@ func validatePublics(pub PublicInputs) error {
 
 // validateWitnesses checks witness shape in credential mode.
 func validateWitnesses(wit WitnessInputs) error {
-	checkOne := func(name string, v []*ring.Poly) error {
-		if len(v) != 1 {
-			return fmt.Errorf("%s: expected 1 poly, got %d", name, len(v))
+	checkAtLeastOne := func(name string, v []*ring.Poly) error {
+		if len(v) == 0 {
+			return fmt.Errorf("%s: missing poly", name)
 		}
-		if v[0] == nil {
-			return fmt.Errorf("%s: nil poly", name)
+		for i := range v {
+			if v[i] == nil {
+				return fmt.Errorf("%s: nil poly at index %d", name, i)
+			}
 		}
 		return nil
 	}
-	if err := checkOne("M1", wit.M1); err != nil {
+	if err := checkAtLeastOne("M1", wit.M1); err != nil {
 		return err
 	}
-	if err := checkOne("M2", wit.M2); err != nil {
+	if err := checkAtLeastOne("M2", wit.M2); err != nil {
 		return err
 	}
-	if err := checkOne("RU0", wit.RU0); err != nil {
+	if err := checkAtLeastOne("RU0", wit.RU0); err != nil {
 		return err
 	}
-	if err := checkOne("RU1", wit.RU1); err != nil {
+	if err := checkAtLeastOne("RU1", wit.RU1); err != nil {
 		return err
 	}
-	if err := checkOne("R", wit.R); err != nil {
+	if err := checkAtLeastOne("R", wit.R); err != nil {
 		return err
 	}
 	if len(wit.R0) > 0 {
-		if err := checkOne("R0", wit.R0); err != nil {
+		if err := checkAtLeastOne("R0", wit.R0); err != nil {
 			return err
 		}
 	}
 	if len(wit.R1) > 0 {
-		if err := checkOne("R1", wit.R1); err != nil {
+		if err := checkAtLeastOne("R1", wit.R1); err != nil {
 			return err
 		}
 	}
 	if len(wit.Z) > 0 {
-		if err := checkOne("Z", wit.Z); err != nil {
+		if err := checkAtLeastOne("Z", wit.Z); err != nil {
 			return err
 		}
 	}
 	// Centered randomness rows require matching carry rows.
 	if len(wit.R0) > 0 || len(wit.R1) > 0 {
-		if err := checkOne("K0", wit.K0); err != nil {
+		if err := checkAtLeastOne("K0", wit.K0); err != nil {
 			return err
 		}
-		if err := checkOne("K1", wit.K1); err != nil {
+		if err := checkAtLeastOne("K1", wit.K1); err != nil {
 			return err
 		}
+	}
+	if len(wit.RU0) != len(wit.R0) && len(wit.R0) > 0 {
+		return fmt.Errorf("RU0 length=%d mismatches R0 length=%d", len(wit.RU0), len(wit.R0))
+	}
+	if len(wit.K0) != len(wit.R0) && len(wit.R0) > 0 {
+		return fmt.Errorf("K0 length=%d mismatches R0 length=%d", len(wit.K0), len(wit.R0))
+	}
+	if len(wit.RU1) != 1 || len(wit.R1) > 1 || len(wit.K1) > 1 || len(wit.R) != 1 {
+		return fmt.Errorf("RU1/R1/K1/R must remain scalar")
 	}
 	return nil
 }

@@ -568,7 +568,7 @@ func verifyPRFCompanionOpenings(
 		return err
 	}
 	if modAdd(tagFinal, keyTrunc, plan.Q) != plan.PublicTag {
-		return fmt.Errorf("prf companion tag binding failed")
+		return fmt.Errorf("prf companion tag binding failed: tag_final=%d key_trunc=%d public_tag=%d q=%d", tagFinal, keyTrunc, plan.PublicTag, plan.Q)
 	}
 	return nil
 }

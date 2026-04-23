@@ -70,6 +70,95 @@ func TestCarrierMembershipPoly(t *testing.T) {
 	}
 }
 
+func TestSingletonCarrierEncodeDecodeRoundTrip(t *testing.T) {
+	for _, bound := range []int64{1, 5, 8} {
+		for m := -bound; m <= bound; m++ {
+			code, err := encodeSingletonCarrier(m, bound)
+			if err != nil {
+				t.Fatalf("bound=%d encode m=%d: %v", bound, m, err)
+			}
+			got, err := decodeSingletonCarrier(code, bound)
+			if err != nil {
+				t.Fatalf("bound=%d decode code=%d: %v", bound, code, err)
+			}
+			if got != m {
+				t.Fatalf("bound=%d round-trip mismatch: got %d want %d", bound, got, m)
+			}
+		}
+	}
+}
+
+func TestSingletonCarrierDecodePoly(t *testing.T) {
+	bound := int64(5)
+	q := uint64(12289)
+	decode, err := buildSingletonCarrierDecodePoly(bound, q)
+	if err != nil {
+		t.Fatalf("singleton decode poly: %v", err)
+	}
+	size, err := singletonCarrierAlphabetSize(bound)
+	if err != nil {
+		t.Fatalf("singleton alphabet size: %v", err)
+	}
+	for code := int64(0); code < size; code++ {
+		got := EvalPoly(decode, uint64(code)%q, q) % q
+		want := liftToField(q, code-bound) % q
+		if got != want {
+			t.Fatalf("singleton decode mismatch code=%d got=%d want=%d", code, got, want)
+		}
+	}
+}
+
+func TestSingletonCarrierMembershipPoly(t *testing.T) {
+	bound := int64(8)
+	q := uint64(12289)
+	p, err := buildSingletonCarrierMembershipPoly(bound, q)
+	if err != nil {
+		t.Fatalf("singleton membership poly: %v", err)
+	}
+	size, err := singletonCarrierAlphabetSize(bound)
+	if err != nil {
+		t.Fatalf("singleton alphabet size: %v", err)
+	}
+	for code := int64(0); code < size; code++ {
+		if got := EvalPoly(p, uint64(code)%q, q) % q; got != 0 {
+			t.Fatalf("singleton membership nonzero for code=%d val=%d", code, got)
+		}
+	}
+	for _, code := range []uint64{uint64(size), uint64(size + 1)} {
+		if got := EvalPoly(p, code%q, q) % q; got == 0 {
+			t.Fatalf("singleton membership unexpectedly zero for out-of-range code=%d", code)
+		}
+	}
+}
+
+func TestSingletonCarrierAlphabetAndMembershipDegreeAreSmallerThanPair(t *testing.T) {
+	for _, bound := range []int64{1, 5, 8} {
+		pairSize, err := carrierAlphabetSize(bound)
+		if err != nil {
+			t.Fatalf("pair alphabet size bound=%d: %v", bound, err)
+		}
+		singletonSize, err := singletonCarrierAlphabetSize(bound)
+		if err != nil {
+			t.Fatalf("singleton alphabet size bound=%d: %v", bound, err)
+		}
+		if singletonSize >= pairSize {
+			t.Fatalf("bound=%d singleton alphabet=%d want < pair alphabet=%d", bound, singletonSize, pairSize)
+		}
+		q := uint64(12289)
+		pairMem, err := buildCarrierMembershipPoly(bound, q)
+		if err != nil {
+			t.Fatalf("pair membership poly bound=%d: %v", bound, err)
+		}
+		singletonMem, err := buildSingletonCarrierMembershipPoly(bound, q)
+		if err != nil {
+			t.Fatalf("singleton membership poly bound=%d: %v", bound, err)
+		}
+		if len(singletonMem) >= len(pairMem) {
+			t.Fatalf("bound=%d singleton membership degree=%d want < pair degree=%d", bound, len(singletonMem)-1, len(pairMem)-1)
+		}
+	}
+}
+
 func TestPackedMessageCarrierEncodeDecodeRoundTrip(t *testing.T) {
 	bound := int64(2)
 	for m1 := -bound; m1 <= bound; m1++ {

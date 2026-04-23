@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
+
+	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
 func issuanceTestRepoRoot(t *testing.T) string {
@@ -54,16 +57,84 @@ func TestRunWithoutSubcommandFails(t *testing.T) {
 	}
 }
 
+func TestDeriveOmegaForIssuanceOptsUsesRelationAwareWitnessOmega(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+	ringQ, err := credential.LoadDefaultRing()
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+	opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+		Credential:          true,
+		NCols:               16,
+		LVCSNCols:           96,
+		Ell:                 18,
+		NLeaves:             4096,
+		DomainMode:          PIOP.DomainModeExplicit,
+		CoeffPacking:        true,
+		CoeffNativeSigModel: PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+	})
+	omega4096, err := deriveOmegaForIssuanceOpts(ringQ, credential.HashRelationBBTran, opts)
+	if err != nil {
+		t.Fatalf("deriveOmegaForIssuanceOpts(4096): %v", err)
+	}
+	opts.NLeaves = 8192
+	omega8192, err := deriveOmegaForIssuanceOpts(ringQ, credential.HashRelationBBTran, opts)
+	if err != nil {
+		t.Fatalf("deriveOmegaForIssuanceOpts(8192): %v", err)
+	}
+	if len(omega4096) != len(omega8192) {
+		t.Fatalf("omega length mismatch: 4096=%d 8192=%d", len(omega4096), len(omega8192))
+	}
+	for i := range omega4096 {
+		if omega4096[i] != omega8192[i] {
+			t.Fatalf("omega[%d] mismatch: 4096=%d 8192=%d", i, omega4096[i], omega8192[i])
+		}
+	}
+}
+
 func TestSetupDemoPublicRequiresForceToOverwrite(t *testing.T) {
 	root := issuanceTestRepoRoot(t)
 	chdirForIssuanceTest(t, root)
 
 	out := filepath.Join(t.TempDir(), "credential_public.json")
-	if err := run([]string{"setup-demo-public", "-out", out}); err != nil {
+	if err := run([]string{"setup-demo-public", "-out", out, "-x0-profile", "legacy_scalar"}); err != nil {
 		t.Fatalf("initial setup-demo-public: %v", err)
 	}
-	if err := run([]string{"setup-demo-public", "-out", out}); err == nil {
+	if err := run([]string{"setup-demo-public", "-out", out, "-x0-profile", "legacy_scalar"}); err == nil {
 		t.Fatal("setup-demo-public overwrote existing file without -force")
+	}
+}
+
+func TestSetupDemoPublicLHLProfileWritesParameterizedPublicParams(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	out := filepath.Join(t.TempDir(), "credential_public.json")
+	if err := run([]string{"setup-demo-public", "-out", out, "-force", "-x0-profile", "lhl_alt"}); err != nil {
+		t.Fatalf("setup-demo-public lhl_alt: %v", err)
+	}
+	public, err := credential.LoadPublicParams(out)
+	if err != nil {
+		t.Fatalf("load public params: %v", err)
+	}
+	if public.X0Len != 5 || public.X0CoeffBound != 8 {
+		t.Fatalf("unexpected x0 params: len=%d bound=%d", public.X0Len, public.X0CoeffBound)
+	}
+	ringQ, err := credential.LoadDefaultRing()
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+	params, err := public.ToIssuanceParams(ringQ)
+	if err != nil {
+		t.Fatalf("lift params: %v", err)
+	}
+	report, err := credential.BuildLHLReport(params)
+	if err != nil {
+		t.Fatalf("lhl report: %v", err)
+	}
+	if !report.SatisfiesLHL {
+		t.Fatalf("lhl_alt should satisfy LHL: %+v", report)
 	}
 }
 
@@ -81,7 +152,7 @@ func TestRoleSeparatedIssuanceFlowPersistsTrapdoorFreeState(t *testing.T) {
 	statePath := filepath.Join(tmp, "credential_state.json")
 	signaturePath := filepath.Join(tmp, "signature.json")
 
-	if err := run([]string{"setup-demo-public", "-out", publicPath, "-force"}); err != nil {
+	if err := run([]string{"setup-demo-public", "-out", publicPath, "-force", "-x0-profile", "legacy_scalar"}); err != nil {
 		t.Fatalf("setup-demo-public: %v", err)
 	}
 	if err := run([]string{"holder-commit", "-public-params", publicPath, "-holder-secret", holderSecretPath, "-commit-request", commitRequestPath, "-seed", "11"}); err != nil {
@@ -204,5 +275,113 @@ func TestDemoLocalWidthOverridesWriteTempStateWithoutTouchingCanonicalOutputs(t 
 	}
 	if string(beforeSig) != string(afterSig) {
 		t.Fatal("demo-local width override rewrote canonical credential signature")
+	}
+}
+
+func TestSampleHolderInputsRespectsX0ShapeAndBounds(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	ringQ, err := credential.LoadDefaultRing()
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+	public := credential.PublicParams{
+		Version:            credential.PublicParamsVersion,
+		HashRelation:       credential.HashRelationBBTran,
+		BoundB:             1,
+		X0Len:              6,
+		X0CoeffBound:       5,
+		TargetDim:          credential.DefaultTargetDim,
+		TargetHidingLambda: credential.DefaultTargetHidingLambda,
+		X0Distribution:     credential.X0DistributionUniformInterval,
+		LenM:               1,
+		LenK:               1,
+		LenR0H:             6,
+		LenR1H:             1,
+		LenRBar:            1,
+	}
+	omega := make([]uint64, 16)
+	for i := range omega {
+		omega[i] = uint64(i + 1)
+	}
+	in, err := sampleHolderInputs(ringQ, public, omega, newLocalRNG(7))
+	if err != nil {
+		t.Fatalf("sample holder inputs: %v", err)
+	}
+	if len(in.R0H) != public.X0Len {
+		t.Fatalf("r0h len=%d want %d", len(in.R0H), public.X0Len)
+	}
+	checkBound := func(p *ring.Poly, bound int64) {
+		t.Helper()
+		q := int64(ringQ.Modulus[0])
+		for i := 0; i < len(omega); i++ {
+			v := int64(PIOP.EvalPoly(p.Coeffs[0], omega[i]%ringQ.Modulus[0], ringQ.Modulus[0]))
+			if v > q/2 {
+				v -= q
+			}
+			if v < -bound || v > bound {
+				t.Fatalf("coeff %d=%d outside bound [%d,%d]", i, v, -bound, bound)
+			}
+		}
+	}
+	for i := range in.R0H {
+		checkBound(in.R0H[i], public.X0CoeffBound)
+	}
+	checkBound(in.R1H[0], public.BoundB)
+}
+
+func TestBenchmarkX0WritesJSONSmoke(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	out := filepath.Join(t.TempDir(), "benchmark_x0.json")
+	if err := run([]string{"benchmark-x0", "-profiles", "lhl_default", "-runs", "1", "-json-out", out}); err != nil {
+		t.Fatalf("benchmark-x0: %v", err)
+	}
+	var report benchmarkX0Report
+	if err := readJSONFile(out, &report); err != nil {
+		t.Fatalf("read benchmark json: %v", err)
+	}
+	if report.Version != benchmarkX0Version {
+		t.Fatalf("benchmark report version=%d want %d", report.Version, benchmarkX0Version)
+	}
+	if len(report.Profiles) != 1 {
+		t.Fatalf("benchmark profiles len=%d want 1", len(report.Profiles))
+	}
+	profile := report.Profiles[0]
+	if profile.Profile != "lhl_default" {
+		t.Fatalf("profile=%q want lhl_default", profile.Profile)
+	}
+	if profile.X0Len != 6 || profile.X0CoeffBound != 5 {
+		t.Fatalf("unexpected x0 profile len=%d bound=%d", profile.X0Len, profile.X0CoeffBound)
+	}
+	if !profile.LHL.SatisfiesLHL {
+		t.Fatalf("benchmark lhl_default should satisfy LHL: %+v", profile.LHL)
+	}
+	if profile.AvgIssuanceProveMS <= 0 || profile.AvgShowingProveMS <= 0 {
+		t.Fatalf("expected positive benchmark timings, got issuance=%f showing=%f", profile.AvgIssuanceProveMS, profile.AvgShowingProveMS)
+	}
+	if profile.AvgShowingProofBytes <= 0 || profile.AvgShowingTranscript <= 0 {
+		t.Fatalf("expected positive showing size metrics, got proof=%f transcript=%f", profile.AvgShowingProofBytes, profile.AvgShowingTranscript)
+	}
+	if len(profile.RunReports) != 1 {
+		t.Fatalf("run reports len=%d want 1", len(profile.RunReports))
+	}
+	runReport := profile.RunReports[0]
+	if runReport.ReplayWitnessRows <= 0 || runReport.CommittedWitnessRows <= 0 {
+		t.Fatalf("expected positive witness geometry in run report: %+v", runReport)
+	}
+	if runReport.IssuancePaperBuckets.TotalBytes != runReport.IssuanceTranscriptBytes {
+		t.Fatalf("issuance bucket total=%d want transcript=%d", runReport.IssuancePaperBuckets.TotalBytes, runReport.IssuanceTranscriptBytes)
+	}
+	if runReport.ShowingPaperBuckets.TotalBytes != runReport.ShowingTranscriptBytes {
+		t.Fatalf("showing bucket total=%d want transcript=%d", runReport.ShowingPaperBuckets.TotalBytes, runReport.ShowingTranscriptBytes)
+	}
+	if runReport.IssuanceFocus.DQ <= 0 || runReport.ShowingFocus.DQ <= 0 {
+		t.Fatalf("expected positive dq focus in run report: %+v", runReport)
+	}
+	if runReport.ShowingFocus.WitnessRows <= 0 || runReport.ShowingFocus.ReplayBlocks <= 0 {
+		t.Fatalf("expected positive showing focus geometry in run report: %+v", runReport)
 	}
 }

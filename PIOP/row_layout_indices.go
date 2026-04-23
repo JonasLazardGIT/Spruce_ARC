@@ -38,14 +38,55 @@ func resolveReplayRowIndices(explicit []int, base, count int) []int {
 	return contiguousRowIndices(base, count)
 }
 
+func resolveLayoutBlockIndices(explicit []int, scalar int) []int {
+	if len(explicit) > 0 {
+		return copyNonNegativeIndices(explicit)
+	}
+	if scalar >= 0 {
+		return []int{scalar}
+	}
+	return nil
+}
+
+func rowLayoutX0Len(layout RowLayout) int {
+	if layout.X0Len > 0 {
+		return layout.X0Len
+	}
+	for _, n := range []int{
+		len(layout.CarrierRU0Rows),
+		len(layout.CarrierR0Rows),
+		len(layout.CarrierK0Rows),
+		len(layout.AliasRU0Rows),
+		len(layout.AliasR0Rows),
+		len(layout.AliasK0Rows),
+	} {
+		if n > 0 {
+			return n
+		}
+	}
+	if layout.IdxRU0 >= 0 || layout.IdxR0 >= 0 || layout.IdxK0 >= 0 {
+		return 1
+	}
+	return 0
+}
+
 func rowLayoutPostSignM1(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxM1, 0) }
 func rowLayoutPostSignM2(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxM2, 1) }
 func rowLayoutPreSignRU0(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxRU0, 2) }
+func rowLayoutPreSignRU0Rows(layout RowLayout) []int {
+	return resolveLayoutBlockIndices(layout.AliasRU0Rows, rowLayoutPreSignRU0(layout))
+}
 func rowLayoutPreSignRU1(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxRU1, 3) }
 func rowLayoutPostSignR(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxR, 4) }
 func rowLayoutPostSignR0(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxR0, 5) }
+func rowLayoutPostSignR0Rows(layout RowLayout) []int {
+	return resolveLayoutBlockIndices(layout.AliasR0Rows, rowLayoutPostSignR0(layout))
+}
 func rowLayoutPostSignR1(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxR1, 6) }
 func rowLayoutPreSignK0(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxK0, 7) }
+func rowLayoutPreSignK0Rows(layout RowLayout) []int {
+	return resolveLayoutBlockIndices(layout.AliasK0Rows, rowLayoutPreSignK0(layout))
+}
 func rowLayoutPreSignK1(layout RowLayout) int  { return resolveRowLayoutIdx(layout, layout.IdxK1, 8) }
 func rowLayoutZ(layout RowLayout) int          { return resolveRowLayoutIdx(layout, layout.IdxZ, -1) }
 func rowLayoutMSigmaR1(layout RowLayout) int   { return resolveRowLayoutIdx(layout, layout.IdxMSigmaR1, -1) }
@@ -68,14 +109,32 @@ func rowLayoutPostSignCarrierM(layout RowLayout) int {
 func rowLayoutPreSignCarrierRU(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxCarrierPreRU, -1)
 }
+func rowLayoutPreSignCarrierRU1(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxCarrierRU1, -1)
+}
+func rowLayoutPreSignCarrierRU0Rows(layout RowLayout) []int {
+	return resolveLayoutBlockIndices(layout.CarrierRU0Rows, rowLayoutPreSignCarrierRU(layout))
+}
 func rowLayoutPreSignCarrierR(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxCarrierPreR, -1)
 }
 func rowLayoutPostSignCarrierCtr(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxCarrierCtr, -1)
 }
+func rowLayoutPostSignCarrierR1(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxCarrierR1, -1)
+}
+func rowLayoutPostSignCarrierR0Rows(layout RowLayout) []int {
+	return resolveLayoutBlockIndices(layout.CarrierR0Rows, rowLayoutPostSignCarrierCtr(layout))
+}
 func rowLayoutPreSignCarrierK(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxCarrierK, -1)
+}
+func rowLayoutPreSignCarrierK1(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxCarrierK1, -1)
+}
+func rowLayoutPreSignCarrierK0Rows(layout RowLayout) []int {
+	return resolveLayoutBlockIndices(layout.CarrierK0Rows, rowLayoutPreSignCarrierK(layout))
 }
 func rowLayoutPostSignTSource(layout RowLayout) int {
 	return resolveRowLayoutIdx(layout, layout.IdxTSource, -1)
@@ -172,6 +231,16 @@ func rowLayoutPostSignMHatSigmaIndex(layout RowLayout, block int) int {
 	return base + block
 }
 func rowLayoutPostSignRHat0Index(layout RowLayout, block int) int {
+	if rowLayoutX0Len(layout) > 1 && len(layout.ReplayRHat0Rows) > 0 {
+		if block < 0 {
+			return -1
+		}
+		base := block * rowLayoutX0Len(layout)
+		if base >= len(layout.ReplayRHat0Rows) {
+			return -1
+		}
+		return layout.ReplayRHat0Rows[base]
+	}
 	if len(layout.ReplayRHat0Rows) > 0 {
 		if block < 0 || block >= len(layout.ReplayRHat0Rows) {
 			return -1
@@ -184,6 +253,32 @@ func rowLayoutPostSignRHat0Index(layout RowLayout, block int) int {
 		return -1
 	}
 	return base + block
+}
+
+func rowLayoutPostSignRHat0ComponentIndex(layout RowLayout, block, component int) int {
+	if component < 0 {
+		return -1
+	}
+	x0Len := rowLayoutX0Len(layout)
+	if x0Len <= 0 {
+		return -1
+	}
+	if component >= x0Len {
+		return -1
+	}
+	if len(layout.ReplayRHat0Rows) > 0 {
+		idx := block*x0Len + component
+		if idx < 0 || idx >= len(layout.ReplayRHat0Rows) {
+			return -1
+		}
+		return layout.ReplayRHat0Rows[idx]
+	}
+	base := rowLayoutPostSignRHat0(layout)
+	count := rowLayoutReplayBlockCount(layout)
+	if base < 0 || block < 0 || block >= count {
+		return -1
+	}
+	return base + block*x0Len + component
 }
 func rowLayoutPostSignRHat1Index(layout RowLayout, block int) int {
 	if len(layout.ReplayRHat1Rows) > 0 {
@@ -271,18 +366,21 @@ func rowLayoutPostSignR0R1HatRows(layout RowLayout) []int {
 }
 
 func rowLayoutPreSignBoundRows(layout RowLayout) []int {
-	return uniqueNonNegativeIndices([]int{
+	rows := []int{
 		rowLayoutPostSignCarrierM(layout),
-		rowLayoutPreSignCarrierRU(layout),
+		rowLayoutPreSignCarrierRU1(layout),
 		rowLayoutPreSignCarrierR(layout),
-		rowLayoutPostSignCarrierCtr(layout),
-	})
+		rowLayoutPostSignCarrierR1(layout),
+	}
+	rows = append(rows, rowLayoutPreSignCarrierRU0Rows(layout)...)
+	rows = append(rows, rowLayoutPostSignCarrierR0Rows(layout)...)
+	return uniqueNonNegativeIndices(rows)
 }
 
 func rowLayoutPreSignCarryRows(layout RowLayout) []int {
-	return uniqueNonNegativeIndices([]int{
-		rowLayoutPreSignCarrierK(layout),
-	})
+	rows := append([]int{}, rowLayoutPreSignCarrierK0Rows(layout)...)
+	rows = append(rows, rowLayoutPreSignCarrierK1(layout))
+	return uniqueNonNegativeIndices(rows)
 }
 
 func uniqueNonNegativeIndices(in []int) []int {

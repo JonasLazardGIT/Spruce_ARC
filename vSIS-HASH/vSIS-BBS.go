@@ -11,11 +11,22 @@ import (
 
 // GenerateB samples B in the coefficient domain.
 func GenerateB(ringQ *ring.Ring, prng utils.PRNG) ([]*ring.Poly, error) {
+	return GenerateBWithX0Len(ringQ, prng, 1)
+}
+
+// GenerateBWithX0Len samples [B0, B1, B2[0], ..., B2[x0Len-1], B3] in the
+// coefficient domain for the live BB-tran relation.
+func GenerateBWithX0Len(ringQ *ring.Ring, prng utils.PRNG, x0Len int) ([]*ring.Poly, error) {
+	if x0Len <= 0 {
+		return nil, errors.New("invalid x0 length")
+	}
 	uni := ring.NewUniformSampler(prng, ringQ)
-	B := make([]*ring.Poly, 4)
-	for i := 0; i < 4; i++ {
+	B := make([]*ring.Poly, 3+x0Len)
+	for i := 0; i < len(B); i++ {
 		p := ringQ.NewPoly()
-		uni.Read(p)
+		if i != 0 {
+			uni.Read(p)
+		}
 		B[i] = p
 	}
 	return B, nil
@@ -138,24 +149,46 @@ func ComputeBBTranTarget(
 	B []*ring.Poly,
 	m, x0, x1 *ring.Poly,
 ) (*ring.Poly, *ring.Poly, error) {
-	if len(B) != 4 {
-		return nil, nil, errors.New("need four B polynomials")
-	}
+	return ComputeBBTranTargetVector(ringQ, B[0], B[1], []*ring.Poly{B[2]}, B[3], m, []*ring.Poly{x0}, x1)
+}
 
+func ComputeBBTranTargetVector(
+	ringQ *ring.Ring,
+	b0, b1 *ring.Poly,
+	b2 []*ring.Poly,
+	b3 *ring.Poly,
+	m *ring.Poly,
+	x0 []*ring.Poly,
+	x1 *ring.Poly,
+) (*ring.Poly, *ring.Poly, error) {
+	if ringQ == nil {
+		return nil, nil, errors.New("nil ring")
+	}
+	if b0 == nil || b1 == nil || b3 == nil {
+		return nil, nil, errors.New("nil B polynomial")
+	}
+	if len(b2) == 0 || len(x0) == 0 || len(b2) != len(x0) {
+		return nil, nil, errors.New("invalid b2/x0 length")
+	}
+	if m == nil {
+		return nil, nil, errors.New("nil message polynomial")
+	}
 	ringQ.NTT(m, m)
-	ringQ.NTT(x0, x0)
-	z, err := ComputeBBTranInverse(ringQ, B[3], x1)
+	z, err := ComputeBBTranInverse(ringQ, b3, x1)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	tmp := ringQ.NewPoly()
 	t := ringQ.NewPoly()
-	ring.Copy(B[0], t)
-	ringQ.MulCoeffs(B[1], m, tmp)
+	ring.Copy(b0, t)
+	ringQ.MulCoeffs(b1, m, tmp)
 	ringQ.Add(t, tmp, t)
-	ringQ.MulCoeffs(B[2], x0, tmp)
-	ringQ.Add(t, tmp, t)
+	for i := range x0 {
+		ringQ.NTT(x0[i], x0[i])
+		ringQ.MulCoeffs(b2[i], x0[i], tmp)
+		ringQ.Add(t, tmp, t)
+	}
 	ringQ.Add(t, z, t)
 	return z, t, nil
 }

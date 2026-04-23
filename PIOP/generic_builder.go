@@ -148,7 +148,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				set.PRFLayout = prfLayout
 				set.PRFCompanionLayout = prfCompanionLayout
 			} else {
-				rows, rowInputs, rowLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, err = buildCredentialRows(ringQ, pub.HashRelation, wit, opts, pub.BoundB)
+				rows, rowInputs, rowLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, err = buildCredentialRows(ringQ, pub.HashRelation, wit, opts, pub.BoundB, pub.X0CoeffBound)
 			}
 			if err != nil {
 				return nil, fmt.Errorf("build credential rows: %w", err)
@@ -524,16 +524,6 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				return nil, fmt.Errorf("build sig shortness self-check: %w", serr)
 			}
 		}
-		if sourceProductBridgeEnabled(pub, opts, rowLayout) {
-			bridge, _, berr := buildSourceProductBridge(ringQ, pk, root, pub, rowLayout, omegaWitness, proof.PCSGeometry)
-			if berr != nil {
-				return nil, fmt.Errorf("build source-product bridge: %w", berr)
-			}
-			proof.SourceProductBridge = bridge
-			if _, berr := prepareSourceProductBridgeView(ringQ, proof, pub); berr != nil {
-				return nil, fmt.Errorf("build source-product bridge self-check: %w", berr)
-			}
-		}
 		return proof, nil
 	}
 	return nil, fmt.Errorf("unsupported non-credential BuildWithConstraints path")
@@ -719,18 +709,6 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 					evalK = composeKEvaluators(evalK, sigReplay.EvalK)
 				}
 			}
-			if aliasEval := cfgPost.SourceProductAliasEqualityEvaluator(); aliasEval != nil {
-				eval = composeEvaluators(eval, aliasEval)
-				if proof.Theta > 1 && K != nil {
-					aliasEvalK, err := cfgPost.SourceProductAliasEqualityKEvaluator(K)
-					if err != nil {
-						return false, err
-					}
-					if aliasEvalK != nil {
-						evalK = composeKEvaluators(evalK, aliasEvalK)
-					}
-				}
-			}
 			if prfStripeEval := cfgPost.PRFBridgeStripeEqualityEvaluator(); prfStripeEval != nil {
 				eval = composeEvaluators(eval, prfStripeEval)
 				if proof.Theta > 1 && K != nil {
@@ -764,7 +742,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			boundB = pub.BoundB
 			carryBound = 1
 			rowCount = 0
-			for _, idx := range []int{
+			scalarRows := []int{
 				proof.RowLayout.IdxM1,
 				proof.RowLayout.IdxM2,
 				proof.RowLayout.IdxRU0,
@@ -776,9 +754,12 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				proof.RowLayout.IdxK1,
 				proof.RowLayout.IdxCarrierM,
 				proof.RowLayout.IdxCarrierPreRU,
+				proof.RowLayout.IdxCarrierRU1,
 				proof.RowLayout.IdxCarrierPreR,
 				proof.RowLayout.IdxCarrierCtr,
+				proof.RowLayout.IdxCarrierR1,
 				proof.RowLayout.IdxCarrierK,
+				proof.RowLayout.IdxCarrierK1,
 				proof.RowLayout.IdxMHat1,
 				proof.RowLayout.IdxMHat2,
 				proof.RowLayout.IdxRHat0,
@@ -788,9 +769,31 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				proof.RowLayout.IdxR0R1,
 				proof.RowLayout.IdxMSigmaR1Hat,
 				proof.RowLayout.IdxR0R1Hat,
-			} {
+			}
+			for _, idx := range scalarRows {
 				if idx+1 > rowCount {
 					rowCount = idx + 1
+				}
+			}
+			for _, rows := range [][]int{
+				proof.RowLayout.CarrierRU0Rows,
+				proof.RowLayout.CarrierR0Rows,
+				proof.RowLayout.CarrierK0Rows,
+				proof.RowLayout.AliasRU0Rows,
+				proof.RowLayout.AliasR0Rows,
+				proof.RowLayout.AliasK0Rows,
+				proof.RowLayout.ReplayMHatSigmaRows,
+				proof.RowLayout.ReplayRHat0Rows,
+				proof.RowLayout.ReplayRHat1Rows,
+				proof.RowLayout.ReplayZHatRows,
+				proof.RowLayout.ReplayMSigmaR1HatRows,
+				proof.RowLayout.ReplayR0R1HatRows,
+				proof.RowLayout.ReplayTHatRows,
+			} {
+				for _, idx := range rows {
+					if idx+1 > rowCount {
+						rowCount = idx + 1
+					}
 				}
 			}
 			haveCred = true
@@ -881,13 +884,23 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		}
 		if proof.HashRelation == credential.HashRelationBBTran {
 			if len(pub.Ac) > 0 && len(pub.A) == 0 {
-				replay.FparOverrideIdxs = []int{9, 10}
-			} else if rowLayoutHasCoeffNativeSig(proof.RowLayout) {
-				replayBlocks := rowLayoutReplayBlockCount(proof.RowLayout)
-				if replayBlocks <= 0 {
-					replayBlocks = 1
+				overrideCount := len(replay.FparCoeffs)
+				if overrideCount == 0 {
+					overrideCount = len(replay.Fpar)
 				}
-				replay.FparOverrideIdxs = []int{replayBlocks, replayBlocks + 1}
+				replay.FparOverrideIdxs = make([]int, overrideCount)
+				for i := 0; i < overrideCount; i++ {
+					replay.FparOverrideIdxs[i] = i
+				}
+			} else if rowLayoutHasCoeffNativeSig(proof.RowLayout) {
+				overrideCount := len(replay.FparCoeffs)
+				if overrideCount == 0 {
+					overrideCount = len(replay.Fpar)
+				}
+				replay.FparOverrideIdxs = make([]int, overrideCount)
+				for i := 0; i < overrideCount; i++ {
+					replay.FparOverrideIdxs[i] = i
+				}
 			}
 		}
 
@@ -925,11 +938,6 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		}
 		if err := VerifySigShortnessProof(proof, ringQ, omegaWitness, pub, opts); err != nil {
 			return false, fmt.Errorf("verify sig shortness: %w", err)
-		}
-		if cfgPost != nil {
-			if err := cfgPost.verifySourceProductBridgeChecks(proof, pub); err != nil {
-				return false, err
-			}
 		}
 		return true, nil
 	}

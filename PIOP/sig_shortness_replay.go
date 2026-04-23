@@ -462,7 +462,7 @@ func deriveProofExplicitDomainPoints(proof *Proof, q uint64, witnessNCols, pcsNC
 func prepareSigShortnessOpeningForVerify(
 	opening *decs.DECSOpening,
 	gamma [][]uint64,
-	rPolys []*ring.Poly,
+	rCoeffRows [][]uint64,
 	domainPoints []uint64,
 	ringQ *ring.Ring,
 	replayWitnessRows int,
@@ -477,7 +477,7 @@ func prepareSigShortnessOpeningForVerify(
 		}
 	}
 	if open.MFormatVersion == 1 {
-		if err := reconstructRowOpeningMvals(open, gamma, rPolys, domainPoints, ringQ); err != nil {
+		if err := reconstructRowOpeningMvalsFormal(open, gamma, rCoeffRows, domainPoints, ringQ.Modulus[0]); err != nil {
 			return nil, fmt.Errorf("reconstruct sig shortness M values: %w", err)
 		}
 	}
@@ -1202,7 +1202,6 @@ func buildSigShortnessHiddenCandidateWithPolicy(
 	if err != nil {
 		return nil, fmt.Errorf("build hidden sig shortness proof: %w", err)
 	}
-	stripHiddenSigShortnessProofDebug(hiddenProof)
 	hiddenReplay, err := buildSigShortnessHiddenReplay(ringQ, hiddenProof, pub, hiddenOmegaWitness, tHatHeads, spec)
 	if err != nil {
 		return nil, fmt.Errorf("hidden sig shortness replay: %w", err)
@@ -1210,6 +1209,7 @@ func buildSigShortnessHiddenCandidateWithPolicy(
 	if err := verifySigShortnessHiddenProof(hiddenProof, hiddenPub, hiddenReplay); err != nil {
 		return nil, fmt.Errorf("hidden sig shortness self-check: %w", err)
 	}
+	stripHiddenSigShortnessProofDebug(hiddenProof)
 	hiddenReport, err := BuildProofReport(hiddenProof, hiddenOpts, ringQ)
 	if err != nil {
 		return nil, fmt.Errorf("hidden sig shortness report: %w", err)
@@ -1279,7 +1279,6 @@ func chooseSigShortnessHiddenShapeLegacyFirstFit(
 	}
 	return sigShortnessHiddenCandidateShape{}, fmt.Errorf("no hidden shortness profile fit the current signature witness")
 }
-
 
 func buildSigShortnessHiddenLayout(mainLayout RowLayout, spec LinfSpec, witnessNCols int) RowLayout {
 	cfgMain := mainLayout.CoeffNativeSig
@@ -1449,15 +1448,19 @@ func buildSigShortnessHiddenTHatBridgeFormalCoeffs(
 	outPolys := make([]*ring.Poly, 0, replayTHatCount*ncols)
 	outCoeffs := make([][]uint64, 0, replayTHatCount*ncols)
 	for bOut := 0; bOut < replayTHatCount; bOut++ {
+		thetaAHeads := make([][]uint64, cfg.PackedSigComponents)
+		for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+			aHead, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omegaWitness, bOut, sourceBlocks)
+			if err != nil {
+				return nil, nil, fmt.Errorf("hidden theta A comp=%d block=%d: %w", comp, bOut, err)
+			}
+			thetaAHeads[comp] = aHead
+		}
 		for j := 0; j < ncols; j++ {
 			t := bOut*ncols + j
 			leftCoeff := []uint64{0}
 			for comp := 0; comp < cfg.PackedSigComponents; comp++ {
-				aHead, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omegaWitness, bOut, sourceBlocks)
-				if err != nil {
-					return nil, nil, fmt.Errorf("hidden theta A comp=%d block=%d: %w", comp, bOut, err)
-				}
-				aScale := aHead[j] % q
+				aScale := thetaAHeads[comp][j] % q
 				if aScale == 0 {
 					continue
 				}
@@ -1468,7 +1471,7 @@ func buildSigShortnessHiddenTHatBridgeFormalCoeffs(
 					}
 					for lane := 0; lane < spec.L; lane++ {
 						scale := modMul(aScale, modMul(spec.RPows[lane]%q, blockScale, q), q)
-						term := polyMul(bridgeBasis.TransformH[t], digitCoeffs[[3]int{comp, block, lane}], q)
+						term := reducePolyModXN1(polyMul(bridgeBasis.TransformH[t], digitCoeffs[[3]int{comp, block, lane}], q), int(ringQ.N), q)
 						if scale != 1 {
 							term = scalePoly(term, scale, q)
 						}
@@ -1476,8 +1479,8 @@ func buildSigShortnessHiddenTHatBridgeFormalCoeffs(
 					}
 				}
 			}
-			rightCoeff := polyMul(bridgeBasis.LagrangeBasis[j], tHatCoeffs[bOut], q)
-			bridgeCoeff := trimPoly(polySub(leftCoeff, rightCoeff, q), q)
+			rightCoeff := reducePolyModXN1(polyMul(bridgeBasis.LagrangeBasis[j], tHatCoeffs[bOut], q), int(ringQ.N), q)
+			bridgeCoeff := reducePolyModXN1(polySub(leftCoeff, rightCoeff, q), int(ringQ.N), q)
 			outCoeffs = append(outCoeffs, bridgeCoeff)
 			outPolys = append(outPolys, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
 		}
@@ -2107,15 +2110,19 @@ func buildSigShortnessCommittedTHatBridgeFormalCoeffs(
 	outPolys := make([]*ring.Poly, 0, replayTHatCount*ncols)
 	outCoeffs := make([][]uint64, 0, replayTHatCount*ncols)
 	for bOut := 0; bOut < replayTHatCount; bOut++ {
+		thetaAHeads := make([][]uint64, cfg.PackedSigComponents)
+		for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+			aHead, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omegaWitness, bOut, sourceBlocks)
+			if err != nil {
+				return nil, nil, fmt.Errorf("theta A comp=%d block=%d: %w", comp, bOut, err)
+			}
+			thetaAHeads[comp] = aHead
+		}
 		for j := 0; j < ncols; j++ {
 			t := bOut*ncols + j
 			leftCoeff := []uint64{0}
 			for comp := 0; comp < cfg.PackedSigComponents; comp++ {
-				aHead, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omegaWitness, bOut, sourceBlocks)
-				if err != nil {
-					return nil, nil, fmt.Errorf("theta A comp=%d block=%d: %w", comp, bOut, err)
-				}
-				aScale := aHead[j] % q
+				aScale := thetaAHeads[comp][j] % q
 				if aScale == 0 {
 					continue
 				}
@@ -2126,7 +2133,7 @@ func buildSigShortnessCommittedTHatBridgeFormalCoeffs(
 					}
 					for lane := 0; lane < spec.L; lane++ {
 						scale := modMul(aScale, modMul(spec.RPows[lane]%q, blockScale, q), q)
-						term := polyMul(bridgeBasis.TransformH[t], digitCoeffs[[3]int{comp, block, lane}], q)
+						term := reducePolyModXN1(polyMul(bridgeBasis.TransformH[t], digitCoeffs[[3]int{comp, block, lane}], q), int(ringQ.N), q)
 						if scale != 1 {
 							term = scalePoly(term, scale, q)
 						}
@@ -2134,8 +2141,8 @@ func buildSigShortnessCommittedTHatBridgeFormalCoeffs(
 					}
 				}
 			}
-			rightCoeff := polyMul(bridgeBasis.LagrangeBasis[j], tHatCoeffs[bOut], q)
-			bridgeCoeff := trimPoly(polySub(leftCoeff, rightCoeff, q), q)
+			rightCoeff := reducePolyModXN1(polyMul(bridgeBasis.LagrangeBasis[j], tHatCoeffs[bOut], q), int(ringQ.N), q)
+			bridgeCoeff := reducePolyModXN1(polySub(leftCoeff, rightCoeff, q), int(ringQ.N), q)
 			outCoeffs = append(outCoeffs, bridgeCoeff)
 			outPolys = append(outPolys, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
 		}
@@ -2403,12 +2410,9 @@ func prepareSigShortnessV5THatView(proof *Proof, ringQ *ring.Ring, omegaWitness 
 	if err != nil {
 		return nil, err
 	}
-	rPolys := make([]*ring.Poly, len(proof.R))
+	rCoeffRows := make([][]uint64, len(proof.R))
 	for i := range proof.R {
-		rPolys[i] = coeffsToNTTIfFits(ringQ, proof.R[i])
-		if rPolys[i] == nil {
-			return nil, fmt.Errorf("R polynomial %d too large to materialize", i)
-		}
+		rCoeffRows[i] = trimPoly(append([]uint64(nil), proof.R[i]...), ringQ.Modulus[0])
 	}
 	replayWitnessRows, err := sigShortnessReplayWitnessRows(proof)
 	if err != nil {
@@ -2421,11 +2425,11 @@ func prepareSigShortnessV5THatView(proof *Proof, ringQ *ring.Ring, omegaWitness 
 	case sigShortnessProofVersionV6:
 		tHatOpening = proof.SigShortness.V6.THatOpening
 	}
-	opening, err := prepareSigShortnessOpeningForVerify(tHatOpening, gamma, rPolys, domainPoints, ringQ, replayWitnessRows)
+	opening, err := prepareSigShortnessOpeningForVerify(tHatOpening, gamma, rCoeffRows, domainPoints, ringQ, replayWitnessRows)
 	if err != nil {
 		return nil, err
 	}
-	if err := verifyDECSSubset(ringQ, proof.Root, params, gamma, rPolys, opening, slots, domainPoints); err != nil {
+	if err := verifyDECSSubsetFormal(proof.Root, params, gamma, rCoeffRows, opening, slots, domainPoints, ringQ.Modulus[0]); err != nil {
 		return nil, fmt.Errorf("sig shortness T-hat opening rejected: %w", err)
 	}
 	theta := proof.Theta
@@ -2493,22 +2497,19 @@ func prepareSigShortnessVerifyBase(proof *Proof, ringQ *ring.Ring, omegaWitness 
 	if err != nil {
 		return nil, LinfSpec{}, err
 	}
-	rPolys := make([]*ring.Poly, len(proof.R))
+	rCoeffRows := make([][]uint64, len(proof.R))
 	for i := range proof.R {
-		rPolys[i] = coeffsToNTTIfFits(ringQ, proof.R[i])
-		if rPolys[i] == nil {
-			return nil, LinfSpec{}, fmt.Errorf("R polynomial %d too large to materialize", i)
-		}
+		rCoeffRows[i] = trimPoly(append([]uint64(nil), proof.R[i]...), q)
 	}
 	replayWitnessRows, err := sigShortnessReplayWitnessRows(proof)
 	if err != nil {
 		return nil, LinfSpec{}, err
 	}
-	opening, err := prepareSigShortnessOpeningForVerify(sig.Opening, gamma, rPolys, domainPoints, ringQ, replayWitnessRows)
+	opening, err := prepareSigShortnessOpeningForVerify(sig.Opening, gamma, rCoeffRows, domainPoints, ringQ, replayWitnessRows)
 	if err != nil {
 		return nil, LinfSpec{}, err
 	}
-	if err := verifyDECSSubset(ringQ, proof.Root, params, gamma, rPolys, opening, sig.SupportSlots, domainPoints); err != nil {
+	if err := verifyDECSSubsetFormal(proof.Root, params, gamma, rCoeffRows, opening, sig.SupportSlots, domainPoints, q); err != nil {
 		return nil, LinfSpec{}, fmt.Errorf("sig shortness opening rejected: %w", err)
 	}
 	theta := proof.Theta

@@ -49,7 +49,10 @@ func buildShowingReplayActiveRowSelectorWithSourceProductBridge(layout RowLayout
 
 	if rowLayoutCoeffNativeUsesTransformBridge(layout) {
 		add(layout.IdxCarrierM)
-		add(layout.IdxCarrierCtr)
+		add(rowLayoutPostSignCarrierR1(layout))
+		for _, idx := range rowLayoutPostSignCarrierR0Rows(layout) {
+			add(idx)
+		}
 		if rowLayoutUsesCommittedTSourceBridge(layout) {
 			addRange(layout.IdxTSource, rowLayoutPostSignTSourceCount(layout))
 		}

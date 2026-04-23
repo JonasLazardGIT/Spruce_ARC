@@ -476,6 +476,56 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	}
 	okSum, badRow, badSum := verifySumOnQOpening(qOpeningPrepared, rhoQ, witnessNCols, q)
 	if !okSum {
+		if badRow >= 0 && badRow < len(proof.QCoeffDebug) {
+			dbgSum := uint64(0)
+			for i := 0; i < witnessNCols && i < len(domainPoints); i++ {
+				dbgSum = lvcs.MulAddMod64(dbgSum, 1, EvalPoly(proof.QCoeffDebug[badRow], domainPoints[i]%q, q)%q, q)
+			}
+			faggBad := make([]string, 0, 4)
+			fparBad := make([]string, 0, 4)
+			describeFagg := func(idx int) string {
+				layout := proof.RowLayout
+				if rowLayoutHasCoeffNativeSig(layout) && rowLayoutCoeffNativeUsesTransformBridge(layout) {
+					replayBlocks := rowLayoutReplayBlockCount(layout)
+					span := replayBlocks * witnessNCols
+					x0Len := rowLayoutX0Len(layout)
+					if span > 0 {
+						switch {
+						case idx < span:
+							return fmt.Sprintf("mSigma[b=%d,j=%d]", idx/witnessNCols, idx%witnessNCols)
+						case idx < 2*span:
+							idx -= span
+							return fmt.Sprintf("r1[b=%d,j=%d]", idx/witnessNCols, idx%witnessNCols)
+						case idx < (2+x0Len)*span:
+							idx -= 2 * span
+							comp := idx / span
+							off := idx % span
+							return fmt.Sprintf("r0[%d][b=%d,j=%d]", comp, off/witnessNCols, off%witnessNCols)
+						}
+					}
+				}
+				return "other"
+			}
+			for i := 0; i < len(proof.FaggCoeffDebug) && len(faggBad) < 4; i++ {
+				sum := uint64(0)
+				for j := 0; j < witnessNCols && j < len(domainPoints); j++ {
+					sum = lvcs.MulAddMod64(sum, 1, EvalPoly(proof.FaggCoeffDebug[i], domainPoints[j]%q, q)%q, q)
+				}
+				if sum%q != 0 {
+					faggBad = append(faggBad, fmt.Sprintf("%d:%s:%d", i, describeFagg(i), sum%q))
+				}
+			}
+			for i := 0; i < len(proof.FparCoeffDebug) && len(fparBad) < 4; i++ {
+				sum := uint64(0)
+				for j := 0; j < witnessNCols && j < len(domainPoints); j++ {
+					sum = lvcs.MulAddMod64(sum, 1, EvalPoly(proof.FparCoeffDebug[i], domainPoints[j]%q, q)%q, q)
+				}
+				if sum%q != 0 {
+					fparBad = append(fparBad, fmt.Sprintf("%d:%d", i, sum%q))
+				}
+			}
+			return okLin, false, false, fmt.Errorf("VerifyNIZK: ΣΩ failed (row=%d sum=%d qcoeff_sum=%d deg=%d bad_fpar=%v bad_fagg=%v)", badRow, badSum, dbgSum, len(proof.QCoeffDebug[badRow])-1, fparBad, faggBad)
+		}
 		return okLin, false, false, fmt.Errorf("VerifyNIZK: ΣΩ failed (row=%d sum=%d)", badRow, badSum)
 	}
 
@@ -1060,7 +1110,25 @@ func reconstructRowOpeningMvals(open *decs.DECSOpening, gamma [][]uint64, rPolys
 	if len(rPolys) < open.Eta {
 		return fmt.Errorf("row polynomial count=%d < eta=%d", len(rPolys), open.Eta)
 	}
-	q := ringQ.Modulus[0]
+	rCoeffRows := make([][]uint64, open.Eta)
+	tmp := ringQ.NewPoly()
+	for k := 0; k < open.Eta; k++ {
+		if rPolys[k] == nil {
+			return fmt.Errorf("missing row polynomial %d", k)
+		}
+		ringQ.InvNTT(rPolys[k], tmp)
+		rCoeffRows[k] = trimPoly(append([]uint64(nil), tmp.Coeffs[0]...), ringQ.Modulus[0])
+	}
+	return reconstructRowOpeningMvalsFormal(open, gamma, rCoeffRows, domainPoints, ringQ.Modulus[0])
+}
+
+func reconstructRowOpeningMvalsFormal(open *decs.DECSOpening, gamma [][]uint64, rCoeffRows [][]uint64, domainPoints []uint64, q uint64) error {
+	if open == nil {
+		return errors.New("nil opening")
+	}
+	if len(rCoeffRows) < open.Eta {
+		return fmt.Errorf("row coefficient count=%d < eta=%d", len(rCoeffRows), open.Eta)
+	}
 	omitCols := append([]int(nil), open.MOmitCols...)
 	for _, col := range omitCols {
 		if col < 0 || col >= open.Eta {
@@ -1083,15 +1151,6 @@ func reconstructRowOpeningMvals(open *decs.DECSOpening, gamma [][]uint64, rPolys
 		if len(open.Mvals[i]) != len(keepCols) {
 			return fmt.Errorf("compressed row opening M row %d width=%d want=%d", i, len(open.Mvals[i]), len(keepCols))
 		}
-	}
-	rCoeffRows := make([][]uint64, open.Eta)
-	tmp := ringQ.NewPoly()
-	for k := 0; k < open.Eta; k++ {
-		if rPolys[k] == nil {
-			return fmt.Errorf("missing row polynomial %d", k)
-		}
-		ringQ.InvNTT(rPolys[k], tmp)
-		rCoeffRows[k] = append([]uint64(nil), tmp.Coeffs[0]...)
 	}
 	fullRows := make([][]uint64, open.EntryCount())
 	for t := 0; t < open.EntryCount(); t++ {
@@ -1119,6 +1178,75 @@ func reconstructRowOpeningMvals(open *decs.DECSOpening, gamma [][]uint64, rPolys
 	open.MFormatVersion = 0
 	open.MColsEncoded = 0
 	open.MOmitCols = nil
+	return nil
+}
+
+func verifyDECSSubsetFormal(root [16]byte, params decs.Params, Gamma [][]uint64, rCoeffRows [][]uint64, open *decs.DECSOpening, indices []int, points []uint64, q uint64) error {
+	entryCount := open.EntryCount()
+	if len(indices) != entryCount {
+		return fmt.Errorf("DECS subset: index length mismatch")
+	}
+	rowCount := len(Gamma[0])
+	if rowCount <= 0 {
+		return fmt.Errorf("DECS subset: empty Gamma rows")
+	}
+	if len(rCoeffRows) != params.Eta {
+		return fmt.Errorf("DECS subset: R count mismatch")
+	}
+	for k := 0; k < params.Eta; k++ {
+		rCoeffRows[k] = trimPoly(append([]uint64(nil), rCoeffRows[k]...), q)
+	}
+	for t, idx := range indices {
+		if idx < 0 || idx >= len(points) {
+			return fmt.Errorf("DECS subset: point index %d out of range (points=%d)", idx, len(points))
+		}
+		buf := make([]byte, 4*(rowCount+params.Eta)+2+params.NonceBytes)
+		off := 0
+		pvals := make([]uint64, rowCount)
+		for j := 0; j < rowCount; j++ {
+			pv := decs.GetOpeningPval(open, t, j) % q
+			pvals[j] = pv
+			binary.LittleEndian.PutUint32(buf[off:], uint32(pv))
+			off += 4
+		}
+		mvals := make([]uint64, params.Eta)
+		for k := 0; k < params.Eta; k++ {
+			mv := decs.GetOpeningMval(open, t, k) % q
+			mvals[k] = mv
+			binary.LittleEndian.PutUint32(buf[off:], uint32(mv))
+			off += 4
+		}
+		binary.LittleEndian.PutUint16(buf[off:], uint16(idx))
+		off += 2
+		var nonce []byte
+		if len(open.Nonces) > t && len(open.Nonces[t]) > 0 {
+			nonce = open.Nonces[t]
+		} else if len(open.NonceSeed) > 0 && open.NonceBytes > 0 {
+			nonce = decs.DeriveNonce(open.NonceSeed, idx, open.NonceBytes)
+		}
+		if len(nonce) != params.NonceBytes {
+			return fmt.Errorf("DECS subset: nonce length mismatch at t=%d", t)
+		}
+		copy(buf[off:], nonce[:params.NonceBytes])
+		path, err := extractPathNodes(open, t)
+		if err != nil {
+			return fmt.Errorf("DECS subset: %w", err)
+		}
+		if !decs.VerifyPath(buf, path, root, idx) {
+			return fmt.Errorf("DECS subset: Merkle verification failed at idx=%d", idx)
+		}
+		x := points[idx] % q
+		for k := 0; k < params.Eta; k++ {
+			lhs := EvalPoly(rCoeffRows[k], x, q)
+			rhs := mvals[k]
+			for j := 0; j < rowCount; j++ {
+				rhs = lvcs.MulAddMod64(rhs, Gamma[k][j], pvals[j], q)
+			}
+			if lhs != rhs%q {
+				return fmt.Errorf("DECS subset: relation mismatch k=%d idx=%d lhs=%d rhs=%d", k, idx, lhs, rhs%q)
+			}
+		}
+	}
 	return nil
 }
 

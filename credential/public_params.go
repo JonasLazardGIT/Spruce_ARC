@@ -12,21 +12,26 @@ import (
 )
 
 const DefaultPublicParamsPath = "Parameters/credential_public.json"
-const PublicParamsVersion = 1
+const PublicParamsVersion = 2
 
 // PublicParams captures the stable credential-side public parameters used by
 // issuance and showing.
 type PublicParams struct {
-	Version      int                    `json:"version,omitempty"`
-	HashRelation string                 `json:"hash_relation"`
-	Ac           commitment.CoeffMatrix `json:"Ac"`
-	BPath        string                 `json:"BPath"`
-	BoundB       int64                  `json:"BoundB"`
-	LenM         int                    `json:"LenM,omitempty"`
-	LenK         int                    `json:"LenK,omitempty"`
-	LenR0H       int                    `json:"LenR0H,omitempty"`
-	LenR1H       int                    `json:"LenR1H,omitempty"`
-	LenRBar      int                    `json:"LenRBar,omitempty"`
+	Version            int                    `json:"version,omitempty"`
+	HashRelation       string                 `json:"hash_relation"`
+	Ac                 commitment.CoeffMatrix `json:"Ac"`
+	BPath              string                 `json:"BPath"`
+	BoundB             int64                  `json:"BoundB"`
+	X0Len              int                    `json:"X0Len,omitempty"`
+	X0CoeffBound       int64                  `json:"X0CoeffBound,omitempty"`
+	TargetDim          int                    `json:"TargetDim,omitempty"`
+	TargetHidingLambda int                    `json:"TargetHidingLambda,omitempty"`
+	X0Distribution     string                 `json:"X0Distribution,omitempty"`
+	LenM               int                    `json:"LenM,omitempty"`
+	LenK               int                    `json:"LenK,omitempty"`
+	LenR0H             int                    `json:"LenR0H,omitempty"`
+	LenR1H             int                    `json:"LenR1H,omitempty"`
+	LenRBar            int                    `json:"LenRBar,omitempty"`
 
 	LegacyLenM1  int `json:"LenM1,omitempty"`
 	LegacyLenM2  int `json:"LenM2,omitempty"`
@@ -37,7 +42,7 @@ type PublicParams struct {
 
 func (pp *PublicParams) normalizeLegacy() {
 	if pp.Version == 0 {
-		pp.Version = PublicParamsVersion
+		pp.Version = 1
 	}
 	if pp.LenM == 0 {
 		pp.LenM = pp.LegacyLenM1
@@ -53,6 +58,32 @@ func (pp *PublicParams) normalizeLegacy() {
 	}
 	if pp.LenRBar == 0 {
 		pp.LenRBar = pp.LegacyLenR
+	}
+	if pp.X0Len == 0 {
+		if pp.LenR0H > 0 {
+			pp.X0Len = pp.LenR0H
+		} else {
+			pp.X0Len = 1
+		}
+	}
+	if pp.X0CoeffBound == 0 {
+		if pp.BoundB > 0 {
+			pp.X0CoeffBound = pp.BoundB
+		} else {
+			pp.X0CoeffBound = 1
+		}
+	}
+	if pp.TargetDim == 0 {
+		pp.TargetDim = DefaultTargetDim
+	}
+	if pp.TargetHidingLambda == 0 {
+		pp.TargetHidingLambda = DefaultTargetHidingLambda
+	}
+	if pp.X0Distribution == "" {
+		pp.X0Distribution = X0DistributionUniformInterval
+	}
+	if pp.Version < PublicParamsVersion {
+		pp.Version = PublicParamsVersion
 	}
 }
 
@@ -70,8 +101,26 @@ func (pp *PublicParams) Validate() error {
 	if pp.BoundB <= 0 {
 		return fmt.Errorf("invalid BoundB=%d", pp.BoundB)
 	}
+	if pp.X0CoeffBound <= 0 {
+		return fmt.Errorf("invalid X0CoeffBound=%d", pp.X0CoeffBound)
+	}
+	if pp.X0Len <= 0 {
+		return fmt.Errorf("invalid X0Len=%d", pp.X0Len)
+	}
+	if pp.TargetDim <= 0 {
+		return fmt.Errorf("invalid TargetDim=%d", pp.TargetDim)
+	}
+	if pp.TargetHidingLambda <= 0 {
+		return fmt.Errorf("invalid TargetHidingLambda=%d", pp.TargetHidingLambda)
+	}
+	if pp.X0Distribution != X0DistributionUniformInterval {
+		return fmt.Errorf("unsupported X0Distribution=%q", pp.X0Distribution)
+	}
 	if pp.LenM <= 0 || pp.LenK <= 0 || pp.LenR0H <= 0 || pp.LenR1H <= 0 || pp.LenRBar <= 0 {
 		return fmt.Errorf("invalid row lengths m=%d k=%d r0h=%d r1h=%d rbar=%d", pp.LenM, pp.LenK, pp.LenR0H, pp.LenR1H, pp.LenRBar)
+	}
+	if pp.LenR0H != pp.X0Len {
+		return fmt.Errorf("LenR0H=%d must match X0Len=%d", pp.LenR0H, pp.X0Len)
 	}
 	return nil
 }
@@ -123,20 +172,25 @@ func (pp PublicParams) ToIssuanceParams(ringQ *ring.Ring) (*Params, error) {
 		return nil, fmt.Errorf("lift Ac to NTT: %w", err)
 	}
 	return &Params{
-		HashRelation: pp.HashRelation,
-		Ac:       ac,
-		BPath:    pp.BPath,
-		BoundB:   pp.BoundB,
-		LenM:     pp.LenM,
-		LenK:     pp.LenK,
-		LenR0H:   pp.LenR0H,
-		LenR1H:   pp.LenR1H,
-		LenRBar: pp.LenRBar,
-		LenM1:    pp.LenM,
-		LenM2:    pp.LenK,
-		LenRU0:   pp.LenR0H,
-		LenRU1:   pp.LenR1H,
-		LenR:     pp.LenRBar,
-		RingQ:    ringQ,
+		HashRelation:       pp.HashRelation,
+		Ac:                 ac,
+		BPath:              pp.BPath,
+		BoundB:             pp.BoundB,
+		X0Len:              pp.X0Len,
+		X0CoeffBound:       pp.X0CoeffBound,
+		TargetDim:          pp.TargetDim,
+		TargetHidingLambda: pp.TargetHidingLambda,
+		X0Distribution:     pp.X0Distribution,
+		LenM:               pp.LenM,
+		LenK:               pp.LenK,
+		LenR0H:             pp.LenR0H,
+		LenR1H:             pp.LenR1H,
+		LenRBar:            pp.LenRBar,
+		LenM1:              pp.LenM,
+		LenM2:              pp.LenK,
+		LenRU0:             pp.LenR0H,
+		LenRU1:             pp.LenR1H,
+		LenR:               pp.LenRBar,
+		RingQ:              ringQ,
 	}, nil
 }

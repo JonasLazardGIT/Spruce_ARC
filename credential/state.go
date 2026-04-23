@@ -8,17 +8,21 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-const StateVersion = 1
+const StateVersion = 2
 
 // State captures all holder-side data needed to persist a credential.
 // All polys are stored in coefficient form (no seeds).
 type State struct {
-	Version int `json:"version"`
-	M       [][]int64 `json:"m"`
-	K       [][]int64 `json:"k"`
-	R0      [][]int64 `json:"r0"`
-	R1      [][]int64 `json:"r1"`
-	Z       [][]int64 `json:"z"`
+	Version            int       `json:"version"`
+	M                  [][]int64 `json:"m"`
+	K                  [][]int64 `json:"k"`
+	R0                 [][]int64 `json:"r0"`
+	R1                 [][]int64 `json:"r1"`
+	Z                  [][]int64 `json:"z"`
+	X0Len              int       `json:"x0_len,omitempty"`
+	X0CoeffBound       int64     `json:"x0_coeff_bound,omitempty"`
+	TargetDim          int       `json:"target_dim,omitempty"`
+	TargetHidingLambda int       `json:"target_hiding_lambda,omitempty"`
 	// Showing-signature rows s1 and s2 are the bounded rows.
 	SigS1 []int64 `json:"sig_s1,omitempty"`
 	SigS2 []int64 `json:"sig_s2,omitempty"`
@@ -161,7 +165,36 @@ func LoadState(path string) (State, error) {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return st, fmt.Errorf("unmarshal state: %w", err)
 	}
-	if st.Version != StateVersion {
+	switch st.Version {
+	case 1:
+		if st.X0Len == 0 {
+			if len(st.R0) > 0 {
+				st.X0Len = len(st.R0)
+			} else {
+				st.X0Len = 1
+			}
+		}
+		if st.X0CoeffBound == 0 {
+			st.X0CoeffBound = 1
+		}
+		if st.TargetDim == 0 {
+			st.TargetDim = DefaultTargetDim
+		}
+		if st.TargetHidingLambda == 0 {
+			st.TargetHidingLambda = DefaultTargetHidingLambda
+		}
+		st.Version = StateVersion
+	case StateVersion:
+		if st.X0Len == 0 {
+			st.X0Len = len(st.R0)
+		}
+		if st.TargetDim == 0 {
+			st.TargetDim = DefaultTargetDim
+		}
+		if st.TargetHidingLambda == 0 {
+			st.TargetHidingLambda = DefaultTargetHidingLambda
+		}
+	default:
 		return st, fmt.Errorf("unsupported credential state version %d in %s; regenerate the credential with the shared-randomness issuance flow", st.Version, path)
 	}
 	return st, nil

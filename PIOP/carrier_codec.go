@@ -37,6 +37,10 @@ func carrierAlphabetSize(bound int64) (int64, error) {
 	return size, nil
 }
 
+func singletonCarrierAlphabetSize(bound int64) (int64, error) {
+	return carrierBase(bound)
+}
+
 func encodeCarrierPair(m1, m2, bound int64) (uint64, error) {
 	base, err := carrierBase(bound)
 	if err != nil {
@@ -57,6 +61,18 @@ func encodeCarrierPair(m1, m2, bound int64) (uint64, error) {
 		return 0, fmt.Errorf("invalid carrier code %d", code)
 	}
 	return uint64(code), nil
+}
+
+func encodeSingletonCarrier(m, bound int64) (uint64, error) {
+	base, err := carrierBase(bound)
+	if err != nil {
+		return 0, err
+	}
+	mv := m + bound
+	if mv < 0 || mv >= base {
+		return 0, fmt.Errorf("singleton carrier m=%d outside [-%d,%d]", m, bound, bound)
+	}
+	return uint64(mv), nil
 }
 
 // EncodeCarrierPair is the exported form of the pair codec used by issuance
@@ -179,6 +195,17 @@ func buildPackedMessageCarrierMembershipPoly(bound int64, q uint64) ([]uint64, e
 	return trimPoly(coeffs, q), nil
 }
 
+func decodeSingletonCarrier(code uint64, bound int64) (int64, error) {
+	size, err := singletonCarrierAlphabetSize(bound)
+	if err != nil {
+		return 0, err
+	}
+	if int64(code) < 0 || int64(code) >= size {
+		return 0, fmt.Errorf("singleton carrier code %d outside [0,%d)", code, size)
+	}
+	return int64(code) - bound, nil
+}
+
 func decodeCarrierPair(code uint64, bound int64) (int64, int64, error) {
 	size, err := carrierAlphabetSize(bound)
 	if err != nil {
@@ -221,6 +248,27 @@ func buildCarrierDecodePolys(bound int64, q uint64) ([]uint64, []uint64, error) 
 	return c1, c2, nil
 }
 
+func buildSingletonCarrierDecodePoly(bound int64, q uint64) ([]uint64, error) {
+	size, err := singletonCarrierAlphabetSize(bound)
+	if err != nil {
+		return nil, err
+	}
+	if size <= 0 {
+		return nil, fmt.Errorf("invalid singleton carrier alphabet size %d", size)
+	}
+	const maxCarrierAlphabetSize = 1 << 20
+	if size > maxCarrierAlphabetSize {
+		return nil, fmt.Errorf("singleton carrier alphabet size %d exceeds limit %d", size, maxCarrierAlphabetSize)
+	}
+	xs := make([]uint64, size)
+	ys := make([]uint64, size)
+	for i := int64(0); i < size; i++ {
+		xs[i] = uint64(i) % q
+		ys[i] = liftToField(q, i-bound)
+	}
+	return Interpolate(xs, ys, q), nil
+}
+
 func buildCarrierMembershipPoly(bound int64, q uint64) ([]uint64, error) {
 	size, err := carrierAlphabetSize(bound)
 	if err != nil {
@@ -244,6 +292,44 @@ func buildCarrierMembershipPoly(bound int64, q uint64) ([]uint64, error) {
 		coeffs[0] = modSubReduced(0, modMulReduced(av, coeffs[0], q), q)
 	}
 	return trimPoly(coeffs, q), nil
+}
+
+func buildSingletonCarrierMembershipPoly(bound int64, q uint64) ([]uint64, error) {
+	size, err := singletonCarrierAlphabetSize(bound)
+	if err != nil {
+		return nil, err
+	}
+	if size <= 0 {
+		return nil, fmt.Errorf("invalid singleton carrier alphabet size %d", size)
+	}
+	const maxCarrierAlphabetSize = 1 << 20
+	if size > maxCarrierAlphabetSize {
+		return nil, fmt.Errorf("singleton carrier alphabet size %d exceeds limit %d", size, maxCarrierAlphabetSize)
+	}
+	coeffs := make([]uint64, size+1)
+	coeffs[0] = 1
+	for a := int64(0); a < size; a++ {
+		av := uint64(a) % q
+		for k := a + 1; k >= 1; k-- {
+			coeffs[k] = modSubReduced(coeffs[k-1], modMulReduced(av, coeffs[k], q), q)
+		}
+		coeffs[0] = modSubReduced(0, modMulReduced(av, coeffs[0], q), q)
+	}
+	return trimPoly(coeffs, q), nil
+}
+
+func firstPoly(polys []*ring.Poly) *ring.Poly {
+	if len(polys) == 0 {
+		return nil
+	}
+	return polys[0]
+}
+
+func firstCoeff(coeffs [][]uint64) []uint64 {
+	if len(coeffs) == 0 {
+		return nil
+	}
+	return coeffs[0]
 }
 
 // DecodeCarrierHeadToFormalPair interpolates the carrier head over Ω,
@@ -310,12 +396,12 @@ const (
 type PreSignRawRows struct {
 	M1  *ring.Poly
 	M2  *ring.Poly
-	RU0 *ring.Poly
+	RU0 []*ring.Poly
 	RU1 *ring.Poly
 	R   *ring.Poly
-	R0  *ring.Poly
+	R0  []*ring.Poly
 	R1  *ring.Poly
-	K0  *ring.Poly
+	K0  []*ring.Poly
 	K1  *ring.Poly
 }
 
@@ -343,6 +429,37 @@ type PreSignRawRows struct {
 //
 // Missing inputs leave the corresponding carrier / alias entries nil.
 type PreSignCarrierAliasSurface struct {
+	CarrierM       *ring.Poly
+	CarrierRU0Rows []*ring.Poly
+	CarrierRU1     *ring.Poly
+	CarrierRBar    *ring.Poly
+	CarrierR0Rows  []*ring.Poly
+	CarrierR1      *ring.Poly
+	CarrierK0Rows  []*ring.Poly
+	CarrierK1      *ring.Poly
+
+	AliasM1      *ring.Poly
+	AliasM2      *ring.Poly
+	AliasRU0Rows []*ring.Poly
+	AliasRU1     *ring.Poly
+	AliasRBar    *ring.Poly
+	AliasR0Rows  []*ring.Poly
+	AliasR1      *ring.Poly
+	AliasK0Rows  []*ring.Poly
+	AliasK1      *ring.Poly
+
+	AliasM1Coeff   []uint64
+	AliasM2Coeff   []uint64
+	AliasRU0Coeffs [][]uint64
+	AliasRU1Coeff  []uint64
+	AliasRBarCoeff []uint64
+	AliasR0Coeffs  [][]uint64
+	AliasR1Coeff   []uint64
+	AliasK0Coeffs  [][]uint64
+	AliasK1Coeff   []uint64
+
+	// Legacy scalar compatibility surface. Live vector code should use the
+	// explicit block fields above.
 	CarrierRows []*ring.Poly
 	AliasRows   []*ring.Poly
 	AliasCoeffs [][]uint64
@@ -351,6 +468,17 @@ type PreSignCarrierAliasSurface struct {
 // PreSignTransformAliasSurface records the replay-facing pre-sign hats used by
 // the transform-domain hash relation.
 type PreSignTransformAliasSurface struct {
+	MHat1       *ring.Poly
+	MHat2       *ring.Poly
+	RHat0Rows   []*ring.Poly
+	RHat1       *ring.Poly
+	MHat1Coeff  []uint64
+	MHat2Coeff  []uint64
+	RHat0Coeffs [][]uint64
+	RHat1Coeff  []uint64
+
+	// Legacy scalar compatibility surface. Live vector code should use the
+	// explicit block fields above.
 	Rows   []*ring.Poly
 	Coeffs [][]uint64
 }
@@ -406,15 +534,18 @@ func nttHeadFromCoeffPoly(ringQ *ring.Ring, p *ring.Poly, ncols int) ([]uint64, 
 // surface from raw witness rows. Carrier rows are first committed, then alias
 // rows are derived by composing the public decode polynomials with those
 // committed carrier polynomials. This is the exact surface replayed at E'.
-func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, bound int64, omega []uint64, domainMode DomainMode, raw PreSignRawRows) (*PreSignCarrierAliasSurface, error) {
+func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, boundB int64, x0Bound int64, omega []uint64, domainMode DomainMode, raw PreSignRawRows) (*PreSignCarrierAliasSurface, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
 	if len(omega) == 0 {
 		return nil, fmt.Errorf("empty omega")
 	}
-	if bound <= 0 {
-		return nil, fmt.Errorf("invalid carrier bound %d", bound)
+	if boundB <= 0 {
+		return nil, fmt.Errorf("invalid bounded scalar carrier bound %d", boundB)
+	}
+	if x0Bound <= 0 {
+		return nil, fmt.Errorf("invalid x0 carrier bound %d", x0Bound)
 	}
 	ncols := len(omega)
 	if ncols > int(ringQ.N) {
@@ -427,12 +558,9 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, bound int64, omega []uin
 			return nil, nil
 		}
 		if domainMode == DomainModeExplicit {
-			if len(p.Coeffs) == 0 || len(p.Coeffs[0]) < ncols {
-				return nil, fmt.Errorf("%s head width=%d want >=%d", name, len(p.Coeffs[0]), ncols)
-			}
-			head := append([]uint64(nil), p.Coeffs[0][:ncols]...)
-			for i := range head {
-				head[i] %= q
+			head, err := rowHeadOnOmega(ringQ, omega, p, ncols)
+			if err != nil {
+				return nil, fmt.Errorf("%s head on omega: %w", name, err)
 			}
 			return head, nil
 		}
@@ -456,6 +584,21 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, bound int64, omega []uin
 		return buildCommittedRowFromHead(ringQ, head, omega, domainMode)
 	}
 
+	headVecFromPolys := func(polys []*ring.Poly, name string) ([][]uint64, error) {
+		if len(polys) == 0 {
+			return nil, nil
+		}
+		out := make([][]uint64, len(polys))
+		for i := range polys {
+			head, err := headFromPoly(polys[i], fmt.Sprintf("%s[%d]", name, i))
+			if err != nil {
+				return nil, err
+			}
+			out[i] = head
+		}
+		return out, nil
+	}
+
 	m1Head, err := headFromPoly(raw.M1, "M1")
 	if err != nil {
 		return nil, err
@@ -464,7 +607,7 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, bound int64, omega []uin
 	if err != nil {
 		return nil, err
 	}
-	ru0Head, err := headFromPoly(raw.RU0, "RU0")
+	ru0Heads, err := headVecFromPolys(raw.RU0, "RU0")
 	if err != nil {
 		return nil, err
 	}
@@ -476,7 +619,7 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, bound int64, omega []uin
 	if err != nil {
 		return nil, err
 	}
-	r0Head, err := headFromPoly(raw.R0, "R0")
+	r0Heads, err := headVecFromPolys(raw.R0, "R0")
 	if err != nil {
 		return nil, err
 	}
@@ -484,13 +627,32 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, bound int64, omega []uin
 	if err != nil {
 		return nil, err
 	}
-	k0Head, err := headFromPoly(raw.K0, "K0")
+	k0Heads, err := headVecFromPolys(raw.K0, "K0")
 	if err != nil {
 		return nil, err
 	}
 	k1Head, err := headFromPoly(raw.K1, "K1")
 	if err != nil {
 		return nil, err
+	}
+
+	x0Len := 0
+	for _, n := range []int{len(ru0Heads), len(r0Heads), len(k0Heads)} {
+		if n > x0Len {
+			x0Len = n
+		}
+	}
+	for _, pair := range []struct {
+		name string
+		got  int
+	}{
+		{name: "RU0", got: len(ru0Heads)},
+		{name: "R0", got: len(r0Heads)},
+		{name: "K0", got: len(k0Heads)},
+	} {
+		if pair.got != 0 && pair.got != x0Len {
+			return nil, fmt.Errorf("%s block length=%d mismatches x0Len=%d", pair.name, pair.got, x0Len)
+		}
 	}
 
 	carrierRows := make([]*ring.Poly, preSignCarrierCount)
@@ -514,7 +676,7 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, bound int64, omega []uin
 		}
 		head := make([]uint64, ncols)
 		for col := 0; col < ncols; col++ {
-			code, err := encodePackedMessageCarrier(centeredLift(leftHead[col], q), centeredLift(rightHead[col], q), bound)
+			code, err := encodePackedMessageCarrier(centeredLift(leftHead[col], q), centeredLift(rightHead[col], q), boundB)
 			if err != nil {
 				return nil, fmt.Errorf("encode carrier %s col=%d: %w", name, col, err)
 			}
@@ -522,36 +684,87 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, bound int64, omega []uin
 		}
 		return makeCarrierRowFromHead(head)
 	}
+	buildSingletonCarrierRows := func(heads [][]uint64, singletonBound int64, name string) ([]*ring.Poly, error) {
+		if len(heads) == 0 {
+			return nil, nil
+		}
+		out := make([]*ring.Poly, len(heads))
+		for i := range heads {
+			head := make([]uint64, ncols)
+			for col := 0; col < ncols; col++ {
+				code, err := encodeSingletonCarrier(centeredLift(heads[i][col], q), singletonBound)
+				if err != nil {
+					return nil, fmt.Errorf("encode singleton carrier %s[%d] col=%d: %w", name, i, col, err)
+				}
+				head[col] = liftToField(q, int64(code))
+			}
+			row, err := makeCarrierRowFromHead(head)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = row
+		}
+		return out, nil
+	}
+	buildScalarPairSingletonRow := func(head []uint64, pairBound int64, name string) (*ring.Poly, error) {
+		if head == nil {
+			return nil, nil
+		}
+		zeroHead := make([]uint64, ncols)
+		return buildCarrierPairRow(head, zeroHead, pairBound, name)
+	}
 
 	carrierRows[PreSignCarrierM], err = buildPackedMessageCarrierRow(m1Head, m2Head, "M")
 	if err != nil {
 		return nil, err
 	}
-	carrierRows[PreSignCarrierPreRU], err = buildCarrierPairRow(ru0Head, ru1Head, bound, "preRU")
+	carrierRU0Rows, err := buildSingletonCarrierRows(ru0Heads, x0Bound, "preRU")
 	if err != nil {
 		return nil, err
 	}
+	carrierRows[PreSignCarrierPreRU] = firstPoly(carrierRU0Rows)
 	if rHead != nil {
-		zeroHead := make([]uint64, ncols)
-		carrierRows[PreSignCarrierPreR], err = buildCarrierPairRow(rHead, zeroHead, bound, "preR")
+		carrierRows[PreSignCarrierPreR], err = buildScalarPairSingletonRow(rHead, boundB, "preR")
 		if err != nil {
 			return nil, err
 		}
 	}
-	carrierRows[PreSignCarrierCtr], err = buildCarrierPairRow(r0Head, r1Head, bound, "ctr")
+	carrierR0Rows, err := buildSingletonCarrierRows(r0Heads, x0Bound, "ctr")
 	if err != nil {
 		return nil, err
 	}
-	carrierRows[PreSignCarrierK], err = buildCarrierPairRow(k0Head, k1Head, 1, "K")
+	carrierRows[PreSignCarrierCtr] = firstPoly(carrierR0Rows)
+	carrierR1, err := buildScalarPairSingletonRow(r1Head, boundB, "r1")
+	if err != nil {
+		return nil, err
+	}
+	carrierK0Rows, err := buildSingletonCarrierRows(k0Heads, 1, "K")
+	if err != nil {
+		return nil, err
+	}
+	carrierRows[PreSignCarrierK] = firstPoly(carrierK0Rows)
+	carrierRU1, err := buildScalarPairSingletonRow(ru1Head, boundB, "ru1")
+	if err != nil {
+		return nil, err
+	}
+	carrierK1, err := buildScalarPairSingletonRow(k1Head, 1, "k1")
 	if err != nil {
 		return nil, err
 	}
 
-	msgDecode1, msgDecode2, err := buildPackedMessageCarrierDecodePolys(bound, q)
+	msgDecode1, msgDecode2, err := buildPackedMessageCarrierDecodePolys(boundB, q)
 	if err != nil {
 		return nil, err
 	}
-	decode1, decode2, err := buildCarrierDecodePolys(bound, q)
+	x0Decode1, err := buildSingletonCarrierDecodePoly(x0Bound, q)
+	if err != nil {
+		return nil, err
+	}
+	scalarDecode1, scalarDecode2, err := buildCarrierDecodePolys(boundB, q)
+	if err != nil {
+		return nil, err
+	}
+	x0CarryDecode, err := buildSingletonCarrierDecodePoly(1, q)
 	if err != nil {
 		return nil, err
 	}
@@ -559,23 +772,94 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, bound int64, omega []uin
 	if err != nil {
 		return nil, err
 	}
-	buildAliasPair := func(carrier *ring.Poly, leftDecode, rightDecode []uint64) ([]uint64, []uint64, error) {
+	buildAliasPair := func(carrier *ring.Poly, leftDecode, rightDecode []uint64) ([]uint64, []uint64, *ring.Poly, *ring.Poly, error) {
 		if carrier == nil {
-			return nil, nil, nil
+			return nil, nil, nil, nil, nil
+		}
+		if domainMode == DomainModeExplicit {
+			carrierHead, err := rowHeadOnOmega(ringQ, omega, carrier, ncols)
+			if err != nil {
+				return nil, nil, nil, nil, err
+			}
+			leftHead := make([]uint64, ncols)
+			rightHead := make([]uint64, ncols)
+			for col := 0; col < ncols; col++ {
+				leftHead[col] = EvalPoly(leftDecode, carrierHead[col]%q, q) % q
+				rightHead[col] = EvalPoly(rightDecode, carrierHead[col]%q, q) % q
+			}
+			leftRow, err := buildCommittedRowFromHead(ringQ, leftHead, omega, domainMode)
+			if err != nil {
+				return nil, nil, nil, nil, err
+			}
+			rightRow, err := buildCommittedRowFromHead(ringQ, rightHead, omega, domainMode)
+			if err != nil {
+				return nil, nil, nil, nil, err
+			}
+			left := trimPoly(append([]uint64(nil), leftRow.Coeffs[0]...), q)
+			right := trimPoly(append([]uint64(nil), rightRow.Coeffs[0]...), q)
+			return left, right, leftRow, rightRow, nil
 		}
 		carrierPoly := fpoly.New(q, trimPoly(append([]uint64(nil), carrier.Coeffs[0]...), q))
 		left := trimPoly(fpoly.New(q, leftDecode).Compose(carrierPoly).Coeffs, q)
 		right := trimPoly(fpoly.New(q, rightDecode).Compose(carrierPoly).Coeffs, q)
-		if domainMode != DomainModeExplicit {
-			left = reducePolyModXN1(left, int(ringQ.N), q)
-			right = reducePolyModXN1(right, int(ringQ.N), q)
+		left = reducePolyModXN1(left, int(ringQ.N), q)
+		right = reducePolyModXN1(right, int(ringQ.N), q)
+		leftRow := ringQ.NewPoly()
+		copy(leftRow.Coeffs[0], left)
+		rightRow := ringQ.NewPoly()
+		copy(rightRow.Coeffs[0], right)
+		return left, right, leftRow, rightRow, nil
+	}
+	buildAliasSingle := func(carrier *ring.Poly, decode []uint64) ([]uint64, *ring.Poly, error) {
+		if carrier == nil {
+			return nil, nil, nil
 		}
-		return left, right, nil
+		if domainMode == DomainModeExplicit {
+			carrierHead, err := rowHeadOnOmega(ringQ, omega, carrier, ncols)
+			if err != nil {
+				return nil, nil, err
+			}
+			head := make([]uint64, ncols)
+			for col := 0; col < ncols; col++ {
+				head[col] = EvalPoly(decode, carrierHead[col]%q, q) % q
+			}
+			row, err := buildCommittedRowFromHead(ringQ, head, omega, domainMode)
+			if err != nil {
+				return nil, nil, err
+			}
+			coeff := trimPoly(append([]uint64(nil), row.Coeffs[0]...), q)
+			return coeff, row, nil
+		}
+		carrierPoly := fpoly.New(q, trimPoly(append([]uint64(nil), carrier.Coeffs[0]...), q))
+		coeff := trimPoly(fpoly.New(q, decode).Compose(carrierPoly).Coeffs, q)
+		coeff = reducePolyModXN1(coeff, int(ringQ.N), q)
+		row := ringQ.NewPoly()
+		copy(row.Coeffs[0], coeff)
+		return coeff, row, nil
+	}
+	buildAliasLeftRows := func(carriers []*ring.Poly, decode []uint64) ([][]uint64, []*ring.Poly, error) {
+		if len(carriers) == 0 {
+			return nil, nil, nil
+		}
+		outCoeffs := make([][]uint64, len(carriers))
+		outRows := make([]*ring.Poly, len(carriers))
+		for i := range carriers {
+			left, leftRow, err := buildAliasSingle(carriers[i], decode)
+			if err != nil {
+				return nil, nil, err
+			}
+			outCoeffs[i] = left
+			if leftRow == nil {
+				continue
+			}
+			outRows[i] = leftRow
+		}
+		return outCoeffs, outRows, nil
 	}
 
 	aliasCoeffs := make([][]uint64, preSignAliasCount)
 	aliasRows := make([]*ring.Poly, preSignAliasCount)
-	assignAlias := func(idx int, coeffs []uint64) error {
+	assignAlias := func(idx int, coeffs []uint64, row *ring.Poly) error {
 		if coeffs == nil {
 			return nil
 		}
@@ -586,65 +870,105 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, bound int64, omega []uin
 		if len(trimmed) > int(ringQ.N) {
 			return fmt.Errorf("alias row %d degree=%d exceeds ring dimension %d", idx, len(trimmed)-1, ringQ.N)
 		}
-		p := ringQ.NewPoly()
-		copy(p.Coeffs[0], trimmed)
 		aliasCoeffs[idx] = trimmed
-		aliasRows[idx] = p
+		if row == nil {
+			row = ringQ.NewPoly()
+			copy(row.Coeffs[0], trimmed)
+		}
+		aliasRows[idx] = row
 		return nil
 	}
 
-	left, right, err := buildAliasPair(carrierRows[PreSignCarrierM], msgDecode1, msgDecode2)
+	left, right, leftRow, rightRow, err := buildAliasPair(carrierRows[PreSignCarrierM], msgDecode1, msgDecode2)
 	if err != nil {
 		return nil, err
 	}
-	if err := assignAlias(PreSignAliasM1, left); err != nil {
+	if err := assignAlias(PreSignAliasM1, left, leftRow); err != nil {
 		return nil, err
 	}
-	if err := assignAlias(PreSignAliasM2, right); err != nil {
+	if err := assignAlias(PreSignAliasM2, right, rightRow); err != nil {
 		return nil, err
 	}
-	left, right, err = buildAliasPair(carrierRows[PreSignCarrierPreRU], decode1, decode2)
+	left, right, leftRow, rightRow, err = buildAliasPair(carrierRU1, scalarDecode1, scalarDecode2)
 	if err != nil {
 		return nil, err
 	}
-	if err := assignAlias(PreSignAliasRU0, left); err != nil {
-		return nil, err
-	}
-	if err := assignAlias(PreSignAliasRU1, right); err != nil {
-		return nil, err
-	}
-	left, _, err = buildAliasPair(carrierRows[PreSignCarrierPreR], decode1, decode2)
+	ru0AliasCoeffs, ru0AliasRows, err := buildAliasLeftRows(carrierRU0Rows, x0Decode1)
 	if err != nil {
 		return nil, err
 	}
-	if err := assignAlias(PreSignAliasR, left); err != nil {
+	if err := assignAlias(PreSignAliasRU0, firstCoeff(ru0AliasCoeffs), firstPoly(ru0AliasRows)); err != nil {
 		return nil, err
 	}
-	left, right, err = buildAliasPair(carrierRows[PreSignCarrierCtr], decode1, decode2)
+	if err := assignAlias(PreSignAliasRU1, left, leftRow); err != nil {
+		return nil, err
+	}
+	left, _, leftRow, _, err = buildAliasPair(carrierRows[PreSignCarrierPreR], scalarDecode1, scalarDecode2)
 	if err != nil {
 		return nil, err
 	}
-	if err := assignAlias(PreSignAliasR0, left); err != nil {
+	if err := assignAlias(PreSignAliasR, left, leftRow); err != nil {
 		return nil, err
 	}
-	if err := assignAlias(PreSignAliasR1, right); err != nil {
-		return nil, err
-	}
-	left, right, err = buildAliasPair(carrierRows[PreSignCarrierK], decode1K, decode2K)
+	left, right, leftRow, rightRow, err = buildAliasPair(carrierR1, scalarDecode1, scalarDecode2)
 	if err != nil {
 		return nil, err
 	}
-	if err := assignAlias(PreSignAliasK0, left); err != nil {
+	r0AliasCoeffs, r0AliasRows, err := buildAliasLeftRows(carrierR0Rows, x0Decode1)
+	if err != nil {
 		return nil, err
 	}
-	if err := assignAlias(PreSignAliasK1, right); err != nil {
+	if err := assignAlias(PreSignAliasR0, firstCoeff(r0AliasCoeffs), firstPoly(r0AliasRows)); err != nil {
+		return nil, err
+	}
+	if err := assignAlias(PreSignAliasR1, left, leftRow); err != nil {
+		return nil, err
+	}
+	left, right, leftRow, rightRow, err = buildAliasPair(carrierK1, decode1K, decode2K)
+	if err != nil {
+		return nil, err
+	}
+	k0AliasCoeffs, k0AliasRows, err := buildAliasLeftRows(carrierK0Rows, x0CarryDecode)
+	if err != nil {
+		return nil, err
+	}
+	if err := assignAlias(PreSignAliasK0, firstCoeff(k0AliasCoeffs), firstPoly(k0AliasRows)); err != nil {
+		return nil, err
+	}
+	if err := assignAlias(PreSignAliasK1, left, leftRow); err != nil {
 		return nil, err
 	}
 
 	return &PreSignCarrierAliasSurface{
-		CarrierRows: carrierRows,
-		AliasRows:   aliasRows,
-		AliasCoeffs: aliasCoeffs,
+		CarrierM:       carrierRows[PreSignCarrierM],
+		CarrierRU0Rows: carrierRU0Rows,
+		CarrierRU1:     carrierRU1,
+		CarrierRBar:    carrierRows[PreSignCarrierPreR],
+		CarrierR0Rows:  carrierR0Rows,
+		CarrierR1:      carrierR1,
+		CarrierK0Rows:  carrierK0Rows,
+		CarrierK1:      carrierK1,
+		AliasM1:        aliasRows[PreSignAliasM1],
+		AliasM2:        aliasRows[PreSignAliasM2],
+		AliasRU0Rows:   ru0AliasRows,
+		AliasRU1:       aliasRows[PreSignAliasRU1],
+		AliasRBar:      aliasRows[PreSignAliasR],
+		AliasR0Rows:    r0AliasRows,
+		AliasR1:        aliasRows[PreSignAliasR1],
+		AliasK0Rows:    k0AliasRows,
+		AliasK1:        aliasRows[PreSignAliasK1],
+		AliasM1Coeff:   aliasCoeffs[PreSignAliasM1],
+		AliasM2Coeff:   aliasCoeffs[PreSignAliasM2],
+		AliasRU0Coeffs: ru0AliasCoeffs,
+		AliasRU1Coeff:  aliasCoeffs[PreSignAliasRU1],
+		AliasRBarCoeff: aliasCoeffs[PreSignAliasR],
+		AliasR0Coeffs:  r0AliasCoeffs,
+		AliasR1Coeff:   aliasCoeffs[PreSignAliasR1],
+		AliasK0Coeffs:  k0AliasCoeffs,
+		AliasK1Coeff:   aliasCoeffs[PreSignAliasK1],
+		CarrierRows:    carrierRows,
+		AliasRows:      aliasRows,
+		AliasCoeffs:    aliasCoeffs,
 	}, nil
 }
 
@@ -665,53 +989,24 @@ func DerivePreSignTransformAliases(ringQ *ring.Ring, omega []uint64, domainMode 
 	q := ringQ.Modulus[0]
 	rows := make([]*ring.Poly, preSignTransformAliasCount)
 	coeffs := make([][]uint64, preSignTransformAliasCount)
-	var transformHeadWeights [][]uint64
-	if domainMode == DomainModeExplicit {
-		bridgeBasis, err := newTransformBridgeBasisCache(ringQ, omega, ncols, 1)
-		if err != nil {
-			return nil, fmt.Errorf("pre-sign transform-bridge basis: %w", err)
-		}
-		transformHeadWeights = make([][]uint64, ncols)
-		for j := 0; j < ncols; j++ {
-			transformHeadWeights[j] = make([]uint64, ncols)
-			for k := 0; k < ncols; k++ {
-				transformHeadWeights[j][k] = EvalPoly(bridgeBasis.TransformHEval[j], omega[k]%q, q)
-			}
-		}
+	rHat0Rows := make([]*ring.Poly, len(aliases.AliasR0Rows))
+	rHat0Coeffs := make([][]uint64, len(aliases.AliasR0Rows))
+	type scalarSrcSpec struct {
+		out  int
+		name string
+		row  *ring.Poly
 	}
-	type srcSpec struct {
-		out int
-		in  int
-	}
-	for _, spec := range []srcSpec{
-		{PreSignTransformAliasMHat1, PreSignAliasM1},
-		{PreSignTransformAliasMHat2, PreSignAliasM2},
-		{PreSignTransformAliasRHat0, PreSignAliasR0},
-		{PreSignTransformAliasRHat1, PreSignAliasR1},
+	for _, spec := range []scalarSrcSpec{
+		{PreSignTransformAliasMHat1, "M1", aliases.AliasM1},
+		{PreSignTransformAliasMHat2, "M2", aliases.AliasM2},
+		{PreSignTransformAliasRHat1, "R1", aliases.AliasR1},
 	} {
-		if spec.in < 0 || spec.in >= len(aliases.AliasRows) || aliases.AliasRows[spec.in] == nil {
-			return nil, fmt.Errorf("missing pre-sign alias row %d", spec.in)
+		if spec.row == nil {
+			return nil, fmt.Errorf("missing pre-sign alias row %s", spec.name)
 		}
-		var head []uint64
-		if domainMode == DomainModeExplicit {
-			srcHead, err := rowHeadOnOmega(ringQ, omega, aliases.AliasRows[spec.in], ncols)
-			if err != nil {
-				return nil, fmt.Errorf("pre-sign transform alias %d source head: %w", spec.out, err)
-			}
-			head = make([]uint64, ncols)
-			for j := 0; j < ncols; j++ {
-				acc := uint64(0)
-				for k := 0; k < ncols; k++ {
-					acc = modAdd(acc, modMul(transformHeadWeights[j][k]%q, srcHead[k]%q, q), q)
-				}
-				head[j] = acc
-			}
-		} else {
-			var err error
-			head, err = nttHeadFromCoeffPoly(ringQ, aliases.AliasRows[spec.in], ncols)
-			if err != nil {
-				return nil, fmt.Errorf("pre-sign transform alias %d head: %w", spec.out, err)
-			}
+		head, err := nttHeadFromCoeffPoly(ringQ, spec.row, ncols)
+		if err != nil {
+			return nil, fmt.Errorf("pre-sign transform alias %d head: %w", spec.out, err)
 		}
 		row, err := buildCommittedRowFromHead(ringQ, head, omega, domainMode)
 		if err != nil {
@@ -729,5 +1024,42 @@ func DerivePreSignTransformAliases(ringQ *ring.Ring, omega []uint64, domainMode 
 		rows[spec.out] = row
 		coeffs[spec.out] = trimPoly(rowCoeffs, q)
 	}
-	return &PreSignTransformAliasSurface{Rows: rows, Coeffs: coeffs}, nil
+	for i := range aliases.AliasR0Rows {
+		if aliases.AliasR0Rows[i] == nil {
+			return nil, fmt.Errorf("missing pre-sign alias row R0[%d]", i)
+		}
+		head, err := nttHeadFromCoeffPoly(ringQ, aliases.AliasR0Rows[i], ncols)
+		if err != nil {
+			return nil, fmt.Errorf("pre-sign transform alias R0[%d] head: %w", i, err)
+		}
+		row, err := buildCommittedRowFromHead(ringQ, head, omega, domainMode)
+		if err != nil {
+			return nil, fmt.Errorf("pre-sign transform alias R0[%d] row: %w", i, err)
+		}
+		rowCoeffs, err := coeffFromNTTPoly(ringQ, func() *ring.Poly {
+			p := ringQ.NewPoly()
+			ring.Copy(row, p)
+			ringQ.NTT(p, p)
+			return p
+		}())
+		if err != nil {
+			return nil, fmt.Errorf("pre-sign transform alias R0[%d] coeffs: %w", i, err)
+		}
+		rHat0Rows[i] = row
+		rHat0Coeffs[i] = trimPoly(rowCoeffs, q)
+	}
+	rows[PreSignTransformAliasRHat0] = firstPoly(rHat0Rows)
+	coeffs[PreSignTransformAliasRHat0] = firstCoeff(rHat0Coeffs)
+	return &PreSignTransformAliasSurface{
+		MHat1:       rows[PreSignTransformAliasMHat1],
+		MHat2:       rows[PreSignTransformAliasMHat2],
+		RHat0Rows:   rHat0Rows,
+		RHat1:       rows[PreSignTransformAliasRHat1],
+		MHat1Coeff:  coeffs[PreSignTransformAliasMHat1],
+		MHat2Coeff:  coeffs[PreSignTransformAliasMHat2],
+		RHat0Coeffs: rHat0Coeffs,
+		RHat1Coeff:  coeffs[PreSignTransformAliasRHat1],
+		Rows:        rows,
+		Coeffs:      coeffs,
+	}, nil
 }

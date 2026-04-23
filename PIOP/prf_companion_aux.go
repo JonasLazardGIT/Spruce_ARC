@@ -692,22 +692,19 @@ func preparePRFWitnessOmegaBridgeOpeningForVerify(ringQ *ring.Ring, proof *Proof
 	if err != nil {
 		return nil, nil, err
 	}
-	rPolys := make([]*ring.Poly, len(proof.R))
+	rCoeffRows := make([][]uint64, len(proof.R))
 	for i := range proof.R {
-		rPolys[i] = coeffsToNTTIfFits(ringQ, proof.R[i])
-		if rPolys[i] == nil {
-			return nil, nil, fmt.Errorf("R polynomial %d too large to materialize", i)
-		}
+		rCoeffRows[i] = trimPoly(append([]uint64(nil), proof.R[i]...), ringQ.Modulus[0])
 	}
 	replayWitnessRows, err := sigShortnessReplayWitnessRows(proof)
 	if err != nil {
 		return nil, nil, err
 	}
-	prepared, err := prepareSigShortnessOpeningForVerify(opening, gamma, rPolys, domainPoints, ringQ, replayWitnessRows)
+	prepared, err := prepareSigShortnessOpeningForVerify(opening, gamma, rCoeffRows, domainPoints, ringQ, replayWitnessRows)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := verifyDECSSubset(ringQ, proof.Root, params, gamma, rPolys, prepared, supportSlots, domainPoints); err != nil {
+	if err := verifyDECSSubsetFormal(proof.Root, params, gamma, rCoeffRows, prepared, supportSlots, domainPoints, ringQ.Modulus[0]); err != nil {
 		return nil, nil, err
 	}
 	return prepared, domainPoints, nil

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"vSIS-Signature/PIOP"
+	"vSIS-Signature/credential"
 )
 
 func TestFormatPaperTranscriptSummaryUsesPaperWording(t *testing.T) {
@@ -17,6 +18,42 @@ func TestFormatPaperTranscriptSummaryUsesPaperWording(t *testing.T) {
 	}
 	if strings.Contains(line, "Canonical transcript") {
 		t.Fatalf("stale canonical wording still present: %q", line)
+	}
+}
+
+func TestDeriveOmegaForOptsUsesRelationAwareWitnessOmega(t *testing.T) {
+	root := showingTestRepoRoot(t)
+	chdirForShowingTest(t, root)
+	ringQ, err := credential.LoadDefaultRing()
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+	base := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+		Credential:          true,
+		NCols:               16,
+		LVCSNCols:           96,
+		Ell:                 18,
+		NLeaves:             4096,
+		DomainMode:          PIOP.DomainModeExplicit,
+		CoeffPacking:        true,
+		CoeffNativeSigModel: PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
+	})
+	omega4096, err := deriveOmegaForOpts(ringQ, base, credential.HashRelationBBTran)
+	if err != nil {
+		t.Fatalf("deriveOmegaForOpts(4096): %v", err)
+	}
+	base.NLeaves = 8192
+	omega8192, err := deriveOmegaForOpts(ringQ, base, credential.HashRelationBBTran)
+	if err != nil {
+		t.Fatalf("deriveOmegaForOpts(8192): %v", err)
+	}
+	if len(omega4096) != len(omega8192) {
+		t.Fatalf("omega length mismatch: 4096=%d 8192=%d", len(omega4096), len(omega8192))
+	}
+	for i := range omega4096 {
+		if omega4096[i] != omega8192[i] {
+			t.Fatalf("omega[%d] mismatch: 4096=%d 8192=%d", i, omega4096[i], omega8192[i])
+		}
 	}
 }
 

@@ -27,8 +27,18 @@ func validateHashRelationPublicInputs(pub PublicInputs) error {
 	if len(pub.B) == 0 {
 		return nil
 	}
-	if len(pub.B) != 4 {
-		return fmt.Errorf("bb_tran requires 4 B rows, got %d", len(pub.B))
+	x0Len := pub.X0Len
+	if x0Len <= 0 {
+		x0Len = 1
+	}
+	if pub.TargetDim <= 0 {
+		pub.TargetDim = 1
+	}
+	if pub.TargetDim != 1 {
+		return fmt.Errorf("bb_tran only supports TargetDim=1, got %d", pub.TargetDim)
+	}
+	if len(pub.B) != 3+x0Len {
+		return fmt.Errorf("bb_tran requires %d B rows for X0Len=%d, got %d", 3+x0Len, x0Len, len(pub.B))
 	}
 	if !polyIsZero(pub.B[0]) {
 		return fmt.Errorf("bb_tran requires B[0] = 0")

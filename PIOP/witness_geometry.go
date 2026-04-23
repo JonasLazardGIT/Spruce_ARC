@@ -114,15 +114,29 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 			if layout.IdxCarrierM >= 0 {
 				out.NonSigRows++
 			}
-			if layout.IdxCarrierCtr >= 0 {
+			if rowLayoutPostSignCarrierR1(layout) >= 0 {
+				out.NonSigRows++
+			}
+			out.NonSigRows += len(rowLayoutPostSignCarrierR0Rows(layout))
+			if out.NonSigRows > 0 && layout.IdxCarrierCtr >= 0 && len(rowLayoutPostSignCarrierR0Rows(layout)) == 0 {
 				out.NonSigRows++
 			}
 			if layout.IdxTSource >= 0 {
 				out.NonSigRows += rowLayoutPostSignTSourceCount(layout)
 			}
 			replayBlocks := rowLayoutReplayBlockCount(layout)
-			for _, idx := range []int{layout.IdxMHatSigma, layout.IdxRHat0, layout.IdxRHat1} {
-				if idx >= 0 {
+			type replayFamily struct {
+				rows []int
+				idx  int
+			}
+			for _, family := range []replayFamily{
+				{rows: rowLayoutPostSignMHatSigmaRows(layout), idx: rowLayoutPostSignMHatSigma(layout)},
+				{rows: rowLayoutPostSignRHat0Rows(layout), idx: rowLayoutPostSignRHat0(layout)},
+				{rows: rowLayoutPostSignRHat1Rows(layout), idx: rowLayoutPostSignRHat1(layout)},
+			} {
+				if len(family.rows) > 0 {
+					out.NonSigRows += len(family.rows)
+				} else if family.idx >= 0 {
 					if replayBlocks > 0 {
 						out.NonSigRows += replayBlocks
 					} else {
@@ -135,8 +149,13 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 					out.NonSigRows++
 				}
 			}
-			for _, idx := range []int{layout.IdxMSigmaR1Hat, layout.IdxR0R1Hat} {
-				if idx >= 0 {
+			for _, family := range []replayFamily{
+				{rows: rowLayoutPostSignMSigmaR1HatRows(layout), idx: rowLayoutPostSignMSigmaR1Hat(layout)},
+				{rows: rowLayoutPostSignR0R1HatRows(layout), idx: rowLayoutPostSignR0R1Hat(layout)},
+			} {
+				if len(family.rows) > 0 {
+					out.NonSigRows += len(family.rows)
+				} else if family.idx >= 0 {
 					if replayBlocks > 0 {
 						out.NonSigRows += replayBlocks
 					} else {

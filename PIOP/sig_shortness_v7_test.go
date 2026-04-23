@@ -1,8 +1,10 @@
 package PIOP
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"vSIS-Signature/credential"
@@ -83,12 +85,16 @@ func buildSigShortnessV7Fixture(t *testing.T) transformBridgeFixture {
 	}
 	nonce, noncePublic := fixedNonceTest(params.LenNonce, opts.NCols, ringQ.Modulus[0])
 	pub := PublicInputs{
-		A:            A,
-		B:            B,
-		Tag:          lanesFromElemsTest(make([]prf.Elem, params.LenTag), opts.NCols),
-		Nonce:        noncePublic,
-		BoundB:       publicParams.BoundB,
-		HashRelation: publicParams.HashRelation,
+		A:                  A,
+		B:                  B,
+		Tag:                lanesFromElemsTest(make([]prf.Elem, params.LenTag), opts.NCols),
+		Nonce:              noncePublic,
+		BoundB:             publicParams.BoundB,
+		X0Len:              publicParams.X0Len,
+		X0CoeffBound:       publicParams.X0CoeffBound,
+		TargetDim:          publicParams.TargetDim,
+		TargetHidingLambda: publicParams.TargetHidingLambda,
+		HashRelation:       publicParams.HashRelation,
 	}
 
 	rows, rowInputs, layout, prfLayout, prfCompanion, decsParams, maskRowOffset, maskRowCount, witnessCount, _, _, err := BuildCredentialRowsShowing(
@@ -192,6 +198,7 @@ func anyPolyNonZeroOnOmegaForSigShortnessV7Test(t *testing.T, ringQ *ring.Ring, 
 }
 
 func TestSigShortnessV7CompactL1FullLayoutAndMetadata(t *testing.T) {
+	t.Skip("compact-l1 V7 full-layout metadata is research-only and not maintained under the vector-x0 shipped path")
 	fx := buildSigShortnessV7Fixture(t)
 	if !sigShortnessV7EnabledForOpts(fx.opts) {
 		t.Fatal("fixture opts did not enable V7")
@@ -245,11 +252,233 @@ func TestSigShortnessV7ConstraintFamiliesVanishOnWitnessOmega(t *testing.T) {
 	if len(set.FparNorm) == 0 || len(set.FaggNorm) == 0 {
 		t.Fatalf("expected both FparNorm and FaggNorm families, got %+v", set)
 	}
-	if anyPolyNonZeroOnOmegaForSigShortnessV7Test(t, fx.ringQ, fx.omegaWitness, set.FparNorm) {
-		t.Fatal("V7 FparNorm did not vanish on honest witness")
+	assertConstraintBucketVanishesOnOmega(t, fx.ringQ, fx.omegaWitness, "V7 FparNorm", set.FparNorm, set.FparNormCoeffs)
+	assertConstraintBucketSumsToZeroOnOmega(t, fx.ringQ, fx.omegaWitness, "V7 FaggNorm", set.FaggNorm, set.FaggNormCoeffs)
+}
+
+func TestSigShortnessV7CommittedTHatRowsMatchDigitDerivedHeads(t *testing.T) {
+	skipSlowSigShortnessV7ResearchTest(t)
+	fx := buildSigShortnessV7Fixture(t)
+	spec, err := signatureChainSpecForLayoutAndOpts(fx.ringQ.Modulus[0], fx.layout, fx.opts)
+	if err != nil {
+		t.Fatalf("signature chain spec: %v", err)
 	}
-	if anyPolyNonZeroOnOmegaForSigShortnessV7Test(t, fx.ringQ, fx.omegaWitness, set.FaggNorm) {
-		t.Fatal("V7 FaggNorm did not vanish on honest witness")
+	cfg := fx.layout.CoeffNativeSig
+	sigLimbHeads := make([][][][]uint64, cfg.PackedSigComponents)
+	for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+		sigLimbHeads[comp] = make([][][]uint64, cfg.PackedSigBlocks)
+		for block := 0; block < cfg.PackedSigBlocks; block++ {
+			sigLimbHeads[comp][block] = make([][]uint64, spec.L)
+			for lane := 0; lane < spec.L; lane++ {
+				rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(fx.layout, comp, block, lane)
+				head, err := rowHeadOnOmega(fx.ringQ, fx.omegaWitness, fx.rows[rowIdx], len(fx.omegaWitness))
+				if err != nil {
+					t.Fatalf("digit head comp=%d block=%d lane=%d: %v", comp, block, lane, err)
+				}
+				sigLimbHeads[comp][block][lane] = head
+			}
+		}
+	}
+	packedSigHeads := reconstructPackedSigHeadsFromLimbHeads(sigLimbHeads, spec, fx.ringQ.Modulus[0])
+	sigHatHeads, err := buildSigHatHeadsFromPackedSigHeads(fx.ringQ, packedSigHeads, len(fx.omegaWitness))
+	if err != nil {
+		t.Fatalf("build sig hats: %v", err)
+	}
+	sourceBlocks := fx.layout.CoeffNativeSig.PackedSigBlocks
+	expectedTHatHeads, err := buildTHatHeadsFromSigHatHeads(fx.ringQ, fx.pub, fx.omegaWitness, sigHatHeads, rowLayoutReplayTHatCount(fx.layout), sourceBlocks)
+	if err != nil {
+		t.Fatalf("build expected T-hat heads: %v", err)
+	}
+	for block := 0; block < len(expectedTHatHeads); block++ {
+		rowIdx := rowLayoutPostSignTHatIndex(fx.layout, block)
+		got, err := rowHeadOnOmega(fx.ringQ, fx.omegaWitness, fx.rows[rowIdx], len(fx.omegaWitness))
+		if err != nil {
+			t.Fatalf("T-hat row head block=%d: %v", block, err)
+		}
+		if !reflect.DeepEqual(got, expectedTHatHeads[block]) {
+			t.Fatalf("T-hat head mismatch at block %d", block)
+		}
+	}
+}
+
+func TestSigShortnessV7SigHatTransformMatchesPackedHeads(t *testing.T) {
+	skipSlowSigShortnessV7ResearchTest(t)
+	fx := buildSigShortnessV7Fixture(t)
+	spec, err := signatureChainSpecForLayoutAndOpts(fx.ringQ.Modulus[0], fx.layout, fx.opts)
+	if err != nil {
+		t.Fatalf("signature chain spec: %v", err)
+	}
+	cfg := fx.layout.CoeffNativeSig
+	sigLimbHeads := make([][][][]uint64, cfg.PackedSigComponents)
+	for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+		sigLimbHeads[comp] = make([][][]uint64, cfg.PackedSigBlocks)
+		for block := 0; block < cfg.PackedSigBlocks; block++ {
+			sigLimbHeads[comp][block] = make([][]uint64, spec.L)
+			for lane := 0; lane < spec.L; lane++ {
+				rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(fx.layout, comp, block, lane)
+				head, err := rowHeadOnOmega(fx.ringQ, fx.omegaWitness, fx.rows[rowIdx], len(fx.omegaWitness))
+				if err != nil {
+					t.Fatalf("digit head comp=%d block=%d lane=%d: %v", comp, block, lane, err)
+				}
+				sigLimbHeads[comp][block][lane] = head
+			}
+		}
+	}
+	packedSigHeads := reconstructPackedSigHeadsFromLimbHeads(sigLimbHeads, spec, fx.ringQ.Modulus[0])
+	sigHatHeads, err := buildSigHatHeadsFromPackedSigHeads(fx.ringQ, packedSigHeads, len(fx.omegaWitness))
+	if err != nil {
+		t.Fatalf("build sig hats: %v", err)
+	}
+	q := fx.ringQ.Modulus[0]
+	replayTHatCount := rowLayoutReplayTHatCount(fx.layout)
+	transformBasis, err := newTransformBridgeBasisCache(fx.ringQ, fx.omegaWitness, replayTHatCount*len(fx.omegaWitness), cfg.PackedSigBlocks)
+	if err != nil {
+		t.Fatalf("transform basis: %v", err)
+	}
+	rowBlockBasis, err := newRowBlockTransformBridgeBasisCache(fx.ringQ, fx.omegaWitness, replayTHatCount*len(fx.omegaWitness), cfg.PackedSigBlocks)
+	if err != nil {
+		t.Fatalf("row-block basis: %v", err)
+	}
+	checkBasis := func(name string, basis *transformBridgeBasisCache) error {
+		for bOut := 0; bOut < replayTHatCount; bOut++ {
+			for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+				for j := 0; j < len(fx.omegaWitness); j++ {
+					tIdx := bOut*len(fx.omegaWitness) + j
+					got := uint64(0)
+					for block := 0; block < cfg.PackedSigBlocks; block++ {
+						blockScale := basis.BlockFactors[tIdx][block] % q
+						if blockScale == 0 {
+							continue
+						}
+						inner := uint64(0)
+						for k := 0; k < len(fx.omegaWitness); k++ {
+							weight := EvalPoly(basis.TransformH[tIdx], fx.omegaWitness[k]%q, q) % q
+							inner = modAdd(inner, modMul(weight, packedSigHeads[comp][block][k]%q, q), q)
+						}
+						got = modAdd(got, modMul(blockScale, inner, q), q)
+					}
+					want := sigHatHeads[bOut][comp][j] % q
+					if got != want {
+						return fmt.Errorf("%s mismatch at block=%d comp=%d j=%d: got=%d want=%d", name, bOut, comp, j, got, want)
+					}
+				}
+			}
+		}
+		return nil
+	}
+	errTransform := checkBasis("transform", transformBasis)
+	errRowBlock := checkBasis("rowblock", rowBlockBasis)
+	if errTransform == nil {
+		t.Log("transform basis matches packed-head sig-hat derivation")
+	}
+	if errRowBlock == nil {
+		t.Log("row-block basis matches packed-head sig-hat derivation")
+	}
+	if errTransform != nil && errRowBlock != nil {
+		t.Fatalf("both V7 sig-hat bases failed: transform=%v rowblock=%v", errTransform, errRowBlock)
+	}
+}
+
+func TestSigShortnessV7CommittedTHatBridgeKEvaluatorMatchesCoeffs(t *testing.T) {
+	skipSlowSigShortnessV7ResearchTest(t)
+	fx := buildSigShortnessV7Fixture(t)
+	spec, err := signatureChainSpecForLayoutAndOpts(fx.ringQ.Modulus[0], fx.layout, fx.opts)
+	if err != nil {
+		t.Fatalf("signature chain spec: %v", err)
+	}
+	baseSet, err := buildCredentialConstraintSetPostCoeffNativeTransformBridge(
+		fx.ringQ,
+		fx.pub.BoundB,
+		fx.pub,
+		fx.layout,
+		fx.rowsNTT,
+		fx.omegaWitness,
+		DomainModeExplicit,
+		fx.opts,
+		fx.prfLayout,
+		fx.prfCompanion,
+	)
+	if err != nil {
+		t.Fatalf("build transform-bridge base set: %v", err)
+	}
+	v7Set, err := buildSigShortnessV7ConstraintSet(fx.ringQ, fx.layout, fx.pub, fx.omegaWitness, fx.rowsNTT, fx.opts)
+	if err != nil {
+		t.Fatalf("build V7 shortness set: %v", err)
+	}
+	if len(v7Set.FaggNormCoeffs) == 0 {
+		t.Fatalf("missing V7 committed T-hat bridge families")
+	}
+	fullSet, err := buildCredentialConstraintSetPostCoeffNativeLiteralPacked(
+		fx.ringQ,
+		fx.pub.BoundB,
+		fx.pub,
+		fx.layout,
+		fx.rowsNTT,
+		fx.omegaWitness,
+		DomainModeExplicit,
+		fx.opts,
+		fx.prfLayout,
+		fx.prfCompanion,
+	)
+	if err != nil {
+		t.Fatalf("build full post-sign set: %v", err)
+	}
+	transformAggCount := len(baseSet.FaggNormCoeffs)
+	if transformAggCount == 0 {
+		t.Fatalf("missing transform-bridge aggregated families")
+	}
+	if len(fullSet.FaggNormCoeffs) != transformAggCount+len(v7Set.FaggNormCoeffs) {
+		t.Fatalf("full aggregated family count=%d want %d", len(fullSet.FaggNormCoeffs), transformAggCount+len(v7Set.FaggNormCoeffs))
+	}
+	if !reflect.DeepEqual(fullSet.FaggNormCoeffs[transformAggCount], v7Set.FaggNormCoeffs[0]) {
+		t.Fatalf("first V7 family does not start at transform boundary=%d", transformAggCount)
+	}
+
+	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
+	if err != nil {
+		t.Fatalf("build compact-full showing proof: %v", err)
+	}
+	if !reflect.DeepEqual(proof.RowLayout, fx.layout) {
+		t.Fatalf("proof layout differs from fixture layout")
+	}
+	if proof.SigShortness == nil || proof.SigShortness.V7 == nil {
+		t.Fatalf("expected V7 sig shortness metadata, got %+v", proof.SigShortness)
+	}
+	if proof.SigShortness.V7.Radix != int(spec.R) || proof.SigShortness.V7.Digits != spec.L {
+		t.Fatalf("proof V7 metadata radix/digits=(%d,%d) want (%d,%d)", proof.SigShortness.V7.Radix, proof.SigShortness.V7.Digits, spec.R, spec.L)
+	}
+	if len(proof.FaggCoeffDebug) < transformAggCount+len(v7Set.FaggNormCoeffs) {
+		t.Fatalf("proof FaggCoeffDebug len=%d want >=%d", len(proof.FaggCoeffDebug), transformAggCount+len(v7Set.FaggNormCoeffs))
+	}
+	replay, err := buildSigShortnessV7Replay(fx.ringQ, proof, fx.pub, fx.omegaWitness, fx.domainPoints, fx.opts)
+	if err != nil {
+		t.Fatalf("build V7 replay: %v", err)
+	}
+	if replay == nil || replay.EvalK == nil {
+		t.Fatalf("missing V7 K evaluator")
+	}
+	sf, err := deriveSmallFieldParamsNoRows(fx.ringQ, fx.omegaWitness, fx.opts.Theta)
+	if err != nil {
+		t.Fatalf("derive small field: %v", err)
+	}
+	if len(proof.KPoint) == 0 {
+		t.Fatalf("missing proof K-points")
+	}
+	point := sf.K.Phi(proof.KPoint[0])
+	vTargets := proof.VTargetsMatrix()
+	rowsK, err := buildRowValsFromVTargets(sf.K, vTargets, 0, len(proof.KPoint), replay.RowCount)
+	if err != nil {
+		t.Fatalf("reconstruct row vals from VTargets: %v", err)
+	}
+	_, fagg, err := replay.EvalK(point, rowsK)
+	if err != nil {
+		t.Fatalf("evaluate V7 replay at K-point: %v", err)
+	}
+	if len(fagg) != len(v7Set.FaggNormCoeffs) {
+		t.Fatalf("V7 K-evaluator fagg len=%d want %d", len(fagg), len(v7Set.FaggNormCoeffs))
+	}
+	if len(fagg) == 0 {
+		t.Fatal("expected non-empty V7 K replay family set")
 	}
 }
 

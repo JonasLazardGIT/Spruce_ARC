@@ -68,7 +68,10 @@ func addCoeffNativeLiteralPackedRows(
 			addRange(RowFamilyPostSignCore, layout.IdxTSource, rowLayoutPostSignTSourceCount(layout))
 		}
 		add(RowFamilyPostSignCarriers, layout.IdxCarrierM)
-		add(RowFamilyPostSignCarriers, layout.IdxCarrierCtr)
+		add(RowFamilyPostSignCarriers, rowLayoutPostSignCarrierR1(layout))
+		for _, idx := range rowLayoutPostSignCarrierR0Rows(layout) {
+			add(RowFamilyPostSignCarriers, idx)
+		}
 		for _, rows := range [][]int{
 			rowLayoutPostSignMHatSigmaRows(layout),
 			rowLayoutPostSignRHat0Rows(layout),

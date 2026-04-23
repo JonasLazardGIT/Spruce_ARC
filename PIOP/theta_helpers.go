@@ -52,8 +52,9 @@ func thetaPolyFromNTT(ringQ *ring.Ring, pNTT *ring.Poly, omega []uint64) (*ring.
 }
 
 // thetaPolyFromCoeff lifts a public coefficient-domain polynomial to its
-// explicit-domain Θ polynomial by first moving it to the ring transform domain
-// and then interpolating the Ω head.
+// explicit-domain Θ polynomial by taking the first |Ω| slots of its NTT image
+// and interpolating those public values. This is the public surface consumed by
+// the transform-bridge replay relations.
 func thetaPolyFromCoeff(ringQ *ring.Ring, coeffs []int64, omega []uint64) (*ring.Poly, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
@@ -77,10 +78,19 @@ func thetaPolyFromCoeff(ringQ *ring.Ring, coeffs []int64, omega []uint64) (*ring
 		}
 		pCoeff.Coeffs[0][i] = uint64(v)
 	}
+	q64 := ringQ.Modulus[0]
 	pNTT := ringQ.NewPoly()
 	ring.Copy(pCoeff, pNTT)
 	ringQ.NTT(pNTT, pNTT)
-	return thetaPolyFromNTT(ringQ, pNTT, omega)
+	head := make([]uint64, len(omega))
+	copy(head, pNTT.Coeffs[0][:len(omega)])
+	for i := range head {
+		head[i] %= q64
+	}
+	out := ringQ.NewPoly()
+	copy(out.Coeffs[0], Interpolate(omega, head, q64))
+	ringQ.NTT(out, out)
+	return out, nil
 }
 
 // thetaPolyFromNTTBlock interpolates the block-th public Θ polynomial from a
