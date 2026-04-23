@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strings"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
@@ -51,6 +52,281 @@ const (
 	SigShortnessModeHiddenV6    = "sig_shortness_v6_hidden"
 	SigShortnessModeHiddenV7    = "sig_shortness_v7_inlined_target_hiding"
 )
+
+const (
+	CompactFullCandidateCurrent     = "current"
+	CompactFullCandidateW40         = "w40"
+	CompactFullCandidateW48         = "w48"
+	CompactFullCandidateW64         = "w64"
+	CompactFullCandidateW48E24      = "w48_e24"
+	CompactFullCandidateW48E20      = "w48_e20"
+	CompactFullCandidateW48EP2      = "w48_ep2"
+	CompactFullCandidateW48E24EP2   = "w48_e24_ep2"
+	CompactFullCandidateW48E24EP2L3 = "w48_e24_ep2_l3"
+	CompactFullCandidateW48E24EP2L2 = "w48_e24_ep2_l2"
+)
+
+const (
+	soundnessBalancedReducedLVCSNCols  = 84
+	soundnessBalancedReducedEta        = 40
+	soundnessBalancedReducedEllPrime   = 2
+	soundnessBalancedReducedTheta      = 3
+	soundnessBalancedReducedRho        = 2
+	soundnessBalancedReducedNLeaves    = 4096
+	soundnessBalancedReducedSigProfile = SigShortnessProfileR11L4Production
+	soundnessBalancedFullLVCSNCols     = 96
+	soundnessBalancedFullEta           = 43
+	soundnessBalancedFullEllPrime      = 2
+	soundnessBalancedFullTheta         = 3
+	soundnessBalancedFullRho           = 2
+	soundnessBalancedFullNLeaves       = 4096
+	soundnessBalancedFullSigProfile    = SigShortnessProfileR24L3Compact
+)
+
+var (
+	soundnessBalancedReducedKappa = [4]int{0, 0, 0, 5}
+	soundnessBalancedFullKappa    = [4]int{0, 0, 0, 5}
+)
+
+type compactFullCandidateSpec struct {
+	ID                  string
+	LVCSNCols           int
+	NLeaves             int
+	Eta                 int
+	EllPrime            int
+	Theta               int
+	Rho                 int
+	Kappa               [4]int
+	SigShortnessProfile string
+}
+
+// Keep NLeaves fixed for the first compact-full V7 tuning wave. The bb_tran
+// witness prefix is now stable across NLeaves, but the first tuning pass still
+// isolates LVCS / eta / ell' effects before adding a second NLeaves sweep.
+var compactFullCandidateSpecs = map[string]compactFullCandidateSpec{
+	CompactFullCandidateCurrent: {
+		ID:                  CompactFullCandidateCurrent,
+		LVCSNCols:           32,
+		NLeaves:             4096,
+		Eta:                 26,
+		EllPrime:            3,
+		Theta:               3,
+		Rho:                 2,
+		SigShortnessProfile: SigShortnessProfileR11L4Production,
+	},
+	CompactFullCandidateW40: {
+		ID:                  CompactFullCandidateW40,
+		LVCSNCols:           40,
+		NLeaves:             4096,
+		Eta:                 26,
+		EllPrime:            3,
+		Theta:               3,
+		Rho:                 2,
+		SigShortnessProfile: SigShortnessProfileR11L4Production,
+	},
+	CompactFullCandidateW48: {
+		ID:                  CompactFullCandidateW48,
+		LVCSNCols:           48,
+		NLeaves:             4096,
+		Eta:                 26,
+		EllPrime:            3,
+		Theta:               3,
+		Rho:                 2,
+		SigShortnessProfile: SigShortnessProfileR11L4Production,
+	},
+	CompactFullCandidateW64: {
+		ID:                  CompactFullCandidateW64,
+		LVCSNCols:           64,
+		NLeaves:             4096,
+		Eta:                 26,
+		EllPrime:            3,
+		Theta:               3,
+		Rho:                 2,
+		SigShortnessProfile: SigShortnessProfileR11L4Production,
+	},
+	CompactFullCandidateW48E24: {
+		ID:                  CompactFullCandidateW48E24,
+		LVCSNCols:           48,
+		NLeaves:             4096,
+		Eta:                 24,
+		EllPrime:            3,
+		Theta:               3,
+		Rho:                 2,
+		SigShortnessProfile: SigShortnessProfileR11L4Production,
+	},
+	CompactFullCandidateW48E20: {
+		ID:                  CompactFullCandidateW48E20,
+		LVCSNCols:           48,
+		NLeaves:             4096,
+		Eta:                 20,
+		EllPrime:            3,
+		Theta:               3,
+		Rho:                 2,
+		SigShortnessProfile: SigShortnessProfileR11L4Production,
+	},
+	CompactFullCandidateW48EP2: {
+		ID:                  CompactFullCandidateW48EP2,
+		LVCSNCols:           48,
+		NLeaves:             4096,
+		Eta:                 26,
+		EllPrime:            2,
+		Theta:               3,
+		Rho:                 2,
+		SigShortnessProfile: SigShortnessProfileR11L4Production,
+	},
+	CompactFullCandidateW48E24EP2: {
+		ID:                  CompactFullCandidateW48E24EP2,
+		LVCSNCols:           48,
+		NLeaves:             4096,
+		Eta:                 24,
+		EllPrime:            2,
+		Theta:               3,
+		Rho:                 2,
+		SigShortnessProfile: SigShortnessProfileR11L4Production,
+	},
+	CompactFullCandidateW48E24EP2L3: {
+		ID:                  CompactFullCandidateW48E24EP2L3,
+		LVCSNCols:           48,
+		NLeaves:             4096,
+		Eta:                 24,
+		EllPrime:            2,
+		Theta:               3,
+		Rho:                 2,
+		SigShortnessProfile: SigShortnessProfileR24L3Compact,
+	},
+	CompactFullCandidateW48E24EP2L2: {
+		ID:                  CompactFullCandidateW48E24EP2L2,
+		LVCSNCols:           48,
+		NLeaves:             4096,
+		Eta:                 24,
+		EllPrime:            2,
+		Theta:               3,
+		Rho:                 2,
+		SigShortnessProfile: SigShortnessProfileR111L2Compact,
+	},
+}
+
+const compactL1ResearchFullDefaultCandidateID = CompactFullCandidateCurrent
+
+func CompactFullCandidateIDs() []string {
+	return []string{
+		CompactFullCandidateCurrent,
+		CompactFullCandidateW40,
+		CompactFullCandidateW48,
+		CompactFullCandidateW64,
+		CompactFullCandidateW48E24,
+		CompactFullCandidateW48E20,
+		CompactFullCandidateW48EP2,
+		CompactFullCandidateW48E24EP2,
+		CompactFullCandidateW48E24EP2L3,
+		CompactFullCandidateW48E24EP2L2,
+	}
+}
+
+func normalizeCompactFullCandidate(candidate string) string {
+	if _, ok := compactFullCandidateSpecs[candidate]; ok {
+		return candidate
+	}
+	if _, ok := parseCompactFullSweepCandidate(candidate); ok {
+		return candidate
+	}
+	return ""
+}
+
+func compactFullCandidateSpecByID(candidate string) (compactFullCandidateSpec, bool) {
+	if spec, ok := compactFullCandidateSpecs[normalizeCompactFullCandidate(candidate)]; ok {
+		return spec, true
+	}
+	return parseCompactFullSweepCandidate(candidate)
+}
+
+func makeCompactFullSweepCandidateID(lvcsNCols, nLeaves, eta, ellPrime int, sigShortnessProfile string, kappa [4]int) string {
+	return fmt.Sprintf(
+		"sweep:w%d:n%d:e%d:ep%d:sig%s:k%d-%d-%d-%d",
+		lvcsNCols,
+		nLeaves,
+		eta,
+		ellPrime,
+		normalizeSigShortnessProfile(sigShortnessProfile),
+		kappa[0],
+		kappa[1],
+		kappa[2],
+		kappa[3],
+	)
+}
+
+func parseCompactFullSweepCandidate(candidate string) (compactFullCandidateSpec, bool) {
+	parts := strings.Split(strings.TrimSpace(candidate), ":")
+	if len(parts) != 7 || parts[0] != "sweep" {
+		return compactFullCandidateSpec{}, false
+	}
+	spec := compactFullCandidateSpec{
+		ID:      candidate,
+		Theta:   3,
+		Rho:     2,
+		Kappa:   [4]int{},
+		NLeaves: 4096,
+	}
+	if _, err := fmt.Sscanf(parts[1], "w%d", &spec.LVCSNCols); err != nil {
+		return compactFullCandidateSpec{}, false
+	}
+	if _, err := fmt.Sscanf(parts[2], "n%d", &spec.NLeaves); err != nil {
+		return compactFullCandidateSpec{}, false
+	}
+	if _, err := fmt.Sscanf(parts[3], "e%d", &spec.Eta); err != nil {
+		return compactFullCandidateSpec{}, false
+	}
+	if _, err := fmt.Sscanf(parts[4], "ep%d", &spec.EllPrime); err != nil {
+		return compactFullCandidateSpec{}, false
+	}
+	if !strings.HasPrefix(parts[5], "sig") {
+		return compactFullCandidateSpec{}, false
+	}
+	spec.SigShortnessProfile = normalizeSigShortnessProfile(strings.TrimPrefix(parts[5], "sig"))
+	if spec.SigShortnessProfile == "" {
+		return compactFullCandidateSpec{}, false
+	}
+	if !strings.HasPrefix(parts[6], "k") {
+		return compactFullCandidateSpec{}, false
+	}
+	if _, err := fmt.Sscanf(strings.TrimPrefix(parts[6], "k"), "%d-%d-%d-%d", &spec.Kappa[0], &spec.Kappa[1], &spec.Kappa[2], &spec.Kappa[3]); err != nil {
+		return compactFullCandidateSpec{}, false
+	}
+	if spec.LVCSNCols <= 0 || spec.NLeaves <= 0 || spec.Eta <= 0 || spec.EllPrime <= 0 {
+		return compactFullCandidateSpec{}, false
+	}
+	return spec, true
+}
+
+func compactFullCandidateSpecForPreset(preset string, replayMode ShowingReplayMode, candidate string) (compactFullCandidateSpec, bool) {
+	if normalizeShowingPreset(preset) != ShowingPresetCompactL1Research {
+		return compactFullCandidateSpec{}, false
+	}
+	if normalizeShowingReplayMode(replayMode) != ShowingReplayModeFull {
+		return compactFullCandidateSpec{}, false
+	}
+	if spec, ok := compactFullCandidateSpecByID(candidate); ok {
+		return spec, true
+	}
+	spec, ok := compactFullCandidateSpecByID(compactL1ResearchFullDefaultCandidateID)
+	return spec, ok
+}
+
+func ResolveCompactFullCandidateLabelForOpts(opts SimOpts) string {
+	resolved := opts
+	resolved.applyDefaults()
+	if ResolveShowingPresetLabelForOpts(resolved) != ShowingPresetCompactL1Research {
+		return ""
+	}
+	if normalizeShowingReplayMode(resolved.ShowingReplayMode) != ShowingReplayModeFull {
+		return ""
+	}
+	spec, ok := compactFullCandidateSpecForPreset(resolved.ShowingPreset, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
+	if !ok {
+		return ""
+	}
+	return spec.ID
+}
 
 func normalizeShowingReplayMode(mode ShowingReplayMode) ShowingReplayMode {
 	switch mode {
@@ -129,11 +405,11 @@ func ResolveSigShortnessMode(proof *Proof) string {
 }
 
 func compactL1ResearchFullV7Profile() string {
-	// The inlined V7 path places shortness directly into the main SmallWood
-	// instance, so its formal coefficient families must stay tractable.
-	// The high-radix L=1 research profile is fine for the nested V6 path but
-	// explodes the inlined membership composition degree here.
-	return SigShortnessProfileR11L4Production
+	spec, ok := compactFullCandidateSpecByID(compactL1ResearchFullDefaultCandidateID)
+	if !ok {
+		return SigShortnessProfileR11L4Production
+	}
+	return spec.SigShortnessProfile
 }
 
 func sigShortnessV7EnabledForOpts(opts SimOpts) bool {
@@ -144,6 +420,9 @@ func sigShortnessV7EnabledForOpts(opts SimOpts) bool {
 	}
 	if ResolveShowingPresetLabelForOpts(resolved) != ShowingPresetCompactL1Research {
 		return false
+	}
+	if _, ok := compactFullCandidateSpecByID(resolved.CompactFullCandidate); ok {
+		return true
 	}
 	return ResolveSignatureShortnessProfileLabelForOpts(resolved) == compactL1ResearchFullV7Profile()
 }
@@ -186,15 +465,21 @@ func normalizeShowingPreset(preset string) string {
 	}
 }
 
-func showingPresetLVCSNCols(preset string) int {
+func showingPresetLVCSNCols(preset string, replayMode ShowingReplayMode, candidate string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
-		return 89
+		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+			return soundnessBalancedFullLVCSNCols
+		}
+		return soundnessBalancedReducedLVCSNCols
 	case ShowingPresetCompactL3:
 		return 68
 	case ShowingPresetCompactL2:
 		return 70
 	case ShowingPresetCompactL1Research:
+		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
+			return spec.LVCSNCols
+		}
 		return 32
 	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
 		return 32
@@ -203,17 +488,20 @@ func showingPresetLVCSNCols(preset string) int {
 	}
 }
 
-func showingPresetSigShortnessProfile(preset string, replayMode ShowingReplayMode) string {
+func showingPresetSigShortnessProfile(preset string, replayMode ShowingReplayMode, candidate string) string {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
-		return SigShortnessProfileR11L4Production
+		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+			return soundnessBalancedFullSigProfile
+		}
+		return soundnessBalancedReducedSigProfile
 	case ShowingPresetCompactL3:
 		return SigShortnessProfileR24L3Compact
 	case ShowingPresetCompactL2:
 		return SigShortnessProfileR111L2Compact
 	case ShowingPresetCompactL1Research:
-		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
-			return compactL1ResearchFullV7Profile()
+		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
+			return spec.SigShortnessProfile
 		}
 		return SigShortnessProfileR12285L1Research
 	case ShowingPresetTranscriptFirst:
@@ -228,6 +516,9 @@ func showingPresetSigShortnessProfile(preset string, replayMode ShowingReplayMod
 func showingPresetTheta(preset string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2, ShowingPresetCompactL1Research:
+		if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
+			return soundnessBalancedReducedTheta
+		}
 		return 3
 	default:
 		return 6
@@ -235,45 +526,80 @@ func showingPresetTheta(preset string) int {
 }
 
 func showingPresetRho(preset string) int {
+	if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
+		return soundnessBalancedReducedRho
+	}
 	return 2
 }
 
-func showingPresetEllPrime(preset string) int {
+func showingPresetEllPrime(preset string, replayMode ShowingReplayMode, candidate string) int {
 	switch normalizeShowingPreset(preset) {
+	case ShowingPresetSoundnessBalanced:
+		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+			return soundnessBalancedFullEllPrime
+		}
+		return soundnessBalancedReducedEllPrime
 	case ShowingPresetCompactL1Research:
+		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
+			return spec.EllPrime
+		}
 		return 3
 	default:
 		return 2
 	}
 }
 
-func showingPresetEta(preset string) int {
+func showingPresetEta(preset string, replayMode ShowingReplayMode, candidate string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
-		return 43
+		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+			return soundnessBalancedFullEta
+		}
+		return soundnessBalancedReducedEta
 	case ShowingPresetCompactL3, ShowingPresetCompactL2:
 		return 36
 	case ShowingPresetCompactL1Research:
+		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
+			return spec.Eta
+		}
 		return 26
 	default:
 		return 31
 	}
 }
 
-func showingPresetNLeaves(preset string) int {
+func showingPresetNLeaves(preset string, replayMode ShowingReplayMode, candidate string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2, ShowingPresetCompactL1Research:
+		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
+			return spec.NLeaves
+		}
+		if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
+			if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+				return soundnessBalancedFullNLeaves
+			}
+			return soundnessBalancedReducedNLeaves
+		}
 		return 4096
 	default:
 		return 2048
 	}
 }
 
-func showingPresetKappa(preset string, replayMode ShowingReplayMode) [4]int {
+func showingPresetKappa(preset string, replayMode ShowingReplayMode, candidate string) [4]int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2:
+		if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
+			if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+				return soundnessBalancedFullKappa
+			}
+			return soundnessBalancedReducedKappa
+		}
 		return [4]int{0, 0, 0, 5}
 	case ShowingPresetCompactL1Research:
+		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
+			return spec.Kappa
+		}
 		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
 			return [4]int{}
 		}
@@ -281,6 +607,16 @@ func showingPresetKappa(preset string, replayMode ShowingReplayMode) [4]int {
 	default:
 		return [4]int{}
 	}
+}
+
+func normalizeBenchmarkSweepCandidate(candidate string) string {
+	return strings.TrimSpace(candidate)
+}
+
+func ResolveBenchmarkSweepCandidateLabelForOpts(opts SimOpts) string {
+	resolved := opts
+	resolved.applyDefaults()
+	return normalizeBenchmarkSweepCandidate(resolved.BenchmarkSweepCandidate)
 }
 
 func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
@@ -292,6 +628,12 @@ func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
 	}
 	resolved := opts
 	resolved.applyDefaults()
+	if ResolveBenchmarkSweepCandidateLabelForOpts(resolved) != "" {
+		preset := normalizeShowingPreset(resolved.ShowingPreset)
+		if preset != "" && preset != ShowingPresetCustom {
+			return preset
+		}
+	}
 	requested := normalizeShowingPreset(opts.ShowingPreset)
 	if requested != "" && requested != ShowingPresetCustom && showingOptsMatchPreset(resolved, requested) {
 		return requested
@@ -314,18 +656,36 @@ func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
 func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
-		return resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
-			resolved.LVCSNCols == 89 &&
-			resolved.PostSignLVCSNCols == 89 &&
-			resolved.PRFLVCSNCols == 89 &&
-			resolved.Theta == 3 &&
-			resolved.Rho == 2 &&
-			resolved.EllPrime == 2 &&
-			resolved.Eta == 43 &&
-			resolved.NLeaves == 4096 &&
-			resolved.PostSignNLeaves == 4096 &&
-			resolved.PRFNLeaves == 4096 &&
-			resolved.Kappa == [4]int{0, 0, 0, 5}
+		expectedLVCS := soundnessBalancedReducedLVCSNCols
+		expectedEta := soundnessBalancedReducedEta
+		expectedEllPrime := soundnessBalancedReducedEllPrime
+		expectedTheta := soundnessBalancedReducedTheta
+		expectedRho := soundnessBalancedReducedRho
+		expectedNLeaves := soundnessBalancedReducedNLeaves
+		expectedSigProfile := soundnessBalancedReducedSigProfile
+		expectedKappa := soundnessBalancedReducedKappa
+		if normalizeShowingReplayMode(resolved.ShowingReplayMode) == ShowingReplayModeFull {
+			expectedLVCS = soundnessBalancedFullLVCSNCols
+			expectedEta = soundnessBalancedFullEta
+			expectedEllPrime = soundnessBalancedFullEllPrime
+			expectedTheta = soundnessBalancedFullTheta
+			expectedRho = soundnessBalancedFullRho
+			expectedNLeaves = soundnessBalancedFullNLeaves
+			expectedSigProfile = soundnessBalancedFullSigProfile
+			expectedKappa = soundnessBalancedFullKappa
+		}
+		return resolved.SigShortnessProfile == expectedSigProfile &&
+			resolved.LVCSNCols == expectedLVCS &&
+			resolved.PostSignLVCSNCols == expectedLVCS &&
+			resolved.PRFLVCSNCols == expectedLVCS &&
+			resolved.Theta == expectedTheta &&
+			resolved.Rho == expectedRho &&
+			resolved.EllPrime == expectedEllPrime &&
+			resolved.Eta == expectedEta &&
+			resolved.NLeaves == expectedNLeaves &&
+			resolved.PostSignNLeaves == expectedNLeaves &&
+			resolved.PRFNLeaves == expectedNLeaves &&
+			resolved.Kappa == expectedKappa
 	case ShowingPresetCompactL3:
 		return resolved.SigShortnessProfile == SigShortnessProfileR24L3Compact &&
 			resolved.LVCSNCols == 68 &&
@@ -353,21 +713,22 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 			resolved.PRFNLeaves == 4096 &&
 			resolved.Kappa == [4]int{0, 0, 0, 5}
 	case ShowingPresetCompactL1Research:
-		expectedKappa := [4]int{0, 11, 0, 11}
-		if normalizeShowingReplayMode(resolved.ShowingReplayMode) == ShowingReplayModeFull {
-			expectedKappa = [4]int{}
-		}
-		return resolved.SigShortnessProfile == showingPresetSigShortnessProfile(ShowingPresetCompactL1Research, resolved.ShowingReplayMode) &&
-			resolved.LVCSNCols == 32 &&
-			resolved.PostSignLVCSNCols == 32 &&
-			resolved.PRFLVCSNCols == 32 &&
+		expectedLVCS := showingPresetLVCSNCols(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
+		expectedEta := showingPresetEta(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
+		expectedEllPrime := showingPresetEllPrime(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
+		expectedNLeaves := showingPresetNLeaves(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
+		expectedKappa := showingPresetKappa(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
+		return resolved.SigShortnessProfile == showingPresetSigShortnessProfile(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate) &&
+			resolved.LVCSNCols == expectedLVCS &&
+			resolved.PostSignLVCSNCols == expectedLVCS &&
+			resolved.PRFLVCSNCols == expectedLVCS &&
 			resolved.Theta == 3 &&
 			resolved.Rho == 2 &&
-			resolved.EllPrime == 3 &&
-			resolved.Eta == 26 &&
-			resolved.NLeaves == 4096 &&
-			resolved.PostSignNLeaves == 4096 &&
-			resolved.PRFNLeaves == 4096 &&
+			resolved.EllPrime == expectedEllPrime &&
+			resolved.Eta == expectedEta &&
+			resolved.NLeaves == expectedNLeaves &&
+			resolved.PostSignNLeaves == expectedNLeaves &&
+			resolved.PRFNLeaves == expectedNLeaves &&
 			resolved.Kappa == expectedKappa
 	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
 		return resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
@@ -423,6 +784,13 @@ type SimOpts struct {
 	ShowingPreset string
 	// ShowingReplayMode selects the active showing replay surface.
 	ShowingReplayMode ShowingReplayMode
+	// CompactFullCandidate selects an internal compact-full V7 benchmark
+	// geometry. It is not part of the public preset surface.
+	CompactFullCandidate string
+	// BenchmarkSweepCandidate tags benchmark-only reduced/full/compact sweep
+	// candidates so reporting can preserve the base preset label without
+	// expanding the public CLI preset surface.
+	BenchmarkSweepCandidate string
 	// CoeffNativeSigModel selects the coeff-native post-sign model.
 	CoeffNativeSigModel string
 	CoeffPacking        bool
@@ -510,10 +878,12 @@ func (o *SimOpts) applyDefaults() {
 	if o.SigShortnessRadix < 0 {
 		o.SigShortnessRadix = 0
 	}
+	o.CompactFullCandidate = normalizeCompactFullCandidate(o.CompactFullCandidate)
+	o.BenchmarkSweepCandidate = normalizeBenchmarkSweepCandidate(o.BenchmarkSweepCandidate)
 	if o.Credential && resolveCoeffNativeSigModel(*o) == CoeffNativeSigModelLiteralPackedAggregatedV3 {
 		o.ShowingPreset = normalizeShowingPreset(o.ShowingPreset)
 		if !sigShortnessRawOverrideActive(*o) && o.SigShortnessProfile == "" {
-			o.SigShortnessProfile = showingPresetSigShortnessProfile(o.ShowingPreset, o.ShowingReplayMode)
+			o.SigShortnessProfile = showingPresetSigShortnessProfile(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
 		}
 		if o.Theta <= 0 {
 			o.Theta = showingPresetTheta(o.ShowingPreset)
@@ -522,12 +892,12 @@ func (o *SimOpts) applyDefaults() {
 			o.Rho = showingPresetRho(o.ShowingPreset)
 		}
 		if o.EllPrime <= 0 {
-			o.EllPrime = showingPresetEllPrime(o.ShowingPreset)
+			o.EllPrime = showingPresetEllPrime(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
 		}
 		if o.Eta <= 0 {
-			o.Eta = showingPresetEta(o.ShowingPreset)
+			o.Eta = showingPresetEta(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
 		}
-		presetNLeaves := showingPresetNLeaves(o.ShowingPreset)
+		presetNLeaves := showingPresetNLeaves(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
 		if o.NLeaves <= 0 {
 			o.NLeaves = presetNLeaves
 		}
@@ -537,7 +907,7 @@ func (o *SimOpts) applyDefaults() {
 		if o.PRFNLeaves <= 0 {
 			o.PRFNLeaves = presetNLeaves
 		}
-		presetLVCS := showingPresetLVCSNCols(o.ShowingPreset)
+		presetLVCS := showingPresetLVCSNCols(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
 		if o.LVCSNCols <= 0 {
 			o.LVCSNCols = presetLVCS
 		}
@@ -548,7 +918,7 @@ func (o *SimOpts) applyDefaults() {
 			o.PRFLVCSNCols = presetLVCS
 		}
 		if o.Kappa == [4]int{} {
-			o.Kappa = showingPresetKappa(o.ShowingPreset, o.ShowingReplayMode)
+			o.Kappa = showingPresetKappa(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
 		}
 	}
 	if o.Rho <= 0 {
@@ -587,6 +957,8 @@ func (o *SimOpts) applyDefaults() {
 	}
 	o.ShowingPreset = normalizeShowingPreset(o.ShowingPreset)
 	o.SigShortnessProfile = normalizeSigShortnessProfile(o.SigShortnessProfile)
+	o.CompactFullCandidate = normalizeCompactFullCandidate(o.CompactFullCandidate)
+	o.BenchmarkSweepCandidate = normalizeBenchmarkSweepCandidate(o.BenchmarkSweepCandidate)
 	if o.PRFGroupRounds <= 0 {
 		o.PRFGroupRounds = def.PRFGroupRounds
 	}
@@ -675,6 +1047,7 @@ type RowLayout struct {
 	// Explicit base indices for post-sign witness rows.
 	// When false, the standard issuance row order is used.
 	HasExplicitBaseIdx    bool
+	X0Len                 int
 	IdxM1                 int
 	IdxM2                 int
 	IdxRU0                int
@@ -691,9 +1064,18 @@ type RowLayout struct {
 	IdxR0R1Alias          int
 	IdxCarrierM           int
 	IdxCarrierPreRU       int
+	IdxCarrierRU1         int
 	IdxCarrierPreR        int
 	IdxCarrierCtr         int
+	IdxCarrierR1          int
 	IdxCarrierK           int
+	IdxCarrierK1          int
+	CarrierRU0Rows        []int
+	CarrierR0Rows         []int
+	CarrierK0Rows         []int
+	AliasRU0Rows          []int
+	AliasR0Rows           []int
+	AliasK0Rows           []int
 	IdxTSource            int
 	IdxSigHatBase         int
 	SigHatExtraBase       int

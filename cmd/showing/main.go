@@ -15,7 +15,6 @@ import (
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
-	"vSIS-Signature/internal/domain"
 	ntrurio "vSIS-Signature/ntru/io"
 	"vSIS-Signature/ntru/keys"
 	"vSIS-Signature/prf"
@@ -113,6 +112,19 @@ func (r cliRenderer) fatalf(prefix, format string, args ...interface{}) {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "benchmark-compact-full" {
+		if err := runBenchmarkCompactFull(os.Args[2:]); err != nil {
+			cli.fatalf("[showing-cli] ", "%v", err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "benchmark-transcript-sweep" {
+		if err := runBenchmarkTranscriptSweep(os.Args[2:]); err != nil {
+			cli.fatalf("[showing-cli] ", "%v", err)
+		}
+		return
+	}
+
 	const (
 		productionPRFGroupRounds = 2
 		productionNCols          = 16
@@ -120,7 +132,7 @@ func main() {
 	)
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
-	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default with tuned lvcs=89; compact_l3, compact_l2, and compact_l1_research select the measured low-size profiles; transcript_first and production_balance keep the wide-LVCS theorem presets)")
+	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default uses the shipped reduced tuple and keeps the full-replay control tuple; compact_l3, compact_l2, and compact_l1_research select the measured low-size profiles; transcript_first and production_balance keep the wide-LVCS theorem presets)")
 	fullReplay := flag.Bool("full", false, "enable the theorem-clean full replay-image showing mode")
 	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
 	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
@@ -336,7 +348,7 @@ func main() {
 			opts.Ell = maxEll
 		}
 	}
-	omega, err := deriveOmegaForOpts(ringQ, opts)
+	omega, err := deriveOmegaForOpts(ringQ, opts, publicParams.HashRelation)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "derive omega: %v", err)
 	}
@@ -359,12 +371,11 @@ func main() {
 		cli.fatalf("[showing-cli] ", "build A: %v", err)
 	}
 
-	// Active showing uses the coeff-native PRF key witness directly.
-	key, err := prfKeyFromState(ringQ, state, params.LenKey)
+	nonce, noncePublic := sampleNonce(params.LenNonce, ncols, ringQ.Modulus[0])
+	key, err := prfKeyFromWitnessOnOmega(ringQ, wit, omega, params.LenKey)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "prf key: %v", err)
 	}
-	nonce, noncePublic := sampleNonce(params.LenNonce, ncols, ringQ.Modulus[0])
 	tag, err := prf.Tag(key, nonce, params)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "prf tag: %v", err)
@@ -372,12 +383,16 @@ func main() {
 	tagPublic := lanesFromElems(tag, ncols)
 
 	pub := PIOP.PublicInputs{
-		A:            A,
-		B:            B,
-		Tag:          tagPublic,
-		Nonce:        noncePublic,
-		BoundB:       boundB,
-		HashRelation: publicParams.HashRelation,
+		A:                  A,
+		B:                  B,
+		Tag:                tagPublic,
+		Nonce:              noncePublic,
+		BoundB:             boundB,
+		X0Len:              publicParams.X0Len,
+		X0CoeffBound:       publicParams.X0CoeffBound,
+		TargetDim:          publicParams.TargetDim,
+		TargetHidingLambda: publicParams.TargetHidingLambda,
+		HashRelation:       publicParams.HashRelation,
 	}
 
 	cli.printf(categoryStatus, "[showing-cli] ", "building proof")
@@ -426,10 +441,17 @@ func loadBForShowing(r *ring.Ring, st credential.State, public credential.Public
 	if bPath == "" {
 		return nil, fmt.Errorf("missing B path in public params/state")
 	}
-	coeffs, err := ntrurio.LoadBMatrixCoeffs(bPath)
+	meta, err := ntrurio.LoadBMatrixMetadata(bPath)
 	if err != nil {
 		return nil, err
 	}
+	if meta.TargetDim != public.TargetDim {
+		return nil, fmt.Errorf("B target_dim=%d want %d", meta.TargetDim, public.TargetDim)
+	}
+	if meta.X0Len != public.X0Len {
+		return nil, fmt.Errorf("B x0_len=%d want %d", meta.X0Len, public.X0Len)
+	}
+	coeffs := meta.B
 	out := make([]*ring.Poly, len(coeffs))
 	for i := range coeffs {
 		p := r.NewPoly()
@@ -510,8 +532,18 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, 
 	if len(st.M) == 0 || len(st.K) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
 		return nil, fmt.Errorf("missing semantic witness rows in credential state")
 	}
-	if len(B) != 4 {
-		return nil, fmt.Errorf("missing B matrix for target reconstruction")
+	x0Len := st.X0Len
+	if x0Len <= 0 {
+		x0Len = len(st.R0)
+	}
+	if x0Len <= 0 {
+		x0Len = 1
+	}
+	if len(st.R0) != x0Len {
+		return nil, fmt.Errorf("credential state R0 len=%d want x0Len=%d", len(st.R0), x0Len)
+	}
+	if len(B) < 3+x0Len {
+		return nil, fmt.Errorf("missing B matrix for target reconstruction: have %d want at least %d", len(B), 3+x0Len)
 	}
 	packedNCols, err := PIOP.ResolvePackedNCols(st.PackedNCols, 0, int(r.N))
 	if err != nil {
@@ -519,29 +551,14 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, 
 	}
 	mPoly := polyFromInt64(r, st.M[0])
 	kPoly := polyFromInt64(r, st.K[0])
-	r0Poly := polyFromInt64(r, st.R0[0])
+	r0Polys := credentialPolysFromInt64(r, st.R0)
 	r1Poly := polyFromInt64(r, st.R1[0])
 	zPoly := polyFromInt64(r, st.Z[0])
-	tPoly := r.NewPoly()
-	tNTT := r.NewPoly()
-	muNTT := r.NewPoly()
-	r0NTT := r.NewPoly()
-	zNTT := r.NewPoly()
-	ring.Copy(mPoly, muNTT)
-	r.Add(muNTT, kPoly, muNTT)
-	r.NTT(muNTT, muNTT)
-	ring.Copy(r0Poly, r0NTT)
-	r.NTT(r0NTT, r0NTT)
-	ring.Copy(zPoly, zNTT)
-	r.NTT(zNTT, zNTT)
-	ring.Copy(B[0], tNTT)
-	tmp := r.NewPoly()
-	r.MulCoeffs(B[1], muNTT, tmp)
-	r.Add(tNTT, tmp, tNTT)
-	r.MulCoeffs(B[2], r0NTT, tmp)
-	r.Add(tNTT, tmp, tNTT)
-	r.Add(tNTT, zNTT, tNTT)
-	r.InvNTT(tNTT, tPoly)
+	_, tCoeffs, err := credential.ComputeTargetVector(r, B, mPoly, kPoly, r0Polys, r1Poly)
+	if err != nil {
+		return nil, fmt.Errorf("recompute target from credential state: %w", err)
+	}
+	tPoly := polyFromInt64(r, tCoeffs)
 	wit := &PIOP.CoeffNativeShowingWitness{
 		Sig: []*ring.Poly{
 			polyFromInt64(r, st.SigS1),
@@ -549,7 +566,7 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, 
 		},
 		M1:          mPoly,
 		M2:          kPoly,
-		R0:          r0Poly,
+		R0:          r0Polys,
 		R1:          r1Poly,
 		Z:           zPoly,
 		T:           tPoly,
@@ -566,6 +583,107 @@ func showingSignatureComponentCount(wit PIOP.WitnessInputs) int {
 		return len(wit.CoeffNativeShowing.Sig)
 	}
 	return 0
+}
+
+func prfKeyFromWitnessOnOmega(r *ring.Ring, wit PIOP.WitnessInputs, omega []uint64, lenKey int) ([]prf.Elem, error) {
+	if r == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if wit.CoeffNativeShowing == nil {
+		return nil, fmt.Errorf("missing coeff-native showing witness")
+	}
+	if wit.CoeffNativeShowing.M2 == nil {
+		return nil, fmt.Errorf("coeff-native showing witness missing M2 row")
+	}
+	return PIOP.ExtractSignedPRFKeyElemsFromM2OnOmega(
+		r,
+		wit.CoeffNativeShowing.M2,
+		omega,
+		wit.CoeffNativeShowing.PackedNCols,
+		lenKey,
+	)
+}
+
+func prfKeyFromCarrierWitness(
+	r *ring.Ring,
+	wit PIOP.WitnessInputs,
+	A [][]*ring.Poly,
+	B []*ring.Poly,
+	boundB int64,
+	params *prf.Params,
+	opts PIOP.SimOpts,
+	omega []uint64,
+	noncePublic [][]int64,
+	publicParams credential.PublicParams,
+) ([]prf.Elem, error) {
+	if r == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if params == nil {
+		return nil, fmt.Errorf("nil prf params")
+	}
+	if wit.CoeffNativeShowing == nil {
+		return nil, fmt.Errorf("missing coeff-native showing witness")
+	}
+	opts.EnablePackedPRFWitnessRows = true
+	opts.EnablePRFCompanion = true
+	if opts.PRFCompanionMode == "" {
+		opts.PRFCompanionMode = PIOP.PRFCompanionModeOutputAudit
+	}
+	dummyTag := make([][]int64, params.LenTag)
+	for i := range dummyTag {
+		dummyTag[i] = buildConstLane(len(omega), 0)
+	}
+	pub := PIOP.PublicInputs{
+		A:                  A,
+		B:                  B,
+		Tag:                dummyTag,
+		Nonce:              noncePublic,
+		BoundB:             boundB,
+		X0Len:              publicParams.X0Len,
+		X0CoeffBound:       publicParams.X0CoeffBound,
+		TargetDim:          publicParams.TargetDim,
+		TargetHidingLambda: publicParams.TargetHidingLambda,
+		HashRelation:       publicParams.HashRelation,
+	}
+	rows, _, layout, _, _, _, _, _, _, _, _, err := PIOP.BuildCredentialRowsShowing(
+		r,
+		pub,
+		wit,
+		params.LenKey,
+		params.LenNonce,
+		params.RF,
+		params.RP,
+		opts.PRFGroupRounds,
+		opts,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("build showing rows for carrier key extraction: %w", err)
+	}
+	if layout.IdxCarrierM < 0 || layout.IdxCarrierM >= len(rows) {
+		return nil, fmt.Errorf("missing carrier M row in showing layout")
+	}
+	scalars, err := PIOP.ExtractSignedPRFKeyScalarsFromCarrierOnOmega(
+		r,
+		rows[layout.IdxCarrierM],
+		omega,
+		wit.CoeffNativeShowing.PackedNCols,
+		params.LenKey,
+		boundB,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("extract signed prf key from carrier witness: %w", err)
+	}
+	out := make([]prf.Elem, len(scalars))
+	q := int64(r.Modulus[0])
+	for i := range scalars {
+		v := scalars[i] % q
+		if v < 0 {
+			v += q
+		}
+		out[i] = prf.Elem(v)
+	}
+	return out, nil
 }
 
 func prfKeyFromState(r *ring.Ring, st credential.State, lenKey int) ([]prf.Elem, error) {
@@ -607,7 +725,7 @@ func credentialPolysFromInt64(r *ring.Ring, vec [][]int64) []*ring.Poly {
 	return out
 }
 
-func deriveOmegaForOpts(ringQ *ring.Ring, opts PIOP.SimOpts) ([]uint64, error) {
+func deriveOmegaForOpts(ringQ *ring.Ring, opts PIOP.SimOpts, relation string) ([]uint64, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -626,14 +744,14 @@ func deriveOmegaForOpts(ringQ *ring.Ring, opts PIOP.SimOpts) ([]uint64, error) {
 		if lvcsNCols < opts.NCols {
 			return nil, fmt.Errorf("invalid lvcs ncols=%d < witness ncols=%d", lvcsNCols, opts.NCols)
 		}
-		dom, err := domain.NewDomain(ringQ.Modulus[0], nLeaves, lvcsNCols, opts.Ell, nil)
+		omegaWitness, err := PIOP.DeriveRelationWitnessOmega(ringQ.Modulus[0], nLeaves, opts.NCols, lvcsNCols, opts.Ell, relation)
 		if err != nil {
 			return nil, err
 		}
-		if len(dom.Omega) < opts.NCols {
-			return nil, fmt.Errorf("derived omega len=%d < witness ncols=%d", len(dom.Omega), opts.NCols)
+		if len(omegaWitness) < opts.NCols {
+			return nil, fmt.Errorf("derived omega len=%d < witness ncols=%d", len(omegaWitness), opts.NCols)
 		}
-		return append([]uint64(nil), dom.Omega[:opts.NCols]...), nil
+		return append([]uint64(nil), omegaWitness[:opts.NCols]...), nil
 	}
 	px := ringQ.NewPoly()
 	px.Coeffs[0][1] = 1

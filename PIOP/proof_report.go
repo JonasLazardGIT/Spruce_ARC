@@ -51,62 +51,64 @@ type SigShortnessReport struct {
 // TranscriptOptimizationReport surfaces the geometry and bucket counters that
 // dominate the current paper transcript optimization pass.
 type TranscriptOptimizationReport struct {
-	ShowingPreset             string `json:"showing_preset"`
-	PRFPacked                 bool   `json:"prf_packed"`
-	PRFMode                   string `json:"prf_mode"`
-	PRFAuditSamples           int    `json:"prf_audit_samples"`
-	PRFBridgeInQ              bool   `json:"prf_bridge_in_q"`
-	PRFLogicalScalars         int    `json:"prf_logical_scalars"`
-	PRFPackedRows             int    `json:"prf_packed_rows"`
-	PRFDataRows               int    `json:"prf_data_rows"`
-	PRFHelperRows             int    `json:"prf_helper_rows"`
-	PRFTotalRows              int    `json:"prf_total_rows"`
-	SigShortnessProfile       string `json:"sig_shortness_profile"`
-	SigShortnessRadix         int    `json:"sig_shortness_radix"`
-	SigShortnessDigits        int    `json:"sig_shortness_digits"`
-	SigShortnessDegree        int    `json:"sig_shortness_degree"`
-	ReplayMode                string `json:"replay_mode"`
-	StatementClass            string `json:"statement_class"`
-	ShortnessMode             string `json:"shortness_mode"`
-	SigShortnessSupportSlots  int    `json:"sig_shortness_support_slots"`
-	ReplayBlocks              int    `json:"replay_blocks"`
-	MainLVCSNCols             int    `json:"main_lvcs_ncols"`
-	MainNLeaves               int    `json:"main_nleaves"`
-	PRFLVCSNCols              int    `json:"prf_lvcs_ncols"`
-	PRFNLeaves                int    `json:"prf_nleaves"`
-	HiddenShortnessProfile    string `json:"hidden_shortness_profile"`
-	HiddenShortnessRadix      int    `json:"hidden_shortness_radix"`
-	HiddenShortnessDigits     int    `json:"hidden_shortness_digits"`
-	HiddenShortnessLVCSNCols  int    `json:"hidden_shortness_lvcs_ncols"`
-	HiddenShortnessNLeaves    int    `json:"hidden_shortness_nleaves"`
-	PRFAuxInstance            bool   `json:"prf_aux_instance"`
-	PRFAuxProofBytes          int    `json:"prf_aux_proof_bytes"`
-	PRFAuxOpeningBytes        int    `json:"prf_aux_opening_bytes"`
-	PRFBridgeOpeningBytes     int    `json:"prf_bridge_opening_bytes"`
-	PRFBridgeSupportSlots     int    `json:"prf_bridge_support_slots"`
-	PRFBridgeOpenedBlocks     int    `json:"prf_bridge_opened_blocks"`
-	PRFBridgeRowCount         int    `json:"prf_bridge_row_count"`
-	PRFBridgePaddingRows      int    `json:"prf_bridge_padding_rows"`
+	ShowingPreset                   string `json:"showing_preset"`
+	CompactFullCandidate            string `json:"compact_full_candidate"`
+	BenchmarkSweepCandidate         string `json:"benchmark_sweep_candidate"`
+	PRFPacked                       bool   `json:"prf_packed"`
+	PRFMode                         string `json:"prf_mode"`
+	PRFAuditSamples                 int    `json:"prf_audit_samples"`
+	PRFBridgeInQ                    bool   `json:"prf_bridge_in_q"`
+	PRFLogicalScalars               int    `json:"prf_logical_scalars"`
+	PRFPackedRows                   int    `json:"prf_packed_rows"`
+	PRFDataRows                     int    `json:"prf_data_rows"`
+	PRFHelperRows                   int    `json:"prf_helper_rows"`
+	PRFTotalRows                    int    `json:"prf_total_rows"`
+	SigShortnessProfile             string `json:"sig_shortness_profile"`
+	SigShortnessRadix               int    `json:"sig_shortness_radix"`
+	SigShortnessDigits              int    `json:"sig_shortness_digits"`
+	SigShortnessDegree              int    `json:"sig_shortness_degree"`
+	ReplayMode                      string `json:"replay_mode"`
+	StatementClass                  string `json:"statement_class"`
+	ShortnessMode                   string `json:"shortness_mode"`
+	SigShortnessSupportSlots        int    `json:"sig_shortness_support_slots"`
+	ReplayBlocks                    int    `json:"replay_blocks"`
+	MainLVCSNCols                   int    `json:"main_lvcs_ncols"`
+	MainNLeaves                     int    `json:"main_nleaves"`
+	PRFLVCSNCols                    int    `json:"prf_lvcs_ncols"`
+	PRFNLeaves                      int    `json:"prf_nleaves"`
+	HiddenShortnessProfile          string `json:"hidden_shortness_profile"`
+	HiddenShortnessRadix            int    `json:"hidden_shortness_radix"`
+	HiddenShortnessDigits           int    `json:"hidden_shortness_digits"`
+	HiddenShortnessLVCSNCols        int    `json:"hidden_shortness_lvcs_ncols"`
+	HiddenShortnessNLeaves          int    `json:"hidden_shortness_nleaves"`
+	PRFAuxInstance                  bool   `json:"prf_aux_instance"`
+	PRFAuxProofBytes                int    `json:"prf_aux_proof_bytes"`
+	PRFAuxOpeningBytes              int    `json:"prf_aux_opening_bytes"`
+	PRFBridgeOpeningBytes           int    `json:"prf_bridge_opening_bytes"`
+	PRFBridgeSupportSlots           int    `json:"prf_bridge_support_slots"`
+	PRFBridgeOpenedBlocks           int    `json:"prf_bridge_opened_blocks"`
+	PRFBridgeRowCount               int    `json:"prf_bridge_row_count"`
+	PRFBridgePaddingRows            int    `json:"prf_bridge_padding_rows"`
 	SourceProductBridgeBytes        int    `json:"source_product_bridge_bytes"`
 	SourceProductBridgeSupportSlots int    `json:"source_product_bridge_support_slots"`
 	SourceProductBridgeOpenedBlocks int    `json:"source_product_bridge_opened_blocks"`
-	CarrierSelectedRows       int    `json:"carrier_selected_rows"`
-	SourceProductSelectedRows int    `json:"source_product_selected_rows"`
-	PRFCompanionSelectedRows  int    `json:"prf_companion_selected_rows"`
-	LVCSNCols                 int    `json:"lvcs_ncols"`
-	NLeaves                   int    `json:"nleaves"`
-	WitnessRows               int    `json:"witness_rows"`
-	RowsBlock                 int    `json:"rows_block"`
-	MaskChunks                int    `json:"mask_chunks"`
-	NRows                     int    `json:"nrows"`
-	M                         int    `json:"m"`
-	PCols                     int    `json:"pcols"`
-	OmitP                     int    `json:"omit_p"`
-	RowOpeningEntries         int    `json:"row_opening_entries"`
-	PdecsBytes                int    `json:"pdecs_bytes"`
-	VTargetsBytes             int    `json:"vtargets_bytes"`
-	BarSetsBytes              int    `json:"barsets_bytes"`
-	QBytes                    int    `json:"q_bytes"`
+	CarrierSelectedRows             int    `json:"carrier_selected_rows"`
+	SourceProductSelectedRows       int    `json:"source_product_selected_rows"`
+	PRFCompanionSelectedRows        int    `json:"prf_companion_selected_rows"`
+	LVCSNCols                       int    `json:"lvcs_ncols"`
+	NLeaves                         int    `json:"nleaves"`
+	WitnessRows                     int    `json:"witness_rows"`
+	RowsBlock                       int    `json:"rows_block"`
+	MaskChunks                      int    `json:"mask_chunks"`
+	NRows                           int    `json:"nrows"`
+	M                               int    `json:"m"`
+	PCols                           int    `json:"pcols"`
+	OmitP                           int    `json:"omit_p"`
+	RowOpeningEntries               int    `json:"row_opening_entries"`
+	PdecsBytes                      int    `json:"pdecs_bytes"`
+	VTargetsBytes                   int    `json:"vtargets_bytes"`
+	BarSetsBytes                    int    `json:"barsets_bytes"`
+	QBytes                          int    `json:"q_bytes"`
 }
 
 // BuildProofReport derives proof size + soundness metrics for a given proof/options.
@@ -373,6 +375,8 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	}
 	out.WitnessRows = geometry.ActualWitnessPolys
 	out.ShowingPreset = ResolveShowingPresetLabelForOpts(opts)
+	out.CompactFullCandidate = ResolveCompactFullCandidateLabelForOpts(opts)
+	out.BenchmarkSweepCandidate = ResolveBenchmarkSweepCandidateLabelForOpts(opts)
 	if out.LVCSNCols > 0 {
 		out.RowsBlock = ceilDiv(out.WitnessRows, out.LVCSNCols)
 		if dQ > 0 {

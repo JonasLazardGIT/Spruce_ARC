@@ -374,10 +374,10 @@ func TestResolveSimOptsDefaultsSoundnessBalancedPreset(t *testing.T) {
 	if opts.SigShortnessProfile != SigShortnessProfileR11L4Production {
 		t.Fatalf("sig shortness profile=%q want %q", opts.SigShortnessProfile, SigShortnessProfileR11L4Production)
 	}
-	if opts.LVCSNCols != 89 || opts.PostSignLVCSNCols != 89 || opts.PRFLVCSNCols != 89 {
+	if opts.LVCSNCols != 84 || opts.PostSignLVCSNCols != 84 || opts.PRFLVCSNCols != 84 {
 		t.Fatalf("unexpected lvcs preset resolution: %+v", opts)
 	}
-	if opts.Theta != 3 || opts.Rho != 2 || opts.EllPrime != 2 || opts.Eta != 43 {
+	if opts.Theta != 3 || opts.Rho != 2 || opts.EllPrime != 2 || opts.Eta != 40 {
 		t.Fatalf("unexpected soundness-balanced tuple: theta=%d rho=%d ellPrime=%d eta=%d", opts.Theta, opts.Rho, opts.EllPrime, opts.Eta)
 	}
 	if opts.NLeaves != 4096 || opts.PostSignNLeaves != 4096 || opts.PRFNLeaves != 4096 {
