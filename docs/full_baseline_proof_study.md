@@ -1,21 +1,29 @@
 # Full Baseline Proof Study
 
-This note is the current workflow and handoff note for the theorem-clean full
-replay showing baseline after the shared-randomness `h_tran` migration.
+This note tracks the theorem-facing full-replay control for the current
+shared-randomness ARC-SPRUCE branch.
 
-It is not an archival note for the old source-product design.
+It is a study note, not the shipped operator runbook. The live engineering
+baseline is the reduced-replay `bb_tran` path documented in
+[protocol.md](protocol.md) and [transcript_reduction_analysis.md](transcript_reduction_analysis.md).
 
-## Commands
+## Scope
 
-- reduced engineering control:
-  `go run ./cmd/showing -showing-preset compact_l1_research`
-- theorem-clean full replay:
-  `go run ./cmd/showing -showing-preset compact_l1_research -full`
+This study is about one question only:
 
-## What The Full Baseline Now Proves
+- what the theorem-clean showing statement should look like for the current
+  semantic credential witness
+- how that full-replay statement differs from the shipped reduced-replay
+  engineering surface
+- what still blocks the full-replay control on the canonical vector-`x0`
+  artifacts
 
-The full replay baseline uses the same semantic credential witness as the rest
-of the live branch:
+This note is not about the deprecated target-from-commitment path.
+
+## Current semantic statement
+
+The full baseline studies the same credential semantics as the shipped branch.
+The hidden witness is:
 
 - `u`
 - `m`
@@ -24,64 +32,164 @@ of the live branch:
 - `r1`
 - `Z`
 
-with public `(A, B, tag, nonce)`, where:
+with public data:
+
+- issuer / verifier matrices `A` and `B`
+- nonce
+- public tag
+
+and the same live relation:
 
 ```text
 (B3 - r1) ⊙ Z = 1
-A u = B0 + B1 * (m || k) + B2 * r0 + Z
+A u = B0 + B1 * (m || k) + sum_j B2[j] * r0[j] + Z
 tag = F(k, nonce)
 ```
 
-This baseline is about replay geometry and transcript shape, not a different
-credential semantics.
+Important points:
 
-## Current Full-Replay Implementation Shape
+- `r0` is the vector `x0` side, not a scalar legacy witness slot
+- `B2` is interpreted as `[B2[0], ..., B2[X0Len-1]]`
+- the full baseline does not reintroduce `Uc`, source-product rows, or
+  commitment-derived targets
 
-The current theorem-clean full replay path:
+## Why this study still matters
 
-- uses the direct `bb_tran` witness surface built from `m`, `k`, `r0`, `r1`,
-  and `Z`
-- derives replay-domain rows directly from those semantic objects
-- does not commit a separate source `T` row
-- does not rely on committed `MSigmaR1` / `R0R1` source rows
-- does not carry the old source-product bridge as part of the live baseline
+The full baseline is still useful even though it is not the shipped path.
 
-When reading current code, start here:
+It gives a control surface for:
 
-- [PIOP/showing_coeff_native_literal_packed_runtime.go](../PIOP/showing_coeff_native_literal_packed_runtime.go)
-- [PIOP/showing_transform_bridge_constraints.go](../PIOP/showing_transform_bridge_constraints.go)
-- [PIOP/showing_transform_bridge_eval.go](../PIOP/showing_transform_bridge_eval.go)
-- [PIOP/sig_shortness_replay.go](../PIOP/sig_shortness_replay.go)
-- [cmd/showing/main.go](../cmd/showing/main.go)
+- theorem-clean replay coverage
+- future V7-style shortness work
+- measuring how much transcript is attributable to reduced-replay engineering
+  choices instead of the core relation
 
-## Current Reduced-vs-Full Split
+The current repo should therefore be read as having two different goals:
 
-- reduced replay remains the shipped engineering benchmark
-- full replay remains the theorem-clean control surface
-- both use the same stored credential state and the same `bb_tran` semantics
-- the difference is witness packing, replay coverage, and transcript geometry
+- shipped baseline:
+  reduced replay, `soundness_balanced`, `output_audit`, V6 hidden shortness
+- study baseline:
+  intended full replay with the same semantic witness but a wider authenticated
+  replay image
 
-## Re-run Checklist
+## Current status
 
-Use these commands when refreshing the full baseline after protocol or proof
-changes:
+### Shipped status
+
+The reduced-replay baseline is the only path that is both:
+
+- green on the canonical `lhl_default` artifacts
+- kept current as an engineering target
+
+### Full-replay study status
+
+The intended theorem-clean control remains research-only on the checked-in
+vector-`x0` artifacts.
+
+The intended command surface is:
 
 ```bash
-go run ./cmd/issuance demo-local
-go run ./cmd/showing -showing-preset compact_l1_research
+go run ./cmd/showing -showing-preset compact_l1_research -full
+```
+
+At the time of writing, the current repo still treats this as a stale research
+control. On canonical `lhl_default` artifacts it fails with a replay-planner
+exhaustion error rather than producing a maintained measurement.
+
+That means:
+
+- the full baseline is still semantically meaningful
+- it is not currently a green acceptance target
+- transcript or soundness numbers from older full-replay experiments are
+  historical only until the vector-`x0` replay planner is repaired
+
+## What changed after the protocol migration
+
+The full baseline used to be easy to confuse with older aligned/source-product
+surfaces. That is no longer correct.
+
+The current full-baseline study assumes:
+
+- Ajtai commitment to `(m, k, r0H[0], ..., r0H[X0Len-1], r1H, rbar)` at issuance
+- shared issuer randomness `r0I[]`, `r1I`
+- centered hidden randomness
+  `r0 = center(r0H + r0I)` componentwise and `r1 = center(r1H + r1I)`
+- direct `bb_tran` target formation
+- stored credential witness `(u, m, k, r0, r1, Z)`
+
+The full baseline does not assume:
+
+- `T = B0 + Uc + Z`
+- source-product witness rows as active proving inputs
+- scalar `x0`
+- aligned commitment randomness `(S, E)`
+
+## Full replay versus reduced replay
+
+### Shared semantics
+
+Both branches use:
+
+- the same `version = 2` credential state
+- the same vector-`x0` public parameters
+- the same `bb_tran` target relation
+- the same PRF key `k` embedded in the signed message
+
+### Different proof geometry
+
+Reduced replay:
+
+- excludes transform aliases and replay-image rows from the active selector
+- keeps only carrier and PRF-companion replay families live
+- is the shipped transcript-performance baseline
+
+Full replay:
+
+- is intended to authenticate a theorem-cleaner replay image
+- is the natural place for V7-style inlined target-hiding shortness
+- is currently stale on the canonical vector-`x0` artifacts
+
+The difference is therefore proof geometry, not credential semantics.
+
+## Where to read the current code
+
+If you need to reason about the full-baseline study from code, start here:
+
+- [../cmd/showing/main.go](../cmd/showing/main.go)
+- [../PIOP/showing_coeff_native_literal_packed_runtime.go](../PIOP/showing_coeff_native_literal_packed_runtime.go)
+- [../PIOP/showing_transform_bridge_constraints.go](../PIOP/showing_transform_bridge_constraints.go)
+- [../PIOP/showing_transform_bridge_eval.go](../PIOP/showing_transform_bridge_eval.go)
+- [../PIOP/sig_shortness_replay.go](../PIOP/sig_shortness_replay.go)
+- [../PIOP/replay_family_audit.go](../PIOP/replay_family_audit.go)
+
+Use [transcript_reduction_analysis.md](transcript_reduction_analysis.md) for the
+measured reduced-replay baseline and the current optimization roadmap.
+
+## How to refresh this study
+
+When the full-replay branch is being repaired or re-measured, use this order:
+
+1. Regenerate current canonical artifacts.
+2. Verify the reduced baseline still works.
+3. Run the intended full-replay control.
+4. Record only measurements produced on fresh vector-`x0` artifacts.
+
+Commands:
+
+```bash
+go run ./cmd/issuance setup-demo-public -force -out Parameters/credential_public.json -x0-profile lhl_default
+go run ./cmd/issuance demo-local -public-params Parameters/credential_public.json -artifact-dir credential/issuance -state-out credential/keys/credential_state.json -signature-out ntru_keys/signature.json
+go run ./cmd/showing
 go run ./cmd/showing -showing-preset compact_l1_research -full
 go test ./PIOP ./cmd/showing
 ```
 
-If the state file predates the shared-randomness migration, regenerate it
-before measuring the baseline.
+## Reading rule
 
-## Measurement Rule
+When this note discusses "full baseline", read it as:
 
-Do not treat one historical transcript byte count as the protocol definition.
-For this branch, the stable facts are:
-
-- the full baseline is the `-full` replay surface
-- it proves the direct `bb_tran` relation on `(u,m,k,r0,r1,Z)`
-- it no longer documents or depends on the deprecated
-  commitment-derived/source-product path
+- a current semantic study of the theorem-clean replay surface for the live
+  `bb_tran` protocol
+- not a claim that the full-replay CLI is currently green on the shipped
+  artifacts
+- not an archival description of the deprecated aligned/source-product design

@@ -10,7 +10,7 @@
 
 \begin{document}
 
-\title{ARC-SPRUCE: Post-Quantum Blind Signatures and  Anonymous Rate-Limited Credentials from Lattices}
+\title{ARC-SPRUCE: Post-Quantum Blind Issuance and Anonymous Rate-Limited Credentials from Lattices}
 
 % Authors omitted for anonymous submission.
 
@@ -40,12 +40,12 @@
 \ccsdesc[500]{Security and privacy~Privacy-preserving protocols}
 \ccsdesc[500]{Security and privacy~Pseudonymity, anonymity and untraceability}
 
-\keywords{Blind Signatures, Anonymous Credentials, Post-Quantum Cryptography}
+\keywords{Blind Issuance, Anonymous Credentials, Post-Quantum Cryptography}
 
 \begin{abstract}
-Blind signatures and anonymous credentials have recently seen a large interest from practitioners due to their usefulness in building privacy-preserving online authentication systems such as the EU Digital Identity Wallet. However, all currently known and practically efficient systems are not secure against quantum computers.
+Blind issuance protocols and anonymous credentials have recently seen a large interest from practitioners due to their usefulness in building privacy-preserving online authentication systems such as the EU Digital Identity Wallet. However, all currently known and practically efficient systems are not secure against quantum computers.
 
-In this work, we use recent lattice-based techniques to modularly design post-quantum blind signatures and anonymous rate-limiting credentials. By using a state-of-the-art Non-Interactive Zero-Knowledge Proof system called SmallWood combined with a PRF based on the Poseidon Hash function, we obtain signature sizes that outperform existing constructions. In addition, our implementation shows competitive computational performance on modest hardware. We also provide the first, to our knowledge, implementation of the SmallWood proof system, which is of independent interest.
+In this work, we use recent lattice-based techniques to design a post-quantum issuer-view-hiding blind-issuance protocol and a conditional anonymous rate-limiting credential construction. By using a state-of-the-art Non-Interactive Zero-Knowledge Proof system called SmallWood combined with a PRF based on the Poseidon Hash function, we obtain communication sizes that outperform existing constructions. In addition, our implementation shows competitive computational performance on modest hardware. We also provide the first, to our knowledge, implementation of the SmallWood proof system, which is of independent interest.
 \end{abstract}
 
 \maketitle
@@ -58,7 +58,7 @@ In this work, we use recent lattice-based techniques to modularly design post-qu
 \input{sections/06_parameters}
 
 \bibliographystyle{alpha}
-\bibliography{./biblio/crypto,./biblio/abbrev3,./biblio/references}
+\bibliography{./biblio/crypto,./biblio/abbrev3,./biblio/references,./references_lhl}
 
 \appendix
 \input{appendix/A_definitions}

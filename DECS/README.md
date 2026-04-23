@@ -29,6 +29,11 @@ Verifier-side DECS checks are consumed through the LVCS and PIOP layers.
 - explicit-domain semantics only
 - low-degree checks over the shared base field
 - support for formal coefficient rows where needed by the proof path
+- on the shipped reduced-replay baseline, DECS underlies the authenticated row
+  openings for the carrier and PRF-companion replay families
+- the current vector-`x0` path uses singleton low-alphabet carrier support on
+  the `x0` side, but that changes row degree geometry rather than DECS
+  semantics
 
 ## Read Next
 

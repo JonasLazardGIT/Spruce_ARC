@@ -1,7 +1,10 @@
 # NIZK Alignment Notes
 
-This note records paper-to-code alignment for the current SPRUCE checkout after
-the shared-randomness `h_tran` migration.
+This note records paper-to-code alignment for the current SPRUCE checkout after:
+
+- the shared-randomness `h_tran` migration
+- the vector-`x0` parameterization pass
+- the first-pass singleton-`x0` transcript reduction
 
 ## Reading Rule
 
@@ -21,33 +24,45 @@ Keep these categories separate:
 
 ## Current Bottom Line
 
-- issuance now matches the shared-randomness `h_tran` structure: Ajtai
-  commitment, issuer randomness, centering, direct inverse witness `Z`, and
-  direct public target `T`
-- showing now proves the direct `bb_tran` relation from stored semantic witness
-  rows `(u,m,k,r0,r1,Z)`
-- reduced replay is still an engineering benchmark surface
-- `compact_l1_research -full` remains the theorem-clean full replay control
+- issuance matches the shared-randomness `h_tran` structure:
+  - Ajtai commitment
+  - issuer randomness
+  - componentwise centering on the `x0` side
+  - direct inverse witness `Z`
+  - direct public target `T`
+- showing proves the direct `bb_tran` relation from stored semantic witness
+  rows `(u, m, k, r0, r1, Z)`
+- the live `x0` side is vector-aware and parameterized by `X0Len` and
+  `X0CoeffBound`
+- the live `x0` carrier surface now uses a real singleton low-alphabet codec
+  for `RU0[]`, `R0[]`, and `K0[]`
+- reduced replay is still the shipped engineering surface
+- the full-replay theorem-clean control remains a research target, not the
+  maintained canonical artifact path
 
 ## Claim Matrix
 
 | Property | Paper | Code / Measurement | Status | Notes |
 | --- | --- | --- | --- | --- |
-| issuance commitment surface | Paper fact: the holder commits to `(\mu, r0H, r1H, rbar)`. | Code fact: [cmd/issuance/flow_helpers.go](../cmd/issuance/flow_helpers.go) persists `m`, `k`, `r0h`, `r1h`, `rbar`; [issuance/flow.go](../issuance/flow.go) commits those rows through `PrepareCommit`. | aligned | The live commitment is Ajtai-style and semantic. |
-| shared issuer randomness | Paper fact: issuer sends `r0I`, `r1I` and the holder centers the sums. | Code fact: [issuance/flow.go](../issuance/flow.go) samples `RI0` / `RI1` and derives centered `R0` / `R1` with explicit carry rows. | aligned | Centering is part of the pre-sign statement, not an external convention. |
-| public target relation | Paper fact: `Z=(B3-r1)^(-1)` and `T=B0+B1\mu+B2r0+Z`. | Code fact: [credential/helpers.go](../credential/helpers.go) and [issuance/flow.go](../issuance/flow.go) compute `Z` and `T` directly from `(m,k,r0,r1)`; [PIOP/credential_constraints.go](../PIOP/credential_constraints.go) enforces the inverse and target equations. | aligned | No live `Uc` path remains. |
+| issuance commitment surface | Paper fact: the holder commits to `(\mu, r0H, r1H, rbar)`. | Code fact: [../cmd/issuance/flow_helpers.go](../cmd/issuance/flow_helpers.go) persists `m`, `k`, `r0h`, `r1h`, `rbar`; [../issuance/flow.go](../issuance/flow.go) commits those rows through `PrepareCommit`. | aligned | `r0H` is vector-valued in the live branch. |
+| shared issuer randomness | Paper fact: issuer sends `r0I`, `r1I` and the holder centers the sums. | Code fact: [../issuance/flow.go](../issuance/flow.go) samples `RI0[]` / `RI1` and derives centered `R0[]` / `R1` with explicit carry rows. | aligned | Centering is part of the pre-sign statement, not an external convention. |
+| public target relation | Paper fact: `Z=(B3-r1)^(-1)` and `T=B0+B1\mu+B2r0+Z`. | Code fact: [../credential/helpers.go](../credential/helpers.go) and [../issuance/flow.go](../issuance/flow.go) compute `Z` and `T` directly from `(m,k,r0,r1)`; [../PIOP/credential_constraints.go](../PIOP/credential_constraints.go) enforces the inverse and target equations. | aligned | `B2 * r0` is vector accumulation in the live branch. |
 | issuer signing step | Paper fact: issuer samples `u` such that `A u = T`. | Code fact: `issuer-verify-sign` verifies the pre-sign proof and signs the public `T`; `holder-finalize` checks `A u = T` before storing state. | aligned | Trapdoor signing remains unchanged apart from target plumbing. |
-| stored credential witness | Paper fact: stored witness is conceptually `(u,m,k,r0,r1)` and may cache `Z`. | Code fact: [credential/state.go](../credential/state.go) stores `m`, `k`, `r0`, `r1`, `z`, `sig_s1`, `sig_s2`, plus audit artifacts `com`, `ri0`, `ri1`. | aligned | `T` is no longer persisted in the final credential state. |
-| showing relation | Paper fact: showing proves `(B3-r1)⊙Z=1`, `A u = B0 + B1(m||k) + B2r0 + Z`, and `tag = F(k, nonce)`. | Code fact: [PIOP/showing_coeff_native_literal_packed_runtime.go](../PIOP/showing_coeff_native_literal_packed_runtime.go), [PIOP/showing_transform_bridge_constraints.go](../PIOP/showing_transform_bridge_constraints.go), and [PIOP/showing_transform_bridge_eval.go](../PIOP/showing_transform_bridge_eval.go) compile that direct witness shape. | aligned | The live showing path no longer depends on `MSigmaR1`, `R0R1`, or a source-product bridge. |
-| PRF correctness | Paper fact: showing proves the PRF/tag relation on the signed hidden key. | Code fact: [cmd/showing/main.go](../cmd/showing/main.go) derives the PRF key from stored `k`, and the live showing proof binds `tag = F(k, nonce)`. | aligned | The tag key no longer comes from an aligned-commitment witness split. |
-| theorem-clean replay geometry | Paper fact: the strongest theorem-facing statement uses the full replay image. | Code fact: `go run ./cmd/showing -showing-preset compact_l1_research -full` remains the full replay control; reduced replay is still shipped separately. | aligned for `-full` | Reduced replay stays narrower by design. |
-| rate limiting service | Paper conditional claim: rate limiting depends on application state outside the proof. | Code fact: `cmd/showing` constructs and verifies proofs locally; it does not maintain a spent-tag database. | unproven | The algebraic tag relation is implemented, but application policy is external. |
+| stored credential witness | Paper fact: stored witness is conceptually `(u,m,k,r0,r1)` and may cache `Z`. | Code fact: [../credential/state.go](../credential/state.go) stores `m`, `k`, `r0`, `r1`, `z`, `sig_s1`, `sig_s2`, plus audit artifacts `com`, `ri0`, `ri1`. | aligned | `T` is not persisted in the final credential state. |
+| showing relation | Paper fact: showing proves `(B3-r1)⊙Z=1`, `A u = B0 + B1(m||k) + B2r0 + Z`, and `tag = F(k, nonce)`. | Code fact: [../PIOP/showing_coeff_native_literal_packed_runtime.go](../PIOP/showing_coeff_native_literal_packed_runtime.go), [../PIOP/showing_transform_bridge_constraints.go](../PIOP/showing_transform_bridge_constraints.go), and [../PIOP/showing_transform_bridge_eval.go](../PIOP/showing_transform_bridge_eval.go) compile that direct witness shape. | aligned | The live showing path no longer depends on `MSigmaR1`, `R0R1`, or source-product witness rows. |
+| PRF correctness | Paper fact: showing proves the PRF/tag relation on the signed hidden key. | Code fact: [../cmd/showing/main.go](../cmd/showing/main.go) derives the PRF key from stored `k`, and the live showing proof binds `tag = F(k, nonce)`. | aligned | The PRF key no longer comes from an aligned commitment split. |
+| x0 parameterization | Paper fact: the target-hiding term is the `x0` / `r0` side. | Code fact: [../credential/public_params.go](../credential/public_params.go) and [../cmd/issuance/flow_helpers.go](../cmd/issuance/flow_helpers.go) expose `X0Len`, `X0CoeffBound`, `TargetDim`, and `TargetHidingLambda`. | aligned | Current shipped profile is `lhl_default`. |
+| low-alphabet x0 carrier compression | Paper inference: low-alphabet rows should be encoded with support matching the actual witness alphabet. | Code fact: [../PIOP/carrier_codec.go](../PIOP/carrier_codec.go) now uses a singleton carrier codec for `RU0[]`, `R0[]`, and `K0[]`; [../docs/transcript_reduction_analysis.md](transcript_reduction_analysis.md) records the measured impact. | aligned | This is a code-backed optimization, not a new protocol claim. |
+| theorem-clean replay geometry | Paper fact: the strongest theorem-facing statement uses the full replay image. | Code fact: the intended CLI is still `go run ./cmd/showing -showing-preset compact_l1_research -full`, but the checked-in canonical vector-`x0` artifacts should currently be treated as reduced-replay-first engineering artifacts. | partially aligned | The semantics are aligned; the current checked-in engineering baseline is reduced replay. |
+| rate limiting service | Paper conditional claim: rate limiting depends on application state outside the proof. | Code fact: `cmd/showing` constructs and verifies proofs locally; it does not maintain a spent-tag database. | unproven | The algebraic tag relation is implemented; application policy is external. |
 | blindness / one-more unforgeability | Paper-explicit non-claim or conditional claim. | Code fact: this branch does not add new proofs beyond the paper. | unchanged | Do not describe the implementation as proving more than the paper does. |
 
 ## Practical Reading
 
 - Use [protocol.md](protocol.md) for the live issuance and showing equations.
 - Use [shared_randomness_migration.md](shared_randomness_migration.md) for
-  artifact-format compatibility.
+  artifact-format compatibility and regeneration rules.
+- Use [transcript_reduction_analysis.md](transcript_reduction_analysis.md) for
+  the measured post-singleton transcript regime.
 - Use [full_baseline_proof_study.md](full_baseline_proof_study.md) when working
-  on the theorem-clean full replay path.
+  on the theorem-clean full replay control.

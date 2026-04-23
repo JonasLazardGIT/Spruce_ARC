@@ -1,30 +1,36 @@
 # Modulus Choice
 
-This note explains the current shared-field choice used by the live SPRUCE
-branch. It is implementation-facing, not a paper-only rationale and not a
-parameter-regeneration runbook.
+This note explains the current shared-field choice for the live ARC-SPRUCE
+implementation and how that modulus interacts with the post-migration witness,
+the vector-`x0` parameterization, and the current transcript surface.
 
-## Why One Shared Field
+It is an implementation note, not a paper derivation and not a full parameter
+regeneration checklist.
 
-The current branch keeps the main arithmetic layers on one modulus:
+## Current arithmetic surface
 
-- the NTRU signature target and public verification equation
-- the rational-hash relation
+The live branch keeps the following layers over one shared modulus `q`:
+
+- NTRU signing and verification
+- `bb_tran` target arithmetic
 - the SmallWood-style proof stack
-- the PRF used during showing
+- the PRF used in showing
 
-That avoids cross-field encodings between:
+That is a deliberate design choice. It avoids cross-field encodings between:
 
-- signed witness rows
-- proof-system rows and replay identities
-- PRF checkpoint constraints
+- the signed witness `u`
+- the hash/inverse witness `(m, k, r0, r1, Z)`
+- replay-authenticated proof rows
+- PRF checkpoint rows and final tag constraints
 
 For the current implementation, one shared field is the simplest way to keep
-issuance and showing inside one coherent arithmetic model.
+issuance and showing in one coherent arithmetic model.
 
-## Current Live Values
+## Current live values
 
-### From `Parameters/Parameters.json`
+### Core ring and signature parameters
+
+From `Parameters/Parameters.json`:
 
 - ring degree `N = 1024`
 - modulus `q = 1054721`
@@ -32,13 +38,23 @@ issuance and showing inside one coherent arithmetic model.
 - signature bound `beta = 6142`
 - signature bound alias `bound = 6142`
 
-### From `Parameters/credential_public.json`
+### Credential-side public parameters
 
-- message / centering bound `BoundB = 1`
+From `Parameters/credential_public.json`:
 
-### From `prf/prf_params.json`
+- `BoundB = 1`
+- `X0Len = 6`
+- `X0CoeffBound = 5`
+- `TargetDim = 1`
+- `TargetHidingLambda = 128`
 
-- the PRF also uses `q = 1054721`
+These are the current checked-in `lhl_default` values.
+
+### PRF parameters
+
+From `prf/prf_params.json`:
+
+- `q = 1054721`
 - S-box exponent `d = 3`
 - `LenKey = 8`
 - `LenNonce = 12`
@@ -47,94 +63,169 @@ issuance and showing inside one coherent arithmetic model.
 - `RF = 8`
 - `RP = 19`
 
-## Why `q = 1054721` Works For The Current Stack
+## Why `q = 1054721` is the live modulus
 
-The live modulus is not just "a large enough prime". It satisfies several
-branch-critical constraints at once.
+The current modulus is not just "big enough". It simultaneously satisfies the
+constraints of the current protocol stack.
 
-- `q` is prime, so all proof/PRF arithmetic is performed in a field.
-- `q ≡ 1 mod 2048`, so the current `N = 1024` power-of-two NTT structure is
-  valid.
+- `q` is prime, so the proof stack and PRF run over a field.
+- `q ≡ 1 mod 2048`, so the current `N = 1024` power-of-two NTT structure works.
 - `q ≡ 2 mod 3`, so the cubic PRF exponent is compatible with the field.
 
-Those conditions let the branch keep:
+Those properties let the repo keep:
 
 - the current NTRU/ring infrastructure
-- the explicit-domain proof machinery
-- the cubic PRF used by the showing proof
+- explicit-domain DECS/LVCS commitments
+- the cubic PRF
+- the direct `bb_tran` target relation
 
-inside the same base field.
+inside one base field.
 
-## What This Means For The Proof System
+## How the modulus interacts with the live witness
 
-Keeping one field means the proof system can express:
+The post-migration credential witness is:
 
-- the pre-sign public-target hash relation
-- the post-sign matrix equation for the signature witness
-- the transform-bridge replay identities
-- the grouped PRF checkpoint constraints
+- `u`
+- `m`
+- `k`
+- `r0[0], ..., r0[X0Len-1]`
+- `r1`
+- `Z`
 
-without field translation layers.
+with target:
 
-That does not make packing free. A 21-bit modulus is wider than the older
-small-field regimes sometimes referenced in stale repo prose, so any serialized
-field payload that is packed bitwise will generally grow. But the live branch
-chooses implementation coherence over those older narrower-field assumptions.
+```text
+T = B0 + B1 * (m || k) + sum_j B2[j] * r0[j] + Z
+```
 
-## How The Modulus Interacts With Current Bounds
+The modulus therefore affects:
 
-The current repo should be read with the following pairings in mind:
+- NTRU preimage sampling and verification on `A u = T`
+- the inverse-witness equation `(B3 - r1) ⊙ Z = 1`
+- the `B2[j] * r0[j]` accumulation on the `x0` side
+- the low-degree proof arithmetic that authenticates those rows
+- the PRF constraints on the signed key `k`
 
-- signature-side coefficient checks use `beta = 6142`
-- credential-side carrier/centering checks use `BoundB = 1`
+This is why the modulus is shared infrastructure, not an isolated signature
+parameter.
 
-These numbers come from different runtime assets and govern different parts of
-the stack:
+## Bound separation: `beta`, `BoundB`, and `X0CoeffBound`
 
-- `beta` is the showing-time bound checked against `SigS1` / `SigS2`
-- `BoundB` is the low-alphabet bound used for message packing, centering, and
-  carrier decode/membership on the credential side
+The live repo has three different "smallness" concepts that should not be
+collapsed together.
 
-So a modulus change is not only a signature change. It affects:
+### Signature bound
 
-- the signature witness range
-- the carrier encoding space
-- the transform-replay arithmetic
-- the PRF field and checkpoint equations
+- `beta = 6142`
+- used for `sig_s1` / `sig_s2` shortness checks
+- lives on the NTRU side
 
-## Why The PRF Uses The Same Modulus
+### Credential-side small alphabet
 
-The PRF is not an add-on subsystem in this branch. It is part of the showing
-statement.
+- `BoundB = 1`
+- governs:
+  - packed message carriers for `(m, k)` under the current demo profile
+  - scalar centering side `r1`
+  - scalar carry `k1`
+  - `rbar`
+
+### `x0` side bound
+
+- `X0CoeffBound = 5` on the shipped `lhl_default` profile
+- governs:
+  - holder-side `r0H[]`
+  - issuer-side `r0I[]`
+  - centered `r0[]`
+  - `k0[]` carry rows
+  - the singleton low-alphabet `x0` carrier codec
+
+This separation matters both cryptographically and for transcript size.
+
+## Why the vector-`x0` regime matters for arithmetic costs
+
+The current branch is no longer scalar on the target-hiding side.
+
+Shipped `lhl_default`:
+
+- `X0Len = 6`
+- `X0CoeffBound = 5`
+- singleton `x0` alphabet size `2*5+1 = 11`
+
+Alternative `lhl_alt`:
+
+- `X0Len = 5`
+- `X0CoeffBound = 8`
+- singleton `x0` alphabet size `2*8+1 = 17`
+
+Even though both profiles satisfy the current LHL target, the larger `x0`
+alphabet of `lhl_alt` increases the degree of low-alphabet membership and
+decode constraints. That, in turn, pushes:
+
+- `dQ`
+- `Pdecs`
+- overall paper transcript size
+
+The modulus does not cause that effect by itself, but the shared field fixes
+the ambient arithmetic cost of every such degree increase.
+
+## Why the PRF uses the same modulus
+
+The PRF is part of the showing relation:
+
+```text
+tag = F(k, nonce)
+```
 
 Using the same modulus means:
 
-- key lanes are decoded directly from signed message material into `F_q`
-- nonce lanes live in the same field as the signature/hash witness
-- checkpoint openings and final tag constraints stay native to the proof system
+- `k` can be extracted from the signed message witness directly into `F_q`
+- nonce lanes already live in the same field as the rest of the statement
+- grouped checkpoint constraints and final tag constraints remain native to the
+  main proof system
 
-For the current live code, that is the cheapest and cleanest way to ensure the
-public tag is tied to the same hidden signed message that supports the
-post-sign proof.
+That avoids field-translation gadgets between the signature/hash witness and
+the PRF side of the statement.
 
-## If `q` Changes
+## What a modulus change would force
 
-At minimum, a modulus change requires revalidating all of the following:
+Changing `q` is not a one-package edit. At minimum it requires revalidating:
 
 1. `Parameters/Parameters.json`
-2. `prf/prf_params.json`
-3. `Parameters/credential_public.json`
-4. NTRU keys and signatures
-5. issuance output in `credential/keys/credential_state.json`
-6. showing-time signature-bound checks against the new `beta`
-7. proof geometry and preset defaults that depend on row width / packing width
+2. `Parameters/credential_public.json`
+3. `prf/prf_params.json`
+4. `Parameters/Bmatrix_bb_tran_x0len*.json`
+5. NTRU keys and signatures
+6. the LHL report for the active `x0` profile
+7. proof geometry and presets that depend on row width and degree
 
-In other words, the modulus is shared infrastructure. It is not safe to treat
-it as a single-package knob.
+In practice it also forces regeneration of:
 
-## Reading Next
+- credential artifacts
+- credential state
+- signature fixtures
+- transcript benchmark baselines
+
+## Practical reading rule
+
+When you see transcript or proof-size changes in the current repo, do not read
+them as a pure modulus story.
+
+For the live branch, size comes from the interaction of:
+
+- shared modulus width
+- witness geometry
+- low-alphabet support size
+- replay opening layout
+- shortness payload
+
+The modulus is the foundation, but the current transcript gains and losses are
+mostly driven by how the witness is arithmetized over that field.
+
+## Reading next
 
 - [protocol.md](protocol.md) for the current issuance/showing model
-- [nizk_alignment_notes.md](nizk_alignment_notes.md) for paper-vs-code
-  reconciliation
+- [shared_randomness_migration.md](shared_randomness_migration.md) for the
+  post-aligned migration history
+- [transcript_reduction_analysis.md](transcript_reduction_analysis.md) for the
+  current measured transcript bottlenecks
 - [../PIOP/README.md](../PIOP/README.md) for the proof-system package surface

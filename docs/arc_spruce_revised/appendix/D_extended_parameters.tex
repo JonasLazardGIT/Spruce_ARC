@@ -6,7 +6,9 @@ This appendix provides extended parameter discussion and additional benchmark da
 \subsection{Admissibility checklist}
 A parameter tuple is \emph{admissible} for ARC-SPRUCE if it simultaneously satisfies:
 \begin{enumerate}[leftmargin=1.25em]
-  \item \textbf{Bound vs.\ modulus:} \(\BoundMsg \ll q\) so membership checks on \([-\BoundMsg,\BoundMsg]\) do not wrap modulo \(q\).
+  \item \textbf{Bound vs.\ modulus:} \(\BoundMsg \ll q\) so membership checks on \([ -\BoundMsg,\BoundMsg]\) do not wrap modulo \(q\).
+  \item \textbf{Commitment hiding:} the commitment-only randomness \(\bar r\) satisfies the leftover-hash condition of Lemma~\ref{lem:ajtai-hiding}.
+  \item \textbf{Target hiding:} the long BB-tran randomizer \(r_0\in\Rq^{\ell_{r_0}}\) satisfies the cyclotomic-LHL condition of Lemma~\ref{lem:htran-lhl}.
   \item \textbf{Sampler hiding and shortness:} Gaussian widths exceed the required smoothing threshold and the signature
   bound \(\BoundSig\) holds with overwhelming probability.
   \item \textbf{Rational-hash guard:} denominator invertibility succeeds with negligible failure probability under the
@@ -23,7 +25,7 @@ statistical hiding in Gaussian preimage sampling is to choose Gaussian widths ab
 For the ambient lattice \(\Z^{2N}\) one may use the classical bound
 \[
   \eta_\varepsilon(\Z^{2N})
-  \;=\;
+  \,=\,
   \sqrt{\ln\!\bigl(4N(1+2^\lambda)\bigr)/\pi}.
 \]
 In our tuning, trapdoor quality \(\alpha\) and acceptance parameters are chosen so that the output shortness bound
@@ -54,6 +56,42 @@ tuning).}
 \label{tab:lattice-params}
 \end{table}
 
+\subsection{LHL design points for the long $r_0$-randomizer}
+For the measured parameter scale \(N=1024\), \(q=1038337\), and \(\lambda=128\), the one-coordinate target-hiding
+condition of Lemma~\ref{lem:htran-lhl} becomes
+\[
+  \ell_{r_0}\log_2(2\beta_{r_0}+1)
+  \ge
+  \log_2 q + 2\lambda/N
+  \approx 20.2359.
+\]
+Table~\ref{tab:lhl-design-points} records representative design points.  The parameter \(\beta_{r_0}\) is the
+coefficient bound of the long linear-side randomizer, and the membership degree is the degree of the vanishing
+polynomial used to certify coefficient membership in \([ -\beta_{r_0},\beta_{r_0}]\).
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}cccl@{}}
+\toprule
+\(\beta_{r_0}\) & \(\ell_{r_0}\) & membership degree & \textbf{Comment} \\
+\midrule
+5  & 6 & 11 & balanced choice; moderate witness width and moderate degree \\
+8  & 5 & 17 & saves one ring element in the witness; slightly higher degree \\
+31 & 4 & 63 & entropy-rich but likely too expensive in proof degree \\
+1  & 13 & 3 & ternary-style alphabet; degree is small but witness width is large \\
+\bottomrule
+\end{tabular}
+\caption{Representative target-hiding design points for the long BB-tran randomizer.  The LHL condition constrains only
+$r_0$; it does not change sampler tuning or the admissibility budget for $r_1$.}
+\label{tab:lhl-design-points}
+\end{table}
+
+The table shows the main trade-off induced by the new target-hiding theorem.  Increasing \(\beta_{r_0}\) reduces the
+required width \(\ell_{r_0}\), hence the number of witness coordinates and linear constraints, but it also increases the
+degree of the range-check polynomial.  In the present regime, \((\beta_{r_0},\ell_{r_0})=(5,6)\) and
+\((\beta_{r_0},\ell_{r_0})=(8,5)\) are the most natural candidates.
+
 \subsection{SmallWood soundness terms}
 SmallWood’s soundness is a combination of degree soundness (DECS), LVCS binding, and PIOP sampling errors
 \cite{EPRINT:FenRiv25b}. For parameters \((N,s,\ell,\ell',\rho,\eta)\) and degree bounds \(d_{\mathrm{decs}}=s+\ell-1\)
@@ -65,7 +103,7 @@ and \(d_Q\), typical upper bounds take the form:
 \qquad
 \varepsilon_{\mathrm{tail}} \approx \frac{\binom{d_Q}{\ell'}}{\binom{|S|}{\ell'}}.
 \]
-Our issuance statement uses only linear constraints (given public \(T\)), so \(d_Q\) is driven by membership checks; the
+Our issuance statement includes the bilinear inverse check \((B_3-r_1)\Had Z=1\) together with the linear target identity given public \(T\), so \(d_Q\) must account for both the inverse relation and the range/membership checks.  The
 showing statement additionally depends on the PRF effective degree (Appendix~\ref{app:prf}).
 
 \subsection{SmallWood knobs (example)}
@@ -73,9 +111,7 @@ For the issuance and showing proofs discussed in Section~\ref{sec:parameters}, o
 \[
   (s,\ell,\ell',\rho,\theta,\eta)\;=\;(16,25,2,2,4,19),
 \]
-with masking degree \(d_Q\) derived from the instantiated constraint degrees. The pre-sign statement remains linear in
-the witness (given public \(T\)), while the post-sign statement’s effective degree is dominated by the PRF S-box
-composition.
+with masking degree \(d_Q\) derived from the instantiated constraint degrees. The pre-sign statement includes the bilinear inverse-witness constraint together with linear commitment, centering, and target equations, while the post-sign statement adds the PRF S-box composition on top of the same BB-tran inverse check.
 
 \subsection{Extended benchmark grid (SmallWood)}
 For additional context on how SmallWood knobs affect proof size and proving time, Table~\ref{tab:results-grid} reports

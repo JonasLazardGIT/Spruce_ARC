@@ -17,7 +17,8 @@ The issuance proof commits rows encoding:
   r_1,
   Z,
 \]
-together with carry rows for the centering equations and auxiliary rows for range membership.  The active relations are
+where the long target-randomizer satisfies $r_0\in\Rq^{\ell_{r_0}}$.  The proof also carries carry rows for the
+centering equations and auxiliary rows for range membership.  The active relations are
 \begin{align*}
   \vecc&=\mACom[\vecm\Vert\veck\Vert r_0^H\Vert r_1^H\Vert\bar r]^\top,\\
   r_0&=\centerfunc(r_0^H+r_0^I),\qquad r_1=\centerfunc(r_1^H+r_1^I),\\
@@ -35,7 +36,8 @@ The showing proof commits rows encoding:
   r_1,
   Z,
 \]
-plus rows for the signature shortness gadget and the PRF companion relation.  The active algebraic relations are
+with the same dimension convention $r_0\in\Rq^{\ell_{r_0}}$, plus rows for the signature shortness gadget and the
+PRF companion relation.  The active algebraic relations are
 \begin{align*}
   (B_3-r_1)\Had Z&=1,\\
   \mA\vecu&=B_0+B_1(\vecm\Vert\veck)+B_2r_0+Z,\\

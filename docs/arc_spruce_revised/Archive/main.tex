@@ -1,0 +1,105 @@
+\documentclass[11pt,a4paper]{article}
+
+% ---------- packages ----------
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{xspace,xcolor}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{tikz}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage[affil-it]{authblk}
+\usepackage{comment}
+\usepackage{todonotes}
+\usepackage{natbib}
+\usepackage{amsmath,amssymb}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,decorations.pathreplacing,calc, shapes.geometric}
+
+% --- Hyperlinks & clever references ---
+\usepackage[hidelinks]{hyperref}
+\usepackage[capitalise,nameinlink]{cleveref}
+\usetikzlibrary{arrows.meta,positioning,calc}
+\hyphenation{SmallWood SmallWood-ARK vSIS BBS}
+
+\input{commands}
+
+% ---------- title ----------
+\title{SPRUCE: SmallWood Proofs for Robust, Unlinkable \\
+ Anonymous Credential Evidence via PACS and $\mathrm{ISIS}_f$-BBS}
+
+
+\author{Jonas Lazard%
+  \thanks{Electronic address: \texttt{jonas.lazard@student-cs.fr}}}
+
+\author{Carsten Baum%
+  \thanks{Electronic address: \texttt{cabau@dtu.dk}}}
+
+\affil{DTU Compute, Denmark}
+
+
+
+\begin{document}
+\maketitle
+
+
+\section{Todos}
+\begin{itemize}
+    \item Section 7: how to choose parameters so all works together (basically - the process) {\color{blue} Jonas}
+    \item Section 6: better description of SmallWood and why/how it works + diagrams {\color{blue} Jonas}
+\end{itemize}
+
+Future todos: 
+\begin{enumerate}
+    \item likely better structure to begin with describing the NTRU sampler and the ZK proof and then have the section that describes the Blind Signature scheme as putting this all together.
+    \item Derive randomness for initial commitment generating $t$ interactively or use ZK-friendly ZK hash
+\end{enumerate}
+
+
+
+% Sections
+% 0. Introduction
+\input{sections/00-introduction}
+% 1. Preliminaries (definitions, SIS, commitments, NIZKs, blind sigs)
+% \input{sections/01-algorithmic-defs}
+% \input{sections/02-math-background}
+\input{sections/01-preliminaries}
+
+% % 2. vSIS--BBS blind signature scheme (with PKC adaptations)
+% \input{sections/03-vsis-bbs}
+
+% 3. Gaussian sampler
+\input{sections/04-gaussian-preimage}
+
+% 4. SmallWood proof system
+\input{sections/05-zk-layer}
+
+\input{sections/06-putting-together}
+
+% % 6. Optimizations for SmallWood implementation
+\input{sections/07-optimisations}
+
+% % 7. Parameter constraints and chosen parameters
+\input{sections/08-parameters}
+
+
+
+% 8. Results, Benchmarks, Implementation
+\input{sections/09-results}
+
+% Appendix: Algorithmic details
+\input{sections/10-algorithmic-details}
+\input{sections/11-anonymous-credentials}
+
+\input{sections/PIOP_Visual_Diagram}
+
+% ---------- bibliography ----------
+% Ensure BibTeX sees our database even if sections are compiled selectively.
+\nocite{cryptoeprint:2025/356,cryptoeprint:2025/1085,cryptoeprint:2023/1335,GPV08}
+\bibliographystyle{abbrv}
+\bibliography{biblio/crypto,biblio/abbrev3,biblio/references}
+
+\end{document}

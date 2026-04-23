@@ -15,15 +15,15 @@ practically efficient post-quantum ACs remain much less developed.  This gap is 
 systems, including wallet deployments that will eventually require post-quantum migration.
 
 \paragraph*{Building ACs.}
-Anonymous credentials are often built from blind signatures.  The holder first commits to the message to be
-signed, the issuer signs a target derived from this committed message, and the holder later presents a
-zero-knowledge proof of knowledge of a valid message-signature pair.  A generic post-quantum combination of
-standard signatures, commitments, and zero-knowledge proofs is currently too large for the settings targeted
-here.  We therefore combine a proof-friendly lattice signature, an Ajtai-style commitment, and SmallWood
-zero-knowledge proofs in a relation that is designed to be compact.
+Anonymous credentials are often built from blind-signature-style issuance.  The holder first commits to the
+message to be certified, the issuer signs a target derived from this committed message, and the holder later
+presents a zero-knowledge proof of knowledge of a valid message-signature pair.  A generic post-quantum
+combination of standard signatures, commitments, and zero-knowledge proofs is currently too large for the
+settings targeted here.  We therefore combine a proof-friendly lattice signature, an Ajtai-style commitment, and
+SmallWood zero-knowledge proofs in a relation that is designed to be compact.
 
 \subsection{Contributions}
-We construct a post-quantum blind-signature and anonymous rate-limited credential design from lattice
+We construct a post-quantum blind-issuance and anonymous rate-limited credential design from lattice
 assumptions and hash-based zero knowledge.  The construction builds on proof-friendly lattice signatures
 from vanishing SIS with rational hashing~\cite{EPRINT:DKLW25,PKC:DKLW25}, NTRU-style trapdoor sampling
 for hash-and-sign signatures~\cite{EPRINT:ENSTW23}, and the SmallWood proof system for relatively small
@@ -32,13 +32,20 @@ correct tag derivation during presentation.
 
 The blind-issuance layer uses an Ajtai commitment and a two-party randomness step.  The holder commits
 to the full signed message and its holder-side randomness before the issuer sends its contribution.  The final
-rational-hash randomness is obtained by centering the sum of the two contributions.  This preserves the old
-shared-randomness issuance architecture, while the rational hash itself is the BB-tran form of DKLW:
+rational-hash randomness is obtained by centering the sum of the two contributions.  This preserves the shared-
+randomness issuance architecture, while the rational hash itself is the BB-tran form of DKLW:
 \[
   T=B_0+B_1\vecmu+B_2r_0+Z,\qquad (B_3-r_1)\Had Z=1.
 \]
 The target is computed from the bare hidden witness elements, not from the commitment value.  The commitment
 serves to bind the holder to its message and holder-side randomness before the issuer randomness is known.
+
+The privacy of the public target is obtained by choosing the linear-side randomizer $r_0$ long enough for a
+cyclotomic leftover-hash lemma to apply, so that $B_2r_0$ statistically masks the message-dependent and
+inverse-side offsets.  The current draft proves correctness and issuer-view hiding of the issuance surface and then
+builds a conditional ARC security decomposition from that issuance layer, NIZK knowledge soundness / zero
+knowledge, and PRF security.  One-more unforgeability of the interactive issuance layer remains a separate
+reduction goal.
 
 \subsection{Technical overview}
 The full signed message is
@@ -120,9 +127,9 @@ $(\nonce,\prftag)$ pairs.
     \node[actor] (V) at (9,0) {\Large Verifier\\[-1pt]$\Verifier$};
     \draw[lifeline] (H) -- ++(0,-7.5);
     \draw[lifeline] (V) -- ++(0,-7.5);
-    \node[note] at ($(H)+(0,-2.4)$) {Choose unused $\nonce$\\Compute $\prftag\leftarrow\PRF(\veck,\nonce)$\\Compute $\nizkShow$ proving knowledge of\\$\vecu,\vecm,\veck,r_0,r_1,Z$ satisfying\\$\mA\vecu=B_0+B_1(\vecm\Vert\veck)+B_2r_0+Z$\\and $\prftag=\PRF(\veck,\nonce)$};
+    \node[note] at ($(H)+(0,-2.4)$) {Choose unused $\nonce$\\Compute $\prftag\leftarrow\PRF(\veck,\nonce)$\\Compute $\nizkShow$ proving knowledge of\\$\vecu,\vecm,\veck,r_0,r_1,Z$ satisfying\\$(B_3-r_1)\Had Z=1$\\$\mA\vecu=B_0+B_1(\vecm\Vert\veck)+B_2r_0+Z$\\and $\prftag=\PRF(\veck,\nonce)$};
     \draw[msg] ($(H)+(0,-4.4)$) -- node[above,sloped] {$(\nonce,\prftag,\nizkShow)$} ($(V)+(0,-4.4)$);
-    \node[note] at ($(V)+(0,-5.8)$) {Reject if $(\nonce,\prftag)$ already seen\\else store $(\nonce,\prftag)$\\accept iff $\nizkShow$ verifies};
+    \node[note] at ($(V)+(0,-5.8)$) {Reject if $\nizkShow$ fails\\else reject if $(\nonce,\prftag)$ already seen\\else store $(\nonce,\prftag)$ and accept};
     \draw[msg] ($(V)+(0,-7.0)$) -- node[above,sloped] {accept/reject} ($(H)+(0,-7.0)$);
   \end{tikzpicture}}
   \caption{Showing flow.  The tag is deterministic for a fixed key and nonce, enabling stateful rate limiting, while the proof hides the credential witness.}

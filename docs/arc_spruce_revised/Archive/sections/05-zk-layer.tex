@@ -1,0 +1,249 @@
+\section{The SmallWood Proof System: DECS, LVCS and PCS/PIOP}
+\label{sec:smallwood}
+
+In this section, we give a quick overview over the SmallWood ZK proof system. It consists of the following components components:
+\begin{itemize}[leftmargin=1.25em]
+  \item \textbf{DECS} (Degree-Enforcing Commitment Scheme): a commitment layer that enforces low-degree structure of committed vectors/polynomials and supports proximity checks.
+  \item \textbf{LVCS} (Linear Vector Commitment System): a vector commitment with linear operations and succinct openings; used to batch and route constraints.
+  \item \textbf{PCS} (Polynomial Commitment Scheme): commit to a polynomial and prove evaluations/relations at points.
+  \item \textbf{PIOP} (Polynomial IOP): an interactive oracle proof where the prover posts low-degree polynomials and the verifier queries them at random points; compiled via a PCS to a succinct (N)IZK.
+\end{itemize}
+SmallWood composes these layers (DECS\,$\rightarrow$\,LVCS\,$\rightarrow$\,PCS/PIOP) with hash-based commitments to obtain compact arguments.
+Soundness and (H)VZK are inherited from SmallWood under \emph{transparent} ROM/Fiat--Shamir with grinding \cite{cryptoeprint:2025/1085}.
+
+\paragraph{Instantiation note.}
+Our concrete PACS instance (witness layout, degree-2 cleared identity, range and norm subroutines) is detailed in \Cref{sec:Everything-Merges}. Here we keep the presentation generic and cite SmallWood for soundness/HVZK.
+
+
+\subsection{Domains and Packing}
+\label{subsec:domains-packing}
+Fix a base field $\F_q$ and a packing grid $\Omega=\{\omega_1,\dots,\omega_s\}\subset\F_q$ of size $s$.
+Every witness \emph{row} is encoded as a polynomial of degree $\le s+\ell-1$ whose values at $\Omega$
+are the $s$ packed coordinates and whose values at an extra, disjoint set
+$\Omega'=\{\omega'_1,\dots,\omega'_\ell\}\subset\F_q\setminus\Omega$ provide $\ell$ blinding points for
+honest-verifier zero knowledge (HVZK). All identities and checks are enforced coefficient-wise over $\F_q$.
+We use the SmallWood knobs $(\rho,\ell',\ell,N,n_{\text{cols}},d_Q,\eta)$ with bounds as in~\cite{cryptoeprint:2025/1085}.
+In what follows, ``$\equiv \bmod q$'' and all Hadamard operations are understood coefficient-wise on the chosen evaluation domain.
+
+% \paragraph{SmallWood references and bounds.}\label{subsec:sw-citations}
+% We follow SmallWood’s DECS/LVCS/PCS composition and parameter accounting, including polynomial-binding and final soundness budgets (Theorem~9), and the trimming with an extra FS hash that affects $|\pi|$; see \cite[\S5, Thm.~9]{cryptoeprint:2025/1085}.
+
+
+\subsection{DECS (Degree-Enforcing Commitments)}
+\label{subsec:decs}
+
+The DECS layer is the degree‑soundness backbone of SmallWood. It lets the prover commit (via a Merkle tree) to evaluations and then enforce that these evaluations come from polynomials of the targeted low degree, rather than from arbitrary high‑degree data. In the overall argument, DECS appears both in the initial commitment phase and in the final opening phase.
+
+\paragraph{Commitment phase.}
+The prover interpolates each packed row into $P_j\in\F_q[X]_{\le s+\ell-1}$, samples $\eta$ masking polynomials $M_1,\dots,M_\eta$ of the same degree bound, and commits to all evaluations on the NTT domain via a Merkle tree; the root $\mathsf{root}$ is the DECS commitment.
+
+\paragraph{Deriving the batching matrix.}
+From $\mathsf{root}$, both parties deterministically derive a challenge matrix $\Gamma\in\F_q^{\eta\times r}$ (ROM/Fiat--Shamir with grinding counters), which binds masks to rows.
+
+\paragraph{Opening and checks.}
+For any opened set of NTT indices, the verifier (i) authenticates each leaf against $\mathsf{root}$ and (ii) checks per-slot masked linear relations
+\[
+\NTT(R_k)[e]\ \stackrel{?}{=}\ M_k(e)\;+\;\sum_{j=0}^{r-1}\Gamma_{k,j}\,P_j(e)\quad(\bmod q),
+\]
+together with $\deg R_k\le s+\ell-1$ for all $k\le\eta$. This yields small-domain polynomial-binding and HVZK as in SmallWood’s DECS formalization. (Algorithmic details: see Appendix~\ref{app:alg-details}.)
+
+\paragraph{Soundness knob and bound (DECS).}
+Let $N$ be the Merkle domain size and $d_{\mathrm{decs}}=n_{\mathrm{cols}}+\ell-1$ the enforced degree. For one DECS round with a \emph{uniform} challenge matrix distribution $D_\Gamma$ over $\F_q^{\eta\times r}$, the polynomial-binding error is
+\[
+\boxed{\ \varepsilon_1 \;=\; \frac{\binom{N}{\,d_{\mathrm{decs}}+2\,}}{|\F_q|^{\eta}} \ }
+\]
+More generally, SmallWood gives $\varepsilon_{\mathrm{decs}}=\binom{N}{d_{\mathrm{decs}}+2}\varepsilon_D + Q^2/2^{2\lambda}$ (Thm.~1), with $\varepsilon_D:=\max_{v\neq 0,u}\Pr_{\Gamma\leftarrow D_\Gamma}[\Gamma v+u=0]$; under uniform $D_\Gamma$, $\varepsilon_D=|\F_q|^{-\eta}$. In our NIZK composition, the global RO-collision term is accounted for later (see \emph{Final NIZK soundness})~\cite[Eq.~(8), Thm.~1]{cryptoeprint:2025/1085}.
+
+
+\subsection{LVCS: committing rows and verifying linear maps end-to-end}
+\label{subsec:lvcs}
+
+The LVCS layer packages many row‑polynomials together and gives the verifier linear access to (masked) linear maps on the rows, checked at verifier-chosen coordinates: from a single commitment, the verifier can ask for small batches of openings that certify linear relations among rows. Concretely, witness rows are arranged as low‑degree polynomials and organized in layers, LVCS queries then certify linear combinations across these rows while deferring degree soundness to DECS.
+
+\paragraph{Commit phase.}
+Rows $r_1,\dots,r_{n_{\mathrm{rows}}}\in\F_q^{\,s}$ are interpolated into $P_1,\dots,P_{n_{\mathrm{rows}}}$ of degree $\le s+\ell-1$ with $\ell$ blinding points on $\Omega'$. DECS yields a Merkle-root commitment $\mathsf{root}$; this realizes an LVCS commitment to the matrix of rows.
+
+\paragraph{Preparing masked linear forms.}
+Given a coefficient matrix $C=\{c_{k,j}\}$, the prover forms $\bar v_k[i]=\sum_j c_{k,j}\,\mathrm{mask}_j[i]$ for $i<\ell$. These masked prefixes match the slab opened in DECS, preserving HVZK while binding future function queries.
+
+\paragraph{Evaluation phase.}
+The verifier selects a tail set $E$ of $\ell$ indices disjoint from $\Omega$ and the masked slab, requests DECS openings on both regions, checks the masked equalities $\sum_j c_{k,j}\cdot \mathrm{Pvals}[i][j]\stackrel{?}{=}\bar v_k[i]$, and reconstructs $Q_k(X)=\sum_j c_{k,j}P_j(X)$ from the public prefix plus $\bar v_k$ to validate tail evaluations via LVCS/DECS. Soundness follows from DECS polynomial-binding with a Schwartz--Zippel tail test. (Algorithmic details: see Appendix~\ref{app:alg-details}.)
+
+\paragraph{Soundness knob and bound (LVCS).}
+Let $d_{\mathrm{row}}:=n_{\mathrm{cols}}+\ell-1$ and let $\ell$ be the number of DECS openings per evaluation. SmallWood’s LVCS function-binding error splits as
+\[
+\boxed{\ \varepsilon_{\mathrm{LVCS}} \;=\; \underbrace{\varepsilon_1}_{\text{DECS round above}} \;+\; \underbrace{\frac{\binom{d_{\mathrm{row}}}{\ell}}{\binom{N}{\ell}}}_{\text{Schwartz--Zippel on the tail}}\ }\!,
+\]
+i.e., the LVCS layer inherits the DECS error $\varepsilon_1$ and adds the tail-check term $\binom{d_{\mathrm{row}}}{\ell}/\binom{N}{\ell}$ (Thm.~3)~\cite{cryptoeprint:2025/1085}. In the round-by-round view used later, we will denote the tail term alone as \(\varepsilon_4 := \binom{n_{\mathrm{cols}}+\ell-1}{\ell}\Big/\binom{N}{\ell} = \binom{d_{\mathrm{row}}}{\ell}\Big/\binom{N}{\ell}\) and keep $\varepsilon_1$ separate.
+
+
+\subsection{PCS and the PIOP interface}
+SmallWood‑PCS wraps the LVCS/DECS stack into a standard polynomial commitment interface used by the PIOP. Compared to using DECS “directly” as a PCS, this wrapper allows openings at arbitrary field points (not just the N Merkle indices), which lowers verifier cost and lets us keep polynomial degrees smaller.
+\label{subsec:pacs-piop}
+
+\paragraph{PCS from LVCS.}
+SmallWood stacks LVCS so that evaluations of a vector polynomial $P=(P_1,\ldots,P_n)$ are obtained as LVCS openings via arranged coefficient blocks and blinding. This yields a hash-based PCS: correctness and HVZK inherit from LVCS/DECS, and polynomial-binding reduces to LVCS function-binding.
+
+\paragraph{PIOP as a polynomial-oracle client.}
+The PIOP treats the PCS as a polynomial oracle: \emph{commit} asks PCS/LVCS/DECS to commit to $(P,M)$; \emph{query} asks PCS to open a few evaluations at Fiat--Shamir points. Parallel constraints $F_j$ and aggregated families $F'_u$ are combined into :
+\begin{equation}\label{eq:Qi-def}
+Q_i(X)=M_i(X)+\sum_j\Gamma'_{i,j}(X)\,F_j(X)+\sum_u\gamma'_{i,u}\,F'_u(X).
+\end{equation}
+The verifier checks point relations at $\ell'$ random points and runs masked $\Omega$-sum tests (repeated $\rho$ times); with $d_Q$ given by Eq.~\eqref{eq:dQ}, SmallWood’s PIOP soundness satisfies~\cite[Thm.~7]{cryptoeprint:2025/1085}.
+
+\paragraph{Soundness knobs and bounds (PIOP).}
+Let $\ell'$ be the number of oracle point checks and $\rho$ the number of masked $\Omega$-sum repetitions. With batching randomness $\Gamma'$ drawn uniformly, SmallWood’s PIOP soundness (Theorem~7) satisfies
+\[
+\boxed{\ \varepsilon_{\mathrm{PIOP}} \;\le\; \underbrace{\frac{1}{|\F|^{\rho}}}_{\varepsilon_2:\ \Omega\text{-sum tests}}\;+\; \underbrace{\frac{\binom{d_Q}{\ell'}}{\binom{|S|}{\ell'}}}_{\varepsilon_3:\ \text{point checks}}\ }\!,
+\]
+where $d_Q$ is given by Eq.~\eqref{eq:dQ} and $S\subseteq\F\setminus\Omega$ is the PIOP query set (default $|S|=|\F|-s$). Thus $\rho$ and $\ell'$ are independent soundness levers~\cite[Thm.~7]{cryptoeprint:2025/1085}.
+
+\begin{lemma}[PACS degrees and $d_Q$]
+Let $d=\max_j\deg(f_j)$ and $d'=\max_u\deg(f'_u)$ for the parallel and aggregated constraint families, respectively.
+With packing factor $s$ and $\ell'$ oracle openings, the maximal degree checked at PIOP openings is
+\begin{equation}\label{eq:dQ}
+d_Q=\max\Bigl(d(\ell'+s-1)+(s-1),\ d'(\ell'+s-1)\Bigr).
+\end{equation}
+\emph{Proof sketch.} See SmallWood~\cite[Fig.~6 \& Eq.~(3)]{cryptoeprint:2025/1085}: $F_j(X)=f_j(P(X),\Theta(X))$ and $Q_i(X)=M_i(X)+\sum_j \Gamma'_{i,j}(X)F_j(X)+\sum_u \gamma'_{i,u}F'_u(X)$, with $\deg\Gamma'_{i,j}\le s-1$; Theorem~7 then applies.
+\end{lemma}
+
+\paragraph{Fiat--Shamir compilation with grinding.}
+We compile the public-coin protocol into a NIZK by hashing the transcript with domain-separated labels and short grinding counters, yielding SmallWood-ARK with straightline extractability in the ROM. (Algorithmic details: see Appendix~\ref{app:alg-details}.)
+
+\paragraph{Final NIZK soundness (with grinding).}\label{sec:final-soundness}
+Let $\varepsilon_1,\varepsilon_2,\varepsilon_3,\varepsilon_4$ be the \emph{interactive} round errors defined above (DECS, PIOP $\Omega$-sum, PIOP point checks, LVCS tail). With grinding parameters $\kappa_1,\dots,\kappa_4$ and random-oracle query counts $Q_0,\dots,Q_4$, SmallWood gives the compiled NIZK bound
+\[
+\boxed{\ \varepsilon_{\mathrm{ARK}} \;\le\; \frac{Q_0^2+\cdots+Q_4^2}{2^{2\lambda}}
+\;+\; \frac{Q_1\,\varepsilon_1}{2^{\kappa_1}}
+\;+\; \frac{Q_2\,\varepsilon_2}{2^{\kappa_2}}
+\;+\; \frac{Q_3\,\varepsilon_3}{2^{\kappa_3}}
+\;+\; \frac{Q_4\,\varepsilon_4}{2^{\kappa_4}} \ }\!,
+\]
+so each $\kappa_i$ directly recovers $\lambda$-bits of concrete soundness in its round (Thm.~9)~\cite{cryptoeprint:2025/1085}.
+
+
+
+\begin{center}\fbox{\parbox{0.93\linewidth}{
+\textbf{Soundness knobs at a glance.}
+\[
+\varepsilon_1=\frac{\binom{N}{d_{\mathrm{decs}}+2}}{|\F|^{\eta}},\quad
+\varepsilon_2=\frac{1}{|\F|^{\rho}},\quad
+\varepsilon_3=\frac{\binom{d_Q}{\ell'}}{\binom{|S|}{\ell'}},\quad
+\varepsilon_4=\frac{\binom{n_{\mathrm{cols}}+\ell-1}{\ell}}{\binom{N}{\ell}}.
+\]
+\emph{Choose} $(\eta,N)$ for DECS, $(\rho,\ell',|S|)$ for PIOP, and $(\ell,n_{\mathrm{cols}})$ for LVCS; then set $d_Q$ from Eq.~\eqref{eq:dQ}. Final NIZK error uses Theorem~9 with grinding $(\kappa_i)$~\cite{cryptoeprint:2025/1085}.
+}}\end{center}
+
+\paragraph{How range/norm subroutines integrate.}
+Columnwise range-membership and norm-boundedness constraints (for $u,x_0,x_1$) are added among the \emph{parallel} constraints and therefore must vanish at the opened PIOP points; they do not alter the aggregated families. This matches our ``small-set + $\ell_2$-bounded'' witness language inherited from the vSIS--BBS framework.
+
+\paragraph{Unlinkability from ROM zero-knowledge.}
+A presentation publishes only the NIZK transcript (domain-separated FS rounds); no deterministic function of the target $t$ is revealed. Hence SmallWood’s ROM HVZK implies unlinkability for repeated showings in our language. For the witness structure and proof-friendly signatures we follow the vSIS line \cite{cryptoeprint:2025/356}.
+
+
+\subsection{Small-field PACS/PIOP via an Extension Field}\label{subsec:smallfield}
+
+\paragraph{Idea.}
+When the base field \(\F\) is small, we lift the \emph{PIOP algebra} to an extension field \(K/\F\) of degree \(\theta\) while keeping the \emph{PCS/LVCS/DECS layer} over \(\F\).
+We set
+\[
+\ell' = 1 \quad\text{and}\quad \rho = 1,
+\]
+so the verifier opens a single PIOP point over \(K\) and runs one \(\Omega\)-sum check. With \(S = K\setminus\Omega\), the PIOP soundness becomes
+\[
+\varepsilon \;\le\; \frac{1}{|K|} \;+\; \frac{\binom{d_Q}{1}}{\binom{|K|}{1}}
+\;=\; \frac{1+d_Q}{|K|}\,,
+\]
+which is negligible as soon as \(|K|\) exceeds the security target.
+
+\paragraph{Specialized PIOP soundness (small field).}
+With $\ell'=1$ and $\rho=1$ over $K/\F$ of size $|K|$, the PIOP error specializes to
+\[
+\boxed{\ \varepsilon_{\mathrm{PIOP}} \;\le\; \underbrace{\frac{1}{|K|}}_{\varepsilon_2}\;+\;\underbrace{\frac{\binom{d_Q}{1}}{\binom{|K|}{1}}}_{\varepsilon_3}\;=\;\frac{1+d_Q}{|K|}\ }\!,
+\]
+to be combined with $\varepsilon_4$ (LVCS tail over $\F$) and $\varepsilon_1$ (DECS)~\cite{cryptoeprint:2025/1085}. See also \cite[§5.4]{cryptoeprint:2025/1085} for the exact PACS/PIOP specialization over $K$ and \cite[Tab.~2]{cryptoeprint:2025/1085} for the LVCS row/query accounting with $\theta$-fold coordinate openings.
+
+\paragraph{Witness polynomials over \(K\), commitments over \(\F\).}
+The PIOP witness polynomials \(P=(P_1,\dots,P_n)\) and the single masking polynomial \(M\) live in \(K[X]\).
+We commit to them using SmallWood LVCS over \(\F\) by evaluating on a packing set
+\(\Omega=\{\omega_1,\dots,\omega_s\}\subset \iota(\F)\subset K\), where \(\iota:\F\hookrightarrow K\) is the canonical embedding, so that \(P_j(\omega_k)\in \F\) for all \(k\le s\).
+Let \(\varphi:\F^{\theta}\!\to K\) be a fixed \(\F\)-linear isomorphism. For each \(j\), form a single \emph{column}
+\[
+A_j \;=\; (a_1,\dots,a_{s+\theta})^\top\in \F^{s+\theta}
+\]
+with
+\[
+(a_1,\dots,a_s)=(P_j(\omega_1),\dots,P_j(\omega_s)),
+\qquad
+(a_{s+1},\dots,a_{s+\theta})=\varphi^{-1}\!\big(P_j(\omega_{s+1})\big),
+\]
+where \(\omega_{s+1}\in K\setminus\Omega\) is one extra \(K\)-evaluation that supplies the PIOP’s point randomness.
+
+\emph{Clarification (from one \(K\)-evaluation to \(\theta\) \(\F\)-openings).}
+Fix an \(\F\)-basis \((\beta_t)_{t=1}^{\theta}\) of \(K\) compatible with \(\varphi\).
+For any \(e\in K\) there exists \(v_e\in K^{\,s+\theta}\) (a \(K\)-linear functional depending only on \(e\) and \(\Omega\)) such that
+\(v_e\cdot A_j = P_j(e)\).
+Write \(\varphi^{-1}(v_e)=(v_e^{(1)},\dots,v_e^{(\theta)})\) with \(v_e^{(t)}\in \F^{s+\theta}\).
+Then
+\[
+P_j(e)= v_e\!\cdot\! A_j
+= \sum_{t=1}^{\theta} \big\langle v_e^{(t)},\,A_j\big\rangle \,\beta_t,
+\]
+so answering one evaluation over \(K\) boils down to \emph{exactly \(\theta\) parallel \(\F\)-linear LVCS openings} (one inner product per \(\F\)-coordinate). No extra randomness beyond the masking \(M\) is required to answer \(K\)-linear combinations.
+
+\paragraph{Matrix shape, rows, and queries.}
+Stacking \(\{A_j\}_{j\le n}\) in layers yields the global LVCS matrix \(A\) over \(\F\):
+the \(n\) witness columns occupy \(\lceil n/n_{\mathrm{cols}}\rceil\) layers of \((s+\theta)\) rows.
+The (single) masking polynomial over \(K\) contributes an extra block that expands into \(\theta\) \(\F\)-rows per \(K\)-row.
+Altogether,
+\begin{equation}\label{eq:sf-nrows}
+n_{\mathrm{rows}}
+\;=\;
+\Big\lceil \frac{n}{n_{\mathrm{cols}}} \Big\rceil (s+\theta)
+\;+\;
+\Big\lceil \frac{d_Q}{n_{\mathrm{cols}}} + 1 \Big\rceil \theta \,,
+\end{equation}
+where the “\(+1\)” accounts for the masking block.
+Since one evaluation over \(K\) materializes as \(\theta\) \(\F\)-coordinate openings, the number of LVCS queries is
+\begin{equation}\label{eq:sf-m}
+m
+\;=\;
+\Big\lceil \frac{n}{n_{\mathrm{cols}}} + 1 \Big\rceil \theta \, .
+\end{equation}
+
+\paragraph{Where layers run.}
+The PIOP (oracle algebra, batching, and the single-point check) runs over \(K\) with \(S=K\setminus\Omega\) and \(\deg P_i \le s\) (since \(\ell'=1\)),
+while the PCS/LVCS/DECS commitment, degree enforcement, and Merkle openings remain over \(\F\) with unchanged DECS degree
+\(
+d_{\mathrm{decs}} = n_{\mathrm{cols}}+\ell-1.
+\)
+
+\paragraph{Row degree vs.\ relation degree.}
+DECS enforces the \emph{row degrees} $\deg P_i,\deg M_i\le n_{\mathrm{cols}}+\ell-1$ for the committed polynomials.
+This is distinct from the \emph{relation degree} $d_Q$ used in the PIOP soundness (Eq.~\eqref{eq:dQ}), which depends on the algebraic degrees of the constraint polynomials $(f_j,f'_u)$ rather than on $n_{\mathrm{cols}}$.
+
+\paragraph{Why the single extra \(K\)-point suffices (intuition).}
+The \(s\) packed values \(P_j(\omega_1),\dots,P_j(\omega_s)\in \F\) fix the degree-\(\le s\) behavior on \(\Omega\), and the single additional value \(P_j(\omega_{s+1})\in K\) binds the evaluation outside \(\Omega\).
+Together they determine the \(K\)-linear functional \(v_e\) for any challenge \(e\in K\) and let the verifier reconstruct \(P_j(e)\) via the \(\theta\) \(\F\)-coordinate openings described above.
+
+\begin{lemma}[Single $K$-point suffices]\label{lem:singleK}
+Let $P(X)\in \F[X]_{\le s+\ell-1}$ be a row-polynomial with evaluations fixed on $\Omega\subset \F$.
+Let $\omega_{s+1}\in K\setminus \Omega$ for an extension $K/\F$ of degree $\theta$.
+Then for any $e\in K$, the $K$-linear functional $v_e:P\mapsto P(e)$ is determined by the $\theta$ $\F$-coordinate openings of $P(\omega_{s+1})$ together with the values on $\Omega$.
+\end{lemma}
+\noindent\emph{Proof sketch.} With an $\F$-basis of $K$ and the isomorphism $\varphi: \F^{\theta}\!\to K$, represent $P(\omega_{s+1})$ by its $\theta$ $\F$-coordinates. These, together with $\{P(\omega):\omega\in\Omega\}$ and the interpolation relations, determine all $K$-linear functionals $v_e$; see SmallWood for the explicit matrix form and accounting~\cite[§5.4, Tab.~2]{cryptoeprint:2025/1085}.
+
+\section{Security-Claim Map}\label{sec:security-claim-map}
+\begin{center}
+\begin{tabular}{@{}l l l l@{}}
+\toprule
+Claim & Assumption/Game & Where proved & External dep.\\
+\midrule
+sEUF (non-blind) & GenISIS$_f$ hardness & \S\ref{def:msg-subspace}, \S\ref{sec:encoding-vsis-smallwood} & \cite[Thm.~5]{cryptoeprint:2025/356} \\
+One-more UF (blind) & IntGenISIS$_f$ & \S\ref{sec:vsis-bbs} (Blind issuance) & \cite[Thm.~6, Fig.~1]{cryptoeprint:2025/356} \\
+PACS knowledge soundness & ROM FS + ARK Thm.~9 & \S\ref{subsec:sw-citations} & \cite[Thm.~9]{cryptoeprint:2025/1085} \\
+ZK/HVZK & ARK definitions & \S\ref{subsec:sw-citations} & \cite[\S5]{cryptoeprint:2025/1085} \\
+Unlinkability (Show) & ZK + hiding & Prop.~\ref{prop:unlinkability} & standard \\
+\bottomrule
+\end{tabular}
+\end{center}
