@@ -244,6 +244,8 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		IdxMHat1:           idxMHat1,
 		IdxMHat2:           idxMHat2,
 		IdxRHat0:           firstIndex(replayRHat0Rows),
+		IdxR0B2Hat:         -1,
+		IdxTargetMR0Hat:    -1,
 		IdxRHat1:           idxRHat1,
 		IdxZHat:            -1,
 		IdxMSigmaR1Hat:     -1,

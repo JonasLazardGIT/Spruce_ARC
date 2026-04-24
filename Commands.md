@@ -207,21 +207,45 @@ Current live semantics:
 - reduced replay under the `soundness_balanced` preset
 - `output_audit` PRF companion route
 
-### Research control
+### Maintained full replay control
 
-The intended theorem-clean control is:
+The maintained direct `bb_tran` full replay control is:
 
 ```bash
-go run ./cmd/showing -showing-preset compact_l1_research -full
+go run ./cmd/showing -full
 ```
 
-Treat that as research-only on the checked-in canonical artifacts. The shipped
-engineering path is the reduced default.
+It proves the same direct showing equation over the complete replay image and
+does not reintroduce deprecated source-product rows. The shipped default remains
+the smaller reduced replay path.
+
+Live full replay row-surface controls:
+
+```bash
+go run ./cmd/showing -showing-preset aggregate_v6_research
+go run ./cmd/showing -showing-preset aggregate_v11_direct_target_research
+```
+
+This keeps the same direct `bb_tran` statement but replaces the six per-block
+`RHat0[j]` replay rows with one block-local `sum_j B2[j] * r0[j]` replay row.
+The `aggregate_v6_research` preset also selects the current tuned aggregate V6
+tuple (`lvcs=76`, `eta=38`, `kappa={2,0,0,5}`) and keeps the default `-full`
+control unchanged.
+
+`aggregate_v11_direct_target_research` keeps private inlined shortness but removes
+committed `THat` replay rows. It proves the target equation directly against
+`B0 + TargetMR0Hat + ZHat`, where `TargetMR0Hat` combines the old
+`B1*MHatSigma + B2*r0` replay contribution in one row per block.
+
+V7/V8/V9/V10/V12/V13 were experimental showing surfaces and are no longer live
+presets or benchmark tracks. Historical notes remain in the transcript analysis,
+but new work should target V11 pair-packing and lookup/range membership.
 
 ### Common knobs
 
 - `-showing-preset`
 - `-full`
+- `-aggregate-r0-replay`
 - `-sig-shortness-profile`
 - `-prf-companion-mode`
 

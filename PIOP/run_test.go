@@ -40,7 +40,7 @@ func TestResolveShowingPresetLabelForOptsPreservesProductionBalanceRequest(t *te
 	}
 }
 
-func TestSigShortnessV7EnabledForShippedCompactL1Full(t *testing.T) {
+func TestSigShortnessV7DisabledForShippedCompactL1Full(t *testing.T) {
 	opts := ResolveSimOptsDefaults(SimOpts{
 		Credential:           true,
 		NCols:                16,
@@ -54,11 +54,11 @@ func TestSigShortnessV7EnabledForShippedCompactL1Full(t *testing.T) {
 		PRFCompanionMode:     PRFCompanionModeOutputAudit,
 		PRFCheckpointSamples: 8,
 	})
-	if !sigShortnessV7EnabledForOpts(opts) {
-		t.Fatalf("compact_l1_research -full should enable V7")
+	if sigShortnessV7EnabledForOpts(opts) {
+		t.Fatalf("compact_l1_research -full should not enable removed V7")
 	}
-	if got := ResolveSignatureShortnessProfileLabelForOpts(opts); got != compactL1ResearchFullV7Profile() {
-		t.Fatalf("compact_l1_research -full profile=%q want %q", got, compactL1ResearchFullV7Profile())
+	if got := ResolveSigShortnessMode(&Proof{SigShortness: &SigShortnessProof{Version: sigShortnessProofVersionV6}}); got != SigShortnessModeHiddenV6 {
+		t.Fatalf("V6 mode=%q want %q", got, SigShortnessModeHiddenV6)
 	}
 }
 
@@ -134,8 +134,8 @@ func TestCompactL1ResearchPresetSplitsProfileByReplayMode(t *testing.T) {
 		PRFCompanionMode:     PRFCompanionModeOutputAudit,
 		PRFCheckpointSamples: 8,
 	})
-	if got := ResolveSignatureShortnessProfileLabelForOpts(full); got != compactL1ResearchFullV7Profile() {
-		t.Fatalf("compact_l1_research full profile=%q want %q", got, compactL1ResearchFullV7Profile())
+	if got := ResolveSignatureShortnessProfileLabelForOpts(full); got == "" {
+		t.Fatalf("compact_l1_research full profile should remain explicit for V6 fallback")
 	}
 }
 
@@ -175,37 +175,6 @@ func TestSigShortnessV7DisabledForReducedAndOtherFullPresets(t *testing.T) {
 	}
 }
 
-func TestCompactFullBenchmarkCandidatesResolveAsCompactL1ResearchV7(t *testing.T) {
-	for _, candidate := range CompactFullCandidateIDs() {
-		t.Run(candidate, func(t *testing.T) {
-			opts := ResolveSimOptsDefaults(SimOpts{
-				Credential:           true,
-				NCols:                16,
-				Ell:                  18,
-				DomainMode:           DomainModeExplicit,
-				NLeaves:              4096,
-				PRFGroupRounds:       2,
-				CoeffPacking:         true,
-				CoeffNativeSigModel:  CoeffNativeSigModelLiteralPackedAggregatedV3,
-				ShowingPreset:        ShowingPresetCompactL1Research,
-				ShowingReplayMode:    ShowingReplayModeFull,
-				CompactFullCandidate: candidate,
-				PRFCompanionMode:     PRFCompanionModeOutputAudit,
-				PRFCheckpointSamples: 8,
-			})
-			if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetCompactL1Research {
-				t.Fatalf("candidate %s resolved preset=%q want %q", candidate, got, ShowingPresetCompactL1Research)
-			}
-			if got := ResolveCompactFullCandidateLabelForOpts(opts); got != candidate {
-				t.Fatalf("candidate %s resolved compact_full_candidate=%q", candidate, got)
-			}
-			if !sigShortnessV7EnabledForOpts(opts) {
-				t.Fatalf("candidate %s should stay on V7", candidate)
-			}
-		})
-	}
-}
-
 func TestBenchmarkSweepReducedCandidatesPreserveBasePresetLabel(t *testing.T) {
 	opts := ResolveSimOptsDefaults(SimOpts{
 		Credential:              true,
@@ -238,37 +207,6 @@ func TestBenchmarkSweepReducedCandidatesPreserveBasePresetLabel(t *testing.T) {
 	}
 	if got := ResolveBenchmarkSweepCandidateLabelForOpts(opts); got != "a1_w96_n4096_e40_ep2_sig_r11_l4_production" {
 		t.Fatalf("resolved benchmark sweep candidate=%q", got)
-	}
-}
-
-func TestCompactFullSweepCandidatesResolveAsCompactL1ResearchV7(t *testing.T) {
-	candidate := makeCompactFullSweepCandidateID(48, 4096, 24, 2, SigShortnessProfileR24L3Compact, [4]int{0, 0, 0, 2})
-	opts := ResolveSimOptsDefaults(SimOpts{
-		Credential:              true,
-		NCols:                   16,
-		Ell:                     18,
-		DomainMode:              DomainModeExplicit,
-		PRFGroupRounds:          2,
-		CoeffPacking:            true,
-		CoeffNativeSigModel:     CoeffNativeSigModelLiteralPackedAggregatedV3,
-		ShowingPreset:           ShowingPresetCompactL1Research,
-		ShowingReplayMode:       ShowingReplayModeFull,
-		CompactFullCandidate:    candidate,
-		BenchmarkSweepCandidate: candidate,
-		PRFCompanionMode:        PRFCompanionModeOutputAudit,
-		PRFCheckpointSamples:    8,
-	})
-	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetCompactL1Research {
-		t.Fatalf("resolved preset=%q want %q", got, ShowingPresetCompactL1Research)
-	}
-	if got := ResolveCompactFullCandidateLabelForOpts(opts); got != candidate {
-		t.Fatalf("resolved compact full candidate=%q want %q", got, candidate)
-	}
-	if !sigShortnessV7EnabledForOpts(opts) {
-		t.Fatalf("compact full sweep candidate should stay on V7")
-	}
-	if got := ResolveSignatureShortnessProfileLabelForOpts(opts); got != SigShortnessProfileR24L3Compact {
-		t.Fatalf("resolved sig profile=%q want %q", got, SigShortnessProfileR24L3Compact)
 	}
 }
 

@@ -81,27 +81,23 @@ The reduced-replay baseline is the only path that is both:
 - green on the canonical `lhl_default` artifacts
 - kept current as an engineering target
 
-### Full-replay study status
+### Full-replay control status
 
-The intended theorem-clean control remains research-only on the checked-in
-vector-`x0` artifacts.
+The direct `bb_tran` theorem-clean full replay control is maintained on the
+checked-in vector-`x0` artifacts.
 
-The intended command surface is:
+The maintained command surface is:
 
 ```bash
 go run ./cmd/showing -showing-preset compact_l1_research -full
 ```
 
-At the time of writing, the current repo still treats this as a stale research
-control. On canonical `lhl_default` artifacts it fails with a replay-planner
-exhaustion error rather than producing a maintained measurement.
-
 That means:
 
-- the full baseline is still semantically meaningful
-- it is not currently a green acceptance target
-- transcript or soundness numbers from older full-replay experiments are
-  historical only until the vector-`x0` replay planner is repaired
+- the full baseline is semantically meaningful for the direct paper relation
+- it is a green acceptance target for maintained full-replay measurements
+- transcript or soundness numbers from older source-product experiments remain
+  historical
 
 ## What changed after the protocol migration
 

@@ -110,7 +110,7 @@ func BuildPaperTranscriptReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (P
 	if dQ <= 0 {
 		return PaperTranscriptReport{}, fmt.Errorf("missing dQ/QDegreeBound in proof")
 	}
-	return buildPaperTranscriptReportLeaf(proof, ringQ.Modulus[0], paperTranscriptParams{
+	report := buildPaperTranscriptReportLeaf(proof, ringQ.Modulus[0], paperTranscriptParams{
 		Lambda:   reportOpts.Lambda,
 		Eta:      eta,
 		Ell:      ell,
@@ -119,8 +119,9 @@ func BuildPaperTranscriptReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (P
 		Theta:    theta,
 		DQ:       dQ,
 		DDECS:    lvcsNCols + ell - 1,
-	}), nil
-}
+	})
+		return report, nil
+	}
 
 func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptParams) PaperTranscriptReport {
 	if proof == nil {

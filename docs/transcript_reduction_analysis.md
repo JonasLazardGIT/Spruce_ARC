@@ -108,11 +108,11 @@ Status:
 
 ### 1.3 Full-replay theorem control
 
-Intended control:
+Historical intended control:
 
 - `go run ./cmd/showing -showing-preset compact_l1_research -full`
 
-Intended meaning:
+Historical intended meaning:
 
 - theorem-clean full replay-image statement
 - V7 inlined target-hiding shortness path
@@ -120,18 +120,17 @@ Intended meaning:
 
 Current repo status:
 
-- runnable again on the checked-in vector-`x0` artifacts
-- benchmarkable through the internal compact-full candidate surface
-- still research-only as an optimization branch, because the first geometry
-  sweep did not produce a promotable winner
+- V7 and the compact-full candidate harness are no longer live
+- `go run ./cmd/showing -full` is the maintained V6 full control
+- `aggregate_v11_direct_target_research` is the forward private optimization target
 
-Relevant code facts:
+Historical code facts before cleanup:
 
 - `go run ./cmd/showing -full -showing-preset compact_l1_research` now
   verifies again on the canonical `lhl_default` artifacts
-- `go run ./cmd/showing benchmark-compact-full` now runs an internal
-  benchmark-only compact-full candidate family that keeps the public preset
-  label fixed at `compact_l1_research`
+- the removed compact-full benchmark subcommand ran an internal benchmark-only
+  candidate family that kept the public preset label fixed at
+  `compact_l1_research`
 - first-wave candidates keep:
   - `HashRelation = bb_tran`
   - `ShowingReplayMode = full`
@@ -198,8 +197,9 @@ Status:
 
 - V6 is live and measured
 - V7 is now live on the compact-full theorem-clean branch
-- however, V7 is still research-only as a tuning target because the first
-  compact-full candidate sweep did not find a smaller `>=118`-bit winner
+- however, V7 remains a control/measurement surface rather than the default
+  reduced path because the first compact-full candidate sweep did not find a
+  smaller `>=118`-bit winner
 
 ### 1.6 `x0` profile family
 
@@ -542,14 +542,22 @@ Direct post-promotion control measurements are consistent with that sweep
 result:
 
 - `go run ./cmd/showing -full`
-  - transcript: about `57,208` bytes
+  - transcript: about `57,073` bytes after the direct-full alignment cleanup
   - theorem total: `100.03` bits
+- `go run ./cmd/showing -full -aggregate-r0-replay`
+  - transcript: about `50,547` bytes on the same parameter tuple
+  - theorem total: `100.03` bits
+  - row surface: `RHat0=0`, `R0B2Hat=64`, `ZHat=64`, `THat=64`
 - old retired full default (`lvcs=89`, `sig=r11_l4_production`)
   - sweep transcript: about `59,468` bytes
   - theorem total: about `101.42` bits
 
 So the new shipped full default is about `2.3 KB` smaller than the retired
-full tuple while staying on the intended near-`100`-bit line.
+full tuple while staying on the intended near-`100`-bit line. The aggregate
+`R0` replay control removes about `320` committed replay rows and another
+`6.5 KB` from the paper transcript, but it is intentionally opt-in because the
+V6 hidden-shortness opening grows on this geometry and still needs a dedicated
+retune.
 
 Once `NLeaves` was actually decoupled from witness `Ω`, the first honest sweep
 was:
@@ -1104,6 +1112,137 @@ post-singleton preset / geometry sweep before redesigning the shortness layer.
 - `production_balance`
 - PRF auxiliary-instance transcript experiments
 
+## 6.4 Aggregate V6 retune and T-hat opening compression
+
+The aggregate full V6 pass now has an explicit opt-in preset:
+
+```bash
+go run ./cmd/showing -showing-preset aggregate_v6_research
+```
+
+Current measured tuple:
+
+- replay: full direct `bb_tran`
+- aggregate replay: enabled (`RHat0[j]` rows replaced by one block-local
+  `B2*r0` replay contribution)
+- LVCS/DECS tuple: `lvcs=76`, `eta=38`, `ell'=2`, `theta=3`, `rho=2`,
+  `nleaves=4096`, `kappa={2,0,0,5}`
+- paper transcript: about `45.4 KB`
+- verifier payload: about `74.0 KB`
+- theorem bits: about `102.7`
+- shortness: about `14.5 KB`, with `13` T-hat support slots and about
+  `5.5 KB` T-hat opening bytes
+
+The implementation keeps the paper relation unchanged. The size reduction comes
+from three serialization/layout changes:
+
+- aggregate replay removes the six per-component `RHat0[j]` replay rows per
+  block from the committed surface;
+- the full replay T-hat planner now selects the densest PCS support slots
+  instead of a consecutive tail stripe;
+- V5/V6 T-hat openings now use the existing compressed P suffix and
+  reconstructed M-value encoding for multi-slot full replay openings.
+
+This does not implement the deeper constraint-bound T-hat-head profile. The
+remaining dominant blocker is still the V6 hidden shortness proof plus its
+main-root T-hat binding surface.
+
+## 6.5 Historical V8/V9/V10 Experiments
+
+These profiles were useful measurements but are no longer live resolver or CLI
+surfaces. They remain here only to explain why the implementation focus moved
+to V11.
+
+V8 was the first constraint-bound T-hat-head profile.
+
+It keeps the direct `bb_tran` relation and aggregate `B2*r0` replay surface
+unchanged. The difference is only the shortness binding surface:
+
+- V6 keeps a root-authenticated DECS opening of committed `THat` rows;
+- V8 carries packed `THat` heads inside `SigShortness`;
+- the hidden shortness proof uses those packed heads as public input;
+- the main proof adds one interpolant equality per replay block to bind the
+  public head vector to the committed `THat` row.
+
+It was versioned as `sig_shortness_v8_constraint_bound`, not a silent change to
+`sig_shortness_v6_hidden`, but it revealed private `THatHeads` and was removed
+from the live surface.
+
+Current measurement:
+
+- paper transcript: about `42.7 KB`
+- verifier payload: about `71.2 KB`
+- shortness: about `11.7 KB`, with `0` opening bytes and packed-head binding
+  bytes instead of a V6 `THat` opening
+- theorem bits: about `102.7`
+
+V9 kept the direct aggregate `bb_tran` relation but did not reveal
+`THatHeads`. Instead, the main proof and hidden shortness proof both prove
+private openings of one public Ajtai-style commitment to their `THat` head
+vectors. This makes V9 a privacy-correctness control for the V8 idea, not a
+size win in the measured implementation.
+
+Current measurement:
+
+- paper transcript: about `200.5 KB`
+- verifier payload: about `237.4 KB`
+- shortness: about `172.0 KB`, with `0` DECS `THat` opening bytes
+- theorem bits: about `102.1`
+
+V10 kept aggregate `B2*r0` full replay and V7-style private inlined
+target-hiding shortness. It carries no public `THatHeads`, no V6
+`THatOpening`, and no V9 Ajtai commitment payload.
+
+The requested grouped target was `ncols=32`, `group_size=2`, with either
+`R=11,L=4` for 256 shortness rows or `R=111,L=2` for 128 shortness rows. The
+current tree intentionally does not promote that geometry. The non-sign
+carriers are issued and bounded on the existing 16-point coefficient-native
+domain; evaluating the same message/randomness polynomials on a widened
+32-point domain produces out-of-bound carrier values, so the main relation
+fails before shortness constraints are reached. True 32-column grouping
+therefore needs a carrier-domain split or reissued/repacked carrier surface,
+not just a wider `-ncols` flag.
+
+Last measured safe V10 control before removal:
+
+- paper transcript: about `54.0 KB`
+- verifier payload: about `117.9 KB`
+- shortness rows: `384` (`2 * 64 * 3`, group size `1`, block width `16`)
+- no V6 opening bytes and no public/private cross-root head bridge payload
+- theorem bits: about `100.7`
+
+This was smaller than aggregate private V7 with aggregate replay, but it was
+not the planned 256-row or 128-row grouped design.
+
+## 6.6 Aggregate V11 direct-target private shortness
+
+The direct-target aggregate control is:
+
+```bash
+go run ./cmd/showing -showing-preset aggregate_v11_direct_target_research
+```
+
+V11 keeps private inlined shortness and the direct `bb_tran`
+relation, but removes committed `THat` rows. The main proof carries one
+`TargetMR0Hat` row per replay block for `B1*MHatSigma + sum_i B2_i*r0_i`, plus
+the existing `RHat1` and `ZHat` rows. The shortness bridge then checks the
+decoded private signature digits directly against `B0 + TargetMR0Hat + ZHat`.
+
+Current direct-target control:
+
+- paper transcript: about `48.7 KB`
+- verifier payload: about `112.7 KB`
+- replay rows: `TargetMR0Hat=64`, `RHat1=64`, `ZHat=64`, `THat=0`
+- shortness rows: `384` (`2 * 64 * 3`, group size `1`, block width `16`)
+- statement class: `theorem_clean_direct_target_full_replay`
+
+The rejected V12 two-oracle/multi-domain prototype moved digit rows to a
+separate signature oracle, but duplicated sidecar openings made the paper
+transcript roughly `82 KB` and the first theta setting had weak effective
+soundness. That path is no longer live. The next intended optimization is
+single-root digit-pair packing plus lookup/range digit membership inside the
+V11 direct-target family.
+
 ## 7. Reproduction commands
 
 Baseline and preset measurements:
@@ -1117,21 +1256,13 @@ go run ./cmd/showing -prf-companion-mode direct_auth
 go run ./cmd/showing -prf-companion-mode aux_instance
 ```
 
-Compact-full V7 controls and first-wave candidate harness:
+Live full controls:
 
 ```bash
-go run ./cmd/showing -full -showing-preset compact_l1_research
-go run ./cmd/showing benchmark-compact-full -candidates current -controls soundness_balanced_full,compact_l1_research_reduced -runs 1
+go run ./cmd/showing -full
+go run ./cmd/showing -showing-preset aggregate_v6_research
+go run ./cmd/showing -showing-preset aggregate_v11_direct_target_research
 ```
-
-Full first-wave candidate sweep:
-
-```bash
-go run ./cmd/showing benchmark-compact-full -runs 1
-```
-
-At the time of writing this exits non-zero because all non-`current`
-first-wave candidates fall below the `118`-bit theorem floor.
 
 Full replay near the `100`-bit frontier:
 

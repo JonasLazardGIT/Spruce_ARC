@@ -349,11 +349,24 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			prepared.builtPK = pk
 		}
 		pcsGeometry.OracleLayout = oracleLayout
+		sigShortnessRowsNTT := pk.RowPolys
+		if opts.Theta > 1 {
+			sigShortnessRowsNTT = make([]*ring.Poly, len(witnessPolys))
+			for i := range witnessPolys {
+				if witnessPolys[i] == nil {
+					continue
+				}
+				p := ringQ.NewPoly()
+				ring.Copy(witnessPolys[i], p)
+				ringQ.NTT(p, p)
+				sigShortnessRowsNTT[i] = p
+			}
+		}
 		if rowLayoutHasCoeffNativeSig(rowLayout) && rowLayoutCoeffNativeUsesLiteralPacked(rowLayout) && wit.CoeffNativeShowing != nil {
-			if sigShortnessV7EnabledForOpts(opts) {
+			if sigShortnessInlinedTargetHidingEnabledForOpts(opts) {
 				sigShortness, err = buildSigShortnessProofV7Metadata(ringQ, rowLayout, opts)
 				if err != nil {
-					return nil, fmt.Errorf("build sig shortness V7 metadata: %w", err)
+					return nil, fmt.Errorf("build inlined sig shortness metadata: %w", err)
 				}
 				sigShortnessBindingDigest = nil
 			} else {
@@ -383,20 +396,20 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		// committed oracle rows are transposed into the §5.4 layer layout, so
 		// replay constraint rebuilding must use the witness polynomials.
 		skipConstraintRebuild := prepared != nil && prepared.skipConstraintRebuild && rowLayoutHasCoeffNativeSig(rowLayout)
-		if !skipConstraintRebuild {
-			constraintRows := pk.RowPolys
-			if opts.Theta > 1 {
-				constraintRows = make([]*ring.Poly, len(witnessPolys))
-				for i := range witnessPolys {
-					if witnessPolys[i] == nil {
-						continue
-					}
-					p := ringQ.NewPoly()
-					ring.Copy(witnessPolys[i], p)
-					ringQ.NTT(p, p)
-					constraintRows[i] = p
+		constraintRows := pk.RowPolys
+		if opts.Theta > 1 {
+			constraintRows = make([]*ring.Poly, len(witnessPolys))
+			for i := range witnessPolys {
+				if witnessPolys[i] == nil {
+					continue
 				}
+				p := ringQ.NewPoly()
+				ring.Copy(witnessPolys[i], p)
+				ringQ.NTT(p, p)
+				constraintRows[i] = p
 			}
+		}
+		if !skipConstraintRebuild {
 			if opts.Credential && len(constraintRows) > 0 {
 				rebuiltEmpty := len(set.FparInt)+len(set.FparNorm)+len(set.FaggInt)+len(set.FaggNorm) == 0
 				if len(pub.Ac) > 0 && len(pub.B) > 0 && len(pub.A) == 0 {
@@ -460,7 +473,6 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				// PRF constraints are replayed via the companion layout only.
 			}
 		}
-
 		// Assemble MaskingFSInput and run.
 		mfsIn := MaskingFSInput{
 			RingQ:              ringQ,
@@ -699,7 +711,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				}
 				evalK = ek
 			}
-			if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV7 {
+			if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV11 {
 				sigReplay, serr := buildSigShortnessV7Replay(ringQ, proof, pub, omegaWitness, domainPoints, opts)
 				if serr != nil {
 					return false, serr
@@ -763,6 +775,8 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				proof.RowLayout.IdxMHat1,
 				proof.RowLayout.IdxMHat2,
 				proof.RowLayout.IdxRHat0,
+				proof.RowLayout.IdxR0B2Hat,
+				proof.RowLayout.IdxTargetMR0Hat,
 				proof.RowLayout.IdxRHat1,
 				proof.RowLayout.IdxZHat,
 				proof.RowLayout.IdxMSigmaR1,
@@ -784,6 +798,8 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				proof.RowLayout.AliasK0Rows,
 				proof.RowLayout.ReplayMHatSigmaRows,
 				proof.RowLayout.ReplayRHat0Rows,
+				proof.RowLayout.ReplayR0B2HatRows,
+				proof.RowLayout.ReplayTargetMR0HatRows,
 				proof.RowLayout.ReplayRHat1Rows,
 				proof.RowLayout.ReplayZHatRows,
 				proof.RowLayout.ReplayMSigmaR1HatRows,

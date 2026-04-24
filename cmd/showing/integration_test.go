@@ -15,14 +15,6 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-const (
-	compactL1ResearchFullControlQBytes            = 5613
-	compactL1ResearchFullSelectedRows             = 14
-	compactL1ResearchFullPreV7WitnessRowsBaseline = 402
-	compactL1ResearchFullActiveReplayBlocks       = 2
-	compactL1ResearchFullMinSoundnessBits         = 118
-)
-
 func showingTestRepoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -370,108 +362,65 @@ func buildShowingProofForTest(t *testing.T, model string) (*PIOP.Proof, PIOP.Pro
 	return proof, rep, wit, opts, ringQ
 }
 
-func TestShowingV3CompactL1ResearchFullReplayPreset(t *testing.T) {
+func TestShowingAggregateV11DirectTargetResearchPreset(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
-	if os.Getenv("SPRUCE_RUN_SLOW_V7_FULL") == "" {
-		t.Skip("V7 compact full proving is currently runtime-heavy; set SPRUCE_RUN_SLOW_V7_FULL=1 to run this end-to-end check")
+	proof, rep, _, _, _, _ := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetAggregateV11DirectTargetResearch)
+	if rep.TranscriptFocus.ShowingPreset != PIOP.ShowingPresetAggregateV11DirectTargetResearch {
+		t.Fatalf("reported preset=%q want %q", rep.TranscriptFocus.ShowingPreset, PIOP.ShowingPresetAggregateV11DirectTargetResearch)
 	}
-	resolved := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-		Credential:           true,
-		NCols:                16,
-		Ell:                  18,
-		DomainMode:           PIOP.DomainModeExplicit,
-		PRFGroupRounds:       2,
-		CoeffPacking:         true,
-		CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
-		ShowingPreset:        PIOP.ShowingPresetCompactL1Research,
-		ShowingReplayMode:    PIOP.ShowingReplayModeFull,
-		PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
-		PRFCheckpointSamples: 8,
-	})
-	proof, rep, _, _, _, _ := buildShowingProofForTestConfigWithResearchKnobsAndMutator(
-		t,
-		PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
-		false,
-		false,
-		"",
-		8,
-		PIOP.ShowingPresetCompactL1Research,
-		resolved.SigShortnessProfile,
-		0,
-		0,
-		16,
-		resolved.PostSignLVCSNCols,
-		func(opts *PIOP.SimOpts) {
-			opts.ShowingReplayMode = PIOP.ShowingReplayModeFull
-		},
-	)
+	if rep.TranscriptFocus.StatementClass != string(PIOP.ShowingStatementClassTheoremCleanDirectTargetFullReplay) {
+		t.Fatalf("aggregate V11 statement class=%q", rep.TranscriptFocus.StatementClass)
+	}
 	if rep.TranscriptFocus.ReplayMode != string(PIOP.ShowingReplayModeFull) {
-		t.Fatalf("reported full compact-l1 replay mode=%q want %q", rep.TranscriptFocus.ReplayMode, PIOP.ShowingReplayModeFull)
+		t.Fatalf("aggregate V11 replay mode=%q want full", rep.TranscriptFocus.ReplayMode)
 	}
-	if rep.Kappa != [4]int{} {
-		t.Fatalf("full compact-l1 kappa=%v want [0 0 0 0]", rep.Kappa)
+	if !rep.TranscriptFocus.AggregateR0Replay {
+		t.Fatal("aggregate V11 report did not enable aggregate replay")
 	}
-	if rep.TranscriptFocus.StatementClass != string(PIOP.ShowingStatementClassCustom) {
-		t.Fatalf("reported full compact-l1 statement class=%q want %q", rep.TranscriptFocus.StatementClass, PIOP.ShowingStatementClassCustom)
+	if rep.TranscriptFocus.ShortnessMode != PIOP.SigShortnessModeDirectTargetV11 || rep.SigShortness.Mode != PIOP.SigShortnessModeDirectTargetV11 {
+		t.Fatalf("aggregate V11 shortness mismatch: focus=%q report=%q", rep.TranscriptFocus.ShortnessMode, rep.SigShortness.Mode)
 	}
-	if rep.TranscriptFocus.ShortnessMode != PIOP.SigShortnessModeHiddenV7 || rep.SigShortness.Mode != PIOP.SigShortnessModeHiddenV7 {
-		t.Fatalf("reported full compact-l1 shortness mode mismatch: focus=%q report=%q", rep.TranscriptFocus.ShortnessMode, rep.SigShortness.Mode)
+	if proof.SigShortness == nil || proof.SigShortness.Version != 11 || proof.SigShortness.V11 == nil {
+		t.Fatalf("aggregate V11 proof missing V11 payload: %+v", proof.SigShortness)
 	}
-	if proof.RowLayout.IdxTSource >= 0 {
-		t.Fatalf("full compact-l1 replay should derive T source rows locally")
+	if proof.SigShortness.V6 != nil || proof.SigShortness.V7 != nil || proof.SigShortness.V8 != nil || proof.SigShortness.V9 != nil || proof.SigShortness.V10 != nil || proof.SigShortness.Opening != nil || len(proof.SigShortness.SupportSlots) != 0 {
+		t.Fatalf("aggregate V11 proof populated legacy shortness fields: %+v", proof.SigShortness)
 	}
-	if got, want := proof.RowLayout.ReplayBlockCount, proof.RowLayout.SigBlocks; got != want {
-		t.Fatalf("full compact-l1 replay blocks=%d want sig blocks=%d", got, want)
+	if proof.SigShortness.V11.Radix != 24 || proof.SigShortness.V11.Digits != 3 {
+		t.Fatalf("aggregate V11 shortness shape R=%d L=%d want R=24 L=3", proof.SigShortness.V11.Radix, proof.SigShortness.V11.Digits)
 	}
-	if got, want := proof.RowLayout.ReplayTHatCount, proof.RowLayout.SigBlocks; got != want {
-		t.Fatalf("full compact-l1 replay T-hat count=%d want sig blocks=%d", got, want)
+	if len(proof.RowLayout.ReplayTHatRows) != 0 || proof.RowLayout.ReplayTHatCount != 0 || proof.RowLayout.IdxTHatBase >= 0 {
+		t.Fatalf("aggregate V11 should not materialize T-hat rows: %+v", proof.RowLayout.ReplayTHatRows)
 	}
-	if proof.PCSNColsUsed != resolved.PostSignLVCSNCols || proof.LVCSNColsUsed != resolved.PostSignLVCSNCols {
-		t.Fatalf("full compact-l1 pcs width=%d/%d want %d", proof.PCSNColsUsed, proof.LVCSNColsUsed, resolved.PostSignLVCSNCols)
+	if rep.TranscriptFocus.ReplayTargetMR0HatRows != 64 || rep.TranscriptFocus.ReplayMHatSigmaRows != 0 || rep.TranscriptFocus.ReplayR0B2HatRows != 0 {
+		t.Fatalf("aggregate V11 replay rows target_mr0=%d mhat=%d r0b2=%d",
+			rep.TranscriptFocus.ReplayTargetMR0HatRows,
+			rep.TranscriptFocus.ReplayMHatSigmaRows,
+			rep.TranscriptFocus.ReplayR0B2HatRows,
+		)
 	}
-	if !rep.SigShortness.Enabled || rep.SigShortness.Version != 7 || proof.SigShortness == nil || proof.SigShortness.V7 == nil {
-		t.Fatalf("unexpected full compact-l1 sig shortness report: %+v", rep.SigShortness)
+	if rep.TranscriptFocus.ReplayRHat1Rows != 64 || rep.TranscriptFocus.ReplayZHatRows != 64 || rep.TranscriptFocus.ReplayTHatRows != 0 {
+		t.Fatalf("aggregate V11 direct replay rows rhat1=%d zhat=%d that=%d",
+			rep.TranscriptFocus.ReplayRHat1Rows,
+			rep.TranscriptFocus.ReplayZHatRows,
+			rep.TranscriptFocus.ReplayTHatRows,
+		)
 	}
-	if proof.SigShortness.V5 != nil || proof.SigShortness.V6 != nil || proof.SigShortness.Opening != nil || len(proof.SigShortness.SupportSlots) != 0 {
-		t.Fatalf("full compact-l1 V7 payload still carries legacy shortness state: %+v", proof.SigShortness)
+	if rep.TranscriptFocus.V11ShortnessRows != 384 || rep.TranscriptFocus.V11PackedSigChainGroupSize != 1 || rep.TranscriptFocus.V11PackedSigBlockWidth != 16 || rep.TranscriptFocus.V11EffectiveSigBlocks != 64 {
+		t.Fatalf("aggregate V11 geometry rows=%d group=%d width=%d blocks=%d",
+			rep.TranscriptFocus.V11ShortnessRows,
+			rep.TranscriptFocus.V11PackedSigChainGroupSize,
+			rep.TranscriptFocus.V11PackedSigBlockWidth,
+			rep.TranscriptFocus.V11EffectiveSigBlocks,
+		)
 	}
-	if rep.SigShortness.SupportSlotCount != 0 || rep.SigShortness.OpenedBlockCount != 0 || rep.SigShortness.OpeningBytes != 0 || rep.SigShortness.HiddenProofBytes != 0 {
-		t.Fatalf("full compact-l1 V7 shortness should have no dedicated opening: %+v", rep.SigShortness)
+	if rep.SigShortness.OpeningBytes != 0 || rep.SigShortness.SupportSlotCount != 0 || rep.SigShortness.OpenedBlockCount != 0 {
+		t.Fatalf("aggregate V11 should report no opening: %+v", rep.SigShortness)
 	}
-	if rep.TranscriptFocus.SigShortnessSupportSlots != 0 {
-		t.Fatalf("full compact-l1 transcript focus still reports shortness support slots=%d", rep.TranscriptFocus.SigShortnessSupportSlots)
-	}
-	if proof.RowLayout.PackedSigChainBase < 0 || proof.RowLayout.PackedSigChainGroupCount <= 0 || proof.RowLayout.PackedSigChainRowsPerGroup <= 0 {
-		t.Fatalf("full compact-l1 V7 missing packed shortness witness rows: %+v", proof.RowLayout)
-	}
-	if proof.SourceProductBridge != nil {
-		t.Fatalf("full compact-l1 should not carry source-product bridge: %+v", proof.SourceProductBridge)
-	}
-	if rep.TranscriptFocus.SourceProductBridgeBytes != 0 {
-		t.Fatalf("full compact-l1 source-product bridge bytes=%d want 0", rep.TranscriptFocus.SourceProductBridgeBytes)
-	}
-	if rep.TranscriptFocus.SourceProductBridgeSupportSlots != 0 || rep.TranscriptFocus.SourceProductBridgeOpenedBlocks != 0 {
-		t.Fatalf("full compact-l1 source-product bridge geometry changed: slots=%d blocks=%d", rep.TranscriptFocus.SourceProductBridgeSupportSlots, rep.TranscriptFocus.SourceProductBridgeOpenedBlocks)
-	}
-	if rep.TranscriptFocus.SourceProductSelectedRows != 0 {
-		t.Fatalf("full compact-l1 source-product rows still selected=%d", rep.TranscriptFocus.SourceProductSelectedRows)
-	}
-	if rep.ReplayAudit.Selector.SelectedRows != compactL1ResearchFullSelectedRows {
-		t.Fatalf("full compact-l1 selected rows=%d want %d", rep.ReplayAudit.Selector.SelectedRows, compactL1ResearchFullSelectedRows)
-	}
-	if rep.ReplayAudit.Selector.WitnessRows <= compactL1ResearchFullPreV7WitnessRowsBaseline {
-		t.Fatalf("full compact-l1 witness rows=%d want > pre-V7 baseline %d", rep.ReplayAudit.Selector.WitnessRows, compactL1ResearchFullPreV7WitnessRowsBaseline)
-	}
-	if rep.ReplayAudit.Selector.ActiveBlocks != compactL1ResearchFullActiveReplayBlocks {
-		t.Fatalf("full compact-l1 active replay blocks=%d want %d", rep.ReplayAudit.Selector.ActiveBlocks, compactL1ResearchFullActiveReplayBlocks)
-	}
-	if rep.PaperTranscript.Q.OptimizedBytes != compactL1ResearchFullControlQBytes {
-		t.Fatalf("full compact-l1 Q=%d want %d", rep.PaperTranscript.Q.OptimizedBytes, compactL1ResearchFullControlQBytes)
-	}
-	if rep.Soundness.TotalBits < compactL1ResearchFullMinSoundnessBits {
-		t.Fatalf("unexpected full compact-l1 theorem floor: total=%.2f", rep.Soundness.TotalBits)
+	if rep.SigShortness.HiddenProofBytes != 0 || rep.SigShortness.BindingBytes == 0 {
+		t.Fatalf("aggregate V11 should report metadata binding only: %+v", rep.SigShortness)
 	}
 }
 
@@ -735,190 +684,6 @@ func TestShowingFullReplayOperatorModes(t *testing.T) {
 	}
 }
 
-func TestShowingCompactL1ResearchFullReplayBuilds(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test")
-	}
-	proof, rep, _, opts, _, pub := buildShowingProofForTestConfigWithResearchKnobsAndMutator(
-		t,
-		PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
-		true,
-		true,
-		PIOP.PRFCompanionModeOutputAudit,
-		8,
-		PIOP.ShowingPresetCompactL1Research,
-		"",
-		0,
-		0,
-		16,
-		0,
-		func(opts *PIOP.SimOpts) {
-			opts.ShowingReplayMode = PIOP.ShowingReplayModeFull
-		},
-	)
-	if rep.TranscriptFocus.ReplayMode != string(PIOP.ShowingReplayModeFull) {
-		t.Fatalf("reported replay mode=%q want %q", rep.TranscriptFocus.ReplayMode, PIOP.ShowingReplayModeFull)
-	}
-	if rep.TranscriptFocus.ShowingPreset == "" {
-		t.Fatalf("missing reported showing preset")
-	}
-	verifySet := PIOP.ConstraintSet{PRFLayout: proof.PRFLayout}
-	if proof.PRFCompanion != nil {
-		verifySet.PRFCompanionLayout = proof.PRFCompanion.Layout
-	}
-	ok, err := PIOP.VerifyWithConstraints(proof, verifySet, pub, opts, PIOP.FSModeCredential)
-	if err != nil {
-		t.Fatalf("verify compact-l1 full replay showing: %v", err)
-	}
-	if !ok {
-		t.Fatalf("verify compact-l1 full replay showing returned ok=false")
-	}
-}
-
-func TestShowingCompactFullCandidateW48E24EP2Verifies(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test")
-	}
-	proof, rep, _, opts, _, pub := buildShowingProofForTestConfigWithResearchKnobsAndMutator(
-		t,
-		PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
-		true,
-		true,
-		PIOP.PRFCompanionModeOutputAudit,
-		8,
-		PIOP.ShowingPresetCompactL1Research,
-		"",
-		0,
-		0,
-		16,
-		48,
-		func(opts *PIOP.SimOpts) {
-			opts.ShowingReplayMode = PIOP.ShowingReplayModeFull
-			opts.CompactFullCandidate = PIOP.CompactFullCandidateW48E24EP2
-		},
-	)
-	if rep.TranscriptFocus.ShowingPreset != PIOP.ShowingPresetCompactL1Research {
-		t.Fatalf("reported showing preset=%q want %q", rep.TranscriptFocus.ShowingPreset, PIOP.ShowingPresetCompactL1Research)
-	}
-	if rep.TranscriptFocus.CompactFullCandidate != PIOP.CompactFullCandidateW48E24EP2 {
-		t.Fatalf("reported compact full candidate=%q want %q", rep.TranscriptFocus.CompactFullCandidate, PIOP.CompactFullCandidateW48E24EP2)
-	}
-	if rep.TranscriptFocus.ShortnessMode != PIOP.SigShortnessModeHiddenV7 {
-		t.Fatalf("reported shortness mode=%q want %q", rep.TranscriptFocus.ShortnessMode, PIOP.SigShortnessModeHiddenV7)
-	}
-	verifySet := PIOP.ConstraintSet{PRFLayout: proof.PRFLayout}
-	if proof.PRFCompanion != nil {
-		verifySet.PRFCompanionLayout = proof.PRFCompanion.Layout
-	}
-	ok, err := PIOP.VerifyWithConstraints(proof, verifySet, pub, opts, PIOP.FSModeCredential)
-	if err != nil {
-		t.Fatalf("verify compact-full candidate showing: %v", err)
-	}
-	if !ok {
-		t.Fatalf("verify compact-full candidate showing returned ok=false")
-	}
-}
-
-func TestShowingCompactFullSweepCandidateVerifies(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test")
-	}
-	candidate := "sweep:w48:n4096:e24:ep2:sigr11_l4_production:k0-0-0-0"
-	proof, rep, _, opts, _, pub := buildShowingProofForTestConfigWithResearchKnobsAndMutator(
-		t,
-		PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
-		true,
-		true,
-		PIOP.PRFCompanionModeOutputAudit,
-		8,
-		PIOP.ShowingPresetCompactL1Research,
-		"",
-		0,
-		0,
-		16,
-		0,
-		func(opts *PIOP.SimOpts) {
-			opts.ShowingReplayMode = PIOP.ShowingReplayModeFull
-			opts.CompactFullCandidate = candidate
-			opts.BenchmarkSweepCandidate = candidate
-		},
-	)
-	if rep.TranscriptFocus.ShowingPreset != PIOP.ShowingPresetCompactL1Research {
-		t.Fatalf("reported showing preset=%q want %q", rep.TranscriptFocus.ShowingPreset, PIOP.ShowingPresetCompactL1Research)
-	}
-	if rep.TranscriptFocus.CompactFullCandidate != candidate {
-		t.Fatalf("reported compact full candidate=%q want %q", rep.TranscriptFocus.CompactFullCandidate, candidate)
-	}
-	if rep.TranscriptFocus.BenchmarkSweepCandidate != candidate {
-		t.Fatalf("reported benchmark sweep candidate=%q want %q", rep.TranscriptFocus.BenchmarkSweepCandidate, candidate)
-	}
-	if rep.TranscriptFocus.ShortnessMode != PIOP.SigShortnessModeHiddenV7 {
-		t.Fatalf("reported shortness mode=%q want %q", rep.TranscriptFocus.ShortnessMode, PIOP.SigShortnessModeHiddenV7)
-	}
-	verifySet := PIOP.ConstraintSet{PRFLayout: proof.PRFLayout}
-	if proof.PRFCompanion != nil {
-		verifySet.PRFCompanionLayout = proof.PRFCompanion.Layout
-	}
-	ok, err := PIOP.VerifyWithConstraints(proof, verifySet, pub, opts, PIOP.FSModeCredential)
-	if err != nil {
-		t.Fatalf("verify compact-full sweep candidate showing: %v", err)
-	}
-	if !ok {
-		t.Fatalf("verify compact-full sweep candidate showing returned ok=false")
-	}
-}
-
-func TestShowingCompactFullBenchmarkSmoke(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test")
-	}
-	root := showingTestRepoRoot(t)
-	chdirForShowingTest(t, root)
-	out := filepath.Join(t.TempDir(), "compact_full_benchmark.json")
-	if err := runBenchmarkCompactFull([]string{
-		"-candidates", PIOP.CompactFullCandidateCurrent,
-		"-controls", compactFullBenchmarkControlBalancedFull + "," + compactFullBenchmarkControlCompactReduced,
-		"-runs", "1",
-		"-json-out", out,
-	}); err != nil {
-		t.Fatalf("benchmark-compact-full: %v", err)
-	}
-	data, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatalf("read benchmark json: %v", err)
-	}
-	var report benchmarkCompactFullReport
-	if err := json.Unmarshal(data, &report); err != nil {
-		t.Fatalf("unmarshal benchmark json: %v", err)
-	}
-	if report.Version != benchmarkCompactFullVersion {
-		t.Fatalf("report version=%d want %d", report.Version, benchmarkCompactFullVersion)
-	}
-	if len(report.Entries) < 3 {
-		t.Fatalf("entries len=%d want at least 3", len(report.Entries))
-	}
-	seen := make(map[string]benchmarkCompactFullEntry, len(report.Entries))
-	for _, entry := range report.Entries {
-		seen[entry.ID] = entry
-		if entry.TranscriptBytes <= 0 || entry.ProofBytes <= 0 {
-			t.Fatalf("entry %s missing size metrics: %+v", entry.ID, entry)
-		}
-		if entry.PaperBuckets.TotalBytes != entry.TranscriptBytes {
-			t.Fatalf("entry %s bucket total=%d want transcript=%d", entry.ID, entry.PaperBuckets.TotalBytes, entry.TranscriptBytes)
-		}
-		if entry.Focus.DQ <= 0 || entry.Focus.LVCSNCols <= 0 || entry.Focus.WitnessRows <= 0 {
-			t.Fatalf("entry %s missing focus geometry: %+v", entry.ID, entry.Focus)
-		}
-	}
-	entry, ok := seen[PIOP.CompactFullCandidateCurrent]
-	if !ok {
-		t.Fatalf("missing candidate entry %q", PIOP.CompactFullCandidateCurrent)
-	}
-	if entry.ShortnessMode != PIOP.SigShortnessModeHiddenV7 {
-		t.Fatalf("candidate %s shortness mode=%q want %q", PIOP.CompactFullCandidateCurrent, entry.ShortnessMode, PIOP.SigShortnessModeHiddenV7)
-	}
-}
-
 func TestShowingTranscriptSweepSmoke(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
@@ -929,7 +694,7 @@ func TestShowingTranscriptSweepSmoke(t *testing.T) {
 	if err := runBenchmarkTranscriptSweep([]string{
 		"-tracks", strings.Join([]string{
 			transcriptSweepTrackReduced,
-			transcriptSweepTrackCompactFullV7,
+			transcriptSweepTrackFullV6,
 			transcriptSweepTrackPRFReduced,
 			transcriptSweepTrackPRFFull96,
 		}, ","),
@@ -956,6 +721,7 @@ func TestShowingTranscriptSweepSmoke(t *testing.T) {
 	if len(report.TrackSummaries) == 0 {
 		t.Fatal("expected transcript sweep track summaries")
 	}
+	sawAggregateR0 := false
 	for _, entry := range report.Entries {
 		if entry.Track == "" || entry.CandidateID == "" {
 			t.Fatalf("entry missing track/id: %+v", entry)
@@ -965,6 +731,12 @@ func TestShowingTranscriptSweepSmoke(t *testing.T) {
 		}
 		if entry.Geometry.LVCSNCols <= 0 || entry.Geometry.NLeaves <= 0 {
 			t.Fatalf("entry missing geometry: %+v", entry.Geometry)
+		}
+		if entry.AggregateR0Replay {
+			sawAggregateR0 = true
+			if entry.Geometry.ReplayR0B2HatRows+entry.Geometry.ReplayTargetMR0HatRows <= 0 || entry.Geometry.ReplayRHat0Rows != 0 {
+				t.Fatalf("aggregate R0 entry missing aggregate row geometry: %+v", entry.Geometry)
+			}
 		}
 		if entry.Soundness.Eq8TotalBits <= 0 || entry.Soundness.Thm9TotalBits <= 0 {
 			t.Fatalf("entry missing soundness: %+v", entry.Soundness)
@@ -979,6 +751,9 @@ func TestShowingTranscriptSweepSmoke(t *testing.T) {
 		if !entry.Verified && entry.RejectReason == "" {
 			t.Fatalf("rejected entry missing reject_reason: %+v", entry)
 		}
+	}
+	if !sawAggregateR0 {
+		t.Fatal("expected transcript sweep to include aggregate R0 control")
 	}
 }
 
@@ -1026,6 +801,28 @@ func TestShowingPRFCompanionDirectAuthNoQReductionYet(t *testing.T) {
 	}
 	if repDirect.TranscriptFocus.PCols != repOutput.TranscriptFocus.PCols {
 		t.Fatalf("direct_auth pcols=%d want output_audit pcols=%d", repDirect.TranscriptFocus.PCols, repOutput.TranscriptFocus.PCols)
+	}
+}
+
+func TestShowingCredentialQOpeningCompressedAndVerifies(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	proof, _, _, _, _, _ := buildShowingProofForTestConfig(t, PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3, true, true, PIOP.PRFCompanionModeOutputAudit, 8)
+	if proof.QOpening == nil {
+		t.Fatal("missing Q opening")
+	}
+	if proof.QOpening.FormatVersion != 1 {
+		t.Fatalf("Q opening P format=%d want compressed format 1", proof.QOpening.FormatVersion)
+	}
+	if len(proof.QOpening.POmitCols) == 0 || proof.QOpening.PColsEncoded <= 0 {
+		t.Fatalf("Q opening missing compressed P metadata: cols=%d omit=%v", proof.QOpening.PColsEncoded, proof.QOpening.POmitCols)
+	}
+	if proof.QOpening.MFormatVersion != 1 {
+		t.Fatalf("Q opening M format=%d want compressed format 1", proof.QOpening.MFormatVersion)
+	}
+	if len(proof.QOpening.MOmitCols) == 0 || proof.QOpening.MColsEncoded <= 0 {
+		t.Fatalf("Q opening missing compressed M metadata: cols=%d omit=%v", proof.QOpening.MColsEncoded, proof.QOpening.MOmitCols)
 	}
 }
 

@@ -64,7 +64,15 @@ Important surfaces:
   - reduced replay
   - `soundness_balanced`
   - `output_audit`
-- research control:
-  `go run ./cmd/showing -showing-preset compact_l1_research -full`
-  - intended theorem-clean full replay path
-  - not the maintained engineering baseline on the current canonical artifacts
+- maintained full replay control:
+  `go run ./cmd/showing -full`
+  - direct `bb_tran` theorem-clean full replay path
+  - keeps source-product rows out of the maintained surface
+- aggregate full replay measurement control:
+  `go run ./cmd/showing -showing-preset aggregate_v6_research`
+  `go run ./cmd/showing -showing-preset aggregate_v11_direct_target_research`
+  - keeps per-component carriers and membership checks
+  - replaces per-component `RHat0[j]` replay rows with one `B2*r0` aggregate row per block
+  - `aggregate_v6_research` opts into the tuned aggregate V6 tuple without changing the default `-full` tuple
+  - `aggregate_v11_direct_target_research` removes committed `THat` rows and replaces separate `MHatSigma + R0B2Hat` rows with one `TargetMR0Hat` direct-target row per block
+  - V7/V8/V9/V10/V12/V13 are no longer live command or resolver surfaces

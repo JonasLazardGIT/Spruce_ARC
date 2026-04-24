@@ -66,6 +66,127 @@ func cloneSigShortnessProofForTest(src *SigShortnessProof) *SigShortnessProof {
 				Digits: src.V7.Digits,
 			}
 		}(),
+		V8: func() *SigShortnessProofV8 {
+			if src.V8 == nil {
+				return nil
+			}
+			var hidden *Proof
+			if src.V8.HiddenProof != nil {
+				data, err := json.Marshal(src.V8.HiddenProof)
+				if err == nil {
+					var decoded Proof
+					if err := json.Unmarshal(data, &decoded); err == nil {
+						hidden = &decoded
+					}
+				}
+				if hidden == nil {
+					cp := *src.V8.HiddenProof
+					hidden = &cp
+				}
+			}
+			return &SigShortnessProofV8{
+				Mode:        src.V8.Mode,
+				Radix:       src.V8.Radix,
+				Digits:      src.V8.Digits,
+				HiddenProof: hidden,
+				THatHeads: SigShortnessPackedMatrix{
+					Bits:     append([]byte(nil), src.V8.THatHeads.Bits...),
+					BitWidth: src.V8.THatHeads.BitWidth,
+				},
+			}
+		}(),
+		V9: func() *SigShortnessProofV9 {
+			if src.V9 == nil {
+				return nil
+			}
+			var hidden *Proof
+			if src.V9.HiddenProof != nil {
+				data, err := json.Marshal(src.V9.HiddenProof)
+				if err == nil {
+					var decoded Proof
+					if err := json.Unmarshal(data, &decoded); err == nil {
+						hidden = &decoded
+					}
+				}
+				if hidden == nil {
+					cp := *src.V9.HiddenProof
+					hidden = &cp
+				}
+			}
+			return &SigShortnessProofV9{
+				Mode:        src.V9.Mode,
+				Radix:       src.V9.Radix,
+				Digits:      src.V9.Digits,
+				HiddenProof: hidden,
+				THatCommitment: SigShortnessAjtaiCommitment{
+					Rows:      src.V9.THatCommitment.Rows,
+					Cols:      src.V9.THatCommitment.Cols,
+					THatRows:  src.V9.THatCommitment.THatRows,
+					RandRows:  src.V9.THatCommitment.RandRows,
+					RandBound: src.V9.THatCommitment.RandBound,
+					Heads: SigShortnessPackedMatrix{
+						Bits:     append([]byte(nil), src.V9.THatCommitment.Heads.Bits...),
+						BitWidth: src.V9.THatCommitment.Heads.BitWidth,
+					},
+				},
+				CommitmentParamsDigest: append([]byte(nil), src.V9.CommitmentParamsDigest...),
+				MainOpeningDigest:      append([]byte(nil), src.V9.MainOpeningDigest...),
+				HiddenOpeningDigest:    append([]byte(nil), src.V9.HiddenOpeningDigest...),
+			}
+		}(),
+		V10: func() *SigShortnessProofV10 {
+			if src.V10 == nil {
+				return nil
+			}
+			return &SigShortnessProofV10{
+				Mode:       src.V10.Mode,
+				Radix:      src.V10.Radix,
+				Digits:     src.V10.Digits,
+				GroupSize:  src.V10.GroupSize,
+				BlockWidth: src.V10.BlockWidth,
+			}
+		}(),
+		V11: func() *SigShortnessProofV11 {
+			if src.V11 == nil {
+				return nil
+			}
+			return &SigShortnessProofV11{
+				Mode:       src.V11.Mode,
+				Radix:      src.V11.Radix,
+				Digits:     src.V11.Digits,
+				GroupSize:  src.V11.GroupSize,
+				BlockWidth: src.V11.BlockWidth,
+			}
+		}(),
+		V12: func() *SigShortnessProofV12 {
+			if src.V12 == nil {
+				return nil
+			}
+			return &SigShortnessProofV12{
+				Mode:            src.V12.Mode,
+				Radix:           src.V12.Radix,
+				Digits:          src.V12.Digits,
+				GroupSize:       src.V12.GroupSize,
+				BlockWidth:      src.V12.BlockWidth,
+				MainBlockWidth:  src.V12.MainBlockWidth,
+				EffectiveBlocks: src.V12.EffectiveBlocks,
+			}
+		}(),
+		V13: func() *SigShortnessProofV13 {
+			if src.V13 == nil {
+				return nil
+			}
+			return &SigShortnessProofV13{
+				Mode:              src.V13.Mode,
+				Radix:             src.V13.Radix,
+				Digits:            src.V13.Digits,
+				GroupSize:         src.V13.GroupSize,
+				BlockWidth:        src.V13.BlockWidth,
+				MainBlockWidth:    src.V13.MainBlockWidth,
+				EffectiveBlocks:   src.V13.EffectiveBlocks,
+				LookupTableDigest: append([]byte(nil), src.V13.LookupTableDigest...),
+			}
+		}(),
 	}
 }
 
@@ -424,7 +545,7 @@ func TestSigShortnessPCompressionRoundTrip(t *testing.T) {
 		}
 		for j := range want[i] {
 			if open.Pvals[i][j] != want[i][j] {
-			t.Fatalf("reconstructed shortness P row %d=%v want %v", i, open.Pvals[i], want[i])
+				t.Fatalf("reconstructed shortness P row %d=%v want %v", i, open.Pvals[i], want[i])
 			}
 		}
 	}

@@ -80,8 +80,34 @@ func rowLayoutCoeffNativePackedSigLimbIndex(layout RowLayout, comp, block, lane 
 	if layout.PackedSigChainBase < 0 || layout.PackedSigChainRowsPerGroup <= 0 || lane < 0 || lane >= layout.PackedSigChainRowsPerGroup {
 		return -1
 	}
-	group := block*cfg.PackedSigComponents + comp
+	groupSize := layout.PackedSigChainGroupSize
+	if groupSize <= 0 {
+		groupSize = 1
+	}
+	groupBlock := block / groupSize
+	group := groupBlock*cfg.PackedSigComponents + comp
 	return layout.PackedSigChainBase + group*layout.PackedSigChainRowsPerGroup + lane
+}
+
+func rowLayoutPackedSigChainBlockWidth(layout RowLayout) int {
+	if layout.PackedSigChainBlockWidth > 0 {
+		return layout.PackedSigChainBlockWidth
+	}
+	return layout.CoeffNativeSig.PackedSigBlockWidth
+}
+
+func rowLayoutPackedSigChainEffectiveBlocks(layout RowLayout) int {
+	if layout.PackedSigChainEffectiveBlocks > 0 {
+		return layout.PackedSigChainEffectiveBlocks
+	}
+	return layout.CoeffNativeSig.PackedSigBlocks
+}
+
+func rowLayoutPackedSigChainSourceBlockWidth(layout RowLayout) int {
+	if layout.PackedSigChainSourceBlockWidth > 0 {
+		return layout.PackedSigChainSourceBlockWidth
+	}
+	return layout.CoeffNativeSig.PackedSigBlockWidth
 }
 
 func rowLayoutCoeffNativeW3ScalarIndex(layout RowLayout, comp, coeff int) int {

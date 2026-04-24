@@ -75,7 +75,10 @@ func addCoeffNativeLiteralPackedRows(
 		for _, rows := range [][]int{
 			rowLayoutPostSignMHatSigmaRows(layout),
 			rowLayoutPostSignRHat0Rows(layout),
+			rowLayoutPostSignR0B2HatRows(layout),
+			rowLayoutPostSignTargetMR0HatRows(layout),
 			rowLayoutPostSignRHat1Rows(layout),
+			rowLayoutPostSignZHatRows(layout),
 			rowLayoutPostSignMSigmaR1HatRows(layout),
 			rowLayoutPostSignR0R1HatRows(layout),
 		} {

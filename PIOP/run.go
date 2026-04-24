@@ -19,13 +19,15 @@ const (
 )
 
 const (
-	ShowingPresetSoundnessBalanced = "soundness_balanced"
-	ShowingPresetCompactL3         = "compact_l3"
-	ShowingPresetCompactL2         = "compact_l2"
-	ShowingPresetCompactL1Research = "compact_l1_research"
-	ShowingPresetTranscriptFirst   = "transcript_first"
-	ShowingPresetProductionBalance = "production_balance"
-	ShowingPresetCustom            = "custom"
+	ShowingPresetSoundnessBalanced                = "soundness_balanced"
+	ShowingPresetCompactL3                        = "compact_l3"
+	ShowingPresetCompactL2                        = "compact_l2"
+	ShowingPresetCompactL1Research                = "compact_l1_research"
+	ShowingPresetAggregateV6Research              = "aggregate_v6_research"
+	ShowingPresetAggregateV11DirectTargetResearch = "aggregate_v11_direct_target_research"
+	ShowingPresetTranscriptFirst                  = "transcript_first"
+	ShowingPresetProductionBalance                = "production_balance"
+	ShowingPresetCustom                           = "custom"
 )
 
 type ShowingReplayMode string
@@ -38,19 +40,20 @@ const (
 type ShowingStatementClass string
 
 const (
-	ShowingStatementClassReducedEngineeringReplay ShowingStatementClass = "reduced_engineering_replay"
-	ShowingStatementClassTheoremCleanFullReplay   ShowingStatementClass = "theorem_clean_full_replay"
-	ShowingStatementClassCustom                   ShowingStatementClass = "custom_replay_surface"
+	ShowingStatementClassReducedEngineeringReplay           ShowingStatementClass = "reduced_engineering_replay"
+	ShowingStatementClassTheoremCleanFullReplay             ShowingStatementClass = "theorem_clean_full_replay"
+	ShowingStatementClassTheoremCleanDirectTargetFullReplay ShowingStatementClass = "theorem_clean_direct_target_full_replay"
+	ShowingStatementClassCustom                             ShowingStatementClass = "custom_replay_surface"
 )
 
 const (
-	SigShortnessModeNone        = "none"
-	SigShortnessModeLegacyV2    = "sig_shortness_v2_same_root"
-	SigShortnessModeLegacyV3    = "sig_shortness_v3_same_root"
-	SigShortnessModeLegacyV4    = "sig_shortness_v4_same_root"
-	SigShortnessModeExactHeadV5 = "sig_shortness_v5_exact_head"
-	SigShortnessModeHiddenV6    = "sig_shortness_v6_hidden"
-	SigShortnessModeHiddenV7    = "sig_shortness_v7_inlined_target_hiding"
+	SigShortnessModeNone            = "none"
+	SigShortnessModeLegacyV2        = "sig_shortness_v2_same_root"
+	SigShortnessModeLegacyV3        = "sig_shortness_v3_same_root"
+	SigShortnessModeLegacyV4        = "sig_shortness_v4_same_root"
+	SigShortnessModeExactHeadV5     = "sig_shortness_v5_exact_head"
+	SigShortnessModeHiddenV6        = "sig_shortness_v6_hidden"
+	SigShortnessModeDirectTargetV11 = "sig_shortness_v11_direct_target_hiding"
 )
 
 const (
@@ -81,11 +84,30 @@ const (
 	soundnessBalancedFullRho           = 2
 	soundnessBalancedFullNLeaves       = 4096
 	soundnessBalancedFullSigProfile    = SigShortnessProfileR24L3Compact
+	aggregateV6ResearchLVCSNCols       = 76
+	aggregateV6ResearchEta             = 38
+	aggregateV6ResearchEllPrime        = 2
+	aggregateV6ResearchTheta           = 3
+	aggregateV6ResearchRho             = 2
+	aggregateV6ResearchNLeaves         = 4096
+	aggregateV6ResearchNCols           = 16
+	aggregateV6ResearchSigProfile      = SigShortnessProfileR24L3Compact
+	aggregateV11ResearchLVCSNCols      = 76
+	aggregateV11ResearchEta            = 38
+	aggregateV11ResearchEllPrime       = 2
+	aggregateV11ResearchTheta          = 3
+	aggregateV11ResearchRho            = 2
+	aggregateV11ResearchNLeaves        = 4096
+	aggregateV11ResearchNCols          = 16
+	aggregateV11ResearchGroupSize      = 1
+	aggregateV11ResearchSigProfile     = SigShortnessProfileR24L3Compact
 )
 
 var (
 	soundnessBalancedReducedKappa = [4]int{0, 0, 0, 5}
 	soundnessBalancedFullKappa    = [4]int{0, 0, 0, 5}
+	aggregateV6ResearchKappa      = [4]int{2, 0, 0, 5}
+	aggregateV11ResearchKappa     = aggregateV6ResearchKappa
 )
 
 type compactFullCandidateSpec struct {
@@ -224,12 +246,7 @@ func CompactFullCandidateIDs() []string {
 }
 
 func normalizeCompactFullCandidate(candidate string) string {
-	if _, ok := compactFullCandidateSpecs[candidate]; ok {
-		return candidate
-	}
-	if _, ok := parseCompactFullSweepCandidate(candidate); ok {
-		return candidate
-	}
+	_ = candidate
 	return ""
 }
 
@@ -299,33 +316,13 @@ func parseCompactFullSweepCandidate(candidate string) (compactFullCandidateSpec,
 }
 
 func compactFullCandidateSpecForPreset(preset string, replayMode ShowingReplayMode, candidate string) (compactFullCandidateSpec, bool) {
-	if normalizeShowingPreset(preset) != ShowingPresetCompactL1Research {
-		return compactFullCandidateSpec{}, false
-	}
-	if normalizeShowingReplayMode(replayMode) != ShowingReplayModeFull {
-		return compactFullCandidateSpec{}, false
-	}
-	if spec, ok := compactFullCandidateSpecByID(candidate); ok {
-		return spec, true
-	}
-	spec, ok := compactFullCandidateSpecByID(compactL1ResearchFullDefaultCandidateID)
-	return spec, ok
+	_, _, _ = preset, replayMode, candidate
+	return compactFullCandidateSpec{}, false
 }
 
 func ResolveCompactFullCandidateLabelForOpts(opts SimOpts) string {
-	resolved := opts
-	resolved.applyDefaults()
-	if ResolveShowingPresetLabelForOpts(resolved) != ShowingPresetCompactL1Research {
-		return ""
-	}
-	if normalizeShowingReplayMode(resolved.ShowingReplayMode) != ShowingReplayModeFull {
-		return ""
-	}
-	spec, ok := compactFullCandidateSpecForPreset(resolved.ShowingPreset, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
-	if !ok {
-		return ""
-	}
-	return spec.ID
+	_ = opts
+	return ""
 }
 
 func normalizeShowingReplayMode(mode ShowingReplayMode) ShowingReplayMode {
@@ -351,6 +348,9 @@ func ResolveShowingStatementClass(proof *Proof, opts SimOpts) string {
 			return string(ShowingStatementClassCustom)
 		}
 	}
+	if showingLayoutIsTheoremCleanDirectTargetFullReplay(proof.RowLayout, mode) {
+		return string(ShowingStatementClassTheoremCleanDirectTargetFullReplay)
+	}
 	if showingLayoutIsTheoremCleanFullReplay(proof.RowLayout, mode) {
 		return string(ShowingStatementClassTheoremCleanFullReplay)
 	}
@@ -374,12 +374,60 @@ func showingLayoutIsTheoremCleanFullReplay(layout RowLayout, mode ShowingReplayM
 	if layout.SigBlocks > 0 && layout.SigBlocks != replayBlocks {
 		return false
 	}
-	return rowLayoutPostSignTHatBase(layout) >= 0 &&
-		rowLayoutPostSignMHatSigma(layout) >= 0 &&
-		rowLayoutPostSignRHat0(layout) >= 0 &&
-		rowLayoutPostSignRHat1(layout) >= 0 &&
-		rowLayoutPostSignMSigmaR1Hat(layout) >= 0 &&
-		rowLayoutPostSignR0R1Hat(layout) >= 0
+	x0Len := rowLayoutX0Len(layout)
+	if x0Len <= 0 {
+		return false
+	}
+	for block := 0; block < replayBlocks; block++ {
+		if rowLayoutPostSignTHatIndex(layout, block) < 0 ||
+			rowLayoutPostSignMHatSigmaIndex(layout, block) < 0 ||
+			rowLayoutPostSignRHat1Index(layout, block) < 0 ||
+			rowLayoutPostSignZHatIndex(layout, block) < 0 {
+			return false
+		}
+		if rowLayoutPostSignR0B2HatIndex(layout, block) < 0 {
+			for component := 0; component < x0Len; component++ {
+				if rowLayoutPostSignRHat0ComponentIndex(layout, block, component) < 0 {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+func showingLayoutIsTheoremCleanDirectTargetFullReplay(layout RowLayout, mode ShowingReplayMode) bool {
+	if !showingLayoutIsDirectTargetFullReplayCore(layout, mode) {
+		return false
+	}
+	if layout.PackedSigChainBase < 0 || layout.PackedSigChainGroupCount <= 0 || layout.PackedSigChainRowsPerGroup <= 0 {
+		return false
+	}
+	return true
+}
+
+func showingLayoutIsDirectTargetFullReplayCore(layout RowLayout, mode ShowingReplayMode) bool {
+	if normalizeShowingReplayMode(mode) != ShowingReplayModeFull {
+		return false
+	}
+	replayBlocks := rowLayoutReplayBlockCount(layout)
+	if replayBlocks <= 0 {
+		return false
+	}
+	if rowLayoutReplayTHatCount(layout) != 0 {
+		return false
+	}
+	if layout.SigBlocks > 0 && layout.SigBlocks != replayBlocks {
+		return false
+	}
+	for block := 0; block < replayBlocks; block++ {
+		if rowLayoutPostSignTargetMR0HatIndex(layout, block) < 0 ||
+			rowLayoutPostSignRHat1Index(layout, block) < 0 ||
+			rowLayoutPostSignZHatIndex(layout, block) < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func ResolveSigShortnessMode(proof *Proof) string {
@@ -397,8 +445,8 @@ func ResolveSigShortnessMode(proof *Proof) string {
 		return SigShortnessModeExactHeadV5
 	case sigShortnessProofVersionV6:
 		return SigShortnessModeHiddenV6
-	case sigShortnessProofVersionV7:
-		return SigShortnessModeHiddenV7
+	case sigShortnessProofVersionV11:
+		return SigShortnessModeDirectTargetV11
 	default:
 		return fmt.Sprintf("sig_shortness_v%d_unknown", proof.SigShortness.Version)
 	}
@@ -413,18 +461,46 @@ func compactL1ResearchFullV7Profile() string {
 }
 
 func sigShortnessV7EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessV8EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessV9EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessV10EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessV11EnabledForOpts(opts SimOpts) bool {
 	resolved := opts
 	resolved.applyDefaults()
-	if normalizeShowingReplayMode(resolved.ShowingReplayMode) != ShowingReplayModeFull {
+	if normalizeShowingPreset(resolved.ShowingPreset) != ShowingPresetAggregateV11DirectTargetResearch {
 		return false
 	}
-	if ResolveShowingPresetLabelForOpts(resolved) != ShowingPresetCompactL1Research {
+	if normalizeShowingReplayMode(resolved.ShowingReplayMode) != ShowingReplayModeFull || !resolved.AggregateR0Replay {
 		return false
 	}
-	if _, ok := compactFullCandidateSpecByID(resolved.CompactFullCandidate); ok {
-		return true
-	}
-	return ResolveSignatureShortnessProfileLabelForOpts(resolved) == compactL1ResearchFullV7Profile()
+	profile := ResolveSignatureShortnessProfileLabelForOpts(resolved)
+	return profile == SigShortnessProfileR11L4Production ||
+		profile == SigShortnessProfileR24L3Compact ||
+		profile == SigShortnessProfileR111L2Compact
+}
+
+func sigShortnessV12EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessV13EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessInlinedTargetHidingEnabledForOpts(opts SimOpts) bool {
+	return sigShortnessV11EnabledForOpts(opts)
 }
 
 type PRFCompanionMode string
@@ -456,6 +532,10 @@ func normalizeShowingPreset(preset string) string {
 		return ShowingPresetCompactL2
 	case ShowingPresetCompactL1Research:
 		return ShowingPresetCompactL1Research
+	case ShowingPresetAggregateV6Research:
+		return ShowingPresetAggregateV6Research
+	case ShowingPresetAggregateV11DirectTargetResearch:
+		return ShowingPresetAggregateV11DirectTargetResearch
 	case ShowingPresetTranscriptFirst:
 		return ShowingPresetTranscriptFirst
 	case ShowingPresetProductionBalance:
@@ -481,6 +561,10 @@ func showingPresetLVCSNCols(preset string, replayMode ShowingReplayMode, candida
 			return spec.LVCSNCols
 		}
 		return 32
+	case ShowingPresetAggregateV6Research:
+		return aggregateV6ResearchLVCSNCols
+	case ShowingPresetAggregateV11DirectTargetResearch:
+		return aggregateV11ResearchLVCSNCols
 	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
 		return 32
 	default:
@@ -504,6 +588,10 @@ func showingPresetSigShortnessProfile(preset string, replayMode ShowingReplayMod
 			return spec.SigShortnessProfile
 		}
 		return SigShortnessProfileR12285L1Research
+	case ShowingPresetAggregateV6Research:
+		return aggregateV6ResearchSigProfile
+	case ShowingPresetAggregateV11DirectTargetResearch:
+		return aggregateV11ResearchSigProfile
 	case ShowingPresetTranscriptFirst:
 		return SigShortnessProfileR11L4Production
 	case ShowingPresetProductionBalance:
@@ -515,9 +603,15 @@ func showingPresetSigShortnessProfile(preset string, replayMode ShowingReplayMod
 
 func showingPresetTheta(preset string) int {
 	switch normalizeShowingPreset(preset) {
-	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2, ShowingPresetCompactL1Research:
+	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2, ShowingPresetCompactL1Research, ShowingPresetAggregateV6Research, ShowingPresetAggregateV11DirectTargetResearch:
 		if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
 			return soundnessBalancedReducedTheta
+		}
+		if normalizeShowingPreset(preset) == ShowingPresetAggregateV6Research {
+			return aggregateV6ResearchTheta
+		}
+		if normalizeShowingPreset(preset) == ShowingPresetAggregateV11DirectTargetResearch {
+			return aggregateV11ResearchTheta
 		}
 		return 3
 	default:
@@ -528,6 +622,12 @@ func showingPresetTheta(preset string) int {
 func showingPresetRho(preset string) int {
 	if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
 		return soundnessBalancedReducedRho
+	}
+	if normalizeShowingPreset(preset) == ShowingPresetAggregateV6Research {
+		return aggregateV6ResearchRho
+	}
+	if normalizeShowingPreset(preset) == ShowingPresetAggregateV11DirectTargetResearch {
+		return aggregateV11ResearchRho
 	}
 	return 2
 }
@@ -544,6 +644,10 @@ func showingPresetEllPrime(preset string, replayMode ShowingReplayMode, candidat
 			return spec.EllPrime
 		}
 		return 3
+	case ShowingPresetAggregateV6Research:
+		return aggregateV6ResearchEllPrime
+	case ShowingPresetAggregateV11DirectTargetResearch:
+		return aggregateV11ResearchEllPrime
 	default:
 		return 2
 	}
@@ -563,6 +667,10 @@ func showingPresetEta(preset string, replayMode ShowingReplayMode, candidate str
 			return spec.Eta
 		}
 		return 26
+	case ShowingPresetAggregateV6Research:
+		return aggregateV6ResearchEta
+	case ShowingPresetAggregateV11DirectTargetResearch:
+		return aggregateV11ResearchEta
 	default:
 		return 31
 	}
@@ -581,6 +689,10 @@ func showingPresetNLeaves(preset string, replayMode ShowingReplayMode, candidate
 			return soundnessBalancedReducedNLeaves
 		}
 		return 4096
+	case ShowingPresetAggregateV6Research:
+		return aggregateV6ResearchNLeaves
+	case ShowingPresetAggregateV11DirectTargetResearch:
+		return aggregateV11ResearchNLeaves
 	default:
 		return 2048
 	}
@@ -604,6 +716,10 @@ func showingPresetKappa(preset string, replayMode ShowingReplayMode, candidate s
 			return [4]int{}
 		}
 		return [4]int{0, 11, 0, 11}
+	case ShowingPresetAggregateV6Research:
+		return aggregateV6ResearchKappa
+	case ShowingPresetAggregateV11DirectTargetResearch:
+		return aggregateV11ResearchKappa
 	default:
 		return [4]int{}
 	}
@@ -639,6 +755,8 @@ func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
 		return requested
 	}
 	for _, preset := range []string{
+		ShowingPresetAggregateV11DirectTargetResearch,
+		ShowingPresetAggregateV6Research,
 		ShowingPresetSoundnessBalanced,
 		ShowingPresetCompactL3,
 		ShowingPresetCompactL2,
@@ -686,6 +804,46 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 			resolved.PostSignNLeaves == expectedNLeaves &&
 			resolved.PRFNLeaves == expectedNLeaves &&
 			resolved.Kappa == expectedKappa
+	case ShowingPresetAggregateV6Research:
+		return normalizeShowingReplayMode(resolved.ShowingReplayMode) == ShowingReplayModeFull &&
+			resolved.AggregateR0Replay &&
+			resolved.NCols == aggregateV6ResearchNCols &&
+			resolved.SigShortnessProfile == aggregateV6ResearchSigProfile &&
+			resolved.LVCSNCols == aggregateV6ResearchLVCSNCols &&
+			resolved.PostSignLVCSNCols == aggregateV6ResearchLVCSNCols &&
+			resolved.PRFLVCSNCols == aggregateV6ResearchLVCSNCols &&
+			resolved.Theta == aggregateV6ResearchTheta &&
+			resolved.Rho == aggregateV6ResearchRho &&
+			resolved.EllPrime == aggregateV6ResearchEllPrime &&
+			resolved.Eta == aggregateV6ResearchEta &&
+			resolved.NLeaves == aggregateV6ResearchNLeaves &&
+			resolved.PostSignNLeaves == aggregateV6ResearchNLeaves &&
+			resolved.PRFNLeaves == aggregateV6ResearchNLeaves &&
+			resolved.Kappa == aggregateV6ResearchKappa
+	case ShowingPresetAggregateV11DirectTargetResearch:
+		profile := resolved.SigShortnessProfile
+		if profile != SigShortnessProfileR11L4Production && profile != SigShortnessProfileR24L3Compact && profile != SigShortnessProfileR111L2Compact {
+			return false
+		}
+		groupSize := resolved.PackedSigChainGroupSize
+		if groupSize <= 0 {
+			groupSize = aggregateV11ResearchGroupSize
+		}
+		return normalizeShowingReplayMode(resolved.ShowingReplayMode) == ShowingReplayModeFull &&
+			resolved.AggregateR0Replay &&
+			resolved.NCols == aggregateV11ResearchNCols &&
+			groupSize == aggregateV11ResearchGroupSize &&
+			resolved.LVCSNCols == aggregateV11ResearchLVCSNCols &&
+			resolved.PostSignLVCSNCols == aggregateV11ResearchLVCSNCols &&
+			resolved.PRFLVCSNCols == aggregateV11ResearchLVCSNCols &&
+			resolved.Theta == aggregateV11ResearchTheta &&
+			resolved.Rho == aggregateV11ResearchRho &&
+			resolved.EllPrime == aggregateV11ResearchEllPrime &&
+			resolved.Eta == aggregateV11ResearchEta &&
+			resolved.NLeaves == aggregateV11ResearchNLeaves &&
+			resolved.PostSignNLeaves == aggregateV11ResearchNLeaves &&
+			resolved.PRFNLeaves == aggregateV11ResearchNLeaves &&
+			resolved.Kappa == aggregateV11ResearchKappa
 	case ShowingPresetCompactL3:
 		return resolved.SigShortnessProfile == SigShortnessProfileR24L3Compact &&
 			resolved.LVCSNCols == 68 &&
@@ -784,8 +942,8 @@ type SimOpts struct {
 	ShowingPreset string
 	// ShowingReplayMode selects the active showing replay surface.
 	ShowingReplayMode ShowingReplayMode
-	// CompactFullCandidate selects an internal compact-full V7 benchmark
-	// geometry. It is not part of the public preset surface.
+	// CompactFullCandidate is retained only for historical benchmark parsing.
+	// It no longer selects a live compact-full V7 showing path.
 	CompactFullCandidate string
 	// BenchmarkSweepCandidate tags benchmark-only reduced/full/compact sweep
 	// candidates so reporting can preserve the base preset label without
@@ -810,8 +968,18 @@ type SimOpts struct {
 	// EnablePRFCompanion emits and verifies the Phase-2 authenticated packed
 	// coordinate bridge for packed PRF witness rows.
 	EnablePRFCompanion bool
-	Mutate             func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
-	Credential         bool
+	// AggregateR0Replay replaces per-component R0 replay hats with one
+	// block-local B2*r0 aggregate row in full direct bb_tran showing proofs.
+	AggregateR0Replay bool
+	// PackedSigChainGroupSize is currently fixed to 1 for the live V11
+	// direct-target profile. Future pair-packing work should add a new
+	// versioned profile instead of silently changing this field.
+	PackedSigChainGroupSize int
+	// SigShortnessNCols is reserved for future single-root signature packing
+	// research. The removed V12/V13 two-oracle paths are no longer live.
+	SigShortnessNCols int
+	Mutate            func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
+	Credential        bool
 }
 
 func defaultSimOpts() SimOpts {
@@ -878,10 +1046,31 @@ func (o *SimOpts) applyDefaults() {
 	if o.SigShortnessRadix < 0 {
 		o.SigShortnessRadix = 0
 	}
+	if o.PackedSigChainGroupSize < 0 {
+		o.PackedSigChainGroupSize = 0
+	}
+	if o.SigShortnessNCols < 0 {
+		o.SigShortnessNCols = 0
+	}
 	o.CompactFullCandidate = normalizeCompactFullCandidate(o.CompactFullCandidate)
 	o.BenchmarkSweepCandidate = normalizeBenchmarkSweepCandidate(o.BenchmarkSweepCandidate)
 	if o.Credential && resolveCoeffNativeSigModel(*o) == CoeffNativeSigModelLiteralPackedAggregatedV3 {
 		o.ShowingPreset = normalizeShowingPreset(o.ShowingPreset)
+		if o.ShowingPreset == ShowingPresetAggregateV6Research || o.ShowingPreset == ShowingPresetAggregateV11DirectTargetResearch {
+			o.ShowingReplayMode = ShowingReplayModeFull
+			o.AggregateR0Replay = true
+			if o.NCols <= 0 {
+				o.NCols = aggregateV6ResearchNCols
+			}
+		}
+		if o.ShowingPreset == ShowingPresetAggregateV11DirectTargetResearch {
+			if o.NCols <= 0 {
+				o.NCols = aggregateV11ResearchNCols
+			}
+			if o.PackedSigChainGroupSize <= 0 {
+				o.PackedSigChainGroupSize = aggregateV11ResearchGroupSize
+			}
+		}
 		if !sigShortnessRawOverrideActive(*o) && o.SigShortnessProfile == "" {
 			o.SigShortnessProfile = showingPresetSigShortnessProfile(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
 		}
@@ -1046,73 +1235,83 @@ type RowLayout struct {
 	RndCount int
 	// Explicit base indices for post-sign witness rows.
 	// When false, the standard issuance row order is used.
-	HasExplicitBaseIdx    bool
-	X0Len                 int
-	IdxM1                 int
-	IdxM2                 int
-	IdxRU0                int
-	IdxRU1                int
-	IdxR                  int
-	IdxR0                 int
-	IdxR1                 int
-	IdxK0                 int
-	IdxK1                 int
-	IdxZ                  int
-	IdxMSigmaR1           int
-	IdxR0R1               int
-	IdxMSigmaR1Alias      int
-	IdxR0R1Alias          int
-	IdxCarrierM           int
-	IdxCarrierPreRU       int
-	IdxCarrierRU1         int
-	IdxCarrierPreR        int
-	IdxCarrierCtr         int
-	IdxCarrierR1          int
-	IdxCarrierK           int
-	IdxCarrierK1          int
-	CarrierRU0Rows        []int
-	CarrierR0Rows         []int
-	CarrierK0Rows         []int
-	AliasRU0Rows          []int
-	AliasR0Rows           []int
-	AliasK0Rows           []int
-	IdxTSource            int
-	IdxSigHatBase         int
-	SigHatExtraBase       int
-	IdxTHatBase           int
-	ReplayTHatRows        []int
-	ReplayTHatCount       int
-	ReplayBlockCount      int
-	IdxMHatSigma          int
-	ReplayMHatSigmaRows   []int
-	IdxMHat1              int
-	IdxMHat2              int
-	IdxRHat0              int
-	ReplayRHat0Rows       []int
-	IdxRHat1              int
-	ReplayRHat1Rows       []int
-	IdxZHat               int
-	ReplayZHatRows        []int
-	IdxMSigmaR1Hat        int
-	ReplayMSigmaR1HatRows []int
-	IdxR0R1Hat            int
-	ReplayR0R1HatRows     []int
-	ChainBase             int
-	ChainRowsPerSig       int
-	PackedSigChainBase    int
+	HasExplicitBaseIdx     bool
+	X0Len                  int
+	IdxM1                  int
+	IdxM2                  int
+	IdxRU0                 int
+	IdxRU1                 int
+	IdxR                   int
+	IdxR0                  int
+	IdxR1                  int
+	IdxK0                  int
+	IdxK1                  int
+	IdxZ                   int
+	IdxMSigmaR1            int
+	IdxR0R1                int
+	IdxMSigmaR1Alias       int
+	IdxR0R1Alias           int
+	IdxCarrierM            int
+	IdxCarrierPreRU        int
+	IdxCarrierRU1          int
+	IdxCarrierPreR         int
+	IdxCarrierCtr          int
+	IdxCarrierR1           int
+	IdxCarrierK            int
+	IdxCarrierK1           int
+	CarrierRU0Rows         []int
+	CarrierR0Rows          []int
+	CarrierK0Rows          []int
+	AliasRU0Rows           []int
+	AliasR0Rows            []int
+	AliasK0Rows            []int
+	IdxTSource             int
+	IdxSigHatBase          int
+	SigHatExtraBase        int
+	IdxTHatBase            int
+	ReplayTHatRows         []int
+	ReplayTHatCount        int
+	ReplayBlockCount       int
+	IdxMHatSigma           int
+	ReplayMHatSigmaRows    []int
+	IdxMHat1               int
+	IdxMHat2               int
+	IdxRHat0               int
+	ReplayRHat0Rows        []int
+	IdxR0B2Hat             int
+	ReplayR0B2HatRows      []int
+	IdxTargetMR0Hat        int
+	ReplayTargetMR0HatRows []int
+	IdxRHat1               int
+	ReplayRHat1Rows        []int
+	IdxZHat                int
+	ReplayZHatRows         []int
+	IdxMSigmaR1Hat         int
+	ReplayMSigmaR1HatRows  []int
+	IdxR0R1Hat             int
+	ReplayR0R1HatRows      []int
+	ChainBase              int
+	ChainRowsPerSig        int
+	PackedSigChainBase     int
 	// Packed signature shortness metadata for modes that use one shortness row
 	// per digit lane and coefficient group instead of per coefficient.
-	PackedSigChainGroupCount   int
-	PackedSigChainGroupSize    int
-	PackedSigChainRowsPerGroup int
-	SigSignedChain             bool
-	MsgChainBase               int
-	RndChainBase               int
-	X1ChainBase                int
-	MsgRangeBase               int
-	RndRangeBase               int
-	X1RangeBase                int
-	NonSigBoundRowsPer         int
+	PackedSigChainGroupCount       int
+	PackedSigChainGroupSize        int
+	PackedSigChainRowsPerGroup     int
+	PackedSigChainBlockWidth       int
+	PackedSigChainEffectiveBlocks  int
+	PackedSigChainSourceBlockWidth int
+	SigSignedChain                 bool
+	SigShortnessV9RandBase         int
+	SigShortnessV9RandCount        int
+	SigShortnessV9RandBound        int
+	MsgChainBase                   int
+	RndChainBase                   int
+	X1ChainBase                    int
+	MsgRangeBase                   int
+	RndRangeBase                   int
+	X1RangeBase                    int
+	NonSigBoundRowsPer             int
 	// Experimental v3 logical-slice accounting for the single-root coeff-native
 	// showing path.
 	SigPrimaryLimbRows            int
@@ -1241,7 +1440,9 @@ type Proof struct {
 }
 
 // SigShortnessProof carries the versioned signature shortness argument used by
-// the retained packed-signature showing path.
+// the retained packed-signature showing path. V6 and V11 are the only live
+// showing families; removed experimental payload fields are retained only so
+// archived artifacts fail closed instead of decoding into an unknown shape.
 type SigShortnessProof struct {
 	Version      int
 	SupportSlots []int
@@ -1249,6 +1450,12 @@ type SigShortnessProof struct {
 	V5           *SigShortnessProofV5
 	V6           *SigShortnessProofV6
 	V7           *SigShortnessProofV7
+	V8           *SigShortnessProofV8
+	V9           *SigShortnessProofV9
+	V10          *SigShortnessProofV10
+	V11          *SigShortnessProofV11
+	V12          *SigShortnessProofV12
+	V13          *SigShortnessProofV13
 }
 
 type SigShortnessProofV5 struct {
@@ -1271,6 +1478,71 @@ type SigShortnessProofV7 struct {
 	Mode   uint8
 	Radix  int
 	Digits int
+}
+
+type SigShortnessProofV8 struct {
+	Mode        uint8
+	Radix       int
+	Digits      int
+	HiddenProof *Proof
+	THatHeads   SigShortnessPackedMatrix
+}
+
+type SigShortnessProofV9 struct {
+	Mode                   uint8
+	Radix                  int
+	Digits                 int
+	HiddenProof            *Proof
+	THatCommitment         SigShortnessAjtaiCommitment
+	CommitmentParamsDigest []byte
+	MainOpeningDigest      []byte
+	HiddenOpeningDigest    []byte
+}
+
+type SigShortnessProofV10 struct {
+	Mode       uint8
+	Radix      int
+	Digits     int
+	GroupSize  int
+	BlockWidth int
+}
+
+type SigShortnessProofV11 struct {
+	Mode       uint8
+	Radix      int
+	Digits     int
+	GroupSize  int
+	BlockWidth int
+}
+
+type SigShortnessProofV12 struct {
+	Mode            uint8
+	Radix           int
+	Digits          int
+	GroupSize       int
+	BlockWidth      int
+	MainBlockWidth  int
+	EffectiveBlocks int
+}
+
+type SigShortnessProofV13 struct {
+	Mode              uint8
+	Radix             int
+	Digits            int
+	GroupSize         int
+	BlockWidth        int
+	MainBlockWidth    int
+	EffectiveBlocks   int
+	LookupTableDigest []byte
+}
+
+type SigShortnessAjtaiCommitment struct {
+	Rows      int
+	Cols      int
+	THatRows  int
+	RandRows  int
+	RandBound int
+	Heads     SigShortnessPackedMatrix
 }
 
 type SigShortnessPackedMatrix struct {
@@ -2550,6 +2822,102 @@ func sizeSigShortnessProof(sig *SigShortnessProof) int {
 		}
 		size += varintSize(sig.V7.Radix)
 		size += varintSize(sig.V7.Digits)
+		return size
+	}
+	if sig.Version == sigShortnessProofVersionV10 && sig.V10 != nil {
+		size := 0
+		if sig.V10.Mode != 0 {
+			size++
+		}
+		size += varintSize(sig.V10.Radix)
+		size += varintSize(sig.V10.Digits)
+		size += varintSize(sig.V10.GroupSize)
+		size += varintSize(sig.V10.BlockWidth)
+		return size
+	}
+	if sig.Version == sigShortnessProofVersionV11 && sig.V11 != nil {
+		size := 0
+		if sig.V11.Mode != 0 {
+			size++
+		}
+		size += varintSize(sig.V11.Radix)
+		size += varintSize(sig.V11.Digits)
+		size += varintSize(sig.V11.GroupSize)
+		size += varintSize(sig.V11.BlockWidth)
+		return size
+	}
+	if sig.Version == sigShortnessProofVersionV12 && sig.V12 != nil {
+		size := 0
+		if sig.V12.Mode != 0 {
+			size++
+		}
+		size += varintSize(sig.V12.Radix)
+		size += varintSize(sig.V12.Digits)
+		size += varintSize(sig.V12.GroupSize)
+		size += varintSize(sig.V12.BlockWidth)
+		size += varintSize(sig.V12.MainBlockWidth)
+		size += varintSize(sig.V12.EffectiveBlocks)
+		return size
+	}
+	if sig.Version == sigShortnessProofVersionV13 && sig.V13 != nil {
+		size := 0
+		if sig.V13.Mode != 0 {
+			size++
+		}
+		size += varintSize(sig.V13.Radix)
+		size += varintSize(sig.V13.Digits)
+		size += varintSize(sig.V13.GroupSize)
+		size += varintSize(sig.V13.BlockWidth)
+		size += varintSize(sig.V13.MainBlockWidth)
+		size += varintSize(sig.V13.EffectiveBlocks)
+		size += len(sig.V13.LookupTableDigest)
+		return size
+	}
+	if sig.Version == sigShortnessProofVersionV8 && sig.V8 != nil {
+		size := 0
+		if sig.V8.Mode != 0 {
+			size++
+		}
+		size += varintSize(sig.V8.Radix)
+		size += varintSize(sig.V8.Digits)
+		if sig.V8.HiddenProof != nil {
+			_, hiddenTotal := proofSizeBreakdown(sig.V8.HiddenProof)
+			size += hiddenTotal
+		}
+		if sig.V8.THatHeads.BitWidth != 0 {
+			size++
+		}
+		size += varintSize(len(sig.V8.THatHeads.Bits))
+		size += len(sig.V8.THatHeads.Bits)
+		return size
+	}
+	if sig.Version == sigShortnessProofVersionV9 && sig.V9 != nil {
+		size := 0
+		if sig.V9.Mode != 0 {
+			size++
+		}
+		size += varintSize(sig.V9.Radix)
+		size += varintSize(sig.V9.Digits)
+		if sig.V9.HiddenProof != nil {
+			_, hiddenTotal := proofSizeBreakdown(sig.V9.HiddenProof)
+			size += hiddenTotal
+		}
+		size += varintSize(sig.V9.THatCommitment.Rows)
+		size += varintSize(sig.V9.THatCommitment.Cols)
+		size += varintSize(sig.V9.THatCommitment.THatRows)
+		size += varintSize(sig.V9.THatCommitment.RandRows)
+		size += varintSize(sig.V9.THatCommitment.RandBound)
+		if sig.V9.THatCommitment.Heads.BitWidth != 0 {
+			size++
+		}
+		size += varintSize(len(sig.V9.THatCommitment.Heads.Bits))
+		size += len(sig.V9.THatCommitment.Heads.Bits)
+		size += varintSize(len(sig.V9.CommitmentParamsDigest))
+		size += len(sig.V9.CommitmentParamsDigest)
+		size += varintSize(len(sig.V9.MainOpeningDigest))
+		size += len(sig.V9.MainOpeningDigest)
+		size += varintSize(len(sig.V9.HiddenOpeningDigest))
+		size += len(sig.V9.HiddenOpeningDigest)
 		return size
 	}
 	if sig.Version == sigShortnessProofVersionV6 && sig.V6 != nil {

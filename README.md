@@ -38,16 +38,37 @@ The checked-in canonical profile is:
 - PRF companion mode: `output_audit`
 - hidden shortness path: `v6`
 
-The current theorem-clean full-replay control remains a research path. The
-intended CLI is still:
+The maintained direct `bb_tran` full-replay control is:
 
 ```bash
-go run ./cmd/showing -showing-preset compact_l1_research -full
+go run ./cmd/showing -full
 ```
 
-but the checked-in canonical vector-`x0` artifacts should currently be treated
-as reduced-replay-first engineering artifacts, not a maintained full-replay
-baseline.
+It keeps the direct paper relation and full replay image without reintroducing
+deprecated source-product rows. The default CLI remains the smaller reduced
+engineering path.
+
+The live aggregate controls are:
+
+```bash
+go run ./cmd/showing -showing-preset aggregate_v6_research
+go run ./cmd/showing -showing-preset aggregate_v11_direct_target_research
+```
+
+`aggregate_v6_research` keeps the direct `bb_tran` full replay statement,
+enables the `B2*r0` aggregate replay row surface, and uses the current tuned V6
+tuple (`lvcs=76`, `eta=38`, `kappa={2,0,0,5}`). It is an opt-in research
+profile, not the default `-full` control.
+
+`aggregate_v11_direct_target_research` is the direct-target follow-up. It keeps
+private inlined shortness, removes committed `THat` rows, and replaces the
+separate `MHatSigma + R0B2Hat` replay rows with one private `TargetMR0Hat` row
+per block. It is the forward optimization target and remains opt-in.
+
+V7/V8/V9/V10/V12/V13 were experimental showing paths and are no longer live CLI
+or resolver surfaces. The next optimization plan is V11 single-root digit-pair
+packing plus lookup/range digit membership; see
+[docs/v11_pair_lookup_roadmap.md](docs/v11_pair_lookup_roadmap.md).
 
 ## Reading Order
 
@@ -62,7 +83,7 @@ baseline.
 4. [docs/nizk_alignment_notes.md](docs/nizk_alignment_notes.md)
    Paper-to-code alignment matrix for the live branch.
 5. [docs/full_baseline_proof_study.md](docs/full_baseline_proof_study.md)
-   Research-only note for the theorem-clean full replay control.
+   Maintained full replay control notes and transcript tradeoffs.
 6. [docs/modulus_choice.md](docs/modulus_choice.md)
    Shared field rationale and the interaction between `q`, `BoundB`,
    `X0CoeffBound`, and the PRF.

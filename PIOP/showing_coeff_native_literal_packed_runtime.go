@@ -3,6 +3,7 @@ package PIOP
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
@@ -18,23 +19,6 @@ type literalPackedPolyWitness struct {
 	SigLimbHeads [][][][]uint64
 }
 
-func countRowsInTailStripe(startRow, replayRows, pcsNCols, stripeWidth int) int {
-	if replayRows <= 0 || pcsNCols <= 0 || stripeWidth <= 0 {
-		return 0
-	}
-	if stripeWidth > pcsNCols {
-		stripeWidth = pcsNCols
-	}
-	count := 0
-	cutoff := pcsNCols - stripeWidth
-	for row := startRow; row < startRow+replayRows; row++ {
-		if row%pcsNCols >= cutoff {
-			count++
-		}
-	}
-	return count
-}
-
 func resolveFullReplayTHatStripeSlots(startRow, replayRows, pcsNCols, tHatCount int) ([]int, error) {
 	if pcsNCols <= 0 {
 		return nil, fmt.Errorf("invalid pcs ncols %d", pcsNCols)
@@ -48,21 +32,37 @@ func resolveFullReplayTHatStripeSlots(startRow, replayRows, pcsNCols, tHatCount 
 	if tHatCount == 0 {
 		return nil, nil
 	}
-	stripeWidth := (tHatCount*pcsNCols + replayRows - 1) / replayRows
-	if stripeWidth < 1 {
-		stripeWidth = 1
+	type slotCapacity struct {
+		slot  int
+		count int
 	}
-	for ; stripeWidth <= pcsNCols; stripeWidth++ {
-		if countRowsInTailStripe(startRow, replayRows, pcsNCols, stripeWidth) < tHatCount {
-			continue
-		}
-		slots := make([]int, stripeWidth)
-		for i := 0; i < stripeWidth; i++ {
-			slots[i] = pcsNCols - stripeWidth + i
-		}
-		return slots, nil
+	capacities := make([]slotCapacity, pcsNCols)
+	for slot := 0; slot < pcsNCols; slot++ {
+		capacities[slot] = slotCapacity{slot: slot}
 	}
-	return nil, fmt.Errorf("full replay T-hat stripe needs more than %d support slots for replayRows=%d tHatCount=%d", pcsNCols, replayRows, tHatCount)
+	for row := startRow; row < startRow+replayRows; row++ {
+		capacities[row%pcsNCols].count++
+	}
+	sort.Slice(capacities, func(i, j int) bool {
+		if capacities[i].count != capacities[j].count {
+			return capacities[i].count > capacities[j].count
+		}
+		return capacities[i].slot < capacities[j].slot
+	})
+	slots := make([]int, 0, pcsNCols)
+	capacity := 0
+	for _, candidate := range capacities {
+		if candidate.count == 0 {
+			break
+		}
+		slots = append(slots, candidate.slot)
+		capacity += candidate.count
+		if capacity >= tHatCount {
+			sort.Ints(slots)
+			return slots, nil
+		}
+	}
+	return nil, fmt.Errorf("full replay T-hat planner capacity=%d need %d for replayRows=%d pcsNCols=%d", capacity, tHatCount, replayRows, pcsNCols)
 }
 
 func planFullReplayTHatRows(startRow, replayRows, pcsNCols, tHatCount int) ([]int, []int, error) {
@@ -512,7 +512,10 @@ func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 	for _, idx := range []int{
 		rowLayoutPostSignMHatSigma(layout),
 		rowLayoutPostSignRHat0(layout),
+		rowLayoutPostSignR0B2Hat(layout),
+		rowLayoutPostSignTargetMR0Hat(layout),
 		rowLayoutPostSignRHat1(layout),
+		rowLayoutPostSignZHat(layout),
 		rowLayoutPostSignMSigmaR1Hat(layout),
 		rowLayoutPostSignR0R1Hat(layout),
 	} {
@@ -528,7 +531,10 @@ func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 	for _, rows := range [][]int{
 		rowLayoutPostSignMHatSigmaRows(layout),
 		rowLayoutPostSignRHat0Rows(layout),
+		rowLayoutPostSignR0B2HatRows(layout),
+		rowLayoutPostSignTargetMR0HatRows(layout),
 		rowLayoutPostSignRHat1Rows(layout),
+		rowLayoutPostSignZHatRows(layout),
 		rowLayoutPostSignMSigmaR1HatRows(layout),
 		rowLayoutPostSignR0R1HatRows(layout),
 	} {
@@ -624,9 +630,6 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	if model != CoeffNativeSigModelLiteralPackedAggregatedV3 {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("unsupported literal packed coeff-native model %q", model)
 	}
-	if cn.PackedNCols != ncols {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native packed ncols=%d want %d", cn.PackedNCols, ncols)
-	}
 
 	spec, serr := signatureChainSpecForOpts(ringQ.Modulus[0], opts)
 	if serr != nil {
@@ -635,9 +638,35 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	if !signatureSpecNoWrapOK(spec) {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature chain spec violates no-wrap bound: maxAbs=%d q=%d", spec.MaxAbs, spec.Q)
 	}
-	useV7Shortness := sigShortnessV7EnabledForOpts(opts)
-	if useV7Shortness && spec.UsesAbsRow {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("sig shortness V7 does not support abs-row packed chains")
+	useV11Shortness := sigShortnessV11EnabledForOpts(opts)
+	useInlinedShortness := useV11Shortness
+	useDirectTargetReplay := useV11Shortness
+	if useInlinedShortness && spec.UsesAbsRow {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("inlined sig shortness does not support abs-row packed chains")
+	}
+	if useV11Shortness {
+		sourceNCols := cn.PackedNCols
+		if sourceNCols <= 0 {
+			sourceNCols = ncols
+		}
+		groupSize := opts.PackedSigChainGroupSize
+		if groupSize <= 0 {
+			groupSize = aggregateV11ResearchGroupSize
+		}
+		if groupSize <= 0 {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("sig shortness V11 requires positive group size, got %d", groupSize)
+		}
+		if groupSize != 1 {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("sig shortness V11 group_size=%d is not live; use a new versioned pair-packing profile", groupSize)
+		}
+		if ncols != sourceNCols {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("sig shortness V11 ncols=%d want source_ncols=%d", ncols, sourceNCols)
+		}
+		if int(ringQ.N)%ncols != 0 {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("sig shortness V11 invalid block geometry N=%d ncols=%d", ringQ.N, ncols)
+		}
+	} else if cn.PackedNCols != ncols {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native packed ncols=%d want %d", cn.PackedNCols, ncols)
 	}
 	nttHead := func(src *ring.Poly) ([]uint64, error) {
 		if src == nil {
@@ -658,16 +687,21 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	}
 	q := ringQ.Modulus[0]
 	if opts.ShowingReplayMode == ShowingReplayModeFull {
-		r0HeadPoly := cn.R0[0]
-		for _, pair := range []struct {
+		sparseSupportRows := []struct {
 			poly *ring.Poly
 			name string
 		}{
 			{poly: cn.M1, name: "M1"},
 			{poly: cn.M2, name: "M2"},
-			{poly: r0HeadPoly, name: "R0"},
 			{poly: cn.R1, name: "R1"},
-		} {
+		}
+		for i, r0 := range cn.R0 {
+			sparseSupportRows = append(sparseSupportRows, struct {
+				poly *ring.Poly
+				name string
+			}{poly: r0, name: fmt.Sprintf("R0[%d]", i)})
+		}
+		for _, pair := range sparseSupportRows {
 			if err := validateSparseSupportTailZero(pair.poly, ncols, q, pair.name); err != nil {
 				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 			}
@@ -783,8 +817,6 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	var zSourcePoly *ring.Poly
 	if useBBTran {
 		zSourcePoly = cn.Z
-		idxZ = len(rows)
-		rows = append(rows, zSourcePoly)
 	}
 
 	mHat1Heads, berr := buildReplayHeadsFromSourcePoly(ringQ, rawAliasSurface.AliasM1, explicitOmega, replayBlockCount, "M hat 1")
@@ -809,6 +841,59 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R0[%d] hats: %w", i, berr)
 		}
 	}
+	aggregateR0Replay := opts.AggregateR0Replay
+	if aggregateR0Replay {
+		if opts.ShowingReplayMode != ShowingReplayModeFull {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("aggregate R0 replay requires full replay mode")
+		}
+		if !useBBTran {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("aggregate R0 replay requires bb_tran relation")
+		}
+		if len(r0HatHeads) == 0 {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("aggregate R0 replay requires R0 hats")
+		}
+		if len(pub.B) != 3+len(r0HatHeads) {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("aggregate R0 replay B rows=%d want %d", len(pub.B), 3+len(r0HatHeads))
+		}
+	}
+	var r0B2HatHeads [][]uint64
+	if aggregateR0Replay {
+		r0B2HatHeads = make([][]uint64, replayBlockCount)
+		for block := 0; block < replayBlockCount; block++ {
+			head := make([]uint64, ncols)
+			for i := range r0HatHeads {
+				b2Head, err := thetaHeadFromNTTBlock(ringQ, pub.B[2+i], explicitOmega, block, blocks)
+				if err != nil {
+					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("aggregate R0 theta B2[%d] block %d: %w", i, block, err)
+				}
+				for col := 0; col < ncols; col++ {
+					head[col] = modAdd(head[col], modMul(b2Head[col]%q, r0HatHeads[i][block][col]%q, q), q)
+				}
+			}
+			r0B2HatHeads[block] = head
+		}
+	}
+	var targetMR0HatHeads [][]uint64
+	if useDirectTargetReplay {
+		if !aggregateR0Replay {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("direct-target V11 replay requires aggregate R0 replay")
+		}
+		if !useBBTran {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("direct-target V11 replay requires bb_tran relation")
+		}
+		targetMR0HatHeads = make([][]uint64, replayBlockCount)
+		for block := 0; block < replayBlockCount; block++ {
+			b1Head, err := thetaHeadFromNTTBlock(ringQ, pub.B[1], explicitOmega, block, blocks)
+			if err != nil {
+				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("direct-target theta B1 block %d: %w", block, err)
+			}
+			head := make([]uint64, ncols)
+			for col := 0; col < ncols; col++ {
+				head[col] = modAdd(modMul(b1Head[col]%q, mSigmaHatHeads[block][col]%q, q), r0B2HatHeads[block][col]%q, q)
+			}
+			targetMR0HatHeads[block] = head
+		}
+	}
 	r1HatHeads, berr := buildReplayHeadsFromSourcePoly(ringQ, rawAliasSurface.AliasR1, explicitOmega, replayBlockCount, "R1")
 	if berr != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R1 hats: %w", berr)
@@ -822,26 +907,38 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	}
 
 	replayTHatCount := replayBlockCount
+	if useDirectTargetReplay {
+		replayTHatCount = 0
+	}
 	packedSigHeadsForReplay := packedWitness.SigHeads
-	if useV7Shortness {
+	if useInlinedShortness {
 		packedSigHeadsForReplay = reconstructPackedSigHeadsFromLimbHeads(packedWitness.SigLimbHeads, spec, q)
 	}
 	sigHatHeads, terr := buildSigHatHeadsFromPackedSigHeads(ringQ, packedSigHeadsForReplay, ncols)
 	if terr != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build sig hats from packed heads: %w", terr)
 	}
-	tHatHeads, terr := buildTHatHeadsFromSigHatHeads(ringQ, pub, explicitOmega, sigHatHeads, replayTHatCount, blocks)
-	if terr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build T replay heads from signature hats: %w", terr)
+	var tHatHeads [][]uint64
+	if !useDirectTargetReplay {
+		tHatHeads, terr = buildTHatHeadsFromSigHatHeads(ringQ, pub, explicitOmega, sigHatHeads, replayTHatCount, blocks)
+		if terr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("build T replay heads from signature hats: %w", terr)
+		}
 	}
 	replayMHatSigmaRows := make([]int, replayBlockCount)
 	replayRHat0Rows := make([]int, 0, replayBlockCount*len(r0HatHeads))
+	replayR0B2HatRows := make([]int, 0, replayBlockCount)
+	replayTargetMR0HatRows := make([]int, 0, replayBlockCount)
 	replayRHat1Rows := make([]int, replayBlockCount)
 	replayZHatRows := make([]int, replayBlockCount)
 	replayTHatRows := make([]int, replayTHatCount)
 	packedFullReplay := false
-	if opts.ShowingReplayMode == ShowingReplayModeFull && replayBlockCount > 1 {
-		nonTHatRowsPerBlock := 2 + len(r0HatHeads)
+	if opts.ShowingReplayMode == ShowingReplayModeFull && replayBlockCount > 1 && !useDirectTargetReplay {
+		r0ReplayRowsPerBlock := len(r0HatHeads)
+		if aggregateR0Replay {
+			r0ReplayRowsPerBlock = 1
+		}
+		nonTHatRowsPerBlock := 2 + r0ReplayRowsPerBlock
 		if useBBTran {
 			nonTHatRowsPerBlock++
 		}
@@ -889,12 +986,20 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack full replay M-hat-sigma block %d: %w", block, err)
 				}
 				replayMHatSigmaRows[block] = row
-				for i := range r0HatHeads {
-					row, err = assignOther(makeRowFromHead(r0HatHeads[i][block]))
+				if aggregateR0Replay {
+					row, err = assignOther(makeRowFromHead(r0B2HatHeads[block]))
 					if err != nil {
-						return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack full replay R-hat0[%d] block %d: %w", i, block, err)
+						return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack full replay R0-B2-hat block %d: %w", block, err)
 					}
-					replayRHat0Rows = append(replayRHat0Rows, row)
+					replayR0B2HatRows = append(replayR0B2HatRows, row)
+				} else {
+					for i := range r0HatHeads {
+						row, err = assignOther(makeRowFromHead(r0HatHeads[i][block]))
+						if err != nil {
+							return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack full replay R-hat0[%d] block %d: %w", i, block, err)
+						}
+						replayRHat0Rows = append(replayRHat0Rows, row)
+					}
 				}
 				row, err = assignOther(makeRowFromHead(r1HatHeads[block]))
 				if err != nil {
@@ -927,11 +1032,27 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	}
 	if !packedFullReplay {
 		for block := 0; block < replayBlockCount; block++ {
+			if useDirectTargetReplay {
+				replayTargetMR0HatRows = append(replayTargetMR0HatRows, len(rows))
+				rows = append(rows, makeRowFromHead(targetMR0HatHeads[block]))
+				replayRHat1Rows[block] = len(rows)
+				rows = append(rows, makeRowFromHead(r1HatHeads[block]))
+				if useBBTran {
+					replayZHatRows[block] = len(rows)
+					rows = append(rows, makeRowFromHead(zHatHeads[block]))
+				}
+				continue
+			}
 			replayMHatSigmaRows[block] = len(rows)
 			rows = append(rows, makeRowFromHead(mSigmaHatHeads[block]))
-			for i := range r0HatHeads {
-				replayRHat0Rows = append(replayRHat0Rows, len(rows))
-				rows = append(rows, makeRowFromHead(r0HatHeads[i][block]))
+			if aggregateR0Replay {
+				replayR0B2HatRows = append(replayR0B2HatRows, len(rows))
+				rows = append(rows, makeRowFromHead(r0B2HatHeads[block]))
+			} else {
+				for i := range r0HatHeads {
+					replayRHat0Rows = append(replayRHat0Rows, len(rows))
+					rows = append(rows, makeRowFromHead(r0HatHeads[i][block]))
+				}
 			}
 			replayRHat1Rows[block] = len(rows)
 			rows = append(rows, makeRowFromHead(r1HatHeads[block]))
@@ -951,33 +1072,57 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	packedSigChainGroupCount := 0
 	packedSigChainGroupSize := 0
 	packedSigChainRowsPerGroup := 0
+	packedSigChainBlockWidth := 0
+	packedSigChainEffectiveBlocks := 0
+	packedSigChainSourceBlockWidth := ncols
 	sigSignedChain := false
-	if useV7Shortness {
-		rowsPerGroup, err := signaturePackedChainRowsPerGroupForOpts(spec, opts, 1)
+	if useInlinedShortness {
+		groupSize := 1
+		if useV11Shortness {
+			groupSize = opts.PackedSigChainGroupSize
+			if groupSize <= 0 {
+				groupSize = aggregateV11ResearchGroupSize
+			}
+		}
+		rowsPerGroup, err := signaturePackedChainRowsPerGroupForOpts(spec, opts, groupSize)
 		if err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature shortness rows/group: %w", err)
 		}
 		packedSigChainBase = len(rows)
-		packedSigChainGroupCount = len(cn.Sig) * blocks
-		packedSigChainGroupSize = 1
+		effectiveBlocks := blocks
+		sigBlockWidth := ncols
+		packedSigChainGroupCount = len(cn.Sig) * effectiveBlocks
+		packedSigChainGroupSize = groupSize
 		packedSigChainRowsPerGroup = rowsPerGroup
+		packedSigChainBlockWidth = sigBlockWidth
+		packedSigChainEffectiveBlocks = effectiveBlocks
+		packedSigChainSourceBlockWidth = ncols
 		sigSignedChain = spec.UsesAbsRow
-		for block := 0; block < blocks; block++ {
+		for groupBlock := 0; groupBlock < effectiveBlocks; groupBlock++ {
 			for comp := 0; comp < len(cn.Sig); comp++ {
-				if comp >= len(packedWitness.SigLimbs) || block >= len(packedWitness.SigLimbs[comp]) {
-					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("missing packed shortness limbs for comp=%d block=%d", comp, block)
-				}
-				if len(packedWitness.SigLimbs[comp][block]) != spec.L {
-					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("packed shortness limb rows=%d want %d for comp=%d block=%d", len(packedWitness.SigLimbs[comp][block]), spec.L, comp, block)
-				}
 				for lane := 0; lane < spec.L; lane++ {
-					if packedWitness.SigLimbs[comp][block][lane] == nil {
-						return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("nil packed shortness limb for comp=%d block=%d lane=%d", comp, block, lane)
+					groupedHead := make([]uint64, sigBlockWidth)
+					for sub := 0; sub < groupSize; sub++ {
+						block := groupBlock*groupSize + sub
+						if comp >= len(packedWitness.SigLimbs) || block >= len(packedWitness.SigLimbs[comp]) {
+							return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("missing packed shortness limbs for comp=%d block=%d", comp, block)
+						}
+						if len(packedWitness.SigLimbs[comp][block]) != spec.L {
+							return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("packed shortness limb rows=%d want %d for comp=%d block=%d", len(packedWitness.SigLimbs[comp][block]), spec.L, comp, block)
+						}
+						if packedWitness.SigLimbs[comp][block][lane] == nil {
+							return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("nil packed shortness limb for comp=%d block=%d lane=%d", comp, block, lane)
+						}
+						if comp >= len(packedWitness.SigLimbHeads) || block >= len(packedWitness.SigLimbHeads[comp]) || lane >= len(packedWitness.SigLimbHeads[comp][block]) {
+							return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("missing packed shortness limb heads for comp=%d block=%d lane=%d", comp, block, lane)
+						}
+						head := packedWitness.SigLimbHeads[comp][block][lane]
+						if len(head) != ncols {
+							return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("packed shortness limb head width=%d want %d for comp=%d block=%d lane=%d", len(head), ncols, comp, block, lane)
+						}
+						copy(groupedHead[sub*ncols:(sub+1)*ncols], head)
 					}
-					if comp >= len(packedWitness.SigLimbHeads) || block >= len(packedWitness.SigLimbHeads[comp]) || lane >= len(packedWitness.SigLimbHeads[comp][block]) {
-						return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("missing packed shortness limb heads for comp=%d block=%d lane=%d", comp, block, lane)
-					}
-					rows = append(rows, makeRowFromHead(packedWitness.SigLimbHeads[comp][block][lane]))
+					rows = append(rows, makeRowFromHead(groupedHead))
 				}
 			}
 		}
@@ -1024,16 +1169,44 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.IdxTSource = -1
 	layout.IdxSigHatBase = -1
 	layout.SigHatExtraBase = -1
-	layout.IdxTHatBase = replayTHatRows[0]
-	layout.ReplayTHatRows = append([]int(nil), replayTHatRows...)
+	layout.IdxTargetMR0Hat = -1
+	layout.ReplayTargetMR0HatRows = nil
+	if useDirectTargetReplay {
+		layout.IdxTHatBase = -1
+		layout.ReplayTHatRows = nil
+		layout.IdxTargetMR0Hat = firstIndex(replayTargetMR0HatRows)
+		layout.ReplayTargetMR0HatRows = append([]int(nil), replayTargetMR0HatRows...)
+	} else {
+		layout.IdxTHatBase = replayTHatRows[0]
+		layout.ReplayTHatRows = append([]int(nil), replayTHatRows...)
+	}
 	layout.ReplayTHatCount = replayTHatCount
 	layout.ReplayBlockCount = replayBlockCount
-	layout.IdxMHatSigma = replayMHatSigmaRows[0]
-	layout.ReplayMHatSigmaRows = append([]int(nil), replayMHatSigmaRows...)
+	if useDirectTargetReplay {
+		layout.IdxMHatSigma = -1
+		layout.ReplayMHatSigmaRows = nil
+	} else {
+		layout.IdxMHatSigma = replayMHatSigmaRows[0]
+		layout.ReplayMHatSigmaRows = append([]int(nil), replayMHatSigmaRows...)
+	}
 	layout.IdxMHat1 = -1
 	layout.IdxMHat2 = -1
-	layout.IdxRHat0 = firstIndex(replayRHat0Rows)
-	layout.ReplayRHat0Rows = append([]int(nil), replayRHat0Rows...)
+	if useDirectTargetReplay {
+		layout.IdxRHat0 = -1
+		layout.ReplayRHat0Rows = nil
+		layout.IdxR0B2Hat = -1
+		layout.ReplayR0B2HatRows = nil
+	} else if aggregateR0Replay {
+		layout.IdxRHat0 = -1
+		layout.ReplayRHat0Rows = nil
+		layout.IdxR0B2Hat = firstIndex(replayR0B2HatRows)
+		layout.ReplayR0B2HatRows = append([]int(nil), replayR0B2HatRows...)
+	} else {
+		layout.IdxRHat0 = firstIndex(replayRHat0Rows)
+		layout.ReplayRHat0Rows = append([]int(nil), replayRHat0Rows...)
+		layout.IdxR0B2Hat = -1
+		layout.ReplayR0B2HatRows = nil
+	}
 	layout.IdxRHat1 = replayRHat1Rows[0]
 	layout.ReplayRHat1Rows = append([]int(nil), replayRHat1Rows...)
 	layout.IdxMSigmaR1 = -1
@@ -1059,7 +1232,13 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.PackedSigChainGroupCount = packedSigChainGroupCount
 	layout.PackedSigChainGroupSize = packedSigChainGroupSize
 	layout.PackedSigChainRowsPerGroup = packedSigChainRowsPerGroup
+	layout.PackedSigChainBlockWidth = packedSigChainBlockWidth
+	layout.PackedSigChainEffectiveBlocks = packedSigChainEffectiveBlocks
+	layout.PackedSigChainSourceBlockWidth = packedSigChainSourceBlockWidth
 	layout.SigSignedChain = sigSignedChain
+	layout.SigShortnessV9RandBase = -1
+	layout.SigShortnessV9RandCount = 0
+	layout.SigShortnessV9RandBound = 0
 	layout.MsgChainBase = -1
 	layout.RndChainBase = -1
 	layout.MsgRangeBase = -1
@@ -1172,11 +1351,14 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.PRFScalarBundleRows = prfScalarBundleRows
 	layout.SigCount = len(rows)
 
-	if !useV7Shortness {
+	if !useInlinedShortness {
 		layout.PackedSigChainBase = -1
 		layout.PackedSigChainGroupCount = 0
 		layout.PackedSigChainGroupSize = 0
 		layout.PackedSigChainRowsPerGroup = 0
+		layout.PackedSigChainBlockWidth = 0
+		layout.PackedSigChainEffectiveBlocks = 0
+		layout.PackedSigChainSourceBlockWidth = 0
 		layout.SigSignedChain = false
 		layout.SigPrimaryLimbRows = 0
 		layout.SigBoundSliceRows = 0
@@ -1288,7 +1470,11 @@ func buildLiteralPackedSignatureShortnessConstraintSet(ringQ *ring.Ring, layout 
 	if layout.PackedSigChainRowsPerGroup != wantRowsPer {
 		return ConstraintSet{}, fmt.Errorf("signature shortness rows/group=%d want %d", layout.PackedSigChainRowsPerGroup, wantRowsPer)
 	}
-	wantGroupCount := cfg.PackedSigComponents * cfg.PackedSigBlocks
+	wantBlocks := rowLayoutPackedSigChainEffectiveBlocks(layout)
+	if wantBlocks <= 0 {
+		wantBlocks = cfg.PackedSigBlocks
+	}
+	wantGroupCount := cfg.PackedSigComponents * wantBlocks
 	if layout.PackedSigChainGroupCount != wantGroupCount {
 		return ConstraintSet{}, fmt.Errorf("signature shortness group count=%d want %d", layout.PackedSigChainGroupCount, wantGroupCount)
 	}

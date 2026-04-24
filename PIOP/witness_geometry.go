@@ -132,7 +132,10 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 			for _, family := range []replayFamily{
 				{rows: rowLayoutPostSignMHatSigmaRows(layout), idx: rowLayoutPostSignMHatSigma(layout)},
 				{rows: rowLayoutPostSignRHat0Rows(layout), idx: rowLayoutPostSignRHat0(layout)},
+				{rows: rowLayoutPostSignR0B2HatRows(layout), idx: rowLayoutPostSignR0B2Hat(layout)},
+				{rows: rowLayoutPostSignTargetMR0HatRows(layout), idx: rowLayoutPostSignTargetMR0Hat(layout)},
 				{rows: rowLayoutPostSignRHat1Rows(layout), idx: rowLayoutPostSignRHat1(layout)},
+				{rows: rowLayoutPostSignZHatRows(layout), idx: rowLayoutPostSignZHat(layout)},
 			} {
 				if len(family.rows) > 0 {
 					out.NonSigRows += len(family.rows)

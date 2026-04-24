@@ -1,7 +1,6 @@
 package PIOP
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 
@@ -137,8 +136,7 @@ func TestSigShortnessProofV6RejectsTHatAndHiddenLabelsTamper(t *testing.T) {
 	})
 }
 
-func TestSigShortnessProofV6FullReplayTHatOpeningRoundTripRetainsExplicitMvals(t *testing.T) {
-	t.Skip("full-replay V6 T-hat round-trip is research-only and not maintained under the vector-x0 shipped path")
+func TestSigShortnessProofV6FullReplayTHatOpeningRoundTripOmitsMvals(t *testing.T) {
 	fx := buildTransformBridgeFullFixture(t)
 	proof, err := BuildShowingCombined(fx.pub, fx.wit, fx.opts)
 	if err != nil {
@@ -160,18 +158,15 @@ func TestSigShortnessProofV6FullReplayTHatOpeningRoundTripRetainsExplicitMvals(t
 		t.Fatalf("full replay support slots=%v want %v", gotSlots, wantSlots)
 	}
 	packed := proof.SigShortness.V6.THatOpening
-	if packed.MFormatVersion != 0 || packed.MColsEncoded != 0 || len(packed.MOmitCols) != 0 {
-		t.Fatalf("full replay T-hat opening should keep explicit M-values, got format=%d cols=%d omit=%v", packed.MFormatVersion, packed.MColsEncoded, packed.MOmitCols)
+	if packed.MFormatVersion != 1 || packed.MColsEncoded != 0 || len(packed.MOmitCols) != packed.Eta {
+		t.Fatalf("full replay T-hat opening should omit M-values, got format=%d cols=%d omit=%v eta=%d", packed.MFormatVersion, packed.MColsEncoded, packed.MOmitCols, packed.Eta)
 	}
-	if len(packed.MvalsBits) == 0 {
-		t.Fatalf("full replay T-hat opening lost serialized M-values")
+	if len(packed.Mvals) != 0 || len(packed.MvalsBits) != 0 {
+		t.Fatalf("full replay T-hat opening should not serialize M-values")
 	}
 	expanded := expandPackedOpening(packed)
-	if len(expanded.Mvals) != expanded.EntryCount() {
-		t.Fatalf("expanded M row count=%d want %d", len(expanded.Mvals), expanded.EntryCount())
-	}
-	if len(expanded.Mvals) == 0 || len(expanded.Mvals[0]) != expanded.Eta {
-		t.Fatalf("expanded M width mismatch: rows=%d eta=%d", len(expanded.Mvals), expanded.Eta)
+	if expanded.MFormatVersion != 1 {
+		t.Fatalf("expanded opening lost M compression metadata")
 	}
 	params, rowCount, err := deriveMainPCSSubsetParams(proof)
 	if err != nil {
@@ -206,18 +201,21 @@ func TestSigShortnessProofV6FullReplayTHatOpeningRoundTripRetainsExplicitMvals(t
 	if err != nil {
 		t.Fatalf("prepare sig shortness opening for verify: %v", err)
 	}
-	if !reflect.DeepEqual(prepared.Mvals, expanded.Mvals) {
-		t.Fatalf("prepared M-values changed across full replay round-trip")
+	if len(prepared.Mvals) != expanded.EntryCount() {
+		t.Fatalf("prepared M row count=%d want %d", len(prepared.Mvals), expanded.EntryCount())
 	}
-	if !reflect.DeepEqual(prepared.Pvals, expanded.Pvals) {
-		t.Fatalf("prepared P-values changed across full replay round-trip")
+	if len(prepared.Mvals) == 0 || len(prepared.Mvals[0]) != expanded.Eta {
+		t.Fatalf("prepared M width mismatch: rows=%d eta=%d", len(prepared.Mvals), expanded.Eta)
+	}
+	if prepared.MFormatVersion != 0 || prepared.FormatVersion != 0 {
+		t.Fatalf("prepared opening should clear compression metadata, P=%d M=%d", prepared.FormatVersion, prepared.MFormatVersion)
 	}
 	if err := verifyDECSSubset(fx.ringQ, proof.Root, params, gamma, rPolys, prepared, wantSlots, domainPoints); err != nil {
 		t.Fatalf("verify full replay T-hat subset: %v", err)
 	}
 }
 
-func TestPlanFullReplayTHatRowsUsesDynamicTailStripe(t *testing.T) {
+func TestPlanFullReplayTHatRowsUsesDensestSupportSlots(t *testing.T) {
 	const (
 		startRow   = 4
 		replayRows = 640
@@ -255,6 +253,38 @@ func TestPlanFullReplayTHatRowsUsesDynamicTailStripe(t *testing.T) {
 	}
 	if got, want := len(seenSlots), len(stripeSlots); got != want {
 		t.Fatalf("planned T-hat slot count=%d want %d", got, want)
+	}
+}
+
+func TestPlanFullReplayTHatRowsAvoidsSparseTailStripe(t *testing.T) {
+	const (
+		startRow   = 13
+		replayRows = 320
+		pcsNCols   = 96
+		tHatCount  = 64
+	)
+	slots, err := resolveFullReplayTHatStripeSlots(startRow, replayRows, pcsNCols, tHatCount)
+	if err != nil {
+		t.Fatalf("resolve full replay T-hat slots: %v", err)
+	}
+	if got, want := len(slots), 16; got != want {
+		t.Fatalf("densest support slot count=%d want %d", got, want)
+	}
+	tHatRows, _, err := planFullReplayTHatRows(startRow, replayRows, pcsNCols, tHatCount)
+	if err != nil {
+		t.Fatalf("plan full replay T-hat rows: %v", err)
+	}
+	if got, want := len(tHatRows), tHatCount; got != want {
+		t.Fatalf("planned T-hat rows=%d want %d", got, want)
+	}
+	slotSet := make(map[int]struct{}, len(slots))
+	for _, slot := range slots {
+		slotSet[slot] = struct{}{}
+	}
+	for _, row := range tHatRows {
+		if _, ok := slotSet[row%pcsNCols]; !ok {
+			t.Fatalf("planned T-hat row=%d uses slot outside %v", row, slots)
+		}
 	}
 }
 

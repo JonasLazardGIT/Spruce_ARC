@@ -24,8 +24,10 @@ The current checked-in branch should be read with these defaults:
 - replay mode: `reduced`
 - PRF companion mode: `output_audit`
 
-The theorem-clean full replay control remains a research surface, not the
-maintained engineering baseline on the current canonical artifacts.
+The maintained full replay control is the direct `bb_tran` theorem-clean replay
+surface. It uses the full replay image for the same direct relation and does
+not reintroduce deprecated source-product rows. The default showing command
+remains the smaller reduced replay engineering path.
 
 ## Source Of Truth
 
@@ -313,11 +315,30 @@ Shipped engineering surface:
 - `soundness_balanced`
 - `output_audit`
 
-Research control:
+Maintained full replay control:
 
-- `go run ./cmd/showing -showing-preset compact_l1_research -full`
+- `go run ./cmd/showing -full`
+- `go run ./cmd/showing -showing-preset aggregate_v6_research`
+- `go run ./cmd/showing -showing-preset aggregate_v11_direct_target_research`
 
-Treat the second surface as research-only on the current canonical artifacts.
+The `-full` surface is maintained as the direct `bb_tran` theorem-clean full
+replay control. It keeps deprecated source-product rows out of the live
+statement. `aggregate_v6_research` is an opt-in aggregate V6 profile for the
+same direct relation; it replaces per-component replay
+`RHat0[j]` rows by the block-local `sum_j B2[j] * r0[j]` replay contribution
+and uses the tuned `lvcs=76`, `eta=38`, `kappa={2,0,0,5}` tuple.
+
+`aggregate_v11_direct_target_research` removes committed `THat` rows from the
+aggregate private-shortness path. It carries `TargetMR0Hat_b =
+B1_b*MHatSigma_b + sum_i B2_i,b*RHat0_i,b` as one private replay row per block,
+keeps `RHat1` and `ZHat` for the inverse equation, and checks the target
+relation directly as `A*u = B0 + TargetMR0Hat + ZHat`.
+
+V7/V8/V9/V10/V12/V13 were experimental showing paths. They are no longer live
+resolver or CLI surfaces; the maintained baseline/control family is V6 and the
+forward optimization family is V11. The rejected V12 two-oracle design is
+documented in the transcript analysis as historical context because duplicated
+sidecar openings made it larger than V11.
 
 ## `x0` Profiles
 

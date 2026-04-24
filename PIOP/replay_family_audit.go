@@ -204,7 +204,10 @@ func canonicalReplayFamilyRows(proof *Proof) (map[ReplayFamilyKind][]int, error)
 	for _, replayRows := range [][]int{
 		rowLayoutPostSignMHatSigmaRows(layout),
 		rowLayoutPostSignRHat0Rows(layout),
+		rowLayoutPostSignR0B2HatRows(layout),
+		rowLayoutPostSignTargetMR0HatRows(layout),
 		rowLayoutPostSignRHat1Rows(layout),
+		rowLayoutPostSignZHatRows(layout),
 		rowLayoutPostSignMSigmaR1HatRows(layout),
 		rowLayoutPostSignR0R1HatRows(layout),
 	} {

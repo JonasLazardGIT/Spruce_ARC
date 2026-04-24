@@ -112,12 +112,6 @@ func (r cliRenderer) fatalf(prefix, format string, args ...interface{}) {
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "benchmark-compact-full" {
-		if err := runBenchmarkCompactFull(os.Args[2:]); err != nil {
-			cli.fatalf("[showing-cli] ", "%v", err)
-		}
-		return
-	}
 	if len(os.Args) > 1 && os.Args[1] == "benchmark-transcript-sweep" {
 		if err := runBenchmarkTranscriptSweep(os.Args[2:]); err != nil {
 			cli.fatalf("[showing-cli] ", "%v", err)
@@ -132,8 +126,9 @@ func main() {
 	)
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
-	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default uses the shipped reduced tuple and keeps the full-replay control tuple; compact_l3, compact_l2, and compact_l1_research select the measured low-size profiles; transcript_first and production_balance keep the wide-LVCS theorem presets)")
-	fullReplay := flag.Bool("full", false, "enable the theorem-clean full replay-image showing mode")
+	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default uses the shipped reduced tuple and keeps the full-replay V6 control tuple; aggregate_v6_research selects the opt-in aggregate full V6 tuple; aggregate_v11_direct_target_research selects the opt-in direct-target aggregate V11 profile; compact_l3, compact_l2, and compact_l1_research are legacy V6 parameter presets; transcript_first and production_balance keep the wide-LVCS theorem presets)")
+	fullReplay := flag.Bool("full", false, "enable maintained direct bb_tran full replay-image showing mode")
+	aggregateR0Replay := flag.Bool("aggregate-r0-replay", false, "experimental full-replay optimization: aggregate vector R0 hats into one B2*r0 replay row per block")
 	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
 	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
 	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override for soundness research")
@@ -148,6 +143,8 @@ func main() {
 	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (named profiles: r11_l4_production, r24_l3_compact, r111_l2_compact, r12285_l1_research; r7_l4_experimental, r12_l3_default, r13_l3_legacy remain research/legacy)")
 	sigShortnessRadix := flag.Int("sig-shortness-radix", 0, "optional raw signature shortness radix override for transcript research")
 	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override for transcript research")
+	packedSigChainGroupSize := flag.Int("packed-sig-chain-group-size", 0, "reserved V11 packed signature shortness group-size override; live V11 currently requires 1")
+	sigShortnessNCols := flag.Int("sig-shortness-ncols", 0, "reserved signature-shortness width override for future single-root packing research")
 	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth remains research-only scaffolding; aux_instance enables the research-only split PRF proof)")
 	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
 	flag.Parse()
@@ -156,9 +153,16 @@ func main() {
 	if resolvedModel == "" {
 		resolvedModel = PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3
 	}
+	presetDefaults := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+		Credential:          true,
+		CoeffNativeSigModel: resolvedModel,
+		ShowingPreset:       *showingPreset,
+	})
 	effectiveNCols := productionNCols
 	if *ncolsOverride > 0 {
 		effectiveNCols = *ncolsOverride
+	} else if presetDefaults.ShowingPreset == PIOP.ShowingPresetAggregateV11DirectTargetResearch {
+		effectiveNCols = 16
 	}
 	effectivePostLVCS := 0
 	effectivePostNLeaves := 0
@@ -231,30 +235,33 @@ func main() {
 		cli.fatalf("[showing-cli] ", "load prf params: %v", err)
 	}
 	opts := PIOP.SimOpts{
-		Credential:           true,
-		Theta:                effectiveTheta,
-		EllPrime:             effectiveEllPrime,
-		Rho:                  effectiveRho,
-		NCols:                effectiveNCols,
-		Ell:                  productionEll,
-		Eta:                  effectiveEta,
-		DomainMode:           PIOP.DomainModeExplicit,
-		NLeaves:              effectivePostNLeaves,
-		Kappa:                effectiveKappa,
-		PRFGroupRounds:       productionPRFGroupRounds,
-		CoeffPacking:         true,
-		CoeffNativeSigModel:  resolvedModel,
-		ShowingPreset:        *showingPreset,
-		ShowingReplayMode:    PIOP.ShowingReplayModeReduced,
-		SigShortnessProfile:  *sigShortnessProfile,
-		SigShortnessRadix:    *sigShortnessRadix,
-		SigShortnessL:        *sigShortnessDigits,
-		PostSignLVCSNCols:    effectivePostLVCS,
-		PostSignNLeaves:      effectivePostNLeaves,
-		PRFLVCSNCols:         effectivePRFLVCS,
-		PRFNLeaves:           effectivePRFNLeaves,
-		PRFCompanionMode:     PIOP.PRFCompanionMode(*prfCompanionMode),
-		PRFCheckpointSamples: *prfCheckpointSamples,
+		Credential:              true,
+		Theta:                   effectiveTheta,
+		EllPrime:                effectiveEllPrime,
+		Rho:                     effectiveRho,
+		NCols:                   effectiveNCols,
+		Ell:                     productionEll,
+		Eta:                     effectiveEta,
+		DomainMode:              PIOP.DomainModeExplicit,
+		NLeaves:                 effectivePostNLeaves,
+		Kappa:                   effectiveKappa,
+		PRFGroupRounds:          productionPRFGroupRounds,
+		CoeffPacking:            true,
+		CoeffNativeSigModel:     resolvedModel,
+		ShowingPreset:           *showingPreset,
+		ShowingReplayMode:       PIOP.ShowingReplayModeReduced,
+		SigShortnessProfile:     *sigShortnessProfile,
+		SigShortnessRadix:       *sigShortnessRadix,
+		SigShortnessL:           *sigShortnessDigits,
+		PackedSigChainGroupSize: *packedSigChainGroupSize,
+		SigShortnessNCols:       *sigShortnessNCols,
+		PostSignLVCSNCols:       effectivePostLVCS,
+		PostSignNLeaves:         effectivePostNLeaves,
+		PRFLVCSNCols:            effectivePRFLVCS,
+		PRFNLeaves:              effectivePRFNLeaves,
+		PRFCompanionMode:        PIOP.PRFCompanionMode(*prfCompanionMode),
+		PRFCheckpointSamples:    *prfCheckpointSamples,
+		AggregateR0Replay:       *aggregateR0Replay,
 	}
 	if *fullReplay {
 		opts.ShowingReplayMode = PIOP.ShowingReplayModeFull
@@ -271,17 +278,19 @@ func main() {
 		cli.fatalf("[showing-cli] ", "resolve signature shortness profile: %v", sigMetricErr)
 	}
 	baselineOpts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-		Credential:           true,
-		NCols:                effectiveNCols,
-		Ell:                  productionEll,
-		DomainMode:           PIOP.DomainModeExplicit,
-		PRFGroupRounds:       productionPRFGroupRounds,
-		CoeffPacking:         true,
-		CoeffNativeSigModel:  resolvedModel,
-		ShowingPreset:        *showingPreset,
-		ShowingReplayMode:    opts.ShowingReplayMode,
-		PRFCompanionMode:     PIOP.PRFCompanionMode(*prfCompanionMode),
-		PRFCheckpointSamples: *prfCheckpointSamples,
+		Credential:              true,
+		NCols:                   effectiveNCols,
+		Ell:                     productionEll,
+		DomainMode:              PIOP.DomainModeExplicit,
+		PRFGroupRounds:          productionPRFGroupRounds,
+		CoeffPacking:            true,
+		CoeffNativeSigModel:     resolvedModel,
+		ShowingPreset:           *showingPreset,
+		ShowingReplayMode:       opts.ShowingReplayMode,
+		PackedSigChainGroupSize: *packedSigChainGroupSize,
+		SigShortnessNCols:       *sigShortnessNCols,
+		PRFCompanionMode:        PIOP.PRFCompanionMode(*prfCompanionMode),
+		PRFCheckpointSamples:    *prfCheckpointSamples,
 	})
 	cli.printf(categoryStatus, "[showing-cli] ", "production showing profile (preset=%s replay=%s ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d nleaves=%d kappa={%d,%d,%d,%d} prf_group_rounds=%d prf_mode=%s prf_samples=%d sig_profile=%s sig_R=%d sig_L=%d sig_rows=%d sig_deg=%d)",
 		resolvedShowingPreset, opts.ShowingReplayMode, opts.Ell, opts.Eta, opts.EllPrime, opts.Rho, opts.Theta, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], opts.PRFGroupRounds, opts.PRFCompanionMode, opts.PRFCheckpointSamples, resolvedSigProfile, sigBase, sigL, sigRowsPer, sigDegree)
@@ -297,6 +306,8 @@ func main() {
 		opts.EllPrime != baselineOpts.EllPrime ||
 		opts.Kappa != baselineOpts.Kappa ||
 		opts.ShowingReplayMode != baselineOpts.ShowingReplayMode ||
+		opts.PackedSigChainGroupSize != baselineOpts.PackedSigChainGroupSize ||
+		opts.SigShortnessNCols != baselineOpts.SigShortnessNCols ||
 		opts.PRFCompanionMode != baselineOpts.PRFCompanionMode ||
 		opts.PRFCheckpointSamples != baselineOpts.PRFCheckpointSamples ||
 		resolvedShowingPreset != baselineOpts.ShowingPreset ||
@@ -310,7 +321,7 @@ func main() {
 		}
 	}
 	if opts.ShowingReplayMode == PIOP.ShowingReplayModeFull {
-		cli.printf(categoryStatus, "[showing-cli] ", "full replay mode selected: theorem-clean full replay statement with a larger authenticated showing surface than reduced engineering mode")
+		cli.printf(categoryStatus, "[showing-cli] ", "full replay mode selected: maintained direct bb_tran full replay statement with a larger authenticated showing surface than reduced engineering mode")
 	}
 	switch opts.PRFCompanionMode {
 	case PIOP.PRFCompanionModeDirectAuth:
@@ -1073,8 +1084,41 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 			focus.PRFBridgePaddingRows,
 		)
 	}
+	rowFamilies := fmt.Sprintf(
+		" rows(mhat=%d rhat0=%d r0b2=%d target_mr0=%d rhat1=%d zhat=%d that=%d sig=%d mask=%d)",
+		focus.ReplayMHatSigmaRows,
+		focus.ReplayRHat0Rows,
+		focus.ReplayR0B2HatRows,
+		focus.ReplayTargetMR0HatRows,
+		focus.ReplayRHat1Rows,
+		focus.ReplayZHatRows,
+		focus.ReplayTHatRows,
+		focus.InlinedShortnessRows,
+		focus.MaskRows,
+	)
+	if focus.V11ShortnessRows > 0 {
+		rowFamilies = fmt.Sprintf(
+			" rows(mhat=%d rhat0=%d r0b2=%d target_mr0=%d rhat1=%d zhat=%d that=%d v11=%d(g=%d,w=%d,blocks=%d) mask=%d)",
+			focus.ReplayMHatSigmaRows,
+			focus.ReplayRHat0Rows,
+			focus.ReplayR0B2HatRows,
+			focus.ReplayTargetMR0HatRows,
+			focus.ReplayRHat1Rows,
+			focus.ReplayZHatRows,
+			focus.ReplayTHatRows,
+			focus.V11ShortnessRows,
+			focus.V11PackedSigChainGroupSize,
+			focus.V11PackedSigBlockWidth,
+			focus.V11EffectiveSigBlocks,
+			focus.MaskRows,
+		)
+	}
+	aggregateR0 := ""
+	if focus.AggregateR0Replay {
+		aggregateR0 = " aggregate_r0=true"
+	}
 	return fmt.Sprintf(
-		"Transcript focus: preset=%s replay=%s blocks=%d lvcs=%d nleaves=%d rowsBlock=%d maskChunks=%d witness=%d nrows=%d m=%d pcols=%d omitP=%d prf_scalars=%d prf_rows=%d (%s) entries=%d%s",
+		"Transcript focus: preset=%s replay=%s blocks=%d lvcs=%d nleaves=%d rowsBlock=%d maskChunks=%d witness=%d nrows=%d m=%d pcols=%d omitP=%d prf_scalars=%d prf_rows=%d (%s) entries=%d%s%s%s",
 		focus.ShowingPreset,
 		focus.ReplayMode,
 		focus.ReplayBlocks,
@@ -1091,6 +1135,8 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 		focus.PRFPackedRows,
 		layout,
 		focus.RowOpeningEntries,
+		aggregateR0,
+		rowFamilies,
 		instances,
 	)
 }

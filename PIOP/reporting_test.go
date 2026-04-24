@@ -142,7 +142,7 @@ func TestMeasureProofSizeUnaffectedByPaperTranscriptReport(t *testing.T) {
 	}
 }
 
-func TestResolveShowingStatementClassDistinguishesReducedAndTheoremCleanFull(t *testing.T) {
+func TestResolveShowingStatementClassDistinguishesReducedAndDirectFull(t *testing.T) {
 	reduced := ResolveShowingStatementClass(&Proof{
 		RowLayout: RowLayout{
 			IdxTHatBase:      4,
@@ -157,19 +157,57 @@ func TestResolveShowingStatementClassDistinguishesReducedAndTheoremCleanFull(t *
 	full := ResolveShowingStatementClass(&Proof{
 		RowLayout: RowLayout{
 			HasExplicitBaseIdx: true,
+			X0Len:              2,
 			IdxTHatBase:        3,
+			ReplayTHatRows:     []int{3, 4, 5},
 			IdxMHatSigma:       6,
-			IdxRHat0:           9,
-			IdxRHat1:           12,
-			IdxMSigmaR1Hat:     15,
-			IdxR0R1Hat:         18,
-			ReplayTHatCount:    3,
-			ReplayBlockCount:   3,
-			SigBlocks:          3,
+			ReplayMHatSigmaRows: []int{
+				6, 7, 8,
+			},
+			IdxRHat0: 9,
+			ReplayRHat0Rows: []int{
+				9, 10,
+				11, 12,
+				13, 14,
+			},
+			IdxRHat1:         15,
+			ReplayRHat1Rows:  []int{15, 16, 17},
+			IdxZHat:          18,
+			ReplayZHatRows:   []int{18, 19, 20},
+			ReplayTHatCount:  3,
+			ReplayBlockCount: 3,
+			SigBlocks:        3,
 		},
 	}, SimOpts{ShowingReplayMode: ShowingReplayModeFull})
 	if full != string(ShowingStatementClassTheoremCleanFullReplay) {
 		t.Fatalf("full statement class=%q want %q", full, ShowingStatementClassTheoremCleanFullReplay)
+	}
+	incomplete := ResolveShowingStatementClass(&Proof{
+		RowLayout: RowLayout{
+			HasExplicitBaseIdx: true,
+			X0Len:              2,
+			IdxTHatBase:        3,
+			ReplayTHatRows:     []int{3, 4, 5},
+			IdxMHatSigma:       6,
+			ReplayMHatSigmaRows: []int{
+				6, 7, 8,
+			},
+			IdxRHat0: 9,
+			ReplayRHat0Rows: []int{
+				9, 10,
+				11, 12,
+				13, 14,
+			},
+			IdxRHat1:         15,
+			ReplayRHat1Rows:  []int{15, 16, 17},
+			IdxZHat:          -1,
+			ReplayTHatCount:  3,
+			ReplayBlockCount: 3,
+			SigBlocks:        3,
+		},
+	}, SimOpts{ShowingReplayMode: ShowingReplayModeFull})
+	if incomplete != string(ShowingStatementClassCustom) {
+		t.Fatalf("incomplete full statement class=%q want %q", incomplete, ShowingStatementClassCustom)
 	}
 }
 
@@ -185,15 +223,83 @@ func TestResolveSigShortnessModeUsesHiddenV6Label(t *testing.T) {
 	}
 }
 
-func TestResolveSigShortnessModeUsesHiddenV7Label(t *testing.T) {
+func TestResolveSigShortnessModeUsesDirectTargetV11Label(t *testing.T) {
 	got := ResolveSigShortnessMode(&Proof{
 		SigShortness: &SigShortnessProof{
-			Version: sigShortnessProofVersionV7,
-			V7:      &SigShortnessProofV7{},
+			Version: sigShortnessProofVersionV11,
+			V11:     &SigShortnessProofV11{},
 		},
 	})
-	if got != SigShortnessModeHiddenV7 {
-		t.Fatalf("sig shortness mode=%q want %q", got, SigShortnessModeHiddenV7)
+	if got != SigShortnessModeDirectTargetV11 {
+		t.Fatalf("sig shortness mode=%q want %q", got, SigShortnessModeDirectTargetV11)
+	}
+}
+
+func TestAggregateV6ResearchPresetDefaultsToFullAggregateTuple(t *testing.T) {
+	opts := ResolveSimOptsDefaults(SimOpts{
+		Credential:           true,
+		CoeffNativeSigModel:  CoeffNativeSigModelLiteralPackedAggregatedV3,
+		ShowingPreset:        ShowingPresetAggregateV6Research,
+		PRFCompanionMode:     PRFCompanionModeOutputAudit,
+		PRFCheckpointSamples: 8,
+	})
+	if opts.ShowingReplayMode != ShowingReplayModeFull {
+		t.Fatalf("aggregate V6 replay mode=%q want full", opts.ShowingReplayMode)
+	}
+	if !opts.AggregateR0Replay {
+		t.Fatalf("aggregate V6 preset did not enable aggregate R0 replay")
+	}
+	if opts.LVCSNCols != aggregateV6ResearchLVCSNCols || opts.PostSignLVCSNCols != aggregateV6ResearchLVCSNCols || opts.PRFLVCSNCols != aggregateV6ResearchLVCSNCols {
+		t.Fatalf("aggregate V6 LVCS tuple=(%d,%d,%d) want %d", opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols, aggregateV6ResearchLVCSNCols)
+	}
+	if opts.Eta != aggregateV6ResearchEta || opts.EllPrime != aggregateV6ResearchEllPrime || opts.Theta != aggregateV6ResearchTheta || opts.Rho != aggregateV6ResearchRho {
+		t.Fatalf("aggregate V6 params eta=%d ell'=%d theta=%d rho=%d", opts.Eta, opts.EllPrime, opts.Theta, opts.Rho)
+	}
+	if opts.Kappa != aggregateV6ResearchKappa {
+		t.Fatalf("aggregate V6 kappa=%v want %v", opts.Kappa, aggregateV6ResearchKappa)
+	}
+	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetAggregateV6Research {
+		t.Fatalf("aggregate V6 resolved preset=%q want %q", got, ShowingPresetAggregateV6Research)
+	}
+}
+
+func TestAggregateV11DirectTargetResearchPresetDefaultsToFullAggregateTuple(t *testing.T) {
+	opts := ResolveSimOptsDefaults(SimOpts{
+		Credential:           true,
+		CoeffNativeSigModel:  CoeffNativeSigModelLiteralPackedAggregatedV3,
+		ShowingPreset:        ShowingPresetAggregateV11DirectTargetResearch,
+		PRFCompanionMode:     PRFCompanionModeOutputAudit,
+		PRFCheckpointSamples: 8,
+	})
+	if opts.ShowingReplayMode != ShowingReplayModeFull {
+		t.Fatalf("aggregate V11 replay mode=%q want full", opts.ShowingReplayMode)
+	}
+	if !opts.AggregateR0Replay {
+		t.Fatalf("aggregate V11 preset did not enable aggregate replay")
+	}
+	if opts.NCols != aggregateV11ResearchNCols {
+		t.Fatalf("aggregate V11 ncols=%d want %d", opts.NCols, aggregateV11ResearchNCols)
+	}
+	if opts.PackedSigChainGroupSize != aggregateV11ResearchGroupSize {
+		t.Fatalf("aggregate V11 group size=%d want %d", opts.PackedSigChainGroupSize, aggregateV11ResearchGroupSize)
+	}
+	if opts.SigShortnessProfile != aggregateV11ResearchSigProfile {
+		t.Fatalf("aggregate V11 sig profile=%q want %q", opts.SigShortnessProfile, aggregateV11ResearchSigProfile)
+	}
+	if opts.LVCSNCols != aggregateV11ResearchLVCSNCols || opts.PostSignLVCSNCols != aggregateV11ResearchLVCSNCols || opts.PRFLVCSNCols != aggregateV11ResearchLVCSNCols {
+		t.Fatalf("aggregate V11 LVCS tuple=(%d,%d,%d) want %d", opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols, aggregateV11ResearchLVCSNCols)
+	}
+	if opts.Eta != aggregateV11ResearchEta || opts.EllPrime != aggregateV11ResearchEllPrime || opts.Theta != aggregateV11ResearchTheta || opts.Rho != aggregateV11ResearchRho {
+		t.Fatalf("aggregate V11 params eta=%d ell'=%d theta=%d rho=%d", opts.Eta, opts.EllPrime, opts.Theta, opts.Rho)
+	}
+	if opts.Kappa != aggregateV11ResearchKappa {
+		t.Fatalf("aggregate V11 kappa=%v want %v", opts.Kappa, aggregateV11ResearchKappa)
+	}
+	if !sigShortnessV11EnabledForOpts(opts) {
+		t.Fatalf("aggregate V11 preset did not enable V11 shortness")
+	}
+	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetAggregateV11DirectTargetResearch {
+		t.Fatalf("aggregate V11 resolved preset=%q want %q", got, ShowingPresetAggregateV11DirectTargetResearch)
 	}
 }
 

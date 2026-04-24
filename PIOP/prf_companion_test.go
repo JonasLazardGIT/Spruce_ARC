@@ -82,7 +82,7 @@ func fixedSeed3Test() []byte {
 
 func buildPRFCompanionAuxProofFixture(t *testing.T, replayMode ShowingReplayMode) (transformBridgeFixture, SimOpts, *Proof) {
 	t.Helper()
-	base := buildTransformBridgeFixtureWithReplayModeAndShortness(t, replayMode, SigShortnessProfileR11L4Production, 0, 0)
+	base := buildTransformBridgeFixtureWithReplayModeAndShortness(t, replayMode, SigShortnessProfileR11L4Production, 0, 0, nil)
 	opts := base.opts
 	opts.EnablePackedPRFWitnessRows = true
 	opts.EnablePRFCompanion = true

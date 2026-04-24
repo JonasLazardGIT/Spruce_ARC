@@ -72,6 +72,20 @@ type TranscriptOptimizationReport struct {
 	ShortnessMode                   string `json:"shortness_mode"`
 	SigShortnessSupportSlots        int    `json:"sig_shortness_support_slots"`
 	ReplayBlocks                    int    `json:"replay_blocks"`
+	ReplayMHatSigmaRows             int    `json:"replay_mhat_sigma_rows"`
+	ReplayRHat0Rows                 int    `json:"replay_rhat0_rows"`
+	ReplayR0B2HatRows               int    `json:"replay_r0_b2_hat_rows"`
+	ReplayTargetMR0HatRows          int    `json:"replay_target_mr0_hat_rows"`
+	ReplayRHat1Rows                 int    `json:"replay_rhat1_rows"`
+	ReplayZHatRows                  int    `json:"replay_zhat_rows"`
+	ReplayTHatRows                  int    `json:"replay_that_rows"`
+	InlinedShortnessRows            int    `json:"inlined_shortness_rows"`
+	V11PackedSigChainGroupSize      int    `json:"v11_packed_sig_chain_group_size"`
+	V11PackedSigBlockWidth          int    `json:"v11_packed_sig_block_width"`
+	V11EffectiveSigBlocks           int    `json:"v11_effective_sig_blocks"`
+	V11ShortnessRows                int    `json:"v11_shortness_rows"`
+	MaskRows                        int    `json:"mask_rows"`
+	AggregateR0Replay               bool   `json:"aggregate_r0_replay"`
 	MainLVCSNCols                   int    `json:"main_lvcs_ncols"`
 	MainNLeaves                     int    `json:"main_nleaves"`
 	PRFLVCSNCols                    int    `json:"prf_lvcs_ncols"`
@@ -160,7 +174,6 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 	if dQ <= 0 {
 		return ProofReport{}, fmt.Errorf("missing dQ/QDegreeBound in proof")
 	}
-
 	geometry := BuildWitnessGeometrySnapshotFromProof(proof)
 	witnessPolys := geometry.ActualWitnessPolys
 	if witnessPolys <= 0 {
@@ -173,7 +186,6 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 			witnessPolys = ncols
 		}
 	}
-
 	nLeaves := proof.NLeavesUsed
 	if nLeaves <= 0 {
 		nLeaves = reportOpts.NLeaves
@@ -277,7 +289,7 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 	sig := proof.SigShortness
 	pcsNCols := resolveProofPCSNCols(proof, 0)
 	openBlocks := 0
-	if pcsNCols > 0 && sig.Version != sigShortnessProofVersionV7 {
+	if pcsNCols > 0 && sig.Version != sigShortnessProofVersionV11 {
 		rows := buildSigShortnessWitnessPolyIndicesForVersion(proof.RowLayout, sig.Version)
 		seen := make(map[int]struct{}, len(rows))
 		for _, row := range rows {
@@ -290,7 +302,7 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 	}
 	supportSlotCount := len(sig.SupportSlots)
 	openingBytes := sizeDECSOpening(sig.Opening)
-	if sig.Version == sigShortnessProofVersionV7 && sig.V7 != nil {
+	if sig.Version == sigShortnessProofVersionV11 && sig.V11 != nil {
 		supportSlotCount = 0
 		openingBytes = 0
 		openBlocks = 0
@@ -360,6 +372,23 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	if out.ReplayBlocks <= 0 {
 		out.ReplayBlocks = rowLayoutReplayTHatCount(proof.RowLayout)
 	}
+	out.ReplayMHatSigmaRows = len(rowLayoutPostSignMHatSigmaRows(proof.RowLayout))
+	out.ReplayRHat0Rows = len(rowLayoutPostSignRHat0Rows(proof.RowLayout))
+	out.ReplayR0B2HatRows = len(rowLayoutPostSignR0B2HatRows(proof.RowLayout))
+	out.ReplayTargetMR0HatRows = len(rowLayoutPostSignTargetMR0HatRows(proof.RowLayout))
+	out.ReplayRHat1Rows = len(rowLayoutPostSignRHat1Rows(proof.RowLayout))
+	out.ReplayZHatRows = len(rowLayoutPostSignZHatRows(proof.RowLayout))
+	out.ReplayTHatRows = len(rowLayoutPostSignTHatRows(proof.RowLayout))
+	inlinedShortnessRows := proof.RowLayout.PackedSigChainGroupCount * proof.RowLayout.PackedSigChainRowsPerGroup
+	out.InlinedShortnessRows = inlinedShortnessRows
+	if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV11 {
+		out.V11PackedSigChainGroupSize = proof.RowLayout.PackedSigChainGroupSize
+		out.V11PackedSigBlockWidth = rowLayoutPackedSigChainBlockWidth(proof.RowLayout)
+		out.V11EffectiveSigBlocks = rowLayoutPackedSigChainEffectiveBlocks(proof.RowLayout)
+		out.V11ShortnessRows = inlinedShortnessRows
+	}
+	out.MaskRows = geometry.MaskRowsCommitted
+	out.AggregateR0Replay = out.ReplayR0B2HatRows > 0 || out.ReplayTargetMR0HatRows > 0
 	out.NLeaves = proof.NLeavesUsed
 	if out.NLeaves <= 0 {
 		out.NLeaves = opts.NLeaves

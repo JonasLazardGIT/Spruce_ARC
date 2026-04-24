@@ -129,6 +129,44 @@ func cloneProofForPRFAux(src *Proof) *Proof {
 			v7 := *src.SigShortness.V7
 			out.SigShortness.V7 = &v7
 		}
+		if src.SigShortness.V8 != nil {
+			v8 := *src.SigShortness.V8
+			v8.HiddenProof = cloneProofForPRFAux(src.SigShortness.V8.HiddenProof)
+			v8.THatHeads = SigShortnessPackedMatrix{
+				Bits:     append([]byte(nil), src.SigShortness.V8.THatHeads.Bits...),
+				BitWidth: src.SigShortness.V8.THatHeads.BitWidth,
+			}
+			out.SigShortness.V8 = &v8
+		}
+		if src.SigShortness.V9 != nil {
+			v9 := *src.SigShortness.V9
+			v9.HiddenProof = cloneProofForPRFAux(src.SigShortness.V9.HiddenProof)
+			v9.THatCommitment.Heads = SigShortnessPackedMatrix{
+				Bits:     append([]byte(nil), src.SigShortness.V9.THatCommitment.Heads.Bits...),
+				BitWidth: src.SigShortness.V9.THatCommitment.Heads.BitWidth,
+			}
+			v9.CommitmentParamsDigest = append([]byte(nil), src.SigShortness.V9.CommitmentParamsDigest...)
+			v9.MainOpeningDigest = append([]byte(nil), src.SigShortness.V9.MainOpeningDigest...)
+			v9.HiddenOpeningDigest = append([]byte(nil), src.SigShortness.V9.HiddenOpeningDigest...)
+			out.SigShortness.V9 = &v9
+		}
+		if src.SigShortness.V10 != nil {
+			v10 := *src.SigShortness.V10
+			out.SigShortness.V10 = &v10
+		}
+		if src.SigShortness.V11 != nil {
+			v11 := *src.SigShortness.V11
+			out.SigShortness.V11 = &v11
+		}
+		if src.SigShortness.V12 != nil {
+			v12 := *src.SigShortness.V12
+			out.SigShortness.V12 = &v12
+		}
+		if src.SigShortness.V13 != nil {
+			v13 := *src.SigShortness.V13
+			v13.LookupTableDigest = append([]byte(nil), src.SigShortness.V13.LookupTableDigest...)
+			out.SigShortness.V13 = &v13
+		}
 	}
 	return &out
 }

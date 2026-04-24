@@ -78,8 +78,18 @@ and in `benchmark-x0`.
   - reduced replay
   - `soundness_balanced`
   - `output_audit`
-- theorem-clean full replay remains research-only on the checked-in canonical
-  artifacts
+- maintained full replay control:
+  - direct `bb_tran` theorem-clean replay image
+  - no live source-product rows
+- aggregate full replay measurement control:
+  - opt-in `B2*r0` replay aggregation
+  - keeps source carriers and membership checks unchanged
+  - `aggregate_v6_research` selects the tuned aggregate V6 tuple while leaving
+    the default full control untouched
+  - `aggregate_v11_direct_target_research` keeps private inlined shortness while
+    removing committed `THat` rows and replacing `MHatSigma + R0B2Hat` replay
+    with one `TargetMR0Hat` row per block.
+  - V7/V8/V9/V10/V12/V13 are no longer live protocol families in the resolver.
 
 ## Read Next
 

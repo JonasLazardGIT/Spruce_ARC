@@ -827,10 +827,8 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			qOpen := qProver.EvalOpen(qIdx)
 			out.qOpeningRaw = cloneDECSOpening(qOpen)
 			proof.QOpening = cloneDECSOpening(qOpen)
-			if !args.opts.Credential {
-				maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
-				decs.PackOpening(proof.QOpening)
-			}
+			maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
+			decs.PackOpening(proof.QOpening)
 
 			out.openMask = openMask
 			out.openTail = openTail
@@ -893,10 +891,8 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		qOpen := qProver.EvalOpen(qIdx)
 		out.qOpeningRaw = cloneDECSOpening(qOpen)
 		proof.QOpening = cloneDECSOpening(qOpen)
-		if !args.opts.Credential {
-			maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
-			decs.PackOpening(proof.QOpening)
-		}
+		maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
+		decs.PackOpening(proof.QOpening)
 
 		out.openMask = openMask
 		out.openTail = openTail
