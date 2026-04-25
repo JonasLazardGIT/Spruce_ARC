@@ -29,6 +29,11 @@ const (
 	sigShortnessProofVersionV11 = 11
 	sigShortnessProofVersionV12 = 12
 	sigShortnessProofVersionV13 = 13
+	sigShortnessProofVersionV14 = 14
+	sigShortnessProofVersionV15 = 15
+	sigShortnessProofVersionV16 = 16
+	sigShortnessProofVersionV17 = 17
+	sigShortnessProofVersionV18 = 18
 
 	sigShortnessV5ModeExactSigHeads     uint8 = 1
 	sigShortnessV6ModeHiddenSmallWood   uint8 = 1
@@ -39,6 +44,11 @@ const (
 	sigShortnessV11ModeDirectTarget     uint8 = 1
 	sigShortnessV12ModeSigDomain        uint8 = 1
 	sigShortnessV13ModeLookup           uint8 = 1
+	sigShortnessV14ModePairLookup       uint8 = 1
+	sigShortnessV15ModeCoeffLookup      uint8 = 1
+	sigShortnessV16ModeInlineTarget     uint8 = 1
+	sigShortnessV17ModeZElim            uint8 = 1
+	sigShortnessV18ModeReplayCompact    uint8 = 1
 )
 
 const (
@@ -74,6 +84,14 @@ type sigShortnessHiddenBuiltCandidate struct {
 	HiddenProof  *Proof
 	HiddenReport ProofReport
 	THatHeads    [][]uint64
+}
+
+func sigShortnessV15LookupBackendBlocker() string {
+	return "sig shortness V15 requires a DECS-native fixed-table interval lookup subargument bound to the main row root; the current prover has no sound multi-oracle lookup backend"
+}
+
+func sigShortnessV17BilinearBackendBlocker() string {
+	return "sig shortness V17 requires a sound rowless bilinear aggregate replay backend for (B3-r1)*(A*u-B0-B1*mSigma-sum B2*r0)=1; the current PACS/DECS engine only supports local row constraints and linear aggregate constraints"
 }
 
 func buildSigShortnessWitnessPolyIndices(layout RowLayout) []int {
@@ -160,6 +178,316 @@ func buildSigShortnessLookupTableDigest(spec LinfSpec) []byte {
 		h.Write(buf[:])
 	}
 	return h.Sum(nil)
+}
+
+func buildSigShortnessV14LayoutDigest(layout RowLayout) []byte {
+	buf := make([]byte, 0, 256)
+	buf = append(buf, []byte("spruce.sig_shortness.v14/layout_v1")...)
+	appendInt := func(v int) {
+		buf = appendSigShortnessUvarint(buf, v)
+	}
+	appendInt(layout.CoeffNativeSig.PackedSigComponents)
+	appendInt(layout.CoeffNativeSig.PackedSigBlocks)
+	appendInt(layout.CoeffNativeSig.PackedSigBlockWidth)
+	appendInt(layout.PackedSigChainBase)
+	appendInt(layout.PackedSigChainGroupCount)
+	appendInt(layout.PackedSigChainGroupSize)
+	appendInt(layout.PackedSigChainRowsPerGroup)
+	appendInt(layout.PackedSigChainBlockWidth)
+	appendInt(layout.PackedSigChainEffectiveBlocks)
+	appendInt(layout.PackedSigChainSourceBlockWidth)
+	appendInt(layout.PairLookupExtractBase)
+	appendInt(layout.PairLookupExtractGroupCount)
+	appendInt(layout.PairLookupExtractRowsPerLane)
+	appendInt(layout.PairLookupRangeLoWidth)
+	appendInt(layout.PairLookupRangeHiWidth)
+	appendInt(layout.PairLookupBase)
+	appendInt(rowLayoutReplayBlockCount(layout))
+	for _, row := range rowLayoutPostSignTargetMR0HatRows(layout) {
+		appendInt(row)
+	}
+	for _, row := range rowLayoutPostSignRHat1Rows(layout) {
+		appendInt(row)
+	}
+	for _, row := range rowLayoutPostSignZHatRows(layout) {
+		appendInt(row)
+	}
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV14RangeParamsDigest(spec LinfSpec, pairBase, loWidth, hiWidth int) []byte {
+	buf := make([]byte, 0, 160)
+	buf = append(buf, []byte("spruce.sig_shortness.v14/range_params_v1")...)
+	buf = appendSigShortnessUvarint(buf, int(spec.Q))
+	buf = appendSigShortnessUvarint(buf, int(spec.R))
+	buf = appendSigShortnessUvarint(buf, spec.L)
+	buf = appendSigShortnessUvarint(buf, pairBase)
+	buf = appendSigShortnessUvarint(buf, loWidth)
+	buf = appendSigShortnessUvarint(buf, hiWidth)
+	for lane := 0; lane < spec.L; lane++ {
+		buf = appendSigShortnessUvarint(buf, lane)
+		buf = appendSigShortnessUvarint(buf, int(spec.DigitHi[lane]-spec.DigitLo[lane]+1))
+		var tmp [8]byte
+		binary.LittleEndian.PutUint64(tmp[:], uint64(int64(spec.DigitLo[lane])))
+		buf = append(buf, tmp[:]...)
+		binary.LittleEndian.PutUint64(tmp[:], uint64(int64(spec.DigitHi[lane])))
+		buf = append(buf, tmp[:]...)
+	}
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV14LookupTableDigest(spec LinfSpec, pairBase int) []byte {
+	h := sha256.New()
+	h.Write([]byte("spruce.sig_shortness.v14/pair_table_v1"))
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], spec.Q)
+	h.Write(buf[:])
+	for lane := 0; lane < spec.L; lane++ {
+		binary.LittleEndian.PutUint64(buf[:], uint64(lane))
+		h.Write(buf[:])
+		for d0 := spec.DigitLo[lane]; d0 <= spec.DigitHi[lane]; d0++ {
+			for d1 := spec.DigitLo[lane]; d1 <= spec.DigitHi[lane]; d1++ {
+				packed := int64(d0) + int64(pairBase)*int64(d1)
+				binary.LittleEndian.PutUint64(buf[:], uint64(int64(packed)))
+				h.Write(buf[:])
+			}
+		}
+	}
+	return h.Sum(nil)
+}
+
+func buildSigShortnessV15LayoutDigest(layout RowLayout) []byte {
+	buf := make([]byte, 0, 256)
+	buf = append(buf, []byte("spruce.sig_shortness.v15/layout_v1")...)
+	appendInt := func(v int) {
+		buf = appendSigShortnessUvarint(buf, v)
+	}
+	appendInt(layout.CoeffLookupBase)
+	appendInt(layout.CoeffLookupRowCount)
+	appendInt(layout.CoeffLookupComponents)
+	appendInt(layout.CoeffLookupBlocks)
+	appendInt(layout.CoeffLookupBlockWidth)
+	appendInt(layout.CoeffLookupBeta)
+	appendInt(layout.CoeffLookupTableSize)
+	appendInt(rowLayoutReplayBlockCount(layout))
+	for _, row := range rowLayoutPostSignTargetMR0HatRows(layout) {
+		appendInt(row)
+	}
+	for _, row := range rowLayoutPostSignRHat1Rows(layout) {
+		appendInt(row)
+	}
+	for _, row := range rowLayoutPostSignZHatRows(layout) {
+		appendInt(row)
+	}
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV15LookupParamsDigest(q uint64, beta, tableSize, coeffRows, components, blocks, blockWidth int) []byte {
+	buf := make([]byte, 0, 128)
+	buf = append(buf, []byte("spruce.sig_shortness.v15/lookup_params_v1")...)
+	var tmp [8]byte
+	binary.LittleEndian.PutUint64(tmp[:], q)
+	buf = append(buf, tmp[:]...)
+	buf = appendSigShortnessUvarint(buf, beta)
+	buf = appendSigShortnessUvarint(buf, tableSize)
+	buf = appendSigShortnessUvarint(buf, coeffRows)
+	buf = appendSigShortnessUvarint(buf, components)
+	buf = appendSigShortnessUvarint(buf, blocks)
+	buf = appendSigShortnessUvarint(buf, blockWidth)
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV15LookupTableDigest(q uint64, beta int) []byte {
+	h := sha256.New()
+	h.Write([]byte("spruce.sig_shortness.v15/interval_table_v1"))
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], q)
+	h.Write(buf[:])
+	binary.LittleEndian.PutUint64(buf[:], uint64(beta))
+	h.Write(buf[:])
+	for v := -beta; v <= beta; v++ {
+		binary.LittleEndian.PutUint64(buf[:], liftToField(q, int64(v)))
+		h.Write(buf[:])
+	}
+	return h.Sum(nil)
+}
+
+func buildSigShortnessV15DirectTargetDigest(layout RowLayout) []byte {
+	buf := make([]byte, 0, 160)
+	buf = append(buf, []byte("spruce.sig_shortness.v15/direct_target_v1")...)
+	appendInt := func(v int) {
+		buf = appendSigShortnessUvarint(buf, v)
+	}
+	appendInt(rowLayoutReplayBlockCount(layout))
+	for _, row := range rowLayoutPostSignTargetMR0HatRows(layout) {
+		appendInt(row)
+	}
+	for _, row := range rowLayoutPostSignRHat1Rows(layout) {
+		appendInt(row)
+	}
+	for _, row := range rowLayoutPostSignZHatRows(layout) {
+		appendInt(row)
+	}
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV16LayoutDigest(layout RowLayout) []byte {
+	buf := make([]byte, 0, 256)
+	buf = append(buf, []byte("spruce.sig_shortness.v16/inline_target_layout_v1")...)
+	appendInt := func(v int) {
+		buf = appendSigShortnessUvarint(buf, v)
+	}
+	appendInt(layout.CoeffNativeSig.PackedSigComponents)
+	appendInt(layout.CoeffNativeSig.PackedSigBlocks)
+	appendInt(layout.CoeffNativeSig.PackedSigBlockWidth)
+	appendInt(layout.PackedSigChainBase)
+	appendInt(layout.PackedSigChainGroupCount)
+	appendInt(layout.PackedSigChainGroupSize)
+	appendInt(layout.PackedSigChainRowsPerGroup)
+	appendInt(layout.PackedSigChainBlockWidth)
+	appendInt(layout.PackedSigChainEffectiveBlocks)
+	appendInt(layout.PackedSigChainSourceBlockWidth)
+	appendInt(rowLayoutReplayBlockCount(layout))
+	appendInt(rowLayoutPostSignM1(layout))
+	appendInt(rowLayoutPostSignM2(layout))
+	for _, row := range rowLayoutPostSignR0Rows(layout) {
+		appendInt(row)
+	}
+	appendInt(rowLayoutPostSignCarrierM(layout))
+	for _, row := range rowLayoutPostSignCarrierR0Rows(layout) {
+		appendInt(row)
+	}
+	appendInt(rowLayoutPostSignCarrierR1(layout))
+	for _, row := range rowLayoutPostSignRHat1Rows(layout) {
+		appendInt(row)
+	}
+	for _, row := range rowLayoutPostSignZHatRows(layout) {
+		appendInt(row)
+	}
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV17LayoutDigest(layout RowLayout) []byte {
+	buf := make([]byte, 0, 256)
+	buf = append(buf, []byte("spruce.sig_shortness.v17/z_elim_layout_v1")...)
+	appendInt := func(v int) {
+		buf = appendSigShortnessUvarint(buf, v)
+	}
+	appendInt(layout.CoeffNativeSig.PackedSigComponents)
+	appendInt(layout.CoeffNativeSig.PackedSigBlocks)
+	appendInt(layout.CoeffNativeSig.PackedSigBlockWidth)
+	appendInt(layout.PackedSigChainBase)
+	appendInt(layout.PackedSigChainGroupCount)
+	appendInt(layout.PackedSigChainGroupSize)
+	appendInt(layout.PackedSigChainRowsPerGroup)
+	appendInt(layout.PackedSigChainBlockWidth)
+	appendInt(layout.PackedSigChainEffectiveBlocks)
+	appendInt(layout.PackedSigChainSourceBlockWidth)
+	appendInt(rowLayoutReplayBlockCount(layout))
+	appendInt(rowLayoutPostSignM1(layout))
+	appendInt(rowLayoutPostSignM2(layout))
+	for _, row := range rowLayoutPostSignR0Rows(layout) {
+		appendInt(row)
+	}
+	appendInt(rowLayoutPostSignCarrierM(layout))
+	for _, row := range rowLayoutPostSignCarrierR0Rows(layout) {
+		appendInt(row)
+	}
+	appendInt(rowLayoutPostSignCarrierR1(layout))
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV17DirectRelationDigest(layout RowLayout) []byte {
+	buf := make([]byte, 0, 128)
+	buf = append(buf, []byte("spruce.sig_shortness.v17/z_elim_relation_v1")...)
+	appendInt := func(v int) {
+		buf = appendSigShortnessUvarint(buf, v)
+	}
+	appendInt(rowLayoutReplayBlockCount(layout))
+	appendInt(rowLayoutPostSignCarrierM(layout))
+	appendInt(rowLayoutPostSignCarrierR1(layout))
+	for _, row := range rowLayoutPostSignCarrierR0Rows(layout) {
+		appendInt(row)
+	}
+	appendInt(layout.PackedSigChainBase)
+	appendInt(layout.PackedSigChainGroupCount)
+	appendInt(layout.PackedSigChainRowsPerGroup)
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV17BilinearBackendDigest() []byte {
+	sum := sha256.Sum256([]byte("spruce.sig_shortness.v17/bilinear_aggregate_backend_unavailable_v1"))
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV18LayoutDigest(layout RowLayout) []byte {
+	buf := make([]byte, 0, 256)
+	buf = append(buf, []byte("spruce.sig_shortness.v18/replay_compact_inline_layout_v1")...)
+	appendInt := func(v int) {
+		buf = appendSigShortnessUvarint(buf, v)
+	}
+	appendInt(layout.CoeffNativeSig.PackedSigComponents)
+	appendInt(layout.CoeffNativeSig.PackedSigBlocks)
+	appendInt(layout.CoeffNativeSig.PackedSigBlockWidth)
+	appendInt(layout.PackedSigChainBase)
+	appendInt(layout.PackedSigChainGroupCount)
+	appendInt(layout.PackedSigChainGroupSize)
+	appendInt(layout.PackedSigChainRowsPerGroup)
+	appendInt(layout.PackedSigChainBlockWidth)
+	appendInt(layout.PackedSigChainEffectiveBlocks)
+	appendInt(layout.PackedSigChainSourceBlockWidth)
+	appendInt(rowLayoutReplayBlockCount(layout))
+	appendInt(rowLayoutPostSignM1(layout))
+	appendInt(rowLayoutPostSignM2(layout))
+	for _, row := range rowLayoutPostSignR0Rows(layout) {
+		appendInt(row)
+	}
+	appendInt(rowLayoutPostSignCarrierM(layout))
+	for _, row := range rowLayoutPostSignCarrierR0Rows(layout) {
+		appendInt(row)
+	}
+	appendInt(rowLayoutPostSignCarrierR1(layout))
+	for _, row := range rowLayoutPostSignRHat1Rows(layout) {
+		appendInt(row)
+	}
+	for _, row := range rowLayoutPostSignZHatRows(layout) {
+		appendInt(row)
+	}
+	buf = append(buf, buildSigShortnessV18ReplayCompactDigest(layout)...)
+	buf = append(buf, buildSigShortnessV18PRFCompactDigest()...)
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV18ReplayCompactDigest(layout RowLayout) []byte {
+	buf := make([]byte, 0, 128)
+	buf = append(buf, []byte("spruce.sig_shortness.v18/replay_compact_schedule_v1")...)
+	appendInt := func(v int) {
+		buf = appendSigShortnessUvarint(buf, v)
+	}
+	appendInt(rowLayoutPostSignCarrierM(layout))
+	for _, row := range rowLayoutPostSignCarrierR0Rows(layout) {
+		appendInt(row)
+	}
+	appendInt(rowLayoutPostSignCarrierR1(layout))
+	appendInt(rowLayoutReplayBlockCount(layout))
+	appendInt(rowLayoutPostSignRHat1(layout))
+	appendInt(rowLayoutPostSignZHat(layout))
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...)
+}
+
+func buildSigShortnessV18PRFCompactDigest() []byte {
+	sum := sha256.Sum256([]byte("spruce.sig_shortness.v18/dense_prf_companion_key_packing_v1"))
+	return append([]byte(nil), sum[:]...)
 }
 
 func sigShortnessV5WitnessNColsFromProof(proof *Proof) int {
@@ -276,6 +604,39 @@ func buildSigShortnessV9BindingDigest(sig *SigShortnessProof, layout RowLayout, 
 	return nil, fmt.Errorf("sig shortness V9 is no longer a live protocol family")
 }
 
+func buildSigShortnessV18BindingDigest(sig *SigShortnessProof, layout RowLayout, witnessNCols int) ([]byte, error) {
+	if sig == nil || sig.Version != sigShortnessProofVersionV18 || sig.V18 == nil {
+		return nil, nil
+	}
+	_ = witnessNCols
+	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V12 != nil || sig.V13 != nil {
+		return nil, fmt.Errorf("sig shortness V18 must not populate legacy or other version payload fields")
+	}
+	v18 := sig.V18
+	layoutDigest := buildSigShortnessV18LayoutDigest(layout)
+	if !bytes.Equal(v18.LayoutDigest, layoutDigest) {
+		return nil, fmt.Errorf("sig shortness V18 layout digest mismatch")
+	}
+	replayDigest := buildSigShortnessV18ReplayCompactDigest(layout)
+	if len(v18.ReplayCompactDigest) > 0 && !bytes.Equal(v18.ReplayCompactDigest, replayDigest) {
+		return nil, fmt.Errorf("sig shortness V18 replay compact digest mismatch")
+	}
+	prfDigest := buildSigShortnessV18PRFCompactDigest()
+	if len(v18.PRFCompactDigest) > 0 && !bytes.Equal(v18.PRFCompactDigest, prfDigest) {
+		return nil, fmt.Errorf("sig shortness V18 PRF compact digest mismatch")
+	}
+	buf := make([]byte, 0, 224)
+	buf = append(buf, []byte("spruce.sig_shortness.v18/replay_compact_inline_target_v1")...)
+	buf = appendSigShortnessUvarint(buf, int(v18.Mode))
+	buf = appendSigShortnessUvarint(buf, v18.Radix)
+	buf = appendSigShortnessUvarint(buf, v18.Digits)
+	buf = appendSigShortnessUvarint(buf, v18.GroupSize)
+	buf = appendSigShortnessUvarint(buf, v18.BlockWidth)
+	buf = append(buf, v18.LayoutDigest...)
+	sum := sha256.Sum256(buf)
+	return append([]byte(nil), sum[:]...), nil
+}
+
 func buildSigShortnessBindingDigest(sig *SigShortnessProof, layout RowLayout, witnessNCols int) ([]byte, error) {
 	if sig == nil {
 		return nil, nil
@@ -285,8 +646,8 @@ func buildSigShortnessBindingDigest(sig *SigShortnessProof, layout RowLayout, wi
 		return nil, nil
 	case sigShortnessProofVersionV10:
 		return nil, nil
-	case sigShortnessProofVersionV11:
-		return nil, nil
+	case sigShortnessProofVersionV18:
+		return buildSigShortnessV18BindingDigest(sig, layout, witnessNCols)
 	case sigShortnessProofVersionV5:
 		return buildSigShortnessV5BindingDigest(sig, layout, witnessNCols)
 	case sigShortnessProofVersionV6:
@@ -449,7 +810,7 @@ func validateSigShortnessV5Shape(proof *Proof) error {
 	if sig.V5 == nil {
 		return fmt.Errorf("missing sig shortness V5 payload")
 	}
-	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V6 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V11 != nil {
+	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V6 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V12 != nil || sig.V13 != nil {
 		return fmt.Errorf("sig shortness V5 must not populate legacy opening fields or other version payloads")
 	}
 	if sig.V5.Mode != sigShortnessV5ModeExactSigHeads {
@@ -472,7 +833,7 @@ func validateSigShortnessV6Shape(proof *Proof) error {
 	if sig.V6 == nil {
 		return fmt.Errorf("missing sig shortness V6 payload")
 	}
-	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V11 != nil {
+	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V12 != nil || sig.V13 != nil {
 		return fmt.Errorf("sig shortness V6 must not populate legacy, V5, V7, V8, V9, V10, or V11 fields")
 	}
 	if sig.V6.Mode != sigShortnessV6ModeHiddenSmallWood {
@@ -498,7 +859,7 @@ func validateSigShortnessV7Shape(proof *Proof) error {
 	if sig.V7 == nil {
 		return fmt.Errorf("missing sig shortness V7 payload")
 	}
-	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V11 != nil {
+	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V12 != nil || sig.V13 != nil {
 		return fmt.Errorf("sig shortness V7 must not populate legacy, V5, V6, V8, V9, V10, or V11 fields")
 	}
 	if sig.V7.Mode != sigShortnessV7ModeInlinedMain {
@@ -521,7 +882,7 @@ func validateSigShortnessV10Shape(proof *Proof) error {
 	if sig.V10 == nil {
 		return fmt.Errorf("missing sig shortness V10 payload")
 	}
-	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V11 != nil || sig.V12 != nil || sig.V13 != nil {
+	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V12 != nil || sig.V13 != nil {
 		return fmt.Errorf("sig shortness V10 must not populate legacy, V5, V6, V7, V8, V9, V11, V12, or V13 fields")
 	}
 	if sig.V10.Mode != sigShortnessV10ModeGroupedInlined {
@@ -535,118 +896,6 @@ func validateSigShortnessV10Shape(proof *Proof) error {
 	}
 	if sig.V10.BlockWidth != proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth {
 		return fmt.Errorf("V10 block_width=%d want %d", sig.V10.BlockWidth, proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth)
-	}
-	return nil
-}
-
-func validateSigShortnessV11Shape(proof *Proof) error {
-	if proof == nil || proof.SigShortness == nil {
-		return nil
-	}
-	sig := proof.SigShortness
-	if sig.Version != sigShortnessProofVersionV11 {
-		return nil
-	}
-	if sig.V11 == nil {
-		return fmt.Errorf("missing sig shortness V11 payload")
-	}
-	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V12 != nil || sig.V13 != nil {
-		return fmt.Errorf("sig shortness V11 must not populate legacy, V5, V6, V7, V8, V9, V10, V12, or V13 fields")
-	}
-	if sig.V11.Mode != sigShortnessV11ModeDirectTarget {
-		return fmt.Errorf("unsupported sig shortness V11 mode %d", sig.V11.Mode)
-	}
-	if proof.RowLayout.PackedSigChainBase < 0 || proof.RowLayout.PackedSigChainGroupCount <= 0 || proof.RowLayout.PackedSigChainRowsPerGroup <= 0 {
-		return fmt.Errorf("missing direct-target inlined packed shortness layout for V11")
-	}
-	if rowLayoutReplayTHatCount(proof.RowLayout) != 0 || len(rowLayoutPostSignTHatRows(proof.RowLayout)) != 0 || rowLayoutPostSignTHatBase(proof.RowLayout) >= 0 {
-		return fmt.Errorf("sig shortness V11 must not materialize replay T-hat rows")
-	}
-	replayBlocks := rowLayoutReplayBlockCount(proof.RowLayout)
-	if replayBlocks <= 0 || len(rowLayoutPostSignTargetMR0HatRows(proof.RowLayout)) != replayBlocks {
-		return fmt.Errorf("sig shortness V11 requires one target-MR0 replay row per block")
-	}
-	if len(rowLayoutPostSignMHatSigmaRows(proof.RowLayout)) != 0 || len(rowLayoutPostSignR0B2HatRows(proof.RowLayout)) != 0 {
-		return fmt.Errorf("sig shortness V11 must not materialize separate M-hat-sigma or R0-B2 replay rows")
-	}
-	if sig.V11.GroupSize != proof.RowLayout.PackedSigChainGroupSize {
-		return fmt.Errorf("V11 group_size=%d want %d", sig.V11.GroupSize, proof.RowLayout.PackedSigChainGroupSize)
-	}
-	if sig.V11.BlockWidth != proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth {
-		return fmt.Errorf("V11 block_width=%d want %d", sig.V11.BlockWidth, proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth)
-	}
-	return nil
-}
-
-func validateSigShortnessV12Shape(proof *Proof) error {
-	if proof == nil || proof.SigShortness == nil {
-		return nil
-	}
-	sig := proof.SigShortness
-	if sig.Version != sigShortnessProofVersionV12 {
-		return nil
-	}
-	if sig.V12 == nil {
-		return fmt.Errorf("missing sig shortness V12 payload")
-	}
-	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V11 != nil || sig.V13 != nil {
-		return fmt.Errorf("sig shortness V12 must not populate legacy, V5, V6, V7, V8, V9, V10, V11, or V13 fields")
-	}
-	if sig.V12.Mode != sigShortnessV12ModeSigDomain {
-		return fmt.Errorf("unsupported sig shortness V12 mode %d", sig.V12.Mode)
-	}
-	if err := validateSigShortnessDirectTargetLayout(proof.RowLayout, "V12"); err != nil {
-		return err
-	}
-	if sig.V12.GroupSize != proof.RowLayout.PackedSigChainGroupSize {
-		return fmt.Errorf("V12 group_size=%d want %d", sig.V12.GroupSize, proof.RowLayout.PackedSigChainGroupSize)
-	}
-	if sig.V12.BlockWidth != rowLayoutPackedSigChainBlockWidth(proof.RowLayout) {
-		return fmt.Errorf("V12 block_width=%d want %d", sig.V12.BlockWidth, rowLayoutPackedSigChainBlockWidth(proof.RowLayout))
-	}
-	if sig.V12.MainBlockWidth != proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth {
-		return fmt.Errorf("V12 main_block_width=%d want %d", sig.V12.MainBlockWidth, proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth)
-	}
-	if sig.V12.EffectiveBlocks != rowLayoutPackedSigChainEffectiveBlocks(proof.RowLayout) {
-		return fmt.Errorf("V12 effective_blocks=%d want %d", sig.V12.EffectiveBlocks, rowLayoutPackedSigChainEffectiveBlocks(proof.RowLayout))
-	}
-	return nil
-}
-
-func validateSigShortnessV13Shape(proof *Proof) error {
-	if proof == nil || proof.SigShortness == nil {
-		return nil
-	}
-	sig := proof.SigShortness
-	if sig.Version != sigShortnessProofVersionV13 {
-		return nil
-	}
-	if sig.V13 == nil {
-		return fmt.Errorf("missing sig shortness V13 payload")
-	}
-	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V11 != nil || sig.V12 != nil {
-		return fmt.Errorf("sig shortness V13 must not populate legacy, V5, V6, V7, V8, V9, V10, V11, or V12 fields")
-	}
-	if sig.V13.Mode != sigShortnessV13ModeLookup {
-		return fmt.Errorf("unsupported sig shortness V13 mode %d", sig.V13.Mode)
-	}
-	if len(sig.V13.LookupTableDigest) == 0 {
-		return fmt.Errorf("sig shortness V13 lookup table digest is required")
-	}
-	if err := validateSigShortnessDirectTargetLayout(proof.RowLayout, "V13"); err != nil {
-		return err
-	}
-	if sig.V13.GroupSize != proof.RowLayout.PackedSigChainGroupSize {
-		return fmt.Errorf("V13 group_size=%d want %d", sig.V13.GroupSize, proof.RowLayout.PackedSigChainGroupSize)
-	}
-	if sig.V13.BlockWidth != rowLayoutPackedSigChainBlockWidth(proof.RowLayout) {
-		return fmt.Errorf("V13 block_width=%d want %d", sig.V13.BlockWidth, rowLayoutPackedSigChainBlockWidth(proof.RowLayout))
-	}
-	if sig.V13.MainBlockWidth != proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth {
-		return fmt.Errorf("V13 main_block_width=%d want %d", sig.V13.MainBlockWidth, proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth)
-	}
-	if sig.V13.EffectiveBlocks != rowLayoutPackedSigChainEffectiveBlocks(proof.RowLayout) {
-		return fmt.Errorf("V13 effective_blocks=%d want %d", sig.V13.EffectiveBlocks, rowLayoutPackedSigChainEffectiveBlocks(proof.RowLayout))
 	}
 	return nil
 }
@@ -679,7 +928,7 @@ func validateSigShortnessV8Shape(proof *Proof) error {
 	if sig.V8 == nil {
 		return fmt.Errorf("missing sig shortness V8 payload")
 	}
-	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V7 != nil || sig.V9 != nil || sig.V10 != nil || sig.V11 != nil {
+	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V7 != nil || sig.V9 != nil || sig.V10 != nil {
 		return fmt.Errorf("sig shortness V8 must not populate legacy, V5, V6, V7, V9, V10, or V11 fields")
 	}
 	if sig.V8.Mode != sigShortnessV8ModeConstraintBound {
@@ -3093,67 +3342,20 @@ func buildSigShortnessProofV7Metadata(
 	if err != nil {
 		return nil, fmt.Errorf("signature chain spec: %w", err)
 	}
-	if sigShortnessV10EnabledForOpts(opts) {
+	if sigShortnessV18EnabledForOpts(opts) {
 		return &SigShortnessProof{
-			Version: sigShortnessProofVersionV10,
-			V10: &SigShortnessProofV10{
-				Mode:       sigShortnessV10ModeGroupedInlined,
-				Radix:      int(spec.R),
-				Digits:     spec.L,
-				GroupSize:  layout.PackedSigChainGroupSize,
-				BlockWidth: layout.CoeffNativeSig.PackedSigBlockWidth,
+			Version: sigShortnessProofVersionV18,
+			V18: &SigShortnessProofV18{
+				Mode:         sigShortnessV18ModeReplayCompact,
+				Radix:        int(spec.R),
+				Digits:       spec.L,
+				GroupSize:    layout.PackedSigChainGroupSize,
+				BlockWidth:   layout.CoeffNativeSig.PackedSigBlockWidth,
+				LayoutDigest: buildSigShortnessV18LayoutDigest(layout),
 			},
 		}, nil
 	}
-	if sigShortnessV11EnabledForOpts(opts) {
-		return &SigShortnessProof{
-			Version: sigShortnessProofVersionV11,
-			V11: &SigShortnessProofV11{
-				Mode:       sigShortnessV11ModeDirectTarget,
-				Radix:      int(spec.R),
-				Digits:     spec.L,
-				GroupSize:  layout.PackedSigChainGroupSize,
-				BlockWidth: layout.CoeffNativeSig.PackedSigBlockWidth,
-			},
-		}, nil
-	}
-	if sigShortnessV12EnabledForOpts(opts) {
-		return &SigShortnessProof{
-			Version: sigShortnessProofVersionV12,
-			V12: &SigShortnessProofV12{
-				Mode:            sigShortnessV12ModeSigDomain,
-				Radix:           int(spec.R),
-				Digits:          spec.L,
-				GroupSize:       layout.PackedSigChainGroupSize,
-				BlockWidth:      rowLayoutPackedSigChainBlockWidth(layout),
-				MainBlockWidth:  layout.CoeffNativeSig.PackedSigBlockWidth,
-				EffectiveBlocks: rowLayoutPackedSigChainEffectiveBlocks(layout),
-			},
-		}, nil
-	}
-	if sigShortnessV13EnabledForOpts(opts) {
-		return &SigShortnessProof{
-			Version: sigShortnessProofVersionV13,
-			V13: &SigShortnessProofV13{
-				Mode:              sigShortnessV13ModeLookup,
-				Radix:             int(spec.R),
-				Digits:            spec.L,
-				GroupSize:         layout.PackedSigChainGroupSize,
-				BlockWidth:        rowLayoutPackedSigChainBlockWidth(layout),
-				MainBlockWidth:    layout.CoeffNativeSig.PackedSigBlockWidth,
-				EffectiveBlocks:   rowLayoutPackedSigChainEffectiveBlocks(layout),
-				LookupTableDigest: buildSigShortnessLookupTableDigest(spec),
-			},
-		}, nil
-	}
-	return &SigShortnessProof{
-		Version: sigShortnessProofVersionV7,
-		V7: &SigShortnessProofV7{
-			Mode:   sigShortnessV7ModeInlinedMain,
-			Radix:  int(spec.R),
-			Digits: spec.L,
-		},
-	}, nil
+	return nil, fmt.Errorf("inline-target replay-compact shortness is not enabled")
 }
 
 func buildSigShortnessCommittedTHatBridgeFormalCoeffs(
@@ -3293,6 +3495,13 @@ func buildSigShortnessDirectTargetFormalCoeffs(
 	if err != nil {
 		return nil, nil, fmt.Errorf("sig shortness V11 transform bridge basis: %w", err)
 	}
+	var inlineTargetBridgeBasis *transformBridgeBasisCache
+	if rowLayoutPostSignTargetMR0HatIndex(layout, 0) < 0 {
+		inlineTargetBridgeBasis, err = newRowTransformBridgeBasisCache(ringQ, omegaWitness, replayBlockCount*ncols)
+		if err != nil {
+			return nil, nil, fmt.Errorf("sig shortness V16 inline target bridge basis: %w", err)
+		}
+	}
 	q := ringQ.Modulus[0]
 	getRowCoeff := func(idx int) ([]uint64, error) {
 		if idx < 0 || idx >= len(rowsNTT) {
@@ -3303,6 +3512,258 @@ func buildSigShortnessDirectTargetFormalCoeffs(
 			return nil, err
 		}
 		return trimPoly(coeff, q), nil
+	}
+	inlineTarget := rowLayoutPostSignTargetMR0HatIndex(layout, 0) < 0
+	var mSigmaCompCoeffs []uint64
+	var r0CompCoeffs [][]uint64
+	if inlineTarget {
+		x0Len := pub.X0Len
+		if x0Len <= 0 {
+			x0Len = rowLayoutX0Len(layout)
+		}
+		if x0Len <= 0 {
+			return nil, nil, fmt.Errorf("sig shortness V16 invalid x0 length=%d", x0Len)
+		}
+		carrierMIdx := rowLayoutPostSignCarrierM(layout)
+		carrierR0Idxs := rowLayoutPostSignCarrierR0Rows(layout)
+		if carrierMIdx < 0 || len(carrierR0Idxs) != x0Len {
+			return nil, nil, fmt.Errorf("sig shortness V16 missing carrier rows (M=%d R0=%d want %d)", carrierMIdx, len(carrierR0Idxs), x0Len)
+		}
+		carrierMCoeff, err := getRowCoeff(carrierMIdx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("V16 carrier M coeffs: %w", err)
+		}
+		msgDecode1, msgDecode2, err := buildPackedMessageCarrierDecodePolys(pub.BoundB, q)
+		if err != nil {
+			return nil, nil, fmt.Errorf("V16 message carrier decode polys: %w", err)
+		}
+		x0Decode1, err := buildSingletonCarrierDecodePoly(pub.X0CoeffBound, q)
+		if err != nil {
+			return nil, nil, fmt.Errorf("V16 x0 carrier decode polys: %w", err)
+		}
+		composeOnOmega := func(carrierCoeff []uint64, decodeCoeff []uint64) []uint64 {
+			head := make([]uint64, ncols)
+			for i, w := range omegaWitness {
+				code := EvalPoly(carrierCoeff, w%q, q) % q
+				head[i] = EvalPoly(decodeCoeff, code, q) % q
+			}
+			return trimPoly(Interpolate(omegaWitness, head, q), q)
+		}
+		m1CompCoeffs := composeOnOmega(carrierMCoeff, msgDecode1)
+		m2CompCoeffs := composeOnOmega(carrierMCoeff, msgDecode2)
+		mSigmaCompCoeffs = polyAdd(m1CompCoeffs, m2CompCoeffs, q)
+		r0CompCoeffs = make([][]uint64, x0Len)
+		for i, row := range carrierR0Idxs {
+			coeff, err := getRowCoeff(row)
+			if err != nil {
+				return nil, nil, fmt.Errorf("V16 carrier R0[%d] coeffs: %w", i, err)
+			}
+			r0CompCoeffs[i] = composeOnOmega(coeff, x0Decode1)
+		}
+	}
+	targetMR0Coeffs := make([][]uint64, replayBlockCount)
+	zHatCoeffs := make([][]uint64, replayBlockCount)
+	thetaB0Coeffs := make([][]uint64, replayBlockCount)
+	thetaBHeads := make([][][]uint64, replayBlockCount)
+	for block := 0; block < replayBlockCount; block++ {
+		if !inlineTarget {
+			targetCoeff, err := getRowCoeff(rowLayoutPostSignTargetMR0HatIndex(layout, block))
+			if err != nil {
+				return nil, nil, fmt.Errorf("target-MR0 coeffs block %d: %w", block, err)
+			}
+			targetMR0Coeffs[block] = targetCoeff
+		}
+		zCoeff, err := getRowCoeff(rowLayoutPostSignZHatIndex(layout, block))
+		if err != nil {
+			return nil, nil, fmt.Errorf("Z-hat coeffs block %d: %w", block, err)
+		}
+		thetaB0, err := thetaPolyFromNTTBlock(ringQ, pub.B[0], omegaWitness, block, sourceBlocks)
+		if err != nil {
+			return nil, nil, fmt.Errorf("theta B0 block %d: %w", block, err)
+		}
+		b0Coeff, err := coeffFromNTTPoly(ringQ, thetaB0)
+		if err != nil {
+			return nil, nil, fmt.Errorf("theta B0 coeffs block %d: %w", block, err)
+		}
+		zHatCoeffs[block] = zCoeff
+		thetaB0Coeffs[block] = trimPoly(b0Coeff, q)
+		if inlineTarget {
+			thetaBHeads[block] = make([][]uint64, len(pub.B))
+			for i := range pub.B {
+				head, err := thetaHeadFromNTTBlock(ringQ, pub.B[i], omegaWitness, block, sourceBlocks)
+				if err != nil {
+					return nil, nil, fmt.Errorf("V16 theta B[%d] block %d: %w", i, block, err)
+				}
+				thetaBHeads[block][i] = head
+			}
+		}
+	}
+	digitCoeffs := make(map[[3]int][]uint64, cfg.PackedSigBlocks*cfg.PackedSigComponents*spec.L)
+	for block := 0; block < cfg.PackedSigBlocks; block++ {
+		for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+			for lane := 0; lane < spec.L; lane++ {
+				var coeff []uint64
+				if layout.PairLookupExtractRowsPerLane > 0 {
+					groupSize := layout.PackedSigChainGroupSize
+					if groupSize <= 0 {
+						return nil, nil, fmt.Errorf("invalid V14 group size=%d", groupSize)
+					}
+					pairGroup := block / groupSize
+					parity := block % groupSize
+					if parity >= 2 {
+						return nil, nil, fmt.Errorf("invalid V14 parity=%d for block=%d", parity, block)
+					}
+					loCoeff, err := getRowCoeff(rowLayoutPairLookupExtractIndex(layout, comp, pairGroup, lane, parity, 0))
+					if err != nil {
+						return nil, nil, fmt.Errorf("V14 lo digit coeffs comp=%d block=%d lane=%d: %w", comp, block, lane, err)
+					}
+					hiCoeff, err := getRowCoeff(rowLayoutPairLookupExtractIndex(layout, comp, pairGroup, lane, parity, 1))
+					if err != nil {
+						return nil, nil, fmt.Errorf("V14 hi digit coeffs comp=%d block=%d lane=%d: %w", comp, block, lane, err)
+					}
+					coeff = polyAdd(loCoeff, scalePoly(hiCoeff, uint64(layout.PairLookupRangeLoWidth), q), q)
+					if len(coeff) == 0 {
+						coeff = []uint64{0}
+					}
+					coeff[0] = modAdd(coeff[0], liftToField(q, int64(spec.DigitLo[lane])), q)
+				} else {
+					rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
+					if rowIdx < 0 || rowIdx >= len(rowsNTT) {
+						return nil, nil, fmt.Errorf("digit row idx out of range for comp=%d block=%d lane=%d", comp, block, lane)
+					}
+					var err error
+					coeff, err = coeffFromNTTPoly(ringQ, rowsNTT[rowIdx])
+					if err != nil {
+						return nil, nil, fmt.Errorf("digit coeffs comp=%d block=%d lane=%d: %w", comp, block, lane, err)
+					}
+				}
+				digitCoeffs[[3]int{comp, block, lane}] = trimPoly(coeff, q)
+			}
+		}
+	}
+	outPolys := make([]*ring.Poly, 0, replayBlockCount*ncols)
+	outCoeffs := make([][]uint64, 0, replayBlockCount*ncols)
+	for bOut := 0; bOut < replayBlockCount; bOut++ {
+		thetaAHeads := make([][]uint64, cfg.PackedSigComponents)
+		for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+			aHead, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omegaWitness, bOut, sourceBlocks)
+			if err != nil {
+				return nil, nil, fmt.Errorf("theta A comp=%d block=%d: %w", comp, bOut, err)
+			}
+			thetaAHeads[comp] = aHead
+		}
+		rhsCoeff := polyAdd(thetaB0Coeffs[bOut], zHatCoeffs[bOut], q)
+		if !inlineTarget {
+			rhsCoeff = polyAdd(rhsCoeff, targetMR0Coeffs[bOut], q)
+		}
+		for j := 0; j < ncols; j++ {
+			t := bOut*ncols + j
+			leftCoeff := []uint64{0}
+			for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+				aScale := thetaAHeads[comp][j] % q
+				if aScale == 0 {
+					continue
+				}
+				for block := 0; block < cfg.PackedSigBlocks; block++ {
+					blockScale := bridgeBasis.BlockFactors[t][block] % q
+					if blockScale == 0 {
+						continue
+					}
+					for lane := 0; lane < spec.L; lane++ {
+						scale := modMul(aScale, modMul(spec.RPows[lane]%q, blockScale, q), q)
+						term := reducePolyModXN1(polyMul(bridgeBasis.TransformH[t], digitCoeffs[[3]int{comp, block, lane}], q), int(ringQ.N), q)
+						if scale != 1 {
+							term = scalePoly(term, scale, q)
+						}
+						leftCoeff = polyAdd(leftCoeff, term, q)
+					}
+				}
+			}
+			rightCoeff := reducePolyModXN1(polyMul(bridgeBasis.LagrangeBasis[j], rhsCoeff, q), int(ringQ.N), q)
+			if inlineTarget {
+				targetCoeff := reducePolyModXN1(polyMul(inlineTargetBridgeBasis.TransformH[t], mSigmaCompCoeffs, q), int(ringQ.N), q)
+				b1Scale := thetaBHeads[bOut][1][j] % q
+				if b1Scale != 1 {
+					targetCoeff = scalePoly(targetCoeff, b1Scale, q)
+				}
+				for i := 0; i < len(r0CompCoeffs); i++ {
+					scale := thetaBHeads[bOut][2+i][j] % q
+					term := reducePolyModXN1(polyMul(inlineTargetBridgeBasis.TransformH[t], r0CompCoeffs[i], q), int(ringQ.N), q)
+					if scale != 1 {
+						term = scalePoly(term, scale, q)
+					}
+					targetCoeff = polyAdd(targetCoeff, term, q)
+				}
+				rightCoeff = polyAdd(rightCoeff, targetCoeff, q)
+			}
+			bridgeCoeff := reducePolyModXN1(polySub(leftCoeff, rightCoeff, q), int(ringQ.N), q)
+			outCoeffs = append(outCoeffs, bridgeCoeff)
+			outPolys = append(outPolys, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
+		}
+	}
+	return outPolys, outCoeffs, nil
+}
+
+func buildSigShortnessV15DirectTargetFormalCoeffs(
+	ringQ *ring.Ring,
+	layout RowLayout,
+	pub PublicInputs,
+	omegaWitness []uint64,
+	rowsNTT []*ring.Poly,
+) ([]*ring.Poly, [][]uint64, error) {
+	if ringQ == nil {
+		return nil, nil, fmt.Errorf("nil ring")
+	}
+	if len(pub.A) != 1 || len(pub.A[0]) == 0 {
+		return nil, nil, fmt.Errorf("sig shortness V15 expects one public A row")
+	}
+	if !publicUsesBBTran(pub) {
+		return nil, nil, fmt.Errorf("sig shortness V15 direct target requires bb_tran relation")
+	}
+	if len(pub.B) < 4 {
+		return nil, nil, fmt.Errorf("sig shortness V15 requires B rows")
+	}
+	if err := validateSigShortnessV15DirectTargetLayout(layout); err != nil {
+		return nil, nil, err
+	}
+	cfg := layout.CoeffNativeSig
+	replayBlockCount := rowLayoutReplayBlockCount(layout)
+	sourceBlocks := cfg.PackedSigBlocks
+	if sourceBlocks <= 0 {
+		return nil, nil, fmt.Errorf("invalid source blocks=%d", sourceBlocks)
+	}
+	if replayBlockCount <= 0 {
+		return nil, nil, fmt.Errorf("invalid replay blocks=%d", replayBlockCount)
+	}
+	ncols := len(omegaWitness)
+	if ncols <= 0 {
+		return nil, nil, fmt.Errorf("empty witness omega")
+	}
+	q := ringQ.Modulus[0]
+	lagrange, err := buildLagrangeBasisCoeffs(omegaWitness, q)
+	if err != nil {
+		return nil, nil, fmt.Errorf("V15 lagrange basis: %w", err)
+	}
+	getRowCoeff := func(idx int) ([]uint64, error) {
+		if idx < 0 || idx >= len(rowsNTT) {
+			return nil, fmt.Errorf("row idx %d out of range (rows=%d)", idx, len(rowsNTT))
+		}
+		coeff, err := coeffFromNTTPoly(ringQ, rowsNTT[idx])
+		if err != nil {
+			return nil, err
+		}
+		return trimPoly(coeff, q), nil
+	}
+	coeffRows := make([][]uint64, layout.CoeffLookupComponents*layout.CoeffLookupBlocks)
+	for comp := 0; comp < layout.CoeffLookupComponents; comp++ {
+		for block := 0; block < layout.CoeffLookupBlocks; block++ {
+			rowIdx := rowLayoutCoeffLookupIndex(layout, comp, block)
+			coeff, err := getRowCoeff(rowIdx)
+			if err != nil {
+				return nil, nil, fmt.Errorf("V15 coefficient row comp=%d block=%d: %w", comp, block, err)
+			}
+			coeffRows[comp*layout.CoeffLookupBlocks+block] = coeff
+		}
 	}
 	targetMR0Coeffs := make([][]uint64, replayBlockCount)
 	zHatCoeffs := make([][]uint64, replayBlockCount)
@@ -3328,59 +3789,37 @@ func buildSigShortnessDirectTargetFormalCoeffs(
 		zHatCoeffs[block] = zCoeff
 		thetaB0Coeffs[block] = trimPoly(b0Coeff, q)
 	}
-	digitCoeffs := make(map[[3]int][]uint64, cfg.PackedSigBlocks*cfg.PackedSigComponents*spec.L)
-	for block := 0; block < cfg.PackedSigBlocks; block++ {
-		for comp := 0; comp < cfg.PackedSigComponents; comp++ {
-			for lane := 0; lane < spec.L; lane++ {
-				rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
-				if rowIdx < 0 || rowIdx >= len(rowsNTT) {
-					return nil, nil, fmt.Errorf("digit row idx out of range for comp=%d block=%d lane=%d", comp, block, lane)
-				}
-				coeff, err := coeffFromNTTPoly(ringQ, rowsNTT[rowIdx])
-				if err != nil {
-					return nil, nil, fmt.Errorf("digit coeffs comp=%d block=%d lane=%d: %w", comp, block, lane, err)
-				}
-				digitCoeffs[[3]int{comp, block, lane}] = trimPoly(coeff, q)
-			}
-		}
-	}
 	outPolys := make([]*ring.Poly, 0, replayBlockCount*ncols)
 	outCoeffs := make([][]uint64, 0, replayBlockCount*ncols)
-	for bOut := 0; bOut < replayBlockCount; bOut++ {
-		thetaAHeads := make([][]uint64, cfg.PackedSigComponents)
-		for comp := 0; comp < cfg.PackedSigComponents; comp++ {
-			aHead, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omegaWitness, bOut, sourceBlocks)
+	for block := 0; block < replayBlockCount; block++ {
+		if block >= layout.CoeffLookupBlocks {
+			return nil, nil, fmt.Errorf("V15 replay block=%d exceeds coefficient blocks=%d", block, layout.CoeffLookupBlocks)
+		}
+		thetaAHeads := make([][]uint64, layout.CoeffLookupComponents)
+		for comp := 0; comp < layout.CoeffLookupComponents; comp++ {
+			aHead, err := thetaHeadFromNTTBlock(ringQ, pub.A[0][comp], omegaWitness, block, sourceBlocks)
 			if err != nil {
-				return nil, nil, fmt.Errorf("theta A comp=%d block=%d: %w", comp, bOut, err)
+				return nil, nil, fmt.Errorf("theta A comp=%d block=%d: %w", comp, block, err)
 			}
 			thetaAHeads[comp] = aHead
 		}
-		rhsCoeff := polyAdd(thetaB0Coeffs[bOut], targetMR0Coeffs[bOut], q)
-		rhsCoeff = polyAdd(rhsCoeff, zHatCoeffs[bOut], q)
-		for j := 0; j < ncols; j++ {
-			t := bOut*ncols + j
+		rhsCoeff := polyAdd(thetaB0Coeffs[block], targetMR0Coeffs[block], q)
+		rhsCoeff = polyAdd(rhsCoeff, zHatCoeffs[block], q)
+		for col := 0; col < ncols; col++ {
 			leftCoeff := []uint64{0}
-			for comp := 0; comp < cfg.PackedSigComponents; comp++ {
-				aScale := thetaAHeads[comp][j] % q
+			for comp := 0; comp < layout.CoeffLookupComponents; comp++ {
+				aScale := thetaAHeads[comp][col] % q
 				if aScale == 0 {
 					continue
 				}
-				for block := 0; block < cfg.PackedSigBlocks; block++ {
-					blockScale := bridgeBasis.BlockFactors[t][block] % q
-					if blockScale == 0 {
-						continue
-					}
-					for lane := 0; lane < spec.L; lane++ {
-						scale := modMul(aScale, modMul(spec.RPows[lane]%q, blockScale, q), q)
-						term := reducePolyModXN1(polyMul(bridgeBasis.TransformH[t], digitCoeffs[[3]int{comp, block, lane}], q), int(ringQ.N), q)
-						if scale != 1 {
-							term = scalePoly(term, scale, q)
-						}
-						leftCoeff = polyAdd(leftCoeff, term, q)
-					}
+				coeff := coeffRows[comp*layout.CoeffLookupBlocks+block]
+				term := reducePolyModXN1(polyMul(lagrange[col], coeff, q), int(ringQ.N), q)
+				if aScale != 1 {
+					term = scalePoly(term, aScale, q)
 				}
+				leftCoeff = polyAdd(leftCoeff, term, q)
 			}
-			rightCoeff := reducePolyModXN1(polyMul(bridgeBasis.LagrangeBasis[j], rhsCoeff, q), int(ringQ.N), q)
+			rightCoeff := reducePolyModXN1(polyMul(lagrange[col], rhsCoeff, q), int(ringQ.N), q)
 			bridgeCoeff := reducePolyModXN1(polySub(leftCoeff, rightCoeff, q), int(ringQ.N), q)
 			outCoeffs = append(outCoeffs, bridgeCoeff)
 			outPolys = append(outPolys, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
@@ -3562,9 +4001,16 @@ func buildSigShortnessV7ConstraintSet(
 	if !sigShortnessInlinedTargetHidingEnabledForOpts(opts) {
 		return ConstraintSet{}, nil
 	}
-	shortSet, err := buildLiteralPackedSignatureShortnessConstraintSet(ringQ, layout, rowsNTT, opts)
-	if err != nil {
-		return ConstraintSet{}, err
+	if sigShortnessV17EnabledForOpts(opts) {
+		return ConstraintSet{}, fmt.Errorf(sigShortnessV17BilinearBackendBlocker())
+	}
+	shortSet := ConstraintSet{}
+	var err error
+	if !sigShortnessV15EnabledForOpts(opts) {
+		shortSet, err = buildLiteralPackedSignatureShortnessConstraintSet(ringQ, layout, rowsNTT, opts)
+		if err != nil {
+			return ConstraintSet{}, err
+		}
 	}
 	spec, err := signatureChainSpecForLayoutAndOpts(ringQ.Modulus[0], layout, opts)
 	if err != nil {
@@ -3572,9 +4018,11 @@ func buildSigShortnessV7ConstraintSet(
 	}
 	var faggNorm []*ring.Poly
 	var faggNormCoeffs [][]uint64
-	if sigShortnessV12EnabledForOpts(opts) || sigShortnessV13EnabledForOpts(opts) {
+	if sigShortnessV15EnabledForOpts(opts) {
+		faggNorm, faggNormCoeffs, err = buildSigShortnessV15DirectTargetFormalCoeffs(ringQ, layout, pub, omegaWitness, rowsNTT)
+	} else if sigShortnessV12EnabledForOpts(opts) || sigShortnessV13EnabledForOpts(opts) {
 		faggNorm, faggNormCoeffs, err = buildSigShortnessGroupedDirectTargetFormalCoeffs(ringQ, layout, pub, omegaWitness, rowsNTT, opts, spec)
-	} else if sigShortnessV11EnabledForOpts(opts) {
+	} else if sigShortnessV11EnabledForOpts(opts) || sigShortnessV14EnabledForOpts(opts) || sigShortnessV16EnabledForOpts(opts) || sigShortnessV18EnabledForOpts(opts) {
 		faggNorm, faggNormCoeffs, err = buildSigShortnessDirectTargetFormalCoeffs(ringQ, layout, pub, omegaWitness, rowsNTT, spec)
 	} else {
 		faggNorm, faggNormCoeffs, err = buildSigShortnessCommittedTHatBridgeFormalCoeffs(ringQ, layout, pub, omegaWitness, rowsNTT, spec)
@@ -3637,13 +4085,44 @@ func buildSigShortnessV7Replay(
 		}
 		radix = proof.SigShortness.V13.Radix
 		digits = proof.SigShortness.V13.Digits
+	case sigShortnessProofVersionV14:
+		if proof.SigShortness.V14 == nil {
+			return nil, fmt.Errorf("missing V14 sig shortness proof metadata")
+		}
+		radix = proof.SigShortness.V14.Radix
+		digits = proof.SigShortness.V14.Digits
+	case sigShortnessProofVersionV15:
+		if proof.SigShortness.V15 == nil {
+			return nil, fmt.Errorf("missing V15 sig shortness proof metadata")
+		}
+	case sigShortnessProofVersionV16:
+		if proof.SigShortness.V16 == nil {
+			return nil, fmt.Errorf("missing V16 sig shortness proof metadata")
+		}
+		radix = proof.SigShortness.V16.Radix
+		digits = proof.SigShortness.V16.Digits
+	case sigShortnessProofVersionV18:
+		if proof.SigShortness.V18 == nil {
+			return nil, fmt.Errorf("missing V18 sig shortness proof metadata")
+		}
+		radix = proof.SigShortness.V18.Radix
+		digits = proof.SigShortness.V18.Digits
+	case sigShortnessProofVersionV17:
+		if proof.SigShortness.V17 == nil {
+			return nil, fmt.Errorf("missing V17 sig shortness proof metadata")
+		}
+		return nil, fmt.Errorf(sigShortnessV17BilinearBackendBlocker())
 	default:
 		return nil, fmt.Errorf("unsupported inlined sig shortness version %d", proof.SigShortness.Version)
 	}
-	directTarget := proof.SigShortness.Version == sigShortnessProofVersionV11 || proof.SigShortness.Version == sigShortnessProofVersionV12 || proof.SigShortness.Version == sigShortnessProofVersionV13
+	v15CoeffLookup := proof.SigShortness.Version == sigShortnessProofVersionV15
+	v16InlineTarget := proof.SigShortness.Version == sigShortnessProofVersionV16 || proof.SigShortness.Version == sigShortnessProofVersionV18
+	directTarget := proof.SigShortness.Version == sigShortnessProofVersionV11 || proof.SigShortness.Version == sigShortnessProofVersionV12 || proof.SigShortness.Version == sigShortnessProofVersionV13 || proof.SigShortness.Version == sigShortnessProofVersionV14 || v15CoeffLookup || v16InlineTarget
 	groupedSigDomain := proof.SigShortness.Version == sigShortnessProofVersionV12 || proof.SigShortness.Version == sigShortnessProofVersionV13
+	v14PairLookup := proof.SigShortness.Version == sigShortnessProofVersionV14
 	layout := proof.RowLayout
 	cfg := layout.CoeffNativeSig
+	var err error
 	logicalRows := proof.PCSGeometry.LogicalWitnessPolys
 	if logicalRows <= 0 {
 		logicalRows = layout.SigCount
@@ -3665,14 +4144,17 @@ func buildSigShortnessV7Replay(
 	if sourceBlocks <= 0 {
 		return nil, fmt.Errorf("invalid source blocks=%d", sourceBlocks)
 	}
-	specOpts := opts
-	specOpts.CoeffNativeSigModel = layout.CoeffNativeSig.Model
-	specOpts.SigShortnessProfile = ""
-	specOpts.SigShortnessRadix = radix
-	specOpts.SigShortnessL = digits
-	spec, err := signatureChainSpecForOpts(ringQ.Modulus[0], specOpts)
-	if err != nil {
-		return nil, fmt.Errorf("signature chain spec: %w", err)
+	var spec LinfSpec
+	if !v15CoeffLookup {
+		specOpts := opts
+		specOpts.CoeffNativeSigModel = layout.CoeffNativeSig.Model
+		specOpts.SigShortnessProfile = ""
+		specOpts.SigShortnessRadix = radix
+		specOpts.SigShortnessL = digits
+		spec, err = signatureChainSpecForOpts(ringQ.Modulus[0], specOpts)
+		if err != nil {
+			return nil, fmt.Errorf("signature chain spec: %w", err)
+		}
 	}
 	replayOutputBlocks := rowLayoutReplayTHatCount(layout)
 	if directTarget {
@@ -3703,6 +4185,13 @@ func buildSigShortnessV7Replay(
 			return nil, fmt.Errorf("sig shortness V7 transform bridge basis: %w", err)
 		}
 	}
+	var inlineTargetBridgeBasis *transformBridgeBasisCache
+	if v16InlineTarget {
+		inlineTargetBridgeBasis, err = newRowTransformBridgeBasisCache(ringQ, omegaWitness, replayOutputBlocks*ncols)
+		if err != nil {
+			return nil, fmt.Errorf("sig shortness V16 inline target bridge basis: %w", err)
+		}
+	}
 	aHeads := make([][][]uint64, replayOutputBlocks)
 	for bOut := 0; bOut < replayOutputBlocks; bOut++ {
 		aHeads[bOut] = make([][]uint64, cfg.PackedSigComponents)
@@ -3715,8 +4204,12 @@ func buildSigShortnessV7Replay(
 		}
 	}
 	var b0Coeffs [][]uint64
+	var thetaBHeads [][][]uint64
 	if directTarget {
 		b0Coeffs = make([][]uint64, replayOutputBlocks)
+		if v16InlineTarget {
+			thetaBHeads = make([][][]uint64, replayOutputBlocks)
+		}
 		for block := 0; block < replayOutputBlocks; block++ {
 			thetaB0, err := thetaPolyFromNTTBlock(ringQ, pub.B[0], omegaWitness, block, sourceBlocks)
 			if err != nil {
@@ -3727,6 +4220,16 @@ func buildSigShortnessV7Replay(
 				return nil, fmt.Errorf("theta B0 coeff block %d: %w", block, err)
 			}
 			b0Coeffs[block] = trimPoly(coeff, ringQ.Modulus[0])
+			if v16InlineTarget {
+				thetaBHeads[block] = make([][]uint64, len(pub.B))
+				for i := range pub.B {
+					head, err := thetaHeadFromNTTBlock(ringQ, pub.B[i], omegaWitness, block, sourceBlocks)
+					if err != nil {
+						return nil, fmt.Errorf("V16 theta B[%d] block %d: %w", i, block, err)
+					}
+					thetaBHeads[block][i] = head
+				}
+			}
 		}
 	}
 	eval := func(evalIdx uint64, rows []uint64) ([]uint64, []uint64, error) {
@@ -3741,8 +4244,57 @@ func buildSigShortnessV7Replay(
 		if groupedSigDomain {
 			fparGroups = layout.PackedSigChainGroupCount
 		}
-		fpar := make([]uint64, 0, fparGroups*spec.L)
-		if groupedSigDomain {
+		if v14PairLookup {
+			fparGroups = layout.PackedSigChainGroupCount
+		}
+		if v15CoeffLookup {
+			fparGroups = 0
+		}
+		fparCap := fparGroups * spec.L
+		if v15CoeffLookup {
+			// V15 moves coefficient interval membership into the typed lookup
+			// proof, so the main constraint replay has no digit Fpar bucket.
+		} else if v14PairLookup {
+			fparCap *= 5
+		}
+		fpar := make([]uint64, 0, fparCap)
+		if v14PairLookup {
+			rangeLoPoly := buildBalancedMembershipPoly(q, 0, layout.PairLookupRangeLoWidth-1)
+			rangeHiPoly := buildBalancedMembershipPoly(q, 0, layout.PairLookupRangeHiWidth-1)
+			for pairGroup := 0; pairGroup < rowLayoutPackedSigChainEffectiveBlocks(layout); pairGroup++ {
+				for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+					for lane := 0; lane < spec.L; lane++ {
+						packedIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, pairGroup*layout.PackedSigChainGroupSize, lane)
+						if packedIdx < 0 || packedIdx >= len(rows) {
+							return nil, nil, fmt.Errorf("V14 packed row idx out of range for comp=%d group=%d lane=%d", comp, pairGroup, lane)
+						}
+						extract := make([]uint64, 4)
+						pos := 0
+						for parity := 0; parity < 2; parity++ {
+							for part := 0; part < 2; part++ {
+								rowIdx := rowLayoutPairLookupExtractIndex(layout, comp, pairGroup, lane, parity, part)
+								if rowIdx < 0 || rowIdx >= len(rows) {
+									return nil, nil, fmt.Errorf("V14 extract row idx out of range for comp=%d group=%d lane=%d parity=%d part=%d", comp, pairGroup, lane, parity, part)
+								}
+								extract[pos] = rows[rowIdx] % q
+								pos++
+							}
+						}
+						fpar = append(fpar, EvalPoly(rangeLoPoly, extract[0], q)%q)
+						fpar = append(fpar, EvalPoly(rangeHiPoly, extract[1], q)%q)
+						fpar = append(fpar, EvalPoly(rangeLoPoly, extract[2], q)%q)
+						fpar = append(fpar, EvalPoly(rangeHiPoly, extract[3], q)%q)
+						residual := rows[packedIdx] % q
+						residual = modSub(residual, extract[0], q)
+						residual = modSub(residual, modMul(uint64(layout.PairLookupRangeLoWidth), extract[1], q), q)
+						residual = modSub(residual, modMul(uint64(layout.PairLookupBase), extract[2], q), q)
+						residual = modSub(residual, modMul(uint64(layout.PairLookupBase*layout.PairLookupRangeLoWidth), extract[3], q), q)
+						residual = modAdd(residual, liftToField(q, -int64(spec.DigitLo[lane])*int64(1+layout.PairLookupBase)), q)
+						fpar = append(fpar, residual)
+					}
+				}
+			}
+		} else if groupedSigDomain {
 			for group := 0; group < layout.PackedSigChainGroupCount; group++ {
 				for lane := 0; lane < spec.L; lane++ {
 					rowIdx := rowLayoutCoeffNativePackedSigChainIndex(layout, group, lane)
@@ -3759,7 +4311,45 @@ func buildSigShortnessV7Replay(
 				}
 			}
 		}
+		digitValue := func(comp, block, lane int) (uint64, error) {
+			if v14PairLookup {
+				groupSize := layout.PackedSigChainGroupSize
+				pairGroup := block / groupSize
+				parity := block % groupSize
+				loIdx := rowLayoutPairLookupExtractIndex(layout, comp, pairGroup, lane, parity, 0)
+				hiIdx := rowLayoutPairLookupExtractIndex(layout, comp, pairGroup, lane, parity, 1)
+				if loIdx < 0 || loIdx >= len(rows) || hiIdx < 0 || hiIdx >= len(rows) {
+					return 0, fmt.Errorf("V14 digit extract idx out of range for comp=%d block=%d lane=%d", comp, block, lane)
+				}
+				value := modAdd(rows[loIdx]%q, modMul(uint64(layout.PairLookupRangeLoWidth), rows[hiIdx]%q, q), q)
+				value = modAdd(value, liftToField(q, int64(spec.DigitLo[lane])), q)
+				return value, nil
+			}
+			rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
+			if rowIdx < 0 || rowIdx >= len(rows) {
+				return 0, fmt.Errorf("digit row idx out of range for comp=%d block=%d lane=%d", comp, block, lane)
+			}
+			return rows[rowIdx] % q, nil
+		}
 		x := domainPoints[int(evalIdx)] % q
+		var mSigma uint64
+		var r0Vals []uint64
+		if v16InlineTarget {
+			m1Idx := rowLayoutPostSignM1(layout)
+			m2Idx := rowLayoutPostSignM2(layout)
+			if m1Idx < 0 || m1Idx >= len(rows) || m2Idx < 0 || m2Idx >= len(rows) {
+				return nil, nil, fmt.Errorf("V16 message rows out of range")
+			}
+			mSigma = modAdd(rows[m1Idx]%q, rows[m2Idx]%q, q)
+			r0Rows := rowLayoutPostSignR0Rows(layout)
+			r0Vals = make([]uint64, len(r0Rows))
+			for i, rowIdx := range r0Rows {
+				if rowIdx < 0 || rowIdx >= len(rows) {
+					return nil, nil, fmt.Errorf("V16 R0 row idx out of range for component=%d", i)
+				}
+				r0Vals[i] = rows[rowIdx] % q
+			}
+		}
 		fagg := make([]uint64, 0, replayOutputBlocks*ncols)
 		var mainLagrangeVals []uint64
 		var sigLagrangeVals []uint64
@@ -3776,15 +4366,18 @@ func buildSigShortnessV7Replay(
 		for bOut := 0; bOut < replayOutputBlocks; bOut++ {
 			var rhsBase uint64
 			if directTarget {
-				targetRowIdx := rowLayoutPostSignTargetMR0HatIndex(layout, bOut)
 				zHatRowIdx := rowLayoutPostSignZHatIndex(layout, bOut)
-				if targetRowIdx < 0 || targetRowIdx >= len(rows) {
-					return nil, nil, fmt.Errorf("target-MR0 row idx out of range for block=%d", bOut)
-				}
 				if zHatRowIdx < 0 || zHatRowIdx >= len(rows) {
 					return nil, nil, fmt.Errorf("Z-hat row idx out of range for block=%d", bOut)
 				}
-				rhsBase = modAdd(EvalPoly(b0Coeffs[bOut], x, q)%q, rows[targetRowIdx]%q, q)
+				rhsBase = EvalPoly(b0Coeffs[bOut], x, q) % q
+				if !v16InlineTarget {
+					targetRowIdx := rowLayoutPostSignTargetMR0HatIndex(layout, bOut)
+					if targetRowIdx < 0 || targetRowIdx >= len(rows) {
+						return nil, nil, fmt.Errorf("target-MR0 row idx out of range for block=%d", bOut)
+					}
+					rhsBase = modAdd(rhsBase, rows[targetRowIdx]%q, q)
+				}
 				rhsBase = modAdd(rhsBase, rows[zHatRowIdx]%q, q)
 			} else {
 				tHatRowIdx := rowLayoutPostSignTHatIndex(layout, bOut)
@@ -3795,6 +4388,24 @@ func buildSigShortnessV7Replay(
 			}
 			for j := 0; j < ncols; j++ {
 				lhs := uint64(0)
+				if v15CoeffLookup {
+					lambda := EvalPoly(bridgeBasis.LagrangeBasis[j], x, q) % q
+					for comp := 0; comp < layout.CoeffLookupComponents; comp++ {
+						rowIdx := rowLayoutCoeffLookupIndex(layout, comp, bOut)
+						if rowIdx < 0 || rowIdx >= len(rows) {
+							return nil, nil, fmt.Errorf("V15 coefficient row idx out of range for comp=%d block=%d", comp, bOut)
+						}
+						aScale := aHeads[bOut][comp][j] % q
+						if aScale == 0 {
+							continue
+						}
+						term := modMul(aScale, modMul(lambda, rows[rowIdx]%q, q), q)
+						lhs = modAdd(lhs, term, q)
+					}
+					rhs := modMul(lambda, rhsBase, q)
+					fagg = append(fagg, modSub(lhs, rhs, q))
+					continue
+				}
 				if groupedSigDomain {
 					groupSize := layout.PackedSigChainGroupSize
 					sigCol := (bOut%groupSize)*ncols + j
@@ -3805,9 +4416,12 @@ func buildSigShortnessV7Replay(
 							continue
 						}
 						for lane := 0; lane < spec.L; lane++ {
-							rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, bOut, lane)
+							digit, err := digitValue(comp, bOut, lane)
+							if err != nil {
+								return nil, nil, err
+							}
 							scale := modMul(aScale, spec.RPows[lane]%q, q)
-							term := modMul(scale, modMul(lambdaSig, rows[rowIdx]%q, q), q)
+							term := modMul(scale, modMul(lambdaSig, digit, q), q)
 							lhs = modAdd(lhs, term, q)
 						}
 					}
@@ -3828,14 +4442,26 @@ func buildSigShortnessV7Replay(
 							continue
 						}
 						for lane := 0; lane < spec.L; lane++ {
-							rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
+							digit, err := digitValue(comp, block, lane)
+							if err != nil {
+								return nil, nil, err
+							}
 							scale := modMul(aScale, modMul(spec.RPows[lane]%q, blockScale, q), q)
-							term := modMul(scale, modMul(hVal, rows[rowIdx]%q, q), q)
+							term := modMul(scale, modMul(hVal, digit, q), q)
 							lhs = modAdd(lhs, term, q)
 						}
 					}
 				}
-				rhs := modMul(EvalPoly(bridgeBasis.LagrangeBasis[j], x, q)%q, rhsBase, q)
+				lambda := EvalPoly(bridgeBasis.LagrangeBasis[j], x, q) % q
+				rhs := modMul(lambda, rhsBase, q)
+				if v16InlineTarget {
+					inlineTarget := modMul(thetaBHeads[bOut][1][j]%q, mSigma, q)
+					for i := 0; i < len(r0Vals); i++ {
+						inlineTarget = modAdd(inlineTarget, modMul(thetaBHeads[bOut][2+i][j]%q, r0Vals[i], q), q)
+					}
+					inlineHVal := EvalPoly(inlineTargetBridgeBasis.TransformH[t], x, q) % q
+					rhs = modAdd(rhs, modMul(inlineHVal, inlineTarget, q), q)
+				}
 				fagg = append(fagg, modSub(lhs, rhs, q))
 			}
 		}
@@ -3855,8 +4481,56 @@ func buildSigShortnessV7Replay(
 			if groupedSigDomain {
 				fparGroups = layout.PackedSigChainGroupCount
 			}
-			fpar := make([]kf.Elem, 0, fparGroups*spec.L)
-			if groupedSigDomain {
+			if v14PairLookup {
+				fparGroups = layout.PackedSigChainGroupCount
+			}
+			if v15CoeffLookup {
+				fparGroups = 0
+			}
+			fparCap := fparGroups * spec.L
+			if v15CoeffLookup {
+				// V15 lookup membership is verified by the auxiliary proof.
+			} else if v14PairLookup {
+				fparCap *= 5
+			}
+			fpar := make([]kf.Elem, 0, fparCap)
+			if v14PairLookup {
+				rangeLoPoly := buildBalancedMembershipPoly(K.Q, 0, layout.PairLookupRangeLoWidth-1)
+				rangeHiPoly := buildBalancedMembershipPoly(K.Q, 0, layout.PairLookupRangeHiWidth-1)
+				for pairGroup := 0; pairGroup < rowLayoutPackedSigChainEffectiveBlocks(layout); pairGroup++ {
+					for comp := 0; comp < cfg.PackedSigComponents; comp++ {
+						for lane := 0; lane < spec.L; lane++ {
+							packedIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, pairGroup*layout.PackedSigChainGroupSize, lane)
+							if packedIdx < 0 || packedIdx >= len(rows) {
+								return nil, nil, fmt.Errorf("V14 K packed row idx out of range for comp=%d group=%d lane=%d", comp, pairGroup, lane)
+							}
+							extract := make([]kf.Elem, 4)
+							pos := 0
+							for parity := 0; parity < 2; parity++ {
+								for part := 0; part < 2; part++ {
+									rowIdx := rowLayoutPairLookupExtractIndex(layout, comp, pairGroup, lane, parity, part)
+									if rowIdx < 0 || rowIdx >= len(rows) {
+										return nil, nil, fmt.Errorf("V14 K extract row idx out of range for comp=%d group=%d lane=%d parity=%d part=%d", comp, pairGroup, lane, parity, part)
+									}
+									extract[pos] = rows[rowIdx]
+									pos++
+								}
+							}
+							fpar = append(fpar, K.EvalFPolyAtK(rangeLoPoly, extract[0]))
+							fpar = append(fpar, K.EvalFPolyAtK(rangeHiPoly, extract[1]))
+							fpar = append(fpar, K.EvalFPolyAtK(rangeLoPoly, extract[2]))
+							fpar = append(fpar, K.EvalFPolyAtK(rangeHiPoly, extract[3]))
+							residual := rows[packedIdx]
+							residual = K.Sub(residual, extract[0])
+							residual = K.Sub(residual, K.Mul(K.EmbedF(uint64(layout.PairLookupRangeLoWidth)%K.Q), extract[1]))
+							residual = K.Sub(residual, K.Mul(K.EmbedF(uint64(layout.PairLookupBase)%K.Q), extract[2]))
+							residual = K.Sub(residual, K.Mul(K.EmbedF(uint64(layout.PairLookupBase*layout.PairLookupRangeLoWidth)%K.Q), extract[3]))
+							residual = K.Add(residual, K.EmbedF(liftToField(K.Q, -int64(spec.DigitLo[lane])*int64(1+layout.PairLookupBase))))
+							fpar = append(fpar, residual)
+						}
+					}
+				}
+			} else if groupedSigDomain {
 				for group := 0; group < layout.PackedSigChainGroupCount; group++ {
 					for lane := 0; lane < spec.L; lane++ {
 						rowIdx := rowLayoutCoeffNativePackedSigChainIndex(layout, group, lane)
@@ -3873,6 +4547,26 @@ func buildSigShortnessV7Replay(
 					}
 				}
 			}
+			digitValueK := func(comp, block, lane int) (kf.Elem, error) {
+				if v14PairLookup {
+					groupSize := layout.PackedSigChainGroupSize
+					pairGroup := block / groupSize
+					parity := block % groupSize
+					loIdx := rowLayoutPairLookupExtractIndex(layout, comp, pairGroup, lane, parity, 0)
+					hiIdx := rowLayoutPairLookupExtractIndex(layout, comp, pairGroup, lane, parity, 1)
+					if loIdx < 0 || loIdx >= len(rows) || hiIdx < 0 || hiIdx >= len(rows) {
+						return kf.Elem{}, fmt.Errorf("V14 K digit extract idx out of range for comp=%d block=%d lane=%d", comp, block, lane)
+					}
+					value := K.Add(rows[loIdx], K.Mul(K.EmbedF(uint64(layout.PairLookupRangeLoWidth)%K.Q), rows[hiIdx]))
+					value = K.Add(value, K.EmbedF(liftToField(K.Q, int64(spec.DigitLo[lane]))))
+					return value, nil
+				}
+				rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
+				if rowIdx < 0 || rowIdx >= len(rows) {
+					return kf.Elem{}, fmt.Errorf("digit K row idx out of range for comp=%d block=%d lane=%d", comp, block, lane)
+				}
+				return rows[rowIdx], nil
+			}
 			var mainLagrangeVals []kf.Elem
 			var sigLagrangeVals []kf.Elem
 			if groupedSigDomain {
@@ -3885,19 +4579,40 @@ func buildSigShortnessV7Replay(
 					sigLagrangeVals[j] = K.EvalFPolyAtK(sigLagrange[j], e)
 				}
 			}
+			var mSigmaK kf.Elem
+			var r0ValsK []kf.Elem
+			if v16InlineTarget {
+				m1Idx := rowLayoutPostSignM1(layout)
+				m2Idx := rowLayoutPostSignM2(layout)
+				if m1Idx < 0 || m1Idx >= len(rows) || m2Idx < 0 || m2Idx >= len(rows) {
+					return nil, nil, fmt.Errorf("V16 K message rows out of range")
+				}
+				mSigmaK = K.Add(rows[m1Idx], rows[m2Idx])
+				r0Rows := rowLayoutPostSignR0Rows(layout)
+				r0ValsK = make([]kf.Elem, len(r0Rows))
+				for i, rowIdx := range r0Rows {
+					if rowIdx < 0 || rowIdx >= len(rows) {
+						return nil, nil, fmt.Errorf("V16 K R0 row idx out of range for component=%d", i)
+					}
+					r0ValsK[i] = rows[rowIdx]
+				}
+			}
 			fagg := make([]kf.Elem, 0, replayOutputBlocks*ncols)
 			for bOut := 0; bOut < replayOutputBlocks; bOut++ {
 				var rhsBase kf.Elem
 				if directTarget {
-					targetRowIdx := rowLayoutPostSignTargetMR0HatIndex(layout, bOut)
 					zHatRowIdx := rowLayoutPostSignZHatIndex(layout, bOut)
-					if targetRowIdx < 0 || targetRowIdx >= len(rows) {
-						return nil, nil, fmt.Errorf("target-MR0 K row idx out of range for block=%d", bOut)
-					}
 					if zHatRowIdx < 0 || zHatRowIdx >= len(rows) {
 						return nil, nil, fmt.Errorf("Z-hat K row idx out of range for block=%d", bOut)
 					}
-					rhsBase = K.Add(K.EvalFPolyAtK(b0Coeffs[bOut], e), rows[targetRowIdx])
+					rhsBase = K.EvalFPolyAtK(b0Coeffs[bOut], e)
+					if !v16InlineTarget {
+						targetRowIdx := rowLayoutPostSignTargetMR0HatIndex(layout, bOut)
+						if targetRowIdx < 0 || targetRowIdx >= len(rows) {
+							return nil, nil, fmt.Errorf("target-MR0 K row idx out of range for block=%d", bOut)
+						}
+						rhsBase = K.Add(rhsBase, rows[targetRowIdx])
+					}
 					rhsBase = K.Add(rhsBase, rows[zHatRowIdx])
 				} else {
 					tHatRowIdx := rowLayoutPostSignTHatIndex(layout, bOut)
@@ -3908,6 +4623,24 @@ func buildSigShortnessV7Replay(
 				}
 				for j := 0; j < ncols; j++ {
 					lhs := K.Zero()
+					if v15CoeffLookup {
+						lambda := K.EvalFPolyAtK(bridgeBasis.LagrangeBasis[j], e)
+						for comp := 0; comp < layout.CoeffLookupComponents; comp++ {
+							rowIdx := rowLayoutCoeffLookupIndex(layout, comp, bOut)
+							if rowIdx < 0 || rowIdx >= len(rows) {
+								return nil, nil, fmt.Errorf("V15 K coefficient row idx out of range for comp=%d block=%d", comp, bOut)
+							}
+							aScale := K.EmbedF(aHeads[bOut][comp][j] % K.Q)
+							if K.IsZero(aScale) {
+								continue
+							}
+							term := K.Mul(aScale, K.Mul(lambda, rows[rowIdx]))
+							lhs = K.Add(lhs, term)
+						}
+						rhs := K.Mul(lambda, rhsBase)
+						fagg = append(fagg, K.Sub(lhs, rhs))
+						continue
+					}
 					if groupedSigDomain {
 						groupSize := layout.PackedSigChainGroupSize
 						sigCol := (bOut%groupSize)*ncols + j
@@ -3918,9 +4651,12 @@ func buildSigShortnessV7Replay(
 								continue
 							}
 							for lane := 0; lane < spec.L; lane++ {
-								rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, bOut, lane)
+								digit, err := digitValueK(comp, bOut, lane)
+								if err != nil {
+									return nil, nil, err
+								}
 								scale := K.Mul(aScale, K.EmbedF(spec.RPows[lane]%K.Q))
-								term := K.Mul(scale, K.Mul(lambdaSig, rows[rowIdx]))
+								term := K.Mul(scale, K.Mul(lambdaSig, digit))
 								lhs = K.Add(lhs, term)
 							}
 						}
@@ -3941,14 +4677,26 @@ func buildSigShortnessV7Replay(
 								continue
 							}
 							for lane := 0; lane < spec.L; lane++ {
-								rowIdx := rowLayoutCoeffNativePackedSigLimbIndex(layout, comp, block, lane)
+								digit, err := digitValueK(comp, block, lane)
+								if err != nil {
+									return nil, nil, err
+								}
 								scale := K.Mul(aScale, K.Mul(K.EmbedF(spec.RPows[lane]%K.Q), blockScale))
-								term := K.Mul(scale, K.Mul(hVal, rows[rowIdx]))
+								term := K.Mul(scale, K.Mul(hVal, digit))
 								lhs = K.Add(lhs, term)
 							}
 						}
 					}
-					rhs := K.Mul(K.EvalFPolyAtK(bridgeBasis.LagrangeBasis[j], e), rhsBase)
+					lambda := K.EvalFPolyAtK(bridgeBasis.LagrangeBasis[j], e)
+					rhs := K.Mul(lambda, rhsBase)
+					if v16InlineTarget {
+						inlineTarget := K.Mul(K.EmbedF(thetaBHeads[bOut][1][j]%K.Q), mSigmaK)
+						for i := 0; i < len(r0ValsK); i++ {
+							inlineTarget = K.Add(inlineTarget, K.Mul(K.EmbedF(thetaBHeads[bOut][2+i][j]%K.Q), r0ValsK[i]))
+						}
+						inlineHVal := K.EvalFPolyAtK(inlineTargetBridgeBasis.TransformH[t], e)
+						rhs = K.Add(rhs, K.Mul(inlineHVal, inlineTarget))
+					}
 					fagg = append(fagg, K.Sub(lhs, rhs))
 				}
 			}
@@ -4156,6 +4904,16 @@ func VerifySigShortnessProof(proof *Proof, ringQ *ring.Ring, omegaWitness []uint
 		return VerifySigShortnessProofV12(proof, ringQ, omegaWitness, pub, opts)
 	case sigShortnessProofVersionV13:
 		return VerifySigShortnessProofV13(proof, ringQ, omegaWitness, pub, opts)
+	case sigShortnessProofVersionV14:
+		return VerifySigShortnessProofV14(proof, ringQ, omegaWitness, pub, opts)
+	case sigShortnessProofVersionV15:
+		return VerifySigShortnessProofV15(proof, ringQ, omegaWitness, pub, opts)
+	case sigShortnessProofVersionV16:
+		return VerifySigShortnessProofV16(proof, ringQ, omegaWitness, pub, opts)
+	case sigShortnessProofVersionV17:
+		return VerifySigShortnessProofV17(proof, ringQ, omegaWitness, pub, opts)
+	case sigShortnessProofVersionV18:
+		return VerifySigShortnessProofV18(proof, ringQ, omegaWitness, pub, opts)
 	default:
 		return fmt.Errorf("unsupported sig shortness version %d", proof.SigShortness.Version)
 	}
@@ -4413,93 +5171,127 @@ func VerifySigShortnessProofV10(proof *Proof, ringQ *ring.Ring, omegaWitness []u
 	return nil
 }
 
-func VerifySigShortnessProofV11(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64, pub PublicInputs, opts SimOpts) error {
+func validateSigShortnessV15DirectTargetLayout(layout RowLayout) error {
+	if layout.CoeffLookupBase < 0 || layout.CoeffLookupRowCount <= 0 {
+		return fmt.Errorf("missing coefficient lookup rows")
+	}
+	return nil
+}
+
+func validateSigShortnessV18Shape(proof *Proof) error {
 	if proof == nil || proof.SigShortness == nil {
 		return nil
 	}
-	_ = omegaWitness
-	_ = pub
-	if err := validateSigShortnessV11Shape(proof); err != nil {
-		return err
+	sig := proof.SigShortness
+	if sig.Version != sigShortnessProofVersionV18 {
+		return nil
 	}
-	if ringQ == nil {
-		return fmt.Errorf("nil ring")
+	if sig.V18 == nil {
+		return fmt.Errorf("missing sig shortness V18 payload")
 	}
-	if !sigShortnessV11EnabledForOpts(opts) {
-		return fmt.Errorf("sig shortness V11 not enabled for opts")
+	if len(sig.SupportSlots) != 0 || sig.Opening != nil || sig.V5 != nil || sig.V6 != nil || sig.V7 != nil || sig.V8 != nil || sig.V9 != nil || sig.V10 != nil || sig.V11 != nil || sig.V12 != nil || sig.V13 != nil || sig.V14 != nil || sig.V15 != nil || sig.V16 != nil || sig.V17 != nil {
+		return fmt.Errorf("sig shortness V18 must not populate legacy or unrelated payload fields")
 	}
-	spec, err := signatureChainSpecForLayoutAndOpts(ringQ.Modulus[0], proof.RowLayout, opts)
-	if err != nil {
-		return fmt.Errorf("sig shortness V11 spec: %w", err)
+	v18 := sig.V18
+	if v18.Mode != sigShortnessV18ModeReplayCompact {
+		return fmt.Errorf("unsupported sig shortness V18 mode %d", v18.Mode)
 	}
-	v11 := proof.SigShortness.V11
-	if v11.Radix != int(spec.R) {
-		return fmt.Errorf("sig shortness V11 radix=%d want %d", v11.Radix, spec.R)
+	if proof.RowLayout.PackedSigChainBase < 0 || proof.RowLayout.PackedSigChainGroupCount <= 0 || proof.RowLayout.PackedSigChainRowsPerGroup <= 0 {
+		return fmt.Errorf("missing replay-compact packed shortness layout")
 	}
-	if v11.Digits != spec.L {
-		return fmt.Errorf("sig shortness V11 digits=%d want %d", v11.Digits, spec.L)
+	if rowLayoutReplayTHatCount(proof.RowLayout) != 0 || len(rowLayoutPostSignTHatRows(proof.RowLayout)) != 0 || rowLayoutPostSignTHatBase(proof.RowLayout) >= 0 {
+		return fmt.Errorf("sig shortness V18 must not materialize replay T-hat rows")
+	}
+	replayBlocks := rowLayoutReplayBlockCount(proof.RowLayout)
+	if replayBlocks <= 0 {
+		return fmt.Errorf("sig shortness V18 requires replay blocks")
+	}
+	if len(rowLayoutPostSignTargetMR0HatRows(proof.RowLayout)) != 0 || rowLayoutPostSignTargetMR0Hat(proof.RowLayout) >= 0 {
+		return fmt.Errorf("sig shortness V18 must not materialize target-MR0 replay rows")
+	}
+	if len(rowLayoutPostSignRHat1Rows(proof.RowLayout)) != replayBlocks || len(rowLayoutPostSignZHatRows(proof.RowLayout)) != replayBlocks {
+		return fmt.Errorf("sig shortness V18 requires one RHat1 and one ZHat row per block")
+	}
+	if proof.RowLayout.PairLookupExtractBase >= 0 || proof.RowLayout.PairLookupExtractGroupCount != 0 || proof.RowLayout.PairLookupExtractRowsPerLane != 0 {
+		return fmt.Errorf("sig shortness V18 must not carry pair extraction rows")
+	}
+	if proof.RowLayout.CoeffLookupBase >= 0 || proof.RowLayout.CoeffLookupRowCount != 0 {
+		return fmt.Errorf("sig shortness V18 must not carry coefficient lookup rows")
+	}
+	if v18.GroupSize != proof.RowLayout.PackedSigChainGroupSize {
+		return fmt.Errorf("V18 group_size=%d want %d", v18.GroupSize, proof.RowLayout.PackedSigChainGroupSize)
+	}
+	if v18.BlockWidth != proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth {
+		return fmt.Errorf("V18 block_width=%d want %d", v18.BlockWidth, proof.RowLayout.CoeffNativeSig.PackedSigBlockWidth)
+	}
+	if !bytes.Equal(v18.LayoutDigest, buildSigShortnessV18LayoutDigest(proof.RowLayout)) {
+		return fmt.Errorf("sig shortness V18 layout digest mismatch")
+	}
+	if len(v18.ReplayCompactDigest) > 0 && !bytes.Equal(v18.ReplayCompactDigest, buildSigShortnessV18ReplayCompactDigest(proof.RowLayout)) {
+		return fmt.Errorf("sig shortness V18 replay compact digest mismatch")
+	}
+	if len(v18.PRFCompactDigest) > 0 && !bytes.Equal(v18.PRFCompactDigest, buildSigShortnessV18PRFCompactDigest()) {
+		return fmt.Errorf("sig shortness V18 PRF compact digest mismatch")
 	}
 	return nil
+}
+
+func VerifySigShortnessProofV11(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64, pub PublicInputs, opts SimOpts) error {
+	return fmt.Errorf("sig shortness V11 is not a live proof surface")
 }
 
 func VerifySigShortnessProofV12(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64, pub PublicInputs, opts SimOpts) error {
-	if proof == nil || proof.SigShortness == nil {
-		return nil
-	}
-	_ = omegaWitness
-	_ = pub
-	if err := validateSigShortnessV12Shape(proof); err != nil {
-		return err
-	}
-	if ringQ == nil {
-		return fmt.Errorf("nil ring")
-	}
-	if !sigShortnessV12EnabledForOpts(opts) {
-		return fmt.Errorf("sig shortness V12 not enabled for opts")
-	}
-	spec, err := signatureChainSpecForLayoutAndOpts(ringQ.Modulus[0], proof.RowLayout, opts)
-	if err != nil {
-		return fmt.Errorf("sig shortness V12 spec: %w", err)
-	}
-	v12 := proof.SigShortness.V12
-	if v12.Radix != int(spec.R) {
-		return fmt.Errorf("sig shortness V12 radix=%d want %d", v12.Radix, spec.R)
-	}
-	if v12.Digits != spec.L {
-		return fmt.Errorf("sig shortness V12 digits=%d want %d", v12.Digits, spec.L)
-	}
-	return nil
+	return fmt.Errorf("sig shortness V12 is not a live proof surface")
 }
 
 func VerifySigShortnessProofV13(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64, pub PublicInputs, opts SimOpts) error {
+	return fmt.Errorf("sig shortness V13 is not a live proof surface")
+}
+
+func VerifySigShortnessProofV14(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64, pub PublicInputs, opts SimOpts) error {
+	return fmt.Errorf("sig shortness V14 is not a live proof surface")
+}
+
+func VerifySigShortnessProofV15(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64, pub PublicInputs, opts SimOpts) error {
+	return fmt.Errorf("sig shortness V15 is not a live proof surface")
+}
+
+func VerifySigShortnessProofV16(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64, pub PublicInputs, opts SimOpts) error {
+	return fmt.Errorf("sig shortness V16 is not a live proof surface")
+}
+
+func VerifySigShortnessProofV17(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64, pub PublicInputs, opts SimOpts) error {
+	return fmt.Errorf("sig shortness V17 is not a live proof surface")
+}
+
+func VerifySigShortnessProofV18(proof *Proof, ringQ *ring.Ring, omegaWitness []uint64, pub PublicInputs, opts SimOpts) error {
 	if proof == nil || proof.SigShortness == nil {
 		return nil
 	}
 	_ = omegaWitness
 	_ = pub
-	if err := validateSigShortnessV13Shape(proof); err != nil {
+	if err := validateSigShortnessV18Shape(proof); err != nil {
 		return err
 	}
 	if ringQ == nil {
 		return fmt.Errorf("nil ring")
 	}
-	if !sigShortnessV13EnabledForOpts(opts) {
-		return fmt.Errorf("sig shortness V13 not enabled for opts")
+	if !sigShortnessV18EnabledForOpts(opts) {
+		return fmt.Errorf("sig shortness V18 not enabled for opts")
 	}
 	spec, err := signatureChainSpecForLayoutAndOpts(ringQ.Modulus[0], proof.RowLayout, opts)
 	if err != nil {
-		return fmt.Errorf("sig shortness V13 spec: %w", err)
+		return fmt.Errorf("sig shortness V18 spec: %w", err)
 	}
-	v13 := proof.SigShortness.V13
-	if v13.Radix != int(spec.R) {
-		return fmt.Errorf("sig shortness V13 radix=%d want %d", v13.Radix, spec.R)
+	v18 := proof.SigShortness.V18
+	if v18.Radix != int(spec.R) {
+		return fmt.Errorf("sig shortness V18 radix=%d want %d", v18.Radix, spec.R)
 	}
-	if v13.Digits != spec.L {
-		return fmt.Errorf("sig shortness V13 digits=%d want %d", v13.Digits, spec.L)
+	if v18.Digits != spec.L {
+		return fmt.Errorf("sig shortness V18 digits=%d want %d", v18.Digits, spec.L)
 	}
-	wantDigest := buildSigShortnessLookupTableDigest(spec)
-	if !bytes.Equal(v13.LookupTableDigest, wantDigest) {
-		return fmt.Errorf("sig shortness V13 lookup table digest mismatch")
+	if _, err := buildSigShortnessV18BindingDigest(proof.SigShortness, proof.RowLayout, proof.NColsUsed); err != nil {
+		return err
 	}
 	return nil
 }

@@ -328,7 +328,7 @@ func buildShowingProofForTestConfigWithShortnessProfile(t *testing.T, model stri
 
 func buildShowingProofForTestConfigWithProductionBalanceShortnessProfile(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessProfile string) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
-	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetProductionBalance, sigShortnessProfile, 0, 0)
+	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetSoundnessBalanced, sigShortnessProfile, 0, 0)
 }
 
 func buildShowingProofForTestConfig(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
@@ -338,7 +338,7 @@ func buildShowingProofForTestConfig(t *testing.T, model string, packedPRF bool, 
 
 func buildShowingProofForProductionBalanceConfig(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
-	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetProductionBalance, "", 0, 0)
+	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetSoundnessBalanced, "", 0, 0)
 }
 
 func buildShowingProofForTestWithFlags(t *testing.T, model string, packedPRF bool, companion bool) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
@@ -348,12 +348,12 @@ func buildShowingProofForTestWithFlags(t *testing.T, model string, packedPRF boo
 
 func buildShowingProofForTestConfigWithLVCSAndShortnessProfile(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessProfile string, lvcsNCols int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
-	return buildShowingProofForTestConfigWithResearchKnobs(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetTranscriptFirst, sigShortnessProfile, 0, 0, 16, lvcsNCols)
+	return buildShowingProofForTestConfigWithResearchKnobs(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetSoundnessBalanced, sigShortnessProfile, 0, 0, 16, lvcsNCols)
 }
 
 func buildShowingProofForTestConfigWithLVCSAndRawShortness(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessRadix int, sigShortnessDigits int, lvcsNCols int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
-	return buildShowingProofForTestConfigWithResearchKnobs(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetTranscriptFirst, "", sigShortnessRadix, sigShortnessDigits, 16, lvcsNCols)
+	return buildShowingProofForTestConfigWithResearchKnobs(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetSoundnessBalanced, "", sigShortnessRadix, sigShortnessDigits, 16, lvcsNCols)
 }
 
 func buildShowingProofForTest(t *testing.T, model string) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring) {
@@ -362,65 +362,72 @@ func buildShowingProofForTest(t *testing.T, model string) (*PIOP.Proof, PIOP.Pro
 	return proof, rep, wit, opts, ringQ
 }
 
-func TestShowingAggregateV11DirectTargetResearchPreset(t *testing.T) {
+func TestShowingAggregateV18ReplayCompactResearchPreset(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
-	proof, rep, _, _, _, _ := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetAggregateV11DirectTargetResearch)
-	if rep.TranscriptFocus.ShowingPreset != PIOP.ShowingPresetAggregateV11DirectTargetResearch {
-		t.Fatalf("reported preset=%q want %q", rep.TranscriptFocus.ShowingPreset, PIOP.ShowingPresetAggregateV11DirectTargetResearch)
+	proof, rep, _, opts, _, pub := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetInlineTargetReplayCompactResearch)
+	if rep.TranscriptFocus.ShowingPreset != PIOP.ShowingPresetInlineTargetReplayCompactResearch {
+		t.Fatalf("reported preset=%q want %q", rep.TranscriptFocus.ShowingPreset, PIOP.ShowingPresetInlineTargetReplayCompactResearch)
 	}
 	if rep.TranscriptFocus.StatementClass != string(PIOP.ShowingStatementClassTheoremCleanDirectTargetFullReplay) {
-		t.Fatalf("aggregate V11 statement class=%q", rep.TranscriptFocus.StatementClass)
+		t.Fatalf("aggregate V18 statement class=%q", rep.TranscriptFocus.StatementClass)
 	}
-	if rep.TranscriptFocus.ReplayMode != string(PIOP.ShowingReplayModeFull) {
-		t.Fatalf("aggregate V11 replay mode=%q want full", rep.TranscriptFocus.ReplayMode)
+	if rep.TranscriptFocus.ShortnessMode != PIOP.SigShortnessModeReplayCompactV18 || rep.SigShortness.Mode != PIOP.SigShortnessModeReplayCompactV18 {
+		t.Fatalf("aggregate V18 shortness mismatch: focus=%q report=%q", rep.TranscriptFocus.ShortnessMode, rep.SigShortness.Mode)
 	}
-	if !rep.TranscriptFocus.AggregateR0Replay {
-		t.Fatal("aggregate V11 report did not enable aggregate replay")
+	if proof.SigShortness == nil || proof.SigShortness.Version != 18 || proof.SigShortness.V18 == nil {
+		t.Fatalf("aggregate V18 proof missing V18 payload: %+v", proof.SigShortness)
 	}
-	if rep.TranscriptFocus.ShortnessMode != PIOP.SigShortnessModeDirectTargetV11 || rep.SigShortness.Mode != PIOP.SigShortnessModeDirectTargetV11 {
-		t.Fatalf("aggregate V11 shortness mismatch: focus=%q report=%q", rep.TranscriptFocus.ShortnessMode, rep.SigShortness.Mode)
-	}
-	if proof.SigShortness == nil || proof.SigShortness.Version != 11 || proof.SigShortness.V11 == nil {
-		t.Fatalf("aggregate V11 proof missing V11 payload: %+v", proof.SigShortness)
-	}
-	if proof.SigShortness.V6 != nil || proof.SigShortness.V7 != nil || proof.SigShortness.V8 != nil || proof.SigShortness.V9 != nil || proof.SigShortness.V10 != nil || proof.SigShortness.Opening != nil || len(proof.SigShortness.SupportSlots) != 0 {
-		t.Fatalf("aggregate V11 proof populated legacy shortness fields: %+v", proof.SigShortness)
-	}
-	if proof.SigShortness.V11.Radix != 24 || proof.SigShortness.V11.Digits != 3 {
-		t.Fatalf("aggregate V11 shortness shape R=%d L=%d want R=24 L=3", proof.SigShortness.V11.Radix, proof.SigShortness.V11.Digits)
+	if proof.SigShortness.V6 != nil || proof.SigShortness.Opening != nil || len(proof.SigShortness.SupportSlots) != 0 {
+		t.Fatalf("aggregate V18 proof populated legacy or unrelated shortness fields: %+v", proof.SigShortness)
 	}
 	if len(proof.RowLayout.ReplayTHatRows) != 0 || proof.RowLayout.ReplayTHatCount != 0 || proof.RowLayout.IdxTHatBase >= 0 {
-		t.Fatalf("aggregate V11 should not materialize T-hat rows: %+v", proof.RowLayout.ReplayTHatRows)
+		t.Fatalf("aggregate V18 should not materialize T-hat rows: %+v", proof.RowLayout.ReplayTHatRows)
 	}
-	if rep.TranscriptFocus.ReplayTargetMR0HatRows != 64 || rep.TranscriptFocus.ReplayMHatSigmaRows != 0 || rep.TranscriptFocus.ReplayR0B2HatRows != 0 {
-		t.Fatalf("aggregate V11 replay rows target_mr0=%d mhat=%d r0b2=%d",
-			rep.TranscriptFocus.ReplayTargetMR0HatRows,
-			rep.TranscriptFocus.ReplayMHatSigmaRows,
-			rep.TranscriptFocus.ReplayR0B2HatRows,
-		)
+	if len(proof.RowLayout.ReplayTargetMR0HatRows) != 0 || proof.RowLayout.IdxTargetMR0Hat >= 0 || rep.TranscriptFocus.ReplayTargetMR0HatRows != 0 {
+		t.Fatalf("aggregate V18 should not materialize TargetMR0Hat rows: layout=%+v focus=%d", proof.RowLayout.ReplayTargetMR0HatRows, rep.TranscriptFocus.ReplayTargetMR0HatRows)
 	}
 	if rep.TranscriptFocus.ReplayRHat1Rows != 64 || rep.TranscriptFocus.ReplayZHatRows != 64 || rep.TranscriptFocus.ReplayTHatRows != 0 {
-		t.Fatalf("aggregate V11 direct replay rows rhat1=%d zhat=%d that=%d",
+		t.Fatalf("aggregate V18 replay rows rhat1=%d zhat=%d that=%d",
 			rep.TranscriptFocus.ReplayRHat1Rows,
 			rep.TranscriptFocus.ReplayZHatRows,
 			rep.TranscriptFocus.ReplayTHatRows,
 		)
 	}
-	if rep.TranscriptFocus.V11ShortnessRows != 384 || rep.TranscriptFocus.V11PackedSigChainGroupSize != 1 || rep.TranscriptFocus.V11PackedSigBlockWidth != 16 || rep.TranscriptFocus.V11EffectiveSigBlocks != 64 {
-		t.Fatalf("aggregate V11 geometry rows=%d group=%d width=%d blocks=%d",
-			rep.TranscriptFocus.V11ShortnessRows,
-			rep.TranscriptFocus.V11PackedSigChainGroupSize,
-			rep.TranscriptFocus.V11PackedSigBlockWidth,
-			rep.TranscriptFocus.V11EffectiveSigBlocks,
+	if rep.TranscriptFocus.PackedSigShortnessRows != 512 || rep.TranscriptFocus.PackedSigChainGroupSize != 1 || rep.TranscriptFocus.PackedSigBlockWidth != 16 || rep.TranscriptFocus.PackedSigEffectiveBlocks != 64 {
+		t.Fatalf("aggregate V18 shortness geometry rows=%d group=%d width=%d blocks=%d",
+			rep.TranscriptFocus.PackedSigShortnessRows,
+			rep.TranscriptFocus.PackedSigChainGroupSize,
+			rep.TranscriptFocus.PackedSigBlockWidth,
+			rep.TranscriptFocus.PackedSigEffectiveBlocks,
 		)
 	}
-	if rep.SigShortness.OpeningBytes != 0 || rep.SigShortness.SupportSlotCount != 0 || rep.SigShortness.OpenedBlockCount != 0 {
-		t.Fatalf("aggregate V11 should report no opening: %+v", rep.SigShortness)
+	if rep.TranscriptFocus.PRFPackedRows != 11 || rep.TranscriptFocus.PRFHelperRows != 0 {
+		t.Fatalf("aggregate V18 PRF packing rows=%d helper=%d", rep.TranscriptFocus.PRFPackedRows, rep.TranscriptFocus.PRFHelperRows)
 	}
-	if rep.SigShortness.HiddenProofBytes != 0 || rep.SigShortness.BindingBytes == 0 {
-		t.Fatalf("aggregate V11 should report metadata binding only: %+v", rep.SigShortness)
+	if rep.ReplayAudit.Selector.SelectedRows != 19 || rep.ReplayAudit.Selector.ActiveBlocks != 1 {
+		t.Fatalf("aggregate V18 replay selector selected=%d active=%d",
+			rep.ReplayAudit.Selector.SelectedRows,
+			rep.ReplayAudit.Selector.ActiveBlocks,
+		)
+	}
+	var tampered PIOP.Proof
+	data, err := json.Marshal(proof)
+	if err != nil {
+		t.Fatalf("marshal proof: %v", err)
+	}
+	if err := json.Unmarshal(data, &tampered); err != nil {
+		t.Fatalf("unmarshal proof: %v", err)
+	}
+	tampered.SigShortness.V18.LayoutDigest[0] ^= 1
+	verifySet := PIOP.ConstraintSet{PRFLayout: tampered.PRFLayout}
+	if tampered.PRFCompanion != nil {
+		verifySet.PRFCompanionLayout = tampered.PRFCompanion.Layout
+	}
+	ok, err := PIOP.VerifyWithConstraints(&tampered, verifySet, pub, opts, PIOP.FSModeCredential)
+	if err == nil && ok {
+		t.Fatal("aggregate V18 accepted tampered layout digest")
 	}
 }
 
@@ -729,12 +736,26 @@ func TestShowingTranscriptSweepSmoke(t *testing.T) {
 		if entry.PRFMode == "" || entry.PRFGroupRounds <= 0 {
 			t.Fatalf("entry missing prf controls: %+v", entry)
 		}
+		if !entry.Verified {
+			if entry.RejectReason == "" {
+				t.Fatalf("rejected entry missing reject_reason: %+v", entry)
+			}
+			continue
+		}
 		if entry.Geometry.LVCSNCols <= 0 || entry.Geometry.NLeaves <= 0 {
 			t.Fatalf("entry missing geometry: %+v", entry.Geometry)
 		}
 		if entry.AggregateR0Replay {
 			sawAggregateR0 = true
-			if entry.Geometry.ReplayR0B2HatRows+entry.Geometry.ReplayTargetMR0HatRows <= 0 || entry.Geometry.ReplayRHat0Rows != 0 {
+			inlineTarget := entry.ShortnessMode == PIOP.SigShortnessModeReplayCompactV18
+			if inlineTarget {
+				if entry.Geometry.ReplayTargetMR0HatRows != 0 || entry.Geometry.ReplayZHatRows <= 0 || entry.Geometry.ReplayRHat0Rows != 0 {
+					t.Fatalf("inline-target aggregate entry has malformed row geometry: %+v", entry.Geometry)
+				}
+				if entry.Geometry.ReplayRHat1Rows <= 0 {
+					t.Fatalf("inline-target aggregate entry has malformed row geometry: %+v", entry.Geometry)
+				}
+			} else if entry.Geometry.ReplayR0B2HatRows+entry.Geometry.ReplayTargetMR0HatRows <= 0 || entry.Geometry.ReplayRHat0Rows != 0 {
 				t.Fatalf("aggregate R0 entry missing aggregate row geometry: %+v", entry.Geometry)
 			}
 		}
@@ -747,9 +768,6 @@ func TestShowingTranscriptSweepSmoke(t *testing.T) {
 			if total <= 0 {
 				t.Fatalf("entry missing transcript buckets: %+v", entry.PaperBuckets)
 			}
-		}
-		if !entry.Verified && entry.RejectReason == "" {
-			t.Fatalf("rejected entry missing reject_reason: %+v", entry)
 		}
 	}
 	if !sawAggregateR0 {

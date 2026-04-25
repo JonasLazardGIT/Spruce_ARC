@@ -118,7 +118,7 @@ func prepareMaskSubsetRowRecovery(
 			return nil, fmt.Errorf("mask domain index %d out of range", idx)
 		}
 		if _, ok := indexPos[idx]; !ok {
-		return nil, fmt.Errorf("row opening missing mask index %d", idx)
+			return nil, fmt.Errorf("row opening missing mask index %d", idx)
 		}
 		maskPoints[i] = domainPoints[idx] % q
 	}

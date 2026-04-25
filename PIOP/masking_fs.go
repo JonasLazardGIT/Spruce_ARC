@@ -79,9 +79,10 @@ func deriveMaskingConfig(ringQ *ring.Ring, opts SimOpts, parallelAlgDeg, aggAlgD
 
 // MaskingFSInput carries the data needed for the masking/Merkle/FS stage.
 type MaskingFSInput struct {
-	RingQ *ring.Ring
-	Opts  SimOpts
-	Omega []uint64
+	RingQ  *ring.Ring
+	Opts   SimOpts
+	Public PublicInputs
+	Omega  []uint64
 	// OmegaWitness is the witness packing domain Ω_s.
 	OmegaWitness              []uint64
 	DomainPoints              []uint64
@@ -119,6 +120,7 @@ type MaskingFSInput struct {
 	DecsParams                decs.Params
 	LabelsDigest              []byte // hash of public labels included in FS binding
 	SigShortnessBindingDigest []byte
+	SigShortness              *SigShortnessProof
 	// Small-field (theta>1) parameters
 	SmallFieldChi     []uint64
 	SmallFieldOmegaS1 []uint64
@@ -162,6 +164,7 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 	o.applyDefaults()
 	args := maskFSArgs{
 		ringQ:        in.RingQ,
+		public:       in.Public,
 		omega:        in.Omega,
 		domainPoints: in.DomainPoints,
 		q:            in.RingQ.Modulus[0],
@@ -230,6 +233,7 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		ncolsOverride:             in.NCols,
 		labelsDigest:              append([]byte(nil), in.LabelsDigest...),
 		sigShortnessBindingDigest: append([]byte(nil), in.SigShortnessBindingDigest...),
+		sigShortness:              in.SigShortness,
 	}
 	if in.PRFCompanionLayout != nil {
 		args.prfCompanionBridgeChecks = prfCompanionBridgeChecks

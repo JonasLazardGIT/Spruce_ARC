@@ -368,7 +368,10 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				if err != nil {
 					return nil, fmt.Errorf("build inlined sig shortness metadata: %w", err)
 				}
-				sigShortnessBindingDigest = nil
+				sigShortnessBindingDigest, err = buildSigShortnessBindingDigest(sigShortness, rowLayout, witnessNCols)
+				if err != nil {
+					return nil, fmt.Errorf("build inlined sig shortness binding: %w", err)
+				}
 			} else {
 				pcsNCols := ncols
 				if pcsNCols <= 0 {
@@ -477,6 +480,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		mfsIn := MaskingFSInput{
 			RingQ:              ringQ,
 			Opts:               opts,
+			Public:             pub,
 			Omega:              omega,
 			OmegaWitness:       omegaWitness,
 			DomainPoints:       domainPoints,
@@ -515,6 +519,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			DecsParams:                decsParams,
 			LabelsDigest:              labelsDigest,
 			SigShortnessBindingDigest: sigShortnessBindingDigest,
+			SigShortness:              sigShortness,
 			SmallFieldChi:             sfChi,
 			SmallFieldOmegaS1:         sfOmegaS1,
 			SmallFieldMuInv:           sfMuInv,
@@ -711,7 +716,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				}
 				evalK = ek
 			}
-			if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV11 {
+			if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV18 {
 				sigReplay, serr := buildSigShortnessV7Replay(ringQ, proof, pub, omegaWitness, domainPoints, opts)
 				if serr != nil {
 					return false, serr

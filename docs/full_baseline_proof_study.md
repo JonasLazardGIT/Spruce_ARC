@@ -89,7 +89,7 @@ checked-in vector-`x0` artifacts.
 The maintained command surface is:
 
 ```bash
-go run ./cmd/showing -showing-preset compact_l1_research -full
+go run ./cmd/showing -full
 ```
 
 That means:
@@ -176,7 +176,7 @@ Commands:
 go run ./cmd/issuance setup-demo-public -force -out Parameters/credential_public.json -x0-profile lhl_default
 go run ./cmd/issuance demo-local -public-params Parameters/credential_public.json -artifact-dir credential/issuance -state-out credential/keys/credential_state.json -signature-out ntru_keys/signature.json
 go run ./cmd/showing
-go run ./cmd/showing -showing-preset compact_l1_research -full
+go run ./cmd/showing -full
 go test ./PIOP ./cmd/showing
 ```
 

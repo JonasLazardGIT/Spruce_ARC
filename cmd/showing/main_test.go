@@ -75,7 +75,7 @@ func TestFormatPaperTranscriptReductionSummaryShowsRSavedAndQSaved(t *testing.T)
 func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T) {
 	line := formatTranscriptOptimizationSummary(PIOP.ProofReport{
 		TranscriptFocus: PIOP.TranscriptOptimizationReport{
-			ShowingPreset:     PIOP.ShowingPresetTranscriptFirst,
+			ShowingPreset:     PIOP.ShowingPresetSoundnessBalanced,
 			ReplayMode:        string(PIOP.ShowingReplayModeReduced),
 			ReplayBlocks:      1,
 			LVCSNCols:         128,
@@ -93,7 +93,7 @@ func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T)
 			RowOpeningEntries: 36,
 		},
 	})
-	if !strings.Contains(line, "preset=transcript_first replay=reduced blocks=1 lvcs=128 nleaves=2048 rowsBlock=7 maskChunks=2 witness=859 nrows=560 m=288 pcols=272 omitP=288") {
+	if !strings.Contains(line, "preset=soundness_balanced replay=reduced blocks=1 lvcs=128 nleaves=2048 rowsBlock=7 maskChunks=2 witness=859 nrows=560 m=288 pcols=272 omitP=288") {
 		t.Fatalf("missing nrows/m/pcols summary: %q", line)
 	}
 	if !strings.Contains(line, "prf_scalars=165 prf_rows=11 (packed)") {
@@ -104,7 +104,7 @@ func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T)
 func TestFormatTranscriptOptimizationSummaryShowsFactorizedInstanceGeometry(t *testing.T) {
 	line := formatTranscriptOptimizationSummary(PIOP.ProofReport{
 		TranscriptFocus: PIOP.TranscriptOptimizationReport{
-			ShowingPreset:            PIOP.ShowingPresetCompactL1Research,
+			ShowingPreset:            PIOP.ShowingPresetSoundnessBalanced,
 			ReplayMode:               string(PIOP.ShowingReplayModeFull),
 			ReplayBlocks:             32,
 			LVCSNCols:                32,
@@ -180,7 +180,7 @@ func TestFormatStatementSummaryDistinguishesReducedAndFull(t *testing.T) {
 		},
 		SigShortness: PIOP.SigShortnessReport{
 			Enabled: true,
-			Mode:    PIOP.SigShortnessModeDirectTargetV11,
+			Mode:    PIOP.SigShortnessModeReplayCompactV18,
 		},
 	})
 	if reduced == full {

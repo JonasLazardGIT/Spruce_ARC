@@ -154,10 +154,6 @@ func cloneProofForPRFAux(src *Proof) *Proof {
 			v10 := *src.SigShortness.V10
 			out.SigShortness.V10 = &v10
 		}
-		if src.SigShortness.V11 != nil {
-			v11 := *src.SigShortness.V11
-			out.SigShortness.V11 = &v11
-		}
 		if src.SigShortness.V12 != nil {
 			v12 := *src.SigShortness.V12
 			out.SigShortness.V12 = &v12
@@ -166,6 +162,13 @@ func cloneProofForPRFAux(src *Proof) *Proof {
 			v13 := *src.SigShortness.V13
 			v13.LookupTableDigest = append([]byte(nil), src.SigShortness.V13.LookupTableDigest...)
 			out.SigShortness.V13 = &v13
+		}
+		if src.SigShortness.V18 != nil {
+			v18 := *src.SigShortness.V18
+			v18.LayoutDigest = append([]byte(nil), src.SigShortness.V18.LayoutDigest...)
+			v18.ReplayCompactDigest = append([]byte(nil), src.SigShortness.V18.ReplayCompactDigest...)
+			v18.PRFCompactDigest = append([]byte(nil), src.SigShortness.V18.PRFCompactDigest...)
+			out.SigShortness.V18 = &v18
 		}
 	}
 	return &out

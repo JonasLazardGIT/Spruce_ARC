@@ -1,78 +1,30 @@
-# Command Packages
-
-This directory contains the retained executables for the live shared-randomness
-credential path.
-
-Use [../Commands.md](../Commands.md) for operator usage and
-[../docs/protocol.md](../docs/protocol.md) for protocol semantics.
-
-## `cmd/ntrucli`
-
-Operator CLI for:
-
-- NTRU key generation
-- target signing
-- signature verification
-
-This is the signer-facing wrapper around `ntru/`, `ntru/keys`, and
-`ntru/signverify`.
-
-## `cmd/issuance`
-
-Role-separated issuance CLI for the live `bb_tran` pre-sign flow.
-
-The command surface now assumes:
-
-- semantic witness rows
-- vector `x0` / `r0` support
-- explicit `X0Len`, `X0CoeffBound`, `TargetDim`, and
-  `TargetHidingLambda` in public params
-- versioned issuance artifacts (`version = 2`)
-
-Artifact flow under `credential/issuance/`:
-
-- `holder_secret.json`
-  - holder witness `(m, k, r0h[0..], r1h, rbar)` and runtime geometry
-- `commit_request.json`
-  - public commitment `com`
-- `issue_challenge.json`
-  - issuer rows `ri0[0..]`, `ri1`
-- `presign_submission.json`
-  - public target `t` and pre-sign proof
-- `issue_response.json`
-  - `sig_s1`, `sig_s2`, public key material, and signed target bundle
-
-`demo-local` runs the same flow in one process and writes the final versioned
-credential state under `credential/keys/`.
-
-`benchmark-x0` is the main operator and study interface for comparing
-`legacy_scalar`, `lhl_default`, and `lhl_alt`.
+# Command Programs
 
 ## `cmd/showing`
 
-This command reads the persisted credential state and builds a showing proof for
-the live `bb_tran` relation:
+Live showing surface:
 
-- witness `(u, m, k, r0[0..], r1, Z)`
-- public tag `F(k, nonce)`
-- direct signature relation
-  `A u = B0 + B1(m||k) + sum_j B2[j] * r0[j] + Z`
+```bash
+go run ./cmd/showing
+go run ./cmd/showing -full
+go run ./cmd/showing -showing-preset aggregate_v6_research
+go run ./cmd/showing -showing-preset aggregate_inline_target_replay_compact_research
+```
 
-Important surfaces:
+The optimized preset is the clean V18 profile:
 
-- shipped default: `go run ./cmd/showing`
-  - reduced replay
-  - `soundness_balanced`
-  - `output_audit`
-- maintained full replay control:
-  `go run ./cmd/showing -full`
-  - direct `bb_tran` theorem-clean full replay path
-  - keeps source-product rows out of the maintained surface
-- aggregate full replay measurement control:
-  `go run ./cmd/showing -showing-preset aggregate_v6_research`
-  `go run ./cmd/showing -showing-preset aggregate_v11_direct_target_research`
-  - keeps per-component carriers and membership checks
-  - replaces per-component `RHat0[j]` replay rows with one `B2*r0` aggregate row per block
-  - `aggregate_v6_research` opts into the tuned aggregate V6 tuple without changing the default `-full` tuple
-  - `aggregate_v11_direct_target_research` removes committed `THat` rows and replaces separate `MHatSigma + R0B2Hat` rows with one `TargetMR0Hat` direct-target row per block
-  - V7/V8/V9/V10/V12/V13 are no longer live command or resolver surfaces
+- preset: `aggregate_inline_target_replay_compact_research`
+- mode: `sig_shortness_inline_target_replay_compact_hiding`
+- payload: `SigShortnessProofV18`, version `18`
+- tuple: `lvcs_ncols=84`, `eta=39`, `theta=3`, `rho=2`, `ell'=2`,
+  `kappa={10,0,0,5}`, `R11,L4`
+- replay shape: no `TargetMR0Hat`, keep `RHat1=64` and `ZHat=64`,
+  no `THat`, hidden proof, sidecar root, lookup proof, or pullback proof
+
+Unknown or pruned showing preset strings fail explicitly.
+
+## Transcript Sweep
+
+The transcript sweep keeps reduced/full V6 controls and the clean inline-target
+replay-compact control. Removed V11/V14/V15/V16/V17/V19 controls are not live
+sweep tracks.

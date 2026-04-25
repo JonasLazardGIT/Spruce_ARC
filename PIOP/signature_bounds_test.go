@@ -317,31 +317,13 @@ func TestResolveShowingPresetLabelForOpts(t *testing.T) {
 			want: ShowingPresetSoundnessBalanced,
 		},
 		{
-			name: "explicit_transcript_first",
+			name: "explicit_inline_target_replay_compact",
 			opts: SimOpts{
 				Credential:          true,
 				CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
-				ShowingPreset:       ShowingPresetTranscriptFirst,
+				ShowingPreset:       ShowingPresetInlineTargetReplayCompactResearch,
 			},
-			want: ShowingPresetTranscriptFirst,
-		},
-		{
-			name: "explicit_compact_l2",
-			opts: SimOpts{
-				Credential:          true,
-				CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
-				ShowingPreset:       ShowingPresetCompactL2,
-			},
-			want: ShowingPresetCompactL2,
-		},
-		{
-			name: "explicit_production_balance",
-			opts: SimOpts{
-				Credential:          true,
-				CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
-				ShowingPreset:       ShowingPresetProductionBalance,
-			},
-			want: ShowingPresetProductionBalance,
+			want: ShowingPresetInlineTargetReplayCompactResearch,
 		},
 		{
 			name: "raw_override_is_custom",
@@ -388,68 +370,25 @@ func TestResolveSimOptsDefaultsSoundnessBalancedPreset(t *testing.T) {
 	}
 }
 
-func TestResolveSimOptsDefaultsCompactPresets(t *testing.T) {
-	cases := []struct {
-		name        string
-		preset      string
-		wantProfile string
-		wantLVCS    int
-		wantEta     int
-	}{
-		{
-			name:        "compact_l3",
-			preset:      ShowingPresetCompactL3,
-			wantProfile: SigShortnessProfileR24L3Compact,
-			wantLVCS:    68,
-			wantEta:     36,
-		},
-		{
-			name:        "compact_l2",
-			preset:      ShowingPresetCompactL2,
-			wantProfile: SigShortnessProfileR111L2Compact,
-			wantLVCS:    70,
-			wantEta:     36,
-		},
-		{
-			name:        "compact_l1_research",
-			preset:      ShowingPresetCompactL1Research,
-			wantProfile: SigShortnessProfileR12285L1Research,
-			wantLVCS:    32,
-			wantEta:     26,
-		},
+func TestResolveSimOptsDefaultsInlineTargetReplayCompactPreset(t *testing.T) {
+	opts := ResolveSimOptsDefaults(SimOpts{
+		Credential:          true,
+		CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
+		ShowingPreset:       ShowingPresetInlineTargetReplayCompactResearch,
+	})
+	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetInlineTargetReplayCompactResearch {
+		t.Fatalf("showing preset=%q want %q", got, ShowingPresetInlineTargetReplayCompactResearch)
 	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			opts := ResolveSimOptsDefaults(SimOpts{
-				Credential:          true,
-				CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
-				ShowingPreset:       tc.preset,
-			})
-			if got := ResolveShowingPresetLabelForOpts(opts); got != tc.preset {
-				t.Fatalf("showing preset=%q want %q", got, tc.preset)
-			}
-			if opts.SigShortnessProfile != tc.wantProfile {
-				t.Fatalf("sig shortness profile=%q want %q", opts.SigShortnessProfile, tc.wantProfile)
-			}
-			if opts.LVCSNCols != tc.wantLVCS || opts.PostSignLVCSNCols != tc.wantLVCS || opts.PRFLVCSNCols != tc.wantLVCS {
-				t.Fatalf("unexpected lvcs preset resolution: %+v", opts)
-			}
-			wantEllPrime := 2
-			wantKappa := [4]int{0, 0, 0, 5}
-			if tc.preset == ShowingPresetCompactL1Research {
-				wantEllPrime = 3
-				wantKappa = [4]int{0, 11, 0, 11}
-			}
-			if opts.Theta != 3 || opts.Rho != 2 || opts.EllPrime != wantEllPrime || opts.Eta != tc.wantEta {
-				t.Fatalf("unexpected compact tuple: theta=%d rho=%d ellPrime=%d eta=%d", opts.Theta, opts.Rho, opts.EllPrime, opts.Eta)
-			}
-			if opts.NLeaves != 4096 || opts.PostSignNLeaves != 4096 || opts.PRFNLeaves != 4096 {
-				t.Fatalf("unexpected compact nleaves resolution: n=%d post=%d prf=%d", opts.NLeaves, opts.PostSignNLeaves, opts.PRFNLeaves)
-			}
-			if opts.Kappa != wantKappa {
-				t.Fatalf("unexpected compact kappa=%v want %v", opts.Kappa, wantKappa)
-			}
-		})
+	if opts.SigShortnessProfile != SigShortnessProfileR11L4Production {
+		t.Fatalf("sig shortness profile=%q want %q", opts.SigShortnessProfile, SigShortnessProfileR11L4Production)
+	}
+	if opts.LVCSNCols != 84 || opts.PostSignLVCSNCols != 84 || opts.PRFLVCSNCols != 84 {
+		t.Fatalf("unexpected lvcs preset resolution: %+v", opts)
+	}
+	if opts.Theta != 3 || opts.Rho != 2 || opts.EllPrime != 2 || opts.Eta != 39 {
+		t.Fatalf("unexpected inline-target tuple: theta=%d rho=%d ellPrime=%d eta=%d", opts.Theta, opts.Rho, opts.EllPrime, opts.Eta)
+	}
+	if opts.Kappa != [4]int{10, 0, 0, 5} {
+		t.Fatalf("unexpected kappa=%v want [10 0 0 5]", opts.Kappa)
 	}
 }

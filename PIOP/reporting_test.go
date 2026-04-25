@@ -223,15 +223,15 @@ func TestResolveSigShortnessModeUsesHiddenV6Label(t *testing.T) {
 	}
 }
 
-func TestResolveSigShortnessModeUsesDirectTargetV11Label(t *testing.T) {
+func TestResolveSigShortnessModeUsesReplayCompactV18Label(t *testing.T) {
 	got := ResolveSigShortnessMode(&Proof{
 		SigShortness: &SigShortnessProof{
-			Version: sigShortnessProofVersionV11,
-			V11:     &SigShortnessProofV11{},
+			Version: sigShortnessProofVersionV18,
+			V18:     &SigShortnessProofV18{},
 		},
 	})
-	if got != SigShortnessModeDirectTargetV11 {
-		t.Fatalf("sig shortness mode=%q want %q", got, SigShortnessModeDirectTargetV11)
+	if got != SigShortnessModeReplayCompactV18 {
+		t.Fatalf("sig shortness mode=%q want %q", got, SigShortnessModeReplayCompactV18)
 	}
 }
 
@@ -263,43 +263,46 @@ func TestAggregateV6ResearchPresetDefaultsToFullAggregateTuple(t *testing.T) {
 	}
 }
 
-func TestAggregateV11DirectTargetResearchPresetDefaultsToFullAggregateTuple(t *testing.T) {
+func TestInlineTargetReplayCompactPresetDefaultsToCanonicalW84Tuple(t *testing.T) {
 	opts := ResolveSimOptsDefaults(SimOpts{
 		Credential:           true,
 		CoeffNativeSigModel:  CoeffNativeSigModelLiteralPackedAggregatedV3,
-		ShowingPreset:        ShowingPresetAggregateV11DirectTargetResearch,
+		ShowingPreset:        ShowingPresetInlineTargetReplayCompactResearch,
 		PRFCompanionMode:     PRFCompanionModeOutputAudit,
 		PRFCheckpointSamples: 8,
 	})
 	if opts.ShowingReplayMode != ShowingReplayModeFull {
-		t.Fatalf("aggregate V11 replay mode=%q want full", opts.ShowingReplayMode)
+		t.Fatalf("inline-target replay mode=%q want full", opts.ShowingReplayMode)
 	}
 	if !opts.AggregateR0Replay {
-		t.Fatalf("aggregate V11 preset did not enable aggregate replay")
+		t.Fatalf("inline-target preset did not enable aggregate replay")
 	}
-	if opts.NCols != aggregateV11ResearchNCols {
-		t.Fatalf("aggregate V11 ncols=%d want %d", opts.NCols, aggregateV11ResearchNCols)
+	if opts.NCols != aggregateInlineTargetReplayCompactNCols {
+		t.Fatalf("inline-target ncols=%d want %d", opts.NCols, aggregateInlineTargetReplayCompactNCols)
 	}
-	if opts.PackedSigChainGroupSize != aggregateV11ResearchGroupSize {
-		t.Fatalf("aggregate V11 group size=%d want %d", opts.PackedSigChainGroupSize, aggregateV11ResearchGroupSize)
+	if opts.PackedSigChainGroupSize != aggregateInlineTargetReplayCompactGroupSize {
+		t.Fatalf("inline-target group size=%d want %d", opts.PackedSigChainGroupSize, aggregateInlineTargetReplayCompactGroupSize)
 	}
-	if opts.SigShortnessProfile != aggregateV11ResearchSigProfile {
-		t.Fatalf("aggregate V11 sig profile=%q want %q", opts.SigShortnessProfile, aggregateV11ResearchSigProfile)
+	if opts.SigShortnessProfile != aggregateInlineTargetReplayCompactSigProfile {
+		t.Fatalf("inline-target sig profile=%q want %q", opts.SigShortnessProfile, aggregateInlineTargetReplayCompactSigProfile)
 	}
-	if opts.LVCSNCols != aggregateV11ResearchLVCSNCols || opts.PostSignLVCSNCols != aggregateV11ResearchLVCSNCols || opts.PRFLVCSNCols != aggregateV11ResearchLVCSNCols {
-		t.Fatalf("aggregate V11 LVCS tuple=(%d,%d,%d) want %d", opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols, aggregateV11ResearchLVCSNCols)
+	if opts.LVCSNCols != aggregateInlineTargetReplayCompactLVCSNCols || opts.PostSignLVCSNCols != aggregateInlineTargetReplayCompactLVCSNCols || opts.PRFLVCSNCols != aggregateInlineTargetReplayCompactLVCSNCols {
+		t.Fatalf("inline-target LVCS tuple=(%d,%d,%d) want %d", opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols, aggregateInlineTargetReplayCompactLVCSNCols)
 	}
-	if opts.Eta != aggregateV11ResearchEta || opts.EllPrime != aggregateV11ResearchEllPrime || opts.Theta != aggregateV11ResearchTheta || opts.Rho != aggregateV11ResearchRho {
-		t.Fatalf("aggregate V11 params eta=%d ell'=%d theta=%d rho=%d", opts.Eta, opts.EllPrime, opts.Theta, opts.Rho)
+	if opts.Eta != aggregateInlineTargetReplayCompactEta || opts.EllPrime != aggregateInlineTargetReplayCompactEllPrime || opts.Theta != aggregateInlineTargetReplayCompactTheta || opts.Rho != aggregateInlineTargetReplayCompactRho {
+		t.Fatalf("inline-target params eta=%d ell'=%d theta=%d rho=%d", opts.Eta, opts.EllPrime, opts.Theta, opts.Rho)
 	}
-	if opts.Kappa != aggregateV11ResearchKappa {
-		t.Fatalf("aggregate V11 kappa=%v want %v", opts.Kappa, aggregateV11ResearchKappa)
+	if opts.Kappa != aggregateInlineTargetReplayCompactKappa {
+		t.Fatalf("inline-target kappa=%v want %v", opts.Kappa, aggregateInlineTargetReplayCompactKappa)
 	}
-	if !sigShortnessV11EnabledForOpts(opts) {
-		t.Fatalf("aggregate V11 preset did not enable V11 shortness")
+	if !sigShortnessV18EnabledForOpts(opts) {
+		t.Fatalf("inline-target preset did not enable V18 shortness")
 	}
-	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetAggregateV11DirectTargetResearch {
-		t.Fatalf("aggregate V11 resolved preset=%q want %q", got, ShowingPresetAggregateV11DirectTargetResearch)
+	if sigShortnessV11EnabledForOpts(opts) || sigShortnessV14EnabledForOpts(opts) || sigShortnessV15EnabledForOpts(opts) || sigShortnessV16EnabledForOpts(opts) || sigShortnessV17EnabledForOpts(opts) {
+		t.Fatalf("canonical inline-target preset must not enable pruned shortness families")
+	}
+	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetInlineTargetReplayCompactResearch {
+		t.Fatalf("inline-target resolved preset=%q want %q", got, ShowingPresetInlineTargetReplayCompactResearch)
 	}
 }
 

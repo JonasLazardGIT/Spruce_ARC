@@ -60,8 +60,9 @@ func evalRowsAt(r *ring.Ring, polys []*ring.Poly, points []uint64) [][]uint64 {
 
 // maskFSArgs carries all inputs needed to run the masking/Merkle/FS loop.
 type maskFSArgs struct {
-	ringQ *ring.Ring
-	omega []uint64
+	ringQ  *ring.Ring
+	public PublicInputs
+	omega  []uint64
 	// omegaWitness is the witness packing domain Ω_s.
 	omegaWitness []uint64
 	// domainPoints is the explicit DECS evaluation domain.
@@ -143,6 +144,7 @@ type maskFSArgs struct {
 
 	labelsDigest              []byte
 	sigShortnessBindingDigest []byte
+	sigShortness              *SigShortnessProof
 
 	// Optional ncols override (head length) for theta>1
 	ncolsOverride int
@@ -245,6 +247,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		LVCSNColsUsed:   args.ncols,
 		PCSGeometry:     args.pcsGeometry,
 		LabelsDigest:    append([]byte(nil), args.labelsDigest...),
+		SigShortness:    args.sigShortness,
 	}
 	proof.syncPCSCompat()
 	domainPoints := args.domainPoints

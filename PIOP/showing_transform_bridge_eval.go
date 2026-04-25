@@ -23,6 +23,7 @@ type transformBridgePostSignConfig struct {
 	HashRelation       string
 	X0Len              int
 	DirectTargetReplay bool
+	InlineTargetReplay bool
 
 	ThetaAHeads                 [][][]uint64
 	ThetaBBlocks                [][][]uint64
@@ -60,7 +61,10 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 		return nil, fmt.Errorf("transform-bridge replay requires B rows, got %d", len(pub.B))
 	}
 	useBBTran := publicUsesBBTran(pub)
-	directTargetReplay := (proof != nil && proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV11) || sigShortnessV11EnabledForOpts(opts) || rowLayoutPostSignTargetMR0HatIndex(layout, 0) >= 0
+	inlineTargetReplay := (proof != nil && proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV18) ||
+		sigShortnessV18EnabledForOpts(opts) ||
+		rowLayoutLooksInlineTargetReplay(layout)
+	directTargetReplay := (proof != nil && proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV18) || inlineTargetReplay || rowLayoutPostSignTargetMR0HatIndex(layout, 0) >= 0
 	if useBBTran && rowLayoutPostSignZHatIndex(layout, 0) < 0 {
 		return nil, fmt.Errorf("bb_tran transform-bridge replay requires Z hats")
 	}
@@ -95,6 +99,9 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 	}
 	if !directTargetReplay && replayTHatCount != replayBlockCount {
 		return nil, fmt.Errorf("replay family mismatch: T-hat count=%d replay blocks=%d", replayTHatCount, replayBlockCount)
+	}
+	if inlineTargetReplay && len(rowLayoutPostSignTargetMR0HatRows(layout)) != 0 {
+		return nil, fmt.Errorf("inline-target replay must not carry target-MR0 rows")
 	}
 	if replayBlockCount > sourceBlocks {
 		return nil, fmt.Errorf("replay blocks=%d exceed source blocks=%d", replayBlockCount, sourceBlocks)
@@ -211,6 +218,7 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 		HashRelation:                pub.HashRelation,
 		X0Len:                       x0Len,
 		DirectTargetReplay:          directTargetReplay,
+		InlineTargetReplay:          inlineTargetReplay,
 		ThetaAHeads:                 thetaAHeads,
 		ThetaBBlocks:                thetaBBlocks,
 		PackingSelCoeff:             packingSelCoeff,
@@ -350,6 +358,7 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 		useBBTran := relationUsesBBTran(cfg.HashRelation)
 		aggregateR0Replay := rowLayoutPostSignR0B2HatIndex(layout, 0) >= 0
 		directTargetReplay := cfg.DirectTargetReplay
+		inlineTargetReplay := cfg.InlineTargetReplay
 		fpar := make([]uint64, 0, replayBlocks*(cfg.X0Len+1)+3+cfg.X0Len+cfg.KeyBindLayout.KeyCount)
 		for b := 0; b < replayBlocks; b++ {
 			rHat1, err := getRow(rowLayoutPostSignRHat1Index(layout, b))
@@ -510,9 +519,11 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 		bridgePairs := []struct {
 			val   uint64
 			hatAt func(int) int
-		}{
-			{val: r1, hatAt: func(block int) int { return rowLayoutPostSignRHat1Index(layout, block) }},
-		}
+		}{}
+		bridgePairs = append(bridgePairs, struct {
+			val   uint64
+			hatAt func(int) int
+		}{val: r1, hatAt: func(block int) int { return rowLayoutPostSignRHat1Index(layout, block) }})
 		if !directTargetReplay {
 			bridgePairs = append([]struct {
 				val   uint64
@@ -538,7 +549,7 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 				}
 			}
 		}
-		if directTargetReplay {
+		if directTargetReplay && !inlineTargetReplay {
 			for b := 0; b < replayBlocks; b++ {
 				hat, err := getRow(rowLayoutPostSignTargetMR0HatIndex(layout, b))
 				if err != nil {
@@ -556,7 +567,7 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 					fagg = append(fagg, modSub(left, right, q))
 				}
 			}
-		} else if aggregateR0Replay {
+		} else if !directTargetReplay && aggregateR0Replay {
 			for b := 0; b < replayBlocks; b++ {
 				hat, err := getRow(rowLayoutPostSignR0B2HatIndex(layout, b))
 				if err != nil {
@@ -573,7 +584,7 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 					fagg = append(fagg, modSub(left, right, q))
 				}
 			}
-		} else {
+		} else if !directTargetReplay {
 			for i := 0; i < cfg.X0Len; i++ {
 				for b := 0; b < replayBlocks; b++ {
 					hat, err := getRow(rowLayoutPostSignRHat0ComponentIndex(layout, b, i))
@@ -623,6 +634,7 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 		useBBTran := relationUsesBBTran(cfg.HashRelation)
 		aggregateR0Replay := rowLayoutPostSignR0B2HatIndex(layout, 0) >= 0
 		directTargetReplay := cfg.DirectTargetReplay
+		inlineTargetReplay := cfg.InlineTargetReplay
 		fpar := make([]kf.Elem, 0, replayBlocks*(cfg.X0Len+1)+3+cfg.X0Len+cfg.KeyBindLayout.KeyCount)
 		for b := 0; b < replayBlocks; b++ {
 			rHat1, err := getRow(rowLayoutPostSignRHat1Index(layout, b))
@@ -783,9 +795,11 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 		bridgePairs := []struct {
 			val   kf.Elem
 			hatAt func(int) int
-		}{
-			{val: r1, hatAt: func(block int) int { return rowLayoutPostSignRHat1Index(layout, block) }},
-		}
+		}{}
+		bridgePairs = append(bridgePairs, struct {
+			val   kf.Elem
+			hatAt func(int) int
+		}{val: r1, hatAt: func(block int) int { return rowLayoutPostSignRHat1Index(layout, block) }})
 		if !directTargetReplay {
 			bridgePairs = append([]struct {
 				val   kf.Elem
@@ -811,7 +825,7 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 				}
 			}
 		}
-		if directTargetReplay {
+		if directTargetReplay && !inlineTargetReplay {
 			for b := 0; b < replayBlocks; b++ {
 				hat, err := getRow(rowLayoutPostSignTargetMR0HatIndex(layout, b))
 				if err != nil {
@@ -829,7 +843,7 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 					fagg = append(fagg, K.Sub(left, right))
 				}
 			}
-		} else if aggregateR0Replay {
+		} else if !directTargetReplay && aggregateR0Replay {
 			for b := 0; b < replayBlocks; b++ {
 				hat, err := getRow(rowLayoutPostSignR0B2HatIndex(layout, b))
 				if err != nil {
@@ -846,7 +860,7 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 					fagg = append(fagg, K.Sub(left, right))
 				}
 			}
-		} else {
+		} else if !directTargetReplay {
 			for i := 0; i < cfg.X0Len; i++ {
 				for b := 0; b < replayBlocks; b++ {
 					hat, err := getRow(rowLayoutPostSignRHat0ComponentIndex(layout, b, i))

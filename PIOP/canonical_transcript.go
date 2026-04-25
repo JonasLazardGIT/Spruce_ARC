@@ -120,8 +120,8 @@ func BuildPaperTranscriptReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (P
 		DQ:       dQ,
 		DDECS:    lvcsNCols + ell - 1,
 	})
-		return report, nil
-	}
+	return report, nil
+}
 
 func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptParams) PaperTranscriptReport {
 	if proof == nil {

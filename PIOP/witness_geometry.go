@@ -173,6 +173,7 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 		if layout.PackedSigChainBase >= 0 && layout.PackedSigChainGroupCount > 0 && layout.PackedSigChainRowsPerGroup > 0 {
 			out.SigShortnessRows += layout.PackedSigChainGroupCount * layout.PackedSigChainRowsPerGroup
 		}
+		out.SigShortnessRows += rowLayoutPairLookupExtractRowCount(layout)
 	}
 	out.PRFRows = replayPRFRowCount(prfLayout, prfCompanionLayout, PRFCompanionMode(""))
 	out.TotalRows = out.SigReplayRows + out.SigShortnessRows + out.NonSigRows + out.PRFRows

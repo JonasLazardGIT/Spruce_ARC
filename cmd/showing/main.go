@@ -126,7 +126,7 @@ func main() {
 	)
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
-	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default uses the shipped reduced tuple and keeps the full-replay V6 control tuple; aggregate_v6_research selects the opt-in aggregate full V6 tuple; aggregate_v11_direct_target_research selects the opt-in direct-target aggregate V11 profile; compact_l3, compact_l2, and compact_l1_research are legacy V6 parameter presets; transcript_first and production_balance keep the wide-LVCS theorem presets)")
+	showingPreset := flag.String("showing-preset", PIOP.ShowingPresetSoundnessBalanced, "showing transcript preset (soundness_balanced default; aggregate_v6_research full-replay V6 control; aggregate_inline_target_replay_compact_research optimized inline-target replay-compact profile)")
 	fullReplay := flag.Bool("full", false, "enable maintained direct bb_tran full replay-image showing mode")
 	aggregateR0Replay := flag.Bool("aggregate-r0-replay", false, "experimental full-replay optimization: aggregate vector R0 hats into one B2*r0 replay row per block")
 	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
@@ -140,10 +140,10 @@ func main() {
 	kappa2Override := flag.Int("kappa2", -1, "optional round-2 grinding override for soundness research")
 	kappa3Override := flag.Int("kappa3", -1, "optional round-3 grinding override for soundness research")
 	kappa4Override := flag.Int("kappa4", -1, "optional round-4 grinding override for soundness research")
-	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (named profiles: r11_l4_production, r24_l3_compact, r111_l2_compact, r12285_l1_research; r7_l4_experimental, r12_l3_default, r13_l3_legacy remain research/legacy)")
+	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (named profiles include r11_l4_production and r24_l3_compact)")
 	sigShortnessRadix := flag.Int("sig-shortness-radix", 0, "optional raw signature shortness radix override for transcript research")
 	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override for transcript research")
-	packedSigChainGroupSize := flag.Int("packed-sig-chain-group-size", 0, "reserved V11 packed signature shortness group-size override; live V11 currently requires 1")
+	packedSigChainGroupSize := flag.Int("packed-sig-chain-group-size", 0, "reserved packed signature shortness group-size override; optimized inline-target profile requires 1")
 	sigShortnessNCols := flag.Int("sig-shortness-ncols", 0, "reserved signature-shortness width override for future single-root packing research")
 	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth remains research-only scaffolding; aux_instance enables the research-only split PRF proof)")
 	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
@@ -158,10 +158,13 @@ func main() {
 		CoeffNativeSigModel: resolvedModel,
 		ShowingPreset:       *showingPreset,
 	})
+	if strings.TrimSpace(*showingPreset) != "" && presetDefaults.ShowingPreset == PIOP.ShowingPresetCustom {
+		cli.fatalf("[showing-cli] ", "unknown showing preset %q", *showingPreset)
+	}
 	effectiveNCols := productionNCols
 	if *ncolsOverride > 0 {
 		effectiveNCols = *ncolsOverride
-	} else if presetDefaults.ShowingPreset == PIOP.ShowingPresetAggregateV11DirectTargetResearch {
+	} else if presetDefaults.ShowingPreset == PIOP.ShowingPresetInlineTargetReplayCompactResearch {
 		effectiveNCols = 16
 	}
 	effectivePostLVCS := 0
@@ -984,6 +987,9 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 		rep.Kappa[0], rep.Kappa[1], rep.Kappa[2], rep.Kappa[3], rep.DQ, rep.Soundness.CollisionSpaceBits)
 	printWitnessGeometry(prefix, rep.Geometry)
 	if sigErr == nil {
+		if rep.TranscriptFocus.SigShortnessDegree > 0 {
+			sigDegree = rep.TranscriptFocus.SigShortnessDegree
+		}
 		cli.printf(categoryGeometry, prefix, "Linf chain: sig(profile=%s,R=%d,L=%d,rows=%d,deg=%d) nonSig=carriers", rep.TranscriptFocus.SigShortnessProfile, sigBase, sigL, sigRowsPer, sigDegree)
 	} else {
 		cli.printf(categoryWarning, prefix, "Linf chain shape resolution warning: sigErr=%v", sigErr)
@@ -1096,9 +1102,9 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 		focus.InlinedShortnessRows,
 		focus.MaskRows,
 	)
-	if focus.V11ShortnessRows > 0 {
+	if focus.PackedSigShortnessRows > 0 {
 		rowFamilies = fmt.Sprintf(
-			" rows(mhat=%d rhat0=%d r0b2=%d target_mr0=%d rhat1=%d zhat=%d that=%d v11=%d(g=%d,w=%d,blocks=%d) mask=%d)",
+			" rows(mhat=%d rhat0=%d r0b2=%d target_mr0=%d rhat1=%d zhat=%d that=%d sig=%d(g=%d,w=%d,blocks=%d) mask=%d)",
 			focus.ReplayMHatSigmaRows,
 			focus.ReplayRHat0Rows,
 			focus.ReplayR0B2HatRows,
@@ -1106,10 +1112,10 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 			focus.ReplayRHat1Rows,
 			focus.ReplayZHatRows,
 			focus.ReplayTHatRows,
-			focus.V11ShortnessRows,
-			focus.V11PackedSigChainGroupSize,
-			focus.V11PackedSigBlockWidth,
-			focus.V11EffectiveSigBlocks,
+			focus.PackedSigShortnessRows,
+			focus.PackedSigChainGroupSize,
+			focus.PackedSigBlockWidth,
+			focus.PackedSigEffectiveBlocks,
 			focus.MaskRows,
 		)
 	}

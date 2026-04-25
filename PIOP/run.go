@@ -19,15 +19,10 @@ const (
 )
 
 const (
-	ShowingPresetSoundnessBalanced                = "soundness_balanced"
-	ShowingPresetCompactL3                        = "compact_l3"
-	ShowingPresetCompactL2                        = "compact_l2"
-	ShowingPresetCompactL1Research                = "compact_l1_research"
-	ShowingPresetAggregateV6Research              = "aggregate_v6_research"
-	ShowingPresetAggregateV11DirectTargetResearch = "aggregate_v11_direct_target_research"
-	ShowingPresetTranscriptFirst                  = "transcript_first"
-	ShowingPresetProductionBalance                = "production_balance"
-	ShowingPresetCustom                           = "custom"
+	ShowingPresetSoundnessBalanced                 = "soundness_balanced"
+	ShowingPresetAggregateV6Research               = "aggregate_v6_research"
+	ShowingPresetInlineTargetReplayCompactResearch = "aggregate_inline_target_replay_compact_research"
+	ShowingPresetCustom                            = "custom"
 )
 
 type ShowingReplayMode string
@@ -47,13 +42,13 @@ const (
 )
 
 const (
-	SigShortnessModeNone            = "none"
-	SigShortnessModeLegacyV2        = "sig_shortness_v2_same_root"
-	SigShortnessModeLegacyV3        = "sig_shortness_v3_same_root"
-	SigShortnessModeLegacyV4        = "sig_shortness_v4_same_root"
-	SigShortnessModeExactHeadV5     = "sig_shortness_v5_exact_head"
-	SigShortnessModeHiddenV6        = "sig_shortness_v6_hidden"
-	SigShortnessModeDirectTargetV11 = "sig_shortness_v11_direct_target_hiding"
+	SigShortnessModeNone             = "none"
+	SigShortnessModeLegacyV2         = "sig_shortness_v2_same_root"
+	SigShortnessModeLegacyV3         = "sig_shortness_v3_same_root"
+	SigShortnessModeLegacyV4         = "sig_shortness_v4_same_root"
+	SigShortnessModeExactHeadV5      = "sig_shortness_v5_exact_head"
+	SigShortnessModeHiddenV6         = "sig_shortness_v6_hidden"
+	SigShortnessModeReplayCompactV18 = "sig_shortness_inline_target_replay_compact_hiding"
 )
 
 const (
@@ -70,44 +65,44 @@ const (
 )
 
 const (
-	soundnessBalancedReducedLVCSNCols  = 84
-	soundnessBalancedReducedEta        = 40
-	soundnessBalancedReducedEllPrime   = 2
-	soundnessBalancedReducedTheta      = 3
-	soundnessBalancedReducedRho        = 2
-	soundnessBalancedReducedNLeaves    = 4096
-	soundnessBalancedReducedSigProfile = SigShortnessProfileR11L4Production
-	soundnessBalancedFullLVCSNCols     = 96
-	soundnessBalancedFullEta           = 43
-	soundnessBalancedFullEllPrime      = 2
-	soundnessBalancedFullTheta         = 3
-	soundnessBalancedFullRho           = 2
-	soundnessBalancedFullNLeaves       = 4096
-	soundnessBalancedFullSigProfile    = SigShortnessProfileR24L3Compact
-	aggregateV6ResearchLVCSNCols       = 76
-	aggregateV6ResearchEta             = 38
-	aggregateV6ResearchEllPrime        = 2
-	aggregateV6ResearchTheta           = 3
-	aggregateV6ResearchRho             = 2
-	aggregateV6ResearchNLeaves         = 4096
-	aggregateV6ResearchNCols           = 16
-	aggregateV6ResearchSigProfile      = SigShortnessProfileR24L3Compact
-	aggregateV11ResearchLVCSNCols      = 76
-	aggregateV11ResearchEta            = 38
-	aggregateV11ResearchEllPrime       = 2
-	aggregateV11ResearchTheta          = 3
-	aggregateV11ResearchRho            = 2
-	aggregateV11ResearchNLeaves        = 4096
-	aggregateV11ResearchNCols          = 16
-	aggregateV11ResearchGroupSize      = 1
-	aggregateV11ResearchSigProfile     = SigShortnessProfileR24L3Compact
+	soundnessBalancedReducedLVCSNCols            = 84
+	soundnessBalancedReducedEta                  = 40
+	soundnessBalancedReducedEllPrime             = 2
+	soundnessBalancedReducedTheta                = 3
+	soundnessBalancedReducedRho                  = 2
+	soundnessBalancedReducedNLeaves              = 4096
+	soundnessBalancedReducedSigProfile           = SigShortnessProfileR11L4Production
+	soundnessBalancedFullLVCSNCols               = 96
+	soundnessBalancedFullEta                     = 43
+	soundnessBalancedFullEllPrime                = 2
+	soundnessBalancedFullTheta                   = 3
+	soundnessBalancedFullRho                     = 2
+	soundnessBalancedFullNLeaves                 = 4096
+	soundnessBalancedFullSigProfile              = SigShortnessProfileR24L3Compact
+	aggregateV6ResearchLVCSNCols                 = 76
+	aggregateV6ResearchEta                       = 38
+	aggregateV6ResearchEllPrime                  = 2
+	aggregateV6ResearchTheta                     = 3
+	aggregateV6ResearchRho                       = 2
+	aggregateV6ResearchNLeaves                   = 4096
+	aggregateV6ResearchNCols                     = 16
+	aggregateV6ResearchSigProfile                = SigShortnessProfileR24L3Compact
+	aggregateInlineTargetReplayCompactLVCSNCols  = 84
+	aggregateInlineTargetReplayCompactEta        = 39
+	aggregateInlineTargetReplayCompactEllPrime   = 2
+	aggregateInlineTargetReplayCompactTheta      = 3
+	aggregateInlineTargetReplayCompactRho        = 2
+	aggregateInlineTargetReplayCompactNLeaves    = 4096
+	aggregateInlineTargetReplayCompactNCols      = 16
+	aggregateInlineTargetReplayCompactGroupSize  = 1
+	aggregateInlineTargetReplayCompactSigProfile = SigShortnessProfileR11L4Production
 )
 
 var (
-	soundnessBalancedReducedKappa = [4]int{0, 0, 0, 5}
-	soundnessBalancedFullKappa    = [4]int{0, 0, 0, 5}
-	aggregateV6ResearchKappa      = [4]int{2, 0, 0, 5}
-	aggregateV11ResearchKappa     = aggregateV6ResearchKappa
+	soundnessBalancedReducedKappa           = [4]int{0, 0, 0, 5}
+	soundnessBalancedFullKappa              = [4]int{0, 0, 0, 5}
+	aggregateV6ResearchKappa                = [4]int{2, 0, 0, 5}
+	aggregateInlineTargetReplayCompactKappa = [4]int{10, 0, 0, 5}
 )
 
 type compactFullCandidateSpec struct {
@@ -348,7 +343,8 @@ func ResolveShowingStatementClass(proof *Proof, opts SimOpts) string {
 			return string(ShowingStatementClassCustom)
 		}
 	}
-	if showingLayoutIsTheoremCleanDirectTargetFullReplay(proof.RowLayout, mode) {
+	if showingLayoutIsTheoremCleanDirectTargetFullReplay(proof.RowLayout, mode) ||
+		(proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV18 && showingLayoutIsInlineTargetFullReplayCore(proof.RowLayout, mode)) {
 		return string(ShowingStatementClassTheoremCleanDirectTargetFullReplay)
 	}
 	if showingLayoutIsTheoremCleanFullReplay(proof.RowLayout, mode) {
@@ -430,6 +426,32 @@ func showingLayoutIsDirectTargetFullReplayCore(layout RowLayout, mode ShowingRep
 	return true
 }
 
+func showingLayoutIsInlineTargetFullReplayCore(layout RowLayout, mode ShowingReplayMode) bool {
+	if normalizeShowingReplayMode(mode) != ShowingReplayModeFull {
+		return false
+	}
+	replayBlocks := rowLayoutReplayBlockCount(layout)
+	if replayBlocks <= 0 {
+		return false
+	}
+	if rowLayoutReplayTHatCount(layout) != 0 || len(rowLayoutPostSignTargetMR0HatRows(layout)) != 0 {
+		return false
+	}
+	if layout.SigBlocks > 0 && layout.SigBlocks != replayBlocks {
+		return false
+	}
+	if layout.PackedSigChainBase < 0 || layout.PackedSigChainGroupCount <= 0 || layout.PackedSigChainRowsPerGroup <= 0 {
+		return false
+	}
+	for block := 0; block < replayBlocks; block++ {
+		if rowLayoutPostSignRHat1Index(layout, block) < 0 ||
+			rowLayoutPostSignZHatIndex(layout, block) < 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func ResolveSigShortnessMode(proof *Proof) string {
 	if proof == nil || proof.SigShortness == nil {
 		return SigShortnessModeNone
@@ -445,8 +467,8 @@ func ResolveSigShortnessMode(proof *Proof) string {
 		return SigShortnessModeExactHeadV5
 	case sigShortnessProofVersionV6:
 		return SigShortnessModeHiddenV6
-	case sigShortnessProofVersionV11:
-		return SigShortnessModeDirectTargetV11
+	case sigShortnessProofVersionV18:
+		return SigShortnessModeReplayCompactV18
 	default:
 		return fmt.Sprintf("sig_shortness_v%d_unknown", proof.SigShortness.Version)
 	}
@@ -477,18 +499,39 @@ func sigShortnessV10EnabledForOpts(opts SimOpts) bool {
 }
 
 func sigShortnessV11EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessV14EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessV15EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessV16EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessV17EnabledForOpts(opts SimOpts) bool {
+	return false
+}
+
+func sigShortnessV18EnabledForOpts(opts SimOpts) bool {
 	resolved := opts
 	resolved.applyDefaults()
-	if normalizeShowingPreset(resolved.ShowingPreset) != ShowingPresetAggregateV11DirectTargetResearch {
+	if normalizeShowingPreset(resolved.ShowingPreset) != ShowingPresetInlineTargetReplayCompactResearch {
 		return false
 	}
 	if normalizeShowingReplayMode(resolved.ShowingReplayMode) != ShowingReplayModeFull || !resolved.AggregateR0Replay {
 		return false
 	}
-	profile := ResolveSignatureShortnessProfileLabelForOpts(resolved)
-	return profile == SigShortnessProfileR11L4Production ||
-		profile == SigShortnessProfileR24L3Compact ||
-		profile == SigShortnessProfileR111L2Compact
+	if resolved.PackedSigChainGroupSize != aggregateInlineTargetReplayCompactGroupSize {
+		return false
+	}
+	return ResolveSignatureShortnessProfileLabelForOpts(resolved) == aggregateInlineTargetReplayCompactSigProfile &&
+		resolved.NCols == aggregateInlineTargetReplayCompactNCols
 }
 
 func sigShortnessV12EnabledForOpts(opts SimOpts) bool {
@@ -500,7 +543,7 @@ func sigShortnessV13EnabledForOpts(opts SimOpts) bool {
 }
 
 func sigShortnessInlinedTargetHidingEnabledForOpts(opts SimOpts) bool {
-	return sigShortnessV11EnabledForOpts(opts)
+	return sigShortnessV18EnabledForOpts(opts)
 }
 
 type PRFCompanionMode string
@@ -526,22 +569,14 @@ func normalizeShowingPreset(preset string) string {
 	switch preset {
 	case "", ShowingPresetSoundnessBalanced:
 		return ShowingPresetSoundnessBalanced
-	case ShowingPresetCompactL3:
-		return ShowingPresetCompactL3
-	case ShowingPresetCompactL2:
-		return ShowingPresetCompactL2
-	case ShowingPresetCompactL1Research:
-		return ShowingPresetCompactL1Research
 	case ShowingPresetAggregateV6Research:
 		return ShowingPresetAggregateV6Research
-	case ShowingPresetAggregateV11DirectTargetResearch:
-		return ShowingPresetAggregateV11DirectTargetResearch
-	case ShowingPresetTranscriptFirst:
-		return ShowingPresetTranscriptFirst
-	case ShowingPresetProductionBalance:
-		return ShowingPresetProductionBalance
+	case ShowingPresetInlineTargetReplayCompactResearch:
+		return ShowingPresetInlineTargetReplayCompactResearch
+	case ShowingPresetCustom:
+		return ShowingPresetCustom
 	default:
-		return ShowingPresetSoundnessBalanced
+		return ShowingPresetCustom
 	}
 }
 
@@ -552,21 +587,10 @@ func showingPresetLVCSNCols(preset string, replayMode ShowingReplayMode, candida
 			return soundnessBalancedFullLVCSNCols
 		}
 		return soundnessBalancedReducedLVCSNCols
-	case ShowingPresetCompactL3:
-		return 68
-	case ShowingPresetCompactL2:
-		return 70
-	case ShowingPresetCompactL1Research:
-		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
-			return spec.LVCSNCols
-		}
-		return 32
 	case ShowingPresetAggregateV6Research:
 		return aggregateV6ResearchLVCSNCols
-	case ShowingPresetAggregateV11DirectTargetResearch:
-		return aggregateV11ResearchLVCSNCols
-	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
-		return 32
+	case ShowingPresetInlineTargetReplayCompactResearch:
+		return aggregateInlineTargetReplayCompactLVCSNCols
 	default:
 		return 32
 	}
@@ -579,23 +603,10 @@ func showingPresetSigShortnessProfile(preset string, replayMode ShowingReplayMod
 			return soundnessBalancedFullSigProfile
 		}
 		return soundnessBalancedReducedSigProfile
-	case ShowingPresetCompactL3:
-		return SigShortnessProfileR24L3Compact
-	case ShowingPresetCompactL2:
-		return SigShortnessProfileR111L2Compact
-	case ShowingPresetCompactL1Research:
-		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
-			return spec.SigShortnessProfile
-		}
-		return SigShortnessProfileR12285L1Research
 	case ShowingPresetAggregateV6Research:
 		return aggregateV6ResearchSigProfile
-	case ShowingPresetAggregateV11DirectTargetResearch:
-		return aggregateV11ResearchSigProfile
-	case ShowingPresetTranscriptFirst:
-		return SigShortnessProfileR11L4Production
-	case ShowingPresetProductionBalance:
-		return SigShortnessProfileR11L4Production
+	case ShowingPresetInlineTargetReplayCompactResearch:
+		return aggregateInlineTargetReplayCompactSigProfile
 	default:
 		return SigShortnessProfileR11L4Production
 	}
@@ -603,51 +614,47 @@ func showingPresetSigShortnessProfile(preset string, replayMode ShowingReplayMod
 
 func showingPresetTheta(preset string) int {
 	switch normalizeShowingPreset(preset) {
-	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2, ShowingPresetCompactL1Research, ShowingPresetAggregateV6Research, ShowingPresetAggregateV11DirectTargetResearch:
-		if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
-			return soundnessBalancedReducedTheta
-		}
-		if normalizeShowingPreset(preset) == ShowingPresetAggregateV6Research {
-			return aggregateV6ResearchTheta
-		}
-		if normalizeShowingPreset(preset) == ShowingPresetAggregateV11DirectTargetResearch {
-			return aggregateV11ResearchTheta
-		}
-		return 3
+	case ShowingPresetSoundnessBalanced:
+		return soundnessBalancedReducedTheta
+	case ShowingPresetAggregateV6Research:
+		return aggregateV6ResearchTheta
+	case ShowingPresetInlineTargetReplayCompactResearch:
+		return aggregateInlineTargetReplayCompactTheta
 	default:
 		return 6
 	}
 }
 
 func showingPresetRho(preset string) int {
-	if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetSoundnessBalanced:
 		return soundnessBalancedReducedRho
-	}
-	if normalizeShowingPreset(preset) == ShowingPresetAggregateV6Research {
+	case ShowingPresetAggregateV6Research:
 		return aggregateV6ResearchRho
+	case ShowingPresetInlineTargetReplayCompactResearch:
+		return aggregateInlineTargetReplayCompactRho
+	default:
+		return 2
 	}
-	if normalizeShowingPreset(preset) == ShowingPresetAggregateV11DirectTargetResearch {
-		return aggregateV11ResearchRho
-	}
-	return 2
 }
 
 func showingPresetEllPrime(preset string, replayMode ShowingReplayMode, candidate string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
+		if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
+			if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+				return soundnessBalancedFullEllPrime
+			}
+			return soundnessBalancedReducedEllPrime
+		}
 		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
 			return soundnessBalancedFullEllPrime
 		}
 		return soundnessBalancedReducedEllPrime
-	case ShowingPresetCompactL1Research:
-		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
-			return spec.EllPrime
-		}
-		return 3
 	case ShowingPresetAggregateV6Research:
 		return aggregateV6ResearchEllPrime
-	case ShowingPresetAggregateV11DirectTargetResearch:
-		return aggregateV11ResearchEllPrime
+	case ShowingPresetInlineTargetReplayCompactResearch:
+		return aggregateInlineTargetReplayCompactEllPrime
 	default:
 		return 2
 	}
@@ -660,17 +667,10 @@ func showingPresetEta(preset string, replayMode ShowingReplayMode, candidate str
 			return soundnessBalancedFullEta
 		}
 		return soundnessBalancedReducedEta
-	case ShowingPresetCompactL3, ShowingPresetCompactL2:
-		return 36
-	case ShowingPresetCompactL1Research:
-		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
-			return spec.Eta
-		}
-		return 26
 	case ShowingPresetAggregateV6Research:
 		return aggregateV6ResearchEta
-	case ShowingPresetAggregateV11DirectTargetResearch:
-		return aggregateV11ResearchEta
+	case ShowingPresetInlineTargetReplayCompactResearch:
+		return aggregateInlineTargetReplayCompactEta
 	default:
 		return 31
 	}
@@ -678,21 +678,15 @@ func showingPresetEta(preset string, replayMode ShowingReplayMode, candidate str
 
 func showingPresetNLeaves(preset string, replayMode ShowingReplayMode, candidate string) int {
 	switch normalizeShowingPreset(preset) {
-	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2, ShowingPresetCompactL1Research:
-		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
-			return spec.NLeaves
+	case ShowingPresetSoundnessBalanced:
+		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+			return soundnessBalancedFullNLeaves
 		}
-		if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
-			if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
-				return soundnessBalancedFullNLeaves
-			}
-			return soundnessBalancedReducedNLeaves
-		}
-		return 4096
+		return soundnessBalancedReducedNLeaves
 	case ShowingPresetAggregateV6Research:
 		return aggregateV6ResearchNLeaves
-	case ShowingPresetAggregateV11DirectTargetResearch:
-		return aggregateV11ResearchNLeaves
+	case ShowingPresetInlineTargetReplayCompactResearch:
+		return aggregateInlineTargetReplayCompactNLeaves
 	default:
 		return 2048
 	}
@@ -700,26 +694,15 @@ func showingPresetNLeaves(preset string, replayMode ShowingReplayMode, candidate
 
 func showingPresetKappa(preset string, replayMode ShowingReplayMode, candidate string) [4]int {
 	switch normalizeShowingPreset(preset) {
-	case ShowingPresetSoundnessBalanced, ShowingPresetCompactL3, ShowingPresetCompactL2:
-		if normalizeShowingPreset(preset) == ShowingPresetSoundnessBalanced {
-			if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
-				return soundnessBalancedFullKappa
-			}
-			return soundnessBalancedReducedKappa
-		}
-		return [4]int{0, 0, 0, 5}
-	case ShowingPresetCompactL1Research:
-		if spec, ok := compactFullCandidateSpecForPreset(preset, replayMode, candidate); ok {
-			return spec.Kappa
-		}
+	case ShowingPresetSoundnessBalanced:
 		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
-			return [4]int{}
+			return soundnessBalancedFullKappa
 		}
-		return [4]int{0, 11, 0, 11}
+		return soundnessBalancedReducedKappa
 	case ShowingPresetAggregateV6Research:
 		return aggregateV6ResearchKappa
-	case ShowingPresetAggregateV11DirectTargetResearch:
-		return aggregateV11ResearchKappa
+	case ShowingPresetInlineTargetReplayCompactResearch:
+		return aggregateInlineTargetReplayCompactKappa
 	default:
 		return [4]int{}
 	}
@@ -755,14 +738,9 @@ func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
 		return requested
 	}
 	for _, preset := range []string{
-		ShowingPresetAggregateV11DirectTargetResearch,
+		ShowingPresetInlineTargetReplayCompactResearch,
 		ShowingPresetAggregateV6Research,
 		ShowingPresetSoundnessBalanced,
-		ShowingPresetCompactL3,
-		ShowingPresetCompactL2,
-		ShowingPresetCompactL1Research,
-		ShowingPresetTranscriptFirst,
-		ShowingPresetProductionBalance,
 	} {
 		if showingOptsMatchPreset(resolved, preset) {
 			return preset
@@ -820,87 +798,27 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 			resolved.PostSignNLeaves == aggregateV6ResearchNLeaves &&
 			resolved.PRFNLeaves == aggregateV6ResearchNLeaves &&
 			resolved.Kappa == aggregateV6ResearchKappa
-	case ShowingPresetAggregateV11DirectTargetResearch:
-		profile := resolved.SigShortnessProfile
-		if profile != SigShortnessProfileR11L4Production && profile != SigShortnessProfileR24L3Compact && profile != SigShortnessProfileR111L2Compact {
-			return false
-		}
+	case ShowingPresetInlineTargetReplayCompactResearch:
 		groupSize := resolved.PackedSigChainGroupSize
 		if groupSize <= 0 {
-			groupSize = aggregateV11ResearchGroupSize
+			groupSize = aggregateInlineTargetReplayCompactGroupSize
 		}
 		return normalizeShowingReplayMode(resolved.ShowingReplayMode) == ShowingReplayModeFull &&
 			resolved.AggregateR0Replay &&
-			resolved.NCols == aggregateV11ResearchNCols &&
-			groupSize == aggregateV11ResearchGroupSize &&
-			resolved.LVCSNCols == aggregateV11ResearchLVCSNCols &&
-			resolved.PostSignLVCSNCols == aggregateV11ResearchLVCSNCols &&
-			resolved.PRFLVCSNCols == aggregateV11ResearchLVCSNCols &&
-			resolved.Theta == aggregateV11ResearchTheta &&
-			resolved.Rho == aggregateV11ResearchRho &&
-			resolved.EllPrime == aggregateV11ResearchEllPrime &&
-			resolved.Eta == aggregateV11ResearchEta &&
-			resolved.NLeaves == aggregateV11ResearchNLeaves &&
-			resolved.PostSignNLeaves == aggregateV11ResearchNLeaves &&
-			resolved.PRFNLeaves == aggregateV11ResearchNLeaves &&
-			resolved.Kappa == aggregateV11ResearchKappa
-	case ShowingPresetCompactL3:
-		return resolved.SigShortnessProfile == SigShortnessProfileR24L3Compact &&
-			resolved.LVCSNCols == 68 &&
-			resolved.PostSignLVCSNCols == 68 &&
-			resolved.PRFLVCSNCols == 68 &&
-			resolved.Theta == 3 &&
-			resolved.Rho == 2 &&
-			resolved.EllPrime == 2 &&
-			resolved.Eta == 36 &&
-			resolved.NLeaves == 4096 &&
-			resolved.PostSignNLeaves == 4096 &&
-			resolved.PRFNLeaves == 4096 &&
-			resolved.Kappa == [4]int{0, 0, 0, 5}
-	case ShowingPresetCompactL2:
-		return resolved.SigShortnessProfile == SigShortnessProfileR111L2Compact &&
-			resolved.LVCSNCols == 70 &&
-			resolved.PostSignLVCSNCols == 70 &&
-			resolved.PRFLVCSNCols == 70 &&
-			resolved.Theta == 3 &&
-			resolved.Rho == 2 &&
-			resolved.EllPrime == 2 &&
-			resolved.Eta == 36 &&
-			resolved.NLeaves == 4096 &&
-			resolved.PostSignNLeaves == 4096 &&
-			resolved.PRFNLeaves == 4096 &&
-			resolved.Kappa == [4]int{0, 0, 0, 5}
-	case ShowingPresetCompactL1Research:
-		expectedLVCS := showingPresetLVCSNCols(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
-		expectedEta := showingPresetEta(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
-		expectedEllPrime := showingPresetEllPrime(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
-		expectedNLeaves := showingPresetNLeaves(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
-		expectedKappa := showingPresetKappa(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate)
-		return resolved.SigShortnessProfile == showingPresetSigShortnessProfile(ShowingPresetCompactL1Research, resolved.ShowingReplayMode, resolved.CompactFullCandidate) &&
-			resolved.LVCSNCols == expectedLVCS &&
-			resolved.PostSignLVCSNCols == expectedLVCS &&
-			resolved.PRFLVCSNCols == expectedLVCS &&
-			resolved.Theta == 3 &&
-			resolved.Rho == 2 &&
-			resolved.EllPrime == expectedEllPrime &&
-			resolved.Eta == expectedEta &&
-			resolved.NLeaves == expectedNLeaves &&
-			resolved.PostSignNLeaves == expectedNLeaves &&
-			resolved.PRFNLeaves == expectedNLeaves &&
-			resolved.Kappa == expectedKappa
-	case ShowingPresetTranscriptFirst, ShowingPresetProductionBalance:
-		return resolved.SigShortnessProfile == SigShortnessProfileR11L4Production &&
-			resolved.LVCSNCols == 32 &&
-			resolved.PostSignLVCSNCols == 32 &&
-			resolved.PRFLVCSNCols == 32 &&
-			resolved.Theta == 6 &&
-			resolved.Rho == 2 &&
-			resolved.EllPrime == 2 &&
-			resolved.Eta == 31 &&
-			resolved.NLeaves == 2048 &&
-			resolved.PostSignNLeaves == 2048 &&
-			resolved.PRFNLeaves == 2048 &&
-			resolved.Kappa == [4]int{}
+			resolved.NCols == aggregateInlineTargetReplayCompactNCols &&
+			groupSize == aggregateInlineTargetReplayCompactGroupSize &&
+			resolved.SigShortnessProfile == aggregateInlineTargetReplayCompactSigProfile &&
+			resolved.LVCSNCols == aggregateInlineTargetReplayCompactLVCSNCols &&
+			resolved.PostSignLVCSNCols == aggregateInlineTargetReplayCompactLVCSNCols &&
+			resolved.PRFLVCSNCols == aggregateInlineTargetReplayCompactLVCSNCols &&
+			resolved.Theta == aggregateInlineTargetReplayCompactTheta &&
+			resolved.Rho == aggregateInlineTargetReplayCompactRho &&
+			resolved.EllPrime == aggregateInlineTargetReplayCompactEllPrime &&
+			resolved.Eta == aggregateInlineTargetReplayCompactEta &&
+			resolved.NLeaves == aggregateInlineTargetReplayCompactNLeaves &&
+			resolved.PostSignNLeaves == aggregateInlineTargetReplayCompactNLeaves &&
+			resolved.PRFNLeaves == aggregateInlineTargetReplayCompactNLeaves &&
+			resolved.Kappa == aggregateInlineTargetReplayCompactKappa
 	default:
 		return false
 	}
@@ -971,9 +889,8 @@ type SimOpts struct {
 	// AggregateR0Replay replaces per-component R0 replay hats with one
 	// block-local B2*r0 aggregate row in full direct bb_tran showing proofs.
 	AggregateR0Replay bool
-	// PackedSigChainGroupSize is currently fixed to 1 for the live V11
-	// direct-target profile. Future pair-packing work should add a new
-	// versioned profile instead of silently changing this field.
+	// PackedSigChainGroupSize is fixed by the selected versioned profile:
+	// V11 uses 1 and V14 pair-packs two source blocks per shortness row.
 	PackedSigChainGroupSize int
 	// SigShortnessNCols is reserved for future single-root signature packing
 	// research. The removed V12/V13 two-oracle paths are no longer live.
@@ -1056,19 +973,19 @@ func (o *SimOpts) applyDefaults() {
 	o.BenchmarkSweepCandidate = normalizeBenchmarkSweepCandidate(o.BenchmarkSweepCandidate)
 	if o.Credential && resolveCoeffNativeSigModel(*o) == CoeffNativeSigModelLiteralPackedAggregatedV3 {
 		o.ShowingPreset = normalizeShowingPreset(o.ShowingPreset)
-		if o.ShowingPreset == ShowingPresetAggregateV6Research || o.ShowingPreset == ShowingPresetAggregateV11DirectTargetResearch {
+		if o.ShowingPreset == ShowingPresetAggregateV6Research || o.ShowingPreset == ShowingPresetInlineTargetReplayCompactResearch {
 			o.ShowingReplayMode = ShowingReplayModeFull
 			o.AggregateR0Replay = true
 			if o.NCols <= 0 {
 				o.NCols = aggregateV6ResearchNCols
 			}
 		}
-		if o.ShowingPreset == ShowingPresetAggregateV11DirectTargetResearch {
+		if o.ShowingPreset == ShowingPresetInlineTargetReplayCompactResearch {
 			if o.NCols <= 0 {
-				o.NCols = aggregateV11ResearchNCols
+				o.NCols = aggregateInlineTargetReplayCompactNCols
 			}
 			if o.PackedSigChainGroupSize <= 0 {
-				o.PackedSigChainGroupSize = aggregateV11ResearchGroupSize
+				o.PackedSigChainGroupSize = aggregateInlineTargetReplayCompactGroupSize
 			}
 		}
 		if !sigShortnessRawOverrideActive(*o) && o.SigShortnessProfile == "" {
@@ -1301,6 +1218,19 @@ type RowLayout struct {
 	PackedSigChainBlockWidth       int
 	PackedSigChainEffectiveBlocks  int
 	PackedSigChainSourceBlockWidth int
+	PairLookupExtractBase          int
+	PairLookupExtractGroupCount    int
+	PairLookupExtractRowsPerLane   int
+	PairLookupRangeLoWidth         int
+	PairLookupRangeHiWidth         int
+	PairLookupBase                 int
+	CoeffLookupBase                int
+	CoeffLookupRowCount            int
+	CoeffLookupComponents          int
+	CoeffLookupBlocks              int
+	CoeffLookupBlockWidth          int
+	CoeffLookupBeta                int
+	CoeffLookupTableSize           int
 	SigSignedChain                 bool
 	SigShortnessV9RandBase         int
 	SigShortnessV9RandCount        int
@@ -1440,7 +1370,7 @@ type Proof struct {
 }
 
 // SigShortnessProof carries the versioned signature shortness argument used by
-// the retained packed-signature showing path. V6 and V11 are the only live
+// the retained packed-signature showing path. V6 and V18 are the only live
 // showing families; removed experimental payload fields are retained only so
 // archived artifacts fail closed instead of decoding into an unknown shape.
 type SigShortnessProof struct {
@@ -1456,6 +1386,11 @@ type SigShortnessProof struct {
 	V11          *SigShortnessProofV11
 	V12          *SigShortnessProofV12
 	V13          *SigShortnessProofV13
+	V14          *SigShortnessProofV14
+	V15          *SigShortnessProofV15
+	V16          *SigShortnessProofV16
+	V17          *SigShortnessProofV17
+	V18          *SigShortnessProofV18
 }
 
 type SigShortnessProofV5 struct {
@@ -1534,6 +1469,77 @@ type SigShortnessProofV13 struct {
 	MainBlockWidth    int
 	EffectiveBlocks   int
 	LookupTableDigest []byte
+}
+
+type SigShortnessProofV14 struct {
+	Mode              uint8
+	Radix             int
+	Digits            int
+	GroupSize         int
+	BlockWidth        int
+	EffectiveBlocks   int
+	PairBase          int
+	RangeLoWidth      int
+	RangeHiWidth      int
+	LayoutDigest      []byte
+	RangeParamsDigest []byte
+	LookupTableDigest []byte
+}
+
+type SigShortnessProofV15 struct {
+	Mode               uint8
+	Q                  uint64
+	Beta               int
+	TableSize          int
+	Components         int
+	Blocks             int
+	BlockWidth         int
+	CoeffRowCount      int
+	LayoutDigest       []byte
+	LookupParamsDigest []byte
+	LookupTableDigest  []byte
+	DirectTargetDigest []byte
+	Lookup             *IntervalLookupProof
+}
+
+type SigShortnessProofV16 struct {
+	Mode         uint8
+	Radix        int
+	Digits       int
+	GroupSize    int
+	BlockWidth   int
+	LayoutDigest []byte
+}
+
+type SigShortnessProofV17 struct {
+	Mode                  uint8
+	Radix                 int
+	Digits                int
+	GroupSize             int
+	BlockWidth            int
+	LayoutDigest          []byte
+	DirectRelationDigest  []byte
+	BilinearBackendDigest []byte
+	BilinearBackendStatus string
+	BilinearFailureReason string
+}
+
+type SigShortnessProofV18 struct {
+	Mode                uint8
+	Radix               int
+	Digits              int
+	GroupSize           int
+	BlockWidth          int
+	LayoutDigest        []byte
+	ReplayCompactDigest []byte
+	PRFCompactDigest    []byte
+}
+
+type IntervalLookupProof struct {
+	Version       int
+	Backend       string
+	Status        string
+	FailureReason string
 }
 
 type SigShortnessAjtaiCommitment struct {
@@ -2835,17 +2841,6 @@ func sizeSigShortnessProof(sig *SigShortnessProof) int {
 		size += varintSize(sig.V10.BlockWidth)
 		return size
 	}
-	if sig.Version == sigShortnessProofVersionV11 && sig.V11 != nil {
-		size := 0
-		if sig.V11.Mode != 0 {
-			size++
-		}
-		size += varintSize(sig.V11.Radix)
-		size += varintSize(sig.V11.Digits)
-		size += varintSize(sig.V11.GroupSize)
-		size += varintSize(sig.V11.BlockWidth)
-		return size
-	}
 	if sig.Version == sigShortnessProofVersionV12 && sig.V12 != nil {
 		size := 0
 		if sig.V12.Mode != 0 {
@@ -2871,6 +2866,20 @@ func sizeSigShortnessProof(sig *SigShortnessProof) int {
 		size += varintSize(sig.V13.MainBlockWidth)
 		size += varintSize(sig.V13.EffectiveBlocks)
 		size += len(sig.V13.LookupTableDigest)
+		return size
+	}
+	if sig.Version == sigShortnessProofVersionV18 && sig.V18 != nil {
+		size := 0
+		if sig.V18.Mode != 0 {
+			size++
+		}
+		size += varintSize(sig.V18.Radix)
+		size += varintSize(sig.V18.Digits)
+		size += varintSize(sig.V18.GroupSize)
+		size += varintSize(sig.V18.BlockWidth)
+		size += len(sig.V18.LayoutDigest)
+		size += len(sig.V18.ReplayCompactDigest)
+		size += len(sig.V18.PRFCompactDigest)
 		return size
 	}
 	if sig.Version == sigShortnessProofVersionV8 && sig.V8 != nil {

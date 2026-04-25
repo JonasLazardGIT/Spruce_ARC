@@ -18,25 +18,25 @@ import (
 )
 
 const (
-	benchmarkTranscriptSweepVersion     = 3
-	transcriptSweepTheoremFloorBits     = 100.0
-	transcriptSweepTrackReduced         = "reduced"
-	transcriptSweepTrackFullV6          = "full_v6"
-	transcriptSweepTrackX0Controls      = "x0_controls"
-	transcriptSweepTrackPRFReduced      = "prf_controls_reduced"
-	transcriptSweepTrackPRFFull96       = "prf_controls_full96"
-	transcriptSweepKindCandidate        = "candidate"
-	transcriptSweepKindControl          = "control"
-	transcriptSweepKindX0Control        = "x0_control"
-	transcriptSweepBaselineReducedID    = "a1_w84_n4096_e40_ep2_sig_r11_l4_production_th3_r2_k0-0-0-5"
-	transcriptSweepBaselineFullID       = "b2_w96_n4096_e43_ep2_sig_r24_l3_compact_th3_r2_k0-0-0-5"
-	transcriptSweepBaselineFull96ID     = "full96_current_control"
-	transcriptSweepBaselineFullAggR0ID  = "full96_aggregate_r0_control"
-	transcriptSweepFullAggR0W64ID       = "full64_e34_aggregate_r0_control"
-	transcriptSweepFullAggR0W76ID       = "full76_e38_aggregate_r0_control"
-	transcriptSweepFullAggR0V11R24ID    = "full76_e38_aggregate_v11_direct_target_r24_control"
-	transcriptSweepBaselinePRFReducedID = "prf_reduced_output_audit_g2_s8"
-	transcriptSweepBaselinePRFFull96ID  = "prf_full96_output_audit_g2_s8"
+	benchmarkTranscriptSweepVersion      = 3
+	transcriptSweepTheoremFloorBits      = 100.0
+	transcriptSweepTrackReduced          = "reduced"
+	transcriptSweepTrackFullV6           = "full_v6"
+	transcriptSweepTrackX0Controls       = "x0_controls"
+	transcriptSweepTrackPRFReduced       = "prf_controls_reduced"
+	transcriptSweepTrackPRFFull96        = "prf_controls_full96"
+	transcriptSweepKindCandidate         = "candidate"
+	transcriptSweepKindControl           = "control"
+	transcriptSweepKindX0Control         = "x0_control"
+	transcriptSweepBaselineReducedID     = "a1_w84_n4096_e40_ep2_sig_r11_l4_production_th3_r2_k0-0-0-5"
+	transcriptSweepBaselineFullID        = "b2_w96_n4096_e43_ep2_sig_r24_l3_compact_th3_r2_k0-0-0-5"
+	transcriptSweepBaselineFull96ID      = "full96_current_control"
+	transcriptSweepBaselineFullAggR0ID   = "full96_aggregate_r0_control"
+	transcriptSweepFullAggR0W64ID        = "full64_e34_aggregate_r0_control"
+	transcriptSweepFullAggR0W76ID        = "full76_e38_aggregate_r0_control"
+	transcriptSweepInlineTargetCompactID = "full84_e39_inline_target_replay_compact_r11_k10_control"
+	transcriptSweepBaselinePRFReducedID  = "prf_reduced_output_audit_g2_s8"
+	transcriptSweepBaselinePRFFull96ID   = "prf_full96_output_audit_g2_s8"
 )
 
 type transcriptSweepPaperBuckets struct {
@@ -81,10 +81,10 @@ type transcriptSweepGeometry struct {
 	ReplayRHat1Rows           int `json:"replay_rhat1_rows"`
 	ReplayZHatRows            int `json:"replay_zhat_rows"`
 	ReplayTHatRows            int `json:"replay_that_rows"`
-	V11PackedGroupSize        int `json:"v11_packed_group_size"`
-	V11PackedBlockWidth       int `json:"v11_packed_block_width"`
-	V11EffectiveSigBlocks     int `json:"v11_effective_sig_blocks"`
-	V11ShortnessRows          int `json:"v11_shortness_rows"`
+	PackedSigGroupSize        int `json:"packed_sig_group_size"`
+	PackedSigBlockWidth       int `json:"packed_sig_block_width"`
+	PackedSigEffectiveBlocks  int `json:"packed_sig_effective_blocks"`
+	PackedSigShortnessRows    int `json:"packed_sig_shortness_rows"`
 	MaskRows                  int `json:"mask_rows"`
 }
 
@@ -440,10 +440,10 @@ func transcriptSweepGeometryFromReport(rep PIOP.ProofReport) transcriptSweepGeom
 		ReplayRHat1Rows:           rep.TranscriptFocus.ReplayRHat1Rows,
 		ReplayZHatRows:            rep.TranscriptFocus.ReplayZHatRows,
 		ReplayTHatRows:            rep.TranscriptFocus.ReplayTHatRows,
-		V11PackedGroupSize:        rep.TranscriptFocus.V11PackedSigChainGroupSize,
-		V11PackedBlockWidth:       rep.TranscriptFocus.V11PackedSigBlockWidth,
-		V11EffectiveSigBlocks:     rep.TranscriptFocus.V11EffectiveSigBlocks,
-		V11ShortnessRows:          rep.TranscriptFocus.V11ShortnessRows,
+		PackedSigGroupSize:        rep.TranscriptFocus.PackedSigChainGroupSize,
+		PackedSigBlockWidth:       rep.TranscriptFocus.PackedSigBlockWidth,
+		PackedSigEffectiveBlocks:  rep.TranscriptFocus.PackedSigEffectiveBlocks,
+		PackedSigShortnessRows:    rep.TranscriptFocus.PackedSigShortnessRows,
 		MaskRows:                  rep.TranscriptFocus.MaskRows,
 	}
 }
@@ -977,41 +977,6 @@ func generateFullV6AggregateWaveB4Configs() []transcriptSweepCandidateConfig {
 	return dedupeTranscriptSweepConfigs(out)
 }
 
-func generateFullV11RetuneConfigs() []transcriptSweepCandidateConfig {
-	out := make([]transcriptSweepCandidateConfig, 0)
-	for _, lvcs := range []int{56, 60, 64, 68, 72, 76, 80} {
-		for eta := 32; eta <= 40; eta++ {
-			for _, ellPrime := range []int{2, 3} {
-				for _, kappa := range [][4]int{{1, 0, 0, 5}, {2, 0, 0, 5}} {
-					id := makeSweepCandidateID("v11retune", lvcs, 4096, eta, ellPrime, PIOP.SigShortnessProfileR24L3Compact, 3, 2, kappa)
-					out = append(out, transcriptSweepCandidateConfig{
-						Track:               transcriptSweepTrackFullV6,
-						Kind:                transcriptSweepKindCandidate,
-						ID:                  id,
-						BasePreset:          PIOP.ShowingPresetAggregateV11DirectTargetResearch,
-						ReplayMode:          PIOP.ShowingReplayModeFull,
-						SigShortnessProfile: PIOP.SigShortnessProfileR24L3Compact,
-						LVCSNCols:           lvcs,
-						NLeaves:             4096,
-						Eta:                 eta,
-						EllPrime:            ellPrime,
-						Theta:               3,
-						Rho:                 2,
-						Kappa:               kappa,
-						BenchmarkCandidate:  id,
-						PRFMode:             PIOP.PRFCompanionModeOutputAudit,
-						PRFSamples:          8,
-						AggregateR0Replay:   true,
-						X0Profile:           "lhl_default",
-						Promotable:          true,
-					})
-				}
-			}
-		}
-	}
-	return dedupeTranscriptSweepConfigs(out)
-}
-
 func dedupeTranscriptSweepConfigs(configs []transcriptSweepCandidateConfig) []transcriptSweepCandidateConfig {
 	out := make([]transcriptSweepCandidateConfig, 0, len(configs))
 	seen := make(map[string]struct{}, len(configs))
@@ -1205,11 +1170,11 @@ func runFullV6TranscriptSweepTrack(ctx *transcriptSweepContext, runs int, contro
 			SigShortnessProfile: PIOP.SigShortnessProfileR24L3Compact,
 			LVCSNCols:           76,
 			NLeaves:             4096,
-			Eta:                 38,
+			Eta:                 39,
 			EllPrime:            2,
 			Theta:               3,
 			Rho:                 2,
-			Kappa:               [4]int{2, 0, 0, 5},
+			Kappa:               [4]int{10, 0, 0, 5},
 			BenchmarkCandidate:  transcriptSweepFullAggR0W76ID,
 			PRFMode:             PIOP.PRFCompanionModeOutputAudit,
 			PRFSamples:          8,
@@ -1219,18 +1184,18 @@ func runFullV6TranscriptSweepTrack(ctx *transcriptSweepContext, runs int, contro
 		{
 			Track:               transcriptSweepTrackFullV6,
 			Kind:                transcriptSweepKindControl,
-			ID:                  transcriptSweepFullAggR0V11R24ID,
-			BasePreset:          PIOP.ShowingPresetAggregateV11DirectTargetResearch,
+			ID:                  transcriptSweepInlineTargetCompactID,
+			BasePreset:          PIOP.ShowingPresetInlineTargetReplayCompactResearch,
 			ReplayMode:          PIOP.ShowingReplayModeFull,
-			SigShortnessProfile: PIOP.SigShortnessProfileR24L3Compact,
-			LVCSNCols:           76,
+			SigShortnessProfile: PIOP.SigShortnessProfileR11L4Production,
+			LVCSNCols:           84,
 			NLeaves:             4096,
-			Eta:                 38,
+			Eta:                 39,
 			EllPrime:            2,
 			Theta:               3,
 			Rho:                 2,
-			Kappa:               [4]int{2, 0, 0, 5},
-			BenchmarkCandidate:  transcriptSweepFullAggR0V11R24ID,
+			Kappa:               [4]int{10, 0, 0, 5},
+			BenchmarkCandidate:  transcriptSweepInlineTargetCompactID,
 			PRFMode:             PIOP.PRFCompanionModeOutputAudit,
 			PRFSamples:          8,
 			AggregateR0Replay:   true,
@@ -1262,12 +1227,6 @@ func runFullV6TranscriptSweepTrack(ctx *transcriptSweepContext, runs int, contro
 			return nil, transcriptSweepTrackSummary{}, err
 		}
 		allEntries = append(allEntries, b4Entries...)
-		v11Retune := generateFullV11RetuneConfigs()
-		v11Entries, _, err := runTranscriptSweepConfigs(ctx, v11Retune, runs)
-		if err != nil {
-			return nil, transcriptSweepTrackSummary{}, err
-		}
-		allEntries = append(allEntries, v11Entries...)
 	}
 	if controlsOnly {
 		controlEntries, _, err := runTranscriptSweepConfigs(ctx, controlConfigs, runs)

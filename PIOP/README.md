@@ -1,101 +1,30 @@
-# PIOP
+# PIOP Notes
 
-`PIOP/` contains the proving and verifying core for the current SPRUCE branch.
+The live showing implementation keeps two maintained families:
 
-Its job is to compile the live issuance and showing relations into the retained
-SmallWood-style DECS/LVCS proof flow.
+- V6 hidden-shortness controls, reached by `-full` and `aggregate_v6_research`.
+- The optimized inline-target replay-compact family, exposed as
+  `aggregate_inline_target_replay_compact_research`.
 
-## Live Statements
+The optimized family stores `SigShortnessProofV18` with version `18` and reports
+mode `sig_shortness_inline_target_replay_compact_hiding`. It is single-root,
+uses the existing 16-column main row oracle, keeps private `R11,L4` signature
+digit rows, omits committed `TargetMR0Hat`, and keeps `RHat1` and `ZHat` rows.
 
-### Issuance / pre-sign
+The current canonical tuple is:
 
-The live pre-sign statement binds:
+```text
+lvcs_ncols=84
+nleaves=4096
+eta=39
+ell'=2
+theta=3
+rho=2
+kappa={10,0,0,5}
+sig_profile=r11_l4_production
+```
 
-- Ajtai commitment opening to
-  `(m, k, r0H[0..X0Len-1], r1H, rbar)`
-- componentwise centering for the vector `x0` side
-  - `r0[j] = center(r0H[j] + r0I[j])`
-- scalar centering for `r1`
-  - `r1 = center(r1H + r1I)`
-- inverse witness
-  - `(B3 - r1) ⊙ Z = 1`
-- target equation
-  - `T = B0 + B1(m||k) + sum_j B2[j] * r0[j] + Z`
-
-### Showing
-
-The live showing statement binds:
-
-- signature witness `u`
-- semantic credential rows `(m, k, r0[0..], r1, Z)`
-- PRF/tag relation `tag = F(k, nonce)`
-
-The showing relation is:
-
-- `(B3 - r1) ⊙ Z = 1`
-- `A u = B0 + B1(m||k) + sum_j B2[j] * r0[j] + Z`
-- `tag = F(k, nonce)`
-
-## Current Witness Surface
-
-The live branch is now vector-aware on the `x0` side.
-
-Important consequence:
-
-- `RU0[]`, `R0[]`, and `K0[]` are true x0 blocks
-- those x0 carrier rows now use a true singleton low-alphabet codec
-- scalar rows `RU1`, `RBar`, `R1`, `K1` still use the existing scalar pair path
-
-This is the first-pass transcript reduction already reflected in the live code
-and in `benchmark-x0`.
-
-## Main Responsibilities
-
-- build issuance and showing witness rows
-- compile active constraint families
-- drive DECS/LVCS commitments and openings
-- run Fiat-Shamir
-- replay verifier checks from opened rows and public inputs
-- produce proof reports, paper transcript reports, and replay audits
-
-## Main Entry Points
-
-- `NewCredentialBuilder`
-- `BuildWithConstraints`
-- `VerifyWithConstraints`
-- `BuildShowingCombined`
-- `BuildCredentialRowsShowing`
-- `BuildProofReport`
-- `BuildReplayFamilyAuditReport`
-
-## Current Invariants
-
-- explicit-domain DECS/LVCS semantics
-- canonical live relation `bb_tran`
-- semantic witness rows only
-- no live `Uc` / source-product / aligned-commitment path
-- shipped showing surface:
-  - reduced replay
-  - `soundness_balanced`
-  - `output_audit`
-- maintained full replay control:
-  - direct `bb_tran` theorem-clean replay image
-  - no live source-product rows
-- aggregate full replay measurement control:
-  - opt-in `B2*r0` replay aggregation
-  - keeps source carriers and membership checks unchanged
-  - `aggregate_v6_research` selects the tuned aggregate V6 tuple while leaving
-    the default full control untouched
-  - `aggregate_v11_direct_target_research` keeps private inlined shortness while
-    removing committed `THat` rows and replacing `MHatSigma + R0B2Hat` replay
-    with one `TargetMR0Hat` row per block.
-  - V7/V8/V9/V10/V12/V13 are no longer live protocol families in the resolver.
-
-## Read Next
-
-- [../docs/protocol.md](../docs/protocol.md)
-- [../docs/nizk_alignment_notes.md](../docs/nizk_alignment_notes.md)
-- [../docs/transcript_reduction_analysis.md](../docs/transcript_reduction_analysis.md)
-- [../docs/full_baseline_proof_study.md](../docs/full_baseline_proof_study.md)
-- [../DECS/README.md](../DECS/README.md)
-- [../LVCS/README.md](../LVCS/README.md)
+Old research payloads are no longer public proof surfaces. Their preset labels
+must fail closed when requested through the CLI. Archived internal helpers may
+remain only where they are needed for old artifact rejection or shared layout
+code; they are not live profiles.

@@ -1,262 +1,37 @@
-# Command Guide
+# Commands
 
-This is the operator-facing command guide for the live SPRUCE branch.
+## Showing
 
-Run all commands from the repository root.
-
-## Prerequisites
-
-- Go with module support
-- tracked runtime assets present:
-  - `Parameters/Parameters.json`
-  - `Parameters/credential_public.json`
-  - `Parameters/Bmatrix_bb_tran_x0len6.json`
-  - `prf/prf_params.json`
-
-Most workflows also read or write:
-
-- `ntru_keys/`
-- `credential/issuance/`
-- `credential/keys/`
-
-Current emitted formats:
-
-- public params: `version = 2`
-- issuance artifacts: `version = 2`
-- credential state: `version = 2`
-- `benchmark-x0` export: `version = 2`
-
-Compatibility notes:
-
-- public params still load older semantic/legacy length names
-- credential state loader upgrades `version = 1` shared-randomness state to the
-  current `version = 2` metadata surface
-- issuance artifacts are stricter and should be regenerated if they predate the
-  current branch
-- aligned or unversioned legacy artifacts are not part of the live surface
-
-See [docs/shared_randomness_migration.md](docs/shared_randomness_migration.md)
-for the regeneration rules.
-
-## `cmd/ntrucli`
-
-### Generate keys
-
-```bash
-go run ./cmd/ntrucli gen
-```
-
-Writes:
-
-- `ntru_keys/public.json`
-- `ntru_keys/private.json`
-
-### Sign a message
-
-```bash
-go run ./cmd/ntrucli sign -m test
-```
-
-Writes `ntru_keys/signature.json`.
-
-### Verify a signature
-
-```bash
-go run ./cmd/ntrucli verify
-```
-
-Verifies `ntru_keys/signature.json` against `ntru_keys/public.json`.
-
-## `cmd/issuance`
-
-`cmd/issuance` is the role-separated CLI for the live shared-randomness
-issuance protocol.
-
-Retained subcommands:
-
-- `setup-demo-public`
-- `holder-commit`
-- `issuer-challenge`
-- `holder-prove`
-- `issuer-verify-sign`
-- `holder-finalize`
-- `demo-local`
-- `benchmark-x0`
-
-### Default one-machine flow
-
-```bash
-go run ./cmd/issuance demo-local
-```
-
-This runs the full holder/issuer sequence and writes:
-
-- `credential/issuance/holder_secret.json`
-- `credential/issuance/commit_request.json`
-- `credential/issuance/issue_challenge.json`
-- `credential/issuance/presign_submission.json`
-- `credential/issuance/issue_response.json`
-- `credential/keys/credential_state.json`
-- `credential/keys/signature.json`
-
-### Role-separated flow
-
-```bash
-go run ./cmd/issuance holder-commit
-go run ./cmd/issuance issuer-challenge
-go run ./cmd/issuance holder-prove
-go run ./cmd/issuance issuer-verify-sign
-go run ./cmd/issuance holder-finalize
-```
-
-Protocol meaning:
-
-- `holder-commit`
-  - samples `m`, `k`, `r0h[0..X0Len-1]`, `r1h`, `rbar`
-  - computes `com = ACom [m || k || r0h || r1h || rbar]^T`
-- `issuer-challenge`
-  - samples issuer rows `ri0[0..X0Len-1]` and `ri1`
-- `holder-prove`
-  - centers `r0[j] = center(r0h[j] + ri0[j])`
-  - centers `r1 = center(r1h + ri1)`
-  - computes `Z` and public target `T`
-  - emits the pre-sign proof
-- `issuer-verify-sign`
-  - verifies the pre-sign proof and signs `T`
-- `holder-finalize`
-  - verifies `A u = T`
-  - persists the final semantic credential state
-
-### `setup-demo-public`
-
-This command generates the canonical credential public parameters and the
-matching `B` matrix.
-
-Default profile:
-
-```bash
-go run ./cmd/issuance setup-demo-public -force
-```
-
-Current default:
-
-- `x0-profile=lhl_default`
-- `X0Len = 6`
-- `X0CoeffBound = 5`
-- `TargetDim = 1`
-- `TargetHidingLambda = 128`
-
-Supported profiles:
-
-- `legacy_scalar`
-- `lhl_default`
-- `lhl_alt`
-
-You can also override with:
-
-- `-x0-len`
-- `-x0-bound`
-
-The generated `B` row order for `bb_tran` is:
-
-- `B0`
-- `B1`
-- `B2[0] ... B2[X0Len-1]`
-- `B3`
-
-### `benchmark-x0`
-
-Use this to compare transcript and proof size across `x0` profiles:
-
-```bash
-go run ./cmd/issuance benchmark-x0 -profiles legacy_scalar,lhl_default,lhl_alt -runs 1
-```
-
-Optional JSON export:
-
-```bash
-go run ./cmd/issuance benchmark-x0 -profiles legacy_scalar,lhl_default,lhl_alt -runs 1 -json-out /tmp/benchmark.json
-```
-
-The current JSON export includes, per run:
-
-- proof bytes
-- paper transcript bytes
-- paper transcript bucket breakdowns
-- transcript-focus geometry
-- witness/replay row counts
-- LHL slack
-
-## `cmd/showing`
-
-`cmd/showing` reads the persisted credential state and builds a post-sign proof
-for the live `bb_tran` relation.
-
-Default shipped command:
+Live commands:
 
 ```bash
 go run ./cmd/showing
-```
-
-Current live semantics:
-
-- witness `(u, m, k, r0[0..X0Len-1], r1, Z)`
-- public `tag = F(k, nonce)`
-- direct showing equation
-  - `A u = B0 + B1 * (m || k) + sum_j B2[j] * r0[j] + Z`
-- reduced replay under the `soundness_balanced` preset
-- `output_audit` PRF companion route
-
-### Maintained full replay control
-
-The maintained direct `bb_tran` full replay control is:
-
-```bash
 go run ./cmd/showing -full
-```
-
-It proves the same direct showing equation over the complete replay image and
-does not reintroduce deprecated source-product rows. The shipped default remains
-the smaller reduced replay path.
-
-Live full replay row-surface controls:
-
-```bash
 go run ./cmd/showing -showing-preset aggregate_v6_research
-go run ./cmd/showing -showing-preset aggregate_v11_direct_target_research
+go run ./cmd/showing -showing-preset aggregate_inline_target_replay_compact_research
 ```
 
-This keeps the same direct `bb_tran` statement but replaces the six per-block
-`RHat0[j]` replay rows with one block-local `sum_j B2[j] * r0[j]` replay row.
-The `aggregate_v6_research` preset also selects the current tuned aggregate V6
-tuple (`lvcs=76`, `eta=38`, `kappa={2,0,0,5}`) and keeps the default `-full`
-control unchanged.
+`go run ./cmd/showing` is the reduced `soundness_balanced` path.
 
-`aggregate_v11_direct_target_research` keeps private inlined shortness but removes
-committed `THat` replay rows. It proves the target equation directly against
-`B0 + TargetMR0Hat + ZHat`, where `TargetMR0Hat` combines the old
-`B1*MHatSigma + B2*r0` replay contribution in one row per block.
+`go run ./cmd/showing -full` is the maintained V6 hidden-shortness full replay
+baseline.
 
-V7/V8/V9/V10/V12/V13 were experimental showing surfaces and are no longer live
-presets or benchmark tracks. Historical notes remain in the transcript analysis,
-but new work should target V11 pair-packing and lookup/range membership.
+`aggregate_v6_research` is the aggregate V6 control.
 
-### Common knobs
+`aggregate_inline_target_replay_compact_research` is the canonical optimized
+profile. It uses internal proof version `18`, mode
+`sig_shortness_inline_target_replay_compact_hiding`, `R11,L4`, `lvcs_ncols=84`,
+`eta=39`, `theta=3`, `rho=2`, `ell'=2`, and `kappa={10,0,0,5}`.
 
-- `-showing-preset`
-- `-full`
-- `-aggregate-r0-replay`
-- `-sig-shortness-profile`
-- `-prf-companion-mode`
-
-## Typical End-to-End Sequence
+## Tests
 
 ```bash
-go run ./cmd/ntrucli gen
-go run ./cmd/issuance demo-local
-go run ./cmd/showing
+go test ./PIOP
+go test ./cmd/showing
 ```
 
-For protocol semantics, read [docs/protocol.md](docs/protocol.md). For
-compatibility and regeneration rules, read
-[docs/shared_randomness_migration.md](docs/shared_randomness_migration.md).
+## Pruned Presets
+
+Removed research labels are invalid and are not mapped to the optimized profile.
+This includes the old V11, V14, V15, V16, V17, legacy V18/W84, V19,
+`compact_l1_research`, `transcript_first`, and `production_balance` strings.

@@ -549,6 +549,11 @@ func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 			rowCount = end
 		}
 	}
+	if layout.PairLookupExtractBase >= 0 {
+		if end := layout.PairLookupExtractBase + rowLayoutPairLookupExtractRowCount(layout); end > rowCount {
+			rowCount = end
+		}
+	}
 	return rowCount
 }
 
@@ -638,32 +643,34 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	if !signatureSpecNoWrapOK(spec) {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("signature chain spec violates no-wrap bound: maxAbs=%d q=%d", spec.MaxAbs, spec.Q)
 	}
-	useV11Shortness := sigShortnessV11EnabledForOpts(opts)
-	useInlinedShortness := useV11Shortness
-	useDirectTargetReplay := useV11Shortness
+	useV18Shortness := sigShortnessV18EnabledForOpts(opts)
+	useInlinedShortness := useV18Shortness
+	useDirectTargetReplay := useV18Shortness
+	useTargetMR0HatReplay := false
+	useRHat1Replay := true
 	if useInlinedShortness && spec.UsesAbsRow {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("inlined sig shortness does not support abs-row packed chains")
 	}
-	if useV11Shortness {
+	if useV18Shortness {
 		sourceNCols := cn.PackedNCols
 		if sourceNCols <= 0 {
 			sourceNCols = ncols
 		}
 		groupSize := opts.PackedSigChainGroupSize
 		if groupSize <= 0 {
-			groupSize = aggregateV11ResearchGroupSize
+			groupSize = aggregateInlineTargetReplayCompactGroupSize
 		}
 		if groupSize <= 0 {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("sig shortness V11 requires positive group size, got %d", groupSize)
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("inlined sig shortness requires positive group size, got %d", groupSize)
 		}
-		if groupSize != 1 {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("sig shortness V11 group_size=%d is not live; use a new versioned pair-packing profile", groupSize)
+		if groupSize != aggregateInlineTargetReplayCompactGroupSize {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("sig shortness V18 group_size=%d want %d", groupSize, aggregateInlineTargetReplayCompactGroupSize)
 		}
 		if ncols != sourceNCols {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("sig shortness V11 ncols=%d want source_ncols=%d", ncols, sourceNCols)
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("inlined sig shortness ncols=%d want source_ncols=%d", ncols, sourceNCols)
 		}
 		if int(ringQ.N)%ncols != 0 {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("sig shortness V11 invalid block geometry N=%d ncols=%d", ringQ.N, ncols)
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("inlined sig shortness invalid block geometry N=%d ncols=%d", ringQ.N, ncols)
 		}
 	} else if cn.PackedNCols != ncols {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native packed ncols=%d want %d", cn.PackedNCols, ncols)
@@ -783,6 +790,103 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	idxCarrierR1 := len(rows)
 	rows = append(rows, makeRowFromHead(carrierR1Head))
 
+	companionMode := normalizePRFCompanionMode(opts.PRFCompanionMode)
+	appendPRFCompanionRows := func(denseKeyPacking bool) error {
+		if prfGroupRounds <= 0 {
+			prfGroupRounds = 1
+		}
+		var keyScalars []int64
+		var kerr error
+		if opts.DomainMode == DomainModeExplicit {
+			if len(explicitOmega) == 0 {
+				return fmt.Errorf("explicit omega missing for semantic key extraction")
+			}
+			keyScalars, kerr = ExtractSignedPRFKeyScalarsFromCarrierOnOmega(ringQ, rows[idxCarrierM], explicitOmega, cn.PackedNCols, prfParamsLenKey, pub.BoundB)
+		} else {
+			keyScalars, kerr = ExtractSignedPRFKeyScalarsFromCarrier(ringQ, rows[idxCarrierM], cn.PackedNCols, prfParamsLenKey, pub.BoundB)
+		}
+		if kerr != nil {
+			return fmt.Errorf("extract signed prf key: %w", kerr)
+		}
+		if companionMode == "" {
+			return fmt.Errorf("showing requires PRF companion mode")
+		}
+		companionStart := len(rows)
+		if startIdx <= 0 {
+			startIdx = companionStart
+		}
+		keyElems := make([]prf.Elem, len(keyScalars))
+		for i := range keyScalars {
+			keyElems[i] = prf.Elem(liftToField(ringQ.Modulus[0], keyScalars[i]))
+		}
+		nonceElems := make([]prf.Elem, len(pub.Nonce))
+		for i := range pub.Nonce {
+			if len(pub.Nonce[i]) == 0 {
+				return fmt.Errorf("public nonce lane %d is empty", i)
+			}
+			nonceElems[i] = prf.Elem(liftToField(ringQ.Modulus[0], pub.Nonce[i][0]))
+		}
+		params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+		if perr != nil {
+			return fmt.Errorf("load prf params for companion witness: %w", perr)
+		}
+		groupedWitness, gwerr := prf.TraceGroupedWitness(keyElems, nonceElems, params, prfGroupRounds)
+		if gwerr != nil {
+			return fmt.Errorf("trace grouped prf witness: %w", gwerr)
+		}
+		packed, perr := packPRFCompanionWitnessRows(ringQ, ncols, companionStart, companionMode, denseKeyPacking, keyElems, groupedWitness, makeRowFromHead)
+		if perr != nil {
+			return fmt.Errorf("pack prf companion rows: %w", perr)
+		}
+		rows = append(rows, packed.Rows...)
+		if len(packed.KeySlots) == 0 {
+			return fmt.Errorf("prf companion missing key slots for independent-key showing")
+		}
+		rowSemantics := make([]RowSemantics, len(packed.Rows))
+		for i := range rowSemantics {
+			rowSemantics[i] = CoeffPackedRow
+		}
+		dataRows := ceilDiv(len(packed.KeySlots)+len(packed.CheckpointSlots), ncols)
+		helperRows := maxInt(len(packed.Rows)-dataRows, 0)
+		helperFamilies := []string{"final_tag_state"}
+		if denseKeyPacking && helperRows == 0 {
+			helperFamilies = nil
+		}
+		prfCompanionLayout = &PRFCompanionLayout{
+			StartRow:           companionStart,
+			PackWidth:          ncols,
+			KeySource:          KeySourceIndependentWitness,
+			KeySlots:           packed.KeySlots,
+			CheckpointSlots:    packed.CheckpointSlots,
+			FinalTagSlots:      packed.FinalTagSlots,
+			HelperFamilies:     helperFamilies,
+			ReplayRows:         len(packed.Rows),
+			PackedRows:         len(packed.Rows),
+			PackedLogicalCount: packed.TotalLogicalScalars,
+			HelperRowCount:     helperRows,
+			DataRows:           dataRows,
+			HelperRows:         helperRows,
+			KeyCount:           len(packed.KeySlots),
+			CheckpointCount:    len(packed.CheckpointSlots),
+			TagCount:           len(pub.Tag),
+			RowSemantics:       rowSemantics,
+		}
+		if companionMode == PRFCompanionModeAuxInstance {
+			pcsNCols := resolvePCSNCols(opts, ncols)
+			var aerr error
+			rows, aerr = appendPRFBridgeStripeRows(ringQ, rows, prfCompanionLayout, pcsNCols)
+			if aerr != nil {
+				return fmt.Errorf("append prf bridge stripe rows: %w", aerr)
+			}
+		}
+		return nil
+	}
+	if useV18Shortness {
+		if err := appendPRFCompanionRows(true); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+		}
+	}
+
 	rawAliasSurface, derr := DerivePreSignCarrierAndAliasRows(
 		ringQ,
 		pub.BoundB,
@@ -813,6 +917,7 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	rows = append(rows, rawAliasSurface.AliasR1)
 
 	useBBTran := publicUsesBBTran(pub)
+	useZHatReplay := useBBTran
 	idxZ := -1
 	var zSourcePoly *ring.Poly
 	if useBBTran {
@@ -874,7 +979,7 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		}
 	}
 	var targetMR0HatHeads [][]uint64
-	if useDirectTargetReplay {
+	if useTargetMR0HatReplay {
 		if !aggregateR0Replay {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("direct-target V11 replay requires aggregate R0 replay")
 		}
@@ -894,12 +999,15 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			targetMR0HatHeads[block] = head
 		}
 	}
-	r1HatHeads, berr := buildReplayHeadsFromSourcePoly(ringQ, rawAliasSurface.AliasR1, explicitOmega, replayBlockCount, "R1")
-	if berr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R1 hats: %w", berr)
+	var r1HatHeads [][]uint64
+	if useRHat1Replay {
+		r1HatHeads, berr = buildReplayHeadsFromSourcePoly(ringQ, rawAliasSurface.AliasR1, explicitOmega, replayBlockCount, "R1")
+		if berr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R1 hats: %w", berr)
+		}
 	}
 	var zHatHeads [][]uint64
-	if useBBTran {
+	if useZHatReplay {
 		zHatHeads, derr = buildReplayHeadsFromCoeffPolyNTT(ringQ, zSourcePoly, replayBlockCount, ncols, "Z")
 		if derr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native Z hats: %w", derr)
@@ -929,8 +1037,14 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	replayRHat0Rows := make([]int, 0, replayBlockCount*len(r0HatHeads))
 	replayR0B2HatRows := make([]int, 0, replayBlockCount)
 	replayTargetMR0HatRows := make([]int, 0, replayBlockCount)
-	replayRHat1Rows := make([]int, replayBlockCount)
-	replayZHatRows := make([]int, replayBlockCount)
+	var replayRHat1Rows []int
+	if useRHat1Replay {
+		replayRHat1Rows = make([]int, replayBlockCount)
+	}
+	var replayZHatRows []int
+	if useZHatReplay {
+		replayZHatRows = make([]int, replayBlockCount)
+	}
 	replayTHatRows := make([]int, replayTHatCount)
 	packedFullReplay := false
 	if opts.ShowingReplayMode == ShowingReplayModeFull && replayBlockCount > 1 && !useDirectTargetReplay {
@@ -1034,10 +1148,16 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		for block := 0; block < replayBlockCount; block++ {
 			if useDirectTargetReplay {
 				replayTargetMR0HatRows = append(replayTargetMR0HatRows, len(rows))
-				rows = append(rows, makeRowFromHead(targetMR0HatHeads[block]))
-				replayRHat1Rows[block] = len(rows)
-				rows = append(rows, makeRowFromHead(r1HatHeads[block]))
-				if useBBTran {
+				if useTargetMR0HatReplay {
+					rows = append(rows, makeRowFromHead(targetMR0HatHeads[block]))
+				} else {
+					replayTargetMR0HatRows = replayTargetMR0HatRows[:len(replayTargetMR0HatRows)-1]
+				}
+				if useRHat1Replay {
+					replayRHat1Rows[block] = len(rows)
+					rows = append(rows, makeRowFromHead(r1HatHeads[block]))
+				}
+				if useZHatReplay {
 					replayZHatRows[block] = len(rows)
 					rows = append(rows, makeRowFromHead(zHatHeads[block]))
 				}
@@ -1054,9 +1174,11 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 					rows = append(rows, makeRowFromHead(r0HatHeads[i][block]))
 				}
 			}
-			replayRHat1Rows[block] = len(rows)
-			rows = append(rows, makeRowFromHead(r1HatHeads[block]))
-			if useBBTran {
+			if useRHat1Replay {
+				replayRHat1Rows[block] = len(rows)
+				rows = append(rows, makeRowFromHead(r1HatHeads[block]))
+			}
+			if useZHatReplay {
 				replayZHatRows[block] = len(rows)
 				rows = append(rows, makeRowFromHead(zHatHeads[block]))
 			}
@@ -1075,14 +1197,24 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	packedSigChainBlockWidth := 0
 	packedSigChainEffectiveBlocks := 0
 	packedSigChainSourceBlockWidth := ncols
+	pairLookupExtractBase := -1
+	pairLookupExtractGroupCount := 0
+	pairLookupExtractRowsPerLane := 0
+	pairLookupRangeLoWidth := 0
+	pairLookupRangeHiWidth := 0
+	pairLookupBase := 0
+	coeffLookupBase := -1
+	coeffLookupRowCount := 0
+	coeffLookupComponents := 0
+	coeffLookupBlocks := 0
+	coeffLookupBlockWidth := 0
+	coeffLookupBeta := 0
+	coeffLookupTableSize := 0
 	sigSignedChain := false
 	if useInlinedShortness {
-		groupSize := 1
-		if useV11Shortness {
-			groupSize = opts.PackedSigChainGroupSize
-			if groupSize <= 0 {
-				groupSize = aggregateV11ResearchGroupSize
-			}
+		groupSize := opts.PackedSigChainGroupSize
+		if groupSize <= 0 {
+			groupSize = aggregateInlineTargetReplayCompactGroupSize
 		}
 		rowsPerGroup, err := signaturePackedChainRowsPerGroupForOpts(spec, opts, groupSize)
 		if err != nil {
@@ -1128,25 +1260,11 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		}
 	}
 
-	if prfGroupRounds <= 0 {
-		prfGroupRounds = 1
-	}
-	var keyScalars []int64
-	if opts.DomainMode == DomainModeExplicit {
-		if len(explicitOmega) == 0 {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("explicit omega missing for semantic key extraction")
+	if !useV18Shortness {
+		startIdx = len(rows)
+		if err := appendPRFCompanionRows(false); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
-		keyScalars, err = ExtractSignedPRFKeyScalarsFromCarrierOnOmega(ringQ, rows[idxCarrierM], explicitOmega, cn.PackedNCols, prfParamsLenKey, pub.BoundB)
-	} else {
-		keyScalars, err = ExtractSignedPRFKeyScalarsFromCarrier(ringQ, rows[idxCarrierM], cn.PackedNCols, prfParamsLenKey, pub.BoundB)
-	}
-	if err != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("extract signed prf key: %w", err)
-	}
-	startIdx = len(rows)
-	companionMode := normalizePRFCompanionMode(opts.PRFCompanionMode)
-	if companionMode == "" {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("showing requires PRF companion mode")
 	}
 
 	layout.HasExplicitBaseIdx = true
@@ -1174,8 +1292,10 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	if useDirectTargetReplay {
 		layout.IdxTHatBase = -1
 		layout.ReplayTHatRows = nil
-		layout.IdxTargetMR0Hat = firstIndex(replayTargetMR0HatRows)
-		layout.ReplayTargetMR0HatRows = append([]int(nil), replayTargetMR0HatRows...)
+		if useTargetMR0HatReplay {
+			layout.IdxTargetMR0Hat = firstIndex(replayTargetMR0HatRows)
+			layout.ReplayTargetMR0HatRows = append([]int(nil), replayTargetMR0HatRows...)
+		}
 	} else {
 		layout.IdxTHatBase = replayTHatRows[0]
 		layout.ReplayTHatRows = append([]int(nil), replayTHatRows...)
@@ -1207,13 +1327,18 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		layout.IdxR0B2Hat = -1
 		layout.ReplayR0B2HatRows = nil
 	}
-	layout.IdxRHat1 = replayRHat1Rows[0]
-	layout.ReplayRHat1Rows = append([]int(nil), replayRHat1Rows...)
+	if useRHat1Replay {
+		layout.IdxRHat1 = replayRHat1Rows[0]
+		layout.ReplayRHat1Rows = append([]int(nil), replayRHat1Rows...)
+	} else {
+		layout.IdxRHat1 = -1
+		layout.ReplayRHat1Rows = nil
+	}
 	layout.IdxMSigmaR1 = -1
 	layout.IdxR0R1 = -1
 	layout.IdxMSigmaR1Alias = -1
 	layout.IdxR0R1Alias = -1
-	if useBBTran {
+	if useZHatReplay {
 		layout.IdxZHat = replayZHatRows[0]
 		layout.ReplayZHatRows = append([]int(nil), replayZHatRows...)
 		layout.IdxMSigmaR1Hat = -1
@@ -1235,6 +1360,19 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.PackedSigChainBlockWidth = packedSigChainBlockWidth
 	layout.PackedSigChainEffectiveBlocks = packedSigChainEffectiveBlocks
 	layout.PackedSigChainSourceBlockWidth = packedSigChainSourceBlockWidth
+	layout.PairLookupExtractBase = pairLookupExtractBase
+	layout.PairLookupExtractGroupCount = pairLookupExtractGroupCount
+	layout.PairLookupExtractRowsPerLane = pairLookupExtractRowsPerLane
+	layout.PairLookupRangeLoWidth = pairLookupRangeLoWidth
+	layout.PairLookupRangeHiWidth = pairLookupRangeHiWidth
+	layout.PairLookupBase = pairLookupBase
+	layout.CoeffLookupBase = coeffLookupBase
+	layout.CoeffLookupRowCount = coeffLookupRowCount
+	layout.CoeffLookupComponents = coeffLookupComponents
+	layout.CoeffLookupBlocks = coeffLookupBlocks
+	layout.CoeffLookupBlockWidth = coeffLookupBlockWidth
+	layout.CoeffLookupBeta = coeffLookupBeta
+	layout.CoeffLookupTableSize = coeffLookupTableSize
 	layout.SigSignedChain = sigSignedChain
 	layout.SigShortnessV9RandBase = -1
 	layout.SigShortnessV9RandCount = 0
@@ -1284,70 +1422,10 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		ScalarBundleBase:    -1,
 		ScalarBundleCount:   0,
 	}
-	if companionMode != "" {
-		companionStart := len(rows)
-		keyElems := make([]prf.Elem, len(keyScalars))
-		for i := range keyScalars {
-			keyElems[i] = prf.Elem(liftToField(ringQ.Modulus[0], keyScalars[i]))
-		}
-		nonceElems := make([]prf.Elem, len(pub.Nonce))
-		for i := range pub.Nonce {
-			if len(pub.Nonce[i]) == 0 {
-				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("public nonce lane %d is empty", i)
-			}
-			nonceElems[i] = prf.Elem(liftToField(ringQ.Modulus[0], pub.Nonce[i][0]))
-		}
-		params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
-		if perr != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("load prf params for companion witness: %w", perr)
-		}
-		groupedWitness, gwerr := prf.TraceGroupedWitness(keyElems, nonceElems, params, prfGroupRounds)
-		if gwerr != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("trace grouped prf witness: %w", gwerr)
-		}
-		packed, perr := packPRFCompanionWitnessRows(ringQ, ncols, companionStart, companionMode, keyElems, groupedWitness, makeRowFromHead)
-		if perr != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack prf companion rows: %w", perr)
-		}
-		rows = append(rows, packed.Rows...)
-		if len(packed.KeySlots) == 0 {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("prf companion missing key slots for independent-key showing")
-		}
-		rowSemantics := make([]RowSemantics, len(packed.Rows))
-		for i := range rowSemantics {
-			rowSemantics[i] = CoeffPackedRow
-		}
-		dataRows := ceilDiv(len(packed.KeySlots)+len(packed.CheckpointSlots), ncols)
-		helperRows := maxInt(len(packed.Rows)-dataRows, 0)
-		helperFamilies := []string{"final_tag_state"}
-		prfCompanionLayout = &PRFCompanionLayout{
-			StartRow:           companionStart,
-			PackWidth:          ncols,
-			KeySource:          KeySourceIndependentWitness,
-			KeySlots:           packed.KeySlots,
-			CheckpointSlots:    packed.CheckpointSlots,
-			FinalTagSlots:      packed.FinalTagSlots,
-			HelperFamilies:     helperFamilies,
-			ReplayRows:         len(packed.Rows),
-			PackedRows:         len(packed.Rows),
-			PackedLogicalCount: packed.TotalLogicalScalars,
-			HelperRowCount:     helperRows,
-			DataRows:           dataRows,
-			HelperRows:         helperRows,
-			KeyCount:           len(packed.KeySlots),
-			CheckpointCount:    len(packed.CheckpointSlots),
-			TagCount:           len(pub.Tag),
-			RowSemantics:       rowSemantics,
-		}
-		if companionMode == PRFCompanionModeAuxInstance {
-			pcsNCols := resolvePCSNCols(opts, ncols)
-			rows, err = appendPRFBridgeStripeRows(ringQ, rows, prfCompanionLayout, pcsNCols)
-			if err != nil {
-				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("append prf bridge stripe rows: %w", err)
-			}
-		}
+	if prfCompanionLayout == nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("missing PRF companion layout")
 	}
-	prfScalarBundleRows := len(rows) - startIdx
+	prfScalarBundleRows := prfCompanionLayout.PackedRows
 	layout.PRFScalarBundleRows = prfScalarBundleRows
 	layout.SigCount = len(rows)
 
@@ -1359,6 +1437,12 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		layout.PackedSigChainBlockWidth = 0
 		layout.PackedSigChainEffectiveBlocks = 0
 		layout.PackedSigChainSourceBlockWidth = 0
+		layout.PairLookupExtractBase = -1
+		layout.PairLookupExtractGroupCount = 0
+		layout.PairLookupExtractRowsPerLane = 0
+		layout.PairLookupRangeLoWidth = 0
+		layout.PairLookupRangeHiWidth = 0
+		layout.PairLookupBase = 0
 		layout.SigSignedChain = false
 		layout.SigPrimaryLimbRows = 0
 		layout.SigBoundSliceRows = 0
@@ -1507,7 +1591,8 @@ func buildLiteralPackedSignatureShortnessConstraintSet(ringQ *ring.Ring, layout 
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("literal packed signature shortness: %w", err)
 	}
-	deg, err := signatureShortnessMaxDegree(specSig, opts)
+	deg := 0
+	deg, err = signatureShortnessMaxDegree(specSig, opts)
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("signature shortness degree: %w", err)
 	}

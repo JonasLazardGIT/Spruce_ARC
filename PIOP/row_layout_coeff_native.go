@@ -69,6 +69,16 @@ func rowLayoutCoeffNativePackedSigIndex(layout RowLayout, comp, block int) int {
 	return cfg.PackedSigBase + comp*cfg.PackedSigBlocks + block
 }
 
+func rowLayoutCoeffLookupIndex(layout RowLayout, comp, block int) int {
+	if layout.CoeffLookupBase < 0 || layout.CoeffLookupRowCount <= 0 {
+		return -1
+	}
+	if comp < 0 || block < 0 || comp >= layout.CoeffLookupComponents || block >= layout.CoeffLookupBlocks {
+		return -1
+	}
+	return layout.CoeffLookupBase + comp*layout.CoeffLookupBlocks + block
+}
+
 func rowLayoutCoeffNativePackedSigLimbIndex(layout RowLayout, comp, block, lane int) int {
 	if !rowLayoutCoeffNativeUsesLiteralPackedV3(layout) {
 		return -1
@@ -125,6 +135,36 @@ func rowLayoutCoeffNativePackedSigChainIndex(layout RowLayout, group, lane int) 
 		return -1
 	}
 	return layout.PackedSigChainBase + group*layout.PackedSigChainRowsPerGroup + lane
+}
+
+func rowLayoutPairLookupExtractIndex(layout RowLayout, comp, pairGroup, lane, parity, part int) int {
+	if !rowLayoutCoeffNativeUsesLiteralPackedV3(layout) {
+		return -1
+	}
+	cfg := layout.CoeffNativeSig
+	if layout.PairLookupExtractBase < 0 || layout.PairLookupExtractGroupCount <= 0 || layout.PairLookupExtractRowsPerLane <= 0 {
+		return -1
+	}
+	if comp < 0 || comp >= cfg.PackedSigComponents || pairGroup < 0 || pairGroup >= rowLayoutPackedSigChainEffectiveBlocks(layout) {
+		return -1
+	}
+	if lane < 0 || lane >= layout.PackedSigChainRowsPerGroup || parity < 0 || parity >= 2 || part < 0 || part >= 2 {
+		return -1
+	}
+	group := pairGroup*cfg.PackedSigComponents + comp
+	if group >= layout.PairLookupExtractGroupCount {
+		return -1
+	}
+	perGroup := layout.PackedSigChainRowsPerGroup * layout.PairLookupExtractRowsPerLane
+	offset := group*perGroup + lane*layout.PairLookupExtractRowsPerLane + parity*2 + part
+	return layout.PairLookupExtractBase + offset
+}
+
+func rowLayoutPairLookupExtractRowCount(layout RowLayout) int {
+	if layout.PairLookupExtractBase < 0 || layout.PairLookupExtractGroupCount <= 0 || layout.PairLookupExtractRowsPerLane <= 0 || layout.PackedSigChainRowsPerGroup <= 0 {
+		return 0
+	}
+	return layout.PairLookupExtractGroupCount * layout.PackedSigChainRowsPerGroup * layout.PairLookupExtractRowsPerLane
 }
 
 func rowLayoutCoeffNativeMsgIndex(layout RowLayout, block, ord int) int {

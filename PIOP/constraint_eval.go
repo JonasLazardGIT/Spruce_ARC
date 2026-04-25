@@ -29,11 +29,13 @@ type EvalKInput struct {
 	K                *kf.Field
 	KPoints          [][]uint64
 	VTargets         [][]uint64
+	AuxVTargets      [][]uint64
 	QK               []*KPoly
 	MK               []*KPoly
 	GammaPrimeK      [][][]KScalar
 	GammaAggK        [][]KScalar
 	WitnessCount     int
+	AuxWitnessCount  int
 	Ring             *ring.Ring
 	Fpar             []*ring.Poly
 	Fagg             []*ring.Poly
@@ -249,6 +251,16 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 		rowVals, err := buildRowValsFromVTargets(in.K, in.VTargets, kpIdx, len(in.KPoints), in.WitnessCount)
 		if err != nil {
 			return false, err
+		}
+		if len(in.AuxVTargets) > 0 || in.AuxWitnessCount > 0 {
+			if len(in.AuxVTargets) == 0 || in.AuxWitnessCount <= 0 {
+				return false, fmt.Errorf("incomplete aux VTargets replay data")
+			}
+			auxVals, aerr := buildRowValsFromVTargets(in.K, in.AuxVTargets, kpIdx, len(in.KPoints), in.AuxWitnessCount)
+			if aerr != nil {
+				return false, aerr
+			}
+			rowVals = append(rowVals, auxVals...)
 		}
 		fpar, fagg, err := eval(e, rowVals)
 		if err != nil {

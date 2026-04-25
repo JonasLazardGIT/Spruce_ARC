@@ -80,10 +80,10 @@ type TranscriptOptimizationReport struct {
 	ReplayZHatRows                  int    `json:"replay_zhat_rows"`
 	ReplayTHatRows                  int    `json:"replay_that_rows"`
 	InlinedShortnessRows            int    `json:"inlined_shortness_rows"`
-	V11PackedSigChainGroupSize      int    `json:"v11_packed_sig_chain_group_size"`
-	V11PackedSigBlockWidth          int    `json:"v11_packed_sig_block_width"`
-	V11EffectiveSigBlocks           int    `json:"v11_effective_sig_blocks"`
-	V11ShortnessRows                int    `json:"v11_shortness_rows"`
+	PackedSigChainGroupSize         int    `json:"packed_sig_chain_group_size"`
+	PackedSigBlockWidth             int    `json:"packed_sig_block_width"`
+	PackedSigEffectiveBlocks        int    `json:"packed_sig_effective_blocks"`
+	PackedSigShortnessRows          int    `json:"packed_sig_shortness_rows"`
 	MaskRows                        int    `json:"mask_rows"`
 	AggregateR0Replay               bool   `json:"aggregate_r0_replay"`
 	MainLVCSNCols                   int    `json:"main_lvcs_ncols"`
@@ -289,7 +289,7 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 	sig := proof.SigShortness
 	pcsNCols := resolveProofPCSNCols(proof, 0)
 	openBlocks := 0
-	if pcsNCols > 0 && sig.Version != sigShortnessProofVersionV11 {
+	if pcsNCols > 0 && sig.Version != sigShortnessProofVersionV18 {
 		rows := buildSigShortnessWitnessPolyIndicesForVersion(proof.RowLayout, sig.Version)
 		seen := make(map[int]struct{}, len(rows))
 		for _, row := range rows {
@@ -302,7 +302,7 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 	}
 	supportSlotCount := len(sig.SupportSlots)
 	openingBytes := sizeDECSOpening(sig.Opening)
-	if sig.Version == sigShortnessProofVersionV11 && sig.V11 != nil {
+	if sig.Version == sigShortnessProofVersionV18 && sig.V18 != nil {
 		supportSlotCount = 0
 		openingBytes = 0
 		openBlocks = 0
@@ -381,14 +381,14 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	out.ReplayTHatRows = len(rowLayoutPostSignTHatRows(proof.RowLayout))
 	inlinedShortnessRows := proof.RowLayout.PackedSigChainGroupCount * proof.RowLayout.PackedSigChainRowsPerGroup
 	out.InlinedShortnessRows = inlinedShortnessRows
-	if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV11 {
-		out.V11PackedSigChainGroupSize = proof.RowLayout.PackedSigChainGroupSize
-		out.V11PackedSigBlockWidth = rowLayoutPackedSigChainBlockWidth(proof.RowLayout)
-		out.V11EffectiveSigBlocks = rowLayoutPackedSigChainEffectiveBlocks(proof.RowLayout)
-		out.V11ShortnessRows = inlinedShortnessRows
+	if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV18 {
+		out.PackedSigChainGroupSize = proof.RowLayout.PackedSigChainGroupSize
+		out.PackedSigBlockWidth = rowLayoutPackedSigChainBlockWidth(proof.RowLayout)
+		out.PackedSigEffectiveBlocks = rowLayoutPackedSigChainEffectiveBlocks(proof.RowLayout)
+		out.PackedSigShortnessRows = inlinedShortnessRows
 	}
 	out.MaskRows = geometry.MaskRowsCommitted
-	out.AggregateR0Replay = out.ReplayR0B2HatRows > 0 || out.ReplayTargetMR0HatRows > 0
+	out.AggregateR0Replay = opts.AggregateR0Replay || out.ReplayR0B2HatRows > 0 || out.ReplayTargetMR0HatRows > 0
 	out.NLeaves = proof.NLeavesUsed
 	if out.NLeaves <= 0 {
 		out.NLeaves = opts.NLeaves

@@ -25,6 +25,25 @@ func reducePolyModXN1(coeffs []uint64, n int, q uint64) []uint64 {
 	return trimPoly(out, q)
 }
 
+func rowLayoutLooksInlineTargetReplay(layout RowLayout) bool {
+	if rowLayoutReplayBlockCount(layout) <= 0 {
+		return false
+	}
+	if rowLayoutReplayTHatCount(layout) != 0 {
+		return false
+	}
+	if rowLayoutPostSignTargetMR0Hat(layout) >= 0 || len(rowLayoutPostSignTargetMR0HatRows(layout)) != 0 {
+		return false
+	}
+	if rowLayoutPostSignRHat1Index(layout, 0) < 0 || rowLayoutPostSignZHatIndex(layout, 0) < 0 {
+		return false
+	}
+	return layout.PackedSigChainBase >= 0 &&
+		layout.PackedSigChainGroupCount > 0 &&
+		layout.PackedSigChainRowsPerGroup > 0 &&
+		layout.CoeffNativeSig.PackedSigBlockWidth > 0
+}
+
 func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	ringQ *ring.Ring,
 	bound int64,
@@ -66,7 +85,9 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 		sourceBlocks = 1
 	}
 	replayTHatCount := rowLayoutReplayTHatCount(layout)
-	directTargetReplay := sigShortnessV11EnabledForOpts(opts) || rowLayoutPostSignTargetMR0HatIndex(layout, 0) >= 0
+	inlineTargetReplay := sigShortnessV18EnabledForOpts(opts) || rowLayoutLooksInlineTargetReplay(layout)
+	inlineR1InverseReplay := false
+	directTargetReplay := inlineTargetReplay || rowLayoutPostSignTargetMR0HatIndex(layout, 0) >= 0
 	if replayTHatCount <= 0 && !directTargetReplay {
 		replayTHatCount = 1
 	}
@@ -101,7 +122,10 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 		}
 	}
 	if directTargetReplay {
-		if rowLayoutPostSignTargetMR0HatIndex(layout, 0) < 0 || rowLayoutPostSignRHat1Index(layout, 0) < 0 {
+		if !inlineTargetReplay && rowLayoutPostSignTargetMR0HatIndex(layout, 0) < 0 {
+			return ConstraintSet{}, fmt.Errorf("missing direct-target transform-domain target-MR0 replay rows")
+		}
+		if !inlineR1InverseReplay && rowLayoutPostSignRHat1Index(layout, 0) < 0 {
 			return ConstraintSet{}, fmt.Errorf("missing direct-target transform-domain replay rows")
 		}
 	} else {
@@ -242,11 +266,25 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	}
 	aggregateR0Replay := rowLayoutPostSignR0B2HatIndex(layout, 0) >= 0
 	for b := 0; b < replayBlockCount; b++ {
-		r1HatCoeff, err := getRowCoeff(rowLayoutPostSignRHat1Index(layout, b))
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("rhat1 coeffs block %d: %w", b, err)
+		var r1HatCoeff []uint64
+		if !inlineR1InverseReplay {
+			r1HatCoeff, err = getRowCoeff(rowLayoutPostSignRHat1Index(layout, b))
+			if err != nil {
+				return ConstraintSet{}, fmt.Errorf("rhat1 coeffs block %d: %w", b, err)
+			}
 		}
 		if directTargetReplay {
+			if inlineTargetReplay {
+				r1HatCoeffs[b] = r1HatCoeff
+				if useBBTran {
+					zHatCoeff, err := getRowCoeff(rowLayoutPostSignZHatIndex(layout, b))
+					if err != nil {
+						return ConstraintSet{}, fmt.Errorf("z hat coeffs block %d: %w", b, err)
+					}
+					zHatCoeffs[b] = zHatCoeff
+				}
+				continue
+			}
 			targetMR0HatCoeff, err := getRowCoeff(rowLayoutPostSignTargetMR0HatIndex(layout, b))
 			if err != nil {
 				return ConstraintSet{}, fmt.Errorf("target-MR0-hat coeffs block %d: %w", b, err)
@@ -298,10 +336,15 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	hashResCoeffs := make([][]uint64, 0, 2*replayBlockCount)
 	hashResPolys := make([]*ring.Poly, 0, 2*replayBlockCount)
 	for b := 0; b < replayBlockCount; b++ {
-		inverseResCoeff := reducePolyModXN1(buildTransformInverseResidualCoeffs(q, pub.HashRelation, thetaBBlocks[b], r1HatCoeffs[b], coeffOrZero(zHatCoeffs, b)), int(ringQ.N), q)
+		var inverseResCoeff []uint64
+		if !inlineR1InverseReplay {
+			inverseResCoeff = reducePolyModXN1(buildTransformInverseResidualCoeffs(q, pub.HashRelation, thetaBBlocks[b], r1HatCoeffs[b], coeffOrZero(zHatCoeffs, b)), int(ringQ.N), q)
+		}
 		if directTargetReplay {
-			hashResCoeffs = append(hashResCoeffs, inverseResCoeff)
-			hashResPolys = append(hashResPolys, nttPolyFromFormalCoeffsIfFits(ringQ, inverseResCoeff))
+			if !inlineR1InverseReplay {
+				hashResCoeffs = append(hashResCoeffs, inverseResCoeff)
+				hashResPolys = append(hashResPolys, nttPolyFromFormalCoeffsIfFits(ringQ, inverseResCoeff))
+			}
 			continue
 		}
 		var targetResCoeff []uint64
@@ -389,8 +432,13 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 		srcCoeff []uint64
 		name     string
 		hatAt    func(int) ([]uint64, error)
-	}{
-		{srcCoeff: r1CompCoeffs, name: "r1", hatAt: func(block int) ([]uint64, error) { return getRowCoeff(rowLayoutPostSignRHat1Index(layout, block)) }},
+	}{}
+	if !inlineR1InverseReplay {
+		bridgePairs = append(bridgePairs, struct {
+			srcCoeff []uint64
+			name     string
+			hatAt    func(int) ([]uint64, error)
+		}{srcCoeff: r1CompCoeffs, name: "r1", hatAt: func(block int) ([]uint64, error) { return getRowCoeff(rowLayoutPostSignRHat1Index(layout, block)) }})
 	}
 	if !directTargetReplay {
 		bridgePairs = append([]struct {
@@ -415,7 +463,7 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 			}
 		}
 	}
-	if directTargetReplay {
+	if directTargetReplay && !inlineTargetReplay {
 		for b := 0; b < replayBlockCount; b++ {
 			hatCoeff, err := getRowCoeff(rowLayoutPostSignTargetMR0HatIndex(layout, b))
 			if err != nil {
@@ -442,7 +490,7 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 				faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
 			}
 		}
-	} else if aggregateR0Replay {
+	} else if !directTargetReplay && aggregateR0Replay {
 		for b := 0; b < replayBlockCount; b++ {
 			hatCoeff, err := getRowCoeff(rowLayoutPostSignR0B2HatIndex(layout, b))
 			if err != nil {
@@ -465,7 +513,7 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 				faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
 			}
 		}
-	} else {
+	} else if !directTargetReplay {
 		for i := 0; i < x0Len; i++ {
 			for b := 0; b < replayBlockCount; b++ {
 				hatCoeff, err := getRowCoeff(rowLayoutPostSignRHat0ComponentIndex(layout, b, i))

@@ -146,18 +146,6 @@ func cloneSigShortnessProofForTest(src *SigShortnessProof) *SigShortnessProof {
 				BlockWidth: src.V10.BlockWidth,
 			}
 		}(),
-		V11: func() *SigShortnessProofV11 {
-			if src.V11 == nil {
-				return nil
-			}
-			return &SigShortnessProofV11{
-				Mode:       src.V11.Mode,
-				Radix:      src.V11.Radix,
-				Digits:     src.V11.Digits,
-				GroupSize:  src.V11.GroupSize,
-				BlockWidth: src.V11.BlockWidth,
-			}
-		}(),
 		V12: func() *SigShortnessProofV12 {
 			if src.V12 == nil {
 				return nil
