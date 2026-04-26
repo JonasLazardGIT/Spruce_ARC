@@ -59,6 +59,15 @@ func BuildPublicLabels(pub PublicInputs) []PublicLabel {
 		}
 		labels = append(labels, PublicLabel{Name: name, Data: []byte(v)})
 	}
+	appendInt := func(name string, v int) {
+		if v == 0 {
+			return
+		}
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], uint64(v))
+		labels = append(labels, PublicLabel{Name: name, Data: append([]byte(nil), b[:]...)})
+	}
+	appendInt("RingDegree", pub.RingDegree)
 	if len(pub.Com) > 0 {
 		appendPoly("Com", pub.Com)
 	}

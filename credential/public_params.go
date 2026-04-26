@@ -12,7 +12,8 @@ import (
 )
 
 const DefaultPublicParamsPath = "Parameters/credential_public.json"
-const PublicParamsVersion = 2
+const PublicParamsVersion = 4
+const MuLayoutFullCapacityHalvesV1 = "full_capacity_halves_v1"
 
 // PublicParams captures the stable credential-side public parameters used by
 // issuance and showing.
@@ -26,7 +27,10 @@ type PublicParams struct {
 	X0CoeffBound       int64                  `json:"X0CoeffBound,omitempty"`
 	TargetDim          int                    `json:"TargetDim,omitempty"`
 	TargetHidingLambda int                    `json:"TargetHidingLambda,omitempty"`
+	RingDegree         int                    `json:"ring_degree,omitempty"`
 	X0Distribution     string                 `json:"X0Distribution,omitempty"`
+	LenMu              int                    `json:"LenMu,omitempty"`
+	MuLayout           string                 `json:"MuLayout,omitempty"`
 	LenM               int                    `json:"LenM,omitempty"`
 	LenK               int                    `json:"LenK,omitempty"`
 	LenR0H             int                    `json:"LenR0H,omitempty"`
@@ -49,6 +53,9 @@ func (pp *PublicParams) normalizeLegacy() {
 	}
 	if pp.LenK == 0 {
 		pp.LenK = pp.LegacyLenM2
+	}
+	if pp.LenMu == 0 && (pp.LenM > 0 || pp.LenK > 0) {
+		pp.LenMu = 1
 	}
 	if pp.LenR0H == 0 {
 		pp.LenR0H = pp.LegacyLenRU0
@@ -82,9 +89,29 @@ func (pp *PublicParams) normalizeLegacy() {
 	if pp.X0Distribution == "" {
 		pp.X0Distribution = X0DistributionUniformInterval
 	}
+	if pp.MuLayout == "" {
+		pp.MuLayout = MuLayoutFullCapacityHalvesV1
+	}
 	if pp.Version < PublicParamsVersion {
 		pp.Version = PublicParamsVersion
 	}
+	if pp.RingDegree == 0 {
+		pp.RingDegree = pp.InferRingDegree()
+	}
+}
+
+func (pp PublicParams) InferRingDegree() int {
+	if pp.RingDegree > 0 {
+		return pp.RingDegree
+	}
+	for i := range pp.Ac {
+		for j := range pp.Ac[i] {
+			if len(pp.Ac[i][j]) > 0 {
+				return len(pp.Ac[i][j])
+			}
+		}
+	}
+	return 0
 }
 
 func (pp *PublicParams) Validate() error {
@@ -116,11 +143,24 @@ func (pp *PublicParams) Validate() error {
 	if pp.X0Distribution != X0DistributionUniformInterval {
 		return fmt.Errorf("unsupported X0Distribution=%q", pp.X0Distribution)
 	}
-	if pp.LenM <= 0 || pp.LenK <= 0 || pp.LenR0H <= 0 || pp.LenR1H <= 0 || pp.LenRBar <= 0 {
-		return fmt.Errorf("invalid row lengths m=%d k=%d r0h=%d r1h=%d rbar=%d", pp.LenM, pp.LenK, pp.LenR0H, pp.LenR1H, pp.LenRBar)
+	if pp.MuLayout != MuLayoutFullCapacityHalvesV1 {
+		return fmt.Errorf("unsupported MuLayout=%q", pp.MuLayout)
+	}
+	if pp.LenMu <= 0 || pp.LenR0H <= 0 || pp.LenR1H <= 0 || pp.LenRBar <= 0 {
+		return fmt.Errorf("invalid row lengths mu=%d r0h=%d r1h=%d rbar=%d", pp.LenMu, pp.LenR0H, pp.LenR1H, pp.LenRBar)
 	}
 	if pp.LenR0H != pp.X0Len {
 		return fmt.Errorf("LenR0H=%d must match X0Len=%d", pp.LenR0H, pp.X0Len)
+	}
+	if pp.RingDegree <= 0 {
+		return fmt.Errorf("invalid ring_degree=%d", pp.RingDegree)
+	}
+	for i := range pp.Ac {
+		for j := range pp.Ac[i] {
+			if len(pp.Ac[i][j]) != pp.RingDegree {
+				return fmt.Errorf("Ac[%d][%d] coefficient length=%d want ring_degree=%d", i, j, len(pp.Ac[i][j]), pp.RingDegree)
+			}
+		}
 	}
 	return nil
 }
@@ -180,7 +220,10 @@ func (pp PublicParams) ToIssuanceParams(ringQ *ring.Ring) (*Params, error) {
 		X0CoeffBound:       pp.X0CoeffBound,
 		TargetDim:          pp.TargetDim,
 		TargetHidingLambda: pp.TargetHidingLambda,
+		RingDegree:         pp.RingDegree,
 		X0Distribution:     pp.X0Distribution,
+		LenMu:              pp.LenMu,
+		MuLayout:           pp.MuLayout,
 		LenM:               pp.LenM,
 		LenK:               pp.LenK,
 		LenR0H:             pp.LenR0H,

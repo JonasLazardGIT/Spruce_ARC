@@ -174,6 +174,7 @@ func rebasePRFCompanionLayout(layout *PRFCompanionLayout) *PRFCompanionLayout {
 		}
 	}
 	adjust(out.KeySlots)
+	adjust(out.KeySourceSlots)
 	adjust(out.CheckpointSlots)
 	adjust(out.FinalTagSlots)
 	return out

@@ -11,6 +11,7 @@ import (
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
+	"vSIS-Signature/internal/fpoly"
 	kf "vSIS-Signature/internal/kfield"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -428,12 +429,29 @@ func buildSigShortnessV17BilinearBackendDigest() []byte {
 	return append([]byte(nil), sum[:]...)
 }
 
+func resolveRowLayoutRingDegree(layout RowLayout) int {
+	if layout.RingDegree > 0 {
+		return layout.RingDegree
+	}
+	if layout.CoeffNativeSig.SigCoeffCount > 0 {
+		return layout.CoeffNativeSig.SigCoeffCount
+	}
+	if layout.CoeffNativeSig.PackedSigBlocks > 0 && layout.CoeffNativeSig.PackedSigBlockWidth > 0 {
+		return layout.CoeffNativeSig.PackedSigBlocks * layout.CoeffNativeSig.PackedSigBlockWidth
+	}
+	if layout.SigBlocks > 0 && layout.CoeffNativeSig.PackedSigBlockWidth > 0 {
+		return layout.SigBlocks * layout.CoeffNativeSig.PackedSigBlockWidth
+	}
+	return 0
+}
+
 func buildSigShortnessV18LayoutDigest(layout RowLayout) []byte {
 	buf := make([]byte, 0, 256)
 	buf = append(buf, []byte("spruce.sig_shortness.v18/replay_compact_inline_layout_v1")...)
 	appendInt := func(v int) {
 		buf = appendSigShortnessUvarint(buf, v)
 	}
+	appendInt(resolveRowLayoutRingDegree(layout))
 	appendInt(layout.CoeffNativeSig.PackedSigComponents)
 	appendInt(layout.CoeffNativeSig.PackedSigBlocks)
 	appendInt(layout.CoeffNativeSig.PackedSigBlockWidth)
@@ -613,6 +631,13 @@ func buildSigShortnessV18BindingDigest(sig *SigShortnessProof, layout RowLayout,
 		return nil, fmt.Errorf("sig shortness V18 must not populate legacy or other version payload fields")
 	}
 	v18 := sig.V18
+	ringDegree := resolveRowLayoutRingDegree(layout)
+	if ringDegree <= 0 {
+		return nil, fmt.Errorf("missing ring degree for sig shortness V18 binding")
+	}
+	if v18.RingDegree != ringDegree {
+		return nil, fmt.Errorf("sig shortness V18 ring_degree=%d want %d", v18.RingDegree, ringDegree)
+	}
 	layoutDigest := buildSigShortnessV18LayoutDigest(layout)
 	if !bytes.Equal(v18.LayoutDigest, layoutDigest) {
 		return nil, fmt.Errorf("sig shortness V18 layout digest mismatch")
@@ -628,6 +653,7 @@ func buildSigShortnessV18BindingDigest(sig *SigShortnessProof, layout RowLayout,
 	buf := make([]byte, 0, 224)
 	buf = append(buf, []byte("spruce.sig_shortness.v18/replay_compact_inline_target_v1")...)
 	buf = appendSigShortnessUvarint(buf, int(v18.Mode))
+	buf = appendSigShortnessUvarint(buf, v18.RingDegree)
 	buf = appendSigShortnessUvarint(buf, v18.Radix)
 	buf = appendSigShortnessUvarint(buf, v18.Digits)
 	buf = appendSigShortnessUvarint(buf, v18.GroupSize)
@@ -2804,6 +2830,11 @@ func verifySigShortnessHiddenProof(
 	if replay == nil {
 		return fmt.Errorf("nil hidden sig shortness replay")
 	}
+	var err error
+	pub, err = publicInputsWithRingDegree(pub, resolvedProofRingDegree(proof, 0))
+	if err != nil {
+		return err
+	}
 	labelsDigest := computeLabelsDigest(BuildPublicLabels(pub))
 	if !equalByteSlices(labelsDigest, proof.LabelsDigest) {
 		return fmt.Errorf("hidden sig shortness labels digest mismatch")
@@ -3347,6 +3378,7 @@ func buildSigShortnessProofV7Metadata(
 			Version: sigShortnessProofVersionV18,
 			V18: &SigShortnessProofV18{
 				Mode:         sigShortnessV18ModeReplayCompact,
+				RingDegree:   int(ringQ.N),
 				Radix:        int(spec.R),
 				Digits:       spec.L,
 				GroupSize:    layout.PackedSigChainGroupSize,
@@ -3502,6 +3534,7 @@ func buildSigShortnessDirectTargetFormalCoeffs(
 			return nil, nil, fmt.Errorf("sig shortness V16 inline target bridge basis: %w", err)
 		}
 	}
+	var fullMuInlineBridgeBasis *transformBridgeBasisCache
 	q := ringQ.Modulus[0]
 	getRowCoeff := func(idx int) ([]uint64, error) {
 		if idx < 0 || idx >= len(rowsNTT) {
@@ -3515,7 +3548,9 @@ func buildSigShortnessDirectTargetFormalCoeffs(
 	}
 	inlineTarget := rowLayoutPostSignTargetMR0HatIndex(layout, 0) < 0
 	var mSigmaCompCoeffs []uint64
+	var fullMuSourceCoeffs [][]uint64
 	var r0CompCoeffs [][]uint64
+	highDegreePackedMu := false
 	if inlineTarget {
 		x0Len := pub.X0Len
 		if x0Len <= 0 {
@@ -3533,9 +3568,26 @@ func buildSigShortnessDirectTargetFormalCoeffs(
 		if err != nil {
 			return nil, nil, fmt.Errorf("V16 carrier M coeffs: %w", err)
 		}
-		msgDecode1, msgDecode2, err := buildPackedMessageCarrierDecodePolys(pub.BoundB, q)
-		if err != nil {
-			return nil, nil, fmt.Errorf("V16 message carrier decode polys: %w", err)
+		muMode := rowLayoutUsesMu(layout)
+		fullMuMode := rowLayoutUsesFullMu(layout)
+		packedMuMode := rowLayoutUsesPackedMuCarrier(layout)
+		muPackWidth := rowLayoutMuCarrierPackWidth(layout)
+		muVirtualBlocks := rowLayoutMuVirtualBlockCount(layout)
+		highDegreePackedMu = packedMuMode && muPackWidth > 2
+		var msgDecode1, msgDecode2 []uint64
+		var muDecodePolys [][]uint64
+		if muMode {
+			muDecodePolys, _, err = buildMuCarrierDecodePolys(pub.BoundB, muPackWidth, q)
+			if err != nil {
+				return nil, nil, fmt.Errorf("V16 mu carrier decode poly: %w", err)
+			}
+			msgDecode1 = muDecodePolys[0]
+			msgDecode2 = []uint64{0}
+		} else {
+			msgDecode1, msgDecode2, err = buildPackedMessageCarrierDecodePolys(pub.BoundB, q)
+			if err != nil {
+				return nil, nil, fmt.Errorf("V16 message carrier decode polys: %w", err)
+			}
 		}
 		x0Decode1, err := buildSingletonCarrierDecodePoly(pub.X0CoeffBound, q)
 		if err != nil {
@@ -3549,9 +3601,55 @@ func buildSigShortnessDirectTargetFormalCoeffs(
 			}
 			return trimPoly(Interpolate(omegaWitness, head, q), q)
 		}
+		composeFormal := func(carrierCoeff []uint64, decodeCoeff []uint64) []uint64 {
+			out := trimPoly(fpoly.New(q, decodeCoeff).Compose(fpoly.New(q, carrierCoeff)).Coeffs, q)
+			if muPackWidth > 2 {
+				return out
+			}
+			return reducePolyModXN1(out, int(ringQ.N), q)
+		}
 		m1CompCoeffs := composeOnOmega(carrierMCoeff, msgDecode1)
 		m2CompCoeffs := composeOnOmega(carrierMCoeff, msgDecode2)
-		mSigmaCompCoeffs = polyAdd(m1CompCoeffs, m2CompCoeffs, q)
+		mSigmaCompCoeffs = m1CompCoeffs
+		if !muMode {
+			mSigmaCompCoeffs = polyAdd(m1CompCoeffs, m2CompCoeffs, q)
+		} else if fullMuMode {
+			if packedMuMode {
+				carrierMuIdxs := rowLayoutCarrierMuBlockRows(layout)
+				carrierMuCoeffs := make([][]uint64, len(carrierMuIdxs))
+				for i, row := range carrierMuIdxs {
+					carrierMuCoeffs[i], err = getRowCoeff(row)
+					if err != nil {
+						return nil, nil, fmt.Errorf("V16 carrier Mu[%d] coeffs: %w", i, err)
+					}
+				}
+				fullMuSourceCoeffs = make([][]uint64, muVirtualBlocks)
+				for block := 0; block < muVirtualBlocks; block++ {
+					carrierBlock := block / muPackWidth
+					lane := block % muPackWidth
+					if carrierBlock < 0 || carrierBlock >= len(carrierMuCoeffs) || lane >= len(muDecodePolys) {
+						return nil, nil, fmt.Errorf("V16 mu virtual block=%d maps outside carrier rows=%d lanes=%d", block, len(carrierMuCoeffs), len(muDecodePolys))
+					}
+					fullMuSourceCoeffs[block] = composeFormal(carrierMuCoeffs[carrierBlock], muDecodePolys[lane])
+				}
+			} else {
+				aliasMuIdxs := rowLayoutAliasMuBlockRows(layout)
+				if len(aliasMuIdxs) == 0 {
+					return nil, nil, fmt.Errorf("V16 full mu inline target missing alias mu block rows")
+				}
+				fullMuSourceCoeffs = make([][]uint64, len(aliasMuIdxs))
+				for i, row := range aliasMuIdxs {
+					fullMuSourceCoeffs[i], err = getRowCoeff(row)
+					if err != nil {
+						return nil, nil, fmt.Errorf("V16 alias Mu[%d] coeffs: %w", i, err)
+					}
+				}
+			}
+			fullMuInlineBridgeBasis, err = newTransformBridgeBasisCache(ringQ, omegaWitness, replayBlockCount*ncols, len(fullMuSourceCoeffs))
+			if err != nil {
+				return nil, nil, fmt.Errorf("V16 full mu inline target bridge basis: %w", err)
+			}
+		}
 		r0CompCoeffs = make([][]uint64, x0Len)
 		for i, row := range carrierR0Idxs {
 			coeff, err := getRowCoeff(row)
@@ -3681,7 +3779,25 @@ func buildSigShortnessDirectTargetFormalCoeffs(
 			}
 			rightCoeff := reducePolyModXN1(polyMul(bridgeBasis.LagrangeBasis[j], rhsCoeff, q), int(ringQ.N), q)
 			if inlineTarget {
-				targetCoeff := reducePolyModXN1(polyMul(inlineTargetBridgeBasis.TransformH[t], mSigmaCompCoeffs, q), int(ringQ.N), q)
+				var targetCoeff []uint64
+				if fullMuInlineBridgeBasis != nil {
+					targetCoeff = []uint64{0}
+					for block := range fullMuSourceCoeffs {
+						term := polyMul(fullMuInlineBridgeBasis.TransformH[t], fullMuSourceCoeffs[block], q)
+						if highDegreePackedMu {
+							term = trimPoly(term, q)
+						} else {
+							term = reducePolyModXN1(term, int(ringQ.N), q)
+						}
+						scale := fullMuInlineBridgeBasis.BlockFactors[t][block] % q
+						if scale != 1 {
+							term = scalePoly(term, scale, q)
+						}
+						targetCoeff = polyAdd(targetCoeff, term, q)
+					}
+				} else {
+					targetCoeff = reducePolyModXN1(polyMul(inlineTargetBridgeBasis.TransformH[t], mSigmaCompCoeffs, q), int(ringQ.N), q)
+				}
 				b1Scale := thetaBHeads[bOut][1][j] % q
 				if b1Scale != 1 {
 					targetCoeff = scalePoly(targetCoeff, b1Scale, q)
@@ -3696,7 +3812,12 @@ func buildSigShortnessDirectTargetFormalCoeffs(
 				}
 				rightCoeff = polyAdd(rightCoeff, targetCoeff, q)
 			}
-			bridgeCoeff := reducePolyModXN1(polySub(leftCoeff, rightCoeff, q), int(ringQ.N), q)
+			bridgeCoeff := polySub(leftCoeff, rightCoeff, q)
+			if highDegreePackedMu {
+				bridgeCoeff = trimPoly(bridgeCoeff, q)
+			} else {
+				bridgeCoeff = reducePolyModXN1(bridgeCoeff, int(ringQ.N), q)
+			}
 			outCoeffs = append(outCoeffs, bridgeCoeff)
 			outPolys = append(outPolys, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
 		}
@@ -4120,6 +4241,7 @@ func buildSigShortnessV7Replay(
 	directTarget := proof.SigShortness.Version == sigShortnessProofVersionV11 || proof.SigShortness.Version == sigShortnessProofVersionV12 || proof.SigShortness.Version == sigShortnessProofVersionV13 || proof.SigShortness.Version == sigShortnessProofVersionV14 || v15CoeffLookup || v16InlineTarget
 	groupedSigDomain := proof.SigShortness.Version == sigShortnessProofVersionV12 || proof.SigShortness.Version == sigShortnessProofVersionV13
 	v14PairLookup := proof.SigShortness.Version == sigShortnessProofVersionV14
+	freeSigLookupShadow := proof.SigShortness.Version == sigShortnessProofVersionV18 && sigLookupShadowR121L2FreeForOpts(opts)
 	layout := proof.RowLayout
 	cfg := layout.CoeffNativeSig
 	var err error
@@ -4192,6 +4314,29 @@ func buildSigShortnessV7Replay(
 			return nil, fmt.Errorf("sig shortness V16 inline target bridge basis: %w", err)
 		}
 	}
+	fullMuInlineTarget := v16InlineTarget && rowLayoutUsesFullMu(layout)
+	packedMuInlineTarget := fullMuInlineTarget && rowLayoutUsesPackedMuCarrier(layout)
+	muPackWidth := rowLayoutMuCarrierPackWidth(layout)
+	muVirtualBlocks := rowLayoutMuVirtualBlockCount(layout)
+	aliasMuRows := rowLayoutAliasMuBlockRows(layout)
+	carrierMuRows := rowLayoutCarrierMuBlockRows(layout)
+	var muDecodePolys [][]uint64
+	var fullMuInlineBridgeBasis *transformBridgeBasisCache
+	if fullMuInlineTarget {
+		if !packedMuInlineTarget && len(aliasMuRows) == 0 {
+			return nil, fmt.Errorf("sig shortness V18 full mu inline target missing alias mu rows")
+		}
+		if packedMuInlineTarget {
+			muDecodePolys, _, err = buildMuCarrierDecodePolys(pub.BoundB, muPackWidth, ringQ.Modulus[0])
+			if err != nil {
+				return nil, fmt.Errorf("sig shortness V18 packed mu decode polys: %w", err)
+			}
+		}
+		fullMuInlineBridgeBasis, err = newTransformBridgeBasisCache(ringQ, omegaWitness, replayOutputBlocks*ncols, muVirtualBlocks)
+		if err != nil {
+			return nil, fmt.Errorf("sig shortness V18 full mu inline target bridge basis: %w", err)
+		}
+	}
 	aHeads := make([][][]uint64, replayOutputBlocks)
 	for bOut := 0; bOut < replayOutputBlocks; bOut++ {
 		aHeads[bOut] = make([][]uint64, cfg.PackedSigComponents)
@@ -4247,6 +4392,12 @@ func buildSigShortnessV7Replay(
 		if v14PairLookup {
 			fparGroups = layout.PackedSigChainGroupCount
 		}
+		if freeSigLookupShadow {
+			fparGroups = 0
+			if cfg.PackedSigBase >= 0 && cfg.PackedSigCount >= layout.PackedSigChainGroupCount {
+				fparGroups = layout.PackedSigChainGroupCount
+			}
+		}
 		if v15CoeffLookup {
 			fparGroups = 0
 		}
@@ -4254,6 +4405,10 @@ func buildSigShortnessV7Replay(
 		if v15CoeffLookup {
 			// V15 moves coefficient interval membership into the typed lookup
 			// proof, so the main constraint replay has no digit Fpar bucket.
+		} else if freeSigLookupShadow {
+			// Unsafe R121/L2 free-shadow mode measures the best-case fixed-table
+			// lookup savings by retaining only linear source recomposition.
+			fparCap = fparGroups
 		} else if v14PairLookup {
 			fparCap *= 5
 		}
@@ -4293,6 +4448,22 @@ func buildSigShortnessV7Replay(
 						fpar = append(fpar, residual)
 					}
 				}
+			}
+		} else if freeSigLookupShadow {
+			for group := 0; group < fparGroups; group++ {
+				sourceIdx := cfg.PackedSigBase + group
+				if sourceIdx < 0 || sourceIdx >= len(rows) {
+					return nil, nil, fmt.Errorf("R121/L2 free-shadow source row idx out of range for group=%d", group)
+				}
+				residual := rows[sourceIdx] % q
+				for lane := 0; lane < spec.L; lane++ {
+					rowIdx := rowLayoutCoeffNativePackedSigChainIndex(layout, group, lane)
+					if rowIdx < 0 || rowIdx >= len(rows) {
+						return nil, nil, fmt.Errorf("R121/L2 free-shadow packed row idx out of range for group=%d lane=%d", group, lane)
+					}
+					residual = modSub(residual, modMul(spec.RPows[lane]%q, rows[rowIdx]%q, q), q)
+				}
+				fpar = append(fpar, residual)
 			}
 		} else if groupedSigDomain {
 			for group := 0; group < layout.PackedSigChainGroupCount; group++ {
@@ -4335,12 +4506,14 @@ func buildSigShortnessV7Replay(
 		var mSigma uint64
 		var r0Vals []uint64
 		if v16InlineTarget {
-			m1Idx := rowLayoutPostSignM1(layout)
-			m2Idx := rowLayoutPostSignM2(layout)
-			if m1Idx < 0 || m1Idx >= len(rows) || m2Idx < 0 || m2Idx >= len(rows) {
-				return nil, nil, fmt.Errorf("V16 message rows out of range")
+			if !fullMuInlineTarget {
+				m1Idx := rowLayoutPostSignM1(layout)
+				m2Idx := rowLayoutPostSignM2(layout)
+				if m1Idx < 0 || m1Idx >= len(rows) || m2Idx < 0 || m2Idx >= len(rows) {
+					return nil, nil, fmt.Errorf("V16 message rows out of range")
+				}
+				mSigma = modAdd(rows[m1Idx]%q, rows[m2Idx]%q, q)
 			}
-			mSigma = modAdd(rows[m1Idx]%q, rows[m2Idx]%q, q)
 			r0Rows := rowLayoutPostSignR0Rows(layout)
 			r0Vals = make([]uint64, len(r0Rows))
 			for i, rowIdx := range r0Rows {
@@ -4455,12 +4628,43 @@ func buildSigShortnessV7Replay(
 				lambda := EvalPoly(bridgeBasis.LagrangeBasis[j], x, q) % q
 				rhs := modMul(lambda, rhsBase, q)
 				if v16InlineTarget {
-					inlineTarget := modMul(thetaBHeads[bOut][1][j]%q, mSigma, q)
-					for i := 0; i < len(r0Vals); i++ {
-						inlineTarget = modAdd(inlineTarget, modMul(thetaBHeads[bOut][2+i][j]%q, r0Vals[i], q), q)
-					}
 					inlineHVal := EvalPoly(inlineTargetBridgeBasis.TransformH[t], x, q) % q
-					rhs = modAdd(rhs, modMul(inlineHVal, inlineTarget, q), q)
+					inlineTarget := uint64(0)
+					if fullMuInlineTarget {
+						fullMuHVal := EvalPoly(fullMuInlineBridgeBasis.TransformH[t], x, q) % q
+						for block := 0; block < muVirtualBlocks; block++ {
+							var srcVal uint64
+							if packedMuInlineTarget {
+								carrierBlock := block / muPackWidth
+								lane := block % muPackWidth
+								if carrierBlock < 0 || carrierBlock >= len(carrierMuRows) || lane >= len(muDecodePolys) {
+									return nil, nil, fmt.Errorf("V18 mu virtual block=%d maps outside carrier rows=%d lanes=%d", block, len(carrierMuRows), len(muDecodePolys))
+								}
+								rowIdx := carrierMuRows[carrierBlock]
+								if rowIdx < 0 || rowIdx >= len(rows) {
+									return nil, nil, fmt.Errorf("V18 carrier mu row idx out of range for block=%d", block)
+								}
+								srcVal = EvalPoly(muDecodePolys[lane], rows[rowIdx]%q, q) % q
+							} else {
+								rowIdx := aliasMuRows[block]
+								if rowIdx < 0 || rowIdx >= len(rows) {
+									return nil, nil, fmt.Errorf("V18 alias mu row idx out of range for block=%d", block)
+								}
+								srcVal = rows[rowIdx] % q
+							}
+							scale := fullMuInlineBridgeBasis.BlockFactors[t][block] % q
+							inlineTarget = modAdd(inlineTarget, modMul(scale, modMul(fullMuHVal, srcVal, q), q), q)
+						}
+						inlineTarget = modMul(thetaBHeads[bOut][1][j]%q, inlineTarget, q)
+					} else {
+						inlineTarget = modMul(thetaBHeads[bOut][1][j]%q, mSigma, q)
+						inlineTarget = modMul(inlineHVal, inlineTarget, q)
+					}
+					for i := 0; i < len(r0Vals); i++ {
+						term := modMul(thetaBHeads[bOut][2+i][j]%q, r0Vals[i], q)
+						inlineTarget = modAdd(inlineTarget, modMul(inlineHVal, term, q), q)
+					}
+					rhs = modAdd(rhs, inlineTarget, q)
 				}
 				fagg = append(fagg, modSub(lhs, rhs, q))
 			}
@@ -4484,12 +4688,21 @@ func buildSigShortnessV7Replay(
 			if v14PairLookup {
 				fparGroups = layout.PackedSigChainGroupCount
 			}
+			if freeSigLookupShadow {
+				fparGroups = 0
+				if cfg.PackedSigBase >= 0 && cfg.PackedSigCount >= layout.PackedSigChainGroupCount {
+					fparGroups = layout.PackedSigChainGroupCount
+				}
+			}
 			if v15CoeffLookup {
 				fparGroups = 0
 			}
 			fparCap := fparGroups * spec.L
 			if v15CoeffLookup {
 				// V15 lookup membership is verified by the auxiliary proof.
+			} else if freeSigLookupShadow {
+				// Unsafe free-shadow mode keeps only linear source recomposition.
+				fparCap = fparGroups
 			} else if v14PairLookup {
 				fparCap *= 5
 			}
@@ -4529,6 +4742,22 @@ func buildSigShortnessV7Replay(
 							fpar = append(fpar, residual)
 						}
 					}
+				}
+			} else if freeSigLookupShadow {
+				for group := 0; group < fparGroups; group++ {
+					sourceIdx := cfg.PackedSigBase + group
+					if sourceIdx < 0 || sourceIdx >= len(rows) {
+						return nil, nil, fmt.Errorf("R121/L2 free-shadow K source row idx out of range for group=%d", group)
+					}
+					residual := rows[sourceIdx]
+					for lane := 0; lane < spec.L; lane++ {
+						rowIdx := rowLayoutCoeffNativePackedSigChainIndex(layout, group, lane)
+						if rowIdx < 0 || rowIdx >= len(rows) {
+							return nil, nil, fmt.Errorf("R121/L2 free-shadow K packed row idx out of range for group=%d lane=%d", group, lane)
+						}
+						residual = K.Sub(residual, K.Mul(K.EmbedF(spec.RPows[lane]%K.Q), rows[rowIdx]))
+					}
+					fpar = append(fpar, residual)
 				}
 			} else if groupedSigDomain {
 				for group := 0; group < layout.PackedSigChainGroupCount; group++ {
@@ -4582,12 +4811,14 @@ func buildSigShortnessV7Replay(
 			var mSigmaK kf.Elem
 			var r0ValsK []kf.Elem
 			if v16InlineTarget {
-				m1Idx := rowLayoutPostSignM1(layout)
-				m2Idx := rowLayoutPostSignM2(layout)
-				if m1Idx < 0 || m1Idx >= len(rows) || m2Idx < 0 || m2Idx >= len(rows) {
-					return nil, nil, fmt.Errorf("V16 K message rows out of range")
+				if !fullMuInlineTarget {
+					m1Idx := rowLayoutPostSignM1(layout)
+					m2Idx := rowLayoutPostSignM2(layout)
+					if m1Idx < 0 || m1Idx >= len(rows) || m2Idx < 0 || m2Idx >= len(rows) {
+						return nil, nil, fmt.Errorf("V16 K message rows out of range")
+					}
+					mSigmaK = K.Add(rows[m1Idx], rows[m2Idx])
 				}
-				mSigmaK = K.Add(rows[m1Idx], rows[m2Idx])
 				r0Rows := rowLayoutPostSignR0Rows(layout)
 				r0ValsK = make([]kf.Elem, len(r0Rows))
 				for i, rowIdx := range r0Rows {
@@ -4690,12 +4921,43 @@ func buildSigShortnessV7Replay(
 					lambda := K.EvalFPolyAtK(bridgeBasis.LagrangeBasis[j], e)
 					rhs := K.Mul(lambda, rhsBase)
 					if v16InlineTarget {
-						inlineTarget := K.Mul(K.EmbedF(thetaBHeads[bOut][1][j]%K.Q), mSigmaK)
-						for i := 0; i < len(r0ValsK); i++ {
-							inlineTarget = K.Add(inlineTarget, K.Mul(K.EmbedF(thetaBHeads[bOut][2+i][j]%K.Q), r0ValsK[i]))
-						}
 						inlineHVal := K.EvalFPolyAtK(inlineTargetBridgeBasis.TransformH[t], e)
-						rhs = K.Add(rhs, K.Mul(inlineHVal, inlineTarget))
+						inlineTarget := K.Zero()
+						if fullMuInlineTarget {
+							fullMuHVal := K.EvalFPolyAtK(fullMuInlineBridgeBasis.TransformH[t], e)
+							for block := 0; block < muVirtualBlocks; block++ {
+								var srcVal kf.Elem
+								if packedMuInlineTarget {
+									carrierBlock := block / muPackWidth
+									lane := block % muPackWidth
+									if carrierBlock < 0 || carrierBlock >= len(carrierMuRows) || lane >= len(muDecodePolys) {
+										return nil, nil, fmt.Errorf("V18 K mu virtual block=%d maps outside carrier rows=%d lanes=%d", block, len(carrierMuRows), len(muDecodePolys))
+									}
+									rowIdx := carrierMuRows[carrierBlock]
+									if rowIdx < 0 || rowIdx >= len(rows) {
+										return nil, nil, fmt.Errorf("V18 K carrier mu row idx out of range for block=%d", block)
+									}
+									srcVal = K.EvalFPolyAtK(muDecodePolys[lane], rows[rowIdx])
+								} else {
+									rowIdx := aliasMuRows[block]
+									if rowIdx < 0 || rowIdx >= len(rows) {
+										return nil, nil, fmt.Errorf("V18 K alias mu row idx out of range for block=%d", block)
+									}
+									srcVal = rows[rowIdx]
+								}
+								scale := K.EmbedF(fullMuInlineBridgeBasis.BlockFactors[t][block] % K.Q)
+								inlineTarget = K.Add(inlineTarget, K.Mul(scale, K.Mul(fullMuHVal, srcVal)))
+							}
+							inlineTarget = K.Mul(K.EmbedF(thetaBHeads[bOut][1][j]%K.Q), inlineTarget)
+						} else {
+							inlineTarget = K.Mul(K.EmbedF(thetaBHeads[bOut][1][j]%K.Q), mSigmaK)
+							inlineTarget = K.Mul(inlineHVal, inlineTarget)
+						}
+						for i := 0; i < len(r0ValsK); i++ {
+							term := K.Mul(K.EmbedF(thetaBHeads[bOut][2+i][j]%K.Q), r0ValsK[i])
+							inlineTarget = K.Add(inlineTarget, K.Mul(inlineHVal, term))
+						}
+						rhs = K.Add(rhs, inlineTarget)
 					}
 					fagg = append(fagg, K.Sub(lhs, rhs))
 				}
@@ -5196,6 +5458,9 @@ func validateSigShortnessV18Shape(proof *Proof) error {
 	if v18.Mode != sigShortnessV18ModeReplayCompact {
 		return fmt.Errorf("unsupported sig shortness V18 mode %d", v18.Mode)
 	}
+	if v18.RingDegree <= 0 {
+		return fmt.Errorf("missing sig shortness V18 ring_degree")
+	}
 	if proof.RowLayout.PackedSigChainBase < 0 || proof.RowLayout.PackedSigChainGroupCount <= 0 || proof.RowLayout.PackedSigChainRowsPerGroup <= 0 {
 		return fmt.Errorf("missing replay-compact packed shortness layout")
 	}
@@ -5275,6 +5540,15 @@ func VerifySigShortnessProofV18(proof *Proof, ringQ *ring.Ring, omegaWitness []u
 	}
 	if ringQ == nil {
 		return fmt.Errorf("nil ring")
+	}
+	if proof.RingDegree > 0 && proof.RingDegree != int(ringQ.N) {
+		return fmt.Errorf("proof ring_degree=%d does not match verifier ring degree %d", proof.RingDegree, ringQ.N)
+	}
+	if proof.RowLayout.RingDegree > 0 && proof.RowLayout.RingDegree != int(ringQ.N) {
+		return fmt.Errorf("row layout ring_degree=%d does not match verifier ring degree %d", proof.RowLayout.RingDegree, ringQ.N)
+	}
+	if v18 := proof.SigShortness.V18; v18 != nil && v18.RingDegree != int(ringQ.N) {
+		return fmt.Errorf("V18 ring_degree=%d want %d", v18.RingDegree, ringQ.N)
 	}
 	if !sigShortnessV18EnabledForOpts(opts) {
 		return fmt.Errorf("sig shortness V18 not enabled for opts")

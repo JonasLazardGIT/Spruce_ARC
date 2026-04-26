@@ -183,10 +183,19 @@ func canonicalReplayFamilyRows(proof *Proof) (map[ReplayFamilyKind][]int, error)
 			return nil, err
 		}
 	}
-	for _, idx := range []int{layout.IdxCarrierM, rowLayoutPostSignCarrierR1(layout)} {
-		if err := add(ReplayFamilyCarrier, idx); err != nil {
+	if rowLayoutUsesFullMu(layout) {
+		for _, idx := range rowLayoutCarrierMuBlockRows(layout) {
+			if err := add(ReplayFamilyCarrier, idx); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		if err := add(ReplayFamilyCarrier, layout.IdxCarrierM); err != nil {
 			return nil, err
 		}
+	}
+	if err := add(ReplayFamilyCarrier, rowLayoutPostSignCarrierR1(layout)); err != nil {
+		return nil, err
 	}
 	for _, idx := range rowLayoutPostSignCarrierR0Rows(layout) {
 		if err := add(ReplayFamilyCarrier, idx); err != nil {

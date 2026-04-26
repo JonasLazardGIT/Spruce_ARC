@@ -359,8 +359,8 @@ func TestResolveSimOptsDefaultsSoundnessBalancedPreset(t *testing.T) {
 	if opts.LVCSNCols != 84 || opts.PostSignLVCSNCols != 84 || opts.PRFLVCSNCols != 84 {
 		t.Fatalf("unexpected lvcs preset resolution: %+v", opts)
 	}
-	if opts.Theta != 3 || opts.Rho != 2 || opts.EllPrime != 2 || opts.Eta != 40 {
-		t.Fatalf("unexpected soundness-balanced tuple: theta=%d rho=%d ellPrime=%d eta=%d", opts.Theta, opts.Rho, opts.EllPrime, opts.Eta)
+	if opts.Theta != 3 || opts.Rho != 2 || opts.Ell != 18 || opts.EllPrime != 2 || opts.Eta != 40 {
+		t.Fatalf("unexpected soundness-balanced tuple: theta=%d rho=%d ell=%d ellPrime=%d eta=%d", opts.Theta, opts.Rho, opts.Ell, opts.EllPrime, opts.Eta)
 	}
 	if opts.NLeaves != 4096 || opts.PostSignNLeaves != 4096 || opts.PRFNLeaves != 4096 {
 		t.Fatalf("unexpected nleaves resolution: n=%d post=%d prf=%d", opts.NLeaves, opts.PostSignNLeaves, opts.PRFNLeaves)
@@ -385,10 +385,13 @@ func TestResolveSimOptsDefaultsInlineTargetReplayCompactPreset(t *testing.T) {
 	if opts.LVCSNCols != 84 || opts.PostSignLVCSNCols != 84 || opts.PRFLVCSNCols != 84 {
 		t.Fatalf("unexpected lvcs preset resolution: %+v", opts)
 	}
-	if opts.Theta != 3 || opts.Rho != 2 || opts.EllPrime != 2 || opts.Eta != 39 {
-		t.Fatalf("unexpected inline-target tuple: theta=%d rho=%d ellPrime=%d eta=%d", opts.Theta, opts.Rho, opts.EllPrime, opts.Eta)
+	if opts.Theta != 3 || opts.Rho != 2 || opts.Ell != 16 || opts.EllPrime != 2 || opts.Eta != 41 {
+		t.Fatalf("unexpected inline-target tuple: theta=%d rho=%d ell=%d ellPrime=%d eta=%d", opts.Theta, opts.Rho, opts.Ell, opts.EllPrime, opts.Eta)
 	}
-	if opts.Kappa != [4]int{10, 0, 0, 5} {
-		t.Fatalf("unexpected kappa=%v want [10 0 0 5]", opts.Kappa)
+	if opts.NLeaves != 5760 || opts.PostSignNLeaves != 5760 || opts.PRFNLeaves != 5760 {
+		t.Fatalf("unexpected inline-target nleaves: n=%d post=%d prf=%d", opts.NLeaves, opts.PostSignNLeaves, opts.PRFNLeaves)
+	}
+	if opts.Kappa != [4]int{10, 0, 0, 6} {
+		t.Fatalf("unexpected kappa=%v want [10 0 0 6]", opts.Kappa)
 	}
 }

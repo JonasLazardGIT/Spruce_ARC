@@ -45,7 +45,12 @@ func loadShowingBenchmarkContextFromStatePath(statePath string) (*compactFullBen
 	if err != nil {
 		return nil, fmt.Errorf("load B: %w", err)
 	}
-	wit, err := buildWitnessFromState(ringQ, state, B)
+	opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{})
+	omega, err := deriveOmegaForOpts(ringQ, opts, publicParams.HashRelation)
+	if err != nil {
+		return nil, fmt.Errorf("derive omega: %w", err)
+	}
+	wit, err := buildWitnessFromState(ringQ, state, B, omega, publicParams.BoundB, publicParams.X0CoeffBound)
 	if err != nil {
 		return nil, fmt.Errorf("build witness: %w", err)
 	}

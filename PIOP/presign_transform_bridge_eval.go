@@ -17,6 +17,8 @@ type preSignTransformBridgeConfig struct {
 	X0Bound      int64
 	X0Len        int
 	HashRelation string
+	MuMode       bool
+	FullMuMode   bool
 
 	AcCoeff      [][][]uint64
 	ComCoeff     [][]uint64
@@ -41,6 +43,8 @@ type preSignTransformBridgeConfig struct {
 	MemCarry        []uint64
 	LagrangeBasis   [][]uint64
 	TransformHEval  [][]uint64
+	FullMuHEval     [][]uint64
+	FullMuFactors   [][]uint64
 }
 
 func newPreSignTransformBridgeConfig(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, omegaWitness, domainPoints []uint64, bound int64) (*preSignTransformBridgeConfig, error) {
@@ -181,13 +185,27 @@ func newPreSignTransformBridgeConfig(ringQ *ring.Ring, pub PublicInputs, layout 
 	if err != nil {
 		return nil, err
 	}
-	packingSelCoeff, err := buildPackingSelectorCoeff(ringQ, omegaWitness)
-	if err != nil {
-		return nil, fmt.Errorf("packing selector coeffs: %w", err)
+	muMode := rowLayoutUsesMu(layout)
+	fullMuMode := rowLayoutUsesFullMu(layout)
+	var packingSelCoeff []uint64
+	if !muMode {
+		packingSelCoeff, err = buildPackingSelectorCoeff(ringQ, omegaWitness)
+		if err != nil {
+			return nil, fmt.Errorf("packing selector coeffs: %w", err)
+		}
 	}
-	msgDecode1, msgDecode2, err := buildPackedMessageCarrierDecodePolys(bound, q)
-	if err != nil {
-		return nil, fmt.Errorf("message carrier decode polys: %w", err)
+	var msgDecode1, msgDecode2 []uint64
+	if muMode {
+		msgDecode1, err = buildSingletonCarrierDecodePoly(bound, q)
+		if err != nil {
+			return nil, fmt.Errorf("mu carrier decode poly: %w", err)
+		}
+		msgDecode2 = []uint64{0}
+	} else {
+		msgDecode1, msgDecode2, err = buildPackedMessageCarrierDecodePolys(bound, q)
+		if err != nil {
+			return nil, fmt.Errorf("message carrier decode polys: %w", err)
+		}
 	}
 	x0Decode1, err := buildSingletonCarrierDecodePoly(pub.X0CoeffBound, q)
 	if err != nil {
@@ -205,9 +223,17 @@ func newPreSignTransformBridgeConfig(ringQ *ring.Ring, pub PublicInputs, layout 
 	if err != nil {
 		return nil, fmt.Errorf("carrier K decode polys: %w", err)
 	}
-	memMsg, err := buildPackedMessageCarrierMembershipPoly(bound, q)
-	if err != nil {
-		return nil, fmt.Errorf("message carrier membership poly: %w", err)
+	var memMsg []uint64
+	if muMode {
+		memMsg, err = buildSingletonCarrierMembershipPoly(bound, q)
+		if err != nil {
+			return nil, fmt.Errorf("mu carrier membership poly: %w", err)
+		}
+	} else {
+		memMsg, err = buildPackedMessageCarrierMembershipPoly(bound, q)
+		if err != nil {
+			return nil, fmt.Errorf("message carrier membership poly: %w", err)
+		}
 	}
 	memX0, err := buildSingletonCarrierMembershipPoly(pub.X0CoeffBound, q)
 	if err != nil {
@@ -229,6 +255,17 @@ func newPreSignTransformBridgeConfig(ringQ *ring.Ring, pub PublicInputs, layout 
 	if err != nil {
 		return nil, fmt.Errorf("transform-bridge basis: %w", err)
 	}
+	var fullMuHEval [][]uint64
+	var fullMuFactors [][]uint64
+	if fullMuMode {
+		sourceBlocks := len(rowLayoutAliasMuBlockRows(layout))
+		fullMuBasis, ferr := newTransformBridgeBasisCache(ringQ, omegaWitness, len(omegaWitness), sourceBlocks)
+		if ferr != nil {
+			return nil, fmt.Errorf("full mu transform-bridge basis: %w", ferr)
+		}
+		fullMuHEval = fullMuBasis.TransformHEval
+		fullMuFactors = fullMuBasis.BlockFactors
+	}
 
 	return &preSignTransformBridgeConfig{
 		Ring:            ringQ,
@@ -239,6 +276,8 @@ func newPreSignTransformBridgeConfig(ringQ *ring.Ring, pub PublicInputs, layout 
 		X0Bound:         pub.X0CoeffBound,
 		X0Len:           x0Len,
 		HashRelation:    pub.HashRelation,
+		MuMode:          muMode,
+		FullMuMode:      fullMuMode,
 		AcCoeff:         acCoeff,
 		ComCoeff:        comCoeff,
 		RI0Coeff:        ri0Coeff,
@@ -261,6 +300,8 @@ func newPreSignTransformBridgeConfig(ringQ *ring.Ring, pub PublicInputs, layout 
 		MemCarry:        memCarry,
 		LagrangeBasis:   bridgeBasis.LagrangeBasis,
 		TransformHEval:  bridgeBasis.TransformHEval,
+		FullMuHEval:     fullMuHEval,
+		FullMuFactors:   fullMuFactors,
 	}, nil
 }
 
@@ -290,6 +331,22 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 		if err != nil {
 			return nil, nil, err
 		}
+		carrierMuRows := rowLayoutCarrierMuBlockRows(layout)
+		aliasMuRows := rowLayoutAliasMuBlockRows(layout)
+		muDecs := []uint64{decodeVal(cfg.MsgDecode1, carrierM)}
+		if cfg.FullMuMode {
+			if len(carrierMuRows) != len(aliasMuRows) {
+				return nil, nil, fmt.Errorf("full mu carrier rows=%d want alias rows=%d", len(carrierMuRows), len(aliasMuRows))
+			}
+			muDecs = make([]uint64, len(carrierMuRows))
+			for i, idx := range carrierMuRows {
+				cMu, err := getRow(idx)
+				if err != nil {
+					return nil, nil, err
+				}
+				muDecs[i] = decodeVal(cfg.MsgDecode1, cMu)
+			}
+		}
 		carrierRU1, err := getRow(layout.IdxCarrierRU1)
 		if err != nil {
 			return nil, nil, err
@@ -306,7 +363,7 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 		if err != nil {
 			return nil, nil, err
 		}
-		m1Dec := decodeVal(cfg.MsgDecode1, carrierM)
+		m1Dec := muDecs[0]
 		m2Dec := decodeVal(cfg.MsgDecode2, carrierM)
 		ru1Dec := decodeVal(cfg.ScalarDecode1, carrierRU1)
 		rDec := decodeVal(cfg.ScalarDecode1, carrierR)
@@ -365,9 +422,23 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 		if err != nil {
 			return nil, nil, err
 		}
-		m2, err := getRow(layout.IdxM2)
-		if err != nil {
-			return nil, nil, err
+		muVals := []uint64{m1}
+		if cfg.FullMuMode {
+			muVals = make([]uint64, len(aliasMuRows))
+			for i, idx := range aliasMuRows {
+				muVals[i], err = getRow(idx)
+				if err != nil {
+					return nil, nil, err
+				}
+			}
+			m1 = muVals[0]
+		}
+		m2 := uint64(0)
+		if !cfg.MuMode {
+			m2, err = getRow(layout.IdxM2)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 		ru1, err := getRow(layout.IdxRU1)
 		if err != nil {
@@ -406,14 +477,24 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 			}
 		}
 
-		fpar := []uint64{
-			modSub(m1, m1Dec, q),
-			modSub(m2, m2Dec, q),
+		var fpar []uint64
+		if cfg.FullMuMode {
+			fpar = make([]uint64, 0, len(muVals)+16)
+			for i := range muVals {
+				fpar = append(fpar, modSub(muVals[i], muDecs[i], q))
+			}
+		} else {
+			fpar = []uint64{modSub(m1, m1Dec, q)}
+		}
+		if !cfg.MuMode {
+			fpar = append(fpar, modSub(m2, m2Dec, q))
+		}
+		fpar = append(fpar,
 			modSub(ru1, ru1Dec, q),
 			modSub(rVal, rDec, q),
 			modSub(r1v, r1Dec, q),
 			modSub(k1, k1Dec, q),
-		}
+		)
 		for i := 0; i < cfg.X0Len; i++ {
 			fpar = append(fpar, modSub(ru0Vals[i], ru0Decs[i], q))
 		}
@@ -430,17 +511,30 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 			}
 			for j := 0; j < len(cfg.AcCoeff[i]); j++ {
 				aVal := EvalPoly(cfg.AcCoeff[i][j], x, q) % q
-				switch {
-				case j == 0:
-					sum = modAdd(sum, modMul(aVal, m1, q), q)
-				case j == 1:
-					sum = modAdd(sum, modMul(aVal, m2, q), q)
-				case j >= 2 && j < 2+cfg.X0Len:
-					sum = modAdd(sum, modMul(aVal, ru0Vals[j-2], q), q)
-				case j == 2+cfg.X0Len:
-					sum = modAdd(sum, modMul(aVal, ru1, q), q)
-				case j == 3+cfg.X0Len:
-					sum = modAdd(sum, modMul(aVal, rVal, q), q)
+				if cfg.MuMode {
+					switch {
+					case j == 0:
+						sum = modAdd(sum, modMul(aVal, m1, q), q)
+					case j >= 1 && j < 1+cfg.X0Len:
+						sum = modAdd(sum, modMul(aVal, ru0Vals[j-1], q), q)
+					case j == 1+cfg.X0Len:
+						sum = modAdd(sum, modMul(aVal, ru1, q), q)
+					case j == 2+cfg.X0Len:
+						sum = modAdd(sum, modMul(aVal, rVal, q), q)
+					}
+				} else {
+					switch {
+					case j == 0:
+						sum = modAdd(sum, modMul(aVal, m1, q), q)
+					case j == 1:
+						sum = modAdd(sum, modMul(aVal, m2, q), q)
+					case j >= 2 && j < 2+cfg.X0Len:
+						sum = modAdd(sum, modMul(aVal, ru0Vals[j-2], q), q)
+					case j == 2+cfg.X0Len:
+						sum = modAdd(sum, modMul(aVal, ru1, q), q)
+					case j == 3+cfg.X0Len:
+						sum = modAdd(sum, modMul(aVal, rVal, q), q)
+					}
 				}
 			}
 			fpar = append(fpar, sum)
@@ -458,21 +552,37 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 		fpar = append(fpar, res1)
 
 		tTheta := EvalPoly(cfg.TPublicTheta, x, q) % q
+		mHatSigma := mHat1
+		if !cfg.MuMode {
+			mHatSigma = modAdd(mHat1, mHat2, q)
+		}
 		if useBBTran {
 			fpar = append(fpar,
-				transformTargetResidualCombinedEvalVector(q, x, cfg.HashRelation, cfg.ThetaB, modAdd(mHat1, mHat2, q), rHat0Vals, zHat, tTheta),
+				transformTargetResidualCombinedEvalVector(q, x, cfg.HashRelation, cfg.ThetaB, mHatSigma, rHat0Vals, zHat, tTheta),
 				transformInverseResidualEval(q, x, cfg.HashRelation, cfg.ThetaB, rHat1, zHat),
 			)
 		} else {
-			fpar = append(fpar, transformHashResidualEval(q, x, cfg.HashRelation, cfg.ThetaB, mHat1, mHat2, rHat0Vals[0], rHat1, tTheta, 0, 0))
+			fpar = append(fpar, transformHashResidualCombinedEval(q, x, cfg.HashRelation, cfg.ThetaB, mHatSigma, rHat0Vals[0], rHat1, tTheta, 0, 0))
 		}
 
-		sel := EvalPoly(cfg.PackingSelCoeff, x, q) % q
-		fpar = append(fpar, modMul(sel, m1, q))
-		fpar = append(fpar, modMul((1+q-sel)%q, m2, q))
+		if !cfg.MuMode {
+			sel := EvalPoly(cfg.PackingSelCoeff, x, q) % q
+			fpar = append(fpar, modMul(sel, m1, q))
+			fpar = append(fpar, modMul((1+q-sel)%q, m2, q))
+		}
 
+		if cfg.FullMuMode {
+			for _, idx := range carrierMuRows {
+				cMu, err := getRow(idx)
+				if err != nil {
+					return nil, nil, err
+				}
+				fpar = append(fpar, EvalPoly(cfg.MemMsg, cMu, q)%q)
+			}
+		} else {
+			fpar = append(fpar, EvalPoly(cfg.MemMsg, carrierM, q)%q)
+		}
 		fpar = append(fpar,
-			EvalPoly(cfg.MemMsg, carrierM, q)%q,
 			EvalPoly(cfg.MemScalar, carrierRU1, q)%q,
 			EvalPoly(cfg.MemScalar, carrierR, q)%q,
 			EvalPoly(cfg.MemScalar, carrierR1, q)%q,
@@ -496,14 +606,41 @@ func (cfg *preSignTransformBridgeConfig) CoreEvaluator() ConstraintEvaluator {
 			hVals[j] = EvalPoly(cfg.TransformHEval[j], x, q) % q
 		}
 		fagg := make([]uint64, 0, (cfg.X0Len+3)*len(cfg.LagrangeBasis))
-		for _, pair := range []struct {
+		if cfg.FullMuMode {
+			if len(cfg.FullMuHEval) < len(cfg.LagrangeBasis) || len(cfg.FullMuFactors) < len(cfg.LagrangeBasis) {
+				return nil, nil, fmt.Errorf("full mu bridge basis has H=%d factors=%d want %d", len(cfg.FullMuHEval), len(cfg.FullMuFactors), len(cfg.LagrangeBasis))
+			}
+			for j := 0; j < len(cfg.LagrangeBasis); j++ {
+				left := uint64(0)
+				hv := EvalPoly(cfg.FullMuHEval[j], x, q) % q
+				for block := range muVals {
+					scale := cfg.FullMuFactors[j][block] % q
+					left = modAdd(left, modMul(scale, modMul(hv, muVals[block], q), q), q)
+				}
+				fagg = append(fagg, modSub(left, modMul(mHat1, lagrangeVals[j], q), q))
+			}
+		}
+		bridgePairs := []struct {
 			src uint64
 			hat uint64
 		}{
-			{src: m1, hat: mHat1},
-			{src: m2, hat: mHat2},
 			{src: r1v, hat: rHat1},
-		} {
+		}
+		if !cfg.MuMode {
+			bridgePairs = append([]struct {
+				src uint64
+				hat uint64
+			}{{src: m1, hat: mHat1}, {src: m2, hat: mHat2}}, struct {
+				src uint64
+				hat uint64
+			}{src: r1v, hat: rHat1})
+		} else if !cfg.FullMuMode {
+			bridgePairs = append([]struct {
+				src uint64
+				hat uint64
+			}{{src: m1, hat: mHat1}}, bridgePairs...)
+		}
+		for _, pair := range bridgePairs {
 			for j := 0; j < len(cfg.LagrangeBasis); j++ {
 				fagg = append(fagg, modSub(modMul(pair.src, hVals[j], q), modMul(pair.hat, lagrangeVals[j], q), q))
 			}
@@ -541,6 +678,22 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 		if err != nil {
 			return nil, nil, err
 		}
+		carrierMuRows := rowLayoutCarrierMuBlockRows(layout)
+		aliasMuRows := rowLayoutAliasMuBlockRows(layout)
+		muDecs := []kf.Elem{decodeVal(cfg.MsgDecode1, carrierM)}
+		if cfg.FullMuMode {
+			if len(carrierMuRows) != len(aliasMuRows) {
+				return nil, nil, fmt.Errorf("full mu carrier rows=%d want alias rows=%d", len(carrierMuRows), len(aliasMuRows))
+			}
+			muDecs = make([]kf.Elem, len(carrierMuRows))
+			for i, idx := range carrierMuRows {
+				cMu, err := getRow(idx)
+				if err != nil {
+					return nil, nil, err
+				}
+				muDecs[i] = decodeVal(cfg.MsgDecode1, cMu)
+			}
+		}
 		carrierRU1, err := getRow(layout.IdxCarrierRU1)
 		if err != nil {
 			return nil, nil, err
@@ -557,7 +710,7 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 		if err != nil {
 			return nil, nil, err
 		}
-		m1Dec := decodeVal(cfg.MsgDecode1, carrierM)
+		m1Dec := muDecs[0]
 		m2Dec := decodeVal(cfg.MsgDecode2, carrierM)
 		ru1Dec := decodeVal(cfg.ScalarDecode1, carrierRU1)
 		rDec := decodeVal(cfg.ScalarDecode1, carrierR)
@@ -616,9 +769,23 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 		if err != nil {
 			return nil, nil, err
 		}
-		m2, err := getRow(layout.IdxM2)
-		if err != nil {
-			return nil, nil, err
+		muVals := []kf.Elem{m1}
+		if cfg.FullMuMode {
+			muVals = make([]kf.Elem, len(aliasMuRows))
+			for i, idx := range aliasMuRows {
+				muVals[i], err = getRow(idx)
+				if err != nil {
+					return nil, nil, err
+				}
+			}
+			m1 = muVals[0]
+		}
+		m2 := K.Zero()
+		if !cfg.MuMode {
+			m2, err = getRow(layout.IdxM2)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 		ru1, err := getRow(layout.IdxRU1)
 		if err != nil {
@@ -657,14 +824,24 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 			}
 		}
 
-		fpar := []kf.Elem{
-			K.Sub(m1, m1Dec),
-			K.Sub(m2, m2Dec),
+		var fpar []kf.Elem
+		if cfg.FullMuMode {
+			fpar = make([]kf.Elem, 0, len(muVals)+16)
+			for i := range muVals {
+				fpar = append(fpar, K.Sub(muVals[i], muDecs[i]))
+			}
+		} else {
+			fpar = []kf.Elem{K.Sub(m1, m1Dec)}
+		}
+		if !cfg.MuMode {
+			fpar = append(fpar, K.Sub(m2, m2Dec))
+		}
+		fpar = append(fpar,
 			K.Sub(ru1, ru1Dec),
 			K.Sub(rVal, rDec),
 			K.Sub(r1v, r1Dec),
 			K.Sub(k1, k1Dec),
-		}
+		)
 		for i := 0; i < cfg.X0Len; i++ {
 			fpar = append(fpar, K.Sub(ru0Vals[i], ru0Decs[i]))
 		}
@@ -681,17 +858,30 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 			}
 			for j := 0; j < len(cfg.AcCoeff[i]); j++ {
 				aVal := K.EvalFPolyAtK(cfg.AcCoeff[i][j], e)
-				switch {
-				case j == 0:
-					sum = K.Add(sum, K.Mul(aVal, m1))
-				case j == 1:
-					sum = K.Add(sum, K.Mul(aVal, m2))
-				case j >= 2 && j < 2+cfg.X0Len:
-					sum = K.Add(sum, K.Mul(aVal, ru0Vals[j-2]))
-				case j == 2+cfg.X0Len:
-					sum = K.Add(sum, K.Mul(aVal, ru1))
-				case j == 3+cfg.X0Len:
-					sum = K.Add(sum, K.Mul(aVal, rVal))
+				if cfg.MuMode {
+					switch {
+					case j == 0:
+						sum = K.Add(sum, K.Mul(aVal, m1))
+					case j >= 1 && j < 1+cfg.X0Len:
+						sum = K.Add(sum, K.Mul(aVal, ru0Vals[j-1]))
+					case j == 1+cfg.X0Len:
+						sum = K.Add(sum, K.Mul(aVal, ru1))
+					case j == 2+cfg.X0Len:
+						sum = K.Add(sum, K.Mul(aVal, rVal))
+					}
+				} else {
+					switch {
+					case j == 0:
+						sum = K.Add(sum, K.Mul(aVal, m1))
+					case j == 1:
+						sum = K.Add(sum, K.Mul(aVal, m2))
+					case j >= 2 && j < 2+cfg.X0Len:
+						sum = K.Add(sum, K.Mul(aVal, ru0Vals[j-2]))
+					case j == 2+cfg.X0Len:
+						sum = K.Add(sum, K.Mul(aVal, ru1))
+					case j == 3+cfg.X0Len:
+						sum = K.Add(sum, K.Mul(aVal, rVal))
+					}
 				}
 			}
 			fpar = append(fpar, sum)
@@ -703,18 +893,34 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 		ri1 := K.EvalFPolyAtK(cfg.RI1Coeff, e)
 		fpar = append(fpar, K.Sub(K.Sub(K.Add(ru1, ri1), r1v), K.Mul(deltaScalarK, k1)))
 		tTheta := K.EvalFPolyAtK(cfg.TPublicTheta, e)
+		mHatSigma := mHat1
+		if !cfg.MuMode {
+			mHatSigma = K.Add(mHat1, mHat2)
+		}
 		if useBBTran {
 			fpar = append(fpar,
-				transformTargetResidualCombinedKEvalVector(K, e, cfg.HashRelation, cfg.ThetaB, K.Add(mHat1, mHat2), rHat0Vals, zHat, tTheta),
+				transformTargetResidualCombinedKEvalVector(K, e, cfg.HashRelation, cfg.ThetaB, mHatSigma, rHat0Vals, zHat, tTheta),
 				transformInverseResidualKEval(K, e, cfg.HashRelation, cfg.ThetaB, rHat1, zHat),
 			)
 		} else {
-			fpar = append(fpar, transformHashResidualKEval(K, e, cfg.HashRelation, cfg.ThetaB, mHat1, mHat2, rHat0Vals[0], rHat1, tTheta, K.Zero(), K.Zero()))
+			fpar = append(fpar, transformHashResidualCombinedKEval(K, e, cfg.HashRelation, cfg.ThetaB, mHatSigma, rHat0Vals[0], rHat1, tTheta, K.Zero(), K.Zero()))
 		}
-		sel := K.EvalFPolyAtK(cfg.PackingSelCoeff, e)
-		fpar = append(fpar, K.Mul(sel, m1), K.Mul(K.Sub(K.One(), sel), m2))
+		if !cfg.MuMode {
+			sel := K.EvalFPolyAtK(cfg.PackingSelCoeff, e)
+			fpar = append(fpar, K.Mul(sel, m1), K.Mul(K.Sub(K.One(), sel), m2))
+		}
+		if cfg.FullMuMode {
+			for _, idx := range carrierMuRows {
+				cMu, err := getRow(idx)
+				if err != nil {
+					return nil, nil, err
+				}
+				fpar = append(fpar, K.EvalFPolyAtK(cfg.MemMsg, cMu))
+			}
+		} else {
+			fpar = append(fpar, K.EvalFPolyAtK(cfg.MemMsg, carrierM))
+		}
 		fpar = append(fpar,
-			K.EvalFPolyAtK(cfg.MemMsg, carrierM),
 			K.EvalFPolyAtK(cfg.MemScalar, carrierRU1),
 			K.EvalFPolyAtK(cfg.MemScalar, carrierR),
 			K.EvalFPolyAtK(cfg.MemScalar, carrierR1),
@@ -738,14 +944,41 @@ func (cfg *preSignTransformBridgeConfig) CoreKEvaluator(K *kf.Field) (KConstrain
 			hVals[j] = K.EvalFPolyAtK(cfg.TransformHEval[j], e)
 		}
 		fagg := make([]kf.Elem, 0, (cfg.X0Len+3)*len(cfg.LagrangeBasis))
-		for _, pair := range []struct {
+		if cfg.FullMuMode {
+			if len(cfg.FullMuHEval) < len(cfg.LagrangeBasis) || len(cfg.FullMuFactors) < len(cfg.LagrangeBasis) {
+				return nil, nil, fmt.Errorf("full mu bridge basis has H=%d factors=%d want %d", len(cfg.FullMuHEval), len(cfg.FullMuFactors), len(cfg.LagrangeBasis))
+			}
+			for j := 0; j < len(cfg.LagrangeBasis); j++ {
+				left := K.Zero()
+				hv := K.EvalFPolyAtK(cfg.FullMuHEval[j], e)
+				for block := range muVals {
+					scale := K.EmbedF(cfg.FullMuFactors[j][block] % K.Q)
+					left = K.Add(left, K.Mul(scale, K.Mul(hv, muVals[block])))
+				}
+				fagg = append(fagg, K.Sub(left, K.Mul(mHat1, lagrangeVals[j])))
+			}
+		}
+		bridgePairs := []struct {
 			src kf.Elem
 			hat kf.Elem
 		}{
-			{src: m1, hat: mHat1},
-			{src: m2, hat: mHat2},
 			{src: r1v, hat: rHat1},
-		} {
+		}
+		if !cfg.MuMode {
+			bridgePairs = append([]struct {
+				src kf.Elem
+				hat kf.Elem
+			}{{src: m1, hat: mHat1}, {src: m2, hat: mHat2}}, struct {
+				src kf.Elem
+				hat kf.Elem
+			}{src: r1v, hat: rHat1})
+		} else if !cfg.FullMuMode {
+			bridgePairs = append([]struct {
+				src kf.Elem
+				hat kf.Elem
+			}{{src: m1, hat: mHat1}}, bridgePairs...)
+		}
+		for _, pair := range bridgePairs {
 			for j := 0; j < len(cfg.LagrangeBasis); j++ {
 				fagg = append(fagg, K.Sub(K.Mul(pair.src, hVals[j]), K.Mul(pair.hat, lagrangeVals[j])))
 			}

@@ -28,24 +28,26 @@ type CoeffSlot struct {
 }
 
 type PRFCompanionLayout struct {
-	StartRow           int
-	PackWidth          int
-	KeySource          KeySource
-	KeySlots           []CoeffSlot
-	CheckpointSlots    []CoeffSlot
-	FinalTagSlots      []CoeffSlot
-	HelperFamilies     []string
-	ReplayRows         int
-	PackedRows         int
-	PackedLogicalCount int
-	HelperRowCount     int
-	DataRows           int
-	HelperRows         int
-	KeyCount           int
-	CheckpointCount    int
-	TagCount           int
-	RowSemantics       []RowSemantics
-	BridgeStripe       *PRFBridgeStripeLayout
+	StartRow             int
+	PackWidth            int
+	KeySource            KeySource
+	KeySlots             []CoeffSlot
+	KeySourceSlots       []CoeffSlot
+	KeySourceDecodeLanes []int
+	CheckpointSlots      []CoeffSlot
+	FinalTagSlots        []CoeffSlot
+	HelperFamilies       []string
+	ReplayRows           int
+	PackedRows           int
+	PackedLogicalCount   int
+	HelperRowCount       int
+	DataRows             int
+	HelperRows           int
+	KeyCount             int
+	CheckpointCount      int
+	TagCount             int
+	RowSemantics         []RowSemantics
+	BridgeStripe         *PRFBridgeStripeLayout
 }
 
 type PRFCompanionOpening struct {
@@ -212,6 +214,10 @@ func clonePRFCompanionLayout(src *PRFCompanionLayout) *PRFCompanionLayout {
 	}
 	out := *src
 	out.KeySlots = cloneCoeffSlots(src.KeySlots)
+	out.KeySourceSlots = cloneCoeffSlots(src.KeySourceSlots)
+	if len(src.KeySourceDecodeLanes) > 0 {
+		out.KeySourceDecodeLanes = append([]int(nil), src.KeySourceDecodeLanes...)
+	}
 	out.CheckpointSlots = cloneCoeffSlots(src.CheckpointSlots)
 	out.FinalTagSlots = cloneCoeffSlots(src.FinalTagSlots)
 	if len(src.HelperFamilies) > 0 {
@@ -407,6 +413,27 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 			return err
 		}
 	}
+	for _, slot := range layout.KeySourceSlots {
+		if slot.Row < 0 || slot.Row >= witnessRows {
+			return fmt.Errorf("key source slot row=%d outside witness rows=%d", slot.Row, witnessRows)
+		}
+		if slot.Coeff < 0 || slot.Coeff >= layout.PackWidth {
+			return fmt.Errorf("key source slot coeff=%d outside [0,%d)", slot.Coeff, layout.PackWidth)
+		}
+	}
+	if len(layout.KeySourceSlots) > 0 && len(layout.KeySourceSlots) != len(layout.KeySlots) {
+		return fmt.Errorf("key source slots=%d want key slots=%d", len(layout.KeySourceSlots), len(layout.KeySlots))
+	}
+	if len(layout.KeySourceDecodeLanes) > 0 {
+		if len(layout.KeySourceDecodeLanes) != len(layout.KeySourceSlots) {
+			return fmt.Errorf("key source decode lanes=%d want key source slots=%d", len(layout.KeySourceDecodeLanes), len(layout.KeySourceSlots))
+		}
+		for i, lane := range layout.KeySourceDecodeLanes {
+			if lane < 0 {
+				return fmt.Errorf("key source decode lane[%d]=%d is negative", i, lane)
+			}
+		}
+	}
 	for _, slot := range layout.CheckpointSlots {
 		if err := checkSlot("checkpoint", slot); err != nil {
 			return err
@@ -499,6 +526,15 @@ func prfCompanionLayoutDigest(layout *PRFCompanionLayout) []byte {
 	for _, slot := range layout.KeySlots {
 		writeInt(slot.Row)
 		writeInt(slot.Coeff)
+	}
+	writeInt(len(layout.KeySourceSlots))
+	for _, slot := range layout.KeySourceSlots {
+		writeInt(slot.Row)
+		writeInt(slot.Coeff)
+	}
+	writeInt(len(layout.KeySourceDecodeLanes))
+	for _, lane := range layout.KeySourceDecodeLanes {
+		writeInt(lane)
 	}
 	writeInt(len(layout.CheckpointSlots))
 	for _, slot := range layout.CheckpointSlots {

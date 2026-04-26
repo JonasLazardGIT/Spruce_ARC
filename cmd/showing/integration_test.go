@@ -135,7 +135,7 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 		Rho:                        0,
 		NCols:                      ncols,
 		LVCSNCols:                  postLVCS,
-		Ell:                        18,
+		Ell:                        0,
 		Eta:                        0,
 		DomainMode:                 PIOP.DomainModeExplicit,
 		NLeaves:                    postNLeaves,
@@ -176,7 +176,11 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 	if err != nil {
 		t.Fatalf("load B: %v", err)
 	}
-	wit, err := buildWitnessFromState(ringQ, state, B)
+	omega, err := deriveOmegaForOpts(ringQ, opts, publicParams.HashRelation)
+	if err != nil {
+		t.Fatalf("derive omega: %v", err)
+	}
+	wit, err := buildWitnessFromState(ringQ, state, B, omega, publicParams.BoundB, publicParams.X0CoeffBound)
 	if err != nil {
 		t.Fatalf("build witness: %v", err)
 	}
@@ -185,10 +189,6 @@ func buildShowingProofForTestConfigWithResearchKnobsAndMutator(t *testing.T, mod
 		t.Fatalf("build A: %v", err)
 	}
 	nonce, noncePublic := sampleNonceForTest(params.LenNonce, opts.NCols, ringQ.Modulus[0])
-	omega, err := deriveOmegaForOpts(ringQ, opts, publicParams.HashRelation)
-	if err != nil {
-		t.Fatalf("derive omega: %v", err)
-	}
 	key, err := prfKeyFromWitnessOnOmega(ringQ, wit, omega, params.LenKey)
 	if err != nil {
 		t.Fatalf("prf key: %v", err)
@@ -291,7 +291,7 @@ func buildShowingProofForShippedPresetDefault(t *testing.T, showingPreset string
 	resolved := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
 		Credential:           true,
 		NCols:                16,
-		Ell:                  18,
+		Ell:                  0,
 		DomainMode:           PIOP.DomainModeExplicit,
 		PRFGroupRounds:       2,
 		CoeffPacking:         true,
@@ -379,6 +379,12 @@ func TestShowingAggregateV18ReplayCompactResearchPreset(t *testing.T) {
 	if proof.SigShortness == nil || proof.SigShortness.Version != 18 || proof.SigShortness.V18 == nil {
 		t.Fatalf("aggregate V18 proof missing V18 payload: %+v", proof.SigShortness)
 	}
+	if proof.RingDegree != 1024 || proof.RowLayout.RingDegree != 1024 || proof.SigShortness.V18.RingDegree != 1024 {
+		t.Fatalf("aggregate V18 ring degree mismatch: proof=%d layout=%d v18=%d", proof.RingDegree, proof.RowLayout.RingDegree, proof.SigShortness.V18.RingDegree)
+	}
+	if rep.RingDegree != 1024 || rep.TranscriptFocus.RingDegree != 1024 || rep.PaperTranscript.RingDegree != 1024 || rep.Geometry.RingDegree != 1024 {
+		t.Fatalf("aggregate V18 report ring degree mismatch: report=%d focus=%d paper=%d geometry=%d", rep.RingDegree, rep.TranscriptFocus.RingDegree, rep.PaperTranscript.RingDegree, rep.Geometry.RingDegree)
+	}
 	if proof.SigShortness.V6 != nil || proof.SigShortness.Opening != nil || len(proof.SigShortness.SupportSlots) != 0 {
 		t.Fatalf("aggregate V18 proof populated legacy or unrelated shortness fields: %+v", proof.SigShortness)
 	}
@@ -403,10 +409,39 @@ func TestShowingAggregateV18ReplayCompactResearchPreset(t *testing.T) {
 			rep.TranscriptFocus.PackedSigEffectiveBlocks,
 		)
 	}
-	if rep.TranscriptFocus.PRFPackedRows != 11 || rep.TranscriptFocus.PRFHelperRows != 0 {
+	if rep.TranscriptFocus.PRFPackedRows != 12 || rep.TranscriptFocus.PRFHelperRows != 1 {
 		t.Fatalf("aggregate V18 PRF packing rows=%d helper=%d", rep.TranscriptFocus.PRFPackedRows, rep.TranscriptFocus.PRFHelperRows)
 	}
-	if rep.ReplayAudit.Selector.SelectedRows != 19 || rep.ReplayAudit.Selector.ActiveBlocks != 1 {
+	if rep.TranscriptFocus.MuPackWidth != 2 || rep.TranscriptFocus.MuCarrierRows != 32 || rep.TranscriptFocus.MuVirtualBlocks != 64 {
+		t.Fatalf("aggregate V18 packed mu geometry pack=%d rows=%d blocks=%d",
+			rep.TranscriptFocus.MuPackWidth,
+			rep.TranscriptFocus.MuCarrierRows,
+			rep.TranscriptFocus.MuVirtualBlocks,
+		)
+	}
+	if len(proof.RowLayout.CarrierMuBlockRows) != 32 || len(proof.RowLayout.AliasMuBlockRows) != 0 || proof.RowLayout.MuVirtualBlockCount != 64 {
+		t.Fatalf("aggregate V18 row layout packed mu carrier=%d alias=%d virtual=%d",
+			len(proof.RowLayout.CarrierMuBlockRows),
+			len(proof.RowLayout.AliasMuBlockRows),
+			proof.RowLayout.MuVirtualBlockCount,
+		)
+	}
+	if proof.PRFCompanion == nil || proof.PRFCompanion.Layout == nil || len(proof.PRFCompanion.Layout.KeySourceDecodeLanes) != 8 {
+		t.Fatalf("aggregate V18 missing packed key source decode lanes")
+	}
+	for i, src := range proof.PRFCompanion.Layout.KeySourceSlots {
+		if src.Row != proof.RowLayout.CarrierMuBlockRows[16] || src.Coeff != i || proof.PRFCompanion.Layout.KeySourceDecodeLanes[i] != 0 {
+			t.Fatalf("aggregate V18 key source slot[%d]=(%d,%d) lane=%d want row=%d col=%d lane=0",
+				i,
+				src.Row,
+				src.Coeff,
+				proof.PRFCompanion.Layout.KeySourceDecodeLanes[i],
+				proof.RowLayout.CarrierMuBlockRows[16],
+				i,
+			)
+		}
+	}
+	if rep.ReplayAudit.Selector.SelectedRows != 51 || rep.ReplayAudit.Selector.ActiveBlocks != 3 {
 		t.Fatalf("aggregate V18 replay selector selected=%d active=%d",
 			rep.ReplayAudit.Selector.SelectedRows,
 			rep.ReplayAudit.Selector.ActiveBlocks,
@@ -420,8 +455,33 @@ func TestShowingAggregateV18ReplayCompactResearchPreset(t *testing.T) {
 	if err := json.Unmarshal(data, &tampered); err != nil {
 		t.Fatalf("unmarshal proof: %v", err)
 	}
+	mismatchOpts := opts
+	mismatchOpts.RingDegree = 512
+	verifySet := PIOP.ConstraintSet{PRFLayout: proof.PRFLayout}
+	if proof.PRFCompanion != nil {
+		verifySet.PRFCompanionLayout = proof.PRFCompanion.Layout
+	}
+	if ok, err := PIOP.VerifyWithConstraints(proof, verifySet, pub, mismatchOpts, PIOP.FSModeCredential); err == nil && ok {
+		t.Fatal("N=1024 proof verified under N=512 verifier context")
+	}
+	var forged512 PIOP.Proof
+	if err := json.Unmarshal(data, &forged512); err != nil {
+		t.Fatalf("unmarshal forged proof: %v", err)
+	}
+	forged512.RingDegree = 512
+	forged512.RowLayout.RingDegree = 512
+	forged512.SigShortness.V18.RingDegree = 512
+	defaultDegreeOpts := opts
+	defaultDegreeOpts.RingDegree = 1024
+	forgedSet := PIOP.ConstraintSet{PRFLayout: forged512.PRFLayout}
+	if forged512.PRFCompanion != nil {
+		forgedSet.PRFCompanionLayout = forged512.PRFCompanion.Layout
+	}
+	if ok, err := PIOP.VerifyWithConstraints(&forged512, forgedSet, pub, defaultDegreeOpts, PIOP.FSModeCredential); err == nil && ok {
+		t.Fatal("N=512-tagged proof verified under N=1024 verifier context")
+	}
 	tampered.SigShortness.V18.LayoutDigest[0] ^= 1
-	verifySet := PIOP.ConstraintSet{PRFLayout: tampered.PRFLayout}
+	verifySet = PIOP.ConstraintSet{PRFLayout: tampered.PRFLayout}
 	if tampered.PRFCompanion != nil {
 		verifySet.PRFCompanionLayout = tampered.PRFCompanion.Layout
 	}
@@ -456,8 +516,8 @@ func TestShowingReplayDependencyClosureShippedDefault(t *testing.T) {
 	if len(selector) >= proof.RowLayout.SigCount {
 		t.Fatalf("selector rows=%d want < witness rows=%d", len(selector), proof.RowLayout.SigCount)
 	}
-	if stats.ActiveBlocks != stats.FullBlocks {
-		t.Fatalf("unexpected replay block shrink: active=%d full=%d", stats.ActiveBlocks, stats.FullBlocks)
+	if stats.ActiveBlocks != 5 || stats.FullBlocks != 9 {
+		t.Fatalf("unexpected full-capacity replay block geometry: active=%d full=%d", stats.ActiveBlocks, stats.FullBlocks)
 	}
 	if len(selector)*100 > proof.RowLayout.SigCount*85 {
 		t.Fatalf("replay selector reduction too small after packed-source removal: selected=%d witness=%d reduction=%.2f%%", len(selector), proof.RowLayout.SigCount, stats.ReductionPct)
@@ -487,8 +547,8 @@ func TestShowingReplayFamilyAuditShippedDefault(t *testing.T) {
 	if audit.Selector.SelectedRows*100 > audit.Selector.WitnessRows*70 {
 		t.Fatalf("replay selector reduction too small for shipped default: selected=%d witness=%d", audit.Selector.SelectedRows, audit.Selector.WitnessRows)
 	}
-	if audit.Selector.ActiveBlocks != audit.Selector.FullBlocks {
-		t.Fatalf("expected shipped replay audit to remain block-dense: active=%d full=%d", audit.Selector.ActiveBlocks, audit.Selector.FullBlocks)
+	if audit.Selector.ActiveBlocks != 5 || audit.Selector.FullBlocks != 9 {
+		t.Fatalf("unexpected full-capacity replay audit geometry: active=%d full=%d", audit.Selector.ActiveBlocks, audit.Selector.FullBlocks)
 	}
 	entries := make(map[PIOP.ReplayFamilyKind]PIOP.ReplayFamilyAuditEntry, len(audit.Families))
 	selectedFamilies := make([]PIOP.ReplayFamilyKind, 0, len(audit.Families))
@@ -517,10 +577,10 @@ func TestShowingReplayFamilyAuditShippedDefault(t *testing.T) {
 			coveredBlocks[idx/audit.Selector.LayerSize] = struct{}{}
 		}
 	}
-	if len(coveredBlocks) != audit.Selector.FullBlocks {
-		t.Fatalf("selected families should jointly cover all active blocks: covered=%d full=%d", len(coveredBlocks), audit.Selector.FullBlocks)
+	if len(coveredBlocks) != audit.Selector.ActiveBlocks {
+		t.Fatalf("selected families should jointly cover all active blocks: covered=%d active=%d", len(coveredBlocks), audit.Selector.ActiveBlocks)
 	}
-	if entries[PIOP.ReplayFamilyPRFCompanion].ActiveBlockCount != 2 || entries[PIOP.ReplayFamilyTSource].ActiveBlockCount != 0 {
+	if entries[PIOP.ReplayFamilyPRFCompanion].ActiveBlockCount != 1 || entries[PIOP.ReplayFamilyTSource].ActiveBlockCount != 0 {
 		t.Fatalf("unexpected shipped block split: prf_companion=%d t_source=%d", entries[PIOP.ReplayFamilyPRFCompanion].ActiveBlockCount, entries[PIOP.ReplayFamilyTSource].ActiveBlockCount)
 	}
 	if proof.RowLayout.SigCount != audit.Selector.WitnessRows {

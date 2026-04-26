@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,6 +19,27 @@ func TestFormatPaperTranscriptSummaryUsesPaperWording(t *testing.T) {
 	}
 	if strings.Contains(line, "Canonical transcript") {
 		t.Fatalf("stale canonical wording still present: %q", line)
+	}
+}
+
+func TestResearchRingDegree512RejectsDefaultN1024Artifacts(t *testing.T) {
+	root := showingTestRepoRoot(t)
+	chdirForShowingTest(t, root)
+	statePath := filepath.Join("credential", "keys", "credential_state.json")
+	state, err := credential.LoadState(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	publicParams, err := loadCredentialPublicParamsFromState(state)
+	if err != nil {
+		t.Fatalf("load public params: %v", err)
+	}
+	err = validateArtifactRingDegree(512, statePath, state, publicParams)
+	if err == nil {
+		t.Fatal("default N=1024 artifacts accepted under research ring_degree=512")
+	}
+	if !strings.Contains(err.Error(), "fresh N=512 artifacts") {
+		t.Fatalf("degree mismatch error did not explain fresh artifacts requirement: %v", err)
 	}
 }
 

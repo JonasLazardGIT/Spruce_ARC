@@ -36,6 +36,7 @@ type LogicalWitnessBreakdown struct {
 // geometry. This is intentionally separate from replay-family reporting:
 // replay rows and actual witness polynomials are not the same object.
 type WitnessGeometrySnapshot struct {
+	RingDegree                 int     `json:"ring_degree"`
 	WitnessSupportCols         int     `json:"witness_support_cols"`
 	CommittedCols              int     `json:"committed_cols"`
 	LeafCount                  int     `json:"leaf_count"`
@@ -111,7 +112,9 @@ func LogicalWitnessBreakdownFromLayout(layout RowLayout, prfLayout *PRFLayout, p
 			out.SigCoreRows = rowLayoutReplayTHatCount(layout)
 			out.SigReplayRows = out.SigCoreRows
 			out.NonSigRows = 0
-			if layout.IdxCarrierM >= 0 {
+			if rowLayoutUsesFullMu(layout) {
+				out.NonSigRows += len(rowLayoutCarrierMuBlockRows(layout))
+			} else if layout.IdxCarrierM >= 0 {
 				out.NonSigRows++
 			}
 			if rowLayoutPostSignCarrierR1(layout) >= 0 {
@@ -232,6 +235,7 @@ func BuildWitnessGeometrySnapshotFromLayout(
 	theta int,
 ) WitnessGeometrySnapshot {
 	out := WitnessGeometrySnapshot{
+		RingDegree:         resolvedProofRingDegree(&Proof{RowLayout: layout}, 0),
 		WitnessSupportCols: witnessSupportCols,
 		CommittedCols:      committedCols,
 		LeafCount:          leafCount,
@@ -323,7 +327,7 @@ func BuildWitnessGeometrySnapshotFromProof(proof *Proof) WitnessGeometrySnapshot
 		return WitnessGeometrySnapshot{}
 	}
 	committedCols := resolveProofPCSNCols(proof, proof.LVCSNColsUsed)
-	return BuildWitnessGeometrySnapshotFromLayout(
+	out := BuildWitnessGeometrySnapshotFromLayout(
 		proof.RowLayout,
 		proof.PRFLayout,
 		func() *PRFCompanionLayout {
@@ -340,6 +344,8 @@ func BuildWitnessGeometrySnapshotFromProof(proof *Proof) WitnessGeometrySnapshot
 		proof.NLeavesUsed,
 		proof.Theta,
 	)
+	out.RingDegree = resolvedProofRingDegree(proof, out.RingDegree)
+	return out
 }
 
 // CommittedWitnessBreakdownFromGeometry derives the committed row allocation

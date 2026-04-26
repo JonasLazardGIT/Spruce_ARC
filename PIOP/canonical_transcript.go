@@ -23,6 +23,7 @@ type PaperTranscriptBucket struct {
 // is the optimization target; it intentionally differs from the live verifier
 // payload retained in the current Proof object.
 type PaperTranscriptReport struct {
+	RingDegree   int                   `json:"ring_degree"`
 	Counters     PaperTranscriptBucket `json:"counters"`
 	SaltRoot     PaperTranscriptBucket `json:"salt_root"`
 	ExtraHash    PaperTranscriptBucket `json:"extra_hash"`
@@ -50,14 +51,15 @@ type openingPaperReport struct {
 }
 
 type paperTranscriptParams struct {
-	Lambda   int
-	Eta      int
-	Ell      int
-	EllPrime int
-	Rho      int
-	Theta    int
-	DQ       int
-	DDECS    int
+	Lambda     int
+	RingDegree int
+	Eta        int
+	Ell        int
+	EllPrime   int
+	Rho        int
+	Theta      int
+	DQ         int
+	DDECS      int
 }
 
 // BuildPaperTranscriptReport returns the paper-primary transcript accounting
@@ -71,7 +73,11 @@ func BuildPaperTranscriptReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (P
 		return PaperTranscriptReport{}, fmt.Errorf("nil ring")
 	}
 	opts.applyDefaults()
+	if err := validateProofRingDegree(proof, int(ringQ.N)); err != nil {
+		return PaperTranscriptReport{}, err
+	}
 	reportOpts := opts
+	reportOpts.RingDegree = int(ringQ.N)
 	if proof.Lambda > 0 {
 		reportOpts.Lambda = proof.Lambda
 	}
@@ -111,14 +117,15 @@ func BuildPaperTranscriptReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (P
 		return PaperTranscriptReport{}, fmt.Errorf("missing dQ/QDegreeBound in proof")
 	}
 	report := buildPaperTranscriptReportLeaf(proof, ringQ.Modulus[0], paperTranscriptParams{
-		Lambda:   reportOpts.Lambda,
-		Eta:      eta,
-		Ell:      ell,
-		EllPrime: ellPrime,
-		Rho:      rho,
-		Theta:    theta,
-		DQ:       dQ,
-		DDECS:    lvcsNCols + ell - 1,
+		Lambda:     reportOpts.Lambda,
+		RingDegree: int(ringQ.N),
+		Eta:        eta,
+		Ell:        ell,
+		EllPrime:   ellPrime,
+		Rho:        rho,
+		Theta:      theta,
+		DQ:         dQ,
+		DDECS:      lvcsNCols + ell - 1,
 	})
 	return report, nil
 }
@@ -144,14 +151,18 @@ func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptPar
 	if p.EllPrime < 1 {
 		p.EllPrime = 1
 	}
+	if p.RingDegree <= 0 {
+		p.RingDegree = resolvedProofRingDegree(proof, 0)
+	}
 
 	rowOpening := resolveProofPCSOpening(proof)
 	openingRep := BuildOpeningPaperReport(rowOpening)
 
 	out := PaperTranscriptReport{
-		Counters:  newPaperBucket(128, 128),
-		SaltRoot:  newPaperBucket(float64(4*p.Lambda), float64(4*p.Lambda)),
-		ExtraHash: newPaperBucket(0, float64(2*p.Lambda)),
+		RingDegree: p.RingDegree,
+		Counters:   newPaperBucket(128, 128),
+		SaltRoot:   newPaperBucket(float64(4*p.Lambda), float64(4*p.Lambda)),
+		ExtraHash:  newPaperBucket(0, float64(2*p.Lambda)),
 		R: newPaperBucket(
 			float64(p.Eta)*float64(maxInt(p.DDECS+1, 0))*logQ,
 			float64(p.Eta)*float64(maxInt(p.DDECS+1-p.Ell, 0))*logQ,

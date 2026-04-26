@@ -11,7 +11,6 @@ import (
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
 	kf "vSIS-Signature/internal/kfield"
-	ntrurio "vSIS-Signature/ntru/io"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -52,13 +51,12 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		return false, false, false, errors.New("VerifyNIZK: incomplete transcript digests")
 	}
 
-	par, err := ntrurio.LoadParams(resolve("Parameters/Parameters.json"), true /* allowMismatch */)
+	ringQ, err := loadParamsRingForOpts(SimOpts{RingDegree: proof.RingDegree})
 	if err != nil {
 		return false, false, false, fmt.Errorf("VerifyNIZK: load parameters: %w", err)
 	}
-	ringQ, err := ring.NewRing(par.N, []uint64{par.Q})
-	if err != nil {
-		return false, false, false, fmt.Errorf("VerifyNIZK: ring.NewRing: %w", err)
+	if err := validateProofRingDegree(proof, int(ringQ.N)); err != nil {
+		return false, false, false, fmt.Errorf("VerifyNIZK: %w", err)
 	}
 	q := ringQ.Modulus[0]
 	ncols := len(vTargets[0])

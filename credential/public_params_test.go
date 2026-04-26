@@ -41,6 +41,7 @@ func TestPublicParamsRoundTripAndLift(t *testing.T) {
 	public := PublicParams{
 		Version:            PublicParamsVersion,
 		Ac:                 ac,
+		MuLayout:           MuLayoutFullCapacityHalvesV1,
 		HashRelation:       HashRelationBBTran,
 		BPath:              filepath.Join("Parameters", "Bmatrix.json"),
 		BoundB:             1,
@@ -49,8 +50,7 @@ func TestPublicParamsRoundTripAndLift(t *testing.T) {
 		TargetDim:          DefaultTargetDim,
 		TargetHidingLambda: DefaultTargetHidingLambda,
 		X0Distribution:     X0DistributionUniformInterval,
-		LenM:               1,
-		LenK:               1,
+		LenMu:              1,
 		LenR0H:             1,
 		LenR1H:             1,
 		LenRBar:            1,
@@ -63,7 +63,7 @@ func TestPublicParamsRoundTripAndLift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load public params: %v", err)
 	}
-	if loaded.BoundB != public.BoundB || loaded.LenM != public.LenM || loaded.LenK != public.LenK || loaded.LenR0H != public.LenR0H || loaded.LenR1H != public.LenR1H || loaded.LenRBar != public.LenRBar || loaded.BPath != public.BPath || loaded.X0Len != public.X0Len || loaded.X0CoeffBound != public.X0CoeffBound || loaded.TargetDim != public.TargetDim || loaded.TargetHidingLambda != public.TargetHidingLambda {
+	if loaded.BoundB != public.BoundB || loaded.MuLayout != public.MuLayout || loaded.LenMu != public.LenMu || loaded.LenR0H != public.LenR0H || loaded.LenR1H != public.LenR1H || loaded.LenRBar != public.LenRBar || loaded.BPath != public.BPath || loaded.X0Len != public.X0Len || loaded.X0CoeffBound != public.X0CoeffBound || loaded.TargetDim != public.TargetDim || loaded.TargetHidingLambda != public.TargetHidingLambda {
 		t.Fatalf("loaded public params mismatch: got %+v want %+v", loaded, public)
 	}
 	params, err := loaded.ToIssuanceParams(ringQ)

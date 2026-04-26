@@ -66,6 +66,7 @@ const (
 
 const (
 	soundnessBalancedReducedLVCSNCols            = 84
+	soundnessBalancedReducedEll                  = 18
 	soundnessBalancedReducedEta                  = 40
 	soundnessBalancedReducedEllPrime             = 2
 	soundnessBalancedReducedTheta                = 3
@@ -73,6 +74,7 @@ const (
 	soundnessBalancedReducedNLeaves              = 4096
 	soundnessBalancedReducedSigProfile           = SigShortnessProfileR11L4Production
 	soundnessBalancedFullLVCSNCols               = 96
+	soundnessBalancedFullEll                     = 18
 	soundnessBalancedFullEta                     = 43
 	soundnessBalancedFullEllPrime                = 2
 	soundnessBalancedFullTheta                   = 3
@@ -80,6 +82,7 @@ const (
 	soundnessBalancedFullNLeaves                 = 4096
 	soundnessBalancedFullSigProfile              = SigShortnessProfileR24L3Compact
 	aggregateV6ResearchLVCSNCols                 = 76
+	aggregateV6ResearchEll                       = 18
 	aggregateV6ResearchEta                       = 38
 	aggregateV6ResearchEllPrime                  = 2
 	aggregateV6ResearchTheta                     = 3
@@ -88,11 +91,12 @@ const (
 	aggregateV6ResearchNCols                     = 16
 	aggregateV6ResearchSigProfile                = SigShortnessProfileR24L3Compact
 	aggregateInlineTargetReplayCompactLVCSNCols  = 84
-	aggregateInlineTargetReplayCompactEta        = 39
+	aggregateInlineTargetReplayCompactEll        = 16
+	aggregateInlineTargetReplayCompactEta        = 41
 	aggregateInlineTargetReplayCompactEllPrime   = 2
 	aggregateInlineTargetReplayCompactTheta      = 3
 	aggregateInlineTargetReplayCompactRho        = 2
-	aggregateInlineTargetReplayCompactNLeaves    = 4096
+	aggregateInlineTargetReplayCompactNLeaves    = 5760
 	aggregateInlineTargetReplayCompactNCols      = 16
 	aggregateInlineTargetReplayCompactGroupSize  = 1
 	aggregateInlineTargetReplayCompactSigProfile = SigShortnessProfileR11L4Production
@@ -102,7 +106,7 @@ var (
 	soundnessBalancedReducedKappa           = [4]int{0, 0, 0, 5}
 	soundnessBalancedFullKappa              = [4]int{0, 0, 0, 5}
 	aggregateV6ResearchKappa                = [4]int{2, 0, 0, 5}
-	aggregateInlineTargetReplayCompactKappa = [4]int{10, 0, 0, 5}
+	aggregateInlineTargetReplayCompactKappa = [4]int{10, 0, 0, 6}
 )
 
 type compactFullCandidateSpec struct {
@@ -530,6 +534,11 @@ func sigShortnessV18EnabledForOpts(opts SimOpts) bool {
 	if resolved.PackedSigChainGroupSize != aggregateInlineTargetReplayCompactGroupSize {
 		return false
 	}
+	if sigLookupShadowR121L2EnabledForOpts(resolved) {
+		return resolved.SigShortnessRadix == sigLookupShadowR121L2Radix &&
+			resolved.SigShortnessL == sigLookupShadowR121L2Digits &&
+			resolved.NCols == aggregateInlineTargetReplayCompactNCols
+	}
 	return ResolveSignatureShortnessProfileLabelForOpts(resolved) == aggregateInlineTargetReplayCompactSigProfile &&
 		resolved.NCols == aggregateInlineTargetReplayCompactNCols
 }
@@ -554,6 +563,21 @@ const (
 	PRFCompanionModeAuxInstance PRFCompanionMode = "aux_instance"
 )
 
+const (
+	SigLookupShadowR121L2None  = ""
+	SigLookupShadowR121L2Free  = "free"
+	SigLookupShadowR121L2SameQ = "same_q"
+)
+
+const (
+	sigLookupShadowR121L2Radix        = 121
+	sigLookupShadowR121L2Digits       = 2
+	sigLookupShadowR121L2TableLo      = -60
+	sigLookupShadowR121L2TableHi      = 60
+	sigLookupShadowR121L2TableSize    = 121
+	sigLookupShadowR121L2TargetBudget = 35500
+)
+
 func normalizePRFCompanionMode(mode PRFCompanionMode) PRFCompanionMode {
 	switch mode {
 	case PRFCompanionModeOutputAudit, PRFCompanionModeDirectAuth, PRFCompanionModeAuxInstance:
@@ -563,6 +587,27 @@ func normalizePRFCompanionMode(mode PRFCompanionMode) PRFCompanionMode {
 	default:
 		return PRFCompanionModeOutputAudit
 	}
+}
+
+func NormalizeSigLookupShadowR121L2Mode(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case SigLookupShadowR121L2None:
+		return SigLookupShadowR121L2None
+	case SigLookupShadowR121L2Free:
+		return SigLookupShadowR121L2Free
+	case SigLookupShadowR121L2SameQ:
+		return SigLookupShadowR121L2SameQ
+	default:
+		return SigLookupShadowR121L2None
+	}
+}
+
+func sigLookupShadowR121L2EnabledForOpts(opts SimOpts) bool {
+	return NormalizeSigLookupShadowR121L2Mode(opts.UnsafeSigLookupShadowR121L2) != SigLookupShadowR121L2None
+}
+
+func sigLookupShadowR121L2FreeForOpts(opts SimOpts) bool {
+	return NormalizeSigLookupShadowR121L2Mode(opts.UnsafeSigLookupShadowR121L2) == SigLookupShadowR121L2Free
 }
 
 func normalizeShowingPreset(preset string) string {
@@ -660,6 +705,22 @@ func showingPresetEllPrime(preset string, replayMode ShowingReplayMode, candidat
 	}
 }
 
+func showingPresetEll(preset string, replayMode ShowingReplayMode, candidate string) int {
+	switch normalizeShowingPreset(preset) {
+	case ShowingPresetSoundnessBalanced:
+		if normalizeShowingReplayMode(replayMode) == ShowingReplayModeFull {
+			return soundnessBalancedFullEll
+		}
+		return soundnessBalancedReducedEll
+	case ShowingPresetAggregateV6Research:
+		return aggregateV6ResearchEll
+	case ShowingPresetInlineTargetReplayCompactResearch:
+		return aggregateInlineTargetReplayCompactEll
+	default:
+		return 18
+	}
+}
+
 func showingPresetEta(preset string, replayMode ShowingReplayMode, candidate string) int {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
@@ -753,6 +814,7 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 	switch normalizeShowingPreset(preset) {
 	case ShowingPresetSoundnessBalanced:
 		expectedLVCS := soundnessBalancedReducedLVCSNCols
+		expectedEll := soundnessBalancedReducedEll
 		expectedEta := soundnessBalancedReducedEta
 		expectedEllPrime := soundnessBalancedReducedEllPrime
 		expectedTheta := soundnessBalancedReducedTheta
@@ -762,6 +824,7 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 		expectedKappa := soundnessBalancedReducedKappa
 		if normalizeShowingReplayMode(resolved.ShowingReplayMode) == ShowingReplayModeFull {
 			expectedLVCS = soundnessBalancedFullLVCSNCols
+			expectedEll = soundnessBalancedFullEll
 			expectedEta = soundnessBalancedFullEta
 			expectedEllPrime = soundnessBalancedFullEllPrime
 			expectedTheta = soundnessBalancedFullTheta
@@ -776,6 +839,7 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 			resolved.PRFLVCSNCols == expectedLVCS &&
 			resolved.Theta == expectedTheta &&
 			resolved.Rho == expectedRho &&
+			resolved.Ell == expectedEll &&
 			resolved.EllPrime == expectedEllPrime &&
 			resolved.Eta == expectedEta &&
 			resolved.NLeaves == expectedNLeaves &&
@@ -792,6 +856,7 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 			resolved.PRFLVCSNCols == aggregateV6ResearchLVCSNCols &&
 			resolved.Theta == aggregateV6ResearchTheta &&
 			resolved.Rho == aggregateV6ResearchRho &&
+			resolved.Ell == aggregateV6ResearchEll &&
 			resolved.EllPrime == aggregateV6ResearchEllPrime &&
 			resolved.Eta == aggregateV6ResearchEta &&
 			resolved.NLeaves == aggregateV6ResearchNLeaves &&
@@ -813,6 +878,7 @@ func showingOptsMatchPreset(resolved SimOpts, preset string) bool {
 			resolved.PRFLVCSNCols == aggregateInlineTargetReplayCompactLVCSNCols &&
 			resolved.Theta == aggregateInlineTargetReplayCompactTheta &&
 			resolved.Rho == aggregateInlineTargetReplayCompactRho &&
+			resolved.Ell == aggregateInlineTargetReplayCompactEll &&
 			resolved.EllPrime == aggregateInlineTargetReplayCompactEllPrime &&
 			resolved.Eta == aggregateInlineTargetReplayCompactEta &&
 			resolved.NLeaves == aggregateInlineTargetReplayCompactNLeaves &&
@@ -833,7 +899,10 @@ type SimOpts struct {
 	Eta      int
 	NLeaves  int
 	Theta    int
-	Kappa    [4]int
+	// RingDegree selects the ring dimension for opt-in research runs. Zero
+	// keeps the repository default from Parameters/Parameters.json.
+	RingDegree int
+	Kappa      [4]int
 	// ROQueryCaps records the assumed Random Oracle query counts (Q0..Q4) used
 	// for the theorem-level ROM soundness bound.
 	ROQueryCaps       [5]int
@@ -879,6 +948,11 @@ type SimOpts struct {
 	// PRFCheckpointSamples controls the number of transcript-selected checkpoint
 	// audits in output-audit and direct-auth modes.
 	PRFCheckpointSamples int
+	// MuWitnessPackWidth compresses full-capacity showing-time mu carrier
+	// blocks. Width 1 is the singleton carrier; width 2 packs matching columns
+	// from adjacent logical mu blocks into one carrier value. Width 4 is an
+	// internal high-degree experiment and is not selected by public presets.
+	MuWitnessPackWidth int
 	// EnablePackedPRFWitnessRows gates the experimental row-major PRF packing
 	// path. The retained verifier model still uses the unpacked layout by
 	// default.
@@ -895,8 +969,12 @@ type SimOpts struct {
 	// SigShortnessNCols is reserved for future single-root signature packing
 	// research. The removed V12/V13 two-oracle paths are no longer live.
 	SigShortnessNCols int
-	Mutate            func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
-	Credential        bool
+	// UnsafeSigLookupShadowR121L2 enables an explicitly unsound measurement
+	// mode for the R121/L2 fixed-table lookup idea. "free" omits interval
+	// membership from Q; "same_q" keeps the degree-121 membership in Q.
+	UnsafeSigLookupShadowR121L2 string
+	Mutate                      func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
+	Credential                  bool
 }
 
 func defaultSimOpts() SimOpts {
@@ -925,6 +1003,7 @@ func defaultSimOpts() SimOpts {
 		DomainMode:           DomainModeExplicit,
 		PRFGroupRounds:       1,
 		PRFCheckpointSamples: 8,
+		MuWitnessPackWidth:   1,
 	}
 }
 
@@ -932,6 +1011,9 @@ func (o *SimOpts) applyDefaults() {
 	def := defaultSimOpts()
 	if o.NLeaves < 0 {
 		o.NLeaves = 0
+	}
+	if o.RingDegree < 0 {
+		o.RingDegree = 0
 	}
 	if o.PostSignNLeaves < 0 {
 		o.PostSignNLeaves = 0
@@ -969,6 +1051,11 @@ func (o *SimOpts) applyDefaults() {
 	if o.SigShortnessNCols < 0 {
 		o.SigShortnessNCols = 0
 	}
+	o.UnsafeSigLookupShadowR121L2 = NormalizeSigLookupShadowR121L2Mode(o.UnsafeSigLookupShadowR121L2)
+	if sigLookupShadowR121L2EnabledForOpts(*o) {
+		o.SigShortnessRadix = sigLookupShadowR121L2Radix
+		o.SigShortnessL = sigLookupShadowR121L2Digits
+	}
 	o.CompactFullCandidate = normalizeCompactFullCandidate(o.CompactFullCandidate)
 	o.BenchmarkSweepCandidate = normalizeBenchmarkSweepCandidate(o.BenchmarkSweepCandidate)
 	if o.Credential && resolveCoeffNativeSigModel(*o) == CoeffNativeSigModelLiteralPackedAggregatedV3 {
@@ -987,6 +1074,9 @@ func (o *SimOpts) applyDefaults() {
 			if o.PackedSigChainGroupSize <= 0 {
 				o.PackedSigChainGroupSize = aggregateInlineTargetReplayCompactGroupSize
 			}
+			if o.MuWitnessPackWidth <= 0 {
+				o.MuWitnessPackWidth = 2
+			}
 		}
 		if !sigShortnessRawOverrideActive(*o) && o.SigShortnessProfile == "" {
 			o.SigShortnessProfile = showingPresetSigShortnessProfile(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
@@ -999,6 +1089,9 @@ func (o *SimOpts) applyDefaults() {
 		}
 		if o.EllPrime <= 0 {
 			o.EllPrime = showingPresetEllPrime(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
+		}
+		if o.Ell <= 0 {
+			o.Ell = showingPresetEll(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
 		}
 		if o.Eta <= 0 {
 			o.Eta = showingPresetEta(o.ShowingPreset, o.ShowingReplayMode, o.CompactFullCandidate)
@@ -1070,6 +1163,9 @@ func (o *SimOpts) applyDefaults() {
 	}
 	if o.PRFCheckpointSamples <= 0 {
 		o.PRFCheckpointSamples = def.PRFCheckpointSamples
+	}
+	if o.MuWitnessPackWidth <= 0 {
+		o.MuWitnessPackWidth = def.MuWitnessPackWidth
 	}
 	o.PRFCompanionMode = normalizePRFCompanionMode(o.PRFCompanionMode)
 	o.ShowingReplayMode = normalizeShowingReplayMode(o.ShowingReplayMode)
@@ -1147,13 +1243,15 @@ type CoeffNativeSigLayout struct {
 }
 
 type RowLayout struct {
-	SigCount int
-	MsgCount int
-	RndCount int
+	RingDegree int
+	SigCount   int
+	MsgCount   int
+	RndCount   int
 	// Explicit base indices for post-sign witness rows.
 	// When false, the standard issuance row order is used.
 	HasExplicitBaseIdx     bool
 	X0Len                  int
+	IdxMu                  int
 	IdxM1                  int
 	IdxM2                  int
 	IdxRU0                 int
@@ -1169,6 +1267,10 @@ type RowLayout struct {
 	IdxMSigmaR1Alias       int
 	IdxR0R1Alias           int
 	IdxCarrierM            int
+	CarrierMuBlockRows     []int
+	AliasMuBlockRows       []int
+	MuCarrierPackWidth     int
+	MuVirtualBlockCount    int
 	IdxCarrierPreRU        int
 	IdxCarrierRU1          int
 	IdxCarrierPreR         int
@@ -1281,6 +1383,7 @@ type KPolySnapshot struct {
 // nine-round SmallWood–ARK flow.
 type Proof struct {
 	Root             [16]byte
+	RingDegree       int
 	HashRelation     string
 	Salt             []byte
 	Ctr              [4]uint64
@@ -1526,6 +1629,7 @@ type SigShortnessProofV17 struct {
 
 type SigShortnessProofV18 struct {
 	Mode                uint8
+	RingDegree          int
 	Radix               int
 	Digits              int
 	GroupSize           int
@@ -2753,6 +2857,7 @@ func estimateProofSize(proof *Proof) int {
 	proof.ensureBarSetsPacked()
 	sum := 0
 	sum += len(proof.Salt)
+	sum += varintSize(proof.RingDegree)
 	sum += 16 // Merkle root
 	sum += len(proof.Ctr) * 8
 	for _, d := range proof.Digests {
@@ -2786,6 +2891,7 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 	proof.ensureBarSetsPacked()
 	sizes := make(map[string]int)
 	sizes["Salt"] = len(proof.Salt)
+	sizes["RingDegree"] = varintSize(proof.RingDegree)
 	sizes["Root"] = 16
 	sizes["Ctr"] = len(proof.Ctr) * 8
 	digSum := 0
@@ -2874,6 +2980,7 @@ func sizeSigShortnessProof(sig *SigShortnessProof) int {
 			size++
 		}
 		size += varintSize(sig.V18.Radix)
+		size += varintSize(sig.V18.RingDegree)
 		size += varintSize(sig.V18.Digits)
 		size += varintSize(sig.V18.GroupSize)
 		size += varintSize(sig.V18.BlockWidth)

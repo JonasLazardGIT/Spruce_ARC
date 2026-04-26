@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 const BMatrixVersion = 2
@@ -21,6 +22,27 @@ type SystemParams struct {
 	N    int    `json:"N"`
 	Q    uint64 `json:"Q"`
 	Beta uint64 `json:"beta"`
+}
+
+func SaveParams(path string, p SystemParams) error {
+	if p.N <= 0 || p.Q == 0 {
+		return fmt.Errorf("invalid N/Q for params: N=%d Q=%d", p.N, p.Q)
+	}
+	payload := map[string]any{
+		"n":     p.N,
+		"q":     p.Q,
+		"beta":  p.Beta,
+		"bound": p.Beta,
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o644)
 }
 
 func LoadParams(path string, allowMismatch bool) (SystemParams, error) {

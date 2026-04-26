@@ -122,7 +122,7 @@ func main() {
 	const (
 		productionPRFGroupRounds = 2
 		productionNCols          = 16
-		productionEll            = 18
+		productionEll            = 0
 	)
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
@@ -145,9 +145,21 @@ func main() {
 	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override for transcript research")
 	packedSigChainGroupSize := flag.Int("packed-sig-chain-group-size", 0, "reserved packed signature shortness group-size override; optimized inline-target profile requires 1")
 	sigShortnessNCols := flag.Int("sig-shortness-ncols", 0, "reserved signature-shortness width override for future single-root packing research")
-	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth remains research-only scaffolding; aux_instance enables the research-only split PRF proof)")
+	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth remains research-only; aux_instance enables the research-only split PRF proof)")
 	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
+	researchRingDegree := flag.Int("research-ring-degree", 0, "opt-in research ring degree override for optimized V18 showing (supported: 1024 or 512; 0 keeps default)")
+	statePathFlag := flag.String("state-path", filepath.Join("credential", "keys", "credential_state.json"), "credential state path for showing")
+	unsafeSigLookupShadow := flag.String("unsafe-shadow-sig-lookup-r121-l2", "", "UNSAFE internal R121/L2 signature lookup viability mode: free or same_q")
 	flag.Parse()
+	if *researchRingDegree != 0 && *researchRingDegree != 1024 && *researchRingDegree != 512 {
+		cli.fatalf("[showing-cli] ", "unsupported -research-ring-degree=%d (supported: 1024 or 512)", *researchRingDegree)
+	}
+	if *researchRingDegree == 512 && *showingPreset != PIOP.ShowingPresetInlineTargetReplayCompactResearch {
+		cli.fatalf("[showing-cli] ", "-research-ring-degree 512 is only available for showing preset %s", PIOP.ShowingPresetInlineTargetReplayCompactResearch)
+	}
+	if *unsafeSigLookupShadow != "" && PIOP.NormalizeSigLookupShadowR121L2Mode(*unsafeSigLookupShadow) == PIOP.SigLookupShadowR121L2None {
+		cli.fatalf("[showing-cli] ", "unknown unsafe shadow sig lookup mode %q", *unsafeSigLookupShadow)
+	}
 
 	resolvedModel := *coeffModel
 	if resolvedModel == "" {
@@ -213,11 +225,14 @@ func main() {
 		cli.printf(categoryStatus, "[showing-cli] ", "cwd=%s", wd)
 	}
 	cli.printf(categoryStatus, "[showing-cli] ", "starting showing demo")
-	ringQ, err := credential.LoadDefaultRing()
+	ringQ, err := credential.LoadRingWithDegree(*researchRingDegree)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "load ring: %v", err)
 	}
-	statePath := filepath.Join("credential", "keys", "credential_state.json")
+	if *researchRingDegree == 512 {
+		cli.printf(categoryWarning, "[showing-cli] ", "UNSAFE RESEARCH MODE: selected ring_degree=512; this is a statement fork requiring fresh N=512 artifacts and is not production-valid without security review")
+	}
+	statePath := *statePathFlag
 	state, err := credential.LoadState(statePath)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "load credential state: %v", err)
@@ -229,6 +244,9 @@ func main() {
 	if state.HashRelation != "" && credential.NormalizeHashRelation(state.HashRelation) != credential.NormalizeHashRelation(publicParams.HashRelation) {
 		cli.fatalf("[showing-cli] ", "credential state hash relation %q does not match public params relation %q", state.HashRelation, publicParams.HashRelation)
 	}
+	if err := validateArtifactRingDegree(int(ringQ.N), statePath, state, publicParams); err != nil {
+		cli.fatalf("[showing-cli] ", "%v", err)
+	}
 	if err := credential.ValidateLiveHashRelation(publicParams.HashRelation); err != nil {
 		cli.fatalf("[showing-cli] ", "%v", err)
 	}
@@ -238,33 +256,35 @@ func main() {
 		cli.fatalf("[showing-cli] ", "load prf params: %v", err)
 	}
 	opts := PIOP.SimOpts{
-		Credential:              true,
-		Theta:                   effectiveTheta,
-		EllPrime:                effectiveEllPrime,
-		Rho:                     effectiveRho,
-		NCols:                   effectiveNCols,
-		Ell:                     productionEll,
-		Eta:                     effectiveEta,
-		DomainMode:              PIOP.DomainModeExplicit,
-		NLeaves:                 effectivePostNLeaves,
-		Kappa:                   effectiveKappa,
-		PRFGroupRounds:          productionPRFGroupRounds,
-		CoeffPacking:            true,
-		CoeffNativeSigModel:     resolvedModel,
-		ShowingPreset:           *showingPreset,
-		ShowingReplayMode:       PIOP.ShowingReplayModeReduced,
-		SigShortnessProfile:     *sigShortnessProfile,
-		SigShortnessRadix:       *sigShortnessRadix,
-		SigShortnessL:           *sigShortnessDigits,
-		PackedSigChainGroupSize: *packedSigChainGroupSize,
-		SigShortnessNCols:       *sigShortnessNCols,
-		PostSignLVCSNCols:       effectivePostLVCS,
-		PostSignNLeaves:         effectivePostNLeaves,
-		PRFLVCSNCols:            effectivePRFLVCS,
-		PRFNLeaves:              effectivePRFNLeaves,
-		PRFCompanionMode:        PIOP.PRFCompanionMode(*prfCompanionMode),
-		PRFCheckpointSamples:    *prfCheckpointSamples,
-		AggregateR0Replay:       *aggregateR0Replay,
+		Credential:                  true,
+		Theta:                       effectiveTheta,
+		EllPrime:                    effectiveEllPrime,
+		Rho:                         effectiveRho,
+		NCols:                       effectiveNCols,
+		Ell:                         productionEll,
+		Eta:                         effectiveEta,
+		RingDegree:                  *researchRingDegree,
+		DomainMode:                  PIOP.DomainModeExplicit,
+		NLeaves:                     effectivePostNLeaves,
+		Kappa:                       effectiveKappa,
+		PRFGroupRounds:              productionPRFGroupRounds,
+		CoeffPacking:                true,
+		CoeffNativeSigModel:         resolvedModel,
+		ShowingPreset:               *showingPreset,
+		ShowingReplayMode:           PIOP.ShowingReplayModeReduced,
+		SigShortnessProfile:         *sigShortnessProfile,
+		SigShortnessRadix:           *sigShortnessRadix,
+		SigShortnessL:               *sigShortnessDigits,
+		PackedSigChainGroupSize:     *packedSigChainGroupSize,
+		SigShortnessNCols:           *sigShortnessNCols,
+		PostSignLVCSNCols:           effectivePostLVCS,
+		PostSignNLeaves:             effectivePostNLeaves,
+		PRFLVCSNCols:                effectivePRFLVCS,
+		PRFNLeaves:                  effectivePRFNLeaves,
+		PRFCompanionMode:            PIOP.PRFCompanionMode(*prfCompanionMode),
+		PRFCheckpointSamples:        *prfCheckpointSamples,
+		AggregateR0Replay:           *aggregateR0Replay,
+		UnsafeSigLookupShadowR121L2: *unsafeSigLookupShadow,
 	}
 	if *fullReplay {
 		opts.ShowingReplayMode = PIOP.ShowingReplayModeFull
@@ -281,22 +301,24 @@ func main() {
 		cli.fatalf("[showing-cli] ", "resolve signature shortness profile: %v", sigMetricErr)
 	}
 	baselineOpts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-		Credential:              true,
-		NCols:                   effectiveNCols,
-		Ell:                     productionEll,
-		DomainMode:              PIOP.DomainModeExplicit,
-		PRFGroupRounds:          productionPRFGroupRounds,
-		CoeffPacking:            true,
-		CoeffNativeSigModel:     resolvedModel,
-		ShowingPreset:           *showingPreset,
-		ShowingReplayMode:       opts.ShowingReplayMode,
-		PackedSigChainGroupSize: *packedSigChainGroupSize,
-		SigShortnessNCols:       *sigShortnessNCols,
-		PRFCompanionMode:        PIOP.PRFCompanionMode(*prfCompanionMode),
-		PRFCheckpointSamples:    *prfCheckpointSamples,
+		Credential:                  true,
+		NCols:                       effectiveNCols,
+		Ell:                         productionEll,
+		RingDegree:                  *researchRingDegree,
+		DomainMode:                  PIOP.DomainModeExplicit,
+		PRFGroupRounds:              productionPRFGroupRounds,
+		CoeffPacking:                true,
+		CoeffNativeSigModel:         resolvedModel,
+		ShowingPreset:               *showingPreset,
+		ShowingReplayMode:           opts.ShowingReplayMode,
+		PackedSigChainGroupSize:     *packedSigChainGroupSize,
+		SigShortnessNCols:           *sigShortnessNCols,
+		PRFCompanionMode:            PIOP.PRFCompanionMode(*prfCompanionMode),
+		PRFCheckpointSamples:        *prfCheckpointSamples,
+		UnsafeSigLookupShadowR121L2: *unsafeSigLookupShadow,
 	})
-	cli.printf(categoryStatus, "[showing-cli] ", "production showing profile (preset=%s replay=%s ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d nleaves=%d kappa={%d,%d,%d,%d} prf_group_rounds=%d prf_mode=%s prf_samples=%d sig_profile=%s sig_R=%d sig_L=%d sig_rows=%d sig_deg=%d)",
-		resolvedShowingPreset, opts.ShowingReplayMode, opts.Ell, opts.Eta, opts.EllPrime, opts.Rho, opts.Theta, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], opts.PRFGroupRounds, opts.PRFCompanionMode, opts.PRFCheckpointSamples, resolvedSigProfile, sigBase, sigL, sigRowsPer, sigDegree)
+	cli.printf(categoryStatus, "[showing-cli] ", "production showing profile (preset=%s replay=%s ring_degree=%d ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d nleaves=%d kappa={%d,%d,%d,%d} prf_group_rounds=%d prf_mode=%s prf_samples=%d sig_profile=%s sig_R=%d sig_L=%d sig_rows=%d sig_deg=%d)",
+		resolvedShowingPreset, opts.ShowingReplayMode, ringQ.N, opts.Ell, opts.Eta, opts.EllPrime, opts.Rho, opts.Theta, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], opts.PRFGroupRounds, opts.PRFCompanionMode, opts.PRFCheckpointSamples, resolvedSigProfile, sigBase, sigL, sigRowsPer, sigDegree)
 	if opts.NCols != baselineOpts.NCols ||
 		effectivePostLVCS != baselineOpts.PostSignLVCSNCols ||
 		effectivePRFLVCS != baselineOpts.PRFLVCSNCols ||
@@ -309,14 +331,16 @@ func main() {
 		opts.EllPrime != baselineOpts.EllPrime ||
 		opts.Kappa != baselineOpts.Kappa ||
 		opts.ShowingReplayMode != baselineOpts.ShowingReplayMode ||
+		opts.RingDegree != baselineOpts.RingDegree ||
 		opts.PackedSigChainGroupSize != baselineOpts.PackedSigChainGroupSize ||
 		opts.SigShortnessNCols != baselineOpts.SigShortnessNCols ||
 		opts.PRFCompanionMode != baselineOpts.PRFCompanionMode ||
 		opts.PRFCheckpointSamples != baselineOpts.PRFCheckpointSamples ||
+		opts.UnsafeSigLookupShadowR121L2 != baselineOpts.UnsafeSigLookupShadowR121L2 ||
 		resolvedShowingPreset != baselineOpts.ShowingPreset ||
 		*sigShortnessProfile != "" || *sigShortnessRadix > 0 || *sigShortnessDigits > 0 {
-		cli.printf(categoryWarning, "[showing-cli] ", "warning: transcript/soundness research overrides active (preset=%s replay=%s ncols=%d lvcs_ncols=%d nleaves=%d eta=%d theta=%d rho=%d ell'=%d kappa={%d,%d,%d,%d} sig_profile=%s sig_R=%d sig_L=%d)",
-			resolvedShowingPreset, opts.ShowingReplayMode, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Eta, opts.Theta, opts.Rho, opts.EllPrime, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], resolvedSigProfile, sigBase, sigL)
+		cli.printf(categoryWarning, "[showing-cli] ", "warning: transcript/soundness research overrides active (preset=%s replay=%s ring_degree=%d ncols=%d lvcs_ncols=%d nleaves=%d eta=%d theta=%d rho=%d ell'=%d kappa={%d,%d,%d,%d} sig_profile=%s sig_R=%d sig_L=%d)",
+			resolvedShowingPreset, opts.ShowingReplayMode, ringQ.N, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Eta, opts.Theta, opts.Rho, opts.EllPrime, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], resolvedSigProfile, sigBase, sigL)
 	}
 	for i, kappa := range opts.Kappa {
 		if kappa >= 32 {
@@ -325,6 +349,12 @@ func main() {
 	}
 	if opts.ShowingReplayMode == PIOP.ShowingReplayModeFull {
 		cli.printf(categoryStatus, "[showing-cli] ", "full replay mode selected: maintained direct bb_tran full replay statement with a larger authenticated showing surface than reduced engineering mode")
+	}
+	switch PIOP.NormalizeSigLookupShadowR121L2Mode(opts.UnsafeSigLookupShadowR121L2) {
+	case PIOP.SigLookupShadowR121L2Free:
+		cli.printf(categoryWarning, "[showing-cli] ", "UNSOUND FREE-LOOKUP UPPER BOUND: R121/L2 signature shortness membership is not proved")
+	case PIOP.SigLookupShadowR121L2SameQ:
+		cli.printf(categoryWarning, "[showing-cli] ", "UNSAFE SAME-Q NEGATIVE CONTROL: R121/L2 signature shortness uses degree-121 membership inside Q")
 	}
 	switch opts.PRFCompanionMode {
 	case PIOP.PRFCompanionModeDirectAuth:
@@ -373,7 +403,7 @@ func main() {
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "load B: %v", err)
 	}
-	wit, err := buildWitnessFromState(ringQ, state, B)
+	wit, err := buildWitnessFromState(ringQ, state, B, omega, boundB, publicParams.X0CoeffBound)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "build witness: %v", err)
 	}
@@ -406,6 +436,7 @@ func main() {
 		X0CoeffBound:       publicParams.X0CoeffBound,
 		TargetDim:          publicParams.TargetDim,
 		TargetHidingLambda: publicParams.TargetHidingLambda,
+		RingDegree:         int(ringQ.N),
 		HashRelation:       publicParams.HashRelation,
 	}
 
@@ -468,6 +499,9 @@ func loadBForShowing(r *ring.Ring, st credential.State, public credential.Public
 	coeffs := meta.B
 	out := make([]*ring.Poly, len(coeffs))
 	for i := range coeffs {
+		if len(coeffs[i]) != int(r.N) {
+			return nil, fmt.Errorf("B[%d] coefficient length=%d want ring_degree=%d", i, len(coeffs[i]), r.N)
+		}
 		p := r.NewPoly()
 		copy(p.Coeffs[0], coeffs[i])
 		r.NTT(p, p)
@@ -492,6 +526,57 @@ func loadCredentialPublicParamsFromState(st credential.State) (credential.Public
 	return credential.LoadPublicParams(st.CredentialPublicPath)
 }
 
+func validateArtifactRingDegree(ringDegree int, statePath string, st credential.State, public credential.PublicParams) error {
+	if ringDegree <= 0 {
+		return fmt.Errorf("invalid selected ring_degree=%d", ringDegree)
+	}
+	if got := public.InferRingDegree(); got > 0 && got != ringDegree {
+		return fmt.Errorf("credential public params ring_degree=%d incompatible with selected ring_degree=%d; fresh N=%d artifacts are required", got, ringDegree, ringDegree)
+	}
+	if got := st.InferRingDegree(); got > 0 && got != ringDegree {
+		return fmt.Errorf("credential state %s ring_degree=%d incompatible with selected ring_degree=%d; fresh N=%d artifacts are required", statePath, got, ringDegree, ringDegree)
+	}
+	checkRows := func(label string, rows [][]int64, required bool) error {
+		if len(rows) == 0 {
+			if required {
+				return fmt.Errorf("credential state %s missing %s rows", statePath, label)
+			}
+			return nil
+		}
+		for i := range rows {
+			if len(rows[i]) != ringDegree {
+				return fmt.Errorf("credential state %s %s[%d] coefficient length=%d want ring_degree=%d", statePath, label, i, len(rows[i]), ringDegree)
+			}
+		}
+		return nil
+	}
+	if err := checkRows("mu", st.Mu, true); err != nil {
+		return err
+	}
+	if err := checkRows("r0", st.R0, true); err != nil {
+		return err
+	}
+	if err := checkRows("r1", st.R1, true); err != nil {
+		return err
+	}
+	if err := checkRows("z", st.Z, true); err != nil {
+		return err
+	}
+	if len(st.SigS1) > 0 && len(st.SigS1) != ringDegree {
+		return fmt.Errorf("credential state %s sig_s1 coefficient length=%d want ring_degree=%d", statePath, len(st.SigS1), ringDegree)
+	}
+	if len(st.SigS2) > 0 && len(st.SigS2) != ringDegree {
+		return fmt.Errorf("credential state %s sig_s2 coefficient length=%d want ring_degree=%d", statePath, len(st.SigS2), ringDegree)
+	}
+	if err := checkRows("ntru_public", st.NTRUPublic, false); err != nil {
+		return err
+	}
+	if err := checkRows("embedded_b", st.B, false); err != nil {
+		return err
+	}
+	return nil
+}
+
 func buildSignatureMatrix(r *ring.Ring, st credential.State, uCount int) ([][]*ring.Poly, error) {
 	if len(st.NTRUPublic) == 0 {
 		pk, err := keys.LoadPublic()
@@ -506,6 +591,9 @@ func buildSignatureMatrix(r *ring.Ring, st credential.State, uCount int) ([][]*r
 		r.NTT(one, one)
 		return [][]*ring.Poly{{one}}, nil
 	}
+	if len(st.NTRUPublic[0]) != int(r.N) {
+		return nil, fmt.Errorf("NTRU public key coefficient length=%d want ring_degree=%d", len(st.NTRUPublic[0]), r.N)
+	}
 	hNTT := polyFromInt64(r, st.NTRUPublic[0])
 	r.NTT(hNTT, hNTT)
 	negHNTT := r.NewPoly()
@@ -518,8 +606,8 @@ func buildSignatureMatrix(r *ring.Ring, st credential.State, uCount int) ([][]*r
 	return [][]*ring.Poly{{negHNTT, one}}, nil
 }
 
-func buildWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly) (PIOP.WitnessInputs, error) {
-	coeffNative, err := buildCoeffNativeShowingWitnessFromState(r, st, B)
+func buildWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly, omega []uint64, boundB, x0Bound int64) (PIOP.WitnessInputs, error) {
+	coeffNative, err := buildCoeffNativeShowingWitnessFromState(r, st, B, omega, boundB, x0Bound)
 	if err != nil {
 		return PIOP.WitnessInputs{}, err
 	}
@@ -528,7 +616,7 @@ func buildWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly) (P
 	}, nil
 }
 
-func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly) (*PIOP.CoeffNativeShowingWitness, error) {
+func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly, omega []uint64, boundB, x0Bound int64) (*PIOP.CoeffNativeShowingWitness, error) {
 	if r == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -543,7 +631,7 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, 
 	if uint64(maxSig) > par.Beta {
 		return nil, fmt.Errorf("signature shortness blocker: max(|sig_s1|,|sig_s2|)=%d exceeds beta=%d under q=%d", maxSig, par.Beta, par.Q)
 	}
-	if len(st.M) == 0 || len(st.K) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
+	if len(st.Mu) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
 		return nil, fmt.Errorf("missing semantic witness rows in credential state")
 	}
 	x0Len := st.X0Len
@@ -556,6 +644,9 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, 
 	if len(st.R0) != x0Len {
 		return nil, fmt.Errorf("credential state R0 len=%d want x0Len=%d", len(st.R0), x0Len)
 	}
+	if err := validateStateWitnessCoefficientLengths(st, int(r.N)); err != nil {
+		return nil, err
+	}
 	if len(B) < 3+x0Len {
 		return nil, fmt.Errorf("missing B matrix for target reconstruction: have %d want at least %d", len(B), 3+x0Len)
 	}
@@ -563,12 +654,16 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, 
 	if err != nil {
 		return nil, fmt.Errorf("resolve packed ncols: %w", err)
 	}
-	mPoly := polyFromInt64(r, st.M[0])
-	kPoly := polyFromInt64(r, st.K[0])
+	if err := credential.ValidateFullMuPayload(st.Mu, int(r.N), boundB); err != nil {
+		return nil, fmt.Errorf("invalid credential mu payload: %w", err)
+	}
+	muPoly := polyFromInt64(r, st.Mu[0])
+	_ = x0Bound
+	_ = omega
 	r0Polys := credentialPolysFromInt64(r, st.R0)
 	r1Poly := polyFromInt64(r, st.R1[0])
 	zPoly := polyFromInt64(r, st.Z[0])
-	_, tCoeffs, err := credential.ComputeTargetVector(r, B, mPoly, kPoly, r0Polys, r1Poly)
+	_, tCoeffs, err := credential.ComputeTargetVectorFromMu(r, B, muPoly, r0Polys, r1Poly)
 	if err != nil {
 		return nil, fmt.Errorf("recompute target from credential state: %w", err)
 	}
@@ -578,8 +673,7 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, 
 			polyFromInt64(r, st.SigS1),
 			polyFromInt64(r, st.SigS2),
 		},
-		M1:          mPoly,
-		M2:          kPoly,
+		Mu:          muPoly,
 		R0:          r0Polys,
 		R1:          r1Poly,
 		Z:           zPoly,
@@ -590,6 +684,39 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, 
 		return nil, fmt.Errorf("invalid coeff-native showing witness: %w", err)
 	}
 	return wit, nil
+}
+
+func validateStateWitnessCoefficientLengths(st credential.State, ringDegree int) error {
+	if ringDegree <= 0 {
+		return fmt.Errorf("invalid ring degree %d", ringDegree)
+	}
+	checkRows := func(name string, rows [][]int64) error {
+		for i := range rows {
+			if len(rows[i]) != ringDegree {
+				return fmt.Errorf("credential state %s[%d] coefficient length=%d want ring_degree=%d", name, i, len(rows[i]), ringDegree)
+			}
+		}
+		return nil
+	}
+	if err := checkRows("mu", st.Mu); err != nil {
+		return err
+	}
+	if err := checkRows("r0", st.R0); err != nil {
+		return err
+	}
+	if err := checkRows("r1", st.R1); err != nil {
+		return err
+	}
+	if err := checkRows("z", st.Z); err != nil {
+		return err
+	}
+	if len(st.SigS1) != ringDegree {
+		return fmt.Errorf("credential state sig_s1 coefficient length=%d want ring_degree=%d", len(st.SigS1), ringDegree)
+	}
+	if len(st.SigS2) != ringDegree {
+		return fmt.Errorf("credential state sig_s2 coefficient length=%d want ring_degree=%d", len(st.SigS2), ringDegree)
+	}
+	return nil
 }
 
 func showingSignatureComponentCount(wit PIOP.WitnessInputs) int {
@@ -606,13 +733,12 @@ func prfKeyFromWitnessOnOmega(r *ring.Ring, wit PIOP.WitnessInputs, omega []uint
 	if wit.CoeffNativeShowing == nil {
 		return nil, fmt.Errorf("missing coeff-native showing witness")
 	}
-	if wit.CoeffNativeShowing.M2 == nil {
-		return nil, fmt.Errorf("coeff-native showing witness missing M2 row")
+	if wit.CoeffNativeShowing.Mu == nil {
+		return nil, fmt.Errorf("coeff-native showing witness missing Mu row")
 	}
-	return PIOP.ExtractSignedPRFKeyElemsFromM2OnOmega(
+	return PIOP.ExtractSignedPRFKeyElemsFromMuCoeffs(
 		r,
-		wit.CoeffNativeShowing.M2,
-		omega,
+		wit.CoeffNativeShowing.Mu,
 		wit.CoeffNativeShowing.PackedNCols,
 		lenKey,
 	)
@@ -658,6 +784,7 @@ func prfKeyFromCarrierWitness(
 		X0CoeffBound:       publicParams.X0CoeffBound,
 		TargetDim:          publicParams.TargetDim,
 		TargetHidingLambda: publicParams.TargetHidingLambda,
+		RingDegree:         int(r.N),
 		HashRelation:       publicParams.HashRelation,
 	}
 	rows, _, layout, _, _, _, _, _, _, _, _, err := PIOP.BuildCredentialRowsShowing(
@@ -674,17 +801,52 @@ func prfKeyFromCarrierWitness(
 	if err != nil {
 		return nil, fmt.Errorf("build showing rows for carrier key extraction: %w", err)
 	}
-	if layout.IdxCarrierM < 0 || layout.IdxCarrierM >= len(rows) {
-		return nil, fmt.Errorf("missing carrier M row in showing layout")
+	ncols := wit.CoeffNativeShowing.PackedNCols
+	if ncols <= 0 {
+		ncols = len(omega)
 	}
-	scalars, err := PIOP.ExtractSignedPRFKeyScalarsFromCarrierOnOmega(
-		r,
-		rows[layout.IdxCarrierM],
-		omega,
-		wit.CoeffNativeShowing.PackedNCols,
-		params.LenKey,
-		boundB,
-	)
+	keyStart := int(r.N) / 2
+	keyBlock := keyStart / ncols
+	keyCol := keyStart % ncols
+	muPackWidth := PIOP.ResolveSimOptsDefaults(opts).MuWitnessPackWidth
+	if layout.MuCarrierPackWidth > 0 {
+		muPackWidth = layout.MuCarrierPackWidth
+	}
+	carrierRows := append([]int(nil), layout.CarrierMuBlockRows...)
+	if len(carrierRows) == 0 {
+		carrierRows = []int{layout.IdxCarrierM}
+	}
+	keyCarrierBlock := keyBlock / muPackWidth
+	keyLane := keyBlock % muPackWidth
+	if keyCarrierBlock < 0 || keyCarrierBlock >= len(carrierRows) {
+		return nil, fmt.Errorf("missing carrier mu key block %d packed=%d among %d rows", keyBlock, keyCarrierBlock, len(carrierRows))
+	}
+	keyCarrierRow := carrierRows[keyCarrierBlock]
+	if keyCarrierRow < 0 || keyCarrierRow >= len(rows) {
+		return nil, fmt.Errorf("carrier mu key row %d out of range", keyCarrierRow)
+	}
+	var scalars []int64
+	if muPackWidth == 1 {
+		scalars, err = PIOP.ExtractSignedPRFKeyScalarsFromSingletonCarrierWindowOnOmega(
+			r,
+			rows[keyCarrierRow],
+			omega,
+			keyCol,
+			params.LenKey,
+			boundB,
+		)
+	} else {
+		scalars, err = PIOP.ExtractSignedPRFKeyScalarsFromPackedMuCarrierWindowOnOmega(
+			r,
+			rows[keyCarrierRow],
+			omega,
+			keyCol,
+			params.LenKey,
+			boundB,
+			muPackWidth,
+			keyLane,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("extract signed prf key from carrier witness: %w", err)
 	}
@@ -704,25 +866,18 @@ func prfKeyFromState(r *ring.Ring, st credential.State, lenKey int) ([]prf.Elem,
 	if r == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
-	if len(st.K) == 0 {
-		return nil, fmt.Errorf("credential state missing k")
+	if len(st.Mu) == 0 {
+		return nil, fmt.Errorf("credential state missing mu")
 	}
-	ncols, err := PIOP.ResolvePackedNCols(st.PackedNCols, 0, int(r.N))
-	if err != nil {
-		return nil, err
-	}
-	half := ncols / 2
-	if half < lenKey {
-		return nil, fmt.Errorf("packed ncols=%d leaves only %d upper-half lanes for lenKey=%d", ncols, half, lenKey)
+	keyStart := int(r.N) / 2
+	if keyStart+lenKey > len(st.Mu[0]) {
+		return nil, fmt.Errorf("credential mu row length %d is shorter than full-capacity key window [%d,%d)", len(st.Mu[0]), keyStart, keyStart+lenKey)
 	}
 	out := make([]prf.Elem, lenKey)
 	q := int64(r.Modulus[0])
 	for i := 0; i < lenKey; i++ {
-		idx := half + i
-		if idx >= len(st.K[0]) {
-			return nil, fmt.Errorf("credential key row length %d is shorter than key slot %d", len(st.K[0]), idx)
-		}
-		v := st.K[0][idx] % q
+		idx := keyStart + i
+		v := st.Mu[0][idx] % q
 		if v < 0 {
 			v += q
 		}
@@ -966,6 +1121,7 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 	printTranscriptOptimizationFocus(prefix, rep)
 	printStatementSummary(prefix, rep)
 	printSigShortness(prefix, rep)
+	printSigLookupShadow(prefix, rep)
 	cli.printf(categoryStatus, prefix, "Prover time≈%s", proveDur)
 	cli.printf(categoryStatus, prefix, "Verifier time≈%s", verifyDur)
 	cli.printf(categorySoundness, prefix, "Soundness Eq.(8): %s %s %s %s eq8_total=%.2f",
@@ -982,8 +1138,8 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 	if note := formatSoundnessNotes(rep); note != "" {
 		cli.printf(categorySoundness, prefix, "%s", note)
 	}
-	cli.printf(categoryGeometry, prefix, "Params: NCols(s)=%d pcs_ncols=%d nleaves=%d ddecs=%d ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d κ={%d,%d,%d,%d} dQ=%d collision_bits=%d",
-		rep.NCols, rep.PCSNCols, rep.NLeaves, rep.Soundness.DDECS, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta,
+	cli.printf(categoryGeometry, prefix, "Params: ring_degree=%d NCols(s)=%d pcs_ncols=%d nleaves=%d ddecs=%d ℓ=%d ℓ'=%d ρ=%d θ=%d η=%d κ={%d,%d,%d,%d} dQ=%d collision_bits=%d",
+		rep.RingDegree, rep.NCols, rep.PCSNCols, rep.NLeaves, rep.Soundness.DDECS, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta,
 		rep.Kappa[0], rep.Kappa[1], rep.Kappa[2], rep.Kappa[3], rep.DQ, rep.Soundness.CollisionSpaceBits)
 	printWitnessGeometry(prefix, rep.Geometry)
 	if sigErr == nil {
@@ -1123,10 +1279,15 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 	if focus.AggregateR0Replay {
 		aggregateR0 = " aggregate_r0=true"
 	}
+	ringDegree := ""
+	if focus.RingDegree > 0 {
+		ringDegree = fmt.Sprintf(" ring_degree=%d", focus.RingDegree)
+	}
 	return fmt.Sprintf(
-		"Transcript focus: preset=%s replay=%s blocks=%d lvcs=%d nleaves=%d rowsBlock=%d maskChunks=%d witness=%d nrows=%d m=%d pcols=%d omitP=%d prf_scalars=%d prf_rows=%d (%s) entries=%d%s%s%s",
+		"Transcript focus: preset=%s replay=%s%s blocks=%d lvcs=%d nleaves=%d rowsBlock=%d maskChunks=%d witness=%d nrows=%d m=%d pcols=%d omitP=%d prf_scalars=%d prf_rows=%d (%s) mu_pack=%d mu_rows=%d mu_blocks=%d entries=%d%s%s%s",
 		focus.ShowingPreset,
 		focus.ReplayMode,
+		ringDegree,
 		focus.ReplayBlocks,
 		focus.LVCSNCols,
 		focus.NLeaves,
@@ -1140,6 +1301,9 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 		focus.PRFLogicalScalars,
 		focus.PRFPackedRows,
 		layout,
+		focus.MuPackWidth,
+		focus.MuCarrierRows,
+		focus.MuVirtualBlocks,
 		focus.RowOpeningEntries,
 		aggregateR0,
 		rowFamilies,
@@ -1195,6 +1359,26 @@ func printSigShortness(prefix string, rep PIOP.ProofReport) {
 		sig.OpeningBytes,
 		sig.ProofBytes,
 	)
+}
+
+func printSigLookupShadow(prefix string, rep PIOP.ProofReport) {
+	focus := rep.TranscriptFocus
+	if focus.SigLookupShadowMode == "" {
+		return
+	}
+	cli.printf(categoryWarning, prefix, "Sig lookup shadow: mode=%s rows=%d->%d cells=%d table=%d",
+		focus.SigLookupShadowMode,
+		focus.SigRowsBefore,
+		focus.SigRowsAfter,
+		focus.SigLookupCells,
+		focus.SigLookupTableSize,
+	)
+	if focus.SigLookupShadowMode == PIOP.SigLookupShadowR121L2Free {
+		cli.printf(categoryWarning, prefix, "Sig lookup shadow budget: free_upper_bound=%d max_lookup_budget_for_35500=%d",
+			focus.FreeLookupUpperBoundBytes,
+			focus.MaxLookupBudgetFor35500,
+		)
+	}
 }
 
 func printReplayFamilyAudit(prefix string, rep PIOP.ProofReport) {

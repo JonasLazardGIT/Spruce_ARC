@@ -72,6 +72,46 @@ func rowLayoutX0Len(layout RowLayout) int {
 
 func rowLayoutPostSignM1(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxM1, 0) }
 func rowLayoutPostSignM2(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxM2, 1) }
+func rowLayoutPostSignMu(layout RowLayout) int {
+	return resolveRowLayoutIdx(layout, layout.IdxMu, rowLayoutPostSignM1(layout))
+}
+func rowLayoutUsesMu(layout RowLayout) bool {
+	return layout.HasExplicitBaseIdx && layout.IdxMu >= 0 && (layout.IdxMu == layout.IdxM1 || layout.MuCarrierPackWidth > 1)
+}
+func rowLayoutCarrierMuBlockRows(layout RowLayout) []int {
+	return resolveLayoutBlockIndices(layout.CarrierMuBlockRows, rowLayoutPostSignCarrierM(layout))
+}
+func rowLayoutAliasMuBlockRows(layout RowLayout) []int {
+	if layout.MuCarrierPackWidth > 1 && len(layout.AliasMuBlockRows) == 0 {
+		return nil
+	}
+	return resolveLayoutBlockIndices(layout.AliasMuBlockRows, rowLayoutPostSignMu(layout))
+}
+func rowLayoutMuCarrierPackWidth(layout RowLayout) int {
+	if layout.MuCarrierPackWidth > 0 {
+		return layout.MuCarrierPackWidth
+	}
+	return 1
+}
+func rowLayoutUsesPackedMuCarrier(layout RowLayout) bool {
+	return rowLayoutUsesMu(layout) && rowLayoutMuCarrierPackWidth(layout) > 1
+}
+func rowLayoutMuVirtualBlockCount(layout RowLayout) int {
+	if layout.MuVirtualBlockCount > 0 {
+		return layout.MuVirtualBlockCount
+	}
+	if rows := rowLayoutAliasMuBlockRows(layout); len(rows) > 0 {
+		return len(rows)
+	}
+	carrierRows := rowLayoutCarrierMuBlockRows(layout)
+	if len(carrierRows) == 0 {
+		return 0
+	}
+	return len(carrierRows) * rowLayoutMuCarrierPackWidth(layout)
+}
+func rowLayoutUsesFullMu(layout RowLayout) bool {
+	return rowLayoutUsesMu(layout) && rowLayoutMuVirtualBlockCount(layout) > 1
+}
 func rowLayoutPreSignRU0(layout RowLayout) int { return resolveRowLayoutIdx(layout, layout.IdxRU0, 2) }
 func rowLayoutPreSignRU0Rows(layout RowLayout) []int {
 	return resolveLayoutBlockIndices(layout.AliasRU0Rows, rowLayoutPreSignRU0(layout))

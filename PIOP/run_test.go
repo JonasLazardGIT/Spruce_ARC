@@ -41,7 +41,7 @@ func TestInlineTargetReplayCompactPresetEnablesOnlyV18(t *testing.T) {
 	opts := ResolveSimOptsDefaults(SimOpts{
 		Credential:           true,
 		NCols:                16,
-		Ell:                  18,
+		Ell:                  0,
 		DomainMode:           DomainModeExplicit,
 		PRFGroupRounds:       2,
 		CoeffPacking:         true,
@@ -68,6 +68,9 @@ func TestInlineTargetReplayCompactPresetEnablesOnlyV18(t *testing.T) {
 	}
 	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetInlineTargetReplayCompactResearch {
 		t.Fatalf("resolved preset=%q want %q", got, ShowingPresetInlineTargetReplayCompactResearch)
+	}
+	if opts.MuWitnessPackWidth != 2 {
+		t.Fatalf("inline-target mu witness pack width=%d want 2", opts.MuWitnessPackWidth)
 	}
 }
 

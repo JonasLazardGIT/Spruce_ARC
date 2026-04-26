@@ -36,6 +36,10 @@ func loadParams() (*ntrurio.SystemParams, error) {
 func LoadParamsForCLI() (*ntrurio.SystemParams, error) { return loadParams() }
 
 func GenerateKeypairAnnulus(par ntru.Params, kg ntru.KeygenOpts) (pk *keys.PublicKey, sk *keys.PrivateKey, err error) {
+	return GenerateKeypairAnnulusToFiles(par, kg, "ntru_keys/public.json", "ntru_keys/private.json")
+}
+
+func GenerateKeypairAnnulusToFiles(par ntru.Params, kg ntru.KeygenOpts, publicPath, privatePath string) (pk *keys.PublicKey, sk *keys.PrivateKey, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			pk = nil
@@ -43,7 +47,21 @@ func GenerateKeypairAnnulus(par ntru.Params, kg ntru.KeygenOpts) (pk *keys.Publi
 			err = fmt.Errorf("annulus keygen panic: %v", rec)
 		}
 	}()
-	return generateKeypairAnnulusNoRecover(par, kg)
+	pk, sk, err = generateKeypairAnnulusNoRecover(par, kg)
+	if err != nil {
+		return nil, nil, err
+	}
+	if publicPath != "" {
+		if err := keys.SavePublicFile(publicPath, pk); err != nil {
+			return nil, nil, err
+		}
+	}
+	if privatePath != "" {
+		if err := keys.SavePrivateFile(privatePath, sk); err != nil {
+			return nil, nil, err
+		}
+	}
+	return pk, sk, nil
 }
 
 func generateKeypairAnnulusNoRecover(par ntru.Params, kg ntru.KeygenOpts) (*keys.PublicKey, *keys.PrivateKey, error) {
@@ -71,12 +89,6 @@ func generateKeypairAnnulusNoRecover(par ntru.Params, kg ntru.KeygenOpts) (*keys
 		Fsmall:  f,
 		Gsmall:  g,
 	}
-	if err := keys.SavePublic(pk); err != nil {
-		return nil, nil, err
-	}
-	if err := keys.SavePrivate(priv); err != nil {
-		return nil, nil, err
-	}
 	return pk, priv, nil
 }
 
@@ -98,8 +110,12 @@ type SignPaths struct {
 }
 
 func SignTarget(tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts) (*keys.Signature, error) {
+	return SignTargetWithPaths(tCoeffs, maxTrials, opts, SignPaths{})
+}
+
+func SignTargetWithPaths(tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts, paths SignPaths) (*keys.Signature, error) {
 	meta := targetMeta{Persist: false}
-	return signWithTCoeffs(tCoeffs, maxTrials, opts, meta)
+	return signWithTCoeffsAndPaths(tCoeffs, maxTrials, opts, meta, paths)
 }
 
 func loadParamsFromPath(path string) (*ntrurio.SystemParams, error) {
@@ -193,6 +209,15 @@ func signWithTCoeffsAndPaths(tCoeffs []int64, maxTrials int, opts ntru.SamplerOp
 }
 
 func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts, meta targetMeta, signaturePath string) (*keys.Signature, error) {
+	if pk == nil || sk == nil {
+		return nil, errors.New("nil NTRU key")
+	}
+	if pk.N != sk.N {
+		return nil, fmt.Errorf("NTRU key degree mismatch: public N=%d private N=%d", pk.N, sk.N)
+	}
+	if pk.Q != sk.Q {
+		return nil, fmt.Errorf("NTRU key modulus mismatch: public Q=%s private Q=%s", pk.Q, sk.Q)
+	}
 	Q := new(big.Int)
 	if _, ok := Q.SetString(pk.Q, 16); !ok {
 		return nil, errors.New("invalid Q")
@@ -200,6 +225,20 @@ func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64
 	par, err := ntru.NewParams(pk.N, Q)
 	if err != nil {
 		return nil, err
+	}
+	for _, check := range []struct {
+		name string
+		row  []int64
+	}{
+		{"public h", pk.HCoeffs},
+		{"private F", sk.F},
+		{"private G", sk.G},
+		{"private f", sk.Fsmall},
+		{"private g", sk.Gsmall},
+	} {
+		if len(check.row) != par.N {
+			return nil, fmt.Errorf("NTRU %s coefficient length=%d want N=%d", check.name, len(check.row), par.N)
+		}
 	}
 	if len(tCoeffs) != par.N {
 		return nil, fmt.Errorf("t size mismatch: got %d want %d", len(tCoeffs), par.N)

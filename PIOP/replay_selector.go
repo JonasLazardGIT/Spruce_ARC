@@ -48,7 +48,13 @@ func buildShowingReplayActiveRowSelectorWithSourceProductBridge(layout RowLayout
 	}
 
 	if rowLayoutCoeffNativeUsesTransformBridge(layout) {
-		add(layout.IdxCarrierM)
+		if rowLayoutUsesFullMu(layout) {
+			for _, idx := range rowLayoutCarrierMuBlockRows(layout) {
+				add(idx)
+			}
+		} else {
+			add(layout.IdxCarrierM)
+		}
 		add(rowLayoutPostSignCarrierR1(layout))
 		for _, idx := range rowLayoutPostSignCarrierR0Rows(layout) {
 			add(idx)

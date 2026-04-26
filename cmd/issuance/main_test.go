@@ -9,6 +9,7 @@ import (
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
+	ntrurio "vSIS-Signature/ntru/io"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -138,6 +139,71 @@ func TestSetupDemoPublicLHLProfileWritesParameterizedPublicParams(t *testing.T) 
 	}
 }
 
+func TestSetupDemoPublicResearch512WritesSeparateDegree(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "credential_public.research_n512.json")
+	bPath := filepath.Join(tmp, "Bmatrix.research_n512.json")
+	if err := run([]string{"setup-demo-public", "-out", out, "-b-path", bPath, "-force", "-x0-profile", "legacy_scalar", "-research-ring-degree", "512"}); err != nil {
+		t.Fatalf("setup-demo-public research n512: %v", err)
+	}
+	public, err := credential.LoadPublicParams(out)
+	if err != nil {
+		t.Fatalf("load public params: %v", err)
+	}
+	if public.RingDegree != 512 {
+		t.Fatalf("public ring_degree=%d want 512", public.RingDegree)
+	}
+	meta, err := ntrurio.LoadBMatrixMetadata(bPath)
+	if err != nil {
+		t.Fatalf("load B matrix: %v", err)
+	}
+	for i := range meta.B {
+		if len(meta.B[i]) != 512 {
+			t.Fatalf("B[%d] length=%d want 512", i, len(meta.B[i]))
+		}
+	}
+}
+
+func TestSetupNTRUKeysRefusesOverwriteBeforeKeygen(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	tmp := t.TempDir()
+	paramsPath := filepath.Join(tmp, "Parameters.research_n512.json")
+	if err := os.WriteFile(paramsPath, []byte(`{"n":512,"q":1054721,"beta":6142}`), 0o644); err != nil {
+		t.Fatalf("write existing params: %v", err)
+	}
+	err := run([]string{
+		"setup-ntru-keys",
+		"-research-ring-degree", "512",
+		"-params-out", paramsPath,
+		"-public-out", filepath.Join(tmp, "public.research_n512.json"),
+		"-private-out", filepath.Join(tmp, "private.research_n512.json"),
+	})
+	if err == nil {
+		t.Fatal("setup-ntru-keys overwrote existing params without -force")
+	}
+	if !strings.Contains(err.Error(), "refusing to overwrite") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResearch512SigningRejectsDefaultNTRUArtifacts(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	err := validateNTRUSigningArtifacts(ntruSigningPaths(defaultNTRUParamsPath, defaultNTRUPublicKeyPath, defaultNTRUPrivateKeyPath, ""), 512)
+	if err == nil {
+		t.Fatal("default N=1024 NTRU artifacts accepted for ring_degree=512")
+	}
+	if !strings.Contains(err.Error(), "incompatible with target ring_degree=512") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRoleSeparatedIssuanceFlowPersistsTrapdoorFreeState(t *testing.T) {
 	root := issuanceTestRepoRoot(t)
 	chdirForIssuanceTest(t, root)
@@ -178,8 +244,8 @@ func TestRoleSeparatedIssuanceFlowPersistsTrapdoorFreeState(t *testing.T) {
 	if state.CredentialPublicPath != publicPath {
 		t.Fatalf("credential_public_path=%q want %q", state.CredentialPublicPath, publicPath)
 	}
-	if maxAbsRows(state.K) <= 0 {
-		t.Fatal("default issuance sampled zero K; want nonzero hidden key material")
+	if maxAbsRows(state.Mu) <= 0 {
+		t.Fatal("default issuance sampled zero mu; want nonzero hidden payload material")
 	}
 	if maxAbsRows(state.RI0) <= 0 && maxAbsRows(state.RI1) <= 0 {
 		t.Fatal("default issuance sampled zero issuer challenge")
@@ -289,14 +355,14 @@ func TestSampleHolderInputsRespectsX0ShapeAndBounds(t *testing.T) {
 	public := credential.PublicParams{
 		Version:            credential.PublicParamsVersion,
 		HashRelation:       credential.HashRelationBBTran,
+		MuLayout:           credential.MuLayoutFullCapacityHalvesV1,
 		BoundB:             1,
 		X0Len:              6,
 		X0CoeffBound:       5,
 		TargetDim:          credential.DefaultTargetDim,
 		TargetHidingLambda: credential.DefaultTargetHidingLambda,
 		X0Distribution:     credential.X0DistributionUniformInterval,
-		LenM:               1,
-		LenK:               1,
+		LenMu:              1,
 		LenR0H:             6,
 		LenR1H:             1,
 		LenRBar:            1,
@@ -311,6 +377,19 @@ func TestSampleHolderInputsRespectsX0ShapeAndBounds(t *testing.T) {
 	}
 	if len(in.R0H) != public.X0Len {
 		t.Fatalf("r0h len=%d want %d", len(in.R0H), public.X0Len)
+	}
+	muRows := polyVecToInt64(ringQ, in.Mu, false)
+	if err := credential.ValidateFullMuPayload(muRows, int(ringQ.N), public.BoundB); err != nil {
+		t.Fatalf("sampled mu is not a bounded full-capacity payload: %v", err)
+	}
+	nonzeroTail := 0
+	for _, v := range muRows[0][len(omega):] {
+		if v != 0 {
+			nonzeroTail++
+		}
+	}
+	if nonzeroTail == 0 {
+		t.Fatal("sampled full-capacity mu has an all-zero tail")
 	}
 	checkBound := func(p *ring.Poly, bound int64) {
 		t.Helper()

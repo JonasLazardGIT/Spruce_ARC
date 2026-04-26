@@ -1,6 +1,8 @@
 package credential
 
 import (
+	"fmt"
+
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/ntru/io"
 
@@ -18,7 +20,10 @@ type Params struct {
 	X0CoeffBound       int64
 	TargetDim          int
 	TargetHidingLambda int
+	RingDegree         int
 	X0Distribution     string
+	LenMu              int
+	MuLayout           string
 	LenM               int
 	LenK               int
 	LenR0H             int
@@ -42,9 +47,25 @@ const (
 
 // paramsFile mirrors the JSON schema stored on disk.
 func LoadDefaultRing() (*ring.Ring, error) {
+	return LoadRingWithDegree(0)
+}
+
+// LoadRingWithDegree loads the repository modulus and default degree, then
+// applies an explicit research degree override when requested.
+func LoadRingWithDegree(ringDegree int) (*ring.Ring, error) {
 	par, err := io.LoadParams("Parameters/Parameters.json", true)
 	if err != nil {
 		return nil, err
 	}
-	return ring.NewRing(par.N, []uint64{par.Q})
+	n := par.N
+	switch ringDegree {
+	case 0, par.N:
+	case 1024:
+		n = 1024
+	case 512:
+		n = 512
+	default:
+		return nil, fmt.Errorf("unsupported research ring degree %d (supported: %d, 1024, 512)", ringDegree, par.N)
+	}
+	return ring.NewRing(n, []uint64{par.Q})
 }

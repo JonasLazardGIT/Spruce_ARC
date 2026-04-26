@@ -1,6 +1,7 @@
 package PIOP
 
 import (
+	"bytes"
 	"math"
 	"testing"
 
@@ -54,6 +55,69 @@ func TestBuildPaperTranscriptReportLeafUsesFormulaicRAndQ(t *testing.T) {
 	}
 	if rep1.R != rep2.R {
 		t.Fatalf("R bucket should not depend on full in-memory proof.R: %+v vs %+v", rep1.R, rep2.R)
+	}
+}
+
+func TestPaperTranscriptReportIncludesRingDegree(t *testing.T) {
+	ringQ, err := ring.NewRing(1024, []uint64{12289})
+	if err != nil {
+		t.Fatalf("ring: %v", err)
+	}
+	proof := &Proof{
+		RingDegree:   1024,
+		QDegreeBound: 12,
+		VTargetsBits: []byte{1},
+		BarSetsBits:  []byte{2},
+		PCSOpening:   testOpening(),
+		QOpening:     testOpening(),
+	}
+	rep, err := BuildPaperTranscriptReport(proof, SimOpts{
+		RingDegree: 1024,
+		NCols:      16,
+		LVCSNCols:  16,
+		Ell:        1,
+		EllPrime:   1,
+		Rho:        1,
+		Theta:      1,
+		Eta:        1,
+		Lambda:     128,
+	}, ringQ)
+	if err != nil {
+		t.Fatalf("paper transcript report: %v", err)
+	}
+	if rep.RingDegree != 1024 {
+		t.Fatalf("paper transcript ring_degree=%d want 1024", rep.RingDegree)
+	}
+}
+
+func TestSigShortnessV18LayoutDigestBindsRingDegree(t *testing.T) {
+	layout := RowLayout{
+		RingDegree: 1024,
+		CoeffNativeSig: CoeffNativeSigLayout{
+			PackedSigComponents: 2,
+			PackedSigBlocks:     64,
+			PackedSigBlockWidth: 16,
+		},
+		PackedSigChainBase:             10,
+		PackedSigChainGroupCount:       128,
+		PackedSigChainGroupSize:        1,
+		PackedSigChainRowsPerGroup:     4,
+		PackedSigChainBlockWidth:       16,
+		PackedSigChainEffectiveBlocks:  64,
+		PackedSigChainSourceBlockWidth: 16,
+		ReplayBlockCount:               64,
+		IdxM1:                          1,
+		IdxM2:                          2,
+		IdxCarrierM:                    3,
+		IdxCarrierR1:                   4,
+		IdxRHat1:                       5,
+		IdxZHat:                        6,
+	}
+	digest1024 := buildSigShortnessV18LayoutDigest(layout)
+	layout.RingDegree = 512
+	digest512 := buildSigShortnessV18LayoutDigest(layout)
+	if bytes.Equal(digest1024, digest512) {
+		t.Fatal("V18 layout digest did not change when ring degree changed")
 	}
 }
 
@@ -283,14 +347,17 @@ func TestInlineTargetReplayCompactPresetDefaultsToCanonicalW84Tuple(t *testing.T
 	if opts.PackedSigChainGroupSize != aggregateInlineTargetReplayCompactGroupSize {
 		t.Fatalf("inline-target group size=%d want %d", opts.PackedSigChainGroupSize, aggregateInlineTargetReplayCompactGroupSize)
 	}
+	if opts.MuWitnessPackWidth != 2 {
+		t.Fatalf("inline-target mu witness pack width=%d want 2", opts.MuWitnessPackWidth)
+	}
 	if opts.SigShortnessProfile != aggregateInlineTargetReplayCompactSigProfile {
 		t.Fatalf("inline-target sig profile=%q want %q", opts.SigShortnessProfile, aggregateInlineTargetReplayCompactSigProfile)
 	}
 	if opts.LVCSNCols != aggregateInlineTargetReplayCompactLVCSNCols || opts.PostSignLVCSNCols != aggregateInlineTargetReplayCompactLVCSNCols || opts.PRFLVCSNCols != aggregateInlineTargetReplayCompactLVCSNCols {
 		t.Fatalf("inline-target LVCS tuple=(%d,%d,%d) want %d", opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols, aggregateInlineTargetReplayCompactLVCSNCols)
 	}
-	if opts.Eta != aggregateInlineTargetReplayCompactEta || opts.EllPrime != aggregateInlineTargetReplayCompactEllPrime || opts.Theta != aggregateInlineTargetReplayCompactTheta || opts.Rho != aggregateInlineTargetReplayCompactRho {
-		t.Fatalf("inline-target params eta=%d ell'=%d theta=%d rho=%d", opts.Eta, opts.EllPrime, opts.Theta, opts.Rho)
+	if opts.Ell != aggregateInlineTargetReplayCompactEll || opts.Eta != aggregateInlineTargetReplayCompactEta || opts.EllPrime != aggregateInlineTargetReplayCompactEllPrime || opts.Theta != aggregateInlineTargetReplayCompactTheta || opts.Rho != aggregateInlineTargetReplayCompactRho {
+		t.Fatalf("inline-target params ell=%d eta=%d ell'=%d theta=%d rho=%d", opts.Ell, opts.Eta, opts.EllPrime, opts.Theta, opts.Rho)
 	}
 	if opts.Kappa != aggregateInlineTargetReplayCompactKappa {
 		t.Fatalf("inline-target kappa=%v want %v", opts.Kappa, aggregateInlineTargetReplayCompactKappa)

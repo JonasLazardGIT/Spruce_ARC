@@ -71,13 +71,86 @@ func deriveExplicitWitnessOmega(q uint64, nLeaves, witnessNCols, lvcsNCols, ell 
 	return append([]uint64(nil), omegaLVCS[:witnessNCols]...), nil
 }
 
-const stableBBTranWitnessNLeaves = 4096
+const (
+	stableBBTranWitnessNLeaves = 4096
+	stableBBTranWitnessEll     = 18
+)
 
-func deriveStableWitnessOmega(q uint64, witnessNCols, ell int, relation string) ([]uint64, error) {
+func resolveResearchRingDegree(requested int, defaultN int) (int, error) {
+	if defaultN <= 0 {
+		return 0, fmt.Errorf("invalid default ring degree %d", defaultN)
+	}
+	switch requested {
+	case 0:
+		return defaultN, nil
+	case defaultN:
+		return defaultN, nil
+	case 1024:
+		return 1024, nil
+	case 512:
+		return 512, nil
+	default:
+		return 0, fmt.Errorf("unsupported research ring degree %d (supported: %d, 1024, 512)", requested, defaultN)
+	}
+}
+
+func loadParamsRingForOpts(opts SimOpts) (*ring.Ring, error) {
+	par, err := ntrurio.LoadParams(resolve("Parameters/Parameters.json"), true /* allowMismatch */)
+	if err != nil {
+		return nil, fmt.Errorf("load params: %w", err)
+	}
+	n, err := resolveResearchRingDegree(opts.RingDegree, par.N)
+	if err != nil {
+		return nil, err
+	}
+	ringQ, err := ring.NewRing(n, []uint64{par.Q})
+	if err != nil {
+		return nil, fmt.Errorf("ring.NewRing: %w", err)
+	}
+	return ringQ, nil
+}
+
+func validateProofRingDegree(proof *Proof, ringDegree int) error {
+	if proof == nil || ringDegree <= 0 {
+		return nil
+	}
+	if proof.RingDegree > 0 && proof.RingDegree != ringDegree {
+		return fmt.Errorf("proof ring_degree=%d does not match verifier ring degree %d", proof.RingDegree, ringDegree)
+	}
+	if proof.RowLayout.RingDegree > 0 && proof.RowLayout.RingDegree != ringDegree {
+		return fmt.Errorf("row layout ring_degree=%d does not match verifier ring degree %d", proof.RowLayout.RingDegree, ringDegree)
+	}
+	if proof.SigShortness != nil && proof.SigShortness.V18 != nil {
+		if proof.SigShortness.V18.RingDegree > 0 && proof.SigShortness.V18.RingDegree != ringDegree {
+			return fmt.Errorf("sig shortness V18 ring_degree=%d does not match verifier ring degree %d", proof.SigShortness.V18.RingDegree, ringDegree)
+		}
+	}
+	return nil
+}
+
+func resolvedProofRingDegree(proof *Proof, fallback int) int {
+	if proof != nil {
+		if proof.RingDegree > 0 {
+			return proof.RingDegree
+		}
+		if proof.RowLayout.RingDegree > 0 {
+			return proof.RowLayout.RingDegree
+		}
+		if proof.SigShortness != nil && proof.SigShortness.V18 != nil && proof.SigShortness.V18.RingDegree > 0 {
+			return proof.SigShortness.V18.RingDegree
+		}
+		if n := resolveRowLayoutRingDegree(proof.RowLayout); n > 0 {
+			return n
+		}
+	}
+	return fallback
+}
+
+func deriveStableWitnessOmega(q uint64, witnessNCols, _ int, relation string) ([]uint64, error) {
 	if !relationUsesBBTran(relation) {
 		return nil, fmt.Errorf("stable witness omega only supports bb_tran, got %q", relation)
 	}
-	omegaWitness, _, err := deriveExplicitDomain(q, stableBBTranWitnessNLeaves, witnessNCols, ell)
+	omegaWitness, _, err := deriveExplicitDomain(q, stableBBTranWitnessNLeaves, witnessNCols, stableBBTranWitnessEll)
 	if err != nil {
 		return nil, err
 	}
@@ -199,13 +272,9 @@ func DeriveExplicitDomainForRelation(q uint64, nLeaves, witnessNCols, lvcsNCols,
 
 func loadParamsAndOmegaForRelation(opts SimOpts, relation string) (*ring.Ring, []uint64, int, error) {
 	opts.applyDefaults()
-	par, err := ntrurio.LoadParams(resolve("Parameters/Parameters.json"), true /* allowMismatch */)
+	ringQ, err := loadParamsRingForOpts(opts)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("load params: %w", err)
-	}
-	ringQ, err := ring.NewRing(par.N, []uint64{par.Q})
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("ring.NewRing: %w", err)
+		return nil, nil, 0, err
 	}
 	q := ringQ.Modulus[0]
 	sWitness := opts.NCols
@@ -249,13 +318,9 @@ func loadParamsAndOmegaForRelation(opts SimOpts, relation string) (*ring.Ring, [
 // It returns the ring, omega, and ncols=|Ω| used for LVCS/domain plumbing.
 func loadParamsAndOmega(opts SimOpts) (*ring.Ring, []uint64, int, error) {
 	opts.applyDefaults()
-	par, err := ntrurio.LoadParams(resolve("Parameters/Parameters.json"), true /* allowMismatch */)
+	ringQ, err := loadParamsRingForOpts(opts)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("load params: %w", err)
-	}
-	ringQ, err := ring.NewRing(par.N, []uint64{par.Q})
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("ring.NewRing: %w", err)
+		return nil, nil, 0, err
 	}
 	q := ringQ.Modulus[0]
 	sWitness := opts.NCols

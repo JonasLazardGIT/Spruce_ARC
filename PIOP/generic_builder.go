@@ -49,6 +49,10 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if err != nil {
 			return nil, fmt.Errorf("load params/omega: %w", err)
 		}
+		pub, err = publicInputsWithRingDegree(pub, int(ringQ.N))
+		if err != nil {
+			return nil, err
+		}
 		witnessNCols := opts.NCols
 		if witnessNCols <= 0 {
 			witnessNCols = ncols
@@ -562,6 +566,17 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		if set.PRFCompanionLayout == nil && proof.PRFCompanion != nil {
 			set.PRFCompanionLayout = clonePRFCompanionLayout(proof.PRFCompanion.Layout)
 		}
+		ringQ, omega, _, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
+		if err != nil {
+			return false, fmt.Errorf("load params for replay: %w", err)
+		}
+		if err := validateProofRingDegree(proof, int(ringQ.N)); err != nil {
+			return false, err
+		}
+		pub, err = publicInputsWithRingDegree(pub, int(ringQ.N))
+		if err != nil {
+			return false, err
+		}
 		labels := BuildPublicLabels(pub)
 		digest := computeLabelsDigest(labels)
 		if len(proof.LabelsDigest) == 0 {
@@ -578,10 +593,6 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			} else if proof.NColsUsed > 0 {
 				proof.LVCSNColsUsed = proof.NColsUsed
 			}
-		}
-		ringQ, omega, _, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
-		if err != nil {
-			return false, fmt.Errorf("load params for replay: %w", err)
 		}
 		var domainPoints []uint64
 		witnessNCols := ringQ.N

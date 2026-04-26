@@ -12,8 +12,8 @@ func TestStateRoundTripWithVectorX0Metadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "credential_state.json")
 	want := State{
 		Version:              StateVersion,
-		M:                    [][]int64{{1, -1, 0}},
-		K:                    [][]int64{{0, 2, -2}},
+		MuLayout:             MuLayoutFullCapacityHalvesV1,
+		Mu:                   [][]int64{{1, -1, 0}},
 		R0:                   [][]int64{{1, 0, -1}, {2, -2, 1}, {0, 0, 0}, {-3, 1, 2}, {4, -4, 0}, {5, 0, -5}},
 		R1:                   [][]int64{{1, -1, 1}},
 		Z:                    [][]int64{{3, 0, -3}},
@@ -55,11 +55,11 @@ func TestStateRoundTripWithVectorX0Metadata(t *testing.T) {
 	}
 }
 
-func TestLoadStateLegacyVersionUpgradesDefaults(t *testing.T) {
+func TestLoadStateRejectsLegacyVersion(t *testing.T) {
 	chdirForCredentialTest(t)
 	path := filepath.Join(t.TempDir(), "legacy_state.json")
 	legacy := map[string]any{
-		"version":                1,
+		"version":                2,
 		"m":                      [][]int64{{1}},
 		"k":                      [][]int64{{2}},
 		"r0":                     [][]int64{{3}, {4}},
@@ -76,21 +76,34 @@ func TestLoadStateLegacyVersionUpgradesDefaults(t *testing.T) {
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatalf("write legacy state: %v", err)
 	}
-	got, err := LoadState(path)
+	if _, err := LoadState(path); err == nil {
+		t.Fatal("LoadState accepted legacy m/k credential state")
+	}
+}
+
+func TestLoadStateRejectsSparseMuV3Version(t *testing.T) {
+	chdirForCredentialTest(t)
+	path := filepath.Join(t.TempDir(), "sparse_mu_state.json")
+	legacy := map[string]any{
+		"version":                3,
+		"mu":                     [][]int64{{1, -1, 0, 0}},
+		"mu_layout":              "sparse_head_v1",
+		"r0":                     [][]int64{{3}, {4}},
+		"r1":                     [][]int64{{5}},
+		"z":                      [][]int64{{6}},
+		"credential_public_path": "Parameters/credential_public.demo.json",
+		"hash_relation":          HashRelationBBTran,
+		"b_path":                 "Parameters/Bmatrix.json",
+	}
+	raw, err := json.MarshalIndent(legacy, "", "  ")
 	if err != nil {
-		t.Fatalf("load legacy state: %v", err)
+		t.Fatalf("marshal v3 state: %v", err)
 	}
-	if got.Version != StateVersion {
-		t.Fatalf("upgraded version=%d want %d", got.Version, StateVersion)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write v3 state: %v", err)
 	}
-	if got.X0Len != 2 {
-		t.Fatalf("upgraded x0_len=%d want 2", got.X0Len)
-	}
-	if got.X0CoeffBound != 1 {
-		t.Fatalf("upgraded x0_coeff_bound=%d want 1", got.X0CoeffBound)
-	}
-	if got.TargetDim != DefaultTargetDim || got.TargetHidingLambda != DefaultTargetHidingLambda {
-		t.Fatalf("upgraded target defaults mismatch: %+v", got)
+	if _, err := LoadState(path); err == nil {
+		t.Fatal("LoadState accepted sparse v3 credential state")
 	}
 }
 
@@ -103,5 +116,21 @@ func TestLoadStateRejectsUnknownVersion(t *testing.T) {
 	}
 	if _, err := LoadState(path); err == nil {
 		t.Fatal("LoadState succeeded on unsupported version")
+	}
+}
+
+func TestValidateFullMuPayload(t *testing.T) {
+	good := [][]int64{{1, 0, -1, 1, 0, 1, 0, -1}}
+	if err := ValidateFullMuPayload(good, 8, 1); err != nil {
+		t.Fatalf("valid mu rejected: %v", err)
+	}
+	if err := ValidateFullMuPayload([][]int64{{1, 0, 2, 0, 0, 0, 0, 0}}, 8, 1); err == nil {
+		t.Fatal("out-of-bound mu coefficient accepted")
+	}
+	if err := ValidateFullMuPayload([][]int64{{1, 0, -1, 1, 0, 0, 0}}, 8, 1); err == nil {
+		t.Fatal("short mu row accepted")
+	}
+	if err := ValidateFullMuPayload([][]int64{{1, 0, -1, 1, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}}, 8, 1); err == nil {
+		t.Fatal("multi-row mu payload accepted")
 	}
 }

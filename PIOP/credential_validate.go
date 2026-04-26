@@ -90,10 +90,14 @@ func validateWitnesses(wit WitnessInputs) error {
 		}
 		return nil
 	}
-	if err := checkAtLeastOne("M1", wit.M1); err != nil {
-		return err
-	}
-	if err := checkAtLeastOne("M2", wit.M2); err != nil {
+	if len(wit.Mu) == 0 {
+		if err := checkAtLeastOne("M1", wit.M1); err != nil {
+			return err
+		}
+		if err := checkAtLeastOne("M2", wit.M2); err != nil {
+			return err
+		}
+	} else if err := checkAtLeastOne("Mu", wit.Mu); err != nil {
 		return err
 	}
 	if err := checkAtLeastOne("RU0", wit.RU0); err != nil {

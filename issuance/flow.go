@@ -5,7 +5,6 @@ import (
 	"log"
 	"math/rand"
 
-	lvcs "vSIS-Signature/LVCS"
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
@@ -20,6 +19,7 @@ import (
 // Inputs groups the holder's secret values for issuance.
 // All polynomials are expected in coefficient form (non-NTT).
 type Inputs struct {
+	Mu   []*ring.Poly
 	M    []*ring.Poly
 	K    []*ring.Poly
 	R0H  []*ring.Poly
@@ -96,6 +96,30 @@ func headEncodedPublicNTT(r *ring.Ring, head []uint64) *ring.Poly {
 }
 
 func normalizeInputs(in Inputs) Inputs {
+	if len(in.Mu) == 0 && (len(in.M) > 0 || len(in.M1) > 0) {
+		m := in.M
+		if len(m) == 0 {
+			m = in.M1
+		}
+		k := in.K
+		if len(k) == 0 {
+			k = in.M2
+		}
+		if len(m) > 0 && len(k) > 0 && m[0] != nil && k[0] != nil {
+			mu := &ring.Poly{Coeffs: make([][]uint64, len(m[0].Coeffs))}
+			for level := range m[0].Coeffs {
+				mu.Coeffs[level] = append([]uint64(nil), m[0].Coeffs[level]...)
+				if level < len(k[0].Coeffs) {
+					for i := range mu.Coeffs[level] {
+						if i < len(k[0].Coeffs[level]) {
+							mu.Coeffs[level][i] += k[0].Coeffs[level][i]
+						}
+					}
+				}
+			}
+			in.Mu = []*ring.Poly{mu}
+		}
+	}
 	if len(in.M) == 0 {
 		in.M = in.M1
 	}
@@ -201,88 +225,46 @@ func PrepareCommit(p *credential.Params, in Inputs, omega []uint64) (commitment.
 	if len(omega) == 0 {
 		return nil, fmt.Errorf("missing omega")
 	}
-	if p.X0Len == 1 {
-		ncols := len(omega)
-		q := p.RingQ.Modulus[0]
-		first := func(rows []*ring.Poly) *ring.Poly {
-			if len(rows) == 0 {
-				return nil
-			}
-			return rows[0]
+	first := func(rows []*ring.Poly) *ring.Poly {
+		if len(rows) == 0 {
+			return nil
 		}
-		surface, err := PIOP.DerivePreSignCarrierAndAliasRows(p.RingQ, p.BoundB, p.X0CoeffBound, omega, PIOP.DomainModeExplicit, PIOP.PreSignRawRows{
-			M1:  first(in.M),
-			M2:  first(in.K),
-			RU0: in.R0H,
-			RU1: first(in.R1H),
-			R:   first(in.RBar),
-		})
+		return rows[0]
+	}
+	toNTT := func(src *ring.Poly, name string) (*ring.Poly, error) {
+		if src == nil {
+			return nil, fmt.Errorf("nil %s", name)
+		}
+		out := p.RingQ.NewPoly()
+		ring.Copy(src, out)
+		p.RingQ.NTT(out, out)
+		return out, nil
+	}
+	vec := make(commitment.Vector, 0, 1+len(in.R0H)+2)
+	muNTT, err := toNTT(first(in.Mu), "mu")
+	if err != nil {
+		return nil, err
+	}
+	vec = append(vec, muNTT)
+	for i, row := range in.R0H {
+		rowNTT, err := toNTT(row, fmt.Sprintf("r0h[%d]", i))
 		if err != nil {
-			return nil, fmt.Errorf("derive canonical pre-sign commit rows: %w", err)
+			return nil, err
 		}
-		headFromCoeffs := func(coeffs []uint64) []uint64 {
-			head := make([]uint64, ncols)
-			for i, w := range omega {
-				head[i] = PIOP.EvalPoly(coeffs, w%q, q)
-			}
-			return head
-		}
-		vecHead := [][]uint64{
-			headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasM1]),
-			headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasM2]),
-			headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasRU0]),
-			headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasRU1]),
-			headFromCoeffs(surface.AliasCoeffs[PIOP.PreSignAliasR]),
-		}
-		com := make(commitment.Vector, len(p.Ac))
-		for i := range p.Ac {
-			if len(p.Ac[i]) != len(vecHead) {
-				return nil, fmt.Errorf("Ac row %d length=%d want %d", i, len(p.Ac[i]), len(vecHead))
-			}
-			head := make([]uint64, ncols)
-			for j := range p.Ac[i] {
-				if p.Ac[i][j] == nil || vecHead[j] == nil {
-					return nil, fmt.Errorf("nil Ac/vector poly at row=%d col=%d", i, j)
-				}
-				for k := 0; k < ncols; k++ {
-					head[k] = lvcs.MulAddMod64(head[k], p.Ac[i][j].Coeffs[0][k]%q, vecHead[j][k]%q, q)
-				}
-			}
-			com[i] = headEncodedPublicNTT(p.RingQ, head)
-		}
-		log.Printf("[issuance] commitment computed with %d outputs", len(com))
-		return com, nil
+		vec = append(vec, rowNTT)
 	}
-	vec := make(commitment.Vector, 0, len(in.M)+len(in.K)+len(in.R0H)+len(in.R1H)+len(in.RBar))
-	vec = append(vec, in.M...)
-	vec = append(vec, in.K...)
-	vec = append(vec, in.R0H...)
-	vec = append(vec, in.R1H...)
-	vec = append(vec, in.RBar...)
-	if len(vec) != len(p.Ac[0]) {
-		return nil, fmt.Errorf("commit witness length=%d want %d", len(vec), len(p.Ac[0]))
+	r1hNTT, err := toNTT(first(in.R1H), "r1h")
+	if err != nil {
+		return nil, err
 	}
-	vecHead := make([][]uint64, len(vec))
-	for i := range vec {
-		vecHead[i] = headFromCoeffPoly(p.RingQ, vec[i], omega)
+	rbarNTT, err := toNTT(first(in.RBar), "rbar")
+	if err != nil {
+		return nil, err
 	}
-	ncols := len(omega)
-	q := p.RingQ.Modulus[0]
-	com := make(commitment.Vector, len(p.Ac))
-	for i := range p.Ac {
-		if len(p.Ac[i]) != len(vecHead) {
-			return nil, fmt.Errorf("Ac row %d length=%d want %d", i, len(p.Ac[i]), len(vecHead))
-		}
-		head := make([]uint64, ncols)
-		for j := range p.Ac[i] {
-			if p.Ac[i][j] == nil || vecHead[j] == nil {
-				return nil, fmt.Errorf("nil Ac/vector poly at row=%d col=%d", i, j)
-			}
-			for k := 0; k < ncols; k++ {
-				head[k] = lvcs.MulAddMod64(head[k], p.Ac[i][j].Coeffs[0][k]%q, vecHead[j][k]%q, q)
-			}
-		}
-		com[i] = headEncodedPublicNTT(p.RingQ, head)
+	vec = append(vec, r1hNTT, rbarNTT)
+	com, err := commitment.Commit(p.RingQ, p.Ac, vec)
+	if err != nil {
+		return nil, err
 	}
 	log.Printf("[issuance] commitment computed with %d outputs", len(com))
 	return com, nil
@@ -316,6 +298,9 @@ func loadB(r *ring.Ring, path string, x0Len int, targetDim int) ([]*ring.Poly, e
 	coeffs := meta.B
 	out := make([]*ring.Poly, len(coeffs))
 	for i := range coeffs {
+		if len(coeffs[i]) != int(r.N) {
+			return nil, fmt.Errorf("B[%d] coefficient length=%d want ring_degree=%d", i, len(coeffs[i]), r.N)
+		}
 		p := r.NewPoly()
 		copy(p.Coeffs[0], coeffs[i])
 		r.NTT(p, p)
@@ -326,7 +311,7 @@ func loadB(r *ring.Ring, path string, x0Len int, targetDim int) ([]*ring.Poly, e
 
 // ApplyChallenge computes R0/R1 = center(R*H+RI*), carries K0/K1, and the
 // live BB-tran target witness Z/T.
-// Inputs M/K/R*H/RBar are coeff; RI* and B are public/NTT.
+// Inputs Mu/R*H/RBar are coeff; RI* and B are public/NTT.
 func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint64) (*State, error) {
 	log.Printf("[issuance] applying issuer challenge and hashing to target")
 	in = normalizeInputs(in)
@@ -349,8 +334,10 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 	r0Bound := p.X0CoeffBound
 	r1Bound := p.BoundB
 	q := int64(r.Modulus[0])
-	m := coeffPolyFromHead(r, headFromCoeffPoly(r, in.M[0], omega), omega)
-	k := coeffPolyFromHead(r, headFromCoeffPoly(r, in.K[0], omega), omega)
+	if len(in.Mu) == 0 || in.Mu[0] == nil {
+		return nil, fmt.Errorf("missing mu input")
+	}
+	mu := in.Mu[0]
 	centered := func(v uint64) int64 {
 		x := int64(v % uint64(q))
 		if x > q/2 {
@@ -416,7 +403,7 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 		if p.TargetDim != 1 {
 			return nil, fmt.Errorf("unsupported TargetDim=%d", p.TargetDim)
 		}
-		zCoeff, tCoeff, err = credential.ComputeTargetVector(r, B, m, k, r0, r1)
+		zCoeff, tCoeff, err = credential.ComputeTargetVectorFromMu(r, B, mu, r0, r1)
 		if err != nil {
 			return nil, err
 		}
@@ -428,14 +415,14 @@ func ApplyChallenge(p *credential.Params, in Inputs, ch Challenge, omega []uint6
 			}
 			tPoly.Coeffs[0][i] = uint64(v)
 		}
-		if err := credential.VerifyTargetRelationVector(r, B, m, k, r0, r1, zCoeff, tPoly); err != nil {
+		if err := credential.VerifyTargetRelationVectorFromMu(r, B, mu, r0, r1, zCoeff, tPoly); err != nil {
 			return nil, fmt.Errorf("internal target relation check failed: %w", err)
 		}
 	case credential.HashRelationBBS:
 		if len(r0) != 1 {
 			return nil, fmt.Errorf("bbs only supports scalar x0")
 		}
-		tCoeff, err = credential.HashMessage(r, B, relation, m, k, r0[0], r1)
+		tCoeff, err = credential.HashMessageVectorFromMu(r, B, relation, mu, r0, r1)
 		if err != nil {
 			return nil, err
 		}
@@ -477,9 +464,11 @@ func ProvePreSign(p *credential.Params, ch Challenge, com commitment.Vector, in 
 		X0CoeffBound:       p.X0CoeffBound,
 		TargetDim:          p.TargetDim,
 		TargetHidingLambda: p.TargetHidingLambda,
+		RingDegree:         int(p.RingQ.N),
 		HashRelation:       p.HashRelation,
 	}
 	wit := PIOP.WitnessInputs{
+		Mu:  in.Mu,
 		M1:  in.M,
 		M2:  in.K,
 		RU0: in.R0H,
@@ -529,6 +518,7 @@ func VerifyPreSign(p *credential.Params, ch Challenge, com commitment.Vector, st
 		X0CoeffBound:       p.X0CoeffBound,
 		TargetDim:          p.TargetDim,
 		TargetHidingLambda: p.TargetHidingLambda,
+		RingDegree:         int(p.RingQ.N),
 		HashRelation:       p.HashRelation,
 	}
 	opts.Credential = true
@@ -544,6 +534,10 @@ func VerifyPreSign(p *credential.Params, ch Challenge, com commitment.Vector, st
 // NTRU trapdoor and persists the signature to ./ntru_keys/signature.json.
 // maxTrials/opts let callers tune the sampler; defaults are applied when zero.
 func SignTargetAndSave(t []int64, maxTrials int, opts ntru.SamplerOpts) (*keys.Signature, error) {
+	return SignTargetAndSaveWithPaths(t, maxTrials, opts, signverify.SignPaths{})
+}
+
+func SignTargetAndSaveWithPaths(t []int64, maxTrials int, opts ntru.SamplerOpts, paths signverify.SignPaths) (*keys.Signature, error) {
 	log.Printf("[issuance] signing target (len=%d) with NTRU trapdoor", len(t))
 	if maxTrials == 0 {
 		maxTrials = 2048
@@ -551,15 +545,73 @@ func SignTargetAndSave(t []int64, maxTrials int, opts ntru.SamplerOpts) (*keys.S
 	if opts.Prec == 0 {
 		opts.Prec = 256
 	}
-	sig, err := signverify.SignTarget(t, maxTrials, opts)
+	sig, err := signTargetWithinBetaWithPaths(t, maxTrials, opts, 16, paths)
 	if err != nil {
 		return nil, fmt.Errorf("sign target: %w", err)
 	}
-	if err := keys.Save(sig); err != nil {
+	signaturePath := paths.SignaturePath
+	if signaturePath == "" {
+		if err := keys.Save(sig); err != nil {
+			return nil, fmt.Errorf("save signature: %w", err)
+		}
+		signaturePath = "./ntru_keys/signature.json"
+	} else if err := keys.SaveSignatureFile(signaturePath, sig); err != nil {
 		return nil, fmt.Errorf("save signature: %w", err)
 	}
-	log.Printf("[issuance] signature saved to ./ntru_keys/signature.json (trials_used=%d rejected=%v)", sig.Signature.TrialsUsed, sig.Signature.Rejected)
+	log.Printf("[issuance] signature saved to %s (trials_used=%d rejected=%v)", signaturePath, sig.Signature.TrialsUsed, sig.Signature.Rejected)
 	return sig, nil
+}
+
+func signTargetWithinBeta(t []int64, maxTrials int, opts ntru.SamplerOpts, attempts int) (*keys.Signature, error) {
+	return signTargetWithinBetaWithPaths(t, maxTrials, opts, attempts, signverify.SignPaths{})
+}
+
+func signTargetWithinBetaWithPaths(t []int64, maxTrials int, opts ntru.SamplerOpts, attempts int, paths signverify.SignPaths) (*keys.Signature, error) {
+	if attempts <= 0 {
+		attempts = 1
+	}
+	paramsPath := paths.ParamsPath
+	if paramsPath == "" {
+		paramsPath = "Parameters/Parameters.json"
+	}
+	par, err := ntrurio.LoadParams(paramsPath, true)
+	if err != nil {
+		return nil, fmt.Errorf("load signature bound: %w", err)
+	}
+	if par.N != len(t) {
+		return nil, fmt.Errorf("signature params N=%d incompatible with target length=%d", par.N, len(t))
+	}
+	var lastMax int64
+	for attempt := 1; attempt <= attempts; attempt++ {
+		sig, err := signverify.SignTargetWithPaths(t, maxTrials, opts, paths)
+		if err != nil {
+			return nil, err
+		}
+		lastMax = signatureLInf(sig)
+		if uint64(lastMax) <= par.Beta {
+			return sig, nil
+		}
+		log.Printf("[issuance] retrying target signature: max coefficient %d exceeds beta=%d (attempt %d/%d)", lastMax, par.Beta, attempt, attempts)
+	}
+	return nil, fmt.Errorf("signature shortness blocker after %d attempts: max coefficient %d exceeds beta=%d under q=%d", attempts, lastMax, par.Beta, par.Q)
+}
+
+func signatureLInf(sig *keys.Signature) int64 {
+	if sig == nil {
+		return 0
+	}
+	maxAbs := int64(0)
+	for _, row := range [][]int64{sig.Signature.S1, sig.Signature.S2} {
+		for _, v := range row {
+			if v < 0 {
+				v = -v
+			}
+			if v > maxAbs {
+				maxAbs = v
+			}
+		}
+	}
+	return maxAbs
 }
 
 func sampleBoundedHeadNTT(r *ring.Ring, ncols int, bound int64, rng *rand.Rand) *ring.Poly {

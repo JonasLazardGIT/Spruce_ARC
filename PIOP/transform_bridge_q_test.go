@@ -148,11 +148,11 @@ func buildSignatureMatrixTest(r *ring.Ring, st credential.State, uCount int) ([]
 	return [][]*ring.Poly{{negHNTT, one}}, nil
 }
 
-func buildCoeffNativeShowingWitnessTest(r *ring.Ring, st credential.State, B []*ring.Poly) (*CoeffNativeShowingWitness, error) {
+func buildCoeffNativeShowingWitnessTest(r *ring.Ring, st credential.State, B []*ring.Poly, omega []uint64, boundB, x0Bound int64) (*CoeffNativeShowingWitness, error) {
 	if len(st.SigS1) == 0 || len(st.SigS2) == 0 {
 		return nil, fmt.Errorf("missing sig_s1/sig_s2 in credential state")
 	}
-	if len(st.M) == 0 || len(st.K) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
+	if len(st.Mu) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
 		return nil, fmt.Errorf("missing semantic witness rows in credential state")
 	}
 	x0Len := st.X0Len
@@ -172,15 +172,18 @@ func buildCoeffNativeShowingWitnessTest(r *ring.Ring, st credential.State, B []*
 	if err != nil {
 		return nil, fmt.Errorf("resolve packed ncols: %w", err)
 	}
-	mPoly := polyFromInt64Test(r, st.M[0])
-	kPoly := polyFromInt64Test(r, st.K[0])
+	muPoly := polyFromInt64Test(r, st.Mu[0])
+	targetMu, err := CanonicalMuAliasPoly(r, boundB, x0Bound, omega, muPoly)
+	if err != nil {
+		return nil, fmt.Errorf("derive canonical mu target row: %w", err)
+	}
 	r0Polys := make([]*ring.Poly, len(st.R0))
 	for i := range st.R0 {
 		r0Polys[i] = polyFromInt64Test(r, st.R0[i])
 	}
 	r1Poly := polyFromInt64Test(r, st.R1[0])
 	zPoly := polyFromInt64Test(r, st.Z[0])
-	_, tCoeffs, err := credential.ComputeTargetVector(r, B, mPoly, kPoly, r0Polys, r1Poly)
+	_, tCoeffs, err := credential.ComputeTargetVectorFromMu(r, B, targetMu, r0Polys, r1Poly)
 	if err != nil {
 		return nil, fmt.Errorf("recompute target from credential state: %w", err)
 	}
@@ -190,8 +193,7 @@ func buildCoeffNativeShowingWitnessTest(r *ring.Ring, st credential.State, B []*
 			polyFromInt64Test(r, st.SigS1),
 			polyFromInt64Test(r, st.SigS2),
 		},
-		M1:          mPoly,
-		M2:          kPoly,
+		Mu:          muPoly,
 		R0:          r0Polys,
 		R1:          r1Poly,
 		Z:           zPoly,
@@ -372,7 +374,7 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 	if err != nil {
 		t.Fatalf("load B: %v", err)
 	}
-	cnWit, err := buildCoeffNativeShowingWitnessTest(ringQ, state, B)
+	cnWit, err := buildCoeffNativeShowingWitnessTest(ringQ, state, B, omegaWitness, publicParams.BoundB, publicParams.X0CoeffBound)
 	if err != nil {
 		t.Fatalf("build coeff-native witness: %v", err)
 	}
@@ -412,7 +414,14 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 	if err != nil {
 		t.Fatalf("build showing rows: %v", err)
 	}
-	keyScalars, err := ExtractSignedPRFKeyScalarsFromCarrierOnOmega(ringQ, rows[layout.IdxCarrierM], omegaWitness, cnWit.PackedNCols, params.LenKey, publicParams.BoundB)
+	keyStart := int(ringQ.N) / 2
+	keyBlock := keyStart / cnWit.PackedNCols
+	keyCol := keyStart % cnWit.PackedNCols
+	carrierMuRows := rowLayoutCarrierMuBlockRows(layout)
+	if keyBlock < 0 || keyBlock >= len(carrierMuRows) {
+		t.Fatalf("key block=%d outside carrier mu blocks=%d", keyBlock, len(carrierMuRows))
+	}
+	keyScalars, err := ExtractSignedPRFKeyScalarsFromSingletonCarrierWindowOnOmega(ringQ, rows[carrierMuRows[keyBlock]], omegaWitness, keyCol, params.LenKey, publicParams.BoundB)
 	if err != nil {
 		t.Fatalf("extract signed PRF key from carrier: %v", err)
 	}
@@ -922,6 +931,7 @@ func cloneCoeffNativeShowingWitnessForTailTest(ringQ *ring.Ring, src *CoeffNativ
 	for i, p := range src.Sig {
 		out.Sig[i] = clonePoly(p)
 	}
+	out.Mu = clonePoly(src.Mu)
 	out.M1 = clonePoly(src.M1)
 	out.M2 = clonePoly(src.M2)
 	out.R0 = make([]*ring.Poly, len(src.R0))
@@ -944,14 +954,7 @@ func TestTransformBridgeFullReplayRejectsNonSignTailLeakage(t *testing.T) {
 	cases := []struct {
 		name   string
 		mutate func(*CoeffNativeShowingWitness)
-	}{
-		{
-			name: "M1",
-			mutate: func(cn *CoeffNativeShowingWitness) {
-				cn.M1.Coeffs[0][tailIdx] = 1 % q
-			},
-		},
-	}
+	}{}
 	if len(fx.wit.CoeffNativeShowing.R0) > 1 {
 		cases = append(cases, struct {
 			name   string

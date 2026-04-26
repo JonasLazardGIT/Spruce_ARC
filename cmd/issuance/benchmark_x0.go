@@ -251,7 +251,7 @@ func executeBenchmarkRun(profileName string, run int) (benchmarkX0RunReport, cre
 	statePath := filepath.Join(tmpDir, "credential_state.json")
 	signaturePath := filepath.Join(tmpDir, "signature.json")
 
-	if err := setupDemoPublic(publicPath, true, "", credential.HashRelationBBTran, profileName, 0, 0); err != nil {
+	if err := setupDemoPublic(publicPath, true, "", credential.HashRelationBBTran, profileName, 0, 0, 0); err != nil {
 		return benchmarkX0RunReport{}, credential.LHLReport{}, err
 	}
 	ringQ, err := credential.LoadDefaultRing()
@@ -304,7 +304,7 @@ func executeBenchmarkRun(profileName string, run int) (benchmarkX0RunReport, cre
 	if err != nil {
 		return benchmarkX0RunReport{}, credential.LHLReport{}, err
 	}
-	if err := holderFinalize(holderSecretPath, commitRequestPath, challengePath, responsePath, statePath, signaturePath); err != nil {
+	if err := holderFinalize(holderSecretPath, commitRequestPath, challengePath, responsePath, statePath, signaturePath, defaultNTRUParamsPath); err != nil {
 		return benchmarkX0RunReport{}, credential.LHLReport{}, err
 	}
 	showingRun, err := benchmarkShowingFromState(statePath, baseSeed+2)
@@ -404,7 +404,7 @@ func benchmarkIssuerVerifyAndSign(commitRequestPath, challengePath, submissionPa
 	}
 	opts := ntru.SamplerOpts{Prec: 256}
 	signStart := time.Now()
-	sig, err := signverify.SignTarget(submission.T, maxTrials, opts)
+	sig, err := benchmarkSignTargetWithinBeta(submission.T, maxTrials, opts, 16)
 	signDur := time.Since(signStart)
 	if err != nil {
 		return 0, 0, fmt.Errorf("sign target: %w", err)
@@ -429,6 +429,47 @@ func benchmarkIssuerVerifyAndSign(commitRequestPath, challengePath, submissionPa
 		return 0, 0, fmt.Errorf("write issuer response: %w", err)
 	}
 	return verifyDur, signDur, nil
+}
+
+func benchmarkSignTargetWithinBeta(t []int64, maxTrials int, opts ntru.SamplerOpts, attempts int) (*keys.Signature, error) {
+	if attempts <= 0 {
+		attempts = 1
+	}
+	par, err := ntrurio.LoadParams(filepath.Join("Parameters", "Parameters.json"), true)
+	if err != nil {
+		return nil, fmt.Errorf("load signature bound: %w", err)
+	}
+	var lastMax int64
+	for attempt := 1; attempt <= attempts; attempt++ {
+		sig, err := signverify.SignTarget(t, maxTrials, opts)
+		if err != nil {
+			return nil, err
+		}
+		lastMax = benchmarkSignatureLInf(sig)
+		if uint64(lastMax) <= par.Beta {
+			return sig, nil
+		}
+		log.Printf("[issuance-cli] benchmark-x0 retrying target signature: max coefficient %d exceeds beta=%d (attempt %d/%d)", lastMax, par.Beta, attempt, attempts)
+	}
+	return nil, fmt.Errorf("signature shortness blocker after %d attempts: max coefficient %d exceeds beta=%d under q=%d", attempts, lastMax, par.Beta, par.Q)
+}
+
+func benchmarkSignatureLInf(sig *keys.Signature) int64 {
+	if sig == nil {
+		return 0
+	}
+	maxAbs := int64(0)
+	for _, row := range [][]int64{sig.Signature.S1, sig.Signature.S2} {
+		for _, v := range row {
+			if v < 0 {
+				v = -v
+			}
+			if v > maxAbs {
+				maxAbs = v
+			}
+		}
+	}
+	return maxAbs
 }
 
 type benchmarkShowingRun struct {
@@ -474,7 +515,7 @@ func benchmarkShowingFromState(statePath string, seed int64) (benchmarkShowingRu
 	if err != nil {
 		return benchmarkShowingRun{}, fmt.Errorf("load B: %w", err)
 	}
-	wit, err := benchmarkBuildWitnessFromState(ringQ, state, B)
+	wit, err := benchmarkBuildWitnessFromState(ringQ, state, B, omega, publicParams.BoundB, publicParams.X0CoeffBound)
 	if err != nil {
 		return benchmarkShowingRun{}, fmt.Errorf("build witness: %w", err)
 	}
@@ -664,15 +705,15 @@ func benchmarkBuildSignatureMatrix(r *ring.Ring, st credential.State, uCount int
 	return [][]*ring.Poly{{negHNTT, one}}, nil
 }
 
-func benchmarkBuildWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly) (PIOP.WitnessInputs, error) {
-	coeffNative, err := benchmarkBuildCoeffNativeShowingWitnessFromState(r, st, B)
+func benchmarkBuildWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly, omega []uint64, boundB, x0Bound int64) (PIOP.WitnessInputs, error) {
+	coeffNative, err := benchmarkBuildCoeffNativeShowingWitnessFromState(r, st, B, omega, boundB, x0Bound)
 	if err != nil {
 		return PIOP.WitnessInputs{}, err
 	}
 	return PIOP.WitnessInputs{CoeffNativeShowing: coeffNative}, nil
 }
 
-func benchmarkBuildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly) (*PIOP.CoeffNativeShowingWitness, error) {
+func benchmarkBuildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly, omega []uint64, boundB, x0Bound int64) (*PIOP.CoeffNativeShowingWitness, error) {
 	if len(st.SigS1) == 0 || len(st.SigS2) == 0 {
 		return nil, fmt.Errorf("missing sig_s1/sig_s2 in credential state")
 	}
@@ -684,7 +725,7 @@ func benchmarkBuildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credentia
 	if uint64(maxSig) > par.Beta {
 		return nil, fmt.Errorf("signature shortness blocker: max(|sig_s1|,|sig_s2|)=%d exceeds beta=%d under q=%d", maxSig, par.Beta, par.Q)
 	}
-	if len(st.M) == 0 || len(st.K) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
+	if len(st.Mu) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
 		return nil, fmt.Errorf("missing semantic witness rows in credential state")
 	}
 	x0Len := st.X0Len
@@ -704,12 +745,16 @@ func benchmarkBuildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credentia
 	if err != nil {
 		return nil, fmt.Errorf("resolve packed ncols: %w", err)
 	}
-	mPoly := polyFromInt64(r, st.M[0])
-	kPoly := polyFromInt64(r, st.K[0])
+	if err := credential.ValidateFullMuPayload(st.Mu, int(r.N), boundB); err != nil {
+		return nil, fmt.Errorf("invalid credential mu payload: %w", err)
+	}
+	muPoly := polyFromInt64(r, st.Mu[0])
+	_ = x0Bound
+	_ = omega
 	r0Polys := polysFromInt64(r, st.R0)
 	r1Poly := polyFromInt64(r, st.R1[0])
 	zPoly := polyFromInt64(r, st.Z[0])
-	_, tCoeffs, err := credential.ComputeTargetVector(r, B, mPoly, kPoly, r0Polys, r1Poly)
+	_, tCoeffs, err := credential.ComputeTargetVectorFromMu(r, B, muPoly, r0Polys, r1Poly)
 	if err != nil {
 		return nil, fmt.Errorf("recompute target from credential state: %w", err)
 	}
@@ -719,8 +764,7 @@ func benchmarkBuildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credentia
 			polyFromInt64(r, st.SigS1),
 			polyFromInt64(r, st.SigS2),
 		},
-		M1:          mPoly,
-		M2:          kPoly,
+		Mu:          muPoly,
 		R0:          r0Polys,
 		R1:          r1Poly,
 		Z:           zPoly,
@@ -741,13 +785,12 @@ func benchmarkShowingSignatureComponentCount(wit PIOP.WitnessInputs) int {
 }
 
 func benchmarkPRFKeyFromWitnessOnOmega(r *ring.Ring, wit PIOP.WitnessInputs, omega []uint64, lenKey int) ([]prf.Elem, error) {
-	if wit.CoeffNativeShowing == nil || wit.CoeffNativeShowing.M2 == nil {
-		return nil, fmt.Errorf("missing coeff-native showing witness M2")
+	if wit.CoeffNativeShowing == nil || wit.CoeffNativeShowing.Mu == nil {
+		return nil, fmt.Errorf("missing coeff-native showing witness Mu")
 	}
-	return PIOP.ExtractSignedPRFKeyElemsFromM2OnOmega(
+	return PIOP.ExtractSignedPRFKeyElemsFromMuCoeffs(
 		r,
-		wit.CoeffNativeShowing.M2,
-		omega,
+		wit.CoeffNativeShowing.Mu,
 		wit.CoeffNativeShowing.PackedNCols,
 		lenKey,
 	)

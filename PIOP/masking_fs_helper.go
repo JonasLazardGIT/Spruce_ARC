@@ -186,7 +186,7 @@ type maskFSOutput struct {
 	tailIndices    []int
 	gammaQ         [][]uint64
 
-	// Openings/placeholders as needed
+	// Openings populated by the active masking and DECS/LVCS path.
 	openMask        *lvcs.Opening
 	openTail        *lvcs.Opening
 	combinedOpen    *decs.DECSOpening
@@ -200,8 +200,8 @@ type maskFSOutput struct {
 	Tail            []int
 }
 
-// runMaskFS executes the masking/Merkle/FS round 1 scaffold and prepares the proof header.
-// It is intentionally minimal for the staged extraction.
+// runMaskFS executes the masking/Merkle/FS round 1 path and prepares the proof header.
+// It stays small so proof construction and verification share the same layout data.
 func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	var out maskFSOutput
 	if args.ringQ == nil {
@@ -233,6 +233,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	fs := NewFS(baseXOF, salt, FSParams{Lambda: o.Lambda, Kappa: o.Kappa})
 	proof := &Proof{
 		Root:            args.root,
+		RingDegree:      int(ringQ.N),
 		Salt:            append([]byte(nil), salt...),
 		Lambda:          o.Lambda,
 		Theta:           o.Theta,
@@ -248,6 +249,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		PCSGeometry:     args.pcsGeometry,
 		LabelsDigest:    append([]byte(nil), args.labelsDigest...),
 		SigShortness:    args.sigShortness,
+	}
+	if proof.RowLayout.RingDegree == 0 {
+		proof.RowLayout.RingDegree = int(ringQ.N)
 	}
 	proof.syncPCSCompat()
 	domainPoints := args.domainPoints

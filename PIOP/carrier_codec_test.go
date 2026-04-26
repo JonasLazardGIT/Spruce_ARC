@@ -234,3 +234,84 @@ func TestPackedMessageCarrierMembershipPoly(t *testing.T) {
 		}
 	}
 }
+
+func TestPackedMuCarrierEncodeDecodeRoundTrip(t *testing.T) {
+	bound := int64(1)
+	for _, packWidth := range []int{2, 4} {
+		size, err := packedMuCarrierAlphabetSize(bound, packWidth)
+		if err != nil {
+			t.Fatalf("packed mu alphabet size width=%d: %v", packWidth, err)
+		}
+		for code := int64(0); code < size; code++ {
+			vals := make([]int64, packWidth)
+			for lane := 0; lane < packWidth; lane++ {
+				got, err := decodePackedMuCarrierLane(uint64(code), bound, packWidth, lane)
+				if err != nil {
+					t.Fatalf("decode packed mu width=%d lane=%d code=%d: %v", packWidth, lane, code, err)
+				}
+				vals[lane] = got
+			}
+			encoded, err := encodePackedMuCarrier(vals, bound)
+			if err != nil {
+				t.Fatalf("encode packed mu width=%d vals=%v: %v", packWidth, vals, err)
+			}
+			if encoded != uint64(code) {
+				t.Fatalf("packed mu round-trip width=%d got code=%d want %d vals=%v", packWidth, encoded, code, vals)
+			}
+		}
+	}
+}
+
+func TestPackedMuCarrierDecodePolys(t *testing.T) {
+	bound := int64(1)
+	q := uint64(12289)
+	for _, packWidth := range []int{2, 4} {
+		decode, err := buildPackedMuCarrierDecodePolys(bound, packWidth, q)
+		if err != nil {
+			t.Fatalf("packed mu decode polys width=%d: %v", packWidth, err)
+		}
+		if len(decode) != packWidth {
+			t.Fatalf("decode polys=%d want %d", len(decode), packWidth)
+		}
+		size, err := packedMuCarrierAlphabetSize(bound, packWidth)
+		if err != nil {
+			t.Fatalf("packed mu alphabet size width=%d: %v", packWidth, err)
+		}
+		for code := int64(0); code < size; code++ {
+			for lane := 0; lane < packWidth; lane++ {
+				got := EvalPoly(decode[lane], uint64(code)%q, q) % q
+				wantSigned, err := decodePackedMuCarrierLane(uint64(code), bound, packWidth, lane)
+				if err != nil {
+					t.Fatalf("decode packed mu width=%d code=%d lane=%d: %v", packWidth, code, lane, err)
+				}
+				want := liftToField(q, wantSigned) % q
+				if got != want {
+					t.Fatalf("decode poly mismatch width=%d code=%d lane=%d got=%d want=%d", packWidth, code, lane, got, want)
+				}
+			}
+		}
+	}
+}
+
+func TestPackedMuCarrierMembershipPoly(t *testing.T) {
+	bound := int64(1)
+	q := uint64(12289)
+	for _, packWidth := range []int{2, 4} {
+		p, err := buildPackedMuCarrierMembershipPoly(bound, packWidth, q)
+		if err != nil {
+			t.Fatalf("packed mu membership poly width=%d: %v", packWidth, err)
+		}
+		size, err := packedMuCarrierAlphabetSize(bound, packWidth)
+		if err != nil {
+			t.Fatalf("packed mu alphabet size width=%d: %v", packWidth, err)
+		}
+		for code := int64(0); code < size; code++ {
+			if got := EvalPoly(p, uint64(code)%q, q) % q; got != 0 {
+				t.Fatalf("membership nonzero width=%d code=%d: %d", packWidth, code, got)
+			}
+		}
+		if got := EvalPoly(p, uint64(size)%q, q) % q; got == 0 {
+			t.Fatalf("membership unexpectedly zero width=%d for out-of-set code=%d", packWidth, size)
+		}
+	}
+}

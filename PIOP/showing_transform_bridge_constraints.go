@@ -161,9 +161,28 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 			thetaBBlocks[b][i] = trimPoly(coeff, q)
 		}
 	}
-	msgDecode1, msgDecode2, err := buildPackedMessageCarrierDecodePolys(bound, q)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("message carrier decode polys: %w", err)
+	muMode := rowLayoutUsesMu(layout)
+	fullMuMode := rowLayoutUsesFullMu(layout)
+	packedMuMode := rowLayoutUsesPackedMuCarrier(layout)
+	muPackWidth := rowLayoutMuCarrierPackWidth(layout)
+	muVirtualBlocks := rowLayoutMuVirtualBlockCount(layout)
+	carrierMuIdxs := rowLayoutCarrierMuBlockRows(layout)
+	aliasMuIdxs := rowLayoutAliasMuBlockRows(layout)
+	var err error
+	var msgDecode1, msgDecode2 []uint64
+	var muDecodePolys [][]uint64
+	if muMode {
+		muDecodePolys, _, err = buildMuCarrierDecodePolys(bound, muPackWidth, q)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("mu carrier decode poly: %w", err)
+		}
+		msgDecode1 = muDecodePolys[0]
+		msgDecode2 = []uint64{0}
+	} else {
+		msgDecode1, msgDecode2, err = buildPackedMessageCarrierDecodePolys(bound, q)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("message carrier decode polys: %w", err)
+		}
 	}
 	x0Decode1, err := buildSingletonCarrierDecodePoly(pub.X0CoeffBound, q)
 	if err != nil {
@@ -173,9 +192,17 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("scalar carrier decode polys: %w", err)
 	}
-	msgMembershipPoly, err := buildPackedMessageCarrierMembershipPoly(bound, q)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("message carrier membership poly: %w", err)
+	var msgMembershipPoly []uint64
+	if muMode {
+		_, msgMembershipPoly, err = buildMuCarrierDecodePolys(bound, muPackWidth, q)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("mu carrier membership poly: %w", err)
+		}
+	} else {
+		msgMembershipPoly, err = buildPackedMessageCarrierMembershipPoly(bound, q)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("message carrier membership poly: %w", err)
+		}
 	}
 	x0MembershipPoly, err := buildSingletonCarrierMembershipPoly(pub.X0CoeffBound, q)
 	if err != nil {
@@ -200,6 +227,16 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("carrier M coeffs: %w", err)
 	}
+	carrierMuCoeffs := [][]uint64{carrierMCoeff}
+	if fullMuMode {
+		carrierMuCoeffs = make([][]uint64, len(carrierMuIdxs))
+		for i, idx := range carrierMuIdxs {
+			carrierMuCoeffs[i], err = getRowCoeff(idx)
+			if err != nil {
+				return ConstraintSet{}, fmt.Errorf("carrier Mu[%d] coeffs: %w", i, err)
+			}
+		}
+	}
 	carrierR1Coeff, err := getRowCoeff(carrierR1Idx)
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("carrier R1 coeffs: %w", err)
@@ -222,32 +259,93 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 		}
 		return trimPoly(fpoly.New(q, decodeCoeff).Compose(fpoly.New(q, carrierCoeff)).Coeffs, q)
 	}
+	composeFormal := func(carrierCoeff []uint64, decodeCoeff []uint64) []uint64 {
+		out := trimPoly(fpoly.New(q, decodeCoeff).Compose(fpoly.New(q, carrierCoeff)).Coeffs, q)
+		if muPackWidth > 2 {
+			return out
+		}
+		return reducePolyModXN1(out, int(ringQ.N), q)
+	}
 	m1CompCoeffs := composeLeft(carrierMCoeff, msgDecode1)
+	muCompCoeffs := [][]uint64{m1CompCoeffs}
+	if fullMuMode {
+		if muVirtualBlocks <= 0 {
+			return ConstraintSet{}, fmt.Errorf("invalid full mu virtual block count=%d", muVirtualBlocks)
+		}
+		muCompCoeffs = make([][]uint64, muVirtualBlocks)
+		for block := 0; block < muVirtualBlocks; block++ {
+			carrierBlock := block / muPackWidth
+			lane := block % muPackWidth
+			if carrierBlock < 0 || carrierBlock >= len(carrierMuCoeffs) || lane >= len(muDecodePolys) {
+				return ConstraintSet{}, fmt.Errorf("mu virtual block=%d maps to carrier=%d lane=%d outside carriers=%d lanes=%d", block, carrierBlock, lane, len(carrierMuCoeffs), len(muDecodePolys))
+			}
+			if packedMuMode {
+				muCompCoeffs[block] = composeFormal(carrierMuCoeffs[carrierBlock], muDecodePolys[lane])
+			} else {
+				muCompCoeffs[block] = composeLeft(carrierMuCoeffs[carrierBlock], muDecodePolys[lane])
+			}
+		}
+	}
 	m2CompCoeffs := composeLeft(carrierMCoeff, msgDecode2)
 	r0CompCoeffs := make([][]uint64, x0Len)
 	for i := range carrierR0Coeffs {
 		r0CompCoeffs[i] = composeLeft(carrierR0Coeffs[i], x0Decode1)
 	}
 	r1CompCoeffs := composeLeft(carrierR1Coeff, scalarDecode1)
-	mSigmaCompCoeffs := polyAdd(m1CompCoeffs, m2CompCoeffs, q)
+	var aliasMuCoeffs [][]uint64
+	fullMuSourceCoeffs := muCompCoeffs
+	mSigmaCompCoeffs := m1CompCoeffs
+	if !muMode {
+		mSigmaCompCoeffs = polyAdd(m1CompCoeffs, m2CompCoeffs, q)
+	} else if fullMuMode {
+		if !packedMuMode {
+			aliasMuCoeffs = make([][]uint64, len(aliasMuIdxs))
+			for i, idx := range aliasMuIdxs {
+				aliasMuCoeffs[i], err = getRowCoeff(idx)
+				if err != nil {
+					return ConstraintSet{}, fmt.Errorf("alias Mu[%d] coeffs: %w", i, err)
+				}
+			}
+			fullMuSourceCoeffs = aliasMuCoeffs
+		}
+		mSigmaCompCoeffs, err = assembleFullCoeffFromAliasBlocks(fullMuSourceCoeffs, omega, int(ringQ.N), q)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("assemble full mu source: %w", err)
+		}
+	}
 	memMCoeffs := composeLeft(carrierMCoeff, msgMembershipPoly)
+	memMuCoeffs := [][]uint64{memMCoeffs}
+	if fullMuMode {
+		memMuCoeffs = make([][]uint64, len(carrierMuCoeffs))
+		for i := range carrierMuCoeffs {
+			if packedMuMode {
+				memMuCoeffs[i] = composeFormal(carrierMuCoeffs[i], msgMembershipPoly)
+			} else {
+				memMuCoeffs[i] = composeLeft(carrierMuCoeffs[i], msgMembershipPoly)
+			}
+		}
+	}
 	memR0Coeffs := make([][]uint64, x0Len)
 	for i := range carrierR0Coeffs {
 		memR0Coeffs[i] = composeLeft(carrierR0Coeffs[i], x0MembershipPoly)
 	}
 	memR1Coeffs := composeLeft(carrierR1Coeff, scalarMembershipPoly)
 
-	packSelCoeff, err := buildPackingSelectorCoeff(ringQ, omega)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("packing selector coeffs: %w", err)
+	var m1PackCoeff, m2PackCoeff []uint64
+	var m1Pack, m2Pack *ring.Poly
+	if !muMode {
+		packSelCoeff, err := buildPackingSelectorCoeff(ringQ, omega)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("packing selector coeffs: %w", err)
+		}
+		oneMinusSelCoeff := polySub([]uint64{1}, packSelCoeff, q)
+		m1PackCoeff = polyMul(packSelCoeff, m1CompCoeffs, q)
+		m2PackCoeff = polyMul(oneMinusSelCoeff, m2CompCoeffs, q)
+		m1PackCoeff = reducePolyModXN1(m1PackCoeff, int(ringQ.N), q)
+		m2PackCoeff = reducePolyModXN1(m2PackCoeff, int(ringQ.N), q)
+		m1Pack = nttPolyFromFormalCoeffsIfFits(ringQ, m1PackCoeff)
+		m2Pack = nttPolyFromFormalCoeffsIfFits(ringQ, m2PackCoeff)
 	}
-	oneMinusSelCoeff := polySub([]uint64{1}, packSelCoeff, q)
-	m1PackCoeff := polyMul(packSelCoeff, m1CompCoeffs, q)
-	m2PackCoeff := polyMul(oneMinusSelCoeff, m2CompCoeffs, q)
-	m1PackCoeff = reducePolyModXN1(m1PackCoeff, int(ringQ.N), q)
-	m2PackCoeff = reducePolyModXN1(m2PackCoeff, int(ringQ.N), q)
-	m1Pack := nttPolyFromFormalCoeffsIfFits(ringQ, m1PackCoeff)
-	m2Pack := nttPolyFromFormalCoeffsIfFits(ringQ, m2PackCoeff)
 	carrierMemM := nttPolyFromFormalCoeffsIfFits(ringQ, memMCoeffs)
 	carrierMemR0 := make([]*ring.Poly, x0Len)
 	for i := range memR0Coeffs {
@@ -367,30 +465,60 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 		half := ncols / 2
 		keyCount := prfCompanionLayout.KeyCount
 		keySlots := append([]CoeffSlot(nil), prfCompanionLayout.KeySlots...)
+		keySourceSlots := append([]CoeffSlot(nil), prfCompanionLayout.KeySourceSlots...)
+		keySourceDecodeLanes := append([]int(nil), prfCompanionLayout.KeySourceDecodeLanes...)
 		if keyCount > 0 {
-			if half < keyCount {
+			if len(keySourceSlots) == 0 && half < keyCount {
 				return ConstraintSet{}, fmt.Errorf("key binding requires ncols/2 >= lenkey; got ncols=%d lenkey=%d", ncols, keyCount)
 			}
+			if len(keySourceDecodeLanes) > 0 && len(keySourceDecodeLanes) < keyCount {
+				return ConstraintSet{}, fmt.Errorf("key binding requires %d key source decode lanes, have %d", keyCount, len(keySourceDecodeLanes))
+			}
 			for i := 0; i < keyCount; i++ {
-				col := half + i
-				if col < 0 || col >= len(selectorCoeff) {
-					return ConstraintSet{}, fmt.Errorf("key binding selector col=%d out of range", col)
-				}
 				if i >= len(keySlots) {
 					return ConstraintSet{}, fmt.Errorf("key slot %d out of range (%d)", i, len(keySlots))
 				}
 				slot := keySlots[i]
-				if slot.Coeff != col {
-					return ConstraintSet{}, fmt.Errorf("key slot col %d mismatch for key %d (want %d)", slot.Coeff, i, col)
+				if slot.Coeff < 0 || slot.Coeff >= len(selectorCoeff) {
+					return ConstraintSet{}, fmt.Errorf("key slot col=%d out of range", slot.Coeff)
 				}
 				keyCoeff, err := getRowCoeff(slot.Row)
 				if err != nil {
 					return ConstraintSet{}, fmt.Errorf("key row coeffs: %w", err)
 				}
-				selCoeff := selectorCoeff[col]
-				keyExtract := polyMul(selCoeff, keyCoeff, q)
-				m2Extract := polyMul(selCoeff, m2CompCoeffs, q)
-				resCoeff := reducePolyModXN1(polySub(keyExtract, m2Extract, q), int(ringQ.N), q)
+				keyExtract := polyMul(selectorCoeff[slot.Coeff], keyCoeff, q)
+				var keySourceExtract []uint64
+				if len(keySourceSlots) > 0 {
+					src := keySourceSlots[i]
+					if src.Coeff < 0 || src.Coeff >= len(selectorCoeff) {
+						return ConstraintSet{}, fmt.Errorf("key source slot col=%d out of range", src.Coeff)
+					}
+					srcCoeff, err := getRowCoeff(src.Row)
+					if err != nil {
+						return ConstraintSet{}, fmt.Errorf("key source row coeffs: %w", err)
+					}
+					if len(keySourceDecodeLanes) > 0 {
+						lane := keySourceDecodeLanes[i]
+						if lane < 0 || lane >= len(muDecodePolys) {
+							return ConstraintSet{}, fmt.Errorf("key source decode lane=%d outside mu decode lanes=%d", lane, len(muDecodePolys))
+						}
+						srcCoeff = composeFormal(srcCoeff, muDecodePolys[lane])
+					}
+					keySourceExtract = polyMul(selectorCoeff[src.Coeff], srcCoeff, q)
+				} else {
+					col := half + i
+					keySourceCoeffs := m2CompCoeffs
+					if muMode {
+						keySourceCoeffs = m1CompCoeffs
+					}
+					keySourceExtract = polyMul(selectorCoeff[col], keySourceCoeffs, q)
+				}
+				resCoeff := polySub(keyExtract, keySourceExtract, q)
+				if muPackWidth > 2 {
+					resCoeff = trimPoly(resCoeff, q)
+				} else {
+					resCoeff = reducePolyModXN1(resCoeff, int(ringQ.N), q)
+				}
 				keyBindCoeffs = append(keyBindCoeffs, resCoeff)
 				keyBindRes = append(keyBindRes, nttPolyFromFormalCoeffsIfFits(ringQ, resCoeff))
 			}
@@ -398,12 +526,34 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	}
 
 	fparInt := append([]*ring.Poly{}, hashResPolys...)
-	fparInt = append(fparInt, m1Pack, m2Pack, carrierMemM)
+	fparIntCoeffs := append([][]uint64{}, hashResCoeffs...)
+	if fullMuMode && !packedMuMode {
+		for i := range aliasMuIdxs {
+			aliasCoeff, err := getRowCoeff(aliasMuIdxs[i])
+			if err != nil {
+				return ConstraintSet{}, fmt.Errorf("alias Mu[%d] coeffs: %w", i, err)
+			}
+			resCoeff := reducePolyModXN1(polySub(aliasCoeff, muCompCoeffs[i], q), int(ringQ.N), q)
+			fparInt = append(fparInt, nttPolyFromFormalCoeffsIfFits(ringQ, resCoeff))
+			fparIntCoeffs = append(fparIntCoeffs, resCoeff)
+		}
+	}
+	if !muMode {
+		fparInt = append(fparInt, m1Pack, m2Pack)
+		fparIntCoeffs = append(fparIntCoeffs, m1PackCoeff, m2PackCoeff)
+	}
+	if fullMuMode {
+		for i := range memMuCoeffs {
+			fparInt = append(fparInt, nttPolyFromFormalCoeffsIfFits(ringQ, memMuCoeffs[i]))
+			fparIntCoeffs = append(fparIntCoeffs, memMuCoeffs[i])
+		}
+	} else {
+		fparInt = append(fparInt, carrierMemM)
+		fparIntCoeffs = append(fparIntCoeffs, memMCoeffs)
+	}
 	fparInt = append(fparInt, carrierMemR0...)
 	fparInt = append(fparInt, carrierMemR1)
 	fparInt = append(fparInt, keyBindRes...)
-	fparIntCoeffs := append([][]uint64{}, hashResCoeffs...)
-	fparIntCoeffs = append(fparIntCoeffs, m1PackCoeff, m2PackCoeff, memMCoeffs)
 	fparIntCoeffs = append(fparIntCoeffs, memR0Coeffs...)
 	fparIntCoeffs = append(fparIntCoeffs, memR1Coeffs)
 	fparIntCoeffs = append(fparIntCoeffs, keyBindCoeffs...)
@@ -419,6 +569,13 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("transform-bridge basis: %w", err)
 	}
+	var fullMuBridgeBasis *transformBridgeBasisCache
+	if fullMuMode && !directTargetReplay {
+		fullMuBridgeBasis, err = newTransformBridgeBasisCache(ringQ, omega, replayBlockCount*ncols, len(fullMuSourceCoeffs))
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("full mu transform-bridge basis: %w", err)
+		}
+	}
 	r0BridgeFamilies := x0Len
 	if aggregateR0Replay {
 		r0BridgeFamilies = 1
@@ -428,6 +585,30 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	}
 	faggNorm := make([]*ring.Poly, 0, (r0BridgeFamilies+2)*replayBlockCount*ncols)
 	faggNormCoeffs := make([][]uint64, 0, (r0BridgeFamilies+2)*replayBlockCount*ncols)
+	if fullMuMode && !directTargetReplay {
+		for b := 0; b < replayBlockCount; b++ {
+			hatCoeff, err := getRowCoeff(rowLayoutPostSignMHatSigmaIndex(layout, b))
+			if err != nil {
+				return ConstraintSet{}, fmt.Errorf("non-sign hat coeffs full mu block %d: %w", b, err)
+			}
+			for j := 0; j < ncols; j++ {
+				t := b*ncols + j
+				leftCoeff := []uint64{0}
+				for block := range fullMuSourceCoeffs {
+					term := reducePolyModXN1(polyMul(fullMuBridgeBasis.TransformH[t], fullMuSourceCoeffs[block], q), int(ringQ.N), q)
+					scale := fullMuBridgeBasis.BlockFactors[t][block] % q
+					if scale != 1 {
+						term = scalePoly(term, scale, q)
+					}
+					leftCoeff = polyAdd(leftCoeff, term, q)
+				}
+				rightCoeff := reducePolyModXN1(polyMul(fullMuBridgeBasis.LagrangeBasis[j], hatCoeff, q), int(ringQ.N), q)
+				bridgeCoeff := reducePolyModXN1(polySub(leftCoeff, rightCoeff, q), int(ringQ.N), q)
+				faggNormCoeffs = append(faggNormCoeffs, bridgeCoeff)
+				faggNorm = append(faggNorm, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
+			}
+		}
+	}
 	bridgePairs := []struct {
 		srcCoeff []uint64
 		name     string
@@ -440,7 +621,7 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 			hatAt    func(int) ([]uint64, error)
 		}{srcCoeff: r1CompCoeffs, name: "r1", hatAt: func(block int) ([]uint64, error) { return getRowCoeff(rowLayoutPostSignRHat1Index(layout, block)) }})
 	}
-	if !directTargetReplay {
+	if !directTargetReplay && !fullMuMode {
 		bridgePairs = append([]struct {
 			srcCoeff []uint64
 			name     string
@@ -535,6 +716,11 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	if deg := maxDegreeFromCoeffs(msgDecode1); deg > parallelDeg {
 		parallelDeg = deg
 	}
+	for _, decode := range muDecodePolys {
+		if deg := maxDegreeFromCoeffs(decode); deg > parallelDeg {
+			parallelDeg = deg
+		}
+	}
 	if deg := maxDegreeFromCoeffs(x0Decode1); deg > parallelDeg {
 		parallelDeg = deg
 	}
@@ -550,6 +736,11 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 	aggDeg := 1
 	if deg := maxDegreeFromCoeffs(msgDecode1); deg > aggDeg {
 		aggDeg = deg
+	}
+	for _, decode := range muDecodePolys {
+		if deg := maxDegreeFromCoeffs(decode); deg > aggDeg {
+			aggDeg = deg
+		}
 	}
 	if deg := maxDegreeFromCoeffs(x0Decode1); deg > aggDeg {
 		aggDeg = deg

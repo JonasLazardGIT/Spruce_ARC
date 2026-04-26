@@ -18,6 +18,7 @@ type ProofReport struct {
 	ReplayAudit     ReplayFamilyAuditReport
 	SigShortness    SigShortnessReport
 	Geometry        WitnessGeometrySnapshot
+	RingDegree      int
 	NCols           int
 	PCSNCols        int
 	LVCSNCols       int
@@ -51,6 +52,7 @@ type SigShortnessReport struct {
 // TranscriptOptimizationReport surfaces the geometry and bucket counters that
 // dominate the current paper transcript optimization pass.
 type TranscriptOptimizationReport struct {
+	RingDegree                      int    `json:"ring_degree"`
 	ShowingPreset                   string `json:"showing_preset"`
 	CompactFullCandidate            string `json:"compact_full_candidate"`
 	BenchmarkSweepCandidate         string `json:"benchmark_sweep_candidate"`
@@ -63,10 +65,20 @@ type TranscriptOptimizationReport struct {
 	PRFDataRows                     int    `json:"prf_data_rows"`
 	PRFHelperRows                   int    `json:"prf_helper_rows"`
 	PRFTotalRows                    int    `json:"prf_total_rows"`
+	MuPackWidth                     int    `json:"mu_pack_width"`
+	MuCarrierRows                   int    `json:"mu_carrier_rows"`
+	MuVirtualBlocks                 int    `json:"mu_virtual_blocks"`
 	SigShortnessProfile             string `json:"sig_shortness_profile"`
 	SigShortnessRadix               int    `json:"sig_shortness_radix"`
 	SigShortnessDigits              int    `json:"sig_shortness_digits"`
 	SigShortnessDegree              int    `json:"sig_shortness_degree"`
+	SigLookupShadowMode             string `json:"sig_lookup_shadow_mode"`
+	SigLookupCells                  int    `json:"sig_lookup_cells"`
+	SigLookupTableSize              int    `json:"sig_lookup_table_size"`
+	SigRowsBefore                   int    `json:"sig_rows_before"`
+	SigRowsAfter                    int    `json:"sig_rows_after"`
+	FreeLookupUpperBoundBytes       int    `json:"free_lookup_upper_bound_bytes"`
+	MaxLookupBudgetFor35500         int    `json:"max_lookup_budget_for_35500"`
 	ReplayMode                      string `json:"replay_mode"`
 	StatementClass                  string `json:"statement_class"`
 	ShortnessMode                   string `json:"shortness_mode"`
@@ -135,7 +147,11 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		return ProofReport{}, fmt.Errorf("nil ring")
 	}
 	opts.applyDefaults()
+	if err := validateProofRingDegree(proof, int(ringQ.N)); err != nil {
+		return ProofReport{}, err
+	}
 	reportOpts := opts
+	reportOpts.RingDegree = int(ringQ.N)
 	if proof.Lambda > 0 {
 		reportOpts.Lambda = proof.Lambda
 	}
@@ -211,14 +227,15 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 	}
 	sigShortness := buildSigShortnessReport(proof)
 	paperTranscript := buildPaperTranscriptReportLeaf(proof, q, paperTranscriptParams{
-		Lambda:   reportOpts.Lambda,
-		Eta:      eta,
-		Ell:      ell,
-		EllPrime: ellPrime,
-		Rho:      rho,
-		Theta:    theta,
-		DQ:       dQ,
-		DDECS:    lvcsNCols + ell - 1,
+		Lambda:     reportOpts.Lambda,
+		RingDegree: int(ringQ.N),
+		Eta:        eta,
+		Ell:        ell,
+		EllPrime:   ellPrime,
+		Rho:        rho,
+		Theta:      theta,
+		DQ:         dQ,
+		DDECS:      lvcsNCols + ell - 1,
 	})
 	if proof.PRFCompanion != nil && proof.PRFCompanion.AuxInstance != nil && proof.PRFCompanion.AuxInstance.Proof != nil && proof.PRFCompanion.Layout != nil {
 		auxOpts, aerr := buildPRFCompanionAuxOpts(reportOpts, proof.PRFCompanion.Layout.PackWidth, proof.HashRelation)
@@ -266,6 +283,7 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		SigShortness:    sigShortness,
 		Geometry:        geometry,
 		TranscriptFocus: buildTranscriptOptimizationReport(proof, paperTranscript, packing, sb, geometry, lvcsNCols, dQ, reportOpts, q),
+		RingDegree:      int(ringQ.N),
 		NCols:           ncols,
 		PCSNCols:        lvcsNCols,
 		LVCSNCols:       lvcsNCols,
@@ -352,6 +370,7 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 
 func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport, packing ProofPackingAudit, sb SoundnessBudget, geometry WitnessGeometrySnapshot, lvcsNCols int, dQ int, opts SimOpts, q uint64) TranscriptOptimizationReport {
 	out := TranscriptOptimizationReport{
+		RingDegree:        resolvedProofRingDegree(proof, opts.RingDegree),
 		NRows:             sb.NRows,
 		M:                 sb.M,
 		PCols:             packing.RowOpening.Pvals.EncodedCols,
@@ -379,6 +398,9 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	out.ReplayRHat1Rows = len(rowLayoutPostSignRHat1Rows(proof.RowLayout))
 	out.ReplayZHatRows = len(rowLayoutPostSignZHatRows(proof.RowLayout))
 	out.ReplayTHatRows = len(rowLayoutPostSignTHatRows(proof.RowLayout))
+	out.MuPackWidth = rowLayoutMuCarrierPackWidth(proof.RowLayout)
+	out.MuCarrierRows = len(rowLayoutCarrierMuBlockRows(proof.RowLayout))
+	out.MuVirtualBlocks = rowLayoutMuVirtualBlockCount(proof.RowLayout)
 	inlinedShortnessRows := proof.RowLayout.PackedSigChainGroupCount * proof.RowLayout.PackedSigChainRowsPerGroup
 	out.InlinedShortnessRows = inlinedShortnessRows
 	if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV18 {
@@ -386,6 +408,17 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 		out.PackedSigBlockWidth = rowLayoutPackedSigChainBlockWidth(proof.RowLayout)
 		out.PackedSigEffectiveBlocks = rowLayoutPackedSigChainEffectiveBlocks(proof.RowLayout)
 		out.PackedSigShortnessRows = inlinedShortnessRows
+	}
+	out.SigLookupShadowMode = NormalizeSigLookupShadowR121L2Mode(opts.UnsafeSigLookupShadowR121L2)
+	if out.SigLookupShadowMode != SigLookupShadowR121L2None {
+		out.SigRowsBefore = proof.RowLayout.PackedSigChainGroupCount * signaturePackedProductionL
+		out.SigRowsAfter = inlinedShortnessRows
+		out.SigLookupCells = out.SigRowsAfter * maxInt(out.PackedSigBlockWidth, opts.NCols)
+		out.SigLookupTableSize = sigLookupShadowR121L2TableSize
+		if out.SigLookupShadowMode == SigLookupShadowR121L2Free {
+			out.FreeLookupUpperBoundBytes = paper.OptimizedBytes
+			out.MaxLookupBudgetFor35500 = sigLookupShadowR121L2TargetBudget - out.FreeLookupUpperBoundBytes
+		}
 	}
 	out.MaskRows = geometry.MaskRowsCommitted
 	out.AggregateR0Replay = opts.AggregateR0Replay || out.ReplayR0B2HatRows > 0 || out.ReplayTargetMR0HatRows > 0

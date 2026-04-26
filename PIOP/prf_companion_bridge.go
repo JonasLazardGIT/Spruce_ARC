@@ -44,7 +44,13 @@ func buildPRFCompanionBridgeCache(ringQ *ring.Ring, omega []uint64, layout *PRFC
 	if layout == nil {
 		return nil, nil
 	}
-	if err := ValidatePRFCompanionLayout(layout, layout.StartRow+layout.PackedRows); err != nil {
+	witnessRows := layout.StartRow + layout.PackedRows
+	for _, slot := range layout.KeySourceSlots {
+		if slot.Row >= witnessRows {
+			witnessRows = slot.Row + 1
+		}
+	}
+	if err := ValidatePRFCompanionLayout(layout, witnessRows); err != nil {
 		return nil, err
 	}
 	if len(omega) == 0 {

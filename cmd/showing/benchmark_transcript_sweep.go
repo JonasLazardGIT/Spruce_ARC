@@ -85,6 +85,9 @@ type transcriptSweepGeometry struct {
 	PackedSigBlockWidth       int `json:"packed_sig_block_width"`
 	PackedSigEffectiveBlocks  int `json:"packed_sig_effective_blocks"`
 	PackedSigShortnessRows    int `json:"packed_sig_shortness_rows"`
+	MuPackWidth               int `json:"mu_pack_width"`
+	MuCarrierRows             int `json:"mu_carrier_rows"`
+	MuVirtualBlocks           int `json:"mu_virtual_blocks"`
 	MaskRows                  int `json:"mask_rows"`
 }
 
@@ -444,6 +447,9 @@ func transcriptSweepGeometryFromReport(rep PIOP.ProofReport) transcriptSweepGeom
 		PackedSigBlockWidth:       rep.TranscriptFocus.PackedSigBlockWidth,
 		PackedSigEffectiveBlocks:  rep.TranscriptFocus.PackedSigEffectiveBlocks,
 		PackedSigShortnessRows:    rep.TranscriptFocus.PackedSigShortnessRows,
+		MuPackWidth:               rep.TranscriptFocus.MuPackWidth,
+		MuCarrierRows:             rep.TranscriptFocus.MuCarrierRows,
+		MuVirtualBlocks:           rep.TranscriptFocus.MuVirtualBlocks,
 		MaskRows:                  rep.TranscriptFocus.MaskRows,
 	}
 }
@@ -515,8 +521,13 @@ func executeTranscriptSweepRun(ctx *compactFullBenchmarkContext, cfg transcriptS
 		out.RejectReason = fmt.Sprintf("derive omega: %v", err)
 		return out
 	}
+	wit, err := buildWitnessFromState(ctx.ringQ, ctx.state, ctx.B, omega, ctx.publicParams.BoundB, ctx.publicParams.X0CoeffBound)
+	if err != nil {
+		out.RejectReason = fmt.Sprintf("build witness: %v", err)
+		return out
+	}
 	nonce, noncePublic := sampleNonce(ctx.prfParams.LenNonce, len(omega), ctx.ringQ.Modulus[0])
-	key, err := prfKeyFromWitnessOnOmega(ctx.ringQ, ctx.wit, omega, ctx.prfParams.LenKey)
+	key, err := prfKeyFromWitnessOnOmega(ctx.ringQ, wit, omega, ctx.prfParams.LenKey)
 	if err != nil {
 		out.RejectReason = fmt.Sprintf("prf key: %v", err)
 		return out
@@ -540,7 +551,7 @@ func executeTranscriptSweepRun(ctx *compactFullBenchmarkContext, cfg transcriptS
 	}
 
 	proveStart := time.Now()
-	proof, buildErr := PIOP.BuildShowingCombined(pub, ctx.wit, opts)
+	proof, buildErr := PIOP.BuildShowingCombined(pub, wit, opts)
 	proveDur := time.Since(proveStart)
 	out.ProveMS = float64(proveDur.Microseconds()) / 1000.0
 	if buildErr != nil {

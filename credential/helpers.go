@@ -70,6 +70,16 @@ func combineMessageRows(ringQ *ring.Ring, m, k *ring.Poly) *ring.Poly {
 	return combined
 }
 
+func splitLegacyMessageRows(ringQ *ring.Ring, m, k *ring.Poly) (*ring.Poly, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if m == nil || k == nil {
+		return nil, fmt.Errorf("nil input polynomial")
+	}
+	return combineMessageRows(ringQ, m, k), nil
+}
+
 func SplitBBTranB(B []*ring.Poly, x0Len int, targetDim int) (*ring.Poly, *ring.Poly, []*ring.Poly, *ring.Poly, error) {
 	if targetDim != 1 {
 		return nil, nil, nil, nil, fmt.Errorf("unsupported TargetDim=%d", targetDim)
@@ -156,6 +166,20 @@ func ComputeTargetPolysVector(
 	r0 []*ring.Poly,
 	r1 *ring.Poly,
 ) (*ring.Poly, *ring.Poly, error) {
+	mu, err := splitLegacyMessageRows(ringQ, m, k)
+	if err != nil {
+		return nil, nil, err
+	}
+	return ComputeTargetPolysVectorFromMu(ringQ, B, mu, r0, r1)
+}
+
+func ComputeTargetPolysVectorFromMu(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	mu *ring.Poly,
+	r0 []*ring.Poly,
+	r1 *ring.Poly,
+) (*ring.Poly, *ring.Poly, error) {
 	if ringQ == nil {
 		return nil, nil, fmt.Errorf("nil ring")
 	}
@@ -163,10 +187,9 @@ func ComputeTargetPolysVector(
 	if err != nil {
 		return nil, nil, err
 	}
-	if m == nil || k == nil || len(r0) == 0 || r1 == nil {
+	if mu == nil || len(r0) == 0 || r1 == nil {
 		return nil, nil, fmt.Errorf("nil input polynomial")
 	}
-	mu := combineMessageRows(ringQ, m, k)
 	zNTT, tNTT, err := vsishash.ComputeBBTranTargetVector(ringQ, b0, b1, b2, b3, clonePoly(ringQ, mu), clonePolySlice(ringQ, r0), clonePoly(ringQ, r1))
 	if err != nil {
 		return nil, nil, err
@@ -176,6 +199,20 @@ func ComputeTargetPolysVector(
 	ringQ.InvNTT(zNTT, zCoeff)
 	ringQ.InvNTT(tNTT, tCoeff)
 	return zCoeff, tCoeff, nil
+}
+
+func ComputeTargetVectorFromMu(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	mu *ring.Poly,
+	r0 []*ring.Poly,
+	r1 *ring.Poly,
+) (*ring.Poly, []int64, error) {
+	zCoeff, tCoeff, err := ComputeTargetPolysVectorFromMu(ringQ, B, mu, r0, r1)
+	if err != nil {
+		return nil, nil, err
+	}
+	return zCoeff, coeffPolyToInt64(ringQ, tCoeff), nil
 }
 
 func clonePolySlice(ringQ *ring.Ring, polys []*ring.Poly) []*ring.Poly {
@@ -233,6 +270,22 @@ func VerifyTargetRelationVector(
 	z,
 	t *ring.Poly,
 ) error {
+	mu, err := splitLegacyMessageRows(ringQ, m, k)
+	if err != nil {
+		return err
+	}
+	return VerifyTargetRelationVectorFromMu(ringQ, B, mu, r0, r1, z, t)
+}
+
+func VerifyTargetRelationVectorFromMu(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	mu *ring.Poly,
+	r0 []*ring.Poly,
+	r1,
+	z,
+	t *ring.Poly,
+) error {
 	if ringQ == nil {
 		return fmt.Errorf("nil ring")
 	}
@@ -240,10 +293,10 @@ func VerifyTargetRelationVector(
 	if err != nil {
 		return err
 	}
-	if m == nil || k == nil || len(r0) == 0 || r1 == nil || z == nil || t == nil {
+	if mu == nil || len(r0) == 0 || r1 == nil || z == nil || t == nil {
 		return fmt.Errorf("nil input polynomial")
 	}
-	muNTT := combineMessageRows(ringQ, clonePoly(ringQ, m), clonePoly(ringQ, k))
+	muNTT := clonePoly(ringQ, mu)
 	ringQ.NTT(muNTT, muNTT)
 	r1NTT := clonePoly(ringQ, r1)
 	zNTT := clonePoly(ringQ, z)
@@ -324,6 +377,35 @@ func HashMessageVector(
 			return nil, fmt.Errorf("bbs only supports scalar r0, got %d rows", len(r0))
 		}
 		tNTT, err := vsishash.ComputeBBSHash(ringQ, B, clonePoly(ringQ, combineMessageRows(ringQ, m1, m2)), clonePoly(ringQ, r0[0]), clonePoly(ringQ, r1))
+		if err != nil {
+			return nil, err
+		}
+		tCoeff := ringQ.NewPoly()
+		ringQ.InvNTT(tNTT, tCoeff)
+		return coeffPolyToInt64(ringQ, tCoeff), nil
+	default:
+		return nil, fmt.Errorf("invalid hash relation %q", relation)
+	}
+}
+
+func HashMessageVectorFromMu(
+	ringQ *ring.Ring,
+	B []*ring.Poly,
+	relation string,
+	mu *ring.Poly,
+	r0 []*ring.Poly,
+	r1 *ring.Poly,
+) ([]int64, error) {
+	relation = NormalizeHashRelation(relation)
+	switch relation {
+	case HashRelationBBTran:
+		_, tCoeff, err := ComputeTargetVectorFromMu(ringQ, B, mu, r0, r1)
+		return tCoeff, err
+	case HashRelationBBS:
+		if len(r0) != 1 {
+			return nil, fmt.Errorf("bbs only supports scalar r0, got %d rows", len(r0))
+		}
+		tNTT, err := vsishash.ComputeBBSHash(ringQ, B, clonePoly(ringQ, mu), clonePoly(ringQ, r0[0]), clonePoly(ringQ, r1))
 		if err != nil {
 			return nil, err
 		}

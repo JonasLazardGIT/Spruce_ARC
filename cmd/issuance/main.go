@@ -20,13 +20,17 @@ const (
 	defaultCredentialSignaturePath = "credential/keys/signature.json"
 	defaultPRFParamsPath           = "prf/prf_params.json"
 	defaultDemoPublicParamsPath    = "Parameters/credential_public.demo.json"
+	defaultNTRUParamsPath          = "Parameters/Parameters.json"
+	defaultNTRUPublicKeyPath       = "ntru_keys/public.json"
+	defaultNTRUPrivateKeyPath      = "ntru_keys/private.json"
 )
 
 func usage() {
-	fmt.Println(`usage: issuance <setup-demo-public|holder-commit|issuer-challenge|holder-prove|issuer-verify-sign|holder-finalize|demo-local|benchmark-x0> [options]
+	fmt.Println(`usage: issuance <setup-demo-public|setup-ntru-keys|holder-commit|issuer-challenge|holder-prove|issuer-verify-sign|holder-finalize|demo-local|benchmark-x0> [options]
 
 Subcommands:
   setup-demo-public  Generate credential public parameters with a full random Ac matrix
+  setup-ntru-keys    Generate separate NTRU params and key material
   holder-commit      Sample holder witness rows and write holder_secret/commit_request artifacts
   issuer-challenge   Sample issuer challenge rows from a commit request
   holder-prove       Build the pre-sign proof from holder secret + issuer challenge
@@ -51,6 +55,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "setup-demo-public":
 		return runSetupDemoPublic(args[1:])
+	case "setup-ntru-keys":
+		return runSetupNTRUKeys(args[1:])
 	case "holder-commit":
 		return runHolderCommit(args[1:])
 	case "issuer-challenge":
@@ -74,6 +80,22 @@ func run(args []string) error {
 	}
 }
 
+func runSetupNTRUKeys(args []string) error {
+	fs := flag.NewFlagSet("setup-ntru-keys", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree for generated NTRU params/keys (supported: 1024 or 512; 0 keeps default)")
+	paramsOut := fs.String("params-out", "", "output path for generated NTRU params (default keeps canonical path for N=1024, research_n512 path for N=512)")
+	publicOut := fs.String("public-out", "", "output path for generated NTRU public key")
+	privateOut := fs.String("private-out", "", "output path for generated NTRU private key")
+	force := fs.Bool("force", false, "overwrite existing output paths")
+	keygenTrials := fs.Int("keygen-trials", 10000, "maximum trials for each annulus keygen attempt")
+	attempts := fs.Int("attempts", 4, "number of annulus keygen attempts before failing")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return setupNTRUKeys(*researchRingDegree, *paramsOut, *publicOut, *privateOut, *force, *keygenTrials, *attempts)
+}
+
 func runSetupDemoPublic(args []string) error {
 	fs := flag.NewFlagSet("setup-demo-public", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -84,10 +106,11 @@ func runSetupDemoPublic(args []string) error {
 	x0Profile := fs.String("x0-profile", "lhl_default", "x0 profile (legacy_scalar, lhl_default, lhl_alt)")
 	x0Len := fs.Int("x0-len", 0, "optional x0 vector length override")
 	x0Bound := fs.Int64("x0-bound", 0, "optional x0 coefficient bound override")
+	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree for generated public params (supported: 1024 or 512; 0 keeps default)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return setupDemoPublic(*outPath, *force, *bPath, *hashRelation, *x0Profile, *x0Len, *x0Bound)
+	return setupDemoPublic(*outPath, *force, *bPath, *hashRelation, *x0Profile, *x0Len, *x0Bound, *researchRingDegree)
 }
 
 func runHolderCommit(args []string) error {
@@ -102,13 +125,15 @@ func runHolderCommit(args []string) error {
 	ncols := fs.Int("ncols", 0, "optional witness packing width override for issuance research")
 	lvcsNCols := fs.Int("lvcs-ncols", 0, "optional LVCS width override for issuance research")
 	nLeaves := fs.Int("nleaves", 0, "optional explicit-domain size override for issuance research")
+	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree override for issuance (supported: 1024 or 512; 0 follows public params)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, *expertInputPath, *seed, issuanceRuntimeOverrides{
-		NCols:     *ncols,
-		LVCSNCols: *lvcsNCols,
-		NLeaves:   *nLeaves,
+		NCols:      *ncols,
+		LVCSNCols:  *lvcsNCols,
+		NLeaves:    *nLeaves,
+		RingDegree: *researchRingDegree,
 	})
 }
 
@@ -144,10 +169,14 @@ func runIssuerVerifySign(args []string) error {
 	submissionPath := fs.String("presign-submission", defaultPreSignSubmissionPath, "pre-sign submission artifact path")
 	responsePath := fs.String("issue-response", defaultIssueResponsePath, "issuer response artifact path")
 	maxTrials := fs.Int("max-trials", 2048, "maximum NTRU signer trials")
+	ntruParamsPath := fs.String("ntru-params", defaultNTRUParamsPath, "NTRU params path used for signature beta bound")
+	ntruPublicPath := fs.String("ntru-public-key", defaultNTRUPublicKeyPath, "NTRU public key path")
+	ntruPrivatePath := fs.String("ntru-private-key", defaultNTRUPrivateKeyPath, "NTRU private key path")
+	ntruSignaturePath := fs.String("ntru-signature-out", "", "optional issuer-side NTRU signature artifact path")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return issuerVerifySign(*commitRequestPath, *challengePath, *submissionPath, *responsePath, *maxTrials)
+	return issuerVerifySign(*commitRequestPath, *challengePath, *submissionPath, *responsePath, *maxTrials, ntruSigningPaths(*ntruParamsPath, *ntruPublicPath, *ntruPrivatePath, *ntruSignaturePath))
 }
 
 func runHolderFinalize(args []string) error {
@@ -159,10 +188,11 @@ func runHolderFinalize(args []string) error {
 	responsePath := fs.String("issue-response", defaultIssueResponsePath, "issuer response artifact path")
 	statePath := fs.String("state-out", defaultCredentialStatePath, "final credential state path")
 	signaturePath := fs.String("signature-out", defaultCredentialSignaturePath, "final signature artifact path")
+	ntruParamsPath := fs.String("ntru-params", defaultNTRUParamsPath, "NTRU params path used when verifying seeded signature bundles")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return holderFinalize(*holderSecretPath, *commitRequestPath, *challengePath, *responsePath, *statePath, *signaturePath)
+	return holderFinalize(*holderSecretPath, *commitRequestPath, *challengePath, *responsePath, *statePath, *signaturePath, *ntruParamsPath)
 }
 
 func runDemoLocal(args []string) error {
@@ -178,14 +208,20 @@ func runDemoLocal(args []string) error {
 	ncols := fs.Int("ncols", 0, "optional witness packing width override for issuance research")
 	lvcsNCols := fs.Int("lvcs-ncols", 0, "optional LVCS width override for issuance research")
 	nLeaves := fs.Int("nleaves", 0, "optional explicit-domain size override for issuance research")
+	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree override for issuance (supported: 1024 or 512; 0 follows public params)")
+	ntruParamsPath := fs.String("ntru-params", defaultNTRUParamsPath, "NTRU params path used for signature beta bound")
+	ntruPublicPath := fs.String("ntru-public-key", defaultNTRUPublicKeyPath, "NTRU public key path")
+	ntruPrivatePath := fs.String("ntru-private-key", defaultNTRUPrivateKeyPath, "NTRU private key path")
+	ntruSignaturePath := fs.String("ntru-signature-out", "", "optional issuer-side NTRU signature artifact path")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	return demoLocal(*publicPath, *prfPath, *artifactDir, *statePath, *signaturePath, *seed, *maxTrials, issuanceRuntimeOverrides{
-		NCols:     *ncols,
-		LVCSNCols: *lvcsNCols,
-		NLeaves:   *nLeaves,
-	})
+		NCols:      *ncols,
+		LVCSNCols:  *lvcsNCols,
+		NLeaves:    *nLeaves,
+		RingDegree: *researchRingDegree,
+	}, ntruSigningPaths(*ntruParamsPath, *ntruPublicPath, *ntruPrivatePath, *ntruSignaturePath))
 }
 
 func runBenchmarkX0(args []string) error {

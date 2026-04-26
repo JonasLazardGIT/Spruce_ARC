@@ -44,10 +44,10 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		}
 		return nil
 	}
-	if err = require(wit.M1, "M1"); err != nil {
-		return
+	if len(wit.Mu) == 0 && len(wit.M1) > 0 {
+		wit.Mu = wit.M1
 	}
-	if err = require(wit.M2, "M2"); err != nil {
+	if err = require(wit.Mu, "Mu"); err != nil {
 		return
 	}
 	if err = require(wit.RU0, "RU0"); err != nil {
@@ -97,8 +97,9 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		omegaForSurface = make([]uint64, ncols)
 	}
 	surface, derr := DerivePreSignCarrierAndAliasRows(ringQ, boundB, x0Bound, omegaForSurface, opts.DomainMode, PreSignRawRows{
-		M1:  wit.M1[0],
-		M2:  wit.M2[0],
+		Mu:  wit.Mu[0],
+		M1:  firstPoly(wit.M1),
+		M2:  firstPoly(wit.M2),
 		RU0: wit.RU0,
 		RU1: wit.RU1[0],
 		R:   wit.R[0],
@@ -114,8 +115,42 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 	if terr != nil {
 		return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, terr
 	}
+	if len(surface.AliasMuRows) > 1 {
+		muHead, herr := nttHeadFromCoeffPoly(ringQ, wit.Mu[0], len(omegaForSurface))
+		if herr != nil {
+			return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, fmt.Errorf("pre-sign full mu transform head: %w", herr)
+		}
+		muHatRow, herr := buildCommittedRowFromHead(ringQ, muHead, omegaForSurface, opts.DomainMode)
+		if herr != nil {
+			return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, fmt.Errorf("pre-sign full mu transform row: %w", herr)
+		}
+		muHatNTT := ringQ.NewPoly()
+		ring.Copy(muHatRow, muHatNTT)
+		ringQ.NTT(muHatNTT, muHatNTT)
+		muHatCoeff, herr := coeffFromNTTPoly(ringQ, muHatNTT)
+		if herr != nil {
+			return nil, nil, RowLayout{}, decs.Params{}, 0, 0, 0, 0, fmt.Errorf("pre-sign full mu transform coeffs: %w", herr)
+		}
+		transformSurface.MHat1 = muHatRow
+		transformSurface.MHat1Coeff = trimPoly(muHatCoeff, ringQ.Modulus[0])
+		if len(transformSurface.Rows) > PreSignTransformAliasMHat1 {
+			transformSurface.Rows[PreSignTransformAliasMHat1] = muHatRow
+		}
+		if len(transformSurface.Coeffs) > PreSignTransformAliasMHat1 {
+			transformSurface.Coeffs[PreSignTransformAliasMHat1] = transformSurface.MHat1Coeff
+		}
+	}
 	x0Len := len(surface.AliasR0Rows)
-	rows = []*ring.Poly{surface.CarrierM}
+	carrierMuRows := surface.CarrierMuRows
+	if len(carrierMuRows) == 0 && surface.CarrierM != nil {
+		carrierMuRows = []*ring.Poly{surface.CarrierM}
+	}
+	rows = make([]*ring.Poly, 0)
+	carrierMuBlockRows := make([]int, 0, len(carrierMuRows))
+	for _, row := range carrierMuRows {
+		carrierMuBlockRows = append(carrierMuBlockRows, len(rows))
+		rows = append(rows, row)
+	}
 	carrierRU0Rows := make([]int, 0, len(surface.CarrierRU0Rows))
 	for _, row := range surface.CarrierRU0Rows {
 		carrierRU0Rows = append(carrierRU0Rows, len(rows))
@@ -140,8 +175,16 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 	idxCarrierK1 := len(rows)
 	rows = append(rows, surface.CarrierK1)
 
-	idxM1 := len(rows)
-	rows = append(rows, surface.AliasM1)
+	aliasMuRows := surface.AliasMuRows
+	if len(aliasMuRows) == 0 && surface.AliasM1 != nil {
+		aliasMuRows = []*ring.Poly{surface.AliasM1}
+	}
+	aliasMuBlockRows := make([]int, 0, len(aliasMuRows))
+	for _, row := range aliasMuRows {
+		aliasMuBlockRows = append(aliasMuBlockRows, len(rows))
+		rows = append(rows, row)
+	}
+	idxM1 := firstIndex(aliasMuBlockRows)
 	idxM2 := len(rows)
 	rows = append(rows, surface.AliasM2)
 	aliasRU0Rows := make([]int, 0, len(surface.AliasRU0Rows))
@@ -224,11 +267,13 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 	witnessCount = len(rows)
 	hasBaseIdx := true
 	layout = RowLayout{
+		RingDegree:         int(ringQ.N),
 		SigCount:           witnessCount,
 		MsgCount:           0,
 		RndCount:           0,
 		HasExplicitBaseIdx: hasBaseIdx,
 		X0Len:              x0Len,
+		IdxMu:              idxM1,
 		IdxM1:              idxM1,
 		IdxM2:              idxM2,
 		IdxRU0:             firstIndex(aliasRU0Rows),
@@ -250,7 +295,9 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		IdxZHat:            -1,
 		IdxMSigmaR1Hat:     -1,
 		IdxR0R1Hat:         -1,
-		IdxCarrierM:        0,
+		IdxCarrierM:        firstIndex(carrierMuBlockRows),
+		CarrierMuBlockRows: carrierMuBlockRows,
+		AliasMuBlockRows:   aliasMuBlockRows,
 		IdxCarrierPreRU:    firstIndex(carrierRU0Rows),
 		IdxCarrierRU1:      idxCarrierRU1,
 		IdxCarrierPreR:     idxCarrierRBar,

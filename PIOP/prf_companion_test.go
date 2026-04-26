@@ -141,16 +141,16 @@ func TestPRFCompanionLayoutEmission(t *testing.T) {
 	if fx.companion.PackedLogicalCount != wantLogical {
 		t.Fatalf("packed logical count=%d want %d", fx.companion.PackedLogicalCount, wantLogical)
 	}
-	keyPrefix := 0
-	if half := fx.opts.NCols / 2; half >= len(fx.companion.KeySlots) {
-		keyPrefix = half
-	}
-	wantPackedRows := ceilDiv(keyPrefix+wantLogical, fx.opts.NCols)
+	keyRows := len(uniqueRowsFromCoeffSlots(fx.companion.KeySlots))
+	wantPackedRows := keyRows + ceilDiv(len(fx.companion.CheckpointSlots)+len(fx.companion.FinalTagSlots), fx.opts.NCols)
 	if fx.companion.PackedRows != wantPackedRows {
 		t.Fatalf("packed rows=%d want %d", fx.companion.PackedRows, wantPackedRows)
 	}
-	if fx.companion.DataRows != ceilDiv(len(fx.companion.KeySlots)+len(fx.companion.CheckpointSlots), fx.opts.NCols) {
-		t.Fatalf("data rows=%d want %d", fx.companion.DataRows, ceilDiv(len(fx.companion.KeySlots)+len(fx.companion.CheckpointSlots), fx.opts.NCols))
+	dataSlotRows := append([]CoeffSlot(nil), fx.companion.KeySlots...)
+	dataSlotRows = append(dataSlotRows, fx.companion.CheckpointSlots...)
+	wantDataRows := len(uniqueRowsFromCoeffSlots(dataSlotRows))
+	if fx.companion.DataRows != wantDataRows {
+		t.Fatalf("data rows=%d want %d", fx.companion.DataRows, wantDataRows)
 	}
 	if fx.companion.HelperRows != fx.companion.PackedRows-fx.companion.DataRows {
 		t.Fatalf("helper rows=%d want %d", fx.companion.HelperRows, fx.companion.PackedRows-fx.companion.DataRows)
@@ -167,17 +167,20 @@ func TestPRFCompanionKeyAlignment(t *testing.T) {
 	if fx.companion == nil {
 		t.Fatal("missing companion layout")
 	}
-	if fx.layout.IdxCarrierM < 0 {
-		t.Fatalf("missing carrier M row for key binding")
-	}
 	if len(fx.companion.KeySlots) == 0 {
 		t.Fatalf("missing key slots in companion layout")
 	}
-	keyScalars, err := ExtractSignedPRFKeyScalarsFromCarrierOnOmega(
+	keyStart := int(fx.base.ringQ.N) / 2
+	keyBlock := keyStart / fx.companion.PackWidth
+	keyCol := keyStart % fx.companion.PackWidth
+	if keyBlock < 0 || keyBlock >= len(fx.layout.CarrierMuBlockRows) {
+		t.Fatalf("missing carrier mu key block=%d among %d blocks", keyBlock, len(fx.layout.CarrierMuBlockRows))
+	}
+	keyScalars, err := ExtractSignedPRFKeyScalarsFromSingletonCarrierWindowOnOmega(
 		fx.base.ringQ,
-		fx.rows[fx.layout.IdxCarrierM],
+		fx.rows[fx.layout.CarrierMuBlockRows[keyBlock]],
 		fx.base.omegaWitness,
-		fx.companion.PackWidth,
+		keyCol,
 		fx.params.LenKey,
 		fx.base.pub.BoundB,
 	)

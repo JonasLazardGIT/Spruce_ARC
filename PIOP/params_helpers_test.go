@@ -27,6 +27,25 @@ func TestBBTranWitnessOmegaStableAcrossNLeaves(t *testing.T) {
 	}
 }
 
+func TestBBTranWitnessOmegaStableAcrossEll(t *testing.T) {
+	const (
+		q            = uint64(1054721)
+		witnessNCols = 16
+		lvcsNCols    = 84
+	)
+	omega18, err := deriveRelationWitnessOmega(q, 4096, witnessNCols, lvcsNCols, 18, credential.HashRelationBBTran)
+	if err != nil {
+		t.Fatalf("deriveRelationWitnessOmega(ell=18): %v", err)
+	}
+	omega16, err := deriveRelationWitnessOmega(q, 5760, witnessNCols, lvcsNCols, 16, credential.HashRelationBBTran)
+	if err != nil {
+		t.Fatalf("deriveRelationWitnessOmega(ell=16): %v", err)
+	}
+	if !reflect.DeepEqual(omega18, omega16) {
+		t.Fatalf("bb_tran witness omega should be stable across ell changes: ell18=%v ell16=%v", omega18, omega16)
+	}
+}
+
 func TestBBTranExplicitDomainPrefixStableAcrossNLeaves(t *testing.T) {
 	const (
 		q            = uint64(1054721)

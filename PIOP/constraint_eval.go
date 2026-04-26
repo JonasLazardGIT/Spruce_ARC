@@ -590,6 +590,7 @@ type CredentialConstraintConfig struct {
 	// Packing selector values over the evaluation domain (NTT).
 	PackingSelNTT []uint64
 	PackingNCols  int
+	MuMode        bool
 
 	IdxM1  int
 	IdxM2  int
@@ -967,6 +968,7 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 		decode2         []uint64
 		decode1K        []uint64
 		decode2K        []uint64
+		memMsg          []uint64
 		memBound        []uint64
 		memCarry        []uint64
 	)
@@ -1064,9 +1066,17 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 	}
 	if configErr == nil {
 		var err error
-		decode1, decode2, err = buildCarrierDecodePolys(cfg.Bound, cfg.Ring.Modulus[0])
-		if err != nil {
-			configErr = fmt.Errorf("credential replay config: carrier decode polys: %w", err)
+		if cfg.MuMode {
+			decode1, err = buildSingletonCarrierDecodePoly(cfg.Bound, cfg.Ring.Modulus[0])
+			if err != nil {
+				configErr = fmt.Errorf("credential replay config: mu carrier decode poly: %w", err)
+			}
+			decode2 = []uint64{0}
+		} else {
+			decode1, decode2, err = buildCarrierDecodePolys(cfg.Bound, cfg.Ring.Modulus[0])
+			if err != nil {
+				configErr = fmt.Errorf("credential replay config: carrier decode polys: %w", err)
+			}
 		}
 	}
 	if configErr == nil {
@@ -1078,9 +1088,20 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 	}
 	if configErr == nil {
 		var err error
+		if cfg.MuMode {
+			memMsg, err = buildSingletonCarrierMembershipPoly(cfg.Bound, cfg.Ring.Modulus[0])
+			if err != nil {
+				configErr = fmt.Errorf("credential replay config: mu carrier membership poly: %w", err)
+			}
+		} else {
+			memMsg, err = buildCarrierMembershipPoly(cfg.Bound, cfg.Ring.Modulus[0])
+			if err != nil {
+				configErr = fmt.Errorf("credential replay config: carrier membership poly: %w", err)
+			}
+		}
 		memBound, err = buildCarrierMembershipPoly(cfg.Bound, cfg.Ring.Modulus[0])
-		if err != nil {
-			configErr = fmt.Errorf("credential replay config: carrier membership poly: %w", err)
+		if err != nil && configErr == nil {
+			configErr = fmt.Errorf("credential replay config: scalar carrier membership poly: %w", err)
 		}
 	}
 	if configErr == nil {
@@ -1136,7 +1157,10 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 		k0Dec := decodeVal(decode1K, carrierK)
 		k1Dec := decodeVal(decode2K, carrierK)
 		m1 := getRow(cfg.IdxM1)
-		m2 := getRow(cfg.IdxM2)
+		m2 := uint64(0)
+		if !cfg.MuMode {
+			m2 = getRow(cfg.IdxM2)
+		}
 		ru0 := getRow(cfg.IdxRU0)
 		ru1 := getRow(cfg.IdxRU1)
 		rVal := getRow(cfg.IdxR)
@@ -1146,9 +1170,11 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 		k1 := getRow(cfg.IdxK1)
 
 		var fpar []uint64
+		fpar = append(fpar, (q+m1-m1Dec)%q)
+		if !cfg.MuMode {
+			fpar = append(fpar, (q+m2-m2Dec)%q)
+		}
 		fpar = append(fpar,
-			(q+m1-m1Dec)%q,
-			(q+m2-m2Dec)%q,
 			(q+ru0-ru0Dec)%q,
 			(q+ru1-ru1Dec)%q,
 			(q+rVal-rDec)%q,
@@ -1182,13 +1208,27 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 					case 0:
 						sum = lvcs.MulAddMod64(sum, aVal%q, m1, q)
 					case 1:
-						sum = lvcs.MulAddMod64(sum, aVal%q, m2, q)
+						if cfg.MuMode {
+							sum = lvcs.MulAddMod64(sum, aVal%q, ru0, q)
+						} else {
+							sum = lvcs.MulAddMod64(sum, aVal%q, m2, q)
+						}
 					case 2:
-						sum = lvcs.MulAddMod64(sum, aVal%q, ru0, q)
+						if cfg.MuMode {
+							sum = lvcs.MulAddMod64(sum, aVal%q, ru1, q)
+						} else {
+							sum = lvcs.MulAddMod64(sum, aVal%q, ru0, q)
+						}
 					case 3:
-						sum = lvcs.MulAddMod64(sum, aVal%q, ru1, q)
+						if cfg.MuMode {
+							sum = lvcs.MulAddMod64(sum, aVal%q, rVal, q)
+						} else {
+							sum = lvcs.MulAddMod64(sum, aVal%q, ru1, q)
+						}
 					case 4:
-						sum = lvcs.MulAddMod64(sum, aVal%q, rVal, q)
+						if !cfg.MuMode {
+							sum = lvcs.MulAddMod64(sum, aVal%q, rVal, q)
+						}
 					}
 				}
 				fpar = append(fpar, sum%q)
@@ -1219,7 +1259,10 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 			t := evalTheta(tPublicCoeff)
 			res := (q + b3 - r1v) % q
 			res = (res * t) % q
-			mCombined := (m1 + m2) % q
+			mCombined := m1 % q
+			if !cfg.MuMode {
+				mCombined = (m1 + m2) % q
+			}
 			lin := b0
 			lin = lvcs.MulAddMod64(lin, b1, mCombined, q)
 			lin = lvcs.MulAddMod64(lin, b2, r0v, q)
@@ -1232,7 +1275,7 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 		}
 
 		// Packing residuals: enforce lower/upper-half zeroing (evaluation-domain proxy).
-		if len(cfg.PackingSelNTT) > 0 {
+		if !cfg.MuMode && len(cfg.PackingSelNTT) > 0 {
 			var sel uint64
 			if len(packingSelCoeff) > 0 {
 				sel = evalTheta(packingSelCoeff) % q
@@ -1244,7 +1287,7 @@ func (cfg CredentialConstraintConfig) CredentialEvaluator() ConstraintEvaluator 
 
 		// Carrier membership constraints.
 		memVals := []uint64{
-			decodeVal(memBound, carrierM),
+			decodeVal(memMsg, carrierM),
 			decodeVal(memBound, carrierRU),
 			decodeVal(memBound, carrierR),
 			decodeVal(memBound, carrierCtr),
@@ -1300,7 +1343,10 @@ func (cfg CredentialConstraintConfig) CredentialKEvaluator(K *kf.Field) (KConstr
 		k0Dec := decodeVal(cache.Decode1K, carrierK)
 		k1Dec := decodeVal(cache.Decode2K, carrierK)
 		m1 := getRow(cfg.IdxM1)
-		m2 := getRow(cfg.IdxM2)
+		m2 := K.Zero()
+		if !cfg.MuMode {
+			m2 = getRow(cfg.IdxM2)
+		}
 		ru0 := getRow(cfg.IdxRU0)
 		ru1 := getRow(cfg.IdxRU1)
 		rVal := getRow(cfg.IdxR)
@@ -1311,9 +1357,11 @@ func (cfg CredentialConstraintConfig) CredentialKEvaluator(K *kf.Field) (KConstr
 
 		// Commit residuals.
 		var fpar []kf.Elem
+		fpar = append(fpar, K.Sub(m1, m1Dec))
+		if !cfg.MuMode {
+			fpar = append(fpar, K.Sub(m2, m2Dec))
+		}
 		fpar = append(fpar,
-			K.Sub(m1, m1Dec),
-			K.Sub(m2, m2Dec),
 			K.Sub(ru0, ru0Dec),
 			K.Sub(ru1, ru1Dec),
 			K.Sub(rVal, rDec),
@@ -1335,13 +1383,27 @@ func (cfg CredentialConstraintConfig) CredentialKEvaluator(K *kf.Field) (KConstr
 					case 0:
 						sum = K.Add(sum, K.Mul(aVal, m1))
 					case 1:
-						sum = K.Add(sum, K.Mul(aVal, m2))
+						if cfg.MuMode {
+							sum = K.Add(sum, K.Mul(aVal, ru0))
+						} else {
+							sum = K.Add(sum, K.Mul(aVal, m2))
+						}
 					case 2:
-						sum = K.Add(sum, K.Mul(aVal, ru0))
+						if cfg.MuMode {
+							sum = K.Add(sum, K.Mul(aVal, ru1))
+						} else {
+							sum = K.Add(sum, K.Mul(aVal, ru0))
+						}
 					case 3:
-						sum = K.Add(sum, K.Mul(aVal, ru1))
+						if cfg.MuMode {
+							sum = K.Add(sum, K.Mul(aVal, rVal))
+						} else {
+							sum = K.Add(sum, K.Mul(aVal, ru1))
+						}
 					case 4:
-						sum = K.Add(sum, K.Mul(aVal, rVal))
+						if !cfg.MuMode {
+							sum = K.Add(sum, K.Mul(aVal, rVal))
+						}
 					}
 				}
 				fpar = append(fpar, sum)
@@ -1374,14 +1436,18 @@ func (cfg CredentialConstraintConfig) CredentialKEvaluator(K *kf.Field) (KConstr
 			res := K.Sub(b3, r1v)
 			res = K.Mul(res, t)
 			lin := b0
-			lin = K.Add(lin, K.Mul(b1, K.Add(m1, m2)))
+			mCombined := m1
+			if !cfg.MuMode {
+				mCombined = K.Add(m1, m2)
+			}
+			lin = K.Add(lin, K.Mul(b1, mCombined))
 			lin = K.Add(lin, K.Mul(b2, r0v))
 			res = K.Sub(res, lin)
 			fpar = append(fpar, res)
 		}
 
 		// Packing residuals via selector polynomial on Ω.
-		if len(cache.PackingSelCoeff) > 0 {
+		if !cfg.MuMode && len(cache.PackingSelCoeff) > 0 {
 			sel := K.EvalFPolyAtK(cache.PackingSelCoeff, e)
 			oneMinus := K.Sub(K.One(), sel)
 			fpar = append(fpar, K.Mul(sel, m1))
@@ -1390,7 +1456,7 @@ func (cfg CredentialConstraintConfig) CredentialKEvaluator(K *kf.Field) (KConstr
 
 		// Carrier membership constraints.
 		memVals := []kf.Elem{
-			K.EvalFPolyAtK(cache.MemBound, carrierM),
+			K.EvalFPolyAtK(cache.MemMsg, carrierM),
 			K.EvalFPolyAtK(cache.MemBound, carrierRU),
 			K.EvalFPolyAtK(cache.MemBound, carrierR),
 			K.EvalFPolyAtK(cache.MemBound, carrierCtr),
@@ -1508,6 +1574,7 @@ type credentialKEvalCache struct {
 	Decode2         []uint64
 	Decode1K        []uint64
 	Decode2K        []uint64
+	MemMsg          []uint64
 	MemBound        []uint64
 	MemCarry        []uint64
 }
@@ -1602,24 +1669,46 @@ func buildCredentialKEvalCache(cfg CredentialConstraintConfig, K *kf.Field) (*cr
 		cache.TPublicCoeff = coeff
 	}
 	// Packing selector: interpolate over Ω of length ncols.
-	if ncols%2 == 0 {
+	if !cfg.MuMode && ncols%2 == 0 {
 		selCoeff, err := buildPackingSelectorCoeff(cfg.Ring, omega)
 		if err != nil {
 			return nil, err
 		}
 		cache.PackingSelCoeff = selCoeff
 	}
-	decode1, decode2, err := buildCarrierDecodePolys(cfg.Bound, cfg.Ring.Modulus[0])
-	if err != nil {
-		return nil, fmt.Errorf("credential replay config: carrier decode polys: %w", err)
+	var decode1, decode2 []uint64
+	var err error
+	if cfg.MuMode {
+		decode1, err = buildSingletonCarrierDecodePoly(cfg.Bound, cfg.Ring.Modulus[0])
+		if err != nil {
+			return nil, fmt.Errorf("credential replay config: mu carrier decode poly: %w", err)
+		}
+		decode2 = []uint64{0}
+	} else {
+		decode1, decode2, err = buildCarrierDecodePolys(cfg.Bound, cfg.Ring.Modulus[0])
+		if err != nil {
+			return nil, fmt.Errorf("credential replay config: carrier decode polys: %w", err)
+		}
 	}
 	decode1K, decode2K, err := buildCarrierDecodePolys(1, cfg.Ring.Modulus[0])
 	if err != nil {
 		return nil, fmt.Errorf("credential replay config: carrier decode polys (K): %w", err)
 	}
+	var memMsg []uint64
+	if cfg.MuMode {
+		memMsg, err = buildSingletonCarrierMembershipPoly(cfg.Bound, cfg.Ring.Modulus[0])
+		if err != nil {
+			return nil, fmt.Errorf("credential replay config: mu carrier membership poly: %w", err)
+		}
+	} else {
+		memMsg, err = buildCarrierMembershipPoly(cfg.Bound, cfg.Ring.Modulus[0])
+		if err != nil {
+			return nil, fmt.Errorf("credential replay config: carrier membership poly: %w", err)
+		}
+	}
 	memBound, err := buildCarrierMembershipPoly(cfg.Bound, cfg.Ring.Modulus[0])
 	if err != nil {
-		return nil, fmt.Errorf("credential replay config: carrier membership poly: %w", err)
+		return nil, fmt.Errorf("credential replay config: scalar carrier membership poly: %w", err)
 	}
 	memCarry, err := buildCarrierMembershipPoly(1, cfg.Ring.Modulus[0])
 	if err != nil {
@@ -1629,6 +1718,7 @@ func buildCredentialKEvalCache(cfg CredentialConstraintConfig, K *kf.Field) (*cr
 	cache.Decode2 = decode2
 	cache.Decode1K = decode1K
 	cache.Decode2K = decode2K
+	cache.MemMsg = memMsg
 	cache.MemBound = memBound
 	cache.MemCarry = memCarry
 	return cache, nil

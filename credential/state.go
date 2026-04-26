@@ -8,14 +8,14 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-const StateVersion = 2
+const StateVersion = 4
 
 // State captures all holder-side data needed to persist a credential.
 // All polys are stored in coefficient form (no seeds).
 type State struct {
 	Version            int       `json:"version"`
-	M                  [][]int64 `json:"m"`
-	K                  [][]int64 `json:"k"`
+	Mu                 [][]int64 `json:"mu"`
+	MuLayout           string    `json:"mu_layout,omitempty"`
 	R0                 [][]int64 `json:"r0"`
 	R1                 [][]int64 `json:"r1"`
 	Z                  [][]int64 `json:"z"`
@@ -23,6 +23,7 @@ type State struct {
 	X0CoeffBound       int64     `json:"x0_coeff_bound,omitempty"`
 	TargetDim          int       `json:"target_dim,omitempty"`
 	TargetHidingLambda int       `json:"target_hiding_lambda,omitempty"`
+	RingDegree         int       `json:"ring_degree,omitempty"`
 	// Showing-signature rows s1 and s2 are the bounded rows.
 	SigS1 []int64 `json:"sig_s1,omitempty"`
 	SigS2 []int64 `json:"sig_s2,omitempty"`
@@ -93,6 +94,39 @@ func (st State) SignatureCoordLinf() (maxS1 int64, maxS2 int64, maxSig int64) {
 	return maxS1, maxS2, maxSig
 }
 
+func (st State) InferRingDegree() int {
+	if st.RingDegree > 0 {
+		return st.RingDegree
+	}
+	for _, row := range st.Mu {
+		if len(row) > 0 {
+			return len(row)
+		}
+	}
+	for _, row := range st.R0 {
+		if len(row) > 0 {
+			return len(row)
+		}
+	}
+	for _, row := range st.R1 {
+		if len(row) > 0 {
+			return len(row)
+		}
+	}
+	if len(st.SigS1) > 0 {
+		return len(st.SigS1)
+	}
+	if len(st.SigS2) > 0 {
+		return len(st.SigS2)
+	}
+	for _, row := range st.NTRUPublic {
+		if len(row) > 0 {
+			return len(row)
+		}
+	}
+	return 0
+}
+
 // polyFromInt64 builds a coeff-domain poly from centered coeffs in [-q/2,q/2].
 func polyFromInt64(coeffs []int64, ringQ *ring.Ring) *ring.Poly {
 	p := ringQ.NewPoly()
@@ -114,6 +148,28 @@ func polysFromInt64(vec [][]int64, ringQ *ring.Ring) []*ring.Poly {
 		out[i] = polyFromInt64(coeffs, ringQ)
 	}
 	return out
+}
+
+// ValidateFullMuPayload checks the canonical signed payload shape: one
+// coefficient-domain ring element with every coefficient bounded by BoundB.
+func ValidateFullMuPayload(mu [][]int64, ringN int, boundB int64) error {
+	if len(mu) != 1 {
+		return fmt.Errorf("mu row count=%d want 1", len(mu))
+	}
+	if boundB < 0 {
+		return fmt.Errorf("invalid mu bound=%d", boundB)
+	}
+	if ringN > 0 {
+		if len(mu[0]) != ringN {
+			return fmt.Errorf("mu coefficient length=%d want ring dimension %d", len(mu[0]), ringN)
+		}
+	}
+	for i := range mu[0] {
+		if mu[0][i] < -boundB || mu[0][i] > boundB {
+			return fmt.Errorf("mu coefficient %d=%d outside [%d,%d]", i, mu[0][i], -boundB, boundB)
+		}
+	}
+	return nil
 }
 
 // matrixToInt64 converts a matrix of polys (NTT or coeff) to coeff slices.
@@ -145,6 +201,9 @@ func SaveState(path string, ringQ *ring.Ring, st State) error {
 	if st.Version == 0 {
 		st.Version = StateVersion
 	}
+	if st.RingDegree == 0 && ringQ != nil {
+		st.RingDegree = int(ringQ.N)
+	}
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
@@ -166,25 +225,13 @@ func LoadState(path string) (State, error) {
 		return st, fmt.Errorf("unmarshal state: %w", err)
 	}
 	switch st.Version {
-	case 1:
-		if st.X0Len == 0 {
-			if len(st.R0) > 0 {
-				st.X0Len = len(st.R0)
-			} else {
-				st.X0Len = 1
-			}
-		}
-		if st.X0CoeffBound == 0 {
-			st.X0CoeffBound = 1
-		}
-		if st.TargetDim == 0 {
-			st.TargetDim = DefaultTargetDim
-		}
-		if st.TargetHidingLambda == 0 {
-			st.TargetHidingLambda = DefaultTargetHidingLambda
-		}
-		st.Version = StateVersion
 	case StateVersion:
+		if st.MuLayout == "" {
+			st.MuLayout = MuLayoutFullCapacityHalvesV1
+		}
+		if st.MuLayout != MuLayoutFullCapacityHalvesV1 {
+			return st, fmt.Errorf("unsupported credential mu layout %q in %s", st.MuLayout, path)
+		}
 		if st.X0Len == 0 {
 			st.X0Len = len(st.R0)
 		}
@@ -194,8 +241,17 @@ func LoadState(path string) (State, error) {
 		if st.TargetHidingLambda == 0 {
 			st.TargetHidingLambda = DefaultTargetHidingLambda
 		}
+		if st.RingDegree == 0 {
+			st.RingDegree = st.InferRingDegree()
+		}
 	default:
-		return st, fmt.Errorf("unsupported credential state version %d in %s; regenerate the credential with the shared-randomness issuance flow", st.Version, path)
+		return st, fmt.Errorf("unsupported credential state version %d in %s; regenerate the credential with the mu-aligned issuance flow", st.Version, path)
+	}
+	if len(st.Mu) == 0 {
+		return st, fmt.Errorf("credential state %s missing mu payload", path)
+	}
+	if st.RingDegree <= 0 {
+		return st, fmt.Errorf("credential state %s has invalid ring_degree=%d", path, st.RingDegree)
 	}
 	return st, nil
 }

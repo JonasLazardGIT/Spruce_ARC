@@ -22,15 +22,29 @@ type PublicInputs struct {
 	X0CoeffBound       int64
 	TargetDim          int
 	TargetHidingLambda int
+	RingDegree         int
 	HashRelation       string
 	Extras             map[string]interface{}
 }
 
+func publicInputsWithRingDegree(pub PublicInputs, ringDegree int) (PublicInputs, error) {
+	if ringDegree <= 0 {
+		return pub, nil
+	}
+	if pub.RingDegree > 0 && pub.RingDegree != ringDegree {
+		return pub, fmt.Errorf("public input ring_degree=%d does not match selected ring degree %d", pub.RingDegree, ringDegree)
+	}
+	pub.RingDegree = ringDegree
+	return pub, nil
+}
+
 // CoeffNativeShowingWitness holds the retained literal-packed post-sign
-// witness. It carries the signed base rows directly so PRF key material can be
-// derived from M2 by construction.
+// witness. It carries the signed mu row directly so PRF key material can be
+// derived from the key slice of mu by construction.
 type CoeffNativeShowingWitness struct {
-	Sig         []*ring.Poly
+	Sig []*ring.Poly
+	Mu  *ring.Poly
+	// Deprecated split rows retained only for older tests/fixtures.
 	M1          *ring.Poly
 	M2          *ring.Poly
 	R0          []*ring.Poly
@@ -48,11 +62,11 @@ func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
 	if len(wit.Sig) == 0 {
 		return fmt.Errorf("missing coeff-native signature witness rows")
 	}
-	if wit.M1 == nil {
-		return fmt.Errorf("missing signed M1 witness row")
-	}
-	if wit.M2 == nil {
-		return fmt.Errorf("missing signed M2 witness row")
+	if wit.Mu == nil {
+		if wit.M1 == nil {
+			return fmt.Errorf("missing signed mu witness row")
+		}
+		wit.Mu = wit.M1
 	}
 	if len(wit.R0) == 0 {
 		return fmt.Errorf("missing signed R0 witness row")
@@ -77,7 +91,7 @@ func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
 	if wit.PackedNCols <= 0 {
 		return fmt.Errorf("invalid coeff-native packed ncols=%d", wit.PackedNCols)
 	}
-	rows := []*ring.Poly{wit.M1, wit.M2, wit.R1, wit.Z, wit.T}
+	rows := []*ring.Poly{wit.Mu, wit.R1, wit.Z, wit.T}
 	for i, poly := range wit.Sig {
 		if poly == nil {
 			return fmt.Errorf("nil coeff-native signature row %d", i)
@@ -101,6 +115,7 @@ func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
 
 // WitnessInputs holds the witness vectors for a statement build.
 type WitnessInputs struct {
+	Mu  []*ring.Poly
 	M1  []*ring.Poly
 	M2  []*ring.Poly
 	RU0 []*ring.Poly

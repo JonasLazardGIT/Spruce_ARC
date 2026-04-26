@@ -11,15 +11,22 @@ what has to be regenerated.
 The live credential path now uses:
 
 - semantic message `mu = (m || k)`
+  - default/public `mu` is one full-capacity coefficient-bounded `N=1024` ring
+    element with layout `full_capacity_halves_v1`; all coefficients are bounded
+    by `BoundB`, coefficients `0..511` are the message half, and PRF-key
+    coefficients live at `512..519`
+  - the opt-in `N=512` research fork keeps the same layout over 512
+    coefficients, with the PRF-key window at `256..263`; it is a research
+    statement fork and requires separate artifacts
 - Ajtai commitment to
-  `(m, k, r0H[0..X0Len-1], r1H, rbar)`
+  `(mu, r0H[0..X0Len-1], r1H, rbar)`
 - issuer challenge rows `ri0[0..X0Len-1]`, `ri1`
 - componentwise centering on the `x0` side
 - direct `bb_tran` target
   - `Z = (B3 - r1)^(-1)`
   - `T = B0 + B1 * mu + sum_j B2[j] * r0[j] + Z`
 - stored semantic credential witness
-  `(u, m, k, r0, r1, Z)`
+  `(u, mu, r0, r1, Z)`
 
 The live code no longer uses:
 
@@ -32,9 +39,9 @@ The live code no longer uses:
 
 As of the current branch:
 
-- public params: `version = 2`
+- public params: `version = 4`
 - issuance artifacts: `version = 2`
-- credential state: `version = 2`
+- credential state: `version = 4`
 - `benchmark-x0` JSON: `version = 2`
 
 ## Public Parameter Changes
@@ -50,8 +57,7 @@ The live emitted surface now includes:
 - `TargetDim`
 - `TargetHidingLambda`
 - `X0Distribution`
-- `LenM`
-- `LenK`
+- `LenMu`
 - `LenR0H`
 - `LenR1H`
 - `LenRBar`
@@ -69,7 +75,8 @@ Compatibility:
 
 - the loader still accepts older semantic and legacy length names when reading
   historical public-parameter files
-- the emitted surface is still `version = 2`
+- the emitted surface is `version = 4`
+- `LenMu = 1`
 - `LenR0H` must match `X0Len`
 
 ## `B` Matrix Changes
@@ -109,7 +116,7 @@ Current files:
 Semantic contents:
 
 - `holder_secret.json`
-  - `m`, `k`, `r0h`, `r1h`, `rbar`
+  - `mu`, `r0h`, `r1h`, `rbar`
   - runtime geometry fields such as `packed_ncols`, `lvcs_ncols`, `nleaves`,
     `omega`
 - `commit_request.json`
@@ -134,13 +141,12 @@ The canonical holder state is `credential/keys/credential_state.json`.
 
 Current emitted format:
 
-- `version = 2`
+- `version = 4`
 
 Live state now stores:
 
 - semantic witness rows:
-  - `m`
-  - `k`
+  - `mu`
   - `r0`
   - `r1`
   - `z`
@@ -160,9 +166,7 @@ The final credential state does not store `T`.
 
 Compatibility:
 
-- `version = 1` shared-randomness state is upgraded on load if it is otherwise
-  semantically compatible
-- unversioned or aligned legacy state is rejected
+- older `m`/`k`, unversioned, or aligned legacy state is rejected
 
 ## `x0` Migration
 
@@ -191,8 +195,11 @@ the `x0` side:
 - `RU0[]`, `R0[]`, and `K0[]` use a true singleton low-alphabet carrier codec
 - the old dummy `(value, 0)` pair-carrier overpayment is gone
 
-This does not change the serialized credential/public format. It changes the
-live proof surface and the measured transcript geometry.
+The x0 carrier optimization changes the live proof surface and measured
+transcript geometry. The serialized credential/public-format change in this
+branch is the v4 full-capacity `mu` payload described above. The optimized
+showing preset additionally uses showing-only `mu_pack=2` witness compression;
+this does not change credential artifact formats.
 
 ## Regenerate Fresh Artifacts
 
@@ -219,4 +226,34 @@ For profile comparisons:
 
 ```bash
 go run ./cmd/issuance benchmark-x0 -profiles legacy_scalar,lhl_default,lhl_alt -runs 1
+```
+
+For the degree-512 research fork, regenerate into separate paths instead of
+overwriting the default artifacts:
+
+```bash
+go run ./cmd/issuance setup-demo-public \
+  -research-ring-degree 512 \
+  -out Parameters/credential_public.research_n512.json \
+  -b-path Parameters/Bmatrix_bb_tran_x0len6.research_n512.json \
+  -x0-profile lhl_default \
+  -force
+
+go run ./cmd/issuance setup-ntru-keys \
+  -research-ring-degree 512 \
+  -params-out Parameters/Parameters.research_n512.json \
+  -public-out ntru_keys/public.research_n512.json \
+  -private-out ntru_keys/private.research_n512.json \
+  -force
+
+go run ./cmd/issuance demo-local \
+  -research-ring-degree 512 \
+  -public-params Parameters/credential_public.research_n512.json \
+  -artifact-dir credential/issuance/research_n512 \
+  -state-out credential/keys/credential_state.research_n512.json \
+  -signature-out credential/keys/signature.research_n512.json \
+  -ntru-params Parameters/Parameters.research_n512.json \
+  -ntru-public-key ntru_keys/public.research_n512.json \
+  -ntru-private-key ntru_keys/private.research_n512.json \
+  -ntru-signature-out credential/issuance/research_n512/ntru_signature.json
 ```

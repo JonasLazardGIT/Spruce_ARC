@@ -648,6 +648,13 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	useDirectTargetReplay := useV18Shortness
 	useTargetMR0HatReplay := false
 	useRHat1Replay := true
+	muPackWidth := resolveMuWitnessPackWidth(opts)
+	if err := validateMuWitnessPackWidth(muPackWidth); err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+	}
+	if muPackWidth > 1 && !useV18Shortness {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("packed mu witness width=%d is only supported by the V18 optimized showing path", muPackWidth)
+	}
 	if useInlinedShortness && spec.UsesAbsRow {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("inlined sig shortness does not support abs-row packed chains")
 	}
@@ -698,8 +705,6 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			poly *ring.Poly
 			name string
 		}{
-			{poly: cn.M1, name: "M1"},
-			{poly: cn.M2, name: "M2"},
 			{poly: cn.R1, name: "R1"},
 		}
 		for i, r0 := range cn.R0 {
@@ -714,24 +719,13 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			}
 		}
 	}
-	var m1Head []uint64
 	var berr error
-	if opts.DomainMode == DomainModeExplicit {
-		m1Head, berr = rowHeadOnOmega(ringQ, explicitOmega, cn.M1, ncols)
-	} else {
-		m1Head, berr = nttHead(cn.M1)
+	if cn.Mu == nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native showing witness missing Mu row")
 	}
+	muHeads, berr := coeffBlockHeadsFromPoly(ringQ, cn.Mu, ncols, "Mu")
 	if berr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M1 head: %w", berr)
-	}
-	var m2Head []uint64
-	if opts.DomainMode == DomainModeExplicit {
-		m2Head, berr = rowHeadOnOmega(ringQ, explicitOmega, cn.M2, ncols)
-	} else {
-		m2Head, berr = nttHead(cn.M2)
-	}
-	if berr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M2 head: %w", berr)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native Mu blocks: %w", berr)
 	}
 	r0Heads := make([][]uint64, len(cn.R0))
 	for i := range cn.R0 {
@@ -753,35 +747,35 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	if berr != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native R1 head: %w", berr)
 	}
-	carrierMHead := make([]uint64, ncols)
+	carrierMHeads, cerr := buildPackedMuCarrierHeads(muHeads, q, pub.BoundB, muPackWidth)
+	if cerr != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, cerr
+	}
 	carrierR0Heads := make([][]uint64, len(r0Heads))
 	for i := range carrierR0Heads {
 		carrierR0Heads[i] = make([]uint64, ncols)
 	}
 	carrierR1Head := make([]uint64, ncols)
 	for col := 0; col < ncols; col++ {
-		m1 := centeredLift(m1Head[col], q)
-		m2 := centeredLift(m2Head[col], q)
-		code, err := encodePackedMessageCarrier(m1, m2, pub.BoundB)
-		if err != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("encode carrier M col=%d: %w", col, err)
-		}
-		carrierMHead[col] = liftToField(q, int64(code))
 		for i := range r0Heads {
-			code, err = encodeSingletonCarrier(centeredLift(r0Heads[i][col], q), pub.X0CoeffBound)
+			code, err := encodeSingletonCarrier(centeredLift(r0Heads[i][col], q), pub.X0CoeffBound)
 			if err != nil {
 				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("encode carrier R0[%d] col=%d: %w", i, col, err)
 			}
 			carrierR0Heads[i][col] = liftToField(q, int64(code))
 		}
-		code, err = encodeCarrierPair(centeredLift(r1Head[col], q), 0, pub.BoundB)
+		code, err := encodeCarrierPair(centeredLift(r1Head[col], q), 0, pub.BoundB)
 		if err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("encode carrier R1 col=%d: %w", col, err)
 		}
 		carrierR1Head[col] = liftToField(q, int64(code))
 	}
-	idxCarrierM := len(rows)
-	rows = append(rows, makeRowFromHead(carrierMHead))
+	carrierMuBlockRows := make([]int, len(carrierMHeads))
+	for i := range carrierMHeads {
+		carrierMuBlockRows[i] = len(rows)
+		rows = append(rows, makeRowFromHead(carrierMHeads[i]))
+	}
+	idxCarrierM := firstIndex(carrierMuBlockRows)
 	carrierR0Rows := make([]int, len(carrierR0Heads))
 	for i := range carrierR0Heads {
 		carrierR0Rows[i] = len(rows)
@@ -791,19 +785,40 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	rows = append(rows, makeRowFromHead(carrierR1Head))
 
 	companionMode := normalizePRFCompanionMode(opts.PRFCompanionMode)
+	keySourceBlock := -1
+	keySourcePackedRow := -1
+	keySourceLane := 0
+	keySourceColStart := -1
 	appendPRFCompanionRows := func(denseKeyPacking bool) error {
 		if prfGroupRounds <= 0 {
 			prfGroupRounds = 1
 		}
 		var keyScalars []int64
 		var kerr error
+		keyStart := fullCapacityMuKeyStart(int(ringQ.N))
+		keySourceBlock = keyStart / ncols
+		keySourceColStart = keyStart % ncols
+		keySourcePackedRow = keySourceBlock / muPackWidth
+		keySourceLane = keySourceBlock % muPackWidth
+		if keySourceBlock < 0 || keySourcePackedRow < 0 || keySourcePackedRow >= len(carrierMuBlockRows) || keySourceColStart+prfParamsLenKey > ncols {
+			return fmt.Errorf("full-capacity mu key window block=%d packed_row=%d col=%d len=%d outside ncols=%d carrier_rows=%d", keySourceBlock, keySourcePackedRow, keySourceColStart, prfParamsLenKey, ncols, len(carrierMuBlockRows))
+		}
+		keyCarrierRow := rows[carrierMuBlockRows[keySourcePackedRow]]
 		if opts.DomainMode == DomainModeExplicit {
 			if len(explicitOmega) == 0 {
 				return fmt.Errorf("explicit omega missing for semantic key extraction")
 			}
-			keyScalars, kerr = ExtractSignedPRFKeyScalarsFromCarrierOnOmega(ringQ, rows[idxCarrierM], explicitOmega, cn.PackedNCols, prfParamsLenKey, pub.BoundB)
+			if muPackWidth == 1 {
+				keyScalars, kerr = ExtractSignedPRFKeyScalarsFromSingletonCarrierWindowOnOmega(ringQ, keyCarrierRow, explicitOmega, keySourceColStart, prfParamsLenKey, pub.BoundB)
+			} else {
+				keyScalars, kerr = ExtractSignedPRFKeyScalarsFromPackedMuCarrierWindowOnOmega(ringQ, keyCarrierRow, explicitOmega, keySourceColStart, prfParamsLenKey, pub.BoundB, muPackWidth, keySourceLane)
+			}
 		} else {
-			keyScalars, kerr = ExtractSignedPRFKeyScalarsFromCarrier(ringQ, rows[idxCarrierM], cn.PackedNCols, prfParamsLenKey, pub.BoundB)
+			if muPackWidth == 1 {
+				keyScalars, kerr = ExtractSignedPRFKeyScalarsFromSingletonCarrierWindow(ringQ, keyCarrierRow, keySourceColStart, prfParamsLenKey, pub.BoundB)
+			} else {
+				keyScalars, kerr = ExtractSignedPRFKeyScalarsFromPackedMuCarrierWindow(ringQ, keyCarrierRow, keySourceColStart, prfParamsLenKey, pub.BoundB, muPackWidth, keySourceLane)
+			}
 		}
 		if kerr != nil {
 			return fmt.Errorf("extract signed prf key: %w", kerr)
@@ -846,7 +861,9 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		for i := range rowSemantics {
 			rowSemantics[i] = CoeffPackedRow
 		}
-		dataRows := ceilDiv(len(packed.KeySlots)+len(packed.CheckpointSlots), ncols)
+		dataSlotRows := append([]CoeffSlot(nil), packed.KeySlots...)
+		dataSlotRows = append(dataSlotRows, packed.CheckpointSlots...)
+		dataRows := len(uniqueRowsFromCoeffSlots(dataSlotRows))
 		helperRows := maxInt(len(packed.Rows)-dataRows, 0)
 		helperFamilies := []string{"final_tag_state"}
 		if denseKeyPacking && helperRows == 0 {
@@ -857,6 +874,7 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			PackWidth:          ncols,
 			KeySource:          KeySourceIndependentWitness,
 			KeySlots:           packed.KeySlots,
+			KeySourceSlots:     nil,
 			CheckpointSlots:    packed.CheckpointSlots,
 			FinalTagSlots:      packed.FinalTagSlots,
 			HelperFamilies:     helperFamilies,
@@ -887,27 +905,59 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		}
 	}
 
+	rawRowsForAlias := PreSignRawRows{
+		R0: cn.R0,
+		R1: cn.R1,
+	}
+	if muPackWidth == 1 {
+		rawRowsForAlias.Mu = cn.Mu
+	}
 	rawAliasSurface, derr := DerivePreSignCarrierAndAliasRows(
 		ringQ,
 		pub.BoundB,
 		pub.X0CoeffBound,
 		explicitOmega,
 		DomainModeExplicit,
-		PreSignRawRows{
-			M1: cn.M1,
-			M2: cn.M2,
-			R0: cn.R0,
-			R1: cn.R1,
-		},
+		rawRowsForAlias,
 	)
 	if derr != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("derive showing raw alias surface: %w", derr)
 	}
 
-	idxM1 := len(rows)
-	rows = append(rows, rawAliasSurface.AliasM1)
-	idxM2 := len(rows)
-	rows = append(rows, rawAliasSurface.AliasM2)
+	var aliasMuBlockRows []int
+	if muPackWidth == 1 {
+		aliasMuBlockRows = make([]int, len(rawAliasSurface.AliasMuRows))
+		for i := range rawAliasSurface.AliasMuRows {
+			aliasMuBlockRows[i] = len(rows)
+			rows = append(rows, rawAliasSurface.AliasMuRows[i])
+		}
+	}
+	idxM1 := firstIndex(aliasMuBlockRows)
+	idxM2 := -1
+	if muPackWidth == 1 {
+		idxM2 = len(rows)
+		rows = append(rows, rawAliasSurface.AliasM2)
+	}
+	if prfCompanionLayout != nil && keySourceBlock >= 0 {
+		prfCompanionLayout.KeySourceSlots = make([]CoeffSlot, prfParamsLenKey)
+		prfCompanionLayout.KeySourceDecodeLanes = nil
+		for i := 0; i < prfParamsLenKey; i++ {
+			if muPackWidth == 1 {
+				if keySourceBlock >= len(aliasMuBlockRows) {
+					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("key source block=%d outside alias mu blocks=%d", keySourceBlock, len(aliasMuBlockRows))
+				}
+				prfCompanionLayout.KeySourceSlots[i] = CoeffSlot{Row: aliasMuBlockRows[keySourceBlock], Coeff: keySourceColStart + i}
+			} else {
+				prfCompanionLayout.KeySourceSlots[i] = CoeffSlot{Row: carrierMuBlockRows[keySourcePackedRow], Coeff: keySourceColStart + i}
+			}
+		}
+		if muPackWidth > 1 {
+			prfCompanionLayout.KeySourceDecodeLanes = make([]int, prfParamsLenKey)
+			for i := range prfCompanionLayout.KeySourceDecodeLanes {
+				prfCompanionLayout.KeySourceDecodeLanes[i] = keySourceLane
+			}
+		}
+	}
 	aliasR0Rows := make([]int, len(rawAliasSurface.AliasR0Rows))
 	for i := range rawAliasSurface.AliasR0Rows {
 		aliasR0Rows[i] = len(rows)
@@ -924,19 +974,15 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		zSourcePoly = cn.Z
 	}
 
-	mHat1Heads, berr := buildReplayHeadsFromSourcePoly(ringQ, rawAliasSurface.AliasM1, explicitOmega, replayBlockCount, "M hat 1")
+	mHat1Heads, berr := buildReplayHeadsFromSourcePoly(ringQ, cn.Mu, explicitOmega, replayBlockCount, "Mu hat")
 	if berr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M hat1: %w", berr)
-	}
-	mHat2Heads, berr := buildReplayHeadsFromSourcePoly(ringQ, rawAliasSurface.AliasM2, explicitOmega, replayBlockCount, "M hat 2")
-	if berr != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native M hat2: %w", berr)
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("coeff-native Mu hat: %w", berr)
 	}
 	mSigmaHatHeads := make([][]uint64, replayBlockCount)
 	for block := 0; block < replayBlockCount; block++ {
 		mSigmaHatHeads[block] = make([]uint64, ncols)
 		for col := 0; col < ncols; col++ {
-			mSigmaHatHeads[block][col] = modAdd(mHat1Heads[block][col]%q, mHat2Heads[block][col]%q, q)
+			mSigmaHatHeads[block][col] = mHat1Heads[block][col] % q
 		}
 	}
 	r0HatHeads := make([][][]uint64, len(rawAliasSurface.AliasR0Rows))
@@ -1266,9 +1312,34 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 	}
+	if prfCompanionLayout != nil && len(prfCompanionLayout.KeySourceSlots) == 0 && keySourceBlock >= 0 {
+		prfCompanionLayout.KeySourceSlots = make([]CoeffSlot, prfParamsLenKey)
+		for i := 0; i < prfParamsLenKey; i++ {
+			if muPackWidth == 1 {
+				if keySourceBlock >= len(aliasMuBlockRows) {
+					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("key source block=%d outside alias mu blocks=%d", keySourceBlock, len(aliasMuBlockRows))
+				}
+				prfCompanionLayout.KeySourceSlots[i] = CoeffSlot{Row: aliasMuBlockRows[keySourceBlock], Coeff: keySourceColStart + i}
+			} else {
+				prfCompanionLayout.KeySourceSlots[i] = CoeffSlot{Row: carrierMuBlockRows[keySourcePackedRow], Coeff: keySourceColStart + i}
+			}
+		}
+		if muPackWidth > 1 {
+			prfCompanionLayout.KeySourceDecodeLanes = make([]int, prfParamsLenKey)
+			for i := range prfCompanionLayout.KeySourceDecodeLanes {
+				prfCompanionLayout.KeySourceDecodeLanes[i] = keySourceLane
+			}
+		}
+	}
 
 	layout.HasExplicitBaseIdx = true
+	layout.RingDegree = int(ringQ.N)
 	layout.X0Len = len(cn.R0)
+	if muPackWidth > 1 {
+		layout.IdxMu = idxCarrierM
+	} else {
+		layout.IdxMu = idxM1
+	}
 	layout.IdxM1 = idxM1
 	layout.IdxM2 = idxM2
 	layout.IdxRU0 = -1
@@ -1280,6 +1351,10 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	layout.IdxK1 = -1
 	layout.IdxZ = idxZ
 	layout.IdxCarrierM = idxCarrierM
+	layout.CarrierMuBlockRows = append([]int(nil), carrierMuBlockRows...)
+	layout.AliasMuBlockRows = append([]int(nil), aliasMuBlockRows...)
+	layout.MuCarrierPackWidth = muPackWidth
+	layout.MuVirtualBlockCount = len(muHeads)
 	layout.IdxCarrierCtr = firstIndex(carrierR0Rows)
 	layout.IdxCarrierR1 = idxCarrierR1
 	layout.CarrierR0Rows = append([]int(nil), carrierR0Rows...)
@@ -1584,17 +1659,28 @@ func buildLiteralPackedSignatureShortnessConstraintSet(ringQ *ring.Ring, layout 
 		for g := 0; g < layout.PackedSigChainGroupCount; g++ {
 			packedSourceRows[g] = rowsNTT[cfg.PackedSigBase+g]
 		}
-		chainPolys, chainCoeffs, err = buildSigShortnessPackedMembershipFormalCoeffs(ringQ, packedSourceRows, packedRows, specSig)
+		if sigLookupShadowR121L2FreeForOpts(opts) {
+			chainPolys, chainCoeffs, err = buildSigShortnessPackedRecompositionFormalCoeffs(ringQ, packedSourceRows, packedRows, specSig)
+		} else {
+			chainPolys, chainCoeffs, err = buildSigShortnessPackedMembershipFormalCoeffs(ringQ, packedSourceRows, packedRows, specSig)
+		}
 	} else {
-		chainPolys, chainCoeffs, err = buildSigShortnessPackedMembershipFormalCoeffs(ringQ, nil, packedRows, specSig)
+		if sigLookupShadowR121L2FreeForOpts(opts) {
+			chainPolys = nil
+			chainCoeffs = nil
+		} else {
+			chainPolys, chainCoeffs, err = buildSigShortnessPackedMembershipFormalCoeffs(ringQ, nil, packedRows, specSig)
+		}
 	}
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("literal packed signature shortness: %w", err)
 	}
-	deg := 0
-	deg, err = signatureShortnessMaxDegree(specSig, opts)
-	if err != nil {
-		return ConstraintSet{}, fmt.Errorf("signature shortness degree: %w", err)
+	deg := 1
+	if !sigLookupShadowR121L2FreeForOpts(opts) {
+		deg, err = signatureShortnessMaxDegree(specSig, opts)
+		if err != nil {
+			return ConstraintSet{}, fmt.Errorf("signature shortness degree: %w", err)
+		}
 	}
 	return ConstraintSet{
 		FparNorm:       append([]*ring.Poly{}, chainPolys...),

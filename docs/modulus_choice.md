@@ -38,6 +38,11 @@ From `Parameters/Parameters.json`:
 - signature bound `beta = 6142`
 - signature bound alias `bound = 6142`
 
+The opt-in degree-512 research fork uses
+`Parameters/Parameters.research_n512.json` with the same `q` and `beta` but
+`n = 512`. That file is only for separately generated `research_n512`
+artifacts; it is not the default public parameter set.
+
 ### Credential-side public parameters
 
 From `Parameters/credential_public.json`:
@@ -69,7 +74,9 @@ The current modulus is not just "big enough". It simultaneously satisfies the
 constraints of the current protocol stack.
 
 - `q` is prime, so the proof stack and PRF run over a field.
-- `q ≡ 1 mod 2048`, so the current `N = 1024` power-of-two NTT structure works.
+- `q ≡ 1 mod 2048`, so the default `N = 1024` power-of-two NTT structure works.
+  This also satisfies the `N = 512` research fork's weaker `q ≡ 1 mod 1024`
+  NTT requirement.
 - `q ≡ 2 mod 3`, so the cubic PRF exponent is compatible with the field.
 
 Those properties let the repo keep:
@@ -197,6 +204,12 @@ Changing `q` is not a one-package edit. At minimum it requires revalidating:
 5. NTRU keys and signatures
 6. the LHL report for the active `x0` profile
 7. proof geometry and presets that depend on row width and degree
+
+Changing only the ring degree is also not a runtime flag on existing
+artifacts. The `N=512` fork needs its own public params, B matrix, NTRU
+params/key material, issuance artifacts, credential state, and signature
+files. The code validates exact coefficient lengths before converting those
+artifacts to ring polynomials.
 
 In practice it also forces regeneration of:
 

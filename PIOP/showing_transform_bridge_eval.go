@@ -9,10 +9,12 @@ import (
 )
 
 type prfKeyBindingLayout struct {
-	KeyCount int
-	Packed   bool
-	KeySlots []CoeffSlot
-	StartIdx int
+	KeyCount             int
+	Packed               bool
+	KeySlots             []CoeffSlot
+	KeySourceSlots       []CoeffSlot
+	KeySourceDecodeLanes []int
+	StartIdx             int
 }
 
 type transformBridgePostSignConfig struct {
@@ -24,6 +26,11 @@ type transformBridgePostSignConfig struct {
 	X0Len              int
 	DirectTargetReplay bool
 	InlineTargetReplay bool
+	MuMode             bool
+	FullMuMode         bool
+	PackedMuMode       bool
+	MuPackWidth        int
+	MuVirtualBlocks    int
 
 	ThetaAHeads                 [][][]uint64
 	ThetaBBlocks                [][][]uint64
@@ -32,10 +39,13 @@ type transformBridgePostSignConfig struct {
 	TransformH                  [][]uint64
 	TransformHEval              [][]uint64
 	BlockFactors                [][]uint64
+	FullMuTransformHEval        [][]uint64
+	FullMuBlockFactors          [][]uint64
 	ComponentCount              int
 	SourceBlocks                int
 	MsgDecode1                  []uint64
 	MsgDecode2                  []uint64
+	MuDecodePolys               [][]uint64
 	X0Decode1                   []uint64
 	ScalarDecode1               []uint64
 	MsgMembershipPoly           []uint64
@@ -151,17 +161,48 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 		}
 	}
 
-	packingSelCoeff, err := buildPackingSelectorCoeff(ringQ, omegaWitness)
-	if err != nil {
-		return nil, fmt.Errorf("packing selector coeffs: %w", err)
+	muMode := rowLayoutUsesMu(layout)
+	fullMuMode := rowLayoutUsesFullMu(layout)
+	packedMuMode := rowLayoutUsesPackedMuCarrier(layout)
+	muPackWidth := rowLayoutMuCarrierPackWidth(layout)
+	muVirtualBlocks := rowLayoutMuVirtualBlockCount(layout)
+	var err error
+	var packingSelCoeff []uint64
+	if !muMode {
+		packingSelCoeff, err = buildPackingSelectorCoeff(ringQ, omegaWitness)
+		if err != nil {
+			return nil, fmt.Errorf("packing selector coeffs: %w", err)
+		}
 	}
 	bridgeBasis, err := newRowTransformBridgeBasisCache(ringQ, omegaWitness, outputBlocks*len(omegaWitness))
 	if err != nil {
 		return nil, fmt.Errorf("transform-bridge basis: %w", err)
 	}
-	msgDecode1, msgDecode2, err := buildPackedMessageCarrierDecodePolys(bound, q)
-	if err != nil {
-		return nil, fmt.Errorf("message carrier decode polys: %w", err)
+	var fullMuTransformHEval [][]uint64
+	var fullMuBlockFactors [][]uint64
+	if fullMuMode && !directTargetReplay {
+		sourceBlocks := muVirtualBlocks
+		fullMuBasis, ferr := newTransformBridgeBasisCache(ringQ, omegaWitness, replayBlockCount*len(omegaWitness), sourceBlocks)
+		if ferr != nil {
+			return nil, fmt.Errorf("full mu transform-bridge basis: %w", ferr)
+		}
+		fullMuTransformHEval = fullMuBasis.TransformH
+		fullMuBlockFactors = fullMuBasis.BlockFactors
+	}
+	var msgDecode1, msgDecode2 []uint64
+	var muDecodePolys [][]uint64
+	if muMode {
+		muDecodePolys, _, err = buildMuCarrierDecodePolys(bound, muPackWidth, q)
+		if err != nil {
+			return nil, fmt.Errorf("mu carrier decode poly: %w", err)
+		}
+		msgDecode1 = muDecodePolys[0]
+		msgDecode2 = []uint64{0}
+	} else {
+		msgDecode1, msgDecode2, err = buildPackedMessageCarrierDecodePolys(bound, q)
+		if err != nil {
+			return nil, fmt.Errorf("message carrier decode polys: %w", err)
+		}
 	}
 	x0Decode1, err := buildSingletonCarrierDecodePoly(pub.X0CoeffBound, q)
 	if err != nil {
@@ -171,9 +212,17 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 	if err != nil {
 		return nil, fmt.Errorf("scalar carrier decode polys: %w", err)
 	}
-	msgMembershipPoly, err := buildPackedMessageCarrierMembershipPoly(bound, q)
-	if err != nil {
-		return nil, fmt.Errorf("message carrier membership poly: %w", err)
+	var msgMembershipPoly []uint64
+	if muMode {
+		_, msgMembershipPoly, err = buildMuCarrierDecodePolys(bound, muPackWidth, q)
+		if err != nil {
+			return nil, fmt.Errorf("mu carrier membership poly: %w", err)
+		}
+	} else {
+		msgMembershipPoly, err = buildPackedMessageCarrierMembershipPoly(bound, q)
+		if err != nil {
+			return nil, fmt.Errorf("message carrier membership poly: %w", err)
+		}
 	}
 	x0MembershipPoly, err := buildSingletonCarrierMembershipPoly(pub.X0CoeffBound, q)
 	if err != nil {
@@ -189,13 +238,21 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 		keyBindLayout.KeyCount = prfCompanionLayout.KeyCount
 		keyBindLayout.Packed = true
 		keyBindLayout.KeySlots = append([]CoeffSlot(nil), prfCompanionLayout.KeySlots...)
+		keyBindLayout.KeySourceSlots = append([]CoeffSlot(nil), prfCompanionLayout.KeySourceSlots...)
+		keyBindLayout.KeySourceDecodeLanes = append([]int(nil), prfCompanionLayout.KeySourceDecodeLanes...)
 	}
 	if keyBindLayout.KeyCount > 0 {
-		if len(omegaWitness)/2 < keyBindLayout.KeyCount {
+		if len(keyBindLayout.KeySourceSlots) == 0 && len(omegaWitness)/2 < keyBindLayout.KeyCount {
 			return nil, fmt.Errorf("key binding requires ncols/2 >= lenkey; got ncols=%d lenkey=%d", len(omegaWitness), keyBindLayout.KeyCount)
 		}
 		if keyBindLayout.Packed && len(keyBindLayout.KeySlots) < keyBindLayout.KeyCount {
 			return nil, fmt.Errorf("key binding requires %d key slots, have %d", keyBindLayout.KeyCount, len(keyBindLayout.KeySlots))
+		}
+		if len(keyBindLayout.KeySourceSlots) > 0 && len(keyBindLayout.KeySourceSlots) < keyBindLayout.KeyCount {
+			return nil, fmt.Errorf("key binding requires %d key source slots, have %d", keyBindLayout.KeyCount, len(keyBindLayout.KeySourceSlots))
+		}
+		if len(keyBindLayout.KeySourceDecodeLanes) > 0 && len(keyBindLayout.KeySourceDecodeLanes) < keyBindLayout.KeyCount {
+			return nil, fmt.Errorf("key binding requires %d key source decode lanes, have %d", keyBindLayout.KeyCount, len(keyBindLayout.KeySourceDecodeLanes))
 		}
 	}
 
@@ -219,6 +276,11 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 		X0Len:                       x0Len,
 		DirectTargetReplay:          directTargetReplay,
 		InlineTargetReplay:          inlineTargetReplay,
+		MuMode:                      muMode,
+		FullMuMode:                  fullMuMode,
+		PackedMuMode:                packedMuMode,
+		MuPackWidth:                 muPackWidth,
+		MuVirtualBlocks:             muVirtualBlocks,
 		ThetaAHeads:                 thetaAHeads,
 		ThetaBBlocks:                thetaBBlocks,
 		PackingSelCoeff:             packingSelCoeff,
@@ -226,10 +288,13 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 		TransformH:                  bridgeBasis.TransformH,
 		TransformHEval:              bridgeBasis.TransformHEval,
 		BlockFactors:                bridgeBasis.BlockFactors,
+		FullMuTransformHEval:        fullMuTransformHEval,
+		FullMuBlockFactors:          fullMuBlockFactors,
 		ComponentCount:              componentCount,
 		SourceBlocks:                sourceBlocks,
 		MsgDecode1:                  msgDecode1,
 		MsgDecode2:                  msgDecode2,
+		MuDecodePolys:               muDecodePolys,
 		X0Decode1:                   x0Decode1,
 		ScalarDecode1:               scalarDecode1,
 		MsgMembershipPoly:           msgMembershipPoly,
@@ -426,18 +491,27 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 		if err != nil {
 			return nil, nil, err
 		}
+		carrierMuRows := rowLayoutCarrierMuBlockRows(layout)
+		aliasMuRows := rowLayoutAliasMuBlockRows(layout)
 		cR1, err := getRow(layout.IdxCarrierR1)
 		if err != nil {
 			return nil, nil, err
 		}
-		m1, err := getRow(layout.IdxM1)
-		if err != nil {
-			return nil, nil, err
+		m1 := uint64(0)
+		if !cfg.PackedMuMode {
+			m1, err = getRow(layout.IdxM1)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
-		m2, err := getRow(layout.IdxM2)
-		if err != nil {
-			return nil, nil, err
+		m2 := uint64(0)
+		if !cfg.MuMode {
+			m2, err = getRow(layout.IdxM2)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
+		mu := m1
 		r1, err := getRow(layout.IdxR1)
 		if err != nil {
 			return nil, nil, err
@@ -450,10 +524,47 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 			}
 			r0Vals[i] = r0Val
 		}
-		sel := EvalPoly(cfg.PackingSelCoeff, x, q) % q
-		fpar = append(fpar, modMul(sel, m1, q))
-		fpar = append(fpar, modMul((1+q-sel)%q, m2, q))
-		fpar = append(fpar, EvalPoly(cfg.MsgMembershipPoly, cM, q)%q)
+		if !cfg.MuMode {
+			sel := EvalPoly(cfg.PackingSelCoeff, x, q) % q
+			fpar = append(fpar, modMul(sel, m1, q))
+			fpar = append(fpar, modMul((1+q-sel)%q, m2, q))
+		}
+		if cfg.FullMuMode {
+			if cfg.PackedMuMode {
+				for _, idx := range carrierMuRows {
+					carrierVal, err := getRow(idx)
+					if err != nil {
+						return nil, nil, err
+					}
+					fpar = append(fpar, EvalPoly(cfg.MsgMembershipPoly, carrierVal, q)%q)
+				}
+			} else {
+				if len(carrierMuRows) != len(aliasMuRows) {
+					return nil, nil, fmt.Errorf("full mu carrier rows=%d want alias rows=%d", len(carrierMuRows), len(aliasMuRows))
+				}
+				for i := range aliasMuRows {
+					aliasVal, err := getRow(aliasMuRows[i])
+					if err != nil {
+						return nil, nil, err
+					}
+					carrierVal, err := getRow(carrierMuRows[i])
+					if err != nil {
+						return nil, nil, err
+					}
+					decoded := EvalPoly(cfg.MsgDecode1, carrierVal, q) % q
+					fpar = append(fpar, modSub(aliasVal, decoded, q))
+				}
+				for _, idx := range carrierMuRows {
+					carrierVal, err := getRow(idx)
+					if err != nil {
+						return nil, nil, err
+					}
+					fpar = append(fpar, EvalPoly(cfg.MsgMembershipPoly, carrierVal, q)%q)
+				}
+			}
+		} else {
+			fpar = append(fpar, EvalPoly(cfg.MsgMembershipPoly, cM, q)%q)
+		}
 		for _, idx := range rowLayoutPostSignCarrierR0Rows(layout) {
 			cR0, err := getRow(idx)
 			if err != nil {
@@ -471,12 +582,36 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 				lagrangeVals[j] = EvalPoly(cfg.LagrangeBasis[j], x, q) % q
 			}
 			for i := 0; i < cfg.KeyBindLayout.KeyCount; i++ {
-				col := half + i
-				if col < 0 || col >= ncols {
-					return nil, nil, fmt.Errorf("key binding col=%d out of range", col)
+				var keySourceExtract uint64
+				if len(cfg.KeyBindLayout.KeySourceSlots) > 0 {
+					src := cfg.KeyBindLayout.KeySourceSlots[i]
+					if src.Coeff < 0 || src.Coeff >= ncols {
+						return nil, nil, fmt.Errorf("key source slot col=%d out of range", src.Coeff)
+					}
+					srcVal, err := getRow(src.Row)
+					if err != nil {
+						return nil, nil, err
+					}
+					if len(cfg.KeyBindLayout.KeySourceDecodeLanes) > 0 {
+						lane := cfg.KeyBindLayout.KeySourceDecodeLanes[i]
+						if lane < 0 || lane >= len(cfg.MuDecodePolys) {
+							return nil, nil, fmt.Errorf("key source decode lane=%d outside mu decode lanes=%d", lane, len(cfg.MuDecodePolys))
+						}
+						srcVal = EvalPoly(cfg.MuDecodePolys[lane], srcVal, q) % q
+					}
+					keySourceExtract = modMul(lagrangeVals[src.Coeff], srcVal, q)
+				} else {
+					col := half + i
+					if col < 0 || col >= ncols {
+						return nil, nil, fmt.Errorf("key binding col=%d out of range", col)
+					}
+					sel := lagrangeVals[col]
+					keySource := m2
+					if cfg.MuMode {
+						keySource = mu
+					}
+					keySourceExtract = modMul(sel, keySource, q)
 				}
-				sel := lagrangeVals[col]
-				m2Extract := modMul(sel, m2, q)
 				if cfg.KeyBindLayout.Packed {
 					slot := cfg.KeyBindLayout.KeySlots[i]
 					keyVal, err := getRow(slot.Row)
@@ -487,7 +622,7 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 						return nil, nil, fmt.Errorf("key slot col=%d out of range", slot.Coeff)
 					}
 					keyExtract := modMul(keyVal, lagrangeVals[slot.Coeff], q)
-					fpar = append(fpar, modSub(keyExtract, m2Extract, q))
+					fpar = append(fpar, modSub(keyExtract, keySourceExtract, q))
 					continue
 				}
 				rowIdx := cfg.KeyBindLayout.StartIdx + i
@@ -495,7 +630,20 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 				if err != nil {
 					return nil, nil, err
 				}
-				fpar = append(fpar, modMul(sel, modSub(keyVal, m2, q), q))
+				keyExtract := keyVal
+				if len(cfg.KeyBindLayout.KeySourceSlots) > 0 {
+					keyExtract = modMul(keyVal, lagrangeVals[0], q)
+				} else {
+					col := half + i
+					keySource := m2
+					if cfg.MuMode {
+						keySource = mu
+					}
+					keyExtract = modMul(lagrangeVals[col], modSub(keyVal, keySource, q), q)
+					fpar = append(fpar, keyExtract)
+					continue
+				}
+				fpar = append(fpar, modSub(keyExtract, keySourceExtract, q))
 			}
 		}
 		lagrangeVals := make([]uint64, len(cfg.LagrangeBasis))
@@ -515,7 +663,53 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 			r0BridgeFamilies = 1
 		}
 		fagg := make([]uint64, 0, (r0BridgeFamilies+2)*replayBlocks*len(lagrangeVals))
-		mSigma := modAdd(m1, m2, q)
+		mSigma := mu
+		if !cfg.MuMode {
+			mSigma = modAdd(m1, m2, q)
+		}
+		if cfg.FullMuMode && !directTargetReplay {
+			if len(cfg.FullMuTransformHEval) < replayBlocks*len(lagrangeVals) || len(cfg.FullMuBlockFactors) < replayBlocks*len(lagrangeVals) {
+				return nil, nil, fmt.Errorf("full mu bridge basis has H=%d factors=%d want %d", len(cfg.FullMuTransformHEval), len(cfg.FullMuBlockFactors), replayBlocks*len(lagrangeVals))
+			}
+			for b := 0; b < replayBlocks; b++ {
+				hat, err := getRow(rowLayoutPostSignMHatSigmaIndex(layout, b))
+				if err != nil {
+					return nil, nil, err
+				}
+				for j := 0; j < len(lagrangeVals); j++ {
+					t := b*len(lagrangeVals) + j
+					left := uint64(0)
+					hv := EvalPoly(cfg.FullMuTransformHEval[t], x, q) % q
+					for block := 0; block < cfg.MuVirtualBlocks; block++ {
+						var srcVal uint64
+						if cfg.PackedMuMode {
+							carrierBlock := block / cfg.MuPackWidth
+							lane := block % cfg.MuPackWidth
+							if carrierBlock < 0 || carrierBlock >= len(carrierMuRows) || lane >= len(cfg.MuDecodePolys) {
+								return nil, nil, fmt.Errorf("mu virtual block=%d maps outside carrier rows=%d lanes=%d", block, len(carrierMuRows), len(cfg.MuDecodePolys))
+							}
+							carrierVal, err := getRow(carrierMuRows[carrierBlock])
+							if err != nil {
+								return nil, nil, err
+							}
+							srcVal = EvalPoly(cfg.MuDecodePolys[lane], carrierVal, q) % q
+						} else {
+							if block < 0 || block >= len(aliasMuRows) {
+								return nil, nil, fmt.Errorf("alias mu block=%d outside rows=%d", block, len(aliasMuRows))
+							}
+							srcVal, err = getRow(aliasMuRows[block])
+							if err != nil {
+								return nil, nil, err
+							}
+						}
+						scale := cfg.FullMuBlockFactors[t][block] % q
+						left = modAdd(left, modMul(scale, modMul(hv, srcVal, q), q), q)
+					}
+					right := modMul(hat, lagrangeVals[j], q)
+					fagg = append(fagg, modSub(left, right, q))
+				}
+			}
+		}
 		bridgePairs := []struct {
 			val   uint64
 			hatAt func(int) int
@@ -524,7 +718,7 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 			val   uint64
 			hatAt func(int) int
 		}{val: r1, hatAt: func(block int) int { return rowLayoutPostSignRHat1Index(layout, block) }})
-		if !directTargetReplay {
+		if !directTargetReplay && !cfg.FullMuMode {
 			bridgePairs = append([]struct {
 				val   uint64
 				hatAt func(int) int
@@ -702,18 +896,27 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 		if err != nil {
 			return nil, nil, err
 		}
+		carrierMuRows := rowLayoutCarrierMuBlockRows(layout)
+		aliasMuRows := rowLayoutAliasMuBlockRows(layout)
 		cR1, err := getRow(layout.IdxCarrierR1)
 		if err != nil {
 			return nil, nil, err
 		}
-		m1, err := getRow(layout.IdxM1)
-		if err != nil {
-			return nil, nil, err
+		m1 := K.Zero()
+		if !cfg.PackedMuMode {
+			m1, err = getRow(layout.IdxM1)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
-		m2, err := getRow(layout.IdxM2)
-		if err != nil {
-			return nil, nil, err
+		m2 := K.Zero()
+		if !cfg.MuMode {
+			m2, err = getRow(layout.IdxM2)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
+		mu := m1
 		r1, err := getRow(layout.IdxR1)
 		if err != nil {
 			return nil, nil, err
@@ -726,10 +929,47 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 			}
 			r0Vals[i] = r0Val
 		}
-		sel := K.EvalFPolyAtK(cfg.PackingSelCoeff, e)
-		fpar = append(fpar, K.Mul(sel, m1))
-		fpar = append(fpar, K.Mul(K.Sub(K.One(), sel), m2))
-		fpar = append(fpar, K.EvalFPolyAtK(cfg.MsgMembershipPoly, cM))
+		if !cfg.MuMode {
+			sel := K.EvalFPolyAtK(cfg.PackingSelCoeff, e)
+			fpar = append(fpar, K.Mul(sel, m1))
+			fpar = append(fpar, K.Mul(K.Sub(K.One(), sel), m2))
+		}
+		if cfg.FullMuMode {
+			if cfg.PackedMuMode {
+				for _, idx := range carrierMuRows {
+					carrierVal, err := getRow(idx)
+					if err != nil {
+						return nil, nil, err
+					}
+					fpar = append(fpar, K.EvalFPolyAtK(cfg.MsgMembershipPoly, carrierVal))
+				}
+			} else {
+				if len(carrierMuRows) != len(aliasMuRows) {
+					return nil, nil, fmt.Errorf("full mu carrier rows=%d want alias rows=%d", len(carrierMuRows), len(aliasMuRows))
+				}
+				for i := range aliasMuRows {
+					aliasVal, err := getRow(aliasMuRows[i])
+					if err != nil {
+						return nil, nil, err
+					}
+					carrierVal, err := getRow(carrierMuRows[i])
+					if err != nil {
+						return nil, nil, err
+					}
+					decoded := K.EvalFPolyAtK(cfg.MsgDecode1, carrierVal)
+					fpar = append(fpar, K.Sub(aliasVal, decoded))
+				}
+				for _, idx := range carrierMuRows {
+					carrierVal, err := getRow(idx)
+					if err != nil {
+						return nil, nil, err
+					}
+					fpar = append(fpar, K.EvalFPolyAtK(cfg.MsgMembershipPoly, carrierVal))
+				}
+			}
+		} else {
+			fpar = append(fpar, K.EvalFPolyAtK(cfg.MsgMembershipPoly, cM))
+		}
 		for _, idx := range rowLayoutPostSignCarrierR0Rows(layout) {
 			cR0, err := getRow(idx)
 			if err != nil {
@@ -747,12 +987,36 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 				lagrangeVals[j] = K.EvalFPolyAtK(cfg.LagrangeBasis[j], e)
 			}
 			for i := 0; i < cfg.KeyBindLayout.KeyCount; i++ {
-				col := half + i
-				if col < 0 || col >= ncols {
-					return nil, nil, fmt.Errorf("key binding col=%d out of range", col)
+				var keySourceExtract kf.Elem
+				if len(cfg.KeyBindLayout.KeySourceSlots) > 0 {
+					src := cfg.KeyBindLayout.KeySourceSlots[i]
+					if src.Coeff < 0 || src.Coeff >= ncols {
+						return nil, nil, fmt.Errorf("key source slot col=%d out of range", src.Coeff)
+					}
+					srcVal, err := getRow(src.Row)
+					if err != nil {
+						return nil, nil, err
+					}
+					if len(cfg.KeyBindLayout.KeySourceDecodeLanes) > 0 {
+						lane := cfg.KeyBindLayout.KeySourceDecodeLanes[i]
+						if lane < 0 || lane >= len(cfg.MuDecodePolys) {
+							return nil, nil, fmt.Errorf("key source decode lane=%d outside mu decode lanes=%d", lane, len(cfg.MuDecodePolys))
+						}
+						srcVal = K.EvalFPolyAtK(cfg.MuDecodePolys[lane], srcVal)
+					}
+					keySourceExtract = K.Mul(lagrangeVals[src.Coeff], srcVal)
+				} else {
+					col := half + i
+					if col < 0 || col >= ncols {
+						return nil, nil, fmt.Errorf("key binding col=%d out of range", col)
+					}
+					sel := lagrangeVals[col]
+					keySource := m2
+					if cfg.MuMode {
+						keySource = mu
+					}
+					keySourceExtract = K.Mul(sel, keySource)
 				}
-				sel := lagrangeVals[col]
-				m2Extract := K.Mul(sel, m2)
 				if cfg.KeyBindLayout.Packed {
 					slot := cfg.KeyBindLayout.KeySlots[i]
 					keyVal, err := getRow(slot.Row)
@@ -763,7 +1027,7 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 						return nil, nil, fmt.Errorf("key slot col=%d out of range", slot.Coeff)
 					}
 					keyExtract := K.Mul(keyVal, lagrangeVals[slot.Coeff])
-					fpar = append(fpar, K.Sub(keyExtract, m2Extract))
+					fpar = append(fpar, K.Sub(keyExtract, keySourceExtract))
 					continue
 				}
 				rowIdx := cfg.KeyBindLayout.StartIdx + i
@@ -771,7 +1035,17 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 				if err != nil {
 					return nil, nil, err
 				}
-				fpar = append(fpar, K.Mul(sel, K.Sub(keyVal, m2)))
+				if len(cfg.KeyBindLayout.KeySourceSlots) > 0 {
+					keyExtract := K.Mul(lagrangeVals[0], keyVal)
+					fpar = append(fpar, K.Sub(keyExtract, keySourceExtract))
+					continue
+				}
+				col := half + i
+				keySource := m2
+				if cfg.MuMode {
+					keySource = mu
+				}
+				fpar = append(fpar, K.Mul(lagrangeVals[col], K.Sub(keyVal, keySource)))
 			}
 		}
 		lagrangeVals := make([]kf.Elem, len(cfg.LagrangeBasis))
@@ -791,7 +1065,53 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 			r0BridgeFamilies = 1
 		}
 		fagg := make([]kf.Elem, 0, (r0BridgeFamilies+2)*replayBlocks*len(lagrangeVals))
-		mSigma := K.Add(m1, m2)
+		mSigma := mu
+		if !cfg.MuMode {
+			mSigma = K.Add(m1, m2)
+		}
+		if cfg.FullMuMode && !directTargetReplay {
+			if len(cfg.FullMuTransformHEval) < replayBlocks*len(lagrangeVals) || len(cfg.FullMuBlockFactors) < replayBlocks*len(lagrangeVals) {
+				return nil, nil, fmt.Errorf("full mu bridge basis has H=%d factors=%d want %d", len(cfg.FullMuTransformHEval), len(cfg.FullMuBlockFactors), replayBlocks*len(lagrangeVals))
+			}
+			for b := 0; b < replayBlocks; b++ {
+				hat, err := getRow(rowLayoutPostSignMHatSigmaIndex(layout, b))
+				if err != nil {
+					return nil, nil, err
+				}
+				for j := 0; j < len(lagrangeVals); j++ {
+					t := b*len(lagrangeVals) + j
+					left := K.Zero()
+					hv := K.EvalFPolyAtK(cfg.FullMuTransformHEval[t], e)
+					for block := 0; block < cfg.MuVirtualBlocks; block++ {
+						var srcVal kf.Elem
+						if cfg.PackedMuMode {
+							carrierBlock := block / cfg.MuPackWidth
+							lane := block % cfg.MuPackWidth
+							if carrierBlock < 0 || carrierBlock >= len(carrierMuRows) || lane >= len(cfg.MuDecodePolys) {
+								return nil, nil, fmt.Errorf("mu virtual block=%d maps outside carrier rows=%d lanes=%d", block, len(carrierMuRows), len(cfg.MuDecodePolys))
+							}
+							carrierVal, err := getRow(carrierMuRows[carrierBlock])
+							if err != nil {
+								return nil, nil, err
+							}
+							srcVal = K.EvalFPolyAtK(cfg.MuDecodePolys[lane], carrierVal)
+						} else {
+							if block < 0 || block >= len(aliasMuRows) {
+								return nil, nil, fmt.Errorf("alias mu block=%d outside rows=%d", block, len(aliasMuRows))
+							}
+							srcVal, err = getRow(aliasMuRows[block])
+							if err != nil {
+								return nil, nil, err
+							}
+						}
+						scale := K.EmbedF(cfg.FullMuBlockFactors[t][block] % K.Q)
+						left = K.Add(left, K.Mul(scale, K.Mul(hv, srcVal)))
+					}
+					right := K.Mul(hat, lagrangeVals[j])
+					fagg = append(fagg, K.Sub(left, right))
+				}
+			}
+		}
 		bridgePairs := []struct {
 			val   kf.Elem
 			hatAt func(int) int
@@ -800,7 +1120,7 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 			val   kf.Elem
 			hatAt func(int) int
 		}{val: r1, hatAt: func(block int) int { return rowLayoutPostSignRHat1Index(layout, block) }})
-		if !directTargetReplay {
+		if !directTargetReplay && !cfg.FullMuMode {
 			bridgePairs = append([]struct {
 				val   kf.Elem
 				hatAt func(int) int

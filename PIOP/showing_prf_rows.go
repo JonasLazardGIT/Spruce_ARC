@@ -46,12 +46,6 @@ func packPRFCompanionWitnessRows(
 	head := make([]uint64, ncols)
 	used := 0
 	keyStart := 0
-	if len(key) > 0 && !denseKeyPacking {
-		half := ncols / 2
-		if half >= len(key) {
-			keyStart = half
-		}
-	}
 	flush := func() {
 		if used == 0 {
 			return
@@ -76,33 +70,18 @@ func packPRFCompanionWitnessRows(
 		return slot
 	}
 	if denseKeyPacking && len(key) > 0 {
-		half := ncols / 2
-		if half <= 0 || half < len(key) {
-			return nil, fmt.Errorf("dense PRF companion key packing requires ncols/2 >= lenkey; got ncols=%d lenkey=%d", ncols, len(key))
-		}
-		prefix := half
-		if prefix > len(grouped.FinalTagState) {
-			prefix = len(grouped.FinalTagState)
-		}
-		finalTagIdx := 0
-		for finalTagIdx < prefix {
-			v := grouped.FinalTagState[finalTagIdx]
-			out.FinalTagSlots = append(out.FinalTagSlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
-			finalTagIdx++
-		}
-		if used < half {
-			used = half
+		if ncols < len(key) {
+			return nil, fmt.Errorf("dense PRF companion key packing requires ncols >= lenkey; got ncols=%d lenkey=%d", ncols, len(key))
 		}
 		for _, v := range key {
 			out.KeySlots = append(out.KeySlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
 		}
+		flush()
 		for _, v := range grouped.CheckpointOutputs {
 			out.CheckpointSlots = append(out.CheckpointSlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
 		}
-		for finalTagIdx < len(grouped.FinalTagState) {
-			v := grouped.FinalTagState[finalTagIdx]
+		for _, v := range grouped.FinalTagState {
 			out.FinalTagSlots = append(out.FinalTagSlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
-			finalTagIdx++
 		}
 		flush()
 		return out, nil
@@ -114,6 +93,7 @@ func packPRFCompanionWitnessRows(
 	for _, v := range key {
 		out.KeySlots = append(out.KeySlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
 	}
+	flush()
 	for _, v := range grouped.CheckpointOutputs {
 		out.CheckpointSlots = append(out.CheckpointSlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
 	}
