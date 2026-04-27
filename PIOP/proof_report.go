@@ -19,6 +19,7 @@ type ProofReport struct {
 	SigShortness    SigShortnessReport
 	Geometry        WitnessGeometrySnapshot
 	RingDegree      int
+	X0Len           int
 	NCols           int
 	PCSNCols        int
 	LVCSNCols       int
@@ -53,9 +54,8 @@ type SigShortnessReport struct {
 // dominate the current paper transcript optimization pass.
 type TranscriptOptimizationReport struct {
 	RingDegree                      int    `json:"ring_degree"`
+	X0Len                           int    `json:"x0_len"`
 	ShowingPreset                   string `json:"showing_preset"`
-	CompactFullCandidate            string `json:"compact_full_candidate"`
-	BenchmarkSweepCandidate         string `json:"benchmark_sweep_candidate"`
 	PRFPacked                       bool   `json:"prf_packed"`
 	PRFMode                         string `json:"prf_mode"`
 	PRFAuditSamples                 int    `json:"prf_audit_samples"`
@@ -191,6 +191,7 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		return ProofReport{}, fmt.Errorf("missing dQ/QDegreeBound in proof")
 	}
 	geometry := BuildWitnessGeometrySnapshotFromProof(proof)
+	x0Len := rowLayoutX0Len(proof.RowLayout)
 	witnessPolys := geometry.ActualWitnessPolys
 	if witnessPolys <= 0 {
 		witnessPolys = proof.MaskRowOffset
@@ -229,6 +230,7 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 	paperTranscript := buildPaperTranscriptReportLeaf(proof, q, paperTranscriptParams{
 		Lambda:     reportOpts.Lambda,
 		RingDegree: int(ringQ.N),
+		X0Len:      x0Len,
 		Eta:        eta,
 		Ell:        ell,
 		EllPrime:   ellPrime,
@@ -284,6 +286,7 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		Geometry:        geometry,
 		TranscriptFocus: buildTranscriptOptimizationReport(proof, paperTranscript, packing, sb, geometry, lvcsNCols, dQ, reportOpts, q),
 		RingDegree:      int(ringQ.N),
+		X0Len:           x0Len,
 		NCols:           ncols,
 		PCSNCols:        lvcsNCols,
 		LVCSNCols:       lvcsNCols,
@@ -371,6 +374,7 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport, packing ProofPackingAudit, sb SoundnessBudget, geometry WitnessGeometrySnapshot, lvcsNCols int, dQ int, opts SimOpts, q uint64) TranscriptOptimizationReport {
 	out := TranscriptOptimizationReport{
 		RingDegree:        resolvedProofRingDegree(proof, opts.RingDegree),
+		X0Len:             rowLayoutX0Len(proof.RowLayout),
 		NRows:             sb.NRows,
 		M:                 sb.M,
 		PCols:             packing.RowOpening.Pvals.EncodedCols,
@@ -437,8 +441,6 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	}
 	out.WitnessRows = geometry.ActualWitnessPolys
 	out.ShowingPreset = ResolveShowingPresetLabelForOpts(opts)
-	out.CompactFullCandidate = ResolveCompactFullCandidateLabelForOpts(opts)
-	out.BenchmarkSweepCandidate = ResolveBenchmarkSweepCandidateLabelForOpts(opts)
 	if out.LVCSNCols > 0 {
 		out.RowsBlock = ceilDiv(out.WitnessRows, out.LVCSNCols)
 		if dQ > 0 {

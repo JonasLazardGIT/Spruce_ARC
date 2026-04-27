@@ -68,6 +68,7 @@ func BuildPublicLabels(pub PublicInputs) []PublicLabel {
 		labels = append(labels, PublicLabel{Name: name, Data: append([]byte(nil), b[:]...)})
 	}
 	appendInt("RingDegree", pub.RingDegree)
+	appendInt("X0Len", pub.X0Len)
 	if len(pub.Com) > 0 {
 		appendPoly("Com", pub.Com)
 	}

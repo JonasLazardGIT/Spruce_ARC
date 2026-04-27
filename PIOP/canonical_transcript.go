@@ -24,6 +24,7 @@ type PaperTranscriptBucket struct {
 // payload retained in the current Proof object.
 type PaperTranscriptReport struct {
 	RingDegree   int                   `json:"ring_degree"`
+	X0Len        int                   `json:"x0_len"`
 	Counters     PaperTranscriptBucket `json:"counters"`
 	SaltRoot     PaperTranscriptBucket `json:"salt_root"`
 	ExtraHash    PaperTranscriptBucket `json:"extra_hash"`
@@ -53,6 +54,7 @@ type openingPaperReport struct {
 type paperTranscriptParams struct {
 	Lambda     int
 	RingDegree int
+	X0Len      int
 	Eta        int
 	Ell        int
 	EllPrime   int
@@ -119,6 +121,7 @@ func BuildPaperTranscriptReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (P
 	report := buildPaperTranscriptReportLeaf(proof, ringQ.Modulus[0], paperTranscriptParams{
 		Lambda:     reportOpts.Lambda,
 		RingDegree: int(ringQ.N),
+		X0Len:      rowLayoutX0Len(proof.RowLayout),
 		Eta:        eta,
 		Ell:        ell,
 		EllPrime:   ellPrime,
@@ -154,12 +157,16 @@ func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptPar
 	if p.RingDegree <= 0 {
 		p.RingDegree = resolvedProofRingDegree(proof, 0)
 	}
+	if p.X0Len <= 0 {
+		p.X0Len = rowLayoutX0Len(proof.RowLayout)
+	}
 
 	rowOpening := resolveProofPCSOpening(proof)
 	openingRep := BuildOpeningPaperReport(rowOpening)
 
 	out := PaperTranscriptReport{
 		RingDegree: p.RingDegree,
+		X0Len:      p.X0Len,
 		Counters:   newPaperBucket(128, 128),
 		SaltRoot:   newPaperBucket(float64(4*p.Lambda), float64(4*p.Lambda)),
 		ExtraHash:  newPaperBucket(0, float64(2*p.Lambda)),

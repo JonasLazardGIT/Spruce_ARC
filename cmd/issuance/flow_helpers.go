@@ -787,7 +787,7 @@ func defaultIssuanceOptsResolved(prfParams *prf.Params, opts PIOP.SimOpts) PIOP.
 	if opts.NCols%2 != 0 {
 		opts.NCols++
 	}
-	opts.ShowingPreset = PIOP.ShowingPresetCustom
+	opts.ShowingPreset = ""
 	opts.LVCSNCols = 96
 	if opts.LVCSNCols < opts.NCols {
 		opts.LVCSNCols = opts.NCols

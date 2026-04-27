@@ -1,17 +1,16 @@
 # PIOP Notes
 
-The live showing implementation keeps two maintained families:
-
-- V6 hidden-shortness controls, reached by `-full` and `aggregate_v6_research`.
-- The optimized inline-target replay-compact family, exposed as
-  `aggregate_inline_target_replay_compact_research`.
+The live showing implementation keeps one maintained family: the optimized
+inline-target replay-compact relation, exposed through the three public showing
+profiles in `cmd/showing`.
 
 The optimized family stores `SigShortnessProofV18` with version `18` and reports
 mode `sig_shortness_inline_target_replay_compact_hiding`. It is single-root,
 uses the existing 16-column main row oracle, keeps private `R11,L4` signature
 digit rows, omits committed `TargetMR0Hat`, and keeps `RHat1` and `ZHat` rows.
-The default/public optimized path uses `ring_degree=1024`. It also uses
-internal showing-only full-`mu` witness compression:
+The maintained profiles use x0_len=70 at ring degrees 512 and 1024. The
+optimized relation also uses internal showing-only full-`mu` witness
+compression:
 
 ```text
 mu_pack_width      = 2
@@ -49,7 +48,5 @@ verifier rejects proof/layout/ring mismatches. It requires separately generated
 credential and NTRU artifacts and remains unsafe for production until the
 degree-512 assumptions are reviewed.
 
-Old research payloads are no longer public proof surfaces. Their preset labels
-must fail closed when requested through the CLI. Archived internal helpers may
-remain only where they are needed for old artifact rejection or shared layout
-code; they are not live profiles.
+Old research payloads are no longer public proof surfaces. Removed preset
+labels fail closed when requested through the CLI.

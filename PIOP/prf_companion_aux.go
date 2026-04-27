@@ -142,7 +142,6 @@ func buildPRFCompanionAuxOpts(baseOpts SimOpts, witnessNCols int, relation strin
 		Credential:           true,
 		DomainMode:           DomainModeExplicit,
 		CoeffNativeSigModel:  CoeffNativeSigModelLiteralPackedAggregatedV3,
-		ShowingPreset:        ShowingPresetCustom,
 		NCols:                witnessNCols,
 		PCSNCols:             auxLVCSNCols,
 		LVCSNCols:            auxLVCSNCols,

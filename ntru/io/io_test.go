@@ -29,6 +29,9 @@ func TestBMatrixMetadataRoundTrip(t *testing.T) {
 	if meta.X0Len != 5 {
 		t.Fatalf("x0_len=%d want 5", meta.X0Len)
 	}
+	if meta.RingDegree != 3 {
+		t.Fatalf("ring_degree=%d want 3", meta.RingDegree)
+	}
 	if len(meta.RowOrder) != len(coeffs) || meta.RowOrder[0] != "B0" || meta.RowOrder[len(meta.RowOrder)-1] != "B3" {
 		t.Fatalf("unexpected row order: %v", meta.RowOrder)
 	}
@@ -61,7 +64,7 @@ func TestLoadLegacyBMatrixMetadata(t *testing.T) {
 	if meta.Version != 1 {
 		t.Fatalf("legacy version=%d want 1", meta.Version)
 	}
-	if meta.TargetDim != 1 || meta.X0Len != 1 {
+	if meta.TargetDim != 1 || meta.X0Len != 1 || meta.RingDegree != 3 {
 		t.Fatalf("legacy metadata mismatch: %+v", meta)
 	}
 	if len(meta.RowOrder) != 4 || meta.RowOrder[2] != "B2[0]" {

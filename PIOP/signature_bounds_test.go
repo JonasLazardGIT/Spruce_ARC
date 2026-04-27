@@ -309,14 +309,6 @@ func TestResolveShowingPresetLabelForOpts(t *testing.T) {
 		want string
 	}{
 		{
-			name: "default_soundness_balanced",
-			opts: SimOpts{
-				Credential:          true,
-				CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
-			},
-			want: ShowingPresetSoundnessBalanced,
-		},
-		{
 			name: "explicit_inline_target_replay_compact",
 			opts: SimOpts{
 				Credential:          true,
@@ -326,14 +318,14 @@ func TestResolveShowingPresetLabelForOpts(t *testing.T) {
 			want: ShowingPresetInlineTargetReplayCompactResearch,
 		},
 		{
-			name: "raw_override_is_custom",
+			name: "raw_override_has_no_maintained_preset_label",
 			opts: SimOpts{
 				Credential:          true,
 				CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
 				SigShortnessRadix:   5,
 				SigShortnessL:       5,
 			},
-			want: ShowingPresetCustom,
+			want: "",
 		},
 	}
 	for _, tc := range cases {
@@ -342,31 +334,6 @@ func TestResolveShowingPresetLabelForOpts(t *testing.T) {
 				t.Fatalf("showing preset=%q want %q", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestResolveSimOptsDefaultsSoundnessBalancedPreset(t *testing.T) {
-	opts := ResolveSimOptsDefaults(SimOpts{
-		Credential:          true,
-		CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
-	})
-	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetSoundnessBalanced {
-		t.Fatalf("showing preset=%q want %q", got, ShowingPresetSoundnessBalanced)
-	}
-	if opts.SigShortnessProfile != SigShortnessProfileR11L4Production {
-		t.Fatalf("sig shortness profile=%q want %q", opts.SigShortnessProfile, SigShortnessProfileR11L4Production)
-	}
-	if opts.LVCSNCols != 84 || opts.PostSignLVCSNCols != 84 || opts.PRFLVCSNCols != 84 {
-		t.Fatalf("unexpected lvcs preset resolution: %+v", opts)
-	}
-	if opts.Theta != 3 || opts.Rho != 2 || opts.Ell != 18 || opts.EllPrime != 2 || opts.Eta != 40 {
-		t.Fatalf("unexpected soundness-balanced tuple: theta=%d rho=%d ell=%d ellPrime=%d eta=%d", opts.Theta, opts.Rho, opts.Ell, opts.EllPrime, opts.Eta)
-	}
-	if opts.NLeaves != 4096 || opts.PostSignNLeaves != 4096 || opts.PRFNLeaves != 4096 {
-		t.Fatalf("unexpected nleaves resolution: n=%d post=%d prf=%d", opts.NLeaves, opts.PostSignNLeaves, opts.PRFNLeaves)
-	}
-	if opts.Kappa != [4]int{0, 0, 0, 5} {
-		t.Fatalf("unexpected kappa=%v want [0 0 0 5]", opts.Kappa)
 	}
 }
 

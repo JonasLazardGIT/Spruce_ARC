@@ -3,49 +3,33 @@
 \input{imports}
 \input{commands}
 
-
 % ---------- title ----------
+\title{ARC-SPRUCE: Post-Quantum Blind Issuance and Anonymous Rate-Limited Credentials from Lattices}
 
+\author{Jonas Lazard}
+\email{jonas.lazard@student-cs.fr}
+\affiliation{%
+  \institution{DTU Compute}
+  \city{Kongens Lyngby}
+  \country{Denmark}
+}
 
+\author{Carsten Baum}
+\email{cabau@dtu.dk}
+\affiliation{%
+  \institution{DTU Compute}
+  \city{Kongens Lyngby}
+  \country{Denmark}
+}
 
 \begin{document}
 
-\title{ARC-SPRUCE: Post-Quantum Blind Issuance and Anonymous Rate-Limited Credentials from Lattices}
-
-% Authors omitted for anonymous submission.
-
-
-\begin{CCSXML}
-<ccs2012>
-<concept>
-<concept_id>10002978.10002979.10002981.10011602</concept_id>
-<concept_desc>Security and privacy~Digital signatures</concept_desc>
-<concept_significance>500</concept_significance>
-</concept>
-<concept>
-<concept_id>10002978.10002991.10002995</concept_id>
-<concept_desc>Security and privacy~Privacy-preserving protocols</concept_desc>
-<concept_significance>500</concept_significance>
-</concept>
-<concept>
-<concept_id>10002978.10002991.10002994</concept_id>
-<concept_desc>Security and privacy~Pseudonymity, anonymity and untraceability</concept_desc>
-<concept_significance>500</concept_significance>
-</concept>
-</ccs2012>
-\end{CCSXML}
-
-
-\ccsdesc[500]{Security and privacy~Digital signatures}
-\ccsdesc[500]{Security and privacy~Privacy-preserving protocols}
-\ccsdesc[500]{Security and privacy~Pseudonymity, anonymity and untraceability}
-
-\keywords{Blind Issuance, Anonymous Credentials, Post-Quantum Cryptography}
-
 \begin{abstract}
-Blind issuance protocols and anonymous credentials have recently seen a large interest from practitioners due to their usefulness in building privacy-preserving online authentication systems such as the EU Digital Identity Wallet. However, all currently known and practically efficient systems are not secure against quantum computers.
-
-In this work, we use recent lattice-based techniques to design a post-quantum issuer-view-hiding blind-issuance protocol and a conditional anonymous rate-limiting credential construction. By using a state-of-the-art Non-Interactive Zero-Knowledge Proof system called SmallWood combined with a PRF based on the Poseidon Hash function, we obtain communication sizes that outperform existing constructions. In addition, our implementation shows competitive computational performance on modest hardware. We also provide the first, to our knowledge, implementation of the SmallWood proof system, which is of independent interest.
+Blind issuance protocols and anonymous credentials are useful for privacy-preserving online authentication
+systems.  ARC-SPRUCE gives a post-quantum issuer-view-hiding blind-issuance construction and a conditional
+anonymous rate-limiting credential construction from lattice assumptions and hash-based zero knowledge.  The
+construction combines a BB-tran-style proof-friendly signature layer, an Ajtai commitment, a Gaussian
+preimage-sampling interface, SmallWood NIZKs, and a Poseidon2-style PRF assumption.
 \end{abstract}
 
 \maketitle
@@ -57,9 +41,6 @@ In this work, we use recent lattice-based techniques to design a post-quantum is
 \input{sections/05_smallwood_model}
 \input{sections/06_parameters}
 
-\bibliographystyle{alpha}
-\bibliography{./biblio/crypto,./biblio/abbrev3,./biblio/references,./references_lhl}
-
 \appendix
 \input{appendix/A_definitions}
 \input{appendix/B_gaussian_sampler}
@@ -67,7 +48,7 @@ In this work, we use recent lattice-based techniques to design a post-quantum is
 \input{appendix/D_extended_parameters}
 \input{appendix/E_prf_and_misc}
 
-% ---------- bibliography ----------
-
+\bibliographystyle{abbrv}
+\bibliography{biblio/references}
 
 \end{document}

@@ -1,7 +1,9 @@
 # Transcript Reduction Analysis
 
-The live transcript-size work is now consolidated around V6 controls and the
-canonical optimized inline-target replay-compact profile.
+The live transcript-size work is now consolidated around the three maintained
+`x0_len=70` optimized V18 profiles documented in
+[`current_showing_defaults.md`](current_showing_defaults.md). Historical V6 and
+other research controls are no longer public defaults.
 
 ## Live Measurements To Track
 
@@ -9,80 +11,66 @@ Run:
 
 ```bash
 go run ./cmd/showing
-go run ./cmd/showing -full
-go run ./cmd/showing -showing-preset aggregate_v6_research
-go run ./cmd/showing -showing-preset aggregate_inline_target_replay_compact_research
+go run ./cmd/showing -showing-profile showing_n512_x0len70_100
+go run ./cmd/showing -showing-profile showing_n512_x0len70_128
+go run ./cmd/showing -showing-profile showing_n1024_x0len70_100
 ```
 
-For the optimized profile, reports should show:
+For the no-flag optimized profile, reports should show:
 
 ```text
 proof version = 18
 mode          = sig_shortness_inline_target_replay_compact_hiding
 target_mr0    = 0
-rhat1         = 64
-zhat          = 64
+rhat1         = 32
+zhat          = 32
 dQ            = 356
 mu_pack       = 2
-mu_rows       = 32
-mu_blocks     = 64
-selected      = 51
-activeBlocks  = 3
-ring_degree   = 1024
+mu_rows       = 16
+mu_blocks     = 32
+selected      = 99
+activeBlocks  = 6
+ring_degree   = 512
+x0_len        = 70
 ```
 
-The canonical tuple is `lvcs_ncols=84`, `nleaves=5760`, `ell=16`,
-`eta=41`, `kappa={10,0,0,6}`, `R11,L4`, `theta=3`, `rho=2`, and
-`ell'=2`.
+The no-flag tuple is `lvcs_ncols=70`, `nleaves=6400`, `ell=16`, `eta=39`,
+`kappa={10,0,0,6}`, `R11,L4`, `theta=3`, `rho=2`, and `ell'=2`.
 
-Current live measurements from the checked-in artifacts:
+Current live measurements from the checked-in x0_len=70 artifacts:
 
 ```text
-default reduced showing:
-  paper transcript = 34775 bytes
-  theorem bits     = 102.15
-  dQ               = 378
-  mu_pack          = 1
+showing_n512_x0len70_100:
+  paper transcript = 34843 bytes
+  theorem bits     = 103.05
+  dQ               = 356
+  mu_pack          = 2
+  selected rows    = 99
+  active blocks    = 6
 
-full V6 baseline:
-  paper transcript = 63102 bytes
-  theorem bits     = 100.03
-  dQ               = 378
-  mu_pack          = 1
+showing_n512_x0len70_128:
+  paper transcript = 37540 bytes
+  theorem bits     = 128.06
+  dQ               = 356
+  mu_pack          = 2
+  selected rows    = 99
+  active blocks    = 6
 
-aggregate V6 control:
-  paper transcript = 53284 bytes
-  theorem bits     = 102.74
-  dQ               = 378
-  mu_pack          = 1
-
-optimized V18 packed full-mu:
-  paper transcript = 43163 bytes
-  verifier payload = 71740 bytes
+showing_n1024_x0len70_100:
+  paper transcript = 45927 bytes
   theorem bits     = 100.27
   dQ               = 356
   mu_pack          = 2
-  selected rows    = 51
-  active blocks    = 3
-
-degree-512 V18 research fork:
-  paper transcript = 32526 bytes
-  verifier payload = 61187 bytes
-  theorem bits     = 100.27
-  dQ               = 356
-  mu_pack          = 2
-  selected rows    = 35
-  active blocks    = 2
+  selected rows    = 115
+  active blocks    = 7
 ```
 
 ## Packed Full-`mu` Witness Compression
 
-The optimized profile now applies the lattice-witness compression idea to the
-full-capacity ternary `mu` carrier, not to signature shortness. The payload is
-still one private `N=1024` coefficient-bounded ring element on the default
-public path. The witness
-representation changes from 64 singleton carrier rows and 64 decoded alias rows
-to:
+The optimized profile applies the lattice-witness compression idea to the
+full-capacity ternary `mu` carrier, not to signature shortness. For N=1024 the
+witness representation changes from 64 singleton carrier rows and 64 decoded
+alias rows to:
 
 ```text
 64 logical mu blocks / pack width 2 = 32 packed carrier rows
@@ -125,10 +113,10 @@ machinery to become transcript reductions. Binary `mu` packing would only help
 if the credential payload semantics changed from ternary to binary; encoding
 ternary values as bits is not a proof-size win.
 
-The `-research-ring-degree 512` path is a separate statement fork, not a p=2
-packing variant of the same public statement. It keeps the private V18 surface,
-but `mu` has only 512 coefficients, the PRF-key window moves to `256..263`, and
-fresh `research_n512` artifacts are mandatory.
+The N=512 profiles are separate statement forks, not p=2 packing variants of
+the same N=1024 statement. They keep the private V18 surface, but `mu` has only
+512 coefficients, the PRF-key window moves to `256..263`, and fresh N=512
+artifacts are mandatory.
 
 ## Removed Work
 

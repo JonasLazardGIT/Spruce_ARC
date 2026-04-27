@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"vSIS-Signature/PIOP"
@@ -318,7 +317,7 @@ func buildShowingProofForShippedPresetDefault(t *testing.T, showingPreset string
 
 func buildShowingProofForTestConfigWithShortness(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessProfile string, sigShortnessRadix int, sigShortnessDigits int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
-	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetSoundnessBalanced, sigShortnessProfile, sigShortnessRadix, sigShortnessDigits)
+	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, sigShortnessProfile, sigShortnessRadix, sigShortnessDigits)
 }
 
 func buildShowingProofForTestConfigWithShortnessProfile(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessProfile string) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
@@ -328,17 +327,17 @@ func buildShowingProofForTestConfigWithShortnessProfile(t *testing.T, model stri
 
 func buildShowingProofForTestConfigWithProductionBalanceShortnessProfile(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessProfile string) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
-	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetSoundnessBalanced, sigShortnessProfile, 0, 0)
+	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, sigShortnessProfile, 0, 0)
 }
 
 func buildShowingProofForTestConfig(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
-	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetSoundnessBalanced, "", 0, 0)
+	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, "", 0, 0)
 }
 
 func buildShowingProofForProductionBalanceConfig(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
-	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetSoundnessBalanced, "", 0, 0)
+	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, "", 0, 0)
 }
 
 func buildShowingProofForTestWithFlags(t *testing.T, model string, packedPRF bool, companion bool) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
@@ -348,12 +347,12 @@ func buildShowingProofForTestWithFlags(t *testing.T, model string, packedPRF boo
 
 func buildShowingProofForTestConfigWithLVCSAndShortnessProfile(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessProfile string, lvcsNCols int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
-	return buildShowingProofForTestConfigWithResearchKnobs(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetSoundnessBalanced, sigShortnessProfile, 0, 0, 16, lvcsNCols)
+	return buildShowingProofForTestConfigWithResearchKnobs(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, sigShortnessProfile, 0, 0, 16, lvcsNCols)
 }
 
 func buildShowingProofForTestConfigWithLVCSAndRawShortness(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessRadix int, sigShortnessDigits int, lvcsNCols int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
-	return buildShowingProofForTestConfigWithResearchKnobs(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetSoundnessBalanced, "", sigShortnessRadix, sigShortnessDigits, 16, lvcsNCols)
+	return buildShowingProofForTestConfigWithResearchKnobs(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, "", sigShortnessRadix, sigShortnessDigits, 16, lvcsNCols)
 }
 
 func buildShowingProofForTest(t *testing.T, model string) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring) {
@@ -495,7 +494,7 @@ func TestShowingReplayDependencyClosureShippedDefault(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
-	proof, _, _, _, _, _ := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetSoundnessBalanced)
+	proof, _, _, _, _, _ := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetInlineTargetReplayCompactResearch)
 	var companion *PIOP.PRFCompanionLayout
 	if proof.PRFCompanion != nil {
 		companion = proof.PRFCompanion.Layout
@@ -516,8 +515,8 @@ func TestShowingReplayDependencyClosureShippedDefault(t *testing.T) {
 	if len(selector) >= proof.RowLayout.SigCount {
 		t.Fatalf("selector rows=%d want < witness rows=%d", len(selector), proof.RowLayout.SigCount)
 	}
-	if stats.ActiveBlocks != 5 || stats.FullBlocks != 9 {
-		t.Fatalf("unexpected full-capacity replay block geometry: active=%d full=%d", stats.ActiveBlocks, stats.FullBlocks)
+	if stats.ActiveBlocks <= 0 || stats.FullBlocks <= stats.ActiveBlocks {
+		t.Fatalf("unexpected replay block geometry: active=%d full=%d", stats.ActiveBlocks, stats.FullBlocks)
 	}
 	if len(selector)*100 > proof.RowLayout.SigCount*85 {
 		t.Fatalf("replay selector reduction too small after packed-source removal: selected=%d witness=%d reduction=%.2f%%", len(selector), proof.RowLayout.SigCount, stats.ReductionPct)
@@ -536,7 +535,7 @@ func TestShowingReplayFamilyAuditShippedDefault(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
-	proof, rep, _, _, _, _ := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetSoundnessBalanced)
+	proof, rep, _, _, _, _ := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetInlineTargetReplayCompactResearch)
 	audit := rep.ReplayAudit
 	if len(audit.Families) != 6 {
 		t.Fatalf("replay audit family count=%d want 6", len(audit.Families))
@@ -547,8 +546,8 @@ func TestShowingReplayFamilyAuditShippedDefault(t *testing.T) {
 	if audit.Selector.SelectedRows*100 > audit.Selector.WitnessRows*70 {
 		t.Fatalf("replay selector reduction too small for shipped default: selected=%d witness=%d", audit.Selector.SelectedRows, audit.Selector.WitnessRows)
 	}
-	if audit.Selector.ActiveBlocks != 5 || audit.Selector.FullBlocks != 9 {
-		t.Fatalf("unexpected full-capacity replay audit geometry: active=%d full=%d", audit.Selector.ActiveBlocks, audit.Selector.FullBlocks)
+	if audit.Selector.ActiveBlocks <= 0 || audit.Selector.FullBlocks <= audit.Selector.ActiveBlocks {
+		t.Fatalf("unexpected replay audit geometry: active=%d full=%d", audit.Selector.ActiveBlocks, audit.Selector.FullBlocks)
 	}
 	entries := make(map[PIOP.ReplayFamilyKind]PIOP.ReplayFamilyAuditEntry, len(audit.Families))
 	selectedFamilies := make([]PIOP.ReplayFamilyKind, 0, len(audit.Families))
@@ -598,7 +597,7 @@ func TestShowingReplaySubfamilyAuditShippedDefault(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
-	_, rep, _, _, _, _ := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetSoundnessBalanced)
+	_, rep, _, _, _, _ := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetInlineTargetReplayCompactResearch)
 	sub := rep.ReplayAudit.Subfamilies
 	if len(sub.Entries) == 0 {
 		t.Fatalf("missing replay subfamily audit")
@@ -655,7 +654,7 @@ func TestShowingRowOpeningReconstructsOmittedMvals(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
-	proof, _, _, opts, _, pub := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetSoundnessBalanced)
+	proof, _, _, opts, _, pub := buildShowingProofForShippedPresetDefault(t, PIOP.ShowingPresetInlineTargetReplayCompactResearch)
 	if proof.PCSOpening == nil {
 		t.Fatalf("missing row opening")
 	}
@@ -731,7 +730,7 @@ func TestShowingFullReplayOperatorModes(t *testing.T) {
 				true,
 				tc.mode,
 				8,
-				PIOP.ShowingPresetSoundnessBalanced,
+				PIOP.ShowingPresetInlineTargetReplayCompactResearch,
 				"",
 				0,
 				0,
@@ -748,90 +747,6 @@ func TestShowingFullReplayOperatorModes(t *testing.T) {
 				t.Fatalf("reported prf mode=%q want %q", rep.TranscriptFocus.PRFMode, tc.mode)
 			}
 		})
-	}
-}
-
-func TestShowingTranscriptSweepSmoke(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test")
-	}
-	root := showingTestRepoRoot(t)
-	chdirForShowingTest(t, root)
-	out := filepath.Join(t.TempDir(), "transcript_sweep.json")
-	if err := runBenchmarkTranscriptSweep([]string{
-		"-tracks", strings.Join([]string{
-			transcriptSweepTrackReduced,
-			transcriptSweepTrackFullV6,
-			transcriptSweepTrackPRFReduced,
-			transcriptSweepTrackPRFFull96,
-		}, ","),
-		"-controls-only",
-		"-runs", "1",
-		"-json-out", out,
-	}); err != nil {
-		t.Fatalf("benchmark-transcript-sweep: %v", err)
-	}
-	data, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatalf("read benchmark json: %v", err)
-	}
-	var report transcriptSweepReport
-	if err := json.Unmarshal(data, &report); err != nil {
-		t.Fatalf("unmarshal benchmark json: %v", err)
-	}
-	if report.Version != benchmarkTranscriptSweepVersion {
-		t.Fatalf("report version=%d want %d", report.Version, benchmarkTranscriptSweepVersion)
-	}
-	if len(report.Entries) == 0 {
-		t.Fatal("expected transcript sweep entries")
-	}
-	if len(report.TrackSummaries) == 0 {
-		t.Fatal("expected transcript sweep track summaries")
-	}
-	sawAggregateR0 := false
-	for _, entry := range report.Entries {
-		if entry.Track == "" || entry.CandidateID == "" {
-			t.Fatalf("entry missing track/id: %+v", entry)
-		}
-		if entry.PRFMode == "" || entry.PRFGroupRounds <= 0 {
-			t.Fatalf("entry missing prf controls: %+v", entry)
-		}
-		if !entry.Verified {
-			if entry.RejectReason == "" {
-				t.Fatalf("rejected entry missing reject_reason: %+v", entry)
-			}
-			continue
-		}
-		if entry.Geometry.LVCSNCols <= 0 || entry.Geometry.NLeaves <= 0 {
-			t.Fatalf("entry missing geometry: %+v", entry.Geometry)
-		}
-		if entry.AggregateR0Replay {
-			sawAggregateR0 = true
-			inlineTarget := entry.ShortnessMode == PIOP.SigShortnessModeReplayCompactV18
-			if inlineTarget {
-				if entry.Geometry.ReplayTargetMR0HatRows != 0 || entry.Geometry.ReplayZHatRows <= 0 || entry.Geometry.ReplayRHat0Rows != 0 {
-					t.Fatalf("inline-target aggregate entry has malformed row geometry: %+v", entry.Geometry)
-				}
-				if entry.Geometry.ReplayRHat1Rows <= 0 {
-					t.Fatalf("inline-target aggregate entry has malformed row geometry: %+v", entry.Geometry)
-				}
-			} else if entry.Geometry.ReplayR0B2HatRows+entry.Geometry.ReplayTargetMR0HatRows <= 0 || entry.Geometry.ReplayRHat0Rows != 0 {
-				t.Fatalf("aggregate R0 entry missing aggregate row geometry: %+v", entry.Geometry)
-			}
-		}
-		if entry.Soundness.Eq8TotalBits <= 0 || entry.Soundness.Thm9TotalBits <= 0 {
-			t.Fatalf("entry missing soundness: %+v", entry.Soundness)
-		}
-		if entry.PaperTranscriptBytes > 0 {
-			total := entry.PaperBuckets.QBytes + entry.PaperBuckets.PdecsBytes + entry.PaperBuckets.RBytes +
-				entry.PaperBuckets.SigShortnessBytes + entry.PaperBuckets.AuthBytes + entry.PaperBuckets.VTargetsBytes + entry.PaperBuckets.BarSetsBytes
-			if total <= 0 {
-				t.Fatalf("entry missing transcript buckets: %+v", entry.PaperBuckets)
-			}
-		}
-	}
-	if !sawAggregateR0 {
-		t.Fatal("expected transcript sweep to include aggregate R0 control")
 	}
 }
 

@@ -2,17 +2,20 @@
 
 ## Scope
 
-The maintained public showing path remains the optimized V18 profile:
+The maintained public showing path is now profile-driven, and all maintained
+profiles use the optimized V18 relation:
 
 - showing preset: `aggregate_inline_target_replay_compact_research`
 - statement: `theorem_clean_direct_target_full_replay`
 - shortness mode: `sig_shortness_inline_target_replay_compact_hiding`
 - proof: `SigShortnessProofV18`, version 18
-- default ring degree: `N=1024`
+- maintained profile names: `showing_n512_x0len70_100`,
+  `showing_n512_x0len70_128`, and `showing_n1024_x0len70_100`
 
-The degree-512 path is opt-in research plumbing only. It does not change the
-default command, the public preset, or the optimized V18 parameters at
-`N=1024`.
+The degree-512 path is still a research statement fork, but
+`showing_n512_x0len70_100` is intentionally the no-flag default profile for the
+current research repository state. Production validity remains blocked on the
+security review noted below.
 
 ## Statement Change
 
@@ -29,56 +32,48 @@ that run.
 
 ## Compatibility Story
 
-The canonical/default repository artifacts are `N=1024` artifacts. They are not
-compatible with an `N=512` showing run. A command such as:
+Artifacts are ring/layout-specific. `N=1024` artifacts are not compatible with
+an `N=512` showing run, and `N=512` artifacts are not compatible with an
+`N=1024` showing run. The profile-selected showing command fails clearly on any
+degree, `x0_len`, or coefficient-length mismatch.
 
-```sh
-go run ./cmd/showing -showing-preset aggregate_inline_target_replay_compact_research -research-ring-degree 512
-```
-
-using the default checked-in state is expected to fail clearly with a degree or
-coefficient-length mismatch.
-
-Fresh `N=512` public parameters, B matrix, credential state, NTRU key material,
-and signature material are required before a complete end-to-end `N=512`
-showing can be produced.
+Fresh matching public parameters, B matrix, credential state, NTRU key material,
+and signature material are required before a complete end-to-end showing can be
+produced for any maintained profile.
 
 ## Degree-512 Artifact Generation
 
-The issuance CLI has explicit paths for separate `N=512` artifacts. A complete
-research run should generate public parameters/B matrix and NTRU params/keys
-under `research_n512` names, then run issuance with those paths:
+The committed canonical N=512/x0_len=70 artifacts are:
+
+- `Parameters/credential_public.n512_x0len70.json`
+- `Parameters/Bmatrix_bb_tran_n512_x0len70.json`
+- `credential/keys/credential_state.n512_x0len70.json`
+- `credential/keys/signature.n512_x0len70.json`
+
+They were generated through the issuance CLI with explicit paths:
 
 ```sh
 go run ./cmd/issuance setup-demo-public \
   -research-ring-degree 512 \
-  -out Parameters/credential_public.research_n512.json \
-  -b-path Parameters/Bmatrix_bb_tran_x0len6.research_n512.json \
+  -out Parameters/credential_public.n512_x0len70.json \
+  -b-path Parameters/Bmatrix_bb_tran_n512_x0len70.json \
   -x0-profile lhl_default \
-  -force
-
-go run ./cmd/issuance setup-ntru-keys \
-  -research-ring-degree 512 \
-  -params-out Parameters/Parameters.research_n512.json \
-  -public-out ntru_keys/public.research_n512.json \
-  -private-out ntru_keys/private.research_n512.json \
+  -x0-len 70 \
   -force
 
 go run ./cmd/issuance demo-local \
   -research-ring-degree 512 \
-  -public-params Parameters/credential_public.research_n512.json \
-  -artifact-dir credential/issuance/research_n512 \
-  -state-out credential/keys/credential_state.research_n512.json \
-  -signature-out credential/keys/signature.research_n512.json \
+  -public-params Parameters/credential_public.n512_x0len70.json \
+  -artifact-dir credential/issuance/n512_x0len70 \
+  -state-out credential/keys/credential_state.n512_x0len70.json \
+  -signature-out credential/keys/signature.n512_x0len70.json \
   -ntru-params Parameters/Parameters.research_n512.json \
   -ntru-public-key ntru_keys/public.research_n512.json \
   -ntru-private-key ntru_keys/private.research_n512.json \
-  -ntru-signature-out credential/issuance/research_n512/ntru_signature.json
+  -ntru-signature-out credential/issuance/n512_x0len70/ntru_signature.json
 
 go run ./cmd/showing \
-  -showing-preset aggregate_inline_target_replay_compact_research \
-  -research-ring-degree 512 \
-  -state-path credential/keys/credential_state.research_n512.json
+  -showing-profile showing_n512_x0len70_100
 ```
 
 The default `demo-local`, `issuer-verify-sign`, and `holder-finalize` commands
@@ -113,22 +108,22 @@ production.
 
 ## Measured Transcript Impact
 
-Measured `N=1024` baseline:
+Current measured `N=512,x0_len=70` 100-bit default:
 
-- blocks: `64`
-- `mu_rows`: `32`
-- signature shortness rows: `512`
-- `RHat1`: `64`
-- `ZHat`: `64`
-- actual witness: `698`
-- committed witness: `171`
-- `nrows`: `201`
-- `m`: `54`
+- blocks: `32`
+- `mu_rows`: `16`
+- signature shortness rows: `256`
+- `RHat1`: `32`
+- `ZHat`: `32`
+- actual witness: `490`
+- committed witness: `133`
+- `nrows`: `169`
+- `m`: `42`
 - `dQ`: `356`
-- theorem bits: `100.27`
-- optimized paper transcript: `43163` bytes
+- theorem bits: `103.05`
+- optimized paper transcript: `34843` bytes
 
-Measured `N=512` shape with `ncols=16` and `mu_pack=2`:
+Current measured `N=512,x0_len=70` 128-bit profile:
 
 - blocks: `32`
 - `mu_rows`: `16`
@@ -136,27 +131,30 @@ Measured `N=512` shape with `ncols=16` and `mu_pack=2`:
 - `RHat1`: `32`
 - `ZHat`: `32`
 - signature shortness rows: `256`
-- logical witness: `355`
-- actual witness: `362`
-- committed witness: `95`
-- mask rows: `30`
-- `rowsBlock`: `5`
-- `nrows`: `125`
-- `m`: `30`
+- logical witness: `419`
+- actual witness: `490`
+- committed witness: `126`
+- mask rows: `36`
+- `rowsBlock`: `7`
+- `nrows`: `162`
+- `m`: `56`
 - `dQ`: `356`
-- theorem bits: `100.27`
-- optimized paper transcript: `32526` bytes
-- verifier payload: `61187` bytes
-- buckets: `Pdecs=8013`, `VTargets=6625`, `R=8614`, `Q=5298`,
-  `Auth=2401`, `BarSets=1270`, `SigShortness=39`
+- theorem bits: `128.06`
+- optimized paper transcript: `37540` bytes
+- buckets: `Pdecs=8963`, `VTargets=10300`, `R=7704`, `Q=5268`,
+  `Auth=2635`, `BarSets=2362`, `SigShortness=39`
+
+The current maintained default table is tracked in
+[`current_showing_defaults.md`](current_showing_defaults.md). Older degree-512
+retuning notes are historical and may refer to the prior x0_len=6 research
+artifact set.
 
 ## Exact Files To Change
 
 - `cmd/showing/main.go`
-  - add `-research-ring-degree`
-  - add `-state-path`
-  - load the selected ring degree
-  - reject incompatible default artifacts clearly
+  - profile resolution for the three maintained x0_len=70 profiles
+  - load the selected ring degree and profile state path
+  - reject incompatible degree or x0 artifacts clearly
 - `cmd/issuance/main.go`
   - add `setup-ntru-keys`
   - add `-research-ring-degree` to issuance artifact generation paths
@@ -186,14 +184,14 @@ Measured `N=512` shape with `ncols=16` and `mu_pack=2`:
 - `PIOP/VerifyNIZK.go`
   - reject proof/layout/ring-degree mismatches
 - `PIOP/fs_binding.go`
-  - bind ring degree into public-input labels
+  - bind ring degree and x0_len into public-input labels
 - `PIOP/sig_shortness_replay.go`
-  - include ring degree in V18 layout digest material
+  - include ring degree and x0_len in V18 layout digest material
   - add ring degree to `SigShortnessProofV18`
 - `PIOP/proof_report.go`
-  - include `ring_degree` in proof reports
+  - include `ring_degree` and `x0_len` in proof reports
 - `PIOP/canonical_transcript.go`
-  - include `ring_degree` in transcript reports
+  - include `ring_degree` and `x0_len` in transcript reports
 - `PIOP/witness_geometry.go`
   - surface ring-degree geometry where reports are assembled
 - `credential/public_params.go`
@@ -206,15 +204,16 @@ Measured `N=512` shape with `ncols=16` and `mu_pack=2`:
 ## Tests Required
 
 - existing baseline tests still pass
-- default optimized V18 still uses and reports `ring_degree=1024`
+- no-flag showing resolves to `showing_n512_x0len70_100`
+- all maintained profiles use and report `x0_len=70`
 - `RingDegree=512` can build a V18 proof in a fresh or synthetic `N=512`
   fixture
 - `N=512` proof is rejected under an `N=1024` verifier context
 - `N=1024` proof is rejected under an `N=512` verifier context
-- V18 layout digest changes when ring degree changes
-- checked-in `N=1024` credential artifacts fail clearly under
-  `-research-ring-degree 512`
-- proof and transcript reports include `ring_degree`
+- V18 layout digest changes when ring degree or x0_len changes
+- checked-in `N=1024` credential artifacts fail clearly when forced through an
+  `N=512` showing profile or verifier context
+- proof and transcript reports include `ring_degree` and `x0_len`
 - no private witness material appears in an `N=512` proof
 - theorem bits are reported, and `total_bits < 100` marks the mode invalid for
   production

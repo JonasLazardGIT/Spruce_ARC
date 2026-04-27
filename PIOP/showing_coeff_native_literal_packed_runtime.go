@@ -1027,10 +1027,10 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 	var targetMR0HatHeads [][]uint64
 	if useTargetMR0HatReplay {
 		if !aggregateR0Replay {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("direct-target V11 replay requires aggregate R0 replay")
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("direct-target replay requires aggregate R0 replay")
 		}
 		if !useBBTran {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("direct-target V11 replay requires bb_tran relation")
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("direct-target replay requires bb_tran relation")
 		}
 		targetMR0HatHeads = make([][]uint64, replayBlockCount)
 		for block := 0; block < replayBlockCount; block++ {

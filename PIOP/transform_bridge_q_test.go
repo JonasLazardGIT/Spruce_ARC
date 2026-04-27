@@ -333,7 +333,7 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 		PRFGroupRounds:      2,
 		CoeffPacking:        true,
 		CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
-		ShowingPreset:       ShowingPresetCustom,
+		ShowingPreset:       "",
 		ShowingReplayMode:   replayMode,
 		SigShortnessProfile: sigShortnessProfile,
 		SigShortnessRadix:   sigShortnessRadix,

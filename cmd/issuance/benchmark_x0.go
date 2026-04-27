@@ -581,7 +581,7 @@ func benchmarkShowingOpts(ringQ *ring.Ring, params *prf.Params) (PIOP.SimOpts, e
 	const (
 		productionPRFGroupRounds = 2
 		productionNCols          = 16
-		productionEll            = 18
+		productionEll            = 16
 	)
 	opts := PIOP.SimOpts{
 		Credential:           true,
@@ -591,8 +591,9 @@ func benchmarkShowingOpts(ringQ *ring.Ring, params *prf.Params) (PIOP.SimOpts, e
 		PRFGroupRounds:       productionPRFGroupRounds,
 		CoeffPacking:         true,
 		CoeffNativeSigModel:  PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
-		ShowingPreset:        PIOP.ShowingPresetSoundnessBalanced,
-		ShowingReplayMode:    PIOP.ShowingReplayModeReduced,
+		ShowingPreset:        PIOP.ShowingPresetInlineTargetReplayCompactResearch,
+		ShowingReplayMode:    PIOP.ShowingReplayModeFull,
+		AggregateR0Replay:    true,
 		PRFCompanionMode:     PIOP.PRFCompanionModeOutputAudit,
 		PRFCheckpointSamples: 8,
 	}

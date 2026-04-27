@@ -1,0 +1,134 @@
+% ---------- theorem styles ----------
+% Number theorem-like environments within sections for localised references
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\theoremstyle{plain}
+\newtheorem{theorem}[definition]{Theorem}
+\newtheorem{lemma}[definition]{Lemma}
+\newtheorem{proposition}[definition]{Proposition}
+\theoremstyle{remark}
+\newtheorem{remark}[definition]{Remark}
+% Keep Property environment, share numbering with Definition
+\newtheorem{property}[definition]{Property}
+
+% ---------- macros ----------
+\newcommand{\negl}{\mathrm{negl}}
+\newcommand{\poly}{\mathrm{poly}}
+\newcommand{\SecParam}{1^\lambda}
+\newcommand{\F}{\mathbf{F}}
+
+% Major cursives for actors
+\newcommand{\Holder}{\mathcal{H}}
+\newcommand{\Issuer}{\mathcal{I}}
+\newcommand{\Verifier}{\mathcal{V}}
+
+% Generic notation for algorithms
+\newcommand{\Setup}{\ensuremath{\mathsf{Setup}}}
+\newcommand{\KeyGen}{\ensuremath{\mathsf{KeyGen}}}
+\newcommand{\IKeyGen}{\ensuremath{\mathsf{IssuerKeyGen}}}
+\newcommand{\VSetup}{\ensuremath{\mathsf{VerifierSetup}}}
+\newcommand{\Issue}{\ensuremath{\mathsf{Issue}}}
+\newcommand{\Show}{\ensuremath{\mathsf{Show}}}
+\newcommand{\Verify}{\ensuremath{\mathsf{Verify}}}
+\newcommand{\Randomize}{\ensuremath{\mathsf{Randomize}}}
+\newcommand{\Commit}{\ensuremath{\mathsf{Commit}}}
+\newcommand{\Open}{\ensuremath{\mathsf{Open}}}
+\newcommand{\ComVerify}{\ensuremath{\mathsf{ComVerify}}}
+\newcommand{\Blind}{\ensuremath{\mathsf{Blind}}}
+\newcommand{\Sign}{\ensuremath{\mathsf{Sign}}}
+\newcommand{\Unblind}{\ensuremath{\mathsf{Unblind}}}
+\newcommand{\Prove}{\ensuremath{\mathsf{Prove}}}
+\newcommand{\TrapGen}{\ensuremath{\mathsf{TrapGen}}}
+\newcommand{\SampPre}{\ensuremath{\mathsf{SampPre}}}
+\newcommand{\PP}{\ensuremath{\mathsf{pp}}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Zq}{\mathbb{Z}_q}
+\newcommand{\R}{R}
+\newcommand{\Rq}{R_q}
+\newcommand{\vecx}{\mathbf{x}}
+\newcommand{\vecc}{\mathbf{c}}
+\newcommand{\vecs}{\mathbf{s}}
+\newcommand{\vece}{\mathbf{e}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+
+
+\newcommand{\NTT}{\mathrm{NTT}}
+\newcommand{\INTT}{\mathrm{INTT}}
+\newcommand{\centerq}{\mathrm{center}_q}
+\newcommand{\Had}{\odot}
+\newcommand{\Hdiv}{\oslash}
+% Fiat–Shamir and CRS helpers
+\newcommand{\FS}{\mathsf{FS}}
+\newcommand{\CRS}{\mathsf{crs}}
+% Simulator / extractor symbols where needed
+\newcommand{\Sim}{\mathsf{Sim}}
+\newcommand{\Ext}{\mathsf{Ext}}
+\newcommand{\Xone}{\mathbf{X}_1} % vector in R_q^n
+\newcommand{\Xonepoly}{X_1(X)}   % packed polynomial row
+
+
+%% Adversary
+\newcommand{\etal}{et al.}
+\newcommand{\ie}{i.e.}
+\newcommand{\dodo}{\textcolor{red}{TODO:}}
+\newcommand{\lena}[1]{\textcolor{green!50!black}{Lena: {#1}}}
+\newcommand{\signer}{\ensuremath{\mathcal{S}}}
+\newcommand{\user}{\ensuremath{\mathcal{U}}}
+\newcommand{\prover}{\ensuremath{\mathcal{P}}}
+\newcommand{\verifier}{\ensuremath{\mathcal{V}}}
+\newcommand{\adversary}{\ensuremath{\mathcal{A}}}
+\newcommand{\sk}{\mathtt{sk}}
+\newcommand{\pk}{\mathtt{pk}}
+\newcommand{\sig}{\mathsf{sig}}
+\newcommand{\Sig}{\mathsf{sig}}
+\newcommand{\msg}{\mathsf{msg}}
+\newcommand{\Gen}{\mathsf{Gen}}
+\newcommand{\User}{\mathcal{U}}
+\newcommand{\Signer}{\mathcal{S}}
+\newcommand{\state}{\ensuremath{\mathsf{state}}}
+\newcommand{\acnonce}{\ensuremath{\mathsf{nonce}}}
+\newcommand{\actag}{\ensuremath{\mathsf{tag}}}
+\newcommand{\lennonce}{\ensuremath{\mathsf{len}_{\mathsf{nonce}}}}
+\newcommand{\lentag}{\ensuremath{\mathsf{len}_{\mathsf{tag}}}}
+\newcommand{\lenkey}{\ensuremath{\mathsf{len}_{\mathsf{key}}}}
+\newcommand{\lencom}{\ensuremath{\mathsf{len}_{\mathsf{com}}}}
+\newcommand{\lenmsg}{\ensuremath{\mathsf{len}_{\mathsf{msg}}}}
+\newcommand{\lenmsgpar}[1]{\ensuremath{\mathsf{len}_{\mathsf{msg},#1}}}
+\newcommand{\lenrandpar}[1]{\ensuremath{\mathsf{len}_{\mathsf{rand},#1}}}
+
+
+\newcommand{\lenrandcom}{\ensuremath{\mathsf{len}_{\mathsf{rc}}}}
+\newcommand{\committag}{\ensuremath{\mathtt{com}}}
+\newcommand{\tagtag}{\ensuremath{\mathtt{tag}}}
+\newcommand{\showtag}{\ensuremath{\mathtt{show}}}
+
+\newcommand{\ComMsg}{\ensuremath{\mathcal{M}}}
+
+\newcommand{\ComRand}{\ensuremath{\mathcal{R}}}
+\newcommand{\ComSpace}{\ensuremath{\mathcal{C}}}
+
+\newcommand{\vectorify}[1]{\ensuremath{\mathbf{#1}}}
+\newcommand{\vu}{\vectorify{u}}
+\newcommand{\vd}{\vectorify{d}}
+\newcommand{\vw}{\vectorify{w}}
+\newcommand{\vx}{\vectorify{x}}
+\newcommand{\vv}{\vectorify{v}}
+\newcommand{\valpha}{\vectorify{\alpha}}
+\newcommand{\RO}{\ensuremath{\mathsf{H}}}
+\newcommand{\correrr}{\ensuremath{\epsilon_{\mathsf{cor}}}}
+
+\newcommand{\KExt}{\ensuremath{\mathsf{KExt}}}
+\newcommand{\Real}{\ensuremath{\mathsf{Real}}}
+\newcommand{\Ideal}{\ensuremath{\mathsf{Ideal}}}
+
+\newcommand{\getsunif}{\overset{\$}{\leftarrow}}
+
+\newcommand{\prf}{\ensuremath{\mathtt{F}}}
+\newcommand{\centerfunc}{\ensuremath{\mathtt{center}}}
+
+
+% --- Notation macros to avoid overloads (local to the paper) ---
+\newcommand{\Xrand}{\mathcal{X}}           % randomness distribution for (x_0,x_1)
+\newcommand{\Xvar}{X}                      % interpolation indeterminate
+\newcommand{\Ddeg}{D_{\mathrm{comp}}}      % compositional degree := n_{\mathrm{cols}}+\ell-1
+\newcommand{\Ddig}{D_{\mathrm{dig}}}       % digit half-range for the ℓ_\infty gadget

@@ -65,6 +65,7 @@ func TestPaperTranscriptReportIncludesRingDegree(t *testing.T) {
 	}
 	proof := &Proof{
 		RingDegree:   1024,
+		RowLayout:    RowLayout{X0Len: 70},
 		QDegreeBound: 12,
 		VTargetsBits: []byte{1},
 		BarSetsBits:  []byte{2},
@@ -87,6 +88,9 @@ func TestPaperTranscriptReportIncludesRingDegree(t *testing.T) {
 	}
 	if rep.RingDegree != 1024 {
 		t.Fatalf("paper transcript ring_degree=%d want 1024", rep.RingDegree)
+	}
+	if rep.X0Len != 70 {
+		t.Fatalf("paper transcript x0_len=%d want 70", rep.X0Len)
 	}
 }
 
@@ -118,6 +122,38 @@ func TestSigShortnessV18LayoutDigestBindsRingDegree(t *testing.T) {
 	digest512 := buildSigShortnessV18LayoutDigest(layout)
 	if bytes.Equal(digest1024, digest512) {
 		t.Fatal("V18 layout digest did not change when ring degree changed")
+	}
+}
+
+func TestSigShortnessV18LayoutDigestBindsX0Len(t *testing.T) {
+	layout := RowLayout{
+		RingDegree: 1024,
+		X0Len:      70,
+		CoeffNativeSig: CoeffNativeSigLayout{
+			PackedSigComponents: 2,
+			PackedSigBlocks:     64,
+			PackedSigBlockWidth: 16,
+		},
+		PackedSigChainBase:             10,
+		PackedSigChainGroupCount:       128,
+		PackedSigChainGroupSize:        1,
+		PackedSigChainRowsPerGroup:     4,
+		PackedSigChainBlockWidth:       16,
+		PackedSigChainEffectiveBlocks:  64,
+		PackedSigChainSourceBlockWidth: 16,
+		ReplayBlockCount:               64,
+		IdxM1:                          1,
+		IdxM2:                          2,
+		IdxCarrierM:                    3,
+		IdxCarrierR1:                   4,
+		IdxRHat1:                       5,
+		IdxZHat:                        6,
+	}
+	digest70 := buildSigShortnessV18LayoutDigest(layout)
+	layout.X0Len = 6
+	digest6 := buildSigShortnessV18LayoutDigest(layout)
+	if bytes.Equal(digest70, digest6) {
+		t.Fatal("V18 layout digest did not change when x0_len changed")
 	}
 }
 
@@ -299,34 +335,6 @@ func TestResolveSigShortnessModeUsesReplayCompactV18Label(t *testing.T) {
 	}
 }
 
-func TestAggregateV6ResearchPresetDefaultsToFullAggregateTuple(t *testing.T) {
-	opts := ResolveSimOptsDefaults(SimOpts{
-		Credential:           true,
-		CoeffNativeSigModel:  CoeffNativeSigModelLiteralPackedAggregatedV3,
-		ShowingPreset:        ShowingPresetAggregateV6Research,
-		PRFCompanionMode:     PRFCompanionModeOutputAudit,
-		PRFCheckpointSamples: 8,
-	})
-	if opts.ShowingReplayMode != ShowingReplayModeFull {
-		t.Fatalf("aggregate V6 replay mode=%q want full", opts.ShowingReplayMode)
-	}
-	if !opts.AggregateR0Replay {
-		t.Fatalf("aggregate V6 preset did not enable aggregate R0 replay")
-	}
-	if opts.LVCSNCols != aggregateV6ResearchLVCSNCols || opts.PostSignLVCSNCols != aggregateV6ResearchLVCSNCols || opts.PRFLVCSNCols != aggregateV6ResearchLVCSNCols {
-		t.Fatalf("aggregate V6 LVCS tuple=(%d,%d,%d) want %d", opts.LVCSNCols, opts.PostSignLVCSNCols, opts.PRFLVCSNCols, aggregateV6ResearchLVCSNCols)
-	}
-	if opts.Eta != aggregateV6ResearchEta || opts.EllPrime != aggregateV6ResearchEllPrime || opts.Theta != aggregateV6ResearchTheta || opts.Rho != aggregateV6ResearchRho {
-		t.Fatalf("aggregate V6 params eta=%d ell'=%d theta=%d rho=%d", opts.Eta, opts.EllPrime, opts.Theta, opts.Rho)
-	}
-	if opts.Kappa != aggregateV6ResearchKappa {
-		t.Fatalf("aggregate V6 kappa=%v want %v", opts.Kappa, aggregateV6ResearchKappa)
-	}
-	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetAggregateV6Research {
-		t.Fatalf("aggregate V6 resolved preset=%q want %q", got, ShowingPresetAggregateV6Research)
-	}
-}
-
 func TestInlineTargetReplayCompactPresetDefaultsToCanonicalW84Tuple(t *testing.T) {
 	opts := ResolveSimOptsDefaults(SimOpts{
 		Credential:           true,
@@ -364,9 +372,6 @@ func TestInlineTargetReplayCompactPresetDefaultsToCanonicalW84Tuple(t *testing.T
 	}
 	if !sigShortnessV18EnabledForOpts(opts) {
 		t.Fatalf("inline-target preset did not enable V18 shortness")
-	}
-	if sigShortnessV11EnabledForOpts(opts) || sigShortnessV14EnabledForOpts(opts) || sigShortnessV15EnabledForOpts(opts) || sigShortnessV16EnabledForOpts(opts) || sigShortnessV17EnabledForOpts(opts) {
-		t.Fatalf("canonical inline-target preset must not enable pruned shortness families")
 	}
 	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetInlineTargetReplayCompactResearch {
 		t.Fatalf("inline-target resolved preset=%q want %q", got, ShowingPresetInlineTargetReplayCompactResearch)

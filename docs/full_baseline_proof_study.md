@@ -4,8 +4,9 @@ This note tracks the theorem-facing full-replay control for the current
 shared-randomness ARC-SPRUCE branch.
 
 It is a study note, not the shipped operator runbook. The live engineering
-baseline is the reduced-replay `bb_tran` path documented in
-[protocol.md](protocol.md) and [transcript_reduction_analysis.md](transcript_reduction_analysis.md).
+baseline is the optimized V18 `bb_tran` showing family documented in
+[protocol.md](protocol.md), [current_showing_defaults.md](current_showing_defaults.md),
+and [transcript_reduction_analysis.md](transcript_reduction_analysis.md).
 
 ## Scope
 
@@ -64,21 +65,20 @@ It gives a control surface for:
 - measuring how much transcript is attributable to reduced-replay engineering
   choices instead of the core relation
 
-The current repo should therefore be read as having two different goals:
+The current repo should therefore be read as having two different layers:
 
-- shipped baseline:
-  reduced replay, `soundness_balanced`, `output_audit`, V6 hidden shortness
-- study baseline:
-  intended full replay with the same semantic witness but a wider authenticated
-  replay image
+- maintained showing profiles:
+  the three x0_len=70 optimized V18 profiles selected by `-showing-profile`
+- study notes:
+  historical replay comparisons that are not maintained CLI surfaces
 
 ## Current status
 
 ### Shipped status
 
-The reduced-replay baseline is the only path that is both:
+The optimized V18 profile family is the path that is both:
 
-- green on the canonical `lhl_default` artifacts
+- green on the canonical x0_len=70 artifacts
 - kept current as an engineering target
 
 ### Full-replay control status
@@ -89,7 +89,10 @@ checked-in vector-`x0` artifacts.
 The maintained command surface is:
 
 ```bash
-go run ./cmd/showing -full
+go run ./cmd/showing
+go run ./cmd/showing -showing-profile showing_n512_x0len70_100
+go run ./cmd/showing -showing-profile showing_n512_x0len70_128
+go run ./cmd/showing -showing-profile showing_n1024_x0len70_100
 ```
 
 That means:
@@ -133,17 +136,17 @@ Both branches use:
 
 ### Different proof geometry
 
-Reduced replay:
+Historical reduced replay:
 
 - excludes transform aliases and replay-image rows from the active selector
 - keeps only carrier and PRF-companion replay families live
-- is the shipped transcript-performance baseline
+- is not the maintained public showing surface
 
-Full replay:
+Optimized V18 replay:
 
 - is intended to authenticate a theorem-cleaner replay image
-- is the natural place for V7-style inlined target-hiding shortness
-- is currently stale on the canonical vector-`x0` artifacts
+- uses inlined target-hiding shortness in the maintained profile family
+- is current on canonical x0_len=70 artifacts
 
 The difference is therefore proof geometry, not credential semantics.
 
@@ -158,25 +161,25 @@ If you need to reason about the full-baseline study from code, start here:
 - [../PIOP/sig_shortness_replay.go](../PIOP/sig_shortness_replay.go)
 - [../PIOP/replay_family_audit.go](../PIOP/replay_family_audit.go)
 
-Use [transcript_reduction_analysis.md](transcript_reduction_analysis.md) for the
-measured reduced-replay baseline and the current optimization roadmap.
+Use [current_showing_defaults.md](current_showing_defaults.md) and
+[transcript_reduction_analysis.md](transcript_reduction_analysis.md) for measured
+profile defaults and the current optimization roadmap.
 
 ## How to refresh this study
 
-When the full-replay branch is being repaired or re-measured, use this order:
+When this study is being refreshed, use this order:
 
 1. Regenerate current canonical artifacts.
-2. Verify the reduced baseline still works.
-3. Run the intended full-replay control.
+2. Verify the maintained optimized V18 profiles still work.
+3. Record the current transcript reports.
 4. Record only measurements produced on fresh vector-`x0` artifacts.
 
 Commands:
 
 ```bash
-go run ./cmd/issuance setup-demo-public -force -out Parameters/credential_public.json -x0-profile lhl_default
-go run ./cmd/issuance demo-local -public-params Parameters/credential_public.json -artifact-dir credential/issuance -state-out credential/keys/credential_state.json -signature-out ntru_keys/signature.json
 go run ./cmd/showing
-go run ./cmd/showing -full
+go run ./cmd/showing -showing-profile showing_n512_x0len70_128
+go run ./cmd/showing -showing-profile showing_n1024_x0len70_100
 go test ./PIOP ./cmd/showing
 ```
 
@@ -186,6 +189,5 @@ When this note discusses "full baseline", read it as:
 
 - a current semantic study of the theorem-clean replay surface for the live
   `bb_tran` protocol
-- not a claim that the full-replay CLI is currently green on the shipped
-  artifacts
+- not a claim that historical replay-control CLI flags are maintained
 - not an archival description of the deprecated aligned/source-product design

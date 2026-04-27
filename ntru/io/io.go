@@ -11,11 +11,12 @@ import (
 const BMatrixVersion = 2
 
 type BMatrixMetadata struct {
-	Version   int        `json:"version,omitempty"`
-	TargetDim int        `json:"target_dim,omitempty"`
-	X0Len     int        `json:"x0_len,omitempty"`
-	RowOrder  []string   `json:"row_order,omitempty"`
-	B         [][]uint64 `json:"B"`
+	Version    int        `json:"version,omitempty"`
+	TargetDim  int        `json:"target_dim,omitempty"`
+	X0Len      int        `json:"x0_len,omitempty"`
+	RingDegree int        `json:"ring_degree,omitempty"`
+	RowOrder   []string   `json:"row_order,omitempty"`
+	B          [][]uint64 `json:"B"`
 }
 
 type SystemParams struct {
@@ -153,6 +154,12 @@ func LoadBMatrixMetadata(path string) (BMatrixMetadata, error) {
 			return tmp, fmt.Errorf("b[%d] has length %d, want %d", i, len(tmp.B[i]), rowLen)
 		}
 	}
+	if tmp.RingDegree == 0 {
+		tmp.RingDegree = rowLen
+	}
+	if tmp.RingDegree != rowLen {
+		return tmp, fmt.Errorf("b ring_degree=%d does not match coefficient length=%d", tmp.RingDegree, rowLen)
+	}
 	if tmp.Version == 1 {
 		if len(tmp.B) != 4 {
 			return tmp, fmt.Errorf("legacy b has %d rows, want 4", len(tmp.B))
@@ -199,11 +206,12 @@ func SaveBMatrixCoeffs(path string, coeffs [][]uint64) error {
 	}
 	rowOrder = append(rowOrder, "B3")
 	payload := BMatrixMetadata{
-		Version:   BMatrixVersion,
-		TargetDim: 1,
-		X0Len:     x0Len,
-		RowOrder:  rowOrder,
-		B:         coeffs,
+		Version:    BMatrixVersion,
+		TargetDim:  1,
+		X0Len:      x0Len,
+		RingDegree: rowLen,
+		RowOrder:   rowOrder,
+		B:          coeffs,
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

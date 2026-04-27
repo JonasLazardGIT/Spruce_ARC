@@ -1,0 +1,73 @@
+\section{Optimizations for the SmallWood Implementation}\label{sec:optimisations}
+
+This section explains the proof–size optimizations we implement, why they are sound, and how they reduce the two dominant payloads of the argument. 
+\emph{RowOpening} authenticates a set of row leaves under the rows commitment and carries, per opened leaf, the residue (for data rows and mask rows), the leaf index and nonce, and the Merkle authentication material. 
+\emph{MOpening} is the analogous opening for the mask commitment on tail leaves. 
+Everything else in the transcript is comparatively small. 
+Our strategy is purely structural: eliminate redundancy, share Merkle path material across leaves, and encode residues/descriptors compactly—leaving all algebraic checks (DECS/LVCS/PCS/PIOP) unchanged.
+
+
+\paragraph{Trimming and extra FS hash.}
+Following SmallWood-ARK, we elide redundant evaluations by adding an extra FS hash and reconstruct omitted $Q/R$ coefficients. This yields
+$$
+|\pi| \;=\; |\pi_{\mathrm{naive}}| + 2\lambda \;-\; \bigl(\eta \ell + \rho(\ell'+1) + m\ell \bigr)\log_2|\F|\,,
+$$
+with straightline extraction and final soundness as in~\cite[Thm.~9]{cryptoeprint:2025/1085}. Our small-field choice aligns with \cite[\S5.4, Tab.~2]{cryptoeprint:2025/1085}.
+
+
+\paragraph{Trimming MR to \(d_Q{+}1\) coefficients}
+The masked rows \(R_k\) are degree bounded by construction. We serialize only the first \(d_Q{+}1\) coefficients of each \(R_k\) and the verifier reconstructs the tail as zeros. MR therefore drops from \(\eta N\) elements to \(\eta(d_Q{+}1)\). The degree check already present in the verification path guarantees soundness.
+
+
+\paragraph{Single combined row opening}
+Masked and tail indices are carried in one opening for the row commitment. The verifier splits this combined opening when it enforces masked equalities on the head slab and tail equalities on the challenged indices. This enables node sharing across the two subsets and avoids duplicated headers.
+\noindent\emph{Verifier rule.}
+Given the union of masked/tail positions, \textsf{Verify} recomputes the root \emph{only} from the \textbf{sorted, deduplicated} union and \textbf{rejects} if any descriptor references a node outside the union slice at that level/side.
+
+\paragraph{Sixteen byte Merkle nodes}
+Merkle nodes are represented as 16-byte strings derived with the XOF \texttt{SHAKE} and truncated to 128 bits (collision resistance aligned with $\lambda{=}128$).\footnote{Any XOF/HASH with at least 128-bit collision resistance is acceptable; the choice does not affect algebraic checks.}
+This halves path bytes versus 32-byte nodes while preserving the target $\lambda$.
+At \(N=1024\) the depth is 10 which yields a saving of about 160 bytes per opened leaf before any sharing.
+
+\paragraph{Leaner leaf headers}
+Residues are stored in 32 bit lanes since \(q<2^{20}\). The leaf index fits in 16 bits for \(N=1024\). The per leaf nonce is 16 bytes. These choices shrink the fixed header of every leaf and directly benefit both RowOpening and MOpening.
+
+\subsection*{Merkle multiproof}
+
+\textbf{Principle.} Given leaves \(L[0],\ldots,L[N-1]\) and an opening set \(S\), the prover builds one global sibling pool and per-leaf descriptors. Concretely, \texttt{EvalOpen} deduplicates every sibling encountered across all paths in \(S\) into a single slice \texttt{Nodes} and, for each opened leaf \(t\), records the per-level indices \(\texttt{PathIndex}[t][\textit{lvl}]\) that point into \texttt{Nodes}. 
+
+
+\textbf{Correctness.} The verifier side first normalises the proof: \texttt{EnsureMerkleDecoded} expands any compact/frontier form back into the canonical \texttt{Nodes} and \texttt{PathIndex} so consumers can iterate per-leaf paths. It then reconstructs each path for leaf \(t\) by fetching the sibling bytes at level \(\textit{lvl}\) as \(\texttt{Nodes}[\texttt{PathIndex}[t][\textit{lvl}]]\) and passes the resulting chain to \texttt{VerifyPath}, which rehashes level by level to the public root.
+
+
+\textbf{Savings.} Compared to sending \(|S|\log_2 N\) raw siblings, the union \texttt{Nodes} removes duplicates across leaves, while \texttt{PathBits} shrinks descriptors and the frontier form replaces many explicit siblings with bitmaps plus a smaller deduplicated pool.
+
+
+\subsection*{Residue and descriptor packing}
+\textbf{Twenty bit residues.} Since \(\lceil \log_2 q\rceil \le 20\), residues are bit packed into 20 bit streams in row major order. This replaces 32 bit lanes with a representation that uses 62.5 percent of the bytes. The verifier reads either the packed form or a materialised slice through uniform accessors.
+
+
+\subsection*{Dropping derivable items}
+All challenges and points that are deterministically derived from the transcript are recomputed by the verifier. This includes the tail indices, the extra \(K\) point in the small field path, and the LVCS coefficient matrix. The mask mixing seed is also dropped since it is derived from commitment roots. This reduces size and removes alternative encodings of the same proof.
+
+\subsection*{Size model and main levers}
+Let \(\text{depth}=\log_2 N\), \(\texttt{node\_len}=16\), \(\texttt{index\_len}=2\), \(\texttt{nonce\_len}=16\). For the combined RowOpening
+\[
+\begin{aligned}
+\text{RowOpening}\ \approx\ &
+  2\ell\cdot\Bigl((r+\eta)\frac{\text{bits}}{8}+\texttt{index\_len}+\texttt{nonce\_len}\Bigr) \\
+ &\quad +\ |\texttt{Nodes}|\cdot \texttt{node\_len}
+ \ +\ \sum_{s\in S}\bigl|\texttt{PathIndex}[s]\bigr|,
+\end{aligned}
+\]
+with \(\text{bits}\in\{20,32\}\). MOpening mirrors the same structure with \(\ell\) leaves and the mask row count of the instance. After trimming, MR contributes \(\eta(d_Q{+}1)\) elements. The largest size levers are the layout parameters that control how many values exist and are opened. The encoding improvements above shrink the opening terms uniformly across all runs.
+
+\paragraph{Verifier-side canonical encodings (required).}
+To prevent malleability and cross-run linkable quirks, \textsf{Verify} enforces:
+\begin{itemize}[leftmargin=1.25em]
+  \item Sorted, deduplicated opening index sets (per round).
+  \item The union opening set defines the only admissible indices; reject if any path descriptor points outside this set at its (level,side).
+  \item Merkle node size fixed at \textbf{16 bytes}; paths are fully specified with level/side tags.
+  \item Residue packing fixed to \textbf{20-bit} limbs where used; no alternative packings accepted.
+  \item Fiat–Shamir transcripts include round labels and explicit grinding counters $\kappa_i$ (reject if missing).
+\end{itemize}

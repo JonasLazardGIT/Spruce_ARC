@@ -234,9 +234,10 @@ overwriting the default artifacts:
 ```bash
 go run ./cmd/issuance setup-demo-public \
   -research-ring-degree 512 \
-  -out Parameters/credential_public.research_n512.json \
-  -b-path Parameters/Bmatrix_bb_tran_x0len6.research_n512.json \
+  -out Parameters/credential_public.n512_x0len70.json \
+  -b-path Parameters/Bmatrix_bb_tran_n512_x0len70.json \
   -x0-profile lhl_default \
+  -x0-len 70 \
   -force
 
 go run ./cmd/issuance setup-ntru-keys \
@@ -248,12 +249,18 @@ go run ./cmd/issuance setup-ntru-keys \
 
 go run ./cmd/issuance demo-local \
   -research-ring-degree 512 \
-  -public-params Parameters/credential_public.research_n512.json \
-  -artifact-dir credential/issuance/research_n512 \
-  -state-out credential/keys/credential_state.research_n512.json \
-  -signature-out credential/keys/signature.research_n512.json \
+  -public-params Parameters/credential_public.n512_x0len70.json \
+  -artifact-dir credential/issuance/n512_x0len70 \
+  -state-out credential/keys/credential_state.n512_x0len70.json \
+  -signature-out credential/keys/signature.n512_x0len70.json \
   -ntru-params Parameters/Parameters.research_n512.json \
   -ntru-public-key ntru_keys/public.research_n512.json \
   -ntru-private-key ntru_keys/private.research_n512.json \
-  -ntru-signature-out credential/issuance/research_n512/ntru_signature.json
+  -ntru-signature-out credential/issuance/n512_x0len70/ntru_signature.json
+```
+
+The maintained showing command for those artifacts is:
+
+```bash
+go run ./cmd/showing -showing-profile showing_n512_x0len70_100
 ```

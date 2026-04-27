@@ -4,7 +4,7 @@ This note designs the application of the lattice-witness compression idea from
 2025-1085 to the optimized Spruce showing profile:
 
 ```text
-go run ./cmd/showing -showing-preset aggregate_inline_target_replay_compact_research
+go run ./cmd/showing -showing-profile showing_n1024_x0len70_100
 ```
 
 The original target was the 512 private signature shortness rows in the current
@@ -23,9 +23,8 @@ conclusion is deliberately split:
    surface if it is implemented against the existing committed row root.
 
 No old public research preset string is required. If this design is promoted,
-the existing `aggregate_inline_target_replay_compact_research` preset should
-point at a new internal proof payload, while removed V11/V14/V15/V16/V17/V19
-surfaces stay invalid.
+the optimized relation should point at a new internal proof payload while
+removed research surfaces stay invalid.
 
 ## Current V18 Shape
 
@@ -463,11 +462,11 @@ Required tests:
 
 - `PIOP/run_test.go`
   - optimized preset still verifies.
-  - old V11/V14/V15/V16/V17/V19 public surfaces remain invalid.
+  - removed historical shortness-version public surfaces remain invalid.
   - no public digits appear in `SigShortnessProof`.
 
 - `cmd/showing/integration_test.go`
-  - default, full, aggregate V6, and optimized commands still run.
+  - the three maintained x0_len=70 optimized V18 profiles still run.
   - optimized command reports theorem bits >= 100.
   - optimized command reports the new packed row count and lookup bucket.
 
@@ -485,9 +484,8 @@ Run:
 go test ./PIOP
 go test ./cmd/showing
 go run ./cmd/showing
-go run ./cmd/showing -full
-go run ./cmd/showing -showing-preset aggregate_v6_research
-go run ./cmd/showing -showing-preset aggregate_inline_target_replay_compact_research
+go run ./cmd/showing -showing-profile showing_n512_x0len70_128
+go run ./cmd/showing -showing-profile showing_n1024_x0len70_100
 ```
 
 Accept only if:

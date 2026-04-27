@@ -22,6 +22,45 @@ func TestFormatPaperTranscriptSummaryUsesPaperWording(t *testing.T) {
 	}
 }
 
+func TestDefaultShowingProfileIsN512X0Len70_100(t *testing.T) {
+	profile, ok := lookupShowingProfile(defaultShowingProfile)
+	if !ok {
+		t.Fatalf("default showing profile %q is not registered", defaultShowingProfile)
+	}
+	if profile.Name != showingProfileN512X0Len70_100 {
+		t.Fatalf("default showing profile=%q want %q", profile.Name, showingProfileN512X0Len70_100)
+	}
+	if profile.RingDegree != 512 || profile.X0Len != 70 || profile.SoundnessTarget != 100 {
+		t.Fatalf("default profile tuple ring=%d x0=%d target=%.0f", profile.RingDegree, profile.X0Len, profile.SoundnessTarget)
+	}
+	if profile.StatePath != filepath.Join("credential", "keys", "credential_state.n512_x0len70.json") {
+		t.Fatalf("default profile state path=%q", profile.StatePath)
+	}
+}
+
+func TestMaintainedShowingProfilesAreExactlyX0Len70(t *testing.T) {
+	names := showingProfileNames()
+	if len(names) != 3 {
+		t.Fatalf("maintained showing profile count=%d names=%v", len(names), names)
+	}
+	for _, name := range names {
+		profile, ok := lookupShowingProfile(name)
+		if !ok {
+			t.Fatalf("profile %q not registered", name)
+		}
+		if profile.X0Len != 70 {
+			t.Fatalf("profile %s x0_len=%d want 70", profile.Name, profile.X0Len)
+		}
+		if profile.RingDegree != 512 && profile.RingDegree != 1024 {
+			t.Fatalf("profile %s ring_degree=%d", profile.Name, profile.RingDegree)
+		}
+	}
+	legacy := strings.Join([]string{"soundness", "balanced"}, "_")
+	if _, ok := lookupShowingProfile(legacy); ok {
+		t.Fatalf("legacy preset %q registered as maintained profile", legacy)
+	}
+}
+
 func TestResearchRingDegree512RejectsDefaultN1024Artifacts(t *testing.T) {
 	root := showingTestRepoRoot(t)
 	chdirForShowingTest(t, root)
@@ -40,6 +79,30 @@ func TestResearchRingDegree512RejectsDefaultN1024Artifacts(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "fresh N=512 artifacts") {
 		t.Fatalf("degree mismatch error did not explain fresh artifacts requirement: %v", err)
+	}
+}
+
+func TestValidateArtifactRingDegreeRejectsX0Mismatch(t *testing.T) {
+	st := credential.State{
+		X0Len:      69,
+		RingDegree: 512,
+		Mu:         [][]int64{make([]int64, 512)},
+		R0:         make([][]int64, 69),
+		R1:         [][]int64{make([]int64, 512)},
+		Z:          [][]int64{make([]int64, 512)},
+		SigS1:      make([]int64, 512),
+		SigS2:      make([]int64, 512),
+	}
+	for i := range st.R0 {
+		st.R0[i] = make([]int64, 512)
+	}
+	public := credential.PublicParams{RingDegree: 512, X0Len: 70}
+	err := validateArtifactRingDegree(512, "test_state.json", st, public)
+	if err == nil {
+		t.Fatal("x0_len mismatch accepted")
+	}
+	if !strings.Contains(err.Error(), "x0_len") {
+		t.Fatalf("x0 mismatch error did not mention x0_len: %v", err)
 	}
 }
 
@@ -97,8 +160,8 @@ func TestFormatPaperTranscriptReductionSummaryShowsRSavedAndQSaved(t *testing.T)
 func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T) {
 	line := formatTranscriptOptimizationSummary(PIOP.ProofReport{
 		TranscriptFocus: PIOP.TranscriptOptimizationReport{
-			ShowingPreset:     PIOP.ShowingPresetSoundnessBalanced,
-			ReplayMode:        string(PIOP.ShowingReplayModeReduced),
+			ShowingPreset:     PIOP.ShowingPresetInlineTargetReplayCompactResearch,
+			ReplayMode:        string(PIOP.ShowingReplayModeFull),
 			ReplayBlocks:      1,
 			LVCSNCols:         128,
 			NLeaves:           2048,
@@ -115,7 +178,7 @@ func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T)
 			RowOpeningEntries: 36,
 		},
 	})
-	if !strings.Contains(line, "preset=soundness_balanced replay=reduced blocks=1 lvcs=128 nleaves=2048 rowsBlock=7 maskChunks=2 witness=859 nrows=560 m=288 pcols=272 omitP=288") {
+	if !strings.Contains(line, "preset=aggregate_inline_target_replay_compact_research replay=full blocks=1 lvcs=128 nleaves=2048 rowsBlock=7 maskChunks=2 witness=859 nrows=560 m=288 pcols=272 omitP=288") {
 		t.Fatalf("missing nrows/m/pcols summary: %q", line)
 	}
 	if !strings.Contains(line, "prf_scalars=165 prf_rows=11 (packed)") {
@@ -126,7 +189,7 @@ func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T)
 func TestFormatTranscriptOptimizationSummaryShowsFactorizedInstanceGeometry(t *testing.T) {
 	line := formatTranscriptOptimizationSummary(PIOP.ProofReport{
 		TranscriptFocus: PIOP.TranscriptOptimizationReport{
-			ShowingPreset:            PIOP.ShowingPresetSoundnessBalanced,
+			ShowingPreset:            PIOP.ShowingPresetInlineTargetReplayCompactResearch,
 			ReplayMode:               string(PIOP.ShowingReplayModeFull),
 			ReplayBlocks:             32,
 			LVCSNCols:                32,
