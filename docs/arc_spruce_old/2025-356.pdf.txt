@@ -1,0 +1,2406 @@
+Lattice-based Proof-Friendly Signatures
+from Vanishing Short Integer Solutions
+Adrien Dubois1 , Michael Klooß2 , Russell W. F. Lai3 , and Ivy K. Y. Woo3
+1
+
+2
+
+ENS de Lyon, France
+Karlsruhe Institute of Technology, Germany
+3
+Aalto University, Finland
+
+Abstract. Efficient anonymous credentials are typically constructed by combining proof-friendly
+signature schemes with compatible zero-knowledge proof systems. Inspired by pairing-based prooffriendly signatures such as Boneh- Boyen (BB) and Boneh-Boyen-Shacham (BBS), we propose
+a wide family of lattice-based proof-friendly signatures based on variants of the vanishing short
+integer solution (vSIS) assumption [Cini-Lai-Malavolta, Crypto’23]. In particular, we obtain natural
+lattice-based adaptions of BB and BBS which, similar to their pairing-based counterparts, admit
+nice algebraic properties.
+[Bootle-Lyubashevsky-Nguyen-Sorniotti, Crypto’23] (BLNS) recently proposed a framework for
+constructing lattice-based proof-friendly signatures and anonymous credentials, based on another
+new lattice assumption called ISISf parametrised by a fixed function f , with focus on f being the
+binary decomposition. We introduce a generalised ISISf framework, called GenISISf , with a keyed
+and probabilistic function f . For example, picking fb (µ) = 1/(b − µ) with key b for short ring
+element µ leads to algebraic and thus proof-friendly signatures. To better gauge the robustness
+and proof-friendliness of (Gen)ISISf , we consider what happens when the inputs to f are chosen
+selectively (or even adaptively) by the adversary, and the behaviour under relaxed norm checks.
+While bit decomposition quickly becomes insecure, our proposed function families seem robust.
+
+Keywords: lattice cryptography · proof-friendly signatures · BBS signature · vanishing SIS · ISISf
+assumption
+
+1
+
+Introduction
+
+Constructing secure and concretely efficient lattice-based signature schemes is by now a well solved
+problem. Indeed, schemes following both of the main construction paradigms, Hash-and-Sign [GPV08]
+and Fiat-Shamir-with-abort (FSwA) [Lyu12], have been standardised [PFH+ 22, LDK+ 22] with signature
+size in single-digit kilobytes and with security connected to the hardness of worst-case lattice problems4 in
+the random oracle model. However, the verification relations of most efficient schemes in either paradigm,
+including standardised ones, inherently require evaluating a hash function on the signed message and
+additionally on part of the signature in the case of FSwA. Since this hash function needs to be modelled as
+a random oracle for security proofs to go through, it is typically instantiated with a non-algebraic (hence
+not proof-friendly) hash function. While signatures based on non-algebraic hashes suffice for standalone
+uses, they may not be well suited as building blocks for efficient constructions of privacy-preserving
+authentication primitives, such as anonymous credentials, blind signatures and group signatures.
+Constructing efficient privacy-preserving authentication primitives is of high practical interest, e.g.
+in the context of the European Digital Identity framework. Concretely efficient constructions typically
+require a user to prove knowledge of a message-signature pair which satisfies the verification relation
+of a signature scheme, in zero-knowledge. For example, the message could be the secret attributes of
+the user, and the signature could be issued by an authority who asserts that the attributes are genuine.
+For such a proof to be computed efficiently, a common approach is to instantiate the constructions with
+“proof-friendly” signatures and zero-knowledge proofs (ZKP), such that the verification relations of the
+signatures are “natively” supported by the proof system.5
+4
+
+We say connected because parameters chosen for the schemes differ from those which admit worst-case to
+average-case reductions.
+5
+Such a combination of signatures and ZKPs is sometimes called “signatures with efficient protocols” [CL03]. In
+the pairing-based setting, a typical choice is to combine the BBS signatures [BBS04] with the Groth-Sahai
+proof system [GS08].
+
+Lattice-based Proof-Friendly Signatures. In the context of lattice-based signatures, we regard a signature
+scheme as proof-friendly if 1) it natively supports signing committed messages (via a hiding and binding
+commitment), and 2) its verification relation can be expressed as the bounded-norm satisfiability of
+a system of low-degree polynomial equations. Combined with efficient lattice-based ZKPs for proving
+well-formedness of commitments and bounded-norm relations (e.g. [LNP22b]), a signature scheme with
+the above properties can be efficiently turned into constructions of privacy-preserving authentication
+primitives, as demonstrated in [BLNS23b]. In this area, two competing approaches represent the state of
+the art:
+1. Jeudy, Roux-Langlois and Sanders [JRS23], building upon [LLM+ 16], considered signature schemes
+of the following form: A signature of a short message vector m is a tuple (x, s, r), where x is an
+invertible element, and s, r are short vectors satisfying
+[A|B + xG] · s = v + C[ m
+r ] mod q,
+where A, B, C are public random matrices, v is a public random vector, and G is the so-called gadget
+matrix [MP12]. This type of signatures relies on the gadget lattice trapdoor machinery [MP12], which
+tends to be concretely less efficient than GPV trapdoors [GPV08]. Indeed, [JRS23] reported signature
+sizes in the hundreds of kilobytes.
+2. Bootle, Lyubashevsky, Nguyen and Sorniotti [BLNS23b] considered signature schemes of the following
+form: A signature of a short message vector m is a tuple (x, s, r), where x is chosen uniformly at
+random from an appropriate domain, and s, r are short vectors satisfying
+A · s = f (x) + C[ m
+r ] mod q,
+where A, C are public random matrices and f is a function. This signature scheme can be instantiated
+efficiently, with [BLNS23b] reporting signature sizes as low as dozens of kilobytes. However, the
+security of such scheme is based on a new lattice assumption, called ISISf , introduced in the same work,
+whose hardness crucially depends on the choice of f . Indeed, it is very easy to come up with (linear)
+functions f for which the assumption and the scheme are completely broken. The authors advocated
+picking f to be the binary decomposition function, but were light on the evidence supporting the
+hardness of ISISf for this f . In Section 5.4, we illustrate that this choice of f is not very robust.
+Security breaks down under
+√ the (relatively benign) relaxation to one selective f -query and norm
+relaxation by a factor of 2.
+Translating BB(S) Signatures. In view of the scarcity of lattice-based proof-friendly signatures, a natural
+strategy is to translate proof-friendly pairing-based signatures to the lattice setting, for example, using
+the general translation strategy proposed in [ACL+ 22]. Signature schemes which utilise only generic
+pairing group operations are abundant. Of particular importance are the related signature schemes of
+Boneh and Boyen (BB) [BB08], whose signature consists of a single group element, and Boneh, Boyen
+and Shacham (BBS) [BBS04, ASM06, TZ23], which allows to sign messages committed via Pedersen’s
+commitment. (More discussion in Section 1.2.) Below, we outline a translation attempt of the simpler BB
+signatures and highlight the difficulty behind.
+To recall, using implicit notation for group elements, a public key in the BB signature scheme is
+a tuple of group elements ([1], [b]) ∈ G2 , the secret key is b ∈ Zq , and a signature of µ ∈ Zq \ {b} is
+?
+
+[u] = [1/(b − µ)]. Signature verification simply checks if ([b] − [1] · µ) · [u] = [1], where · denotes the pairing
+operation.
+Adopting the translation strategy of [ACL+ 22], a natural lattice-analogue of BB signatures would be
+as follows: The public key consists of a random matrix A and a random vector b, the secret key is a
+trapdoor tdA , and a signature of µ is a short vector s satisfying As = 1n ⊘ (b − 1n · µ) mod q, where ⊘
+?
+
+denotes component-wise division. Equivalently, the verification equation is (As) ⊙ (b − 1n · µ) = 1n mod q,
+where ⊙ denotes the component-wise product, which apparently shares structural similarities with that
+of the BB signatures.
+Despite the above natural translation of the BB signature scheme, its original security proof, based on
+the Q-strong Diffie-Hellman assumption (Q-SDH), unfortunately fails to translate to the lattice setting.
+2
+
+In brief, a core argument in the security proof of BB signatures relies on constructing a polynomial
+f (b̃) :=
+
+Q
+Y
+
+(b̃ − µi )
+
+i=1
+
+where µ1 , . . . , µQ are selective signing oracle queries, and using properties of the quotients f (b̃)/(b̃ − µ)
+for µ ∈ {µ1 , . . . , µQ , µ∗ }, where µ∗ is the target message of a forgery, to answer signing oracle queries and
+extract a Q-SDH solution. A major difficulty in carrying this argument over to the lattice setting, among
+others, lies in the inability to control the norm of the coefficients of both the quotient and remainder of
+f (b̃)/(b̃ − µ). This suggests that, rather than proving security of the lattice-BB signatures based on a
+lattice-analogue of Q-SDH, an alternative strategy is needed.
+1.1
+
+Our Contributions
+
+In this work, we present a wide family of lattice-based proof-friendly signatures, including those obtained
+by translating the pairing-based BB and BBS signatures. We prove security of these signature schemes
+under new but natural extensions of existing lattice-based assumption, specifically, the (strong) hinted
+variants of the vanishing short integer solution (vSIS) assumption [CLM23] family, which can also be seen
+as variants of the kRISIS assumption [ACL+ 22] family with slightly more flexible adversaries. Our results
+are summarised in Figure 1.
+(Strong) Hinted vSIS Assumptions, Plausibility Criteria, Reduction. We propose the hinted vSIS assumption and its strong variant in Section 3. The original vSIS assumption, introduced by [CLM23] and
+parametrised by a set of rational functions F, asserts hardness of the following task:
+Given a random matrix A, find a short linear combination of (f (A))f ∈F vanishing to 0 modulo q.
+The hinted vSIS assumption, further parametrised by two (possibly intersecting) sets of rational functions
+G, H, asserts hardness of the following task:
+Pick a Q-subset Q = (h1 , . . . , hQ ) of H and some g ∗ in G \ Q, receive a random matrix A and
+short linear combinations of (f (A))f ∈F which evaluate to hi (A) modulo q for each i ∈ [Q], and
+find a short linear combination of (f (A))f ∈F which evaluates to g ∗ (A) modulo q.
+The strong variant, which is strong in the same sense as in Q-SDH, asks to perform the above task with
+the flexibility that g ∗ can be picked after seeing A.
+We suggest general criteria for the hinted vSIS assumptions6 to be plausible. Further, under the
+Evasive SIS assumption envisioned by [Wee22] (but which was not formalised nor used), we show that
+the (non-strong) hinted vSIS assumption is implied by the (plain) vSIS assumption for certain parameter
+choices (Thm. 2). Similar to the gaps between strong and non-strong assumptions in the group setting,
+e.g. (strong) Diffie-Hellman and (strong) RSA, formal reductions from non-strong to strong hinted vSIS
+are out of reach except in trivial cases.
+Lattice-based Adaption of the BB(S) Signatures. We construct a family of lattice-based signatures
+in Section 4, capturing the lattice-BB signatures sketched above as a special case. In brief, suppose
+H = {hµ,χ }µ,χ is a set of rational functions indexed by messages µ and signing randomness χ. For a public
+key (A, b), a signature is simply a tuple (χ, s), where s is a short vector satisfying As = hµ,χ (bT ) mod q.
+Assuming strong hinted vSIS holds for G, then the signature scheme has strong selective-query security
+(Thm. 5). By instantiating G appropriately, we obtain natural lattice-analogues of the BB and the BBS
+signature schemes, elaborated in Section 4.2.
+Generalised ISISf . We generalise the ISISf assumption of [BLNS23b] to allow the function f inputting
+additional randomness, which we call the GenISISf assumption, presented in Section 5. Analogous to ISISf
+of [BLNS23b], the GenISISf assumption can be generically lifted to an interactive GenISISf assumption
+without additional overhead (Thm. 6). Applying the transformation to our strongly selective-query-secure
+signature scheme yields a fully strongly secure one. Moreover, we show that the GenISISf assumption
+implies a weakened version of the strong hinted vSIS assumption, where the set of hints Q is sampled
+uniformly randomly.
+6
+
+Apply also to the (plain) vSIS and kRISIS assumptions upon appropriate adaption.
+
+3
+
+Rmk. 2
+|G| = poly(λ)
+
+vSIS
+
+Hint-vSIS
+
+s-Hint-vSIS
+
+s-$Hint-vSIS
+
+Thm. 3
+Fmonomial 7→ F
+
+Thm. 5
+
+Thm. 5
+
+Thm. 5
+
+Thm. 2
+EvasiveSIS
+
+sSUF-SMA
+
+sEUF-SMA
+
+sEUF-RMA
+
+Thm. 8
+.7
+
+m
+Th
+
+GenISISf
+Thm. 6
+IntGenISISf
+sEUF-CMA
+
+Fig. 1: Overview of results. An arrow from A to B means “Assumption/Security A implies Assumption/Security B”. Dashed arrows denote trivial reductions.
+
+1.2
+
+Related Work
+
+The BBS signature scheme was implicit in their group signature construction [BBS04] and can be seen as
+an extension of another signature scheme by Boneh and Boyen (BB) [BB08]. The BBS scheme was later
+explicitly cast as a standalone signature scheme [CL04]. The BBS+ signature scheme [ASM06] is a slightly
+modified and provably secure version of BBS, under the q-strong Diffie Hellman (q-SDH) assumption. For
+almost two decades since its introduction, the BBS+ signature scheme is a de facto standard building
+block for pairing-based anonymous credentials. Only until recently [TZ23] it is shown that the original
+BBS signature scheme is also provably secure under the same assumption.
+The combination of (lattice-based) proof-friendly signatures with a tailored zero-knowledge proof
+system is a general template for privacy-preserving authentication primitives (see e.g. [CGT23]). Anonymous credentials tend to be the hardest to construct, as typically both the signature and parts of the
+signed message should remain hidden when the credential is shown. Thus, efficient proof-friendly signatures [ABB10, MP12, DM14, BLNS23b] along with suitable proof systems [BLS19, YAZ+ 19, LNP22b] had
+to be devised first, and still much optimisation was (and is) required [LLM+ 16, BLNS23b, JRS23, BBP23].
+For group and blind signatures, using a random oracle to hash the message provides some leverage. Indeed, in the lattice setting, we have seen earlier and steady development with group signatures [GKV10, LLLS13, LLNW16, BCN18, dPLS18, BDK+ 22, LNPS21]. The situation with blind signatures is less fortunate, where all prior works based on the blind Schnorr-type template [Rüc10, AEB20a,
+AEB20b, AHJ21] have been found gaps in their proofs [HKLN20], and later broken by the so-called ROS
+attacks [BLL+ 21, BLL+ 22, KLR24]. Schemes that remain standing [LNP22a, AKSY22, dPK22, BLNS23a]
+follow Fischlin’s two-move template [Fis06]. From the efficiency perspective, the most competitive blind
+signatures to-date are based on either the ISISf assumption [BLNS23b] which our work extends, the
+one-more-ISIS assumption [AKSY22], or heuristic assumptions [BLNS23a], namely succinct arguments
+proving about random oracles, which is concretely expensive but achieves small signature size.
+
+2
+
+Preliminaries
+
+Let λ ∈ N denote the security parameter. For two (ensembles of) distributions D0 , D1 , we write D0 ≈c D1
+if they are computationally indistinguishable. We write poly(λ) and negl(λ) for the sets of functions
+polynomial and negligible in λ, respectively. We write matrices and vectors in bold upper and lower case
+letters, e.g. A and x, respectively. For matrices and vectors of compatible dimensions, we write ⊙ and
+⊘ for the Hadamard (i.e. component-wise) product and division, respectively. We write 1n for the all-1
+vector of dimension n over whichever ring within context. For real vectors x ∈ Rn , we write ∥x∥ := ∥x∥2
+for its Euclidean norm. If S is a finite set, we write U(S) for the uniform distribution over S and x ←$ S
+for the sampling of a uniformly random element x from S.
+For a sequence of k formal variables x̃ and a ring X , we write X [x̃T ] and X (x̃T ) = {f /g : f, g ∈ X [x̃T ]}
+for the set of k-variate polynomial and rational functions over X respectively.7 We use ˜· to denote formal
+variables using the same letter as the intended input. For example, we write f (x̃) for a function f with
+variable x̃, which is intended to be evaluated at a point x. We will use the following shorthand for vectors
+7
+
+The transposes in X [x̃T ] and X (x̃T ) matter due to the notation of evaluating functions at matrices defined
+below.
+
+4
+
+consisting of evaluations of one or multiple functions at multiple points. For f : X k → X a k-variate
+n×k
+function, F = (fj : X k → X )m
+a X -matrix with the
+j=1 a sequence of k-variate functions, and A ∈ X
+T
+k
+i-th row given by ai ∈ X , we write
+T
+
+∈ X n,
+
+
+f1 (aT1 ) . . . fm (aT1 )
+ 
+..  ∈ X n×m .
+..
+F(A) := f1 (A) . . . fm (A) =  ...
+.
+. 
+f (A) := f (aT1 ) . . . f (aTn )
+
+f1 (aTn ) . . . fm (aTn )
+2.1
+
+Algebraic Number Theory
+
+We state our results over the cyclotomic field Q(ζ), where ζ = ζf , with conductor f and degree φ := φ(f),
+and its ring of integers R = Z[ζ]. All results can be specialised to the integer setting, i.e. R = Z. For q ∈ N,
+we write Rq := R/qR. Let σ = (σi )i∈Z× : Q(ζ) → Cφ denote the canonical embedding of Q(ζ), with its
+f
+
+definition naturally extended to Q(ζ)-vectors by concatenation. We norm a Q(ζ)-vector x geometrically
+by the ℓp -norm of its canonical embedding, i.e. ∥x∥p := ∥σ(x)∥p . For any a, b ∈ Q(ζ), it holds that
+∥a · b∥p ≤ ∥a∥p · ∥b∥∞ . We omit the subscript p when p = 2.
+Any R-module M ⊆ Rm can be viewed as a lattice via σ(M). In particular, for A ∈ Rn×m
+and
+q
+v ∈ Rnq , we consider the following lattice (cosets):
+m
+Λ⊥
+q (A) := {x ∈ R : Ax = 0 mod q},
+
+2.2
+
+Λvq (A) := {x ∈ Rm : Ax = v mod q}.
+
+Discrete Gaussians, Lattice Trapdoors
+2
+
+The Gaussian function with parameter s > 0 is ρs (x) := exp(−π∥x∥ /s2 ) for all x ∈ Rn . For a discrete
+set A ⊆ Rn , the P
+discrete Gaussian distribution with parameter s is DA,s (x) := ρs (x)/ρs (A) for any x ∈ A,
+where ρs (A) := x∈A ρs (x).
+√
+Lemma 1 ([Ban93, Lemma 1.5]). For any lattice Λ ⊆ Rn and s > 0, it holds Pr[∥DΛ,s ∥ > s n] ≤ 2−n .
+We summarise the properties of lattice trapdoors as a “lattice trapdoor scheme”.
+Definition 1 (Lattice Trapdoors [GPV08]). Let R be parametrised by λ. A lattice trapdoor scheme
+over R consists of PPT algorithms (TrapGen, SampPre):
+(A, tdA ) ← TrapGen(1λ , 1n , 1m , q): Sample a matrix A ∈ Rn×m
+together with a trapdoor tdA .
+q
+u ← SampPre(tdA , v, s): Given the trapdoor tdA , a target image vector v ∈ Rnq and a Gaussian parameter
+s, sample a preimage vector u ∈ Rm .
+A tuple of parameters paramstd = (R, n, m, q, s) is said to be admissible if they satisfy the following
+properties:
+
+1. It holds that A : (A, tdA ) ← TrapGen(1λ , 1n , 1m , q) ≈c U(Rn×m
+).
+q
+2. For any s′ ≥ s and for all but a negl(λ)-fraction of (A, tdA ) in the support of TrapGen(1λ , 1n , 1m , q),
+the following hold:
+– For any v ∈ Rnq , it holds that SampPre(tdA , v, s′ ) ≈c DΛvq (A),s′ .
+(
+)
+(
+)
+v ←$ Rnq
+u ←$ DRm ,s′
+– It holds that (u, v)
+≈c (u, v)
+.
+v := Au mod q
+u ← DΛvq (A),s′
+We refer, for example, to [GPV08, MP12] for how to instantiate a lattice trapdoor scheme with
+admissible parameters.
+5
+
+PreA (1λ )
+
+PostB (1λ )
+
+(P̃, Ã, aux) ← Samp(1λ )
+
+(P̃, Ã, aux) ← Samp(1λ )
+
+B ←$ Rn×m
+q
+
+B ←$ Rn×m
+q
+m×mP
+U ←$ DR,s
+conditioned on BU = P̃ mod q
+
+u∗ ← A(B, P̃, Ã, aux)
+
+u∗ ← B(B, P̃, Ã, U, aux)
+
+b0 := ((B|P̃|Ã)u∗ = 0 mod q)
+
+b0 := ((B|Ã)u∗ = 0 mod q)
+
+b1 := (0 < ∥u ∥ ≤ β1 )
+
+b1 := (0 < ∥u∗ ∥ ≤ β0 )
+
+return b0 ∧ b1
+
+return b0 ∧ b1
+
+∗
+
+Fig. 2: Experiments Pre and Post for evasive SIS assumption.
+
+2.3
+
+Lattice Assumptions
+
+The vanishing SIS (vSIS) assumption [CLM23] is parametrised by, among others, a set of rational functions
+F. It states that, given a random matrix A, it is hard to find a short linear combination of {f (A)}f ∈F
+which vanishes modulo q.
+Definition 2 (Vanishing-SIS ([CLM23])). Let params = (R, n, k, q, β, F) be parametrised by λ,
+where n, k, q are positive integers, β ∈ R+ and F is a set of k-variate functions over R. The vSISparams
+assumption states that, for any PPT adversary A, it holds that
+"
+#
+F(A) · u∗ = 0 mod q A ←$ Rn×k
+q
+Pr
+≤ negl(λ).
+∗
+∧ 0 < ∥u∥ ≤ β
+u∗ ← A(A)
+In this work, we consider also settings where |F| could be super-polynomial in λ, as long as F and
+the answer u∗ by the adversary admits a succinct description.
+The evasive SIS assumption was informally introduced by Wee [Wee22] (in conjunction with the
+public-coin evasive LWE assumption) and envisioned as a tool for analysing the plausibility of SIS-based
+hinted lattice assumptions.
+Definition 3 (EvasiveSIS). Let params = (R, q, n, m, mP , mA , s, β0 , β1 ) be parametrised by λ, where R
+is a ring admitting an embedding as a lattice in Rφ for some φ ∈ N, and s, β0 , β1 > 0. Let Samp be a
+PPT algorithm which, on input 1λ , outputs
+∗
+P
+A
+P̃ ∈ Rn×m
+, Ã ∈ Rn×m
+, aux ∈ {0, 1}
+q
+q
+where aux contains all coin tosses used by Samp. The EvasiveSISparams assumption states that, for any
+PPT Samp and B there exists a PPT A such that
+
+
+
+
+Pr PreA (1λ ) = 1 ≥ Pr PostB (1λ ) = 1 /poly(λ) − negl(λ),
+where the experiments Pre and Post are defined in Figure 2.
+Analogous to the evasive LWE assumption [Wee22], the evasive SIS assumption says that “if SIS is
+hard for the matrix (B, P̃, Ã), then SIS is also hard for (B, Ã) even when given short preimages U of P̃
+w.r.t. B”. This stems from the intuition that, there seems no alternative meaningful use of U, other than
+multiplying which to B to obtain P̃ and solve (the potentially easier) SIS problem for (B, P̃, Ã) jointly.
+Following [Wee22], Definition 3 is “public-coin” in that we insist Samp to output all its random coins,
+which avoids obfuscation-based counterexamples.
+We note that Definition 3 is heuristically no stronger than the evasive LWE assumption of [Wee22],
+in the following sense: Suppose there exists a PPT solver B for Post in Figure 2, then immediately B is
+also a successful distinguisher for the analgous LWE problem – distinguish sT (B, Ã) + eT mod q from
+random given U. Assuming evasive LWE, there exists a PPT A distinguishing sT (B, P̃, Ã) + eT mod q
+from random. At this point, under the common heuristic that solving decision-LWE is no easier than
+solving SIS (which is quantumly true at least for uniformly random matrices [SSTX09]), we arrive at a
+solver for Pre in Figure 2.
+6
+
+sEUF-CMAΣ,A (1λ )
+S := ∅; pp ← Setup(1λ )
+(pk, sk) ← KGen(pp)
+
+sEUF-SMAΣ,A,Q (1λ )
+
+(msg∗ , sig∗ ) ← ASignO(·) (pp, pk)
+
+(msg1 , . . . , msgQ , msg∗ ) ← A(1λ )
+
+b0 := Verify(pp, pk, msg∗ , sig∗ )
+
+pp ← Setup(1λ )
+
+b1 := ((msg∗ , sig∗ ) ∈
+/ S)
+
+(pk, sk) ← KGen(pp)
+
+return b0 ∧ b1
+
+sigi := Sign(pp, sk, msgi ) ∀i ∈ [Q]
+
+sSUF-SMAΣ,A,Q (1λ )
+
+( msg∗ , sig∗ ) ← A(pp, pk, sig1 , . . . , sigQ )
+
+SignO(msg)
+
+S := S ∪ {(msg, sig)}
+
+b0 := Verify(pp, pk, msg∗ , sig∗ )
+o
+n
+b1 := ((msg∗ , sig∗ ) ∈
+/ (msgi , sigi )Q
+i=1 )
+
+return sig
+
+return b0 ∧ b1
+
+sig ← Sign(pp, sk, msg)
+
+Fig. 3: Security experiments for sEUF-CMA, sEUF-SMA and sSUF-SMA. For sEUF-RMA, modify the
+sEUF-SMA experiment to have msg1 , . . . , msgQ ←$ M.
+
+2.4
+
+Signatures
+
+Definition 4 (Signature Scheme). A signature scheme for a message space M is a tuple of PPT
+algorithms Σ = (Setup, KGen, Sign, Verify):
+pp ← Setup(1λ ): Generate the public parameters pp.
+(pk, sk) ← KGen(pp): Generate a public key pk and a secret key sk.
+sig ← Sign(sk, msg): Sign a message msg ∈ M with a signature sig.
+b ← Verify(pk, msg, sig): Decide if sig is a valid signature of msg under pk.
+A signature scheme Σ is said to be correct if, for any message msg ∈ M,
+pp ← Setup(1λ )
+
+
+
+
+
+
+
+PrVerify(pp, pk, msg, sig) = 1 (pk, sk) ← KGen(pp)
+ ≥ 1 − negl(λ).
+sig ← Sign(sk, msg)
+A signature scheme Σ is said to have strong existential unforgeability under chosen message attack
+(sEUF-CMA) if, for any PPT A, it holds
+
+
+Advseuf-cma
+(λ) := Pr sEUF-CMAΣ,A (1λ ) = 1 ≤ negl(λ),
+Σ,A
+where sEUF-CMAΣ,A is defined in Figure 3. It is said to have strong existential unforgeability under
+selective message attack (sEUF-SMA) and strong selective unforgeability under selective message attack
+(sSUF-SMA) respectively, if for any Q ≤ poly(λ), the above holds for sEUF-SMAΣ,A,Q and sSUF-SMAΣ,A,Q
+defined in Figure 3 respectively. Strong existential unforgeability under random message attack (sEUFRMA) is similarly defined in Figure 3.
+Remark 1 (Key-dependent message space.). We also consider a relaxed definition of signature schemes
+where the public parameters specify a subspace of the message space. In this case, we say that the
+signature scheme is correct if for all but a negl(λ)-fraction of pp ∈ Setup(1λ ) and for any message msg in
+the message subspace defined by pp, it holds that Verify(pp, pk, msg, Sign(pp, sk, msg)) = 1 except with
+negl(λ) probability. Corresponding, we modify the security experiments so that the Sign algorithm aborts
+whenever it is called on messages outside the message subspace defined by pp.
+
+7
+
+3
+
+(Strong) Hinted vSIS Assumptions
+
+Aiming to construct algebraic lattice signatures akin to pairing-based ones based on assumptions such as
+strong Diffie Hellman (SDH) , we introduce hinted variants of the vanishing short integer solution (vSIS)
+assumption.
+We define in Section 3.1 general families of two vSIS assumption variants – hinted, and strong hinted –
+which extend the existing vSIS assumption. The strong hinted variant is strong in the same sense as in
+the SDH (and others such as strong RSA) assumption – the adversary is allowed to choose its “target”
+freely. More discussions on the relations to existing assumptions follow.
+Since the hinted vSIS assumptions have numerous parameters, we discuss in Section 3.2 what we
+believe to be plausible choices of them. To install confidence in the new assumptions, we show in Section 3.3
+that some of them admit reductions from the plain vSIS assumption of [CLM23].
+3.1
+
+Assumptions Statements
+
+We define extended variants of the vSIS assumption. These variants aim to capture natural lattice-analogues
+of group-based assumptions such as the strong Diffie-Hellman (SDH) assumption.
+Definition 5 ((Strong) Hinted vSIS Assumptions). Let
+params = (R, n, k, q, Q, β, s, F, G, H, P)
+be parametrised by λ, where n, k, q are positive integers, Q is a non-negative integer, β, s ∈ R+ , F, G, H
+are k-variate rational functions over Rq such that Q ≤ |H|, and P is a predicate over sets of k-variate
+rational functions. We define the following hinted variants of the vSIS assumption.
+Hinted. The Hint-vSISparams assumption states that, for any PPT stateful adversary A, it holds that
+
+
+F(A) · u∗ = g ∗ (A) mod q
+
+
+∧ 0 < ∥u∗ ∥ ≤ β
+
+
+Pr∧ Q ⊆Q H
+
+∧ g ∗ ∈ G \ Q
+
+∧ P(F ∪ Q ∪ ({g ∗ } \ {0})) = 1
+
+(Q, g ∗ ) ← A(1λ )
+
+
+
+A ←$ Rn×k
+q
+
+
+
+
+
+V := Q(A) mod q
+ ≤ negl(λ).
+
+ui ←$ DΛvq i (F (A)),s ∀i ∈ [Q] 
+
+u∗ ← A(A, u1 , . . . , uQ )
+
+Strong Hinted. The s-Hint-vSISparams assumption states that, for any PPT stateful adversary A,
+
+
+F(A) · u∗ = g ∗ (A) mod q
+
+
+∧ 0 < ∥u∗ ∥ ≤ β
+
+
+Pr∧ Q ⊆Q H
+
+∧ g ∗ ∈ G \ Q
+
+
+Q ← A(1λ )
+
+
+
+A ←$ Rn×k
+q
+
+
+
+
+
+V := Q(A) mod q
+ ≤ negl(λ).
+
+ui ←$ DΛvq i (F (A)),s ∀i ∈ [Q] 
+
+∧ P(F ∪ Q ∪ ({g ∗ } \ {0})) = 1 (g ∗ , u∗ ) ← A(A, u1 , . . . , uQ )
+
+Strong Random-Hinted. The s-$Hint-vSISparams assumption is almost identical to the s-Hint-vSISparams
+assumption, except that Q is sampled as a uniformly random Q-subset of H, not chosen by A.
+Compared to the plain vSIS assumption (Definition 5, [CLM23]), the (strong) hinted vSIS assumption
+is further parametrised by an integer Q, two sets of rational functions G, H, and a predicate P. The
+sets G and H are where the adversary could choose the target g ∗ and the Q queries Q respectively. The
+adversary is considered successful if g ∗ ∈
+/ Q i.e. not queried and F ∪ Q ∪ {g ∗ } (or F ∪ Q if g ∗ is the all
+zero function) satisfies the predicate P. The non-strong and strong variants differ by whether g ∗ is chosen
+before or after seeing A.
+Analogous to the discussion below Definition 2, we allow the sets F, G, H of rational functions to
+have cardinalities super-polynomial in λ, as long as they and the answer u∗ output by A admit succinct
+representations. We note, however, that the number Q of queries Q output by A must be polynomial in
+λ, for otherwise A could not input all preimages u1 , . . . , uQ while still being PPT.
+8
+
+Remark 2 (Hint-vSIS ⇒ s-Hint-vSIS). If |G| ≤ poly(λ), then the Hint-vSISparams assumption implies the
+s-Hint-vSISparams assumption (for the same params), where a trivial reduction simply guesses g ∗ upfront.
+Beyond obvious connections to the vSIS assumption, we discuss further connections of Definition 5 to
+other existing assumptions.
+Relation to SDH. The vSIS assumption variants are defined in a way intended to translate certain groupbased assumptions such as SDH. Recall that the (Q−1)-SDH problem asks to find, given [1], [b], . . . , [bQ−1 ],
+a tuple (µ, [1/(b + µ)]). To translate this to a strong hinted vSIS problem, let x̃T = (ãT , b̃) denote a
+sequence of formal variables, γ > 0 and Bγ = {µ ∈ R : ∥µ∥ ≤ γ}. For suitably selected parameters, in
+particular
+n
+o
+n
+o
+F(x̃T ) = ãT , H = 1, b̃, . . . , b̃Q−1 , G = 1/(b̃ + µ) : µ ∈ Bγ ,
+the s-Hint-vSIS assumption can be seen as a natural lattice-analogue of the (Q − 1)-SDH assumption.
+Relation to kRISIS. The kRISIS assumption family is introduced in [ACL+ 22], stronger than the
+(plain) vSIS assumption family, but weaker than the BASIS assumption family introduced by [WW23].8
+We observe that certain members of the (strong) hinted vSIS family are in between (plain) vSIS (obviously)
+and kRISIS. More precisely, for suitably selected parameters, in particular H ∩ G = ∅, |H| = Q (so
+Q = H) and |G| = 1 (so there is only one choice for g ∗ ), the s-Hint-vSIS assumption is essentially a kRISIS
+assumption.9 Note also that, since |G| = 1, the strong and non-strong variants are equivalent.
+3.2
+
+Criteria for Plausible vSIS Assumptions
+
+In Definition 5, the vSIS assumption variants are parametrised by a predicate P which dictates which
+combinations of functions are admissible. We discuss criteria for P for the vSIS assumption variants to
+plausibly hold.
+One uninteresting way to violate a vSIS assumption is to consider ill-formed sets of functions
+F, G. For example, if F contains the all-zero function, then it is trivial to find short u∗ satisfying
+F(A) · u∗ = 0 mod q. Similarly, if F ∩ G is not empty and contains some g ∗ , then it is trivial to find short
+u∗ satisfying F(A) · u∗ = g ∗ (A) mod q. A more sophisticated example is where F ⊇ {1, x̃q } and Rq fully
+splits into a product of fields. In this case, we have 1 − xq = 0 mod q for any x ∈ Rq . To rule out this
+type of counterexamples which exploits linear dependency between the chosen functions, we suggest to
+restrict P so that it only accepts tuples satisfying a “strong linear independence” property defined below.
+Definition 6 (Strong Linear Independence). Let F ⊆ Rq (x̃T ) be a set of k-variate rational functions
+where 1 ∈ Rq -span(F). For ϵ > 0, we say that F is ϵ-strong linear independent if, for any not-all-zero
+coefficients (cf )f ∈F over Rq ,
+hP
+i
+T
+k
+Pr
+f ∈F cf · f (a ) = 0 mod q a ←$ Rq ≤ ϵ.
+If 1 ∈
+/ Rq -span(F), then we say F is ϵ-strong linear independent if F ∪ {1} is.
+Remark 3. In case the denominator of f vanishes at a, we let f (a) = undef. We take “a × undef =
+a + undef = undef” for any value a, meaning that if one of the terms is undefined then the whole sum is
+(which does not equal zero).
+8
+
+By an assumption family A being stronger than another family B, we mean that for any member in family B
+there exists a member in family A which implies the former.
+9
+In the kRISIS assumption definition stated in [ACL+ 22], the images for which preimages are given to an
+adversary take the form t · hi (vT ). We believe this is an oversight, since it would mean that solving kRISIS by
+solving the vSIS instance (hi (vT ))Q
+i=1 is significantly easier (due to lower lattice dimension) than solving SIS
+w.r.t. A.
+
+9
+
+Remark 4 (Implicit guaranteed min-entropy). In Definition 6, we distinguish between 1 ∈ Rq -span(F) or
+1∈
+/P
+Rq -span(F) for technical reasons:
+We actually want that for any fixed d ∈ Rq and (cf )f ∈F , we have
+
+Pr f ∈F cf · f (aT ) = d mod q ≤ ϵ. That is, we want that the min-entropy (over a) is at least log2 (ϵ).
+However, if 1 ∈ Rq -span(F), this is trivially false (for ϵ < 1), e.g. if 1 ∈ F then simply set c1 = d and
+all other cf = 0. In fact, if 1 ∈ Rq -span(F), then the min-entropy guarantee is already implied (by an
+analogous reasoning). Hence, if 1 ∈
+/ Rq -span(F), we consider F ∪ {1} (instead of introducing d explicitly).
+The strong linear independence property could be unwieldy to work with. We show that for certain
+sets of rational functions, strong linear independence is equivalent to linear independence.
+Theorem 1. Let q ∈ N prime and Rq ∼
+= Fe split into e fields.10 Let F ⊆ Rq (x̃T ) be a set of k-variate
+rational functions. Suppose m ∈ Rq [x̃] is such that, for each rational function in F represented as
+f /g ∈ F where f, g ∈ Rq [x̃], it holds that m ∈ ⟨g⟩Rq [x̃] , i.e. m is a common multiple of (g)f /g∈F . Let
+d := deg(m) + maxf /g∈F deg(f ) and ϵ := d/|F|. If F is linearly independent, then it is ϵ-strong linearly
+independent.
+The proof is deferred to Appendix A.1.
+Next, we show that the property of being strongly linearly independent is closed under “proper” set
+union.
+Lemma 2. Suppose F, G ⊆ Rq (x̃T ) are ϵF - and ϵG -strong linearly independent respectively, and spanRq (F)∩
+spanRq (G) = {0}. Then F ∪ G is max(ϵF , ϵG )-strong linearly independent.
+The proof is deferred to Appendix A.2.
+Finally, we highlight a counterexample against the strong-hinted-vSIS assumption, which exploits the
+denominators of rational functions and the adaptivity to specify g ∗ after seeing a ←$ Rq . Specifically, let
+1∈F
+
+G = H = {1/(ã − b) : b ∈ Rq }.
+
+and
+
+Consider this choice of F, G, H, and an adversary A whose set of queries Q contains 1/(ã − b) for some
+b ∈ Rq . Upon receiving a ←$ Rq , A specifies g ∗ (ã) := 1/(ã − a + 1). Note that 1 − g ∗ (a) = 0 mod q,
+where the coefficients 1 and −1 for the functions 1 and g ∗ respectively are both short. One way to avoid
+this kind of counterexamples is to let P accept only rational functions represented as f /g where the
+denominator g has short coefficients.
+To summarise, for a norm bound γ and probability ϵ, we propose the following “natural” predicate
+Pγ,ϵ .
+Definition 7 (Natural vSIS Predicates). For a ring R, a modulus q ∈ N, a norm bound γ > 0, and
+a probability ϵ ∈ [0, 1], the predicate Pγ,ϵ inputs a set F of rational functions over Rq and outputs 1 if
+and only if the following hold:
+– F is ϵ-strongly linearly independent.
+– For any rational function represented as f /g ∈ F, where f, g are polynomials over Rq written in
+expanded form, each coefficient of g is of norm at most γ.
+Heuristically, we think of γ to be as small as the norm bound for the plain SIS assumption to hold
+and ϵ ≤ negl(λ).
+We remark that although the plain vSIS assumption (Definition 2, [CLM23]) is not parametrised by a
+predicate, it is advisable to only rely on a vSIS assumption for F satisfying Pγ,ϵ (F) = 1. Similar could be
+recommended for the kRISIS assumption [ACL+ 22].
+3.3
+
+Reductions from vSIS
+
+To gain confidence in the hinted vSIS assumptions, we give two hardness reductions. Theorem 2 says that
+under certain parameters, the (non-strong) hinted vSIS assumption is implied by the vSIS and evasive
+SIS assumptions together.
+10
+
+This happens when q has multiplicative order φ/e modulo f.
+
+10
+
+Theorem 2 (EvasiveSIS + vSIS ⇒ Hint-vSIS). Let kf , kg ∈ N and k = kf + kg . Let F, G, H be sequences
+n×(k +k )
+of k-variate functions, such that for any A = [Af , Ag ] ∈ Rq f g , it holds F(A) = Af , G(A) = Ĝ(Ag )
+and H(A) = Ĥ(Ag ) forpsome Ĝ, Ĥ independent of Af .
+Let β, β1 > 0, β0 = β 2 + 1. Let params0 = (R, q, n, kf , Q, 1, s, β0 , β1 ), params1 = (R, n, k, q, β1 , F ∪
+Ĝ ∪ Ĥ), and params2 = (R, n, k, q, Q, β, s, F, G, H, P). If the EvasiveSISparams0 and vSISparams1 assumptions
+hold, then the Hint-vSISparams2 assumption holds.
+Proof. Suppose there exists a PPT solver against Hint-vSISparams2 . Below we show that under EvasiveSISparams0 ,
+there exists a PPT solver against vSISparams1 , hence a contradiction and the theorem follows.
+To begin, we observe that a successful PPT solver against Hint-vSISparams2 implies a PPT A = (A1 , A2 )
+such that
+
+
+(Q, ĝ ∗ , st) ← A1 (1λ )
+∗
+∗
+ (Af |ĝ (Ag ))u = 0 mod q
+
+n×k
+g
+
+
+[Af , Ag ] ←$ Rq f × Rn×k
+q
+∧ 0 < ∥u∗ ∥ ≤ β0
+
+
+
+Pr
+ > negl(λ),
+:=
+V
+Q(A
+)
+mod
+q
+g
+
+∧ Q ∪ {ĝ ∗ } ⊆Q+1 Ĝ ∪ Ĥ
+
+
+v
+∧ P(F ∪ Q ∪ ({g ∗ } \ {0})) = 1 ui ←$ DΛq i (Af ),s ∀i ∈ [Q]
+
+∗
+u ← A2 (Af , Ag , u1 , . . . , uQ , st)
+where for all i ∈ [Q], ĥi ∈ Q ⊂ Ĥ is independent of Af , similarly for ĝ ∗ , and st is arbitrary internal state
+of A which we assume w.l.o.g. to contain (Q, ĝ ∗ ). Indeed, given a valid solution u′ to Hint-vSISparams2 , we
+have
+ ′
+u
+F(A) · u′ = g ∗ (A) mod q ⇐⇒ (Af |ĝ ∗ (Ag )) ·
+= 0 mod q,
+−1
+where we make use of that F(A) = Af and g ∗ (A) = ĝ ∗ (Ag ). Similarly, the distribution of each preimage
+ui in the above is identical
+ ′ to that in a Hint-vSISparams2 instance, as hi (A) = ĥi (Ag ). Therefore A succeeds
+u
+2
+2
+by outputting u∗ =
+, whose norm satisfies ∥u∗ ∥ ≤ ∥u′ ∥ + 1 ≤ β 2 + 1 = β0 .
+−1
+Next, consider a PPT Samp which runs (Q, ĝ ∗ , st) ← A1 (1λ ) and outputs
+Ã := ĝ ∗ (Ag ) mod q
+
+P̃ := Q(Ag ) mod q,
+n×k
+
+where Ag ←$ Rq g is sampled uniformly randomly, together with aux containing Ag , Q, ĝ ∗ , st, and all
+random coins used. From above, we have that A2 is a successful solver for the Post experiment in Figure 2
+w.r.t. Samp. Invoking the EvasiveSISparams0 assumption, there exists a PPT solver B2 such that
+
+
+(Af |Q(Ag )|ĝ ∗ (Ag ))u∗ = 0 mod q
+∗
+λ
+(Q(Ag ), ĝ (Ag ), aux) ← Samp(1 ) 
+
+∧ 0 < ∥u∗ ∥ ≤ β1
+
+n×k
+
+
+Pr
+Af ←$ Rq f
+
+∗
+∧ Q ∪ {ĝ } ⊆Q+1 Ĝ ∪ Ĥ
+
+∗
+∗
+u
+←
+B
+(A
+,
+Q(A
+),
+ĝ
+(A
+),
+aux)
+2
+f
+g
+g
+∗
+∧ P(F ∪ Q ∪ ({g } \ {0})) = 1
+n×kf
+
+is > negl(λ). We note that to invoke EvasiveSISparams , we rely on that Af is uniformly random over Rq
+and that P̃, Ã in above are independent of Af .
+Expressing the code of Samp inline and rewriting, the above is equivalent to
+
+
+(Af |Q′ (Ag ))u∗ = 0 mod q
+′
+∗
+λ
+(Q = Q ∪ {g }, st) ← A1 (1 ) 
+
+∧ 0 < ∥u∗ ∥ ≤ β1
+
+n×k
+Pr
+[Af , Ag ] ←$ Rq f × Rqn×kg 
+∧ Q′ ⊆
+ ≥ negl(λ).
+
+
+Q+1 Ĝ ∪ Ĥ
+u∗ ← B2 (Af , Ag , st)
+∧ P(F ∪ Q ∪ ({g ∗ } \ {0})) = 1
+Finally, given the above (A1 , B2 ), we construct a PPT solver B ∗ against vSISparams1 :
+– Obtain A ∈ Rn×k
+from the vSISparams1 challenger.
+q
+11
+
+,
+
+– Run A1 to obtain (Q′ , st), pass [Af , Ag ] = A and st to B2 to obtain u∗ . Write u∗ =
+
+
+
+
+uF
+, where
+uQ′
+
+uF ∈ R|F | and uQ′ ∈ RQ+1 .
+– Let π be the permutation mapping (Q′ , (Ĝ ∪ Ĥ) \ Q′ ) 7→ Ĝ ∪ Ĥ, where the order of (Ĝ ∪ Ĥ) \ Q′ is
+arbitrary. Return ũ∗ = (uTF , π(uTQ′ , 0T ))T .11
+Whenever (A1 , B2 ) succeeds, we have 0 < ∥u∗ ∥ = ∥ũ∗ ∥ ≤ β1 and
+
+
+uF
+∗
+′
+(F ∪ Ĝ ∪ Ĥ)(A) · ũ = (F ∪ Q )(A) ·
++ ((Ĝ ∪ Ĥ) \ Q′ )(A) · 0 = 0 mod q
+uQ′
+so that B ∗ has the same advantage against vSISparams1 , non-negligible.
+The second reduction, summarised by Theorem 3 below, says that the (plain) vSIS assumption family
+over sets of rational functions is implied by its much smaller subclass which restricts to monomials, up to
+an exponential blow up in norm bound in the worst case.
+Theorem 3 (Monomial-vSIS ⇒ vSIS). Let d, β, βf > 0. Let F ⊆ Rq (x̃T ) be a set of k-variate rational
+functions, such that for each rational function in F represented as f /g ∈ F where f, g ∈ Rq [x̃], it holds
+deg(f ), deg(g) ≤ d and ∥f ∥ ≤ βf . Define the following:
+n
+o
+– Fmonomial := b̃i : i ∈ Nk0 , 0 ≤ ∥i∥1 ≤ 2d , the set of all k-variate monomials of degree at most 2d
+(independent of F),
+– h an arbitrary common multiple of the denominators {g : f /g ∈ F} of F,
+√
+– β ′ = n · ∥h∥ · βf · β · min(|F|, poly(λ)).
+Let params0 = (R, n, k, q, β ′ , Fmonomial ) and params1 = (R, n, k, q, β, F). If the vSISparams0 assumption
+holds, then the vSISparams1 assumption holds.
+Proof. The idea is to clear the denominators of F by multiplying with their common multiple. Concretely,
+assume that A is a PPT solver against vSISparams1 , we construct a PPT solver against vSISparams0 as
+follows:
+– Receive A from the vSISparams1 challenger, pass which to A, and receive u∗ = (u∗1 , . . . , u∗|F | )T .
+– Let I ⊆ F be the index set of the non-zero entries of u∗ , i.e. u∗i ̸= 0 if and only if i ∈ I. Note that
+|I| = min(|F|, poly(λ)) since A is PPT.
+– For each f ∈ I, write h · f as Fmonomial · cf for some cf ∈ R|Fmonomial | , i.e. a linear combination of
+monomials in Fmonomial with coefficient vector cf .
+– For each f ∈ F \ I, let cf = 0 be all-zero. Let C := (cf )f ∈F ∈ R|Fmonomial |×|F | (whose description size
+≤ poly(λ)). Return (1n ⊗ C) · u∗ .
+First we note that Step 3 in the above is possible, since for any f ∈ I ⊆ F, it holds h · f is a k-variate
+polynomial of degree at most 2d, so that h · f can always be written as a linear combination of the
+monomials in Fmonomial . Further, ∥cf .∥ = ∥h · f ∥ ≤ ∥h∥ · βf . Suppose A is successful, then
+F(A) · u∗ = 0 mod q,
+(h · F)(A) · u∗ = (Fmonomial )(A) · (1n ⊗ C) · u∗ = 0 mod q,
+where 1n is the all-one vector. Also, we have ∥(1n ⊗ C)u∗ ∥ ≤
+min(|F|, poly(λ)) = β ′ .
+
+√
+
+n∥C∥∥u∗ ∥ ≤
+
+√
+
+n · ∥h∥ · βf · β ·
+
+Remark 5 (Norm of common multiple.). For Theorem 3, suppose for any f /g ∈ F it holds ∥g∥ ≤ βg and
+there are at most ℓ ≤ |F | distinct denominators, then ∥h∥ ≤ βgℓ . For specially chosen F a tighter bound
+is possible.
+11
+
+ũ∗ has ≤ min(|F|, poly(λ)) + Q + 1 non-zero entries, although of dimension |F ∪ Ĝ ∪ Ĥ|. Both π and ũ∗ admit
+representation of size ≤ poly(λ) since F, Ĝ, Ĥ do.
+
+12
+
+Setup(1λ )
+
+KGen(pp)
+
+B ←$ Rn×ℓ
+q
+
+(A, tdA ) ← TrapGen(R, 1n , 1m , q)
+
+pp := B
+
+return (pk, sk) := (A, tdA )
+
+Sign(pp, sk, msg)
+
+Verify(pp, pk, msg, sig)
+
+χ ←$ X
+
+t := hµ,χ (B) mod q
+
+t := hµ,χ (B) mod q
+
+b0 := (µ ∈ MX ,G,B ) ∧ (χ ∈ X )
+
+s ← SampPre(tdA , t, s)
+
+b1 := (As = t mod q) ∧ (0 < ∥s∥ ≤ β)
+
+return sig := (χ, s)
+
+return b0 ∧ b1
+
+Fig. 4: vSIS-based Signatures ΣvSIS .
+
+4
+
+Proof-Friendly Signatures from Strong Hinted vSIS
+
+We present a general family of algebraic lattice-based signature schemes inspired by the ISISf framework
+and pairing-based signatures such as that of Boneh and Boyen (BB) [BB08] and of Boneh, Boyen and
+Shacham (BBS) [BBS04, ASM06, TZ23]. The sEUF-SMA security of the construction is tightly connected
+to the s-Hint-vSIS assumption, which we defined and analysed in Section 3. We then suggest concrete
+instantiations of the general construction, which can be seen as translations of BB and BBS to the lattice
+setting.
+4.1
+
+General Construction
+
+Our general construction is parametrised by a ring R, dimensions n, m, ℓ ∈ N, a modulus q ∈ N, a
+Gaussian parameter s > 0, a norm bound β > 0, a failure probability δ ≥ 0, a message space M, a
+randomness space12 X , and a set H = {hµ,χ : µ ∈ M, χ ∈ X } ⊆ R(b̃T ) of ℓ-variate rational functions over
+R indexed by the set M × X . The public parameter space is Rqn×ℓ . For any public parameter B ∈ Rn×ℓ
+,
+q
+define the message subspace
+MX ,H,B := {µ ∈ M : Pr[hµ,χ (B) = ⊥ | χ ←$ X ] ≤ δ}.
+That is, a valid message µ ∈ M w.r.t. the sets X and H and public parameter B is such that, over the
+randomness of χ ←$ X , the probability of hµ,χ (B) being undefined is at most δ. The full construction
+ΣvSIS is presented in Figure 4.
+To explain, the public parameters consists of a random matrix B ←$ Rn×ℓ
+. A public key is a trapdoored
+q
+matrix A ∈ Rn×m
+and
+the
+corresponding
+secret
+key
+is
+the
+trapdoor
+td
+.
+To
+sign a message µ, sample
+A
+q
+randomness χ, and evaluate the function hµ,χ at B to obtain an image t. The signature of µ then consists
+of the randomness χ and a short preimage s of t with respect to A, sampled using tdA . To verify a
+signature, check that µ belongs to the message subspace MX ,H,B and χ belongs to the randomness space
+X . Also check that s is of norm bounded by β and satisfies As = hµ,χ (B) mod q.
+Theorem 4 (Correctness). If (R, n, m, q, s) are admissible parameters for (TrapGen, SampPre), β ≥
+√
+s φm and δ ≤ negl(λ), then the signature scheme in Figure 4 is correct in the sense of Remark 1.
+Proof. By Definition 1, for all but a negligible fraction of (A, tdA ), it holds that SampPre(tdA , t, s) ≈c
+DΛtq (A),s . Combining with Lemma 1, for any t ∈ Rnq , (A, tdA ) ← TrapGen(R, 1n , 1m , q) and s ←
+√
+SampPre(tdA , t, s), it holds that As = t mod q and ∥SampPre(tdA , t, s)∥ ≤ s φm ≤ β with overwhelming
+probability in λ.
+Theorem 5 (Security). Let params = (R, n, k, q, β, F, G, H, P, Q), m, ℓ, s, δ, δ ′ , M, X be parametrised
+by λ and satisfy the following constraints:
+12
+
+We assume for simplicity that the randomness space is a finite set and randomness are drawn from the uniform
+distribution over this set. In general, X could be a distribution over a possibly infinite set.
+
+13
+
+– (R, n, m, q, s) are admissible parameters for (TrapGen, SampPre), β > 0, 0 ≤ δ, δ ′ ≤ negl(λ), and
+k = m + ℓ.
+– For formal variables (ãT , b̃T ) of dimension m + ℓ, F(ãT , b̃T ) = ãT .
+– H = {hµ,χ : µ ∈ M, χ ∈ X } ⊆ R(b̃T ) is a set of ℓ-variate rational functions over R, as defined above.
+– G = H ∪ {0} extends the set H with the all zero function.
+– For random χ1 , . . . , χQ ←$ X and arbitrarily chosen µ1 , . . . , µQ , µ′ ∈ M where µ′ ∈
+/ {µ1 , . . . , µQ },
+and χ′ ∈ X possibly dependent on (χ1 , . . . , χQ ), it holds except with probability δ ′ that
+Q
+
+P(F ∪ {hµi ,χi }i=1 ∪ {hµ′ ,χ′ }) = 1.
+1. If the s-Hint-vSISparams (resp. s-$Hint-vSISparams ) assumption holds for every polynomial Q(λ), then
+ΣvSIS is sEUF-SMA (resp. sEUF-RMA) secure.
+2. If X is a singleton set (so that an image t is deterministic in µ), and the Hint-vSISparams assumption
+holds for every polynomial Q(λ), then ΣvSIS satisfies a relaxed sSUF-SMA security with the restriction
+that all signing queries are distinct.13
+Proof. We prove the implication from s-Hint-vSISparams to sEUF-SMA security, and then highlight differences of the proofs for the other implications. Define the following hybrid security experiments:
+Hyb0 : Identical to sEUF-SMAΣvSIS ,A,Q , the sEUF-SMA security experiment.
+Hyb1 : Recall that, in Hyb0 , the step Sign(sk, msgi ) for msgi = µi is computed as follows: Sample χi ←$ X ,
+compute ti := hµi ,χi (B), compute si ← SampPre(tdA , ti , s) and return (χi , si ). In Hyb1 , we change
+to sample si ←$ DΛtqi (A),s directly from the Gaussian distribution (inefficiently).
+Hyb2 : We change how the public key A is sampled. In Hyb2 , we sample A ←$ Rn×m
+uniformly at
+q
+random.
+By the properties of lattice trapdoors (Definition 1), the above hybrids are clearly computationally
+indistinguishable.
+Next, we show that if A is such that Hyb2 outputs 1 with a non-negligible probability ϵ > negl(λ), then
+there exists a PPT algorithm B for s-Hint-vSISparams . Our reduction B simulates Hyb2 for A as follows:
+– Run A to obtain Q messages µ1 , . . . , µQ .
+– Sample χi ←$ X for i ∈ [Q].
+– Return the subset Q := {hµi ,χi : i ∈ [Q]} ⊆ G. Except with probability at most Qδ, for a random
+B ←$ Rn×ℓ
+, it holds that hµi ,χi (B) ̸= ⊥ for all i ∈ [Q]. In the following, we assume that this is the
+q
+case.
+– Receive in return ([A, B], s1 , . . . , sQ ) where [A, B] ←$ Rn×m
+× Rn×ℓ
+, si ←$ DΛtqi (A),s and ti =
+q
+q
+hµi ,χi (B) for all i ∈ [Q].
+– Set pp = B, pk = A and sigi = (χi , si ) for all i ∈ [Q], and run (µ∗ , sig∗ ) ← A(pp, pk, sig1 , . . . sigQ )
+where sig∗ = (χ∗ , s∗ ). Assuming that A is successful, we have µ∗ ∈ MX ,G,B , χ∗ ∈ X , (µ∗ , χ∗ , s∗ ) ∈
+/
+{(µ1 , χ1 , s1 ), . . . , (µQ , χQ , sQ )}, As∗ = hµ∗ ,χ∗ (B) mod q, and 0 < ∥s∗ ∥ ≤ β.
+– If (µ∗ , χ∗ ) ∈
+/ {(µ1 , χ1 ), . . . , (µQ , χQ )}, set g ∗ := hµ∗ ,χ∗ and return (g ∗ , s∗ ).
+– Otherwise, let i∗ be such that (µ∗ , χ∗ ) = (µi∗ , χi∗ ). Set g ∗ to be the zero function and return
+(g ∗ , s∗ − si∗ ).
+Clearly, the reduction B runs in PPT and the failure event of hµi ,χi (B) = ⊥ for some i ∈ [Q] happens
+with probability at most Qδ. Moreover, by the constraint on P, we have P(F ∪ Q ∪ ({g ∗ } \ {0})) = 1
+except with probability δ ′ . If (µ∗ , χ∗ ) ∈
+/ {(µ1 , χ1 ), . . . , (µQ , χQ )}, then clearly g ∗ ∈ G \ Q. Otherwise, we
+∗
+∗
+∗
+∗
+have (µ , χ ) = (µi , χi ) and thus
+A · s = hµ∗ ,χ∗ (B) = hµi∗ ,χi∗ (B) = A · si∗ mod q,
+A · (s − si∗ ) = 0 = g ∗ (B) mod q,
+where s∗ − si∗ ̸= 0 since s∗ is a valid forgery. In either case, B solves the s-Hint-vSISparams instance with
+probability at least ϵ − Qδ − δ ′ > negl(λ).
+13
+
+The restriction can be lifted by derandomising the signing algorithm with a pseudorandom function.
+
+14
+
+Message µ
+
+Randomness χ
+
+Function hµ,χ (b̃T )
+
+BB-lite
+
+u
+
+-
+
+1/(b̃ − u)
+
+BB-full
+
+u
+
+x
+
+1/((1, uT , xT ) · b̃)
+
+BB-tran
+
+u
+
+(x0 , x1 )
+
+(uT , xT0 ) · b̃0 + 1/(b̃1 − x1 )
+
+BBS
+
+u
+
+(x0 , x1 )
+
+((1, uT , xT0 ) · b̃0 )/(b̃1 − x1 )
+
+Table 1: Instantiations to obtain lattice-analogues of BB and BBS signatures.
+
+For the implication from s-$Hint-vSISparams to sSUF-RMA security, the argument is identical except that
+B samples Q as a uniformly random Q-subset of H. For the implication from Hint-vSISparams to sSUF-SMA
+security, we make the following modifications. First, we define Hyb0 to be identical to sSUF-SMAΣvSIS ,A,Q ,
+and propagate this change to Hyb1 and Hyb2 . Then, the reduction B changes as follows. At the beginning,
+B receives from A in addition to µ1 , . . . , µQ the target message µ∗ . Since X = ∅, B no longer needs to
+sample χ1 , . . . , χQ . If µ∗ ∈
+/ {µ1 , . . . , µQ }, it sets g ∗ := hµ∗ . Otherwise, say µ∗ = µi∗ , it sets g ∗ to be the
+all zero function. It outputs the set Q = {hµi : i ∈ [Q]} and g ∗ . Towards the end, upon receiving s∗ from
+A, B simply returns s∗ if µ∗ ∈
+/ {µ1 , . . . , µQ }, and s − si∗ if µ∗ = µi∗ . Clearly, the reduction B runs in
+PPT and solves the Hint-vSISparams instance with probability at least ϵ − Qδ − δ ′ > negl(λ).
+Q
+
+Remark 6 (Constraint on P). In Theorem 5, we require that P(F ∪ {hµi ,χi }i=1 ∪ {hµ′ ,χ′ }) = 1 with high
+probability. We remark that this indeed captures both cases – whether the adversary chooses to forge
+a signature on µ∗ belonging to {µ1 , . . . , µQ } or not. If µ∗ ∈
+/ {µ1 , . . . , µQ }, by setting (µ′ , χ′ ) = (µ∗ , χ∗ )
+Q
+we directly recover the constraint P(F ∪ {hµi ,χi }i=1 ∪ ({g ∗ } \ {0})) = 1 where g ∗ = hµ∗ ,χ∗ . If µ∗ ∈
+Q
+/ {µ1 , . . . , µQ }, the condition P(F ∪ {hµi ,χi }i=1 ∪ {hµ′ ,χ′ }) = 1 implies
+{µ1 , . . . , µQ }, then for any µ′ ∈
+Q
+Q
+that P(F ∪ {hµi ,χi }i=1 ) = 1, equivalent to P(F ∪ {hµi ,χi }i=1 ∪ ({g ∗ } \ {0})) = 1 with g ∗ = 0 the all-zero
+function.
+4.2
+
+Candidate Instantiations
+
+In Table 1, we suggest a few natural candidate instantiations of the parameters, as inspired by the
+BB [BB08] and BBS [BBS04, ASM06, TZ23] signatures. The first two rows are attempts to translate
+the selective-query secure (BB-lite) and fully secure versions of the BB signatures. The third row is
+obtained by interpreting the BB-lite instantiation as a (generalised) ISISf instance, and then applying the
+transformation from ISISf to interactive ISISf presented in [BLNS23b] and generalised in Section 5.2. The
+last row is an attempt to translate the BBS signatures which, after adapting notation, take the following
+form:
+[((1, uT ) · b0 )/(b1 − x)]
+where ([1], [b0 ], [b1 ]) is the public key, u a message, and x the signing randomness.
+We remark that, for all instantiated signature schemes suggested in Table 1, we are not aware of any
+efficient attacks against the sEUF-CMA (i.e. adaptive query) security of the schemes, although Theorem 5
+only guarantees their sEUF-SMA (i.e. selective-query) security. Furthermore, in Section 5.2, we show that
+the BB-tran scheme indeed provably achieves sEUF-CMA security under the same strong hinted vSIS
+assumption along with other mild parameter constraints.
+Satisfiability of Natural vSIS Predicates. Recall that, for Theorem 5 to apply, we require the
+following constraint:
+For random χ1 , . . . , χQ ←$ X and arbitrarily chosen µ1 , . . . , µQ , µ′ ∈ M, with µ′ ∈
+/ {µ1 , . . . , µQ },
+and χ′ ∈ X possibly dependent on (χ1 , . . . , χQ ), it holds except with negligible probability that
+Q
+
+P(F ∪ {hµi ,χi }i=1 ∪ {hµ′ ,χ′ }) = 1.
+15
+
+As discussed in Remark 6, such a constraint on P captures both cases – where the adversary chooses to
+forge a signature of a previously queried message or a new message. Let P = Pγ,ϵ for some 0 < γ ≪ q
+and ϵ ≤ negl(λ) as defined in Definition 7, and let X contain vectors of norm at most γ. We sketch below
+an argument for why the predicate would be satisfied for all candidates listed in Table 1. We observe the
+following:
+– The denominators of all choices of hµ,χ (b̃T ) mentioned in Table 1 clearly satisfy the norm bound
+constraint of Pγ,ϵ .
+– For χ with sufficient entropy and for Rq ∼
+= Fe splitting into large enough copies of F, it is clear that
+Q
+{hµi ,χi }i=1 for all choices in Table 1 is linearly independent with overwhelming probability, and thus
+ϵ-strongly linearly independent by Theorem 1.
+Q
+– The intersection between the span of F and that of {hµi ,χi }i=1 (or {hµ′ ,χ′ }) is clearly zero, since F
+depends only on ã but not on b̃.
+Q
+
+To show that F ∪ {hµi ,χi }i=1 ∪ {hµ′ ,χ′ } is ϵ-strongly linearly independent with overwhelming probability,
+Q
+by Lemma 2, it suffices to show that the intersection of the spans of {hµi ,χi }i=1 and hµ′ ,χ′ is trivial with
+overwhelming probability.
+By assumption, we have that µ′ ∈
+/ {µ1 , . . . , µQ }, but (µ′ , χ′ ) may arbitrarily depend on (µi , χi )Q
+i=1 .
+Q
+′
+From the constraint µ ∈
+/ {µ1 , . . . , µQ }, the (strong) linear independence between {hµi ,χi }i=1 and hµ′ ,χ′
+is clear for the BB-lite and BB-full cases, since they consist of distinct denominator polynomials. For
+Q
+the BB-tran and BBS cases, write χ = (χ0 , χ1 ) = (x0 , x1 ). If x′1 ∈
+/ {x1,i }i=1 , then again the denominator
+′
+polynomials are distinct and therefore
+the claim holds. Now, suppose x1 = x1,i′ for some i′ ∈ [Q]. Then
+
+clearly the sets {hµi ,χi }i̸=i′ and hµi′ ,χ′ , hµ′ ,χ′ are (strong) linearly independent because denominator
+polynomials are distinct.
+
+To finish the claim, we must show that hµi′ ,χ′ , hµ′ ,χ′ is (strongly) linearly independent. We first
+handle the BB-tran case which is clearer. We have
+hµi′ ,χ′ = (uTi′ , xT0,i′ ) · b̃0 + 1/(b̃1 − x′1 )
+
+and
+
+′ T
+
+hµi′ ,χ′ = ((u ) , (x′0 )T ) · b̃0 + 1/(b̃1 − x′1 ),
+to cancel out the second term, the only way is to take the difference. However, since µi′ = ui′ and µ′ = u′
+are distinct, taking difference does not make the first term vanish, thus proving the claim. For the BBS
+case, any linear combination of
+((1, uTi′ , xT0,i′ ) · b̃0 )/(b̃1 − x′1 )
+
+and
+
+((1, (u′ )T , (x′0 )T ) · b̃0 )/(b̃1 − x′1 )
+
+and
+
+(1, (u′ )T , (x′0 )T ) · b̃0
+
+to zero would also be a linear combination of
+(1, uTi′ , xT0,i′ ) · b̃0
+
+to zero. However, since µi′ = ui′ and µ′ = u′ are distinct, the two coefficients of such a linear combination
+must either be zero or have different magnitudes. In the latter case, the coefficient of the first variable in b̃0
+in the linear combination would not be zero. We thus conclude that the only possible linear combination
+to make zero is the one with zero coefficients.
+Proof-Friendliness of Suggested Candidates. We briefly comment on the proof-friendliness on the
+BB-tran and BBS instantiations suggested in Table 1, since we believe they are of the most practical
+relevance. Essentially, the verification relation of both schemes are simple bounded-norm satisfiability
+relations of quadratic equations, which can be handled concretely efficiently by state-of-the-art lattice-based
+proof systems such as [LNP22b].
+For simplicity, for signature verification we collect all supposedly bounded-norm components as a
+vector and check the norm of such a vector.14 The verification relation of the BB-tran instantiation then
+takes the form:
+ 
+u
+A · s = B0 ·
++ 1n ⊘ (b1 − 1n · x1 ) mod q
+and
+(sT , uT , xT0 , x1 ) ≤ β
+x0
+14
+
+We note that, depending on the application, the norm bounds for the signature vector s and the message u, for
+example, could differ.
+
+16
+
+which can be rearranged to the form
+ 
+ 
+s
+s
+
+
+b1 ⊡ A −B ·  u  − A −B ·  u  · x1 = 1n mod q,
+x0
+x0
+(sT , uT , xT0 , x1 ) ≤ β
+
+where b1 ⊡ A −B denotes the matrix obtained by taking the Hadamard products between b1 and every
+column of A −B . To produce a zero-knowledge proof of such a relation, one strategy is to commit to
+the expanded witnesses
+ 
+ 
+s
+s
+w1 =  u  ,
+w 2 = x1 ,
+w3 =  u  · x 1 ,
+x0
+x0
+prove that w1 and w2 are of bounded norm and satisfy the linear relation, and prove that w3 = w1 · w2 .
+Similarly, the verification relation of the BBS instantiation takes the form:
+  
+1
+A · s = B0  u  ⊘ (b1 − 1n · x1 ) mod q
+and
+(sT , uT , xT0 , x1 ) ≤ β
+x0
+which can be rearranged to the proof-friendly form
+ 
+1
+(b1 ⊡ A) · s − A · s · x1 − B0 ·  u  = 0n mod q,
+x0
+
+(sT , uT , xT0 , x1 ) ≤ β.
+
+We expect proving knowledge of a signature for the BBS instantiation is slightlymore
+ efficient, since the
+s
+u
+quadratic part s · x1 is of lower dimension (independent of the message u) than x · x1 in the BB-tran
+0
+instantiation.
+We further note that proving knowledge of a signature for either instantiation suggested above
+only requires proving that the witness is norm-bounded. In contrast, the concrete scheme suggested
+in [BLNS23b] requires proving that the witness has a binary component, on top of the witness being
+norm-bounded.
+Concrete Parameters. To estimate performance, we heuristically assume that breaking the sEUF-CMA
+security of the BB-tran and BBS instantiations are both as hard as solving SIS with dimension φn. As in
+[BLNS23b], we consider instantiations based on NTRU trapdoors [DLP14] for power-of-2 cyclotomic rings,
+meaning that n = 1, m = 2, and φ is a power of 2. NTRU trapdoors [DLP14] allowp
+sampling preimages
+√
+statistically close to Gaussian with parameter s ≥ 1.17· q ·ηϵ (Z2φ ) where ηϵ (Z2φ ) ≤ log(4φ(1 + 2λ ))/π.
+Recall that a
+message-signature tuple is (sT , uT , xT0 , x1 ) ∈ R2+ℓm +ℓr +1 . We hence set the norm bound β
+p
+to be such that s (3 + ℓm + ℓr ) · φ ≤ β < q. We adopt the standard optimisation of omitting one ring
+element from the signature (which can be derived from the verification equation), and thus a signature is
+of size (2 + ℓr ) · φ · log β bits. Since the signature schemes’ security anyway rely on the hardness of vSIS,
+we also adopt the optimisation of deriving the entire public key from a single Rq element (given by the
+NTRU trapdoor algorithm), hence the public key size is φ · log q bits. Following [BLNS23b], we set ℓr = 2
+and ℓm = 1, and additionally consider ℓm = 128. We run the Lattice Estimator [APS15]15 with these
+parameter constraints and obtain the parameters and sizes presented in Table 2. The script is attached.
+
+5
+
+Generalised ISISf
+
+We define a generalised version of the ISISf assumption [BLNS23b] and relate it to the security of the
+signature scheme ΣvSIS in Section 4, therefore also the hinted vSIS assumptions. We provide cryptanalytic
+discussions around these assumptions.
+15
+
+Commit 162c5053 of https://github.com/malb/lattice-estimator/.
+
+17
+
+Security Level
+193
+150
+399
+312
+
+φ
+
+q
+
+β
+
+s
+
+ℓm
+
+ℓr
+
+|pk|
+
+|sig|
+
+1024
+1024
+2048
+2048
+
+20
+
+18.99
+
+13
+
+1
+128
+1
+128
+
+2
+2
+2
+2
+
+2.5
+3.1
+5.5
+6.8
+
+9.5
+11.9
+20.8
+25.5
+
+2
+225
+222
+227
+
+2
+223.73
+220.77
+225.50
+
+2
+216
+214
+217
+
+Table 2: Estimated parameters for BB-tran and BBS. Sizes are in KB.
+
+5.1
+
+ISISf and Interactive ISISf
+
+We first recall the ISISf assumption and its interactive variant IntISISf defined in [BLNS23b], both
+parametrised by some fixed public function f : [N ] → Rnq .
+In the ISISf experiment, the adversary receives a random matrix A over Rq and polynomially many
+tuples (si , µi ), where µi ←$ [N ] and si is a short preimage A · si = f (µi ) mod q. Its goal is to find a new
+tuple (s∗ , µ∗ ) which satisfies As∗ = f (µ∗ ) mod q, where s∗ is short and µ∗ ∈ [N ].
+Note that an ISISf instance immediately yields a signature scheme which is sEUF-RMA secure.
+However, instead of building cryptographic primitives directly from the ISISf assumption, [BLNS23b]
+introduced an intermediate assumption which they call interactive ISISf .
+In the interactive ISISf experiment, the adversary receives random matrices A, C over Rq and is given
+access to an oracle which, on the i-th (adaptive)
+short vectors (mi , ri ), returns a short preimage si
+ query
+
+mi
+and a value µi satisfying A · si = f (µi ) + C
+mod q, where µi ←$ [N ]. Its goal is to find new tuple
+ri
+ ∗
+m
+(s∗ , µ∗ , m∗ , r∗ ) which satisfies As∗ = f (µ∗ ) + C ∗ mod q, where s∗ , m∗ , r∗ are short, µ∗ ∈ [N ], and
+r
+m∗ ∈
+/ {m1 , . . . , mQ }.
+An important step in [BLNS23b] is to show that the interactive ISISf assumption is implied by the
+(non-interactive) ISISf assumption, hence providing a convenient interface for yielding simple constructions
+of ordinary, group and blind signatures. Furthermore, [BLNS23b] showed how it can be turned into an
+efficient anonymous credential system when combined with compatible zero-knowledge proof systems.
+5.2
+
+Generalised Assumptions
+
+Recall that the ISISf assumption is parametrised by a fixed (deterministic) function f . Below, we
+generalise the ISISf assumption and its interactive variant by extending the input space of f as follows:
+1) It additionally inputs a function key κ ∈ K which is sampled from a distribution at the beginning of
+the security experiment. 2) It additionally inputs a randomness χ chosen from X . We denote the noninteractive and interactive variants of the generalised assumptions GenISISf and IntGenISISf respectively.
+Unlike [BLNS23b], we consider a “strong unforgeability” flavour for IntGenISIS (i.e, the set S contains
+full “signatures”, not just m). Further, in contrast to [BLNS23b] where the input µ to f in the ISISf
+experiment is always random, we additionally consider an adaptive variant GenISIS+
+f , where the adversary
+can freely choose µ.
+Definition 8 (Generalised ISISf Assumptions (GenISISf )). Let R, n, m, ℓmsg , ℓtag , q, Q, β, γ, s, f be
+parametrised by λ, where n, m, ℓmsg , ℓtag , q are positive integers, Q is a non-negative integer, β, γ, s ∈ R+ ,
+and f : K × M × X → Rnq is a function where the domain is efficiently sampleable16 . Let params =
+(R, n, m, q, Q, β, s, f ). The GenISISparams (resp. GenISIS+
+params ) assumption states that, for any PPT adversary A,
+
+
+′
+AdvGenISISf params
+(λ) := Pr ExpGenISISparams,A (λ) = 1 ≤ negl(λ),
+A′
+
+
+′
+(resp. AdvGenISISf +,params
+(λ) := Pr ExpGenISIS+
+params,A (λ) = 1 ≤ negl(λ))
+A′
+where the experiments are defined in Figure 5. Similarly, for params = (R, n, m, ℓmsg , ℓtag , q, Q, β, γ, s, f ),
+the IntGenISISparams assumption states that, for any PPT adversary A,
+
+
+′
+AdvIntGenISISf params
+(λ) := Pr ExpIntGenISISparams,A (λ) = 1 ≤ negl(λ).
+A′
+16
+
+I.e. there are efficient algorithms for uniformly sampling from K, M, X , respectively.
+
+18
+
+λ
+ExpGenISIS+
+params,A (1 )
+
+ExpIntGenISISparams,A (1λ )
+
+S := ∅
+
+S := ∅
+A ←$ Rn×m
+q
+∗
+OPre
+
+κ ←$ K;
+
+(s∗ , µ∗ , χ ) ← A
+∗
+
+∗
+
+κ ←$ K;
+
+(κ, A)
+
+∗
+
+t := f (κ, µ , χ )
+b0 := (A · s∗ = t∗ mod q)
+∗
+
+∗
+
+C ←$ Rn×(ℓmsg +ℓtag )
+
+(s∗ , µ∗ , χ∗ , m∗ , r∗ ) ← AOSign (κ, A, C)
+ ∗
+t∗ = f (κ, µ∗ , χ∗ ) + C m
+r∗
+b0 := (A · s∗ = t∗ mod q)
+b1 := (0 < ∥s∗ ∥ ≤ β)
+
+b1 := (0 < ∥s ∥ ≤ β)
+∗
+
+A ←$ Rn×m
+;
+q
+
+∗
+
+b2 := ((s , µ , χ ) ∈
+/ S)
+
+b2 := ((s∗ , µ∗ , χ∗ , m∗ , r∗ ) ∈
+/ S)
+
+return b0 ∧ b1 ∧ b2
+
+b3 := (∥(m∗ , r∗ )∥ ≤ γ)
+return b0 ∧ b1 ∧ b2 ∧ b3
+
+OPre(µ′ )
+assert |S| < Q
+
+OSign(m, r)
+
+µ ←$ M; χ ←$ X
+
+assert (∥(m, r)∥ ≤ γ) ∧ (|S| < Q)
+
+µ := µ′
+
+µ ←$ M; χ ←$ X
+
+// Overwrite with input
+
+t = f (κ, µ, χ)
+
+t = f (κ, µ, χ) + C[ m
+r ]
+
+s ←$ DΛtq (A),s
+
+s ←$ DΛtq (A),s
+
+S := S ∪ {(s, µ, χ)}
+
+S := S ∪ {(s, µ, χ, m, r)}
+
+return (s, µ, χ)
+
+return (s, µ, χ)
+
+Fig. 5: The GenISIS, GenISIS+ and IntGenISIS experiments.
+
+When the parameters are clear from the context, we drop most of them and simply write GenISISf , GenISIS+
+f
+and IntGenISISf .
+The GenISISf and IntGenISISf experiments (and hence assumptions) essentially coincide with the ISISf
+and IntISISf assumptions from [BLNS23b] respectively if f is a trivial family of deterministic functions,
+i.e. if K = X = {0} are sets with a single element.17 A minor change is the “strong unforgeability” flavour
+in our definition of IntGenISISf where, compared to [BLNS23b], S contains (s, µ, χ, m, r) instead of just
+m.
+Theorem 6 (Adapted from [BLNS23b, Theorem 3.3]). Let the parameters params = (R, q, n, m, ℓmsg ,
+ℓtag , s, β, γ, f ) be such that R is a power-of-two
+cyclotomic ring, q/2 > 
+γ ≥ 1, m = n log q + ω(log λ).
+
+√
+p
+Let ϵ ≤ negl(λ). Suppose that s ≥ max ηmin (ϵ), λγφ (ℓmsg + ℓtag )m , where ηmin (ϵ) is such that
+−φ
+ηϵ (Λ⊥
+over the randomness of A ←$ Rn×m
+, and that
+q (A)) ≥ ηmin (ϵ) with probability at most 2
+q
+φ ∈ ω(log λ). Then for every PPT adversary A in ExpIntGenISISparams,A , there is a PPT adversary A′ in
+ExpGenISISparams′ ,A′ such that
+′
+
+AdvGenISISf params
+(λ) ≥ AdvIntGenISISf params
+(λ)/poly(λ) − negl(λ)
+A′
+A
+where params′ = R, q, n, m, poly(λ) · Q, s, β ′ = β + γ, φ
+
+p
+
+
+(ℓmsg + ℓtag )m .
+
+The proof of Theorem 6 is almost identical to that of [BLNS23b, Theorem 3.3] (despite the “strong
+unforgeability” of IntGenISISf ). We make the following translations:
+– (From probabilistic to deterministic f .) The function f in [BLNS23b] is deterministic, i.e. there
+is no randomness space X . However, since we sample both µ ∈ M and χ ∈ X uniformly (in the
+non-adaptive setting), we could as well consider f ′ : K × M′ → Rnq where M′ = M × X . Thus, for
+the sake of proving Theorem 6, we can w.l.o.g. assume f is deterministic.
+17
+
+The mostly syntactical difference is that we give A access to a sampling oracle, whereas [BLNS23b] chose to
+produce Q samples up front and give them to A.
+
+19
+
+– (Function families.) The (deterministic) function f in [BLNS23b, Theorem 3.3] is used in a completely
+black-box way. Thus, as long as f is specified and fixed at the beginning of the experiment (so that
+it can be used in the proof), the proof applies verbatim to any choice (of distributions) of f , in
+particular any function sampled from a function a function family over K.
+For the “strong unforgeability” of IntGenISISf , first suppose (as above) w.l.o.g. that X = {0}, so that
+GenISISf coincides with ISISf (up to being a function family). Given a forgery (s∗ , µ∗ , 0, m∗ , r∗ ), the proof
+of [BLNS23b, Theorem 3.3] proceeds through indistinguishable game hops to prepare for the reduction to
+ISISf that is explained after [BLNS23b, Lemma 3.12]. There, it is asserted that (s∗ , µ∗ ) must be fresh
+for the adversary to win, which means the reduction wins its ISISf instance. This assertion holds even if
+(m∗ , r∗ ) were reused.
+Remark 7. We expect that Theorem 6 generalises to any ring R for which there is a suitable regularity
+lemma.
+5.3
+
+Generalised ISIS and Strong Hinted vSIS
+
+We establish connection between GenISISf and the sEUF-RMA security of the vSIS-based signature scheme
+ΣvSIS (Figure 4). In essence, we show that these two are equivalent experiments by simple renaming
+of variables. Chaining with Theorem 5 yields a reduction from s-$Hint-vSIS to GenISISf . The reverse
+reduction, provided by Theorem 8, establish the equivalence of s-$Hint-vSIS and GenISISf for given
+parameters. Note that it is the parameters of GenISISf that are restricted, as it corresponds to a more
+general assumption. In particular, the equivalence holds only when the set of functions f consists of
+ℓ-variate rational functions.
+Theorem 7 (GenISISf ⇔ sEUF-RMAΣvSIS ). Let R, n, m, ℓ, q, s, β, δ, M, X , H be parameters of the signature scheme ΣvSIS in Figure 4, in particular H := {hµ,χ | µ ∈ M, χ ∈ X } is a set of ℓ-variate rational functions. Let params1 := (R, n, m, q, Q, β, s, f ) with f : Rn×ℓ
+× M × X → Rnq such that
+q
+n×ℓ
+f (B, µ, χ) = hµ,χ (B) for any B ∈ Rq , and Q ≤ poly(λ). Suppose (R, n, m, q, s) are admissible parameters for (TrapGen, SampPre). There is a PPT adversary B winning the ExpGenISISparams1 ,B experiment
+with non-negligible probability if and only if there is a PPT adversary A winning the sEUF-RMAΣvSIS ,A,Q
+experiment with non-negligible probability.
+Theorem 8 (GenISISf ⇒ s-$Hint-vSIS). Let params1 := (R, n, m, q, Q, β, s, f ), H := {hµ,χ | µ ∈ M, χ ∈ X }
+a set of ℓ-variate rational function, G := H ∪ {0}, and P a predicate on sets of rational functions with
+f : Rqn×ℓ × M × X → Rnq such that f (B, µ, χ) = hµ,χ (B). Let params0 := (R, n, k, q, Q, β, s, F, G, H, P),
+where k = m + ℓ and F is such that for formal variables (ãT , b̃T ) of dimension k, F(ãT , b̃T ) = ãT . Suppose
+also that for all Q ⊆ H, all g ∗ ∈ G \ Q, it holds P(F ∪ Q ∪ ({g ∗ } \ {0})) = 1. If the GenISISparams1
+assumption holds, then the s-$Hint-vSISparams0 assumption holds.
+The proofs of Theorems 7 and 8 are deferred to Appendices A.3 and A.4. Applying Theorems 5 and 7, we
+have the following immediate corollary.
+Corollary 1 (s-$Hint-vSIS ⇒ GenISISf ). Let params0 = (R, n, k, q, β, F, G, H, P, Q) and m, ℓ, s, δ, δ ′ ,
+M, X be such that the constraints in Theorem 5 are satisfied. Let params1 := (R, n, m, Q, q, β, s, f ) with
+f : Rn×ℓ
+× M × X → Rnq such that f (B, µ, χ) = hµ,χ (B) for any B ∈ Rn×ℓ
+. If the s-$Hint-vSISparams0
+q
+q
+assumption holds for every polynomial Q(λ), then so does the GenISISparams1 assumption.
+5.4
+
+Robustness and Linear Combination Attacks against (Gen)ISISf
+
+We study the robustness of (generalised) ISISf assumptions, in particular in relation to a natural attack that
+was also discussed in [BLNS23b] for the special case where the function f was binary decomposition.18 We
+extend this discussion to our setting, and connect it to the (strong) hinted vSIS assumption (Definition 5).
+For simplicity, we omit the function key κ for f and the randomness X in the first discussion, and consider
+a fixed f : M → Rnq as in the original ISISf assumption.
+18
+
+More precisely, in [BLNS23b], f is a function which first binary decomposes the input, linear-maps it to the
+domain of the coefficient embedding, then outputs the corresponding ring vector.
+
+20
+
+Preimage resistance. A necessary requirement on f : M → Rnq is that it is hard to invert on random
+elements in the codomain. Otherwise, the hash-then-sign paradigm is clearly broken, and µ∗ = f −1 (As∗ )
+for a random short s∗ breaks the assumption. Note here that “hard-to-invert” can be statistically satisfied,
+n
+if |M|/|Rq | is negligible. For example, this is the case in [BLNS23b] and our BB-lite instantiation.
+Examples for computational hardness include the non-BB-lite instantiations in Table 1, and f being a
+collision-resistant hash or random oracle.
+Linear combination attacks (LCA). The attack idea of an LCA is quite simple: Given tuples (si , µi ) with
+Asi = f (µi ), somehow compute short coefficients ci together with µ∗ such that
+P
+∗
+(1)
+i ci f (µi ) = f (µ )
+holds. Then, for s∗ =
+
+P
+
+i ci si , we get
+
+As∗ =
+
+P
+
+i ci Asi =
+
+∗
+i ci f (µi ) = f (µ ).
+
+P
+
+(2)
+
+Intuitively, the attack exploits (approximate) linearity of f , or rather, within the image im(f ). For
+example, in [BLNS23b], the binary decomposition function f : [N ] → Rnq appears to be highly non-linear
+at first glance. However, the required linearity for the attack is present in the image im(f ) = Rn2 ⊆ Rnq .
+Indeed, since f is far from one-way over its image, for the purpose of analysing LCA against f , we can
+equivalently replace f by g : Rn2 → Rnq , where g is simply the identity embedding.
+
+LCAs against binary decomposition. We first discuss how and why linear combination attacks do
+(not) break the ISISf assumption, when instantiated with f (x) = bindecomp(x) ∈ Rn2 as in [BLNS23b].
+As noted earlier, we consider g : Rn2 → Rnq where g(m) = m and M = Rn2 , instead of the function f .
+The presumed security of g : Rn2 → Rnq against linear combination attacks crucially relies on two
+properties. On the one hand, the domain Rn2 ⊆ Rnq should be high dimensional. This makes it unlikely
+that for two random m1 , m2 ∈ Rn2 , their sum or difference ±m1 ± m2 is again in Rn2 , i.e. again a bitstring;
+indeed, the probability is precisely 2 · (3/4)φn − 2−φn as is easily checked.19 Hence, we can hope that
+finding a sufficiently short linear combination of mi = f (µi ) with
+P
+
+i ci mi = m
+
+∗
+
+∈ Rn2
+
+for any choice of m∗ remains difficult, given sufficiently high dimensions (at the very least φn ≥
+λ/ log2 (4/3) ≈ 2.41λ). Moreover, one should account for attacks which use integer linear programming
+(ILP) to tackle similar problems [BDE+ 18, HM17], see [BLNS23b, Section 3.1.2]. On the other hand, the
+dimension φm of preimages should be high and the norm bound β very strict, so that even if we have
+two ISISf pairs (s1 , m1 ), (s2 , m2 ) where m1 ± m2 is again binary, we get ∥s1 ± s2 ∥ > β almost certainly.
+√
+To thwart the attacks, [BLNS23b] exploits the high dimension φm and sets the bound β close to φms.
+Limited robustness of binary decomposition. To investigate the security-efficiency tradeoff, we strengthen
+the GenISISf assumption slightly: (1) we consider selective GenISIS+
+f where the adversary chooses
+(µ′1 , . . . , µ′Q ), receives OPre(µ′i ) for i ∈ [1, . . . , Q], and has no further access to OPre; (2) we allow a
+√
+relaxed norm bound, namely 2β instead of β, for forgeries. While this seems like a mild strengthening,
+security completely breaks down for f = bindecomp, even with a single selective query: By selectively
+querying a standard unit vector e (in coefficient embedding), say e1 = (1, 0, . . .) ∈ {0, 1}φn (or even 0),
+and one (random) query m1 , the naive linear combination e1 + m1 breaks with probability 1/2. Of course,
+this attack generalises: Any e of low Hamming weight is beneficial for linear combination attacks, and
+success can be amplified by trying many mi ’s. The above total break with just a single selective query
+suggests, that one should consider other (presumably) more robust functions f , which perhaps allows a
+better security-efficiency tradeoff and gives higher confidence in the hardness of the problem.
+19
+
+We just need to count strings which are pointwise ≤ or ≥. Perhaps surprisingly, for φn = 256, this happens
+with probability roughly 2−105.25 ≫ 2−128 .
+
+21
+
+LCA against Candidate Rational Functions. We elaborate on why we believe our candidate
+instantiations of GenISISf (cf. Section 4.2) offer better security than the binary decomposition function.
+First, by Theorem 8, to break GenISISf it suffices to break the corresponding s-$Hint-vSIS assumption.
+−µ
+For concreteness, we focus on the function hµ,χ (b̃0 , b̃1 ) = b̃b̃0 −χ
+which captures all important structures of
+1
+the examples in Table 1. For simplicity, we consider module rank n = 1.
+√
+To begin, we observe that, for βµ ≥ q, the distribution 1/µ (mod q) of inverses of short elements
+µ ← M = {|µ| ≤ βµ | µ ∈ Z} is “close to uniformly” [Shp12] for some non-cryptographic measure
+of closeness. Nevertheless, let us adopt the heuristic that (b0 − µ)/(b1 − χ) mod q for short (µ, χ) is
+“uniformly random enough” for the purpose of attaining SIS hardness. Given many short samples (si , µi , χi )
+satisfying ⟨a, si ⟩ = (b0 − µi )/(b1 − χi ) mod q, there are two natural strategies to find a new short solution
+(s∗ , µ∗ , χ∗ ).
+The first is to ignore the hints and attempt to solve the problem directly. Towards this, an idea is to
+sample a random short s∗ , compute t∗ := ⟨a, s∗ ⟩ mod q, and try to find (µ∗ , χ∗ ) such that hµ∗ ,χ∗ (b0 , b1 ) =
+t∗ mod q. In our example, this means solving t∗ χ∗ − µ∗ = t∗ b1 − b0 mod q for a short solution (µ∗ , χ∗ ).
+However, if we sampled s∗ from a sufficiently entropic distribution, then t∗ would be close to uniformly
+random, and thus we essentially need to solve a random ISIS instance.
+Another strategy is to somehow make use of the hints. The idea is essentially that of the LCA – to
+find a short linear combination of hµi ,χi (b0 , b1 ) which yields hµ∗ ,χ∗ (b0 , b1 ) for some (µ∗ , χ∗ ). As before,
+if we pick the linear combination blindly and then attempt to solve the equation for (µ∗ , χ∗ ), then we
+will face an ISIS instance. Since hµ1 ,χ1 , . . . , hµQ ,χQ , hµ∗ ,χ∗ are strongly linearly independent, choosing the
+linear combination without taking (b0 , b1 ) into account is unlikely to succeed. We are thus left with the
+option of picking the short linear combination by somehow exploiting our knowledge on (b0 , b1 ), which
+appears difficult.
+We remark that the difficulty of the above attacks crucially rely on the restriction that µ, χ are short.
+Indeed, if the shortness condition is dropped, then there are simple attacks by simple arithmetic. Also
+note that all attack strategies discussed are non-adaptive. At present, we are unaware of meaningful ways
+to exploit adaptivity. This holds true even when additionally considering a relaxed norm bound β ′ ≫ β
+on forgeries. As long as the related problems (such as SIS, inverting f ) remain hard, we do not know how
+√
+to exploit a norm check for β ′ ≫ β, even if β ′ is much larger than the expected norm φms of preimages
+s which are obtained by an (adaptive) OPre. Intuitively, the non-linearity of f obstructs the LCA attack,
+which is the only way we know how to take advantage of the short preimages s to obtain a slightly longer
+preimage (e.g. as for f = bindecomp).
+To summarise: The GenISIS(+)
+assumption(s) for our families f seems quite robust, but better
+f
+cryptanalysis is crucial to gauge its hardness and robustness.
+
+GenISISf vs. one-more ISIS. The one-more ISIS (OM-ISIS) assumption was introduced in [AKSY22]
+for building lattice-based blind signatures. There, an adversary is given a preimage oracle OPre which
+produces preimages of images freely chosen by the adversary. It also has oracle access to (an arbitrary
+number of) random challenge vectors (that is, ISIS syndromes). To win the game, the adversary must
+produce preimages of ℓ + 1 challenge vectors, if it has made ℓ queries to OPre .
+OM-ISIS does not seem directly comparable to any variant (generalised, adaptive, interactive, etc.)
+of (Gen)ISISf . We focus our discussion on GenISISf . For OM-ISIS, the images for which OPre provides
+preimages are chosen freely, but the challenge images are truly random. For GenISISf , the preimages are
+for random images y = f (κ, µ, χ) and there is no specified challenge, i.e. the adversary chooses freely
+(µ∗ , χ∗ ). Interestingly, the selective and adaptive variants of GenISIS+
+f are closer to OM-ISIS because OPre
+now works on adversarial inputs, but the choice is still not free as the inputs are “hashed” by f .
+As a qualitative difference, we note that in OM-ISIS it is possible to learn a trapdoor of A, e.g. by
+requesting sufficiently many preimages of 0. Under
+a relaxed norm check β ′ > β, the above implies that β ′
+√
+√
+′
+cannot be too large, e.g. OM-ISIS with β > m · φms is broken, cf. [AKSY22]. Thus, similar to ISISf ,
+√
+there is a close tie between admissible β ′ > β and the expected norm φms of the sampled preimages. In
+contrast, for (adaptive) GenISISf , we are not aware of how to obtain a short basis, or even take advantage
+of relaxed norm checks.
+Overall, we can hope that our GenISIS assumptions are as secure (or more so) than OM-ISIS, while
+leading to smaller round-optimal blind signatures than [AKSY22].
+22
+
+Acknowledgments. The research of Russell W. F. Lai and Ivy K. Y. Woo are supported by Research Council of
+Finland grants 358951 and 358950 respectively.
+
+References
+Shweta Agrawal, Dan Boneh, and Xavier Boyen. Lattice basis delegation in fixed dimension and
+shorter-ciphertext hierarchical IBE. In Tal Rabin, editor, CRYPTO 2010, volume 6223 of LNCS, pages
+98–115. Springer, Berlin, Heidelberg, August 2010. 4
+ACL+ 22. Martin R. Albrecht, Valerio Cini, Russell W. F. Lai, Giulio Malavolta, and Sri Aravinda Krishnan
+Thyagarajan. Lattice-based SNARKs: Publicly verifiable, preprocessing, and recursively composable
+- (extended abstract). In Yevgeniy Dodis and Thomas Shrimpton, editors, CRYPTO 2022, Part II,
+volume 13508 of LNCS, pages 102–132. Springer, Cham, August 2022. 2, 3, 9, 10
+AEB20a. Nabil Alkeilani Alkadri, Rachid El Bansarkhani, and Johannes Buchmann. BLAZE: Practical latticebased blind signatures for privacy-preserving applications. In Joseph Bonneau and Nadia Heninger,
+editors, FC 2020, volume 12059 of LNCS, pages 484–502. Springer, Cham, February 2020. 4
+AEB20b. Nabil Alkeilani Alkadri, Rachid El Bansarkhani, and Johannes Buchmann. On lattice-based interactive
+protocols: An approach with less or no aborts. In Joseph K. Liu and Hui Cui, editors, ACISP 20,
+volume 12248 of LNCS, pages 41–61. Springer, Cham, November / December 2020. 4
+AHJ21.
+Nabil Alkeilani Alkadri, Patrick Harasser, and Christian Janson. BlindOR: an efficient lattice-based
+blind signature scheme from OR-proofs. In Mauro Conti, Marc Stevens, and Stephan Krenn, editors,
+CANS 21, volume 13099 of LNCS, pages 95–115. Springer, Cham, December 2021. 4
+AKSY22. Shweta Agrawal, Elena Kirshanova, Damien Stehlé, and Anshu Yadav. Practical, round-optimal
+lattice-based blind signatures. In Heng Yin, Angelos Stavrou, Cas Cremers, and Elaine Shi, editors,
+ACM CCS 2022, pages 39–53. ACM Press, November 2022. 4, 22
+APS15.
+Martin R. Albrecht, Rachel Player, and Sam Scott. On the concrete hardness of Learning with Errors.
+Journal of Mathematical Cryptology, 9(3):169–203, October 2015. 17
+Man Ho Au, Willy Susilo, and Yi Mu. Constant-size dynamic k-TAA. In Roberto De Prisco and Moti
+ASM06.
+Yung, editors, SCN 06, volume 4116 of LNCS, pages 111–125. Springer, Berlin, Heidelberg, September
+2006. 2, 4, 13, 15
+Ban93.
+Wojciech Banaszczyk. New bounds in some transference theorems in the geometry of numbers.
+Mathematische Annalen, 296:625–635, 1993. 5
+BB08.
+Dan Boneh and Xavier Boyen. Short signatures without random oracles and the SDH assumption in
+bilinear groups. Journal of Cryptology, 21(2):149–177, April 2008. 2, 4, 13, 15
+BBP23.
+Johannes Blömer, Jan Bobolz, and Laurens Porzenheim. A generic construction of an anonymous
+reputation system and instantiations from lattices. In Jian Guo and Ron Steinfeld, editors, ASIACRYPT 2023, Part II, volume 14439 of LNCS, pages 418–452. Springer, Singapore, December 2023.
+4
+BBS04.
+Dan Boneh, Xavier Boyen, and Hovav Shacham. Short group signatures. In Matthew Franklin, editor,
+CRYPTO 2004, volume 3152 of LNCS, pages 41–55. Springer, Berlin, Heidelberg, August 2004. 1, 2,
+4, 13, 15
+BCN18.
+Cecilia Boschini, Jan Camenisch, and Gregory Neven. Floppy-sized group signatures from lattices.
+In Bart Preneel and Frederik Vercauteren, editors, ACNS 18International Conference on Applied
+Cryptography and Network Security, volume 10892 of LNCS, pages 163–182. Springer, Cham, July
+2018. 4
+BDE+ 18. Jonathan Bootle, Claire Delaplace, Thomas Espitau, Pierre-Alain Fouque, and Mehdi Tibouchi. LWE
+without modular reduction and improved side-channel attacks against BLISS. In Thomas Peyrin and
+Steven Galbraith, editors, ASIACRYPT 2018, Part I, volume 11272 of LNCS, pages 494–524. Springer,
+Cham, December 2018. 21
+BDK+ 22. Ward Beullens, Samuel Dobson, Shuichi Katsumata, Yi-Fu Lai, and Federico Pintore. Group signatures
+and more from isogenies and lattices: Generic, simple, and efficient. In Orr Dunkelman and Stefan
+Dziembowski, editors, EUROCRYPT 2022, Part II, volume 13276 of LNCS, pages 95–126. Springer,
+Cham, May / June 2022. 4
+BLL+ 21. Fabrice Benhamouda, Tancrède Lepoint, Julian Loss, Michele Orrù, and Mariana Raykova. On the
+(in)security of ROS. In Anne Canteaut and François-Xavier Standaert, editors, EUROCRYPT 2021,
+Part I, volume 12696 of LNCS, pages 33–53. Springer, Cham, October 2021. 4
+BLL+ 22. Fabrice Benhamouda, Tancrède Lepoint, Julian Loss, Michele Orrù, and Mariana Raykova. On the
+(in)security of ROS. Journal of Cryptology, 35(4):25, October 2022. 4
+BLNS23a. Ward Beullens, Vadim Lyubashevsky, Ngoc Khanh Nguyen, and Gregor Seiler. Lattice-based blind
+signatures: Short, efficient, and round-optimal. In Weizhi Meng, Christian Damsgaard Jensen, Cas
+Cremers, and Engin Kirda, editors, ACM CCS 2023, pages 16–29. ACM Press, November 2023. 4
+ABB10.
+
+23
+
+BLNS23b. Jonathan Bootle, Vadim Lyubashevsky, Ngoc Khanh Nguyen, and Alessandro Sorniotti. A framework
+for practical anonymous credentials from lattices. In Helena Handschuh and Anna Lysyanskaya, editors,
+CRYPTO 2023, Part II, volume 14082 of LNCS, pages 384–417. Springer, Cham, August 2023. 2, 3, 4,
+15, 17, 18, 19, 20, 21
+BLS19.
+Jonathan Bootle, Vadim Lyubashevsky, and Gregor Seiler. Algebraic techniques for short(er) exact lattice-based zero-knowledge proofs. In Alexandra Boldyreva and Daniele Micciancio, editors,
+CRYPTO 2019, Part I, volume 11692 of LNCS, pages 176–202. Springer, Cham, August 2019. 4
+CGT23.
+Alishah Chator, Matthew Green, and Pratyush Ranjan Tiwari. SoK: Privacy-preserving signatures.
+Cryptology ePrint Archive, Report 2023/1039, 2023. 4
+Jan Camenisch and Anna Lysyanskaya. A signature scheme with efficient protocols. In Stelvio Cimato,
+CL03.
+Clemente Galdi, and Giuseppe Persiano, editors, SCN 02, volume 2576 of LNCS, pages 268–289.
+Springer, Berlin, Heidelberg, September 2003. 1
+CL04.
+Jan Camenisch and Anna Lysyanskaya. Signature schemes and anonymous credentials from bilinear
+maps. In Matthew Franklin, editor, CRYPTO 2004, volume 3152 of LNCS, pages 56–72. Springer,
+Berlin, Heidelberg, August 2004. 4
+CLM23.
+Valerio Cini, Russell W. F. Lai, and Giulio Malavolta. Lattice-based succinct arguments from
+vanishing polynomials - (extended abstract). In Helena Handschuh and Anna Lysyanskaya, editors,
+CRYPTO 2023, Part II, volume 14082 of LNCS, pages 72–105. Springer, Cham, August 2023. 3, 6, 8,
+10
+DLP14.
+Léo Ducas, Vadim Lyubashevsky, and Thomas Prest. Efficient identity-based encryption over NTRU
+lattices. In Palash Sarkar and Tetsu Iwata, editors, ASIACRYPT 2014, Part II, volume 8874 of LNCS,
+pages 22–41. Springer, Berlin, Heidelberg, December 2014. 17
+Léo Ducas and Daniele Micciancio. Improved short lattice signatures in the standard model. In Juan A.
+DM14.
+Garay and Rosario Gennaro, editors, CRYPTO 2014, Part I, volume 8616 of LNCS, pages 335–352.
+Springer, Berlin, Heidelberg, August 2014. 4
+dPK22.
+Rafaël del Pino and Shuichi Katsumata. A new framework for more efficient round-optimal lattice-based
+(partially) blind signature via trapdoor sampling. In Yevgeniy Dodis and Thomas Shrimpton, editors,
+CRYPTO 2022, Part II, volume 13508 of LNCS, pages 306–336. Springer, Cham, August 2022. 4
+dPLS18. Rafaël del Pino, Vadim Lyubashevsky, and Gregor Seiler. Lattice-based group signatures and zeroknowledge proofs of automorphism stability. In David Lie, Mohammad Mannan, Michael Backes, and
+XiaoFeng Wang, editors, ACM CCS 2018, pages 574–591. ACM Press, October 2018. 4
+Fis06.
+Marc Fischlin. Round-optimal composable blind signatures in the common reference string model.
+In Cynthia Dwork, editor, CRYPTO 2006, volume 4117 of LNCS, pages 60–77. Springer, Berlin,
+Heidelberg, August 2006. 4
+GKV10. S. Dov Gordon, Jonathan Katz, and Vinod Vaikuntanathan. A group signature scheme from lattice
+assumptions. In Masayuki Abe, editor, ASIACRYPT 2010, volume 6477 of LNCS, pages 395–412.
+Springer, Berlin, Heidelberg, December 2010. 4
+GPV08.
+Craig Gentry, Chris Peikert, and Vinod Vaikuntanathan. Trapdoors for hard lattices and new
+cryptographic constructions. In Richard E. Ladner and Cynthia Dwork, editors, 40th ACM STOC,
+pages 197–206. ACM Press, May 2008. 1, 2, 5
+GS08.
+Jens Groth and Amit Sahai. Efficient non-interactive proof systems for bilinear groups. In Nigel P.
+Smart, editor, EUROCRYPT 2008, volume 4965 of LNCS, pages 415–432. Springer, Berlin, Heidelberg,
+April 2008. 1
+HKLN20. Eduard Hauck, Eike Kiltz, Julian Loss, and Ngoc Khanh Nguyen. Lattice-based blind signatures,
+revisited. In Daniele Micciancio and Thomas Ristenpart, editors, CRYPTO 2020, Part II, volume
+12171 of LNCS, pages 500–529. Springer, Cham, August 2020. 4
+HM17.
+Gottfried Herold and Alexander May. LP solutions of vectorial integer subset sums — cryptanalysis of
+Galbraith’s binary matrix LWE. In Serge Fehr, editor, PKC 2017, Part I, volume 10174 of LNCS,
+pages 3–15. Springer, Berlin, Heidelberg, March 2017. 21
+JRS23.
+Corentin Jeudy, Adeline Roux-Langlois, and Olivier Sanders. Lattice signature with efficient protocols, application to anonymous credentials. In Helena Handschuh and Anna Lysyanskaya, editors,
+CRYPTO 2023, Part II, volume 14082 of LNCS, pages 351–383. Springer, Cham, August 2023. 2, 4
+KLR24.
+Shuichi Katsumata, Yi-Fu Lai, and Michael Reichle. Breaking parallel ROS: Implication for isogeny
+and lattice-based blind signatures. In Qiang Tang and Vanessa Teague, editors, PKC 2024, Part I,
+volume 14601 of LNCS, pages 319–351. Springer, Cham, April 2024. 4
+LDK+ 22. Vadim Lyubashevsky, Léo Ducas, Eike Kiltz, Tancrède Lepoint, Peter Schwabe, Gregor Seiler, Damien
+Stehlé, and Shi Bai. CRYSTALS-DILITHIUM. Technical report, National Institute of Standards
+and Technology, 2022. available at https://csrc.nist.gov/Projects/post-quantum-cryptography/
+selected-algorithms-2022. 1
+LLLS13. Fabien Laguillaumie, Adeline Langlois, Benoı̂t Libert, and Damien Stehlé. Lattice-based group
+signatures with logarithmic signature size. In Kazue Sako and Palash Sarkar, editors, ASIACRYPT 2013,
+Part II, volume 8270 of LNCS, pages 41–61. Springer, Berlin, Heidelberg, December 2013. 4
+
+24
+
+LLM+ 16. Benoı̂t Libert, San Ling, Fabrice Mouhartem, Khoa Nguyen, and Huaxiong Wang. Signature schemes
+with efficient protocols and dynamic group signatures from lattice assumptions. In Jung Hee Cheon
+and Tsuyoshi Takagi, editors, ASIACRYPT 2016, Part II, volume 10032 of LNCS, pages 373–403.
+Springer, Berlin, Heidelberg, December 2016. 2, 4
+LLNW16. Benoı̂t Libert, San Ling, Khoa Nguyen, and Huaxiong Wang. Zero-knowledge arguments for latticebased accumulators: Logarithmic-size ring signatures and group signatures without trapdoors. In Marc
+Fischlin and Jean-Sébastien Coron, editors, EUROCRYPT 2016, Part II, volume 9666 of LNCS, pages
+1–31. Springer, Berlin, Heidelberg, May 2016. 4
+LNP22a. Vadim Lyubashevsky, Ngoc Khanh Nguyen, and Maxime Plançon. Efficient lattice-based blind
+signatures via gaussian one-time signatures. In Goichiro Hanaoka, Junji Shikata, and Yohei Watanabe,
+editors, PKC 2022, Part II, volume 13178 of LNCS, pages 498–527. Springer, Cham, March 2022. 4
+LNP22b. Vadim Lyubashevsky, Ngoc Khanh Nguyen, and Maxime Plançon. Lattice-based zero-knowledge proofs
+and applications: Shorter, simpler, and more general. In Yevgeniy Dodis and Thomas Shrimpton,
+editors, CRYPTO 2022, Part II, volume 13508 of LNCS, pages 71–101. Springer, Cham, August 2022.
+2, 4, 16
+LNPS21. Vadim Lyubashevsky, Ngoc Khanh Nguyen, Maxime Plançon, and Gregor Seiler. Shorter latticebased group signatures via “almost free” encryption and other optimizations. In Mehdi Tibouchi
+and Huaxiong Wang, editors, ASIACRYPT 2021, Part IV, volume 13093 of LNCS, pages 218–248.
+Springer, Cham, December 2021. 4
+Lyu12.
+Vadim Lyubashevsky. Lattice signatures without trapdoors. In David Pointcheval and Thomas
+Johansson, editors, EUROCRYPT 2012, volume 7237 of LNCS, pages 738–755. Springer, Berlin,
+Heidelberg, April 2012. 1
+MP12.
+Daniele Micciancio and Chris Peikert. Trapdoors for lattices: Simpler, tighter, faster, smaller. In
+David Pointcheval and Thomas Johansson, editors, EUROCRYPT 2012, volume 7237 of LNCS, pages
+700–718. Springer, Berlin, Heidelberg, April 2012. 2, 4, 5
+PFH+ 22. Thomas Prest, Pierre-Alain Fouque, Jeffrey Hoffstein, Paul Kirchner, Vadim Lyubashevsky, Thomas
+Pornin, Thomas Ricosset, Gregor Seiler, William Whyte, and Zhenfei Zhang. FALCON. Technical
+report, National Institute of Standards and Technology, 2022. available at https://csrc.nist.gov/
+Projects/post-quantum-cryptography/selected-algorithms-2022. 1
+Rüc10.
+Markus Rückert. Lattice-based blind signatures. In Masayuki Abe, editor, ASIACRYPT 2010, volume
+6477 of LNCS, pages 413–430. Springer, Berlin, Heidelberg, December 2010. 4
+Shp12.
+Igor E Shparlinski. Modular hyperbolas. Japanese Journal of Mathematics, 7(2):235–294, 2012. 22
+SSTX09. Damien Stehlé, Ron Steinfeld, Keisuke Tanaka, and Keita Xagawa. Efficient public key encryption
+based on ideal lattices. In Mitsuru Matsui, editor, ASIACRYPT 2009, volume 5912 of LNCS, pages
+617–635. Springer, Berlin, Heidelberg, December 2009. 6
+TZ23.
+Stefano Tessaro and Chenzhi Zhu. Revisiting BBS signatures. In Carmit Hazay and Martijn Stam,
+editors, EUROCRYPT 2023, Part V, volume 14008 of LNCS, pages 691–721. Springer, Cham, April
+2023. 2, 4, 13, 15
+Wee22.
+Hoeteck Wee. Optimal broadcast encryption and CP-ABE from evasive lattice assumptions. In Orr
+Dunkelman and Stefan Dziembowski, editors, EUROCRYPT 2022, Part II, volume 13276 of LNCS,
+pages 217–241. Springer, Cham, May / June 2022. 3, 6
+WW23.
+Hoeteck Wee and David J. Wu. Succinct vector, polynomial, and functional commitments from lattices.
+In Carmit Hazay and Martijn Stam, editors, EUROCRYPT 2023, Part III, volume 14006 of LNCS,
+pages 385–416. Springer, Cham, April 2023. 9
+YAZ+ 19. Rupeng Yang, Man Ho Au, Zhenfei Zhang, Qiuliang Xu, Zuoxia Yu, and William Whyte. Efficient
+lattice-based zero-knowledge arguments with standard soundness: Construction and applications. In
+Alexandra Boldyreva and Daniele Micciancio, editors, CRYPTO 2019, Part I, volume 11692 of LNCS,
+pages 147–175. Springer, Cham, August 2019. 4
+
+A
+
+Missing Proofs
+
+A.1
+
+Proof of Theorem 1
+
+Proof. Case F ⊆ Rq [x̃] is a set of polynomials. In this case, g = m = 1 for any f /g ∈ F. We aim to
+verify that, for any not-all-zero coefficients (cf )f ∈F over Rq ,
+hP
+i
+T
+k
+Pr
+f ∈F cf · f (a ) = 0 mod q a ←$ Rq ≤ ϵ.
+We show this by using the Schwartz-Zippel lemma over F, which states that for any non-zero k-variate
+degree-d polynomial f over F,
+
+
+Pr f (aT ) = 0 a ←$ Fk ≤ d/|F| = ϵ.
+25
+
+Consider a non-zero k-variate degree-d polynomial f over Rq , which splits via the Chinese Remainder
+Theorem (for Rq ) into a tuple of polynomials (f1 , . . . , fe ) over F. Since f is non-zero, one of (f1 , . . . , fe ),
+say fi∗ , is non-zero. We thus have
+
+
+
+
+Pr f (aT ) = 0 a ←$ Rkq ≤ Pr fi∗ (aTi∗ ) = 0 ai ←$ Fk ≤ d/|F| = ϵ.
+Now fix any not-all-zero coefficients (cf )f ∈F over Rq . Since all f ∈ F are linearly independent as
+polynomials over Rq , for each i ∈ [e], the i-th CRT components
+P (fi )f ∈F are also linearly independent
+as polynomials over F. Thus, there exists i∗ ∈ [e] such that f ∈F cf,i∗ · fi∗ , where cf,i∗ is the i∗ -th
+∗
+CRT component
+P of cf , is a non-zero polynomial over F. Since the i -th CRT component is non-zero, the
+polynomial f ∈F cf · f over Rq is also non-zero.
+Case F ⊆ Rq (x̃T ) is a set of rational function. The idea is to clear out the denominator using the common
+multiple m. Consider the polynomial
+P
+h := m · f /g∈F cf /g · f /g.
+P
+By the same argument as in the polynomial case, f /g∈F cf /g · f /g is a non-zero rational function, and
+therefore h is a non-zero polynomial. Furthermore, deg(h) ≤ deg(m) + maxf /g∈F deg(f ) = d. The claim
+thus follows from the analysis of the polynomial case.
+A.2
+
+Proof of Lemma 2
+
+/ Rq -span(F), it holds that, for any d ∈ Rq
+Proof. From the definition of strong linear independence, if 1 ∈
+and any not-all-zero (cf )f ∈F ,
+hP
+i
+T
+k
+$
+Pr
+c
+·
+f
+(a
+)
+=
+d
+mod
+q
+a
+←
+R
+f
+q ≤ ϵF .
+f ∈F
+Suppose w.l.o.g. that 1 ∈
+/ spanRq (F) (else, swap F and G). Unless ϵF = 1 or ϵG = 1, we know that all
+elements in F (resp. in G) are linearly independent. By assumption spanRq (F) ∩ spanRq (G) = {0}, so
+F ∪ G is a basis of spanRq (F ∪ G). Hence, for any h ∈ spanRq (F ∪ G), there is a unique coefficient vector
+∪G
+c ∈ RF
+such that h is a linear combination of F ∪ G with coefficient c. Since F, G are disjoint, c can
+q
+be split into cF ∈ RF and cG ∈ RG . Therefore
+
+
+Pr h(aT ) = 0 mod q a ←$ Rkq
+hP
+i
+P
+T
+T
+k
+$
+= Pr
+c
+·
+f
+(a
+)
++
+c
+·
+g(a
+)
+=
+0
+mod
+q
+a
+←
+R
+q
+f ∈F f
+g∈G g
+hP
+i
+P
+T
+T
+k
+= Pr
+f ∈F cf · f (a ) = −
+g∈G cg · g(a ) mod q a ←$ Rq
+hP
+i
+T
+k
+≤ max Pr
+≤ ϵF .
+f ∈F cf · f (a ) = d mod q a ←$ Rq
+d∈Rq
+
+On the other hand, if (cf )f ∈F in the above are all-zero, then clearly the probability is bounded by ϵG .
+Thus, we find ϵF ∪G ≤ max(ϵF , ϵG ).
+A.3
+
+Proof of Theorem 7
+
+Proof. The detailed descriptions of both concerned experiments are provided in Figure 6. For ease of
+comparison we incorporate syntactical changes to the sEUF-RMA experiment of ΣvSIS , in particular
+introducing OSign for sampling Q random messages and generating their signatures. It is straightforward
+to verify that the stated experiment is functionally equivalent to that in Definition 4 and Figure 3.
+We define the following hybrids:
+Hyb0 : The sEUF-RMA experiment of ΣvSIS in Figure 6.
+Hyb1 : Same as Hyb0 , except that we sample s ←$ DΛtq (A),s inefficiently from the discrete Gaussian
+distribution.
+Hyb2 : Same as Hyb1 , except that we sample A ←$ Rn×m
+uniformly randomly.
+q
+26
+
+sEUF-RMAΣvSIS ,A,Q (1λ )
+
+ExpGenISISf B (1λ )
+
+B ←$ Rn×ℓ
+q
+
+S := ∅; κ ←$ K
+n
+
+m
+
+(A, tdA ) ← TrapGen(R, 1 , 1 , q)
+
+A ←$ Rn×m
+q
+
+(sig1 , . . . , sigQ ) ← OSign()
+(µ∗ , (χ∗ , s∗ )) ← A(B, A, sig1 , . . . , sigQ )
+
+(s∗ , µ∗ , χ∗ ) ← BOPre (κ, A)
+
+t∗ := hµ∗ ,χ∗ (B) mod q
+
+t∗ := f (κ, µ∗ , χ∗ )
+
+∗
+
+b0 := (A · s∗ = t∗ mod q)
+
+∗
+
+b0 := (A · s = t mod q)
+
+b1 := (0 < ∥s∗ ∥ ≤ β)
+
+b1 := (0 < ∥s∗ ∥ ≤ β)
+∗
+
+∗
+
+b2 := (µ ∈ MX ,G,B ) ∧ (χ ∈ X )
+o
+n
+b3 := ((msg∗ , sig∗ ) ∈
+/ (µi , sigi )Q
+i=1 )
+
+b2 := ((s∗ , µ∗ , χ∗ ) ∈
+/ S)
+
+return b0 ∧ b1 ∧ b2 ∧ b3
+
+return b0 ∧ b1 ∧ b2
+
+OSign()
+
+OPre()
+
+for i ∈ [Q] :
+
+assert |S| < Q
+
+µi ←$ M; χi ←$ X
+
+µ ←$ M; χ ←$ X
+
+ti := hµi ,χi (B) mod q
+
+t = f (κ, µ, χ)
+
+si ← SampPre(tdA , ti , s)
+
+s ←$ DΛtq (A),s
+
+sigi := (χi , si )
+
+S := S ∪ {(s, µ, χ)}
+
+return (sig1 , . . . , sigQ )
+
+return (s, µ, χ)
+
+Fig. 6: Experiments of sEUF-RMA security of ΣvSIS and GenISISf .
+
+We have that Hyb0 , Hyb1 and Hyb2 are computationally indistinguishably directly by the lattice trapdoor
+properties (Definition 1). At the point, we observe that Hyb2 is almost identical to the ExpGenISISf
+experiment in Figure 6, since f (κ, µ, χ) = hµ,χ (B) for any µ ∈ M, χ ∈ X , and the sampling of κ ←$ K is
+identical to B ←$ Rn×l
+by definition.
+q
+Finally, we argue that there is a PPT B winning the ExpGenISISf experiment with non-negligible
+probability if and only if there is a PPT A winning Hyb2 with non-negligible probability, hence completing
+the proof.
+For the “if” direction: Given A, we let B query the OPre oracle exactly Q times to obtain Q tuples of
+random messages and their signatures, pass all of them together with κ = B and A to A, and observe
+that a valid forgery of A in sEUF-RMAΣvSIS ,A,Q is immediately also a valid forgery in ExpGenISISf B .
+For the “only if” direction: Given B, we let A proceed as follows. A obtains B, A and Q tuples of
+random messages and their signatures from the sEUF-RMA experiment upfront, passes B, A to B, and
+upon each OPre query made by B, it answers with one of the Q message-signature tuples. By design
+of ExpGenISISf B , B can query at most Q times so A can answer all queries. Then, we observe that a
+valid forgery of B in ExpGenISISf B is also a valid forgery in sEUF-RMAΣvSIS ,A,Q , since Condition b2 in
+sEUF-RMAΣvSIS ,A,Q is satisfied only if hµ,χ (B) ̸=⊥, i.e. if f (κ, µ, χ) ̸=⊥. If this condition is not satisfied,
+then b0 in ExpGenISISf B is not.
+A.4
+
+Proof of Theorem 8
+
+Proof. Suppose there exists a PPT solver A for s-$Hint-vSIS, we construct a PPT solver B for GenISISf .
+On input (κ, A), where κ = B ←$ Rn×ℓ
+and A ←$ Rn×m
+, our reduction B queries OPre Q times to
+q
+q
+obtain (si , µi , χi ) for i ∈ [Q], and passes ([A|B], {(si , µi , χi )}i∈[Q] ) to A. Upon receiving (g ∗ , s∗ ) from A,
+where g ∗ = hµ∗ ,χ∗ for some (µ∗ , χ∗ ), B returns (s∗ , µ∗ , χ∗ ).
+It is clear that B runs in PPT, and simulates a s-$Hint-vSIS instance for A faithfully. Denote
+Q := {hµi ,χi : i ∈ [Q]}. By assumption, with non-negligible probability, the output of A satisfies A · s∗ =
+hµ∗ ,χ∗ (B) mod q, 0 < ∥s∗ ∥ ≤ β, g ∗ ∈ G \ Q, and P(F ∪ Q ∪ ({g ∗ } \ {0})) = 1. The condition g ∗ ∈ G \ Q
+27
+
+translates to (s∗ , µ∗ , χ∗ ) ∈
+/ {(s1 , µ1 , χ1 ), . . . , (sQ , µQ , χQ )}. Our reduction B therefore solves the given
+GenISISf instance with non-negligible probability.
+
+28
+
+

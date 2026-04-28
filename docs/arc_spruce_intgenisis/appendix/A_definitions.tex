@@ -1,0 +1,54 @@
+\section{Additional Preliminaries}
+\label{app:defs}
+
+\subsection{Security assumptions for lattice signatures}\label{app:assumptions lattices}
+
+Fix a public left factor \(F\), hint space \(H\), target space \(G\), predicate \(P\), and query bound \(Q\).
+\begin{itemize}[leftmargin=1.25em]
+  \item \textbf{\(\mathsf{Hint\mbox{-}vSIS}\).} The adversary chooses a query set \(\mathcal{Q}\subseteq H\) and a fresh
+  target function \(g^\star\in G\setminus \mathcal{Q}\) before seeing the sampled matrix \(A\). It then receives short
+  preimages of the queried hints \(q(A)\) under \(F(A)\) for every \(q\in\mathcal{Q}\), and must output a non-zero short
+  vector \(u^\star\) such that \(F(A)u^\star=g^\star(A)\). The instance is restricted by the predicate condition
+  \(P(F\cup \mathcal{Q}\cup(\{g^\star\}\setminus\{0\}))=1\).
+  \item \textbf{\(s\)-\(\mathsf{Hint\mbox{-}vSIS}\).} This is the strong variant of the same experiment. The adversary still
+  chooses the hint set \(\mathcal{Q}\) before seeing \(A\), but it is allowed to choose the fresh target \(g^\star\) only
+  after seeing \(A\) and the hinted preimages.
+  \item \textbf{\(s\)-\(\$\)-\(\mathsf{Hint\mbox{-}vSIS}\).} This is the strong random-hinted variant. It is the same as
+  \(s\)-\(\mathsf{Hint\mbox{-}vSIS}\), except that the query set \(\mathcal{Q}\) is sampled uniformly at random from \(H\)
+  rather than chosen by the adversary.
+\end{itemize}
+
+Now fix a keyed evaluation family \(f:K\times M\times X\to R_q^n\).
+\begin{itemize}[leftmargin=1.25em]
+  \item \textbf{\(\mathsf{GenISIS}_f\).} The challenger samples a public key \(\kappa\gets K\) and a uniform matrix
+  \(A\getsunif R_q^{n\times m}\). It provides a preimage oracle that, on input \(\mu\in M\), samples \(\chi\gets X\),
+  sets \(t=f(\kappa,\mu,\chi)\), returns a short preimage \(u\) such that \(Au=t\), and records the tuple
+  \((u,\mu,\chi)\). The adversary wins if it outputs a fresh tuple \((u^\star,\mu^\star,\chi^\star)\) not previously
+  returned by the oracle such that \(Au^\star=f(\kappa,\mu^\star,\chi^\star)\) and \(0<\|u^\star\|\le \beta\).
+  \item \textbf{\(\mathsf{IntGenISIS}_f\).} This is the interactive version used for committed messages.  The challenger
+  samples an additional public matrix \(C\).  On a bounded opening \((m,r)\), the oracle samples the rational-hash
+  inputs \((\mu,\chi)\), sets
+  \[
+    t=f(\kappa,\mu,\chi)+C[m;r],
+  \]
+  and returns a short preimage.  The DKLW experiment records the full tuple \((u,\mu,\chi,m,r)\) and asks the
+  adversary to produce a fresh valid tuple.
+\end{itemize}
+The DKLW \(\mathsf{IntGenISIS}_f\)-to-\(\mathsf{GenISIS}_f\) reduction is used only under the parameter
+conditions of their lifting theorem, including its ring, modulus, smoothing, dimension, and bound-loss
+requirements~\cite[Theorem~6]{EPRINT:DKLW25}.
+
+\subsection{Vanishing polynomials for membership constraints}
+Membership constraints are expressed using vanishing polynomials over \(\Fq\) with signed lifting.
+
+\begin{definition}[Vanishing polynomial for \(\lbrack -\BoundB,\BoundB\rbrack\)]\label{def:vanish-bound}
+Let \(\BoundB\in\Z_{>0}\). Define
+\[
+  P_{\BoundB}(X) \;=\; \prod_{i=-\BoundB}^{\BoundB}\bigl(X-\langle i\rangle_q\bigr)\ \in\ \Fq[X].
+\]
+For \(x\in\Fq\), we have \(x\in[-\BoundB,\BoundB]\) via signed lifting iff \(P_{\BoundB}(x)=0\) in \(\Fq\).
+\end{definition}
+
+\begin{definition}[Vanishing polynomial for \(\{-1,0,1\}\)]\label{def:vanish-carry}
+Define \(P_{1}(X)=(X+1)X(X-1)\in\Fq[X]\). Then \(P_1(x)=0\) iff \(x\in\{-1,0,1\}\).
+\end{definition}

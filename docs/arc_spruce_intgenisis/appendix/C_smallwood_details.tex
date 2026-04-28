@@ -1,0 +1,101 @@
+\section{SmallWood Proof-Stack Details}
+\label{app:smallwood}
+
+This appendix records schematic compiled surfaces used by the issuance and showing statements.  It is descriptive:
+the semantic statements are those of Section~\ref{sec:smallwood-model}, and final proof-size claims require the
+complete row inventory, constraint degrees, and soundness calculation for the instantiated relation.
+
+\subsection{Row inventories}
+\paragraph{Issuance rows.}
+The issuance proof commits rows encoding:
+\[
+  M,
+  \qquad
+  \vecm,
+  \qquad
+  \veck,
+  \qquad
+  s,
+  \qquad
+  e.
+\]
+The active relations are
+\begin{align*}
+  c&=C_MM+A_s s+e,\\
+  M&=\vecm\Vert\veck,\\
+  \veck&\in\mathcal K_{\mathsf{key}},
+\end{align*}
+plus the prescribed coefficient bounds and issuance policy constraints.  In the bounded-key instantiation, key
+membership is implemented with the same signed-lift bounded-membership convention as the attribute rows, together
+with any additional key-space equations.
+
+\paragraph{Showing rows.}
+The showing proof commits rows encoding:
+\[
+  \vecu,
+  \quad
+  M,
+  \quad
+  \vecm,
+  \quad
+  \veck,
+  \quad
+  s,
+  \quad
+  e,
+  \quad
+  \muSig,
+  \quad
+  x_0,
+  \quad
+  x_1,
+  \quad
+  Z,
+\]
+plus rows for the signature shortness gadget and the PRF companion relation.  The active algebraic relations are
+\begin{align*}
+  (B_3-\mathbf 1_nx_1)\Had Z&=1_n,\\
+  \mA\vecu&=B_0+B_1\muSig+B_2x_0+Z+C_MM+A_s s+e,\\
+  M&=\vecm\Vert\veck,\\
+  \prftag&=\PRF(\veck,\nonce).
+\end{align*}
+Equivalently, the showing proof implies the eliminated coefficient-domain relation
+\[
+  (B_3-\mathbf 1_nx_1)\Had
+  \bigl(\mA\vecu-B_0-B_1\muSig-B_2x_0-C_MM-A_s s-e\bigr)=1_n.
+\]
+
+\subsection{Commitment constraints}
+The commitment opening constraint is linear over \(\Rq\) and is compiled coefficient-wise into SmallWood rows:
+\[
+  c=C_MM+A_s s+e.
+\]
+The block \(I_{n_c}\) multiplying \(e\) is public and requires no invertibility check.  Binding of two distinct
+openings is external to the proof system and follows from the Module-SIS assumption for
+\([C_M\mid A_s\mid I_{n_c}]\).
+
+\subsection{BB-tran constraints}
+The BB-tran constraints are expressed in witness form.  Showing uses the inverse equation
+\[
+  (B_3-\mathbf 1_nx_1)\Had Z=1_n
+\]
+and the signature surface
+\[
+  \mA\vecu=B_0+B_1\muSig+B_2x_0+Z+C_MM+A_s s+e.
+\]
+The first equation is bilinear in \((x_1,Z)\).  The second equation is linear in the committed witness rows once
+\(Z\) is carried explicitly.
+
+\subsection{PRF companion constraints}
+The PRF companion relation binds the public pair \((\nonce,\prftag)\) to the hidden key \(\veck\) carried inside
+\(M\).  The proof commits key-lane rows, selected S-box checkpoint rows, and any auxiliary rows needed to replay the
+Poseidon2-style linear layers between checkpoints.  Selector constraints tie the key-lane rows to the signed key
+coordinates and enforce \(\veck\in\mathcal K_{\mathsf{key}}\); final feed-forward and truncation constraints tie the
+public tag to the resulting PRF output.  Security of this keyed construction is the explicit PRF assumption of
+Assumption~\ref{ass:poseidon-prf}.
+
+\subsection{Single committed witness}
+All rows in one proof live under one SmallWood commitment.  This ensures that the prover cannot use one hidden
+message for the commitment term, a different rational-hash characteristic for the signature relation, and a third key
+for the PRF.  In the showing proof, the same hidden key \(\veck\) is used simultaneously in the semantic message
+encoding and the tag relation.

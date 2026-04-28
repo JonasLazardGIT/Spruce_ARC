@@ -1,0 +1,71 @@
+\section{PRF Details and Miscellaneous}
+\label{app:prf}
+
+This appendix records a concrete ZK-friendly PRF candidate compatible with the canonical ARC protocol.  The
+construction is Poseidon2-style, but its use as a keyed PRF is an explicit assumption
+(Assumption~\ref{ass:poseidon-prf}).
+
+\subsection{PRF specification}
+We use a Poseidon2-style permutation with feed-forward and truncation. Let
+\(k\in\mathcal K_{\mathsf{key}}\subseteq\Fq^{\ell_{\mathsf{key}}}\) be the secret key encoded by the signed
+\(\veck\), and let \(n\in\Fq^{\ell_{\nonce}}\) encode the public nonce. Let
+\(t=\ell_{\mathsf{key}}+\ell_{\nonce}\) be the permutation width. Define
+\[
+  \PRF(k,n) \;=\; \mathrm{Tr}\big(P(k\Vert n) + (k\Vert n)\big),
+\]
+where \(\mathrm{Tr}:\Fq^{t}\to \Fq^{\ell_{\prftag}}\) outputs the first \(\ell_{\prftag}\) lanes and \(P\) is a
+Poseidon2-style permutation~\cite{EPRINT:Poseidon2}.
+
+\subsection{Permutation structure}
+Let \(d\ge 3\) be the smallest constant such that \(\gcd(d,q-1)=1\). Fix round counts \(R_F\) (external rounds, even) and
+\(R_P\) (internal rounds), round constants, and MDS matrices \(M_E,M_I\). The permutation has the form
+\[
+  P \;=\; E_{R_F}\circ\cdots\circ E_{R_F/2+1}\circ I_{R_P}\circ\cdots\circ I_{1}\circ E_{R_F/2}\circ\cdots\circ E_1.
+\]
+Each external round applies the S-box to all lanes, while each internal round applies the S-box to lane \(1\) only.
+This structure reduces nonlinear constraints in the post-sign NIZK while retaining diffusion.
+
+\paragraph{External and internal rounds.}
+Let \(x=(x_1,\dots,x_t)\in\Fq^t\). For each external round \(i\in[1,R_F]\), fix per-lane constants
+\((c^{(i)}_1,\dots,c^{(i)}_t)\in\Fq^t\). For each internal round \(i\in[1,R_P]\), fix a scalar constant \(\hat c^{(i)}\in\Fq\).
+Then:
+\[
+  E_i(x) \;=\; M_E\cdot \bigl((x_1+c^{(i)}_1)^d,\dots,(x_t+c^{(i)}_t)^d\bigr)^\top,
+\]
+\[
+  I_i(x) \;=\; M_I\cdot \bigl((x_1+\hat c^{(i)})^d,\ x_2,\dots,x_t\bigr)^\top.
+\]
+The matrices \(M_E,M_I\in\Fq^{t\times t}\) are chosen so that they are invertible and provide sufficient diffusion (e.g.,
+Cauchy-style MDS matrices as in Poseidon2).
+
+\subsection{Parameter generation}
+All PRF parameters are public. A typical parameter generator fixes:
+\begin{itemize}[leftmargin=1.25em]
+  \item the base field modulus \(q\) (common to the rest of the protocol),
+  \item the S-box exponent \(d\) with \(\gcd(d,q-1)=1\),
+  \item width \(t=\ell_{\mathsf{key}}+\ell_{\nonce}\) and truncation \(\ell_{\prftag}\),
+  \item round counts \(R_F,R_P\),
+  \item MDS matrices \(M_E,M_I\) and round constants \(\{c^{(i)}\},\{\hat c^{(i)}\}\).
+\end{itemize}
+The truncation length is chosen to satisfy
+\(\ell_{\prftag}\ge \lceil \lambda/\log_2(q)\rceil\) as an output-length requirement.  Pseudorandomness is
+not implied by this length condition; it is exactly the concrete assumption stated in
+Assumption~\ref{ass:poseidon-prf} for \(k\getsunif\mathcal K_{\mathsf{key}}\).
+
+\subsection{Arithmetization strategy (System A with checkpoints)}
+\paragraph{Status of the checkpoint schedule.}
+Section~\ref{subsec:prf-checkpointed} uses only the abstract interface of three PRF companion families: key binding,
+nonlinear checkpoint constraints, and final feed-forward/truncation constraints. The grouped schedule recorded in this
+appendix is a candidate realization for the present instantiation.  Any final implementation must fix the exact
+round counts, checkpoint positions, and resulting effective degree used in the SmallWood soundness calculation.
+
+To keep showing proofs compact, we commit only selected nonlinear checkpoints:
+\begin{itemize}[leftmargin=1.25em]
+  \item \textbf{Key lanes.} We commit one row per key lane \(\mathsf{Key}[i]\) and enforce equality to an encoding of
+  signed \(\veck\) using selector constraints at fixed \(\Omega\)-coordinates.
+  \item \textbf{S-box outputs.} We commit only the S-box outputs at a checkpoint schedule (e.g., every internal round and
+  periodically among external rounds). Linear wiring between checkpoints (add-round-constants, MDS multiplications) is
+  recomputed by the verifier from opened evaluations and public constants.
+\end{itemize}
+This yields a System-A style constraint system where the dominant degree comes from composing at most a small number of
+unchecked S-box layers between checkpoints.

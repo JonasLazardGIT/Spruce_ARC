@@ -1,5 +1,0 @@
-PWD /home/jonas/Bureau/Crypto/SPRUCE
-INPUT /usr/share/texmf-dist/web2c/texmf.cnf
-INPUT /var/lib/texmf/web2c/pdftex/pdflatex.fmt
-INPUT docs/ARC_Spruce/main.tex
-OUTPUT main.log

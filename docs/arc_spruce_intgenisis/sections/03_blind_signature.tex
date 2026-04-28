@@ -1,0 +1,181 @@
+\section{Blind-Issuance Construction}
+\label{sec:blind-signature}
+
+This section presents the committed-message issuance protocol underlying ARC-SPRUCE.  The construction combines
+the target-shaped commitment of Section~\ref{subsec:prelim-commit}, the BB-tran rational hash of
+Section~\ref{subsec:prelim-vsis}, and the SmallWood NIZK-ARK of Section~\ref{subsec:prelim-nizk}.  The semantic
+message is \(M=\vecm\Vert\veck\); the DKLW rational-hash characteristic \(\muSig\) is sampled by the issuer.
+
+\subsection{Committed-message target}
+The holder commits to the semantic message using
+\[
+  c=C_MM+A_s s+e.
+\]
+The issuer samples the BB-tran characteristic and randomness
+\[
+  \muSig\in\Rq^{\ell_{\mu_{\mathsf{sig}}}},
+  \qquad
+  x_0\in\Rq^{\ell_{x_0}},
+  \qquad
+  x_1\in\Rq,
+\]
+with \(\ell_{\mu_{\mathsf{sig}}}=1\) and \(\ell_{x_0}=2\) for the DKLW BB-tran parameter choice used here.  If
+\(B_3-\mathbf 1_nx_1\) is invertible, it sets
+\[
+  Z=(B_3-\mathbf 1_nx_1)^{-1}
+\]
+and signs the target
+\begin{equation}
+  T=B_0+B_1\muSig+B_2x_0+Z+c.
+  \label{eq:bs-committed-target}
+\end{equation}
+The preimage signature is \(\vecu\) with \(\mA\vecu=T\).  This is the IntGenISIS-style shape
+\(A\vecu=f(\muSig,\chiSig)+C[M;s;e]\), with \(C=[C_M\mid A_s\mid I]\).
+
+\subsection{Protocol relations}
+We record the two relations used later in the issuance and ARC layers.
+
+\paragraph{Pre-sign issuance relation.}
+The public statement is
+\[
+  x_{\mathrm{IssueBS}}=(\ComPublicParam,c),
+\]
+and the hidden witness is
+\[
+  w_{\mathrm{IssueBS}}=(M,s,e).
+\]
+Define \(\mathcal R_{\mathrm{IssueBS}}\) by the constraints
+\begin{align}
+  c&=C_MM+A_s s+e, \label{eq:issuebs-rel-commit}\\
+  M&=\vecm\Vert\veck, \label{eq:issuebs-rel-encode}\\
+  \veck&\in\mathcal K_{\mathsf{key}}, \label{eq:issuebs-rel-key}
+\end{align}
+together with the coefficient bounds on \(M,s,e\) and any issuance policy constraints on \(\vecm\).  The proof only
+certifies a well-formed commitment opening and policy/key-space membership.  It does not certify the BB-tran
+inverse equation or the final target computation, which are performed by the issuer after the proof is verified.
+
+\paragraph{Post-issuance signature relation.}
+For later knowledge statements, it is convenient to isolate the raw committed-message signature relation.  The
+public statement is
+\[
+  x_{\mathrm{SigBS}}=(\mA,B,C_M,A_s,\BoundMsg,\BoundSig),
+\]
+and the hidden witness is
+\[
+  w_{\mathrm{SigBS}}=(\vecu,M,s,e,\muSig,x_0,x_1,Z).
+\]
+Define \(\mathcal R_{\mathrm{SigBS}}\) by
+\begin{align}
+  (B_3-\mathbf 1_nx_1)\Had Z&=1_n, \label{eq:sigbs-rel-inv}\\
+  \mA\vecu&=B_0+B_1\muSig+B_2x_0+Z+C_MM+A_s s+e, \label{eq:sigbs-rel-sig}
+\end{align}
+with \(M=\vecm\Vert\veck\), \(\veck\in\mathcal K_{\mathsf{key}}\), and the prescribed coefficient bounds on
+\(\vecu,M,s,e,\muSig,x_0,x_1\).  No coefficient bound on \(Z\) is imposed unless required by a concrete proof-system
+encoding.
+
+\subsection{Issuance protocol and raw verification}
+\label{subsec:bs-protocol}
+
+\begin{description}
+\item[\(\Setup(\SecParam)\):]~
+\begin{enumerate}[leftmargin=1.25em]
+  \item Generate the commitment matrices \(C_M,A_s\), the message encoding parameters, and distributions
+  \(\chi_s,\chi_e\).
+  \item Run \(\PublicParamsTrapdoor\gets\TDRH.\Setup(\SecParam,\PublicParamsGen)\) to obtain the BB-tran hash
+  description \(B\), the rational-hash sampling spaces, the admissibility error bound \(\delta\), and the
+  shortness bound \(\BoundSig\).
+  \item Output
+  \[
+    \PublicParamsBS=(C_M,A_s,\PublicParamsTrapdoor,\BoundMsg,\BoundSig,\mathcal K_{\mathsf{key}}).
+  \]
+\end{enumerate}
+
+\item[\(\IKeyGen(\PublicParamsBS)\):]~
+\begin{enumerate}[leftmargin=1.25em]
+  \item Compute \((\mA,\trapdoor)\gets \TDRH.\TrapGen(\PublicParamsTrapdoor)\).
+  \item Output \(\vk=\mA\) and \(\sk=\trapdoor\).
+\end{enumerate}
+
+\item[\(\Issue\):] The issuer \(\Issuer\) holds \(\sk\) while the holder \(\Holder\) has input semantic message
+\(M\) and issuer key \(\vk\).
+\begin{enumerate}[leftmargin=1.25em]
+  \item The holder samples \(s\leftarrow\chi_s^{k_s}\) and \(e\leftarrow\chi_e^{n_c}\), computes
+  \[
+    c=C_MM+A_s s+e,
+  \]
+  and sends \((c,\nizkIssue)\) to the issuer, where
+  \[
+    \nizkIssue\gets \nizkscheme.\ZKProve
+      \bigl(w_{\mathrm{IssueBS}}\mid \mathcal R_{\mathrm{IssueBS}},x_{\mathrm{IssueBS}}\bigr).
+  \]
+  \item The issuer verifies \(\nizkIssue\).  If it fails, the issuer aborts.
+  \item The issuer samples \(\muSig,x_0,x_1\) from the DKLW BB-tran domains.  If
+  \(B_3-\mathbf 1_nx_1\notin\Rq^{\times n}\), it rejects this draw and resamples.  The resulting failure
+  probability is accounted for as the rational-hash admissibility error.
+  \item The issuer computes
+  \[
+    Z=(B_3-\mathbf 1_nx_1)^{-1},
+    \qquad
+    T=B_0+B_1\muSig+B_2x_0+Z+c.
+  \]
+  \item The issuer samples \(\vecu\gets \TDRH.\SampPre(\trapdoor,T)\) and sends
+  \((\vecu,\muSig,x_0,x_1)\) to the holder.
+  \item The holder checks
+  \[
+    \mA\vecu=B_0+B_1\muSig+B_2x_0+Z+c
+    \qquad\text{and}\qquad
+    \|\vecu\|_\infty\le \BoundSig.
+  \]
+  If the checks succeed, it stores the raw post-issuance witness
+  \[
+    \sig=(\vecu,M,s,e,\muSig,x_0,x_1).
+  \]
+\end{enumerate}
+
+\item[\(\Verify(\vk,M,\sig)\):] On input \(\sig=(\vecu,M,s,e,\muSig,x_0,x_1)\), verification rejects if any public
+bound or key-space check fails.  It also rejects if \(B_3-\mathbf 1_nx_1\notin\Rq^{\times n}\).  Otherwise it
+computes \(Z=(B_3-\mathbf 1_nx_1)^{-1}\) and accepts iff
+\[
+  \mA\vecu=B_0+B_1\muSig+B_2x_0+Z+C_MM+A_s s+e.
+\]
+\end{description}
+
+The output \(\sig\) is a raw committed-message witness for the BB-tran signature relation.  The ARC layer uses it
+only inside later zero-knowledge showing proofs; the current section does not identify it with a completed blind
+signature proof.
+
+\subsection{Correctness and issuer-view hiding}
+\begin{proposition}[Correctness]\label{prop:bs-correctness-prop}
+Assume correctness of the NIZK and correctness of the trapdoor sampler.  Then honest execution of \(\Issue\)
+outputs a raw post-issuance witness accepted by \(\Verify\) except with negligible probability.
+\end{proposition}
+
+\begin{proof}
+The pre-sign NIZK is complete for the commitment opening.  The issuer computes an admissible
+\(\muSig,x_0,x_1,Z\) and sets \(T=B_0+B_1\muSig+B_2x_0+Z+c\).  Correctness of \(\SampPre\) yields
+\(\mA\vecu=T\) with \(\|\vecu\|_\infty\le\BoundSig\) except with negligible failure probability.  The holder and
+raw verifier recompute the same equation and therefore accept.
+\end{proof}
+
+\begin{proposition}[Honest-issuer issuer-view hiding]\label{prop:bs-issuer-view-hiding}
+Assume Assumption~\ref{ass:mlwe-hiding} for the commitment, zero knowledge of the pre-sign NIZK, and honest
+issuer sampling of \(\muSig,x_0,x_1\) independently of \(M\).  Then the honest issuer's view in issuance for any
+two semantic messages \(M_0,M_1\) is computationally indistinguishable.
+\end{proposition}
+
+\begin{proof}
+The issuer receives \(c\) and \(\nizkIssue\) from the holder before generating the rational-hash part.  By
+Lemma~\ref{lem:commit-hiding}, \(c\) computationally hides the choice of \(M\).  Zero knowledge replaces
+\(\nizkIssue\) by a simulated proof depending only on the public statement.  The values \(\muSig,x_0,x_1,Z\) and the
+computed target contribution \(B_0+B_1\muSig+B_2x_0+Z\) are generated by the honest issuer independently of
+\(M\).  Therefore the signed target
+\[
+  T=h_{\muSig,\chiSig}(B)+c
+\]
+reveals no more about \(M\) than \(c\), and the two issuer views are computationally indistinguishable.
+\end{proof}
+
+\begin{remark}[No malicious-issuer blindness theorem]\label{rem:no-malicious-issuer-blindness}
+The preceding proposition is an honest-issuer privacy statement.  A malicious-issuer blindness theorem would need a
+separate definition and proof, including how adversarial choices of the rational-hash part are handled.
+\end{remark}
