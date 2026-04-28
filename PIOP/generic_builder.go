@@ -308,14 +308,38 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				return nil, fmt.Errorf("row count mismatch: got %d want %d (witness=%d rho=%d)", len(rows), expectedRows, witnessCount, rho)
 			}
 			rowInputs = make([]lvcs.RowInput, expectedRows)
+			intGenISISThetaRows := witnessCount
+			if pub.IntGenISIS && rowLayout.IntGenISISShowing != nil && rowLayout.IntGenISISShowing.CoreRowCount > 0 {
+				intGenISISThetaRows = rowLayout.IntGenISISShowing.CoreRowCount
+			}
+			if pub.IntGenISIS && rowLayout.IntGenISISPreSign != nil && rowLayout.IntGenISISPreSign.WitnessRows() > 0 {
+				intGenISISThetaRows = rowLayout.IntGenISISPreSign.WitnessRows()
+			}
 			if opts.DomainMode == DomainModeExplicit {
 				for i := 0; i < witnessCount; i++ {
-					head, herr := rowHeadOnOmega(ringQ, omega, rows[i], len(omega))
+					rowForHead := rows[i]
+					if pub.IntGenISIS && i < intGenISISThetaRows {
+						ntt := ringQ.NewPoly()
+						ring.Copy(rows[i], ntt)
+						ringQ.NTT(ntt, ntt)
+						theta, terr := thetaPolyFromNTT(ringQ, ntt, omega)
+						if terr != nil {
+							return nil, fmt.Errorf("row %d IntGenISIS theta: %w", i, terr)
+						}
+						thetaCoeff := ringQ.NewPoly()
+						ringQ.InvNTT(theta, thetaCoeff)
+						rowForHead = thetaCoeff
+						rows[i] = thetaCoeff
+					}
+					head, herr := rowHeadOnOmega(ringQ, omega, rowForHead, len(omega))
 					if herr != nil {
 						return nil, fmt.Errorf("row %d head on omega: %w", i, herr)
 					}
 					rowInputs[i] = lvcs.RowInput{Head: head}
-					if opts.Credential {
+					if opts.Credential && pub.IntGenISIS {
+						rowInputs[i].Poly = rows[i]
+						rowInputs[i].PolyCoeffs = trimCoeffsCopy(rows[i].Coeffs[0], q)
+					} else if opts.Credential && !pub.IntGenISIS {
 						rowInputs[i].Poly = rows[i]
 						rowInputs[i].PolyCoeffs = trimCoeffsCopy(rows[i].Coeffs[0], q)
 					}
@@ -419,7 +443,26 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if !skipConstraintRebuild {
 			if opts.Credential && len(constraintRows) > 0 {
 				rebuiltEmpty := len(set.FparInt)+len(set.FparNorm)+len(set.FaggInt)+len(set.FaggNorm) == 0
-				if len(pub.Ac) > 0 && len(pub.B) > 0 && len(pub.A) == 0 {
+				if pub.IntGenISIS && len(pub.Com) > 0 && len(pub.CM) > 0 && len(pub.AS) > 0 && len(pub.A) == 0 {
+					preRows, cerr := buildIntGenISISPreSignConstraintSetFromRows(ringQ, pub, rowLayout, constraintRows, omegaWitness)
+					if cerr != nil {
+						return nil, cerr
+					}
+					if rebuiltEmpty {
+						set = preRows
+					} else {
+						set.FparInt = append([]*ring.Poly{}, preRows.FparInt...)
+						set.FparIntCoeffs = append([][]uint64{}, preRows.FparIntCoeffs...)
+						set.FparNorm = append([]*ring.Poly{}, preRows.FparNorm...)
+						set.FparNormCoeffs = append([][]uint64{}, preRows.FparNormCoeffs...)
+						set.FaggInt = append([]*ring.Poly{}, preRows.FaggInt...)
+						set.FaggIntCoeffs = append([][]uint64{}, preRows.FaggIntCoeffs...)
+						set.FaggNorm = append([]*ring.Poly{}, preRows.FaggNorm...)
+						set.FaggNormCoeffs = append([][]uint64{}, preRows.FaggNormCoeffs...)
+						set.ParallelAlgDeg = preRows.ParallelAlgDeg
+						set.AggregatedAlgDeg = preRows.AggregatedAlgDeg
+					}
+				} else if len(pub.Ac) > 0 && len(pub.B) > 0 && len(pub.A) == 0 {
 					preRows, cerr := buildCredentialConstraintSetPreFromRows(ringQ, pub.BoundB, pub, rowLayout, constraintRows, omegaWitness, opts.DomainMode)
 					if cerr != nil {
 						return nil, cerr
@@ -437,6 +480,38 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 						set.FaggNormCoeffs = append([][]uint64{}, preRows.FaggNormCoeffs...)
 						set.ParallelAlgDeg = preRows.ParallelAlgDeg
 						set.AggregatedAlgDeg = preRows.AggregatedAlgDeg
+					}
+				} else if pub.IntGenISIS && len(pub.A) > 0 && len(pub.B) > 0 && len(pub.CM) > 0 && len(pub.AS) > 0 {
+					postRows, cerr := buildIntGenISISShowingConstraintSetFromRows(ringQ, pub, rowLayout, constraintRows, omegaWitness)
+					if cerr != nil {
+						return nil, cerr
+					}
+					if rebuiltEmpty {
+						set.FparInt = append([]*ring.Poly{}, postRows.FparInt...)
+						set.FparIntCoeffs = append([][]uint64{}, postRows.FparIntCoeffs...)
+					} else {
+						if len(set.FparInt) < len(postRows.FparInt) {
+							return nil, fmt.Errorf("constraint set too small for IntGenISIS post-sign prefix: have %d want >=%d", len(set.FparInt), len(postRows.FparInt))
+						}
+						copy(set.FparInt[:len(postRows.FparInt)], postRows.FparInt)
+						if len(set.FparIntCoeffs) < len(set.FparInt) {
+							expanded := make([][]uint64, len(set.FparInt))
+							copy(expanded, set.FparIntCoeffs)
+							set.FparIntCoeffs = expanded
+						}
+						copy(set.FparIntCoeffs[:len(postRows.FparInt)], postRows.FparIntCoeffs)
+					}
+					set.FparNorm = append([]*ring.Poly{}, postRows.FparNorm...)
+					set.FparNormCoeffs = append([][]uint64{}, postRows.FparNormCoeffs...)
+					set.FaggInt = append([]*ring.Poly{}, postRows.FaggInt...)
+					set.FaggIntCoeffs = append([][]uint64{}, postRows.FaggIntCoeffs...)
+					set.FaggNorm = append([]*ring.Poly{}, postRows.FaggNorm...)
+					set.FaggNormCoeffs = append([][]uint64{}, postRows.FaggNormCoeffs...)
+					if postRows.ParallelAlgDeg > set.ParallelAlgDeg {
+						set.ParallelAlgDeg = postRows.ParallelAlgDeg
+					}
+					if postRows.AggregatedAlgDeg > set.AggregatedAlgDeg {
+						set.AggregatedAlgDeg = postRows.AggregatedAlgDeg
 					}
 				} else if len(pub.A) > 0 && len(pub.B) > 0 {
 					postRows, cerr := rebuildPostSignConstraintSetWithBridges(ringQ, pub, rowLayout, constraintRows, omegaWitness, opts, root, set.PRFLayout, set.PRFCompanionLayout)
@@ -704,55 +779,91 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		}
 		// Build post-sign evaluator when A is present.
 		if len(pub.A) > 0 {
-			if !rowLayoutHasCoeffNativeSig(proof.RowLayout) {
-				return false, fmt.Errorf("only the retained literal-packed showing layouts are supported")
+			if pub.IntGenISIS {
+				cfgShow, cerr := newIntGenISISShowingReplayConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints)
+				if cerr != nil {
+					return false, cerr
+				}
+				eval = cfgShow.CoreEvaluator()
+				if proof.Theta > 1 && K != nil {
+					ek, err := cfgShow.CoreKEvaluator(K)
+					if err != nil {
+						return false, err
+					}
+					evalK = ek
+				}
+				rowCount = proof.RowLayout.SigCount
+				if cfgShow.Layout.WitnessRows() > rowCount {
+					rowCount = cfgShow.Layout.WitnessRows()
+				}
+				haveCred = true
+			} else {
+				if !rowLayoutHasCoeffNativeSig(proof.RowLayout) {
+					return false, fmt.Errorf("only the retained literal-packed showing layouts are supported")
+				}
+				cfgLayout := proof.RowLayout.CoeffNativeSig
+				if !rowLayoutCoeffNativeUsesLiteralPacked(proof.RowLayout) {
+					return false, fmt.Errorf("unsupported active coeff-native model %q; only the literal-packed protocol remains", cfgLayout.Model)
+				}
+				if cfgLayout.PackedSigComponents <= 0 || cfgLayout.PackedSigBlocks <= 0 || cfgLayout.PackedSigBlockWidth <= 0 {
+					return false, fmt.Errorf("invalid literal packed coeff-native layout: comps=%d blocks=%d width=%d", cfgLayout.PackedSigComponents, cfgLayout.PackedSigBlocks, cfgLayout.PackedSigBlockWidth)
+				}
+				var cerr error
+				cfgPost, cerr = newTransformBridgePostSignConfig(ringQ, proof, pub, proof.RowLayout, omegaWitness, domainPoints, pub.BoundB, set.PRFLayout, set.PRFCompanionLayout, opts)
+				if cerr != nil {
+					return false, cerr
+				}
+				eval = cfgPost.CoreEvaluator()
+				if proof.Theta > 1 && K != nil {
+					ek, err := cfgPost.CoreKEvaluator(K)
+					if err != nil {
+						return false, err
+					}
+					evalK = ek
+				}
+				if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV18 {
+					sigReplay, serr := buildSigShortnessV7Replay(ringQ, proof, pub, omegaWitness, domainPoints, opts)
+					if serr != nil {
+						return false, serr
+					}
+					eval = composeEvaluators(eval, sigReplay.Eval)
+					if proof.Theta > 1 && K != nil && sigReplay.EvalK != nil {
+						evalK = composeKEvaluators(evalK, sigReplay.EvalK)
+					}
+				}
+				if prfStripeEval := cfgPost.PRFBridgeStripeEqualityEvaluator(); prfStripeEval != nil {
+					eval = composeEvaluators(eval, prfStripeEval)
+					if proof.Theta > 1 && K != nil {
+						prfStripeEvalK, err := cfgPost.PRFBridgeStripeEqualityKEvaluator(K)
+						if err != nil {
+							return false, err
+						}
+						if prfStripeEvalK != nil {
+							evalK = composeKEvaluators(evalK, prfStripeEvalK)
+						}
+					}
+				}
+				rowCount = literalPackedPostSignReplayRowCount(proof.RowLayout)
+				haveCred = true
 			}
-			cfgLayout := proof.RowLayout.CoeffNativeSig
-			if !rowLayoutCoeffNativeUsesLiteralPacked(proof.RowLayout) {
-				return false, fmt.Errorf("unsupported active coeff-native model %q; only the literal-packed protocol remains", cfgLayout.Model)
-			}
-			if cfgLayout.PackedSigComponents <= 0 || cfgLayout.PackedSigBlocks <= 0 || cfgLayout.PackedSigBlockWidth <= 0 {
-				return false, fmt.Errorf("invalid literal packed coeff-native layout: comps=%d blocks=%d width=%d", cfgLayout.PackedSigComponents, cfgLayout.PackedSigBlocks, cfgLayout.PackedSigBlockWidth)
-			}
-			var cerr error
-			cfgPost, cerr = newTransformBridgePostSignConfig(ringQ, proof, pub, proof.RowLayout, omegaWitness, domainPoints, pub.BoundB, set.PRFLayout, set.PRFCompanionLayout, opts)
+
+		} else if pub.IntGenISIS && set.PRFLayout == nil && len(pub.Com) > 0 && len(pub.CM) > 0 && len(pub.AS) > 0 {
+			cfgPre, cerr := newIntGenISISPreSignReplayConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints)
 			if cerr != nil {
 				return false, cerr
 			}
-			eval = cfgPost.CoreEvaluator()
+			eval = cfgPre.CoreEvaluator()
 			if proof.Theta > 1 && K != nil {
-				ek, err := cfgPost.CoreKEvaluator(K)
+				ek, err := cfgPre.CoreKEvaluator(K)
 				if err != nil {
 					return false, err
 				}
 				evalK = ek
 			}
-			if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV18 {
-				sigReplay, serr := buildSigShortnessV7Replay(ringQ, proof, pub, omegaWitness, domainPoints, opts)
-				if serr != nil {
-					return false, serr
-				}
-				eval = composeEvaluators(eval, sigReplay.Eval)
-				if proof.Theta > 1 && K != nil && sigReplay.EvalK != nil {
-					evalK = composeKEvaluators(evalK, sigReplay.EvalK)
-				}
-			}
-			if prfStripeEval := cfgPost.PRFBridgeStripeEqualityEvaluator(); prfStripeEval != nil {
-				eval = composeEvaluators(eval, prfStripeEval)
-				if proof.Theta > 1 && K != nil {
-					prfStripeEvalK, err := cfgPost.PRFBridgeStripeEqualityKEvaluator(K)
-					if err != nil {
-						return false, err
-					}
-					if prfStripeEvalK != nil {
-						evalK = composeKEvaluators(evalK, prfStripeEvalK)
-					}
-				}
-			}
-			rowCount = literalPackedPostSignReplayRowCount(proof.RowLayout)
+			rowCount = cfgPre.Layout.WitnessRows()
 			haveCred = true
 
-		} else if set.PRFLayout == nil && (len(pub.Ac) > 0 || len(pub.Com) > 0 || len(pub.B) > 0 || len(pub.RI0) > 0 || len(pub.RI1) > 0) {
+		} else if !pub.IntGenISIS && set.PRFLayout == nil && (len(pub.Ac) > 0 || len(pub.Com) > 0 || len(pub.B) > 0 || len(pub.RI0) > 0 || len(pub.RI1) > 0) {
 			cfgPre, cerr := newPreSignTransformBridgeConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, pub.BoundB)
 			if cerr != nil {
 				return false, cerr
@@ -878,6 +989,12 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		if !haveCred && !havePRF {
 			formalParRows := append(append([][]uint64{}, set.FparIntCoeffs...), set.FparNormCoeffs...)
 			formalAggRows := append(append([][]uint64{}, set.FaggIntCoeffs...), set.FaggNormCoeffs...)
+			if len(formalParRows) == 0 && len(proof.FparCoeffDebug) > 0 {
+				formalParRows = copyMatrix(proof.FparCoeffDebug)
+			}
+			if len(formalAggRows) == 0 && len(proof.FaggCoeffDebug) > 0 {
+				formalAggRows = copyMatrix(proof.FaggCoeffDebug)
+			}
 			if len(formalParRows) > 0 || len(formalAggRows) > 0 {
 				eval = composeEvaluators(eval, formalCoeffConstraintEvaluator(domainPoints, formalParRows, formalAggRows, ringQ.Modulus[0]))
 				if proof.Theta > 1 && K != nil {

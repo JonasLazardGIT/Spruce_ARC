@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -35,6 +36,15 @@ func chdirForIssuanceTest(t *testing.T, dir string) {
 	t.Cleanup(func() {
 		_ = os.Chdir(cwd)
 	})
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return data
 }
 
 func maxAbsRows(rows [][]int64) int64 {
@@ -104,6 +114,117 @@ func TestSetupDemoPublicRequiresForceToOverwrite(t *testing.T) {
 	}
 	if err := run([]string{"setup-demo-public", "-out", out, "-x0-profile", "legacy_scalar"}); err == nil {
 		t.Fatal("setup-demo-public overwrote existing file without -force")
+	}
+}
+
+func TestSetupIntGenISISPublicWritesProfileBParams(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "credential_public.intgenisis.json")
+	bPath := filepath.Join(tmp, "Bmatrix.intgenisis.json")
+	if err := run([]string{"setup-intgenisis-public", "-out", out, "-b-path", bPath, "-force"}); err != nil {
+		t.Fatalf("setup-intgenisis-public: %v", err)
+	}
+	public, err := credential.LoadPublicParams(out)
+	if err != nil {
+		t.Fatalf("load public params: %v", err)
+	}
+	profile := credential.PrimaryIntGenISISProfile()
+	if public.Profile != profile.Name || public.EllM != 1 || public.KS != 2 || public.NC != 1 || public.CommitmentBound != 8 {
+		t.Fatalf("unexpected IntGenISIS public params: %+v", public)
+	}
+	if len(public.CM) != profile.NC || len(public.CM[0]) != profile.EllM {
+		t.Fatalf("C_M dims=%dx%d", len(public.CM), len(public.CM[0]))
+	}
+	if len(public.AS) != profile.NC || len(public.AS[0]) != profile.KS {
+		t.Fatalf("A_s dims=%dx%d", len(public.AS), len(public.AS[0]))
+	}
+	meta, err := ntrurio.LoadBMatrixMetadata(bPath)
+	if err != nil {
+		t.Fatalf("load B matrix: %v", err)
+	}
+	if meta.X0Len != profile.EllX0 || len(meta.B) != 3+profile.EllX0 {
+		t.Fatalf("unexpected B metadata: x0_len=%d rows=%d", meta.X0Len, len(meta.B))
+	}
+}
+
+func TestBenchmarkIntGenISISWritesRowInventory(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	jsonOut := filepath.Join(t.TempDir(), "benchmark_intgenisis.json")
+	if err := run([]string{"benchmark-intgenisis", "-profiles", credential.ProfileIntGenISISB + "," + credential.ProfileIntGenISISA, "-json-out", jsonOut}); err != nil {
+		t.Fatalf("benchmark-intgenisis: %v", err)
+	}
+	raw, err := os.ReadFile(jsonOut)
+	if err != nil {
+		t.Fatalf("read benchmark json: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{"intgenisis_mlwe_presign", "intgenisis_mlwe_showing", `"showing_non_prf_rows": 352`, `"showing_non_prf_rows": 208`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("benchmark json missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestIntGenISISCLICommitProveAndChallengeGuard(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	tmp := t.TempDir()
+	publicPath := filepath.Join(tmp, "credential_public.intgenisis.json")
+	bPath := filepath.Join(tmp, "Bmatrix.intgenisis.json")
+	holderSecret := filepath.Join(tmp, "holder_secret.json")
+	commitRequest := filepath.Join(tmp, "commit_request.json")
+	submission := filepath.Join(tmp, "presign_submission.json")
+	challenge := filepath.Join(tmp, "issue_challenge.json")
+	if err := run([]string{"setup-intgenisis-public", "-out", publicPath, "-b-path", bPath, "-force"}); err != nil {
+		t.Fatalf("setup-intgenisis-public: %v", err)
+	}
+	if err := run([]string{
+		"holder-commit",
+		"-public-params", publicPath,
+		"-holder-secret", holderSecret,
+		"-commit-request", commitRequest,
+		"-seed", "11",
+		"-ncols", "16",
+		"-lvcs-ncols", "32",
+	}); err != nil {
+		t.Fatalf("holder-commit IntGenISIS: %v", err)
+	}
+	rawReq, err := os.ReadFile(commitRequest)
+	if err != nil {
+		t.Fatalf("read commit request: %v", err)
+	}
+	reqText := string(rawReq)
+	for _, stale := range []string{"r0h", "r1h", "ri0", "ri1", `"t"`} {
+		if strings.Contains(reqText, stale) {
+			t.Fatalf("IntGenISIS commit request leaked stale field %q: %s", stale, reqText)
+		}
+	}
+	if err := run([]string{"issuer-challenge", "-commit-request", commitRequest, "-issue-challenge", challenge}); err == nil {
+		t.Fatal("issuer-challenge accepted IntGenISIS params")
+	}
+	if err := run([]string{
+		"holder-prove",
+		"-holder-secret", holderSecret,
+		"-issue-challenge", challenge,
+		"-presign-submission", submission,
+	}); err != nil {
+		t.Fatalf("holder-prove IntGenISIS: %v", err)
+	}
+	var sub preSignSubmissionFile
+	if err := json.Unmarshal(mustReadFile(t, submission), &sub); err != nil {
+		t.Fatalf("decode submission: %v", err)
+	}
+	if sub.Proof == nil {
+		t.Fatal("IntGenISIS holder-prove did not write proof")
+	}
+	if len(sub.T) != 0 {
+		t.Fatalf("IntGenISIS pre-sign submission exposed target T with len=%d", len(sub.T))
 	}
 }
 

@@ -63,6 +63,28 @@ func validatePublics(pub PublicInputs) error {
 			return fmt.Errorf("com length %d mismatches ac rows %d", len(pub.Com), len(pub.Ac))
 		}
 	}
+	for name, mat := range map[string][][]*ring.Poly{"C_M": pub.CM, "A_s": pub.AS} {
+		if len(mat) == 0 {
+			continue
+		}
+		rowLen := len(mat[0])
+		if rowLen == 0 {
+			return fmt.Errorf("%s: empty first row", name)
+		}
+		for i, row := range mat {
+			if len(row) != rowLen {
+				return fmt.Errorf("%s: ragged row %d", name, i)
+			}
+			for j, poly := range row {
+				if poly == nil {
+					return fmt.Errorf("%s: nil poly at row %d col %d", name, i, j)
+				}
+			}
+		}
+		if name == "C_M" && len(pub.Com) > 0 && len(pub.Com) != len(mat) {
+			return fmt.Errorf("com length %d mismatches C_M rows %d", len(pub.Com), len(mat))
+		}
+	}
 	if len(pub.A) > 0 {
 		rowLen := len(pub.A[0])
 		if rowLen == 0 {

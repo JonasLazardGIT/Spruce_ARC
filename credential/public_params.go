@@ -12,30 +12,43 @@ import (
 )
 
 const DefaultPublicParamsPath = "Parameters/credential_public.json"
-const PublicParamsVersion = 4
+const PublicParamsVersion = 5
 const MuLayoutFullCapacityHalvesV1 = "full_capacity_halves_v1"
 
 // PublicParams captures the stable credential-side public parameters used by
 // issuance and showing.
 type PublicParams struct {
-	Version            int                    `json:"version,omitempty"`
-	HashRelation       string                 `json:"hash_relation"`
-	Ac                 commitment.CoeffMatrix `json:"Ac"`
-	BPath              string                 `json:"BPath"`
-	BoundB             int64                  `json:"BoundB"`
-	X0Len              int                    `json:"X0Len,omitempty"`
-	X0CoeffBound       int64                  `json:"X0CoeffBound,omitempty"`
-	TargetDim          int                    `json:"TargetDim,omitempty"`
-	TargetHidingLambda int                    `json:"TargetHidingLambda,omitempty"`
-	RingDegree         int                    `json:"ring_degree,omitempty"`
-	X0Distribution     string                 `json:"X0Distribution,omitempty"`
-	LenMu              int                    `json:"LenMu,omitempty"`
-	MuLayout           string                 `json:"MuLayout,omitempty"`
-	LenM               int                    `json:"LenM,omitempty"`
-	LenK               int                    `json:"LenK,omitempty"`
-	LenR0H             int                    `json:"LenR0H,omitempty"`
-	LenR1H             int                    `json:"LenR1H,omitempty"`
-	LenRBar            int                    `json:"LenRBar,omitempty"`
+	Version              int                    `json:"version,omitempty"`
+	Profile              string                 `json:"profile,omitempty"`
+	HashRelation         string                 `json:"hash_relation"`
+	Ac                   commitment.CoeffMatrix `json:"Ac"`
+	CM                   commitment.CoeffMatrix `json:"C_M,omitempty"`
+	AS                   commitment.CoeffMatrix `json:"A_s,omitempty"`
+	BPath                string                 `json:"BPath"`
+	BoundB               int64                  `json:"BoundB"`
+	CommitmentBound      int64                  `json:"B,omitempty"`
+	EllM                 int                    `json:"ell_M,omitempty"`
+	KS                   int                    `json:"k_s,omitempty"`
+	NC                   int                    `json:"n_c,omitempty"`
+	EllMuSig             int                    `json:"ell_mu_sig,omitempty"`
+	EllX0                int                    `json:"ell_x0,omitempty"`
+	EllX1                int                    `json:"ell_x1,omitempty"`
+	SignaturePreimageLen int                    `json:"signature_preimage_len,omitempty"`
+	MLWEHidingBits       float64                `json:"mlwe_hiding_bits,omitempty"`
+	MSISBindingBits      float64                `json:"msis_binding_bits,omitempty"`
+	X0Len                int                    `json:"X0Len,omitempty"`
+	X0CoeffBound         int64                  `json:"X0CoeffBound,omitempty"`
+	TargetDim            int                    `json:"TargetDim,omitempty"`
+	TargetHidingLambda   int                    `json:"TargetHidingLambda,omitempty"`
+	RingDegree           int                    `json:"ring_degree,omitempty"`
+	X0Distribution       string                 `json:"X0Distribution,omitempty"`
+	LenMu                int                    `json:"LenMu,omitempty"`
+	MuLayout             string                 `json:"MuLayout,omitempty"`
+	LenM                 int                    `json:"LenM,omitempty"`
+	LenK                 int                    `json:"LenK,omitempty"`
+	LenR0H               int                    `json:"LenR0H,omitempty"`
+	LenR1H               int                    `json:"LenR1H,omitempty"`
+	LenRBar              int                    `json:"LenRBar,omitempty"`
 
 	LegacyLenM1  int `json:"LenM1,omitempty"`
 	LegacyLenM2  int `json:"LenM2,omitempty"`
@@ -98,6 +111,52 @@ func (pp *PublicParams) normalizeLegacy() {
 	if pp.RingDegree == 0 {
 		pp.RingDegree = pp.InferRingDegree()
 	}
+	if pp.Profile != "" {
+		if profile, ok := LookupIntGenISISProfile(pp.Profile); ok {
+			if pp.RingDegree == 0 {
+				pp.RingDegree = profile.N
+			}
+			if pp.CommitmentBound == 0 {
+				pp.CommitmentBound = profile.B
+			}
+			if pp.BoundB == 0 {
+				pp.BoundB = profile.B
+			}
+			if pp.EllM == 0 {
+				pp.EllM = profile.EllM
+			}
+			if pp.KS == 0 {
+				pp.KS = profile.KS
+			}
+			if pp.NC == 0 {
+				pp.NC = profile.NC
+			}
+			if pp.EllMuSig == 0 {
+				pp.EllMuSig = profile.EllMuSig
+			}
+			if pp.EllX0 == 0 {
+				pp.EllX0 = profile.EllX0
+			}
+			if pp.EllX1 == 0 {
+				pp.EllX1 = profile.EllX1
+			}
+			if pp.SignaturePreimageLen == 0 {
+				pp.SignaturePreimageLen = profile.SignaturePreimageLen
+			}
+			if pp.MLWEHidingBits == 0 {
+				pp.MLWEHidingBits = profile.MLWEHidingBits
+			}
+			if pp.MSISBindingBits == 0 {
+				pp.MSISBindingBits = profile.MSISBindingBits
+			}
+			if pp.TargetDim == 0 {
+				pp.TargetDim = profile.NC
+			}
+			if pp.X0Len == 0 || pp.LenR0H == 0 {
+				pp.X0Len = profile.EllX0
+			}
+		}
+	}
 }
 
 func (pp PublicParams) InferRingDegree() int {
@@ -111,7 +170,25 @@ func (pp PublicParams) InferRingDegree() int {
 			}
 		}
 	}
+	for i := range pp.CM {
+		for j := range pp.CM[i] {
+			if len(pp.CM[i][j]) > 0 {
+				return len(pp.CM[i][j])
+			}
+		}
+	}
+	for i := range pp.AS {
+		for j := range pp.AS[i] {
+			if len(pp.AS[i][j]) > 0 {
+				return len(pp.AS[i][j])
+			}
+		}
+	}
 	return 0
+}
+
+func (pp PublicParams) UsesIntGenISIS() bool {
+	return pp.Profile == ProfileIntGenISISB || pp.Profile == ProfileIntGenISISA || len(pp.CM) > 0 || len(pp.AS) > 0
 }
 
 func (pp *PublicParams) Validate() error {
@@ -119,14 +196,17 @@ func (pp *PublicParams) Validate() error {
 	if err := ValidateHashRelation(pp.HashRelation); err != nil {
 		return err
 	}
-	if len(pp.Ac) == 0 {
-		return fmt.Errorf("missing Ac")
-	}
 	if pp.BPath == "" {
 		return fmt.Errorf("missing BPath")
 	}
 	if pp.BoundB <= 0 {
 		return fmt.Errorf("invalid BoundB=%d", pp.BoundB)
+	}
+	if pp.UsesIntGenISIS() {
+		return pp.validateIntGenISIS()
+	}
+	if len(pp.Ac) == 0 {
+		return fmt.Errorf("missing Ac")
 	}
 	if pp.X0CoeffBound <= 0 {
 		return fmt.Errorf("invalid X0CoeffBound=%d", pp.X0CoeffBound)
@@ -159,6 +239,60 @@ func (pp *PublicParams) Validate() error {
 		for j := range pp.Ac[i] {
 			if len(pp.Ac[i][j]) != pp.RingDegree {
 				return fmt.Errorf("Ac[%d][%d] coefficient length=%d want ring_degree=%d", i, j, len(pp.Ac[i][j]), pp.RingDegree)
+			}
+		}
+	}
+	return nil
+}
+
+func (pp *PublicParams) validateIntGenISIS() error {
+	if _, ok := LookupIntGenISISProfile(pp.Profile); pp.Profile != "" && !ok {
+		return fmt.Errorf("unsupported IntGenISIS profile %q", pp.Profile)
+	}
+	if pp.CommitmentBound <= 0 {
+		return fmt.Errorf("invalid commitment bound B=%d", pp.CommitmentBound)
+	}
+	if pp.EllM <= 0 || pp.KS <= 0 || pp.NC <= 0 {
+		return fmt.Errorf("invalid commitment dimensions ell_M=%d k_s=%d n_c=%d", pp.EllM, pp.KS, pp.NC)
+	}
+	if pp.EllMuSig != 1 {
+		return fmt.Errorf("ell_mu_sig=%d want 1", pp.EllMuSig)
+	}
+	if pp.EllX0 != 2 {
+		return fmt.Errorf("ell_x0=%d want 2", pp.EllX0)
+	}
+	if pp.EllX1 != 1 {
+		return fmt.Errorf("ell_x1=%d want 1", pp.EllX1)
+	}
+	if pp.SignaturePreimageLen != 2 {
+		return fmt.Errorf("signature_preimage_len=%d want 2", pp.SignaturePreimageLen)
+	}
+	if pp.TargetDim != pp.NC {
+		return fmt.Errorf("target_dim=%d must match n_c=%d", pp.TargetDim, pp.NC)
+	}
+	if pp.X0Len != 0 && pp.X0Len != pp.EllX0 {
+		return fmt.Errorf("legacy X0Len=%d must match ell_x0=%d", pp.X0Len, pp.EllX0)
+	}
+	if err := validateCoeffMatrixDims("C_M", pp.CM, pp.NC, pp.EllM, pp.RingDegree); err != nil {
+		return err
+	}
+	if err := validateCoeffMatrixDims("A_s", pp.AS, pp.NC, pp.KS, pp.RingDegree); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateCoeffMatrixDims(name string, mat commitment.CoeffMatrix, rows, cols, degree int) error {
+	if len(mat) != rows {
+		return fmt.Errorf("%s rows=%d want %d", name, len(mat), rows)
+	}
+	for i := range mat {
+		if len(mat[i]) != cols {
+			return fmt.Errorf("%s row %d cols=%d want %d", name, i, len(mat[i]), cols)
+		}
+		for j := range mat[i] {
+			if len(mat[i][j]) != degree {
+				return fmt.Errorf("%s[%d][%d] coefficient length=%d want ring_degree=%d", name, i, j, len(mat[i][j]), degree)
 			}
 		}
 	}
@@ -207,33 +341,85 @@ func (pp PublicParams) ToIssuanceParams(ringQ *ring.Ring) (*Params, error) {
 	if err := (&pp).Validate(); err != nil {
 		return nil, err
 	}
-	ac, err := commitment.MatrixFromCoeff(ringQ, pp.Ac)
-	if err != nil {
-		return nil, fmt.Errorf("lift Ac to NTT: %w", err)
+	var ac commitment.Matrix
+	var err error
+	if len(pp.Ac) > 0 {
+		ac, err = commitment.MatrixFromCoeff(ringQ, pp.Ac)
+		if err != nil {
+			return nil, fmt.Errorf("lift Ac to NTT: %w", err)
+		}
+	}
+	var cm commitment.Matrix
+	if len(pp.CM) > 0 {
+		cm, err = commitment.MatrixFromCoeff(ringQ, pp.CM)
+		if err != nil {
+			return nil, fmt.Errorf("lift C_M to NTT: %w", err)
+		}
+	}
+	var as commitment.Matrix
+	if len(pp.AS) > 0 {
+		as, err = commitment.MatrixFromCoeff(ringQ, pp.AS)
+		if err != nil {
+			return nil, fmt.Errorf("lift A_s to NTT: %w", err)
+		}
 	}
 	return &Params{
-		HashRelation:       pp.HashRelation,
-		Ac:                 ac,
-		BPath:              pp.BPath,
-		BoundB:             pp.BoundB,
-		X0Len:              pp.X0Len,
-		X0CoeffBound:       pp.X0CoeffBound,
-		TargetDim:          pp.TargetDim,
-		TargetHidingLambda: pp.TargetHidingLambda,
-		RingDegree:         pp.RingDegree,
-		X0Distribution:     pp.X0Distribution,
-		LenMu:              pp.LenMu,
-		MuLayout:           pp.MuLayout,
-		LenM:               pp.LenM,
-		LenK:               pp.LenK,
-		LenR0H:             pp.LenR0H,
-		LenR1H:             pp.LenR1H,
-		LenRBar:            pp.LenRBar,
-		LenM1:              pp.LenM,
-		LenM2:              pp.LenK,
-		LenRU0:             pp.LenR0H,
-		LenRU1:             pp.LenR1H,
-		LenR:               pp.LenRBar,
-		RingQ:              ringQ,
+		HashRelation:         pp.HashRelation,
+		Ac:                   ac,
+		CM:                   cm,
+		AS:                   as,
+		BPath:                pp.BPath,
+		Profile:              pp.Profile,
+		BoundB:               pp.BoundB,
+		CommitmentBound:      pp.CommitmentBound,
+		EllM:                 pp.EllM,
+		KS:                   pp.KS,
+		NC:                   pp.NC,
+		EllMuSig:             pp.EllMuSig,
+		EllX0:                pp.EllX0,
+		EllX1:                pp.EllX1,
+		SignaturePreimageLen: pp.SignaturePreimageLen,
+		X0Len:                pp.X0Len,
+		X0CoeffBound:         pp.X0CoeffBound,
+		TargetDim:            pp.TargetDim,
+		TargetHidingLambda:   pp.TargetHidingLambda,
+		RingDegree:           pp.RingDegree,
+		X0Distribution:       pp.X0Distribution,
+		LenMu:                pp.LenMu,
+		MuLayout:             pp.MuLayout,
+		LenM:                 pp.LenM,
+		LenK:                 pp.LenK,
+		LenR0H:               pp.LenR0H,
+		LenR1H:               pp.LenR1H,
+		LenRBar:              pp.LenRBar,
+		LenM1:                pp.LenM,
+		LenM2:                pp.LenK,
+		LenRU0:               pp.LenR0H,
+		LenRU1:               pp.LenR1H,
+		LenR:                 pp.LenRBar,
+		RingQ:                ringQ,
 	}, nil
+}
+
+func (pp PublicParams) ToCommitmentParams(ringQ *ring.Ring) (commitment.TargetParams, error) {
+	params, err := pp.ToIssuanceParams(ringQ)
+	if err != nil {
+		return commitment.TargetParams{}, err
+	}
+	if len(params.CM) == 0 || len(params.AS) == 0 {
+		return commitment.TargetParams{}, fmt.Errorf("public params do not contain IntGenISIS C_M/A_s matrices")
+	}
+	out := commitment.TargetParams{
+		RingQ: ringQ,
+		CM:    params.CM,
+		AS:    params.AS,
+		EllM:  params.EllM,
+		KS:    params.KS,
+		NC:    params.NC,
+		Bound: params.CommitmentBound,
+	}
+	if err := out.Validate(); err != nil {
+		return commitment.TargetParams{}, err
+	}
+	return out, nil
 }

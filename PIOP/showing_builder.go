@@ -41,6 +41,11 @@ func BuildCredentialRowsShowing(
 	if len(pub.A) == 0 || len(pub.B) == 0 {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("showing requires non-empty post-sign public inputs A and B")
 	}
+	if pub.IntGenISIS {
+		return BuildCredentialRowsShowingIntGenISIS(
+			ringQ, pub, wit, prfParamsLenKey, prfParamsLenNonce, prfRF, prfRP, prfGroupRounds, opts,
+		)
+	}
 	return buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		ringQ, pub, wit, prfParamsLenKey, prfParamsLenNonce, prfRF, prfRP, prfGroupRounds, opts,
 	)
@@ -55,6 +60,9 @@ func BuildShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*P
 	}
 	if wit.CoeffNativeShowing == nil {
 		return nil, fmt.Errorf("showing requires WitnessInputs.CoeffNativeShowing")
+	}
+	if pub.IntGenISIS {
+		return BuildIntGenISISShowingCombined(pub, wit, opts)
 	}
 	// The live one-root showing path is the PRF companion route. The legacy
 	// one-root PRF replay is no longer selectable here.

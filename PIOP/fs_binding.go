@@ -69,6 +69,21 @@ func BuildPublicLabels(pub PublicInputs) []PublicLabel {
 	}
 	appendInt("RingDegree", pub.RingDegree)
 	appendInt("X0Len", pub.X0Len)
+	if pub.IntGenISIS {
+		appendInt("IntGenISIS", 1)
+		if len(pub.CM) > 0 {
+			appendInt("IntGenISIS.n_c", len(pub.CM))
+			if len(pub.CM[0]) > 0 {
+				appendInt("IntGenISIS.ell_M", len(pub.CM[0]))
+			}
+		}
+		if len(pub.AS) > 0 && len(pub.AS[0]) > 0 {
+			appendInt("IntGenISIS.k_s", len(pub.AS[0]))
+		}
+		if pub.BoundB != 0 {
+			appendInt("IntGenISIS.B", int(pub.BoundB))
+		}
+	}
 	if len(pub.Com) > 0 {
 		appendPoly("Com", pub.Com)
 	}
@@ -84,6 +99,20 @@ func BuildPublicLabels(pub PublicInputs) []PublicLabel {
 			flat = append(flat, row...)
 		}
 		appendPoly("Ac", flat)
+	}
+	if len(pub.CM) > 0 {
+		flat := make([]*ring.Poly, 0, len(pub.CM)*len(pub.CM[0]))
+		for _, row := range pub.CM {
+			flat = append(flat, row...)
+		}
+		appendPoly("C_M", flat)
+	}
+	if len(pub.AS) > 0 {
+		flat := make([]*ring.Poly, 0, len(pub.AS)*len(pub.AS[0]))
+		for _, row := range pub.AS {
+			flat = append(flat, row...)
+		}
+		appendPoly("A_s", flat)
 	}
 	if len(pub.A) > 0 {
 		flat := make([]*ring.Poly, 0, len(pub.A)*len(pub.A[0]))

@@ -26,9 +26,10 @@ const (
 )
 
 func usage() {
-	fmt.Println(`usage: issuance <setup-demo-public|setup-ntru-keys|holder-commit|issuer-challenge|holder-prove|issuer-verify-sign|holder-finalize|demo-local|benchmark-x0> [options]
+	fmt.Println(`usage: issuance <setup-intgenisis-public|setup-demo-public|setup-ntru-keys|holder-commit|issuer-challenge|holder-prove|issuer-verify-sign|holder-finalize|demo-local|benchmark-x0|benchmark-intgenisis> [options]
 
 Subcommands:
+  setup-intgenisis-public Generate IntGenISIS MLWE-hiding credential public parameters
   setup-demo-public  Generate credential public parameters with a full random Ac matrix
   setup-ntru-keys    Generate separate NTRU params and key material
   holder-commit      Sample holder witness rows and write holder_secret/commit_request artifacts
@@ -37,7 +38,8 @@ Subcommands:
   issuer-verify-sign Verify the pre-sign proof and sign the public target T
   holder-finalize    Verify and persist the final credential state
   demo-local         Run the full role-separated issuance flow in one process
-  benchmark-x0      Benchmark issuance + showing across x0 profiles`)
+  benchmark-x0      Benchmark legacy issuance + showing across x0 profiles
+  benchmark-intgenisis Report IntGenISIS MLWE row inventories and benchmark labels`)
 }
 
 func main() {
@@ -53,6 +55,8 @@ func run(args []string) error {
 		return fmt.Errorf("missing subcommand")
 	}
 	switch args[0] {
+	case "setup-intgenisis-public":
+		return runSetupIntGenISISPublic(args[1:])
 	case "setup-demo-public":
 		return runSetupDemoPublic(args[1:])
 	case "setup-ntru-keys":
@@ -71,6 +75,8 @@ func run(args []string) error {
 		return runDemoLocal(args[1:])
 	case "benchmark-x0":
 		return runBenchmarkX0(args[1:])
+	case "benchmark-intgenisis":
+		return runBenchmarkIntGenISIS(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -78,6 +84,31 @@ func run(args []string) error {
 		usage()
 		return fmt.Errorf("unknown subcommand %q", args[0])
 	}
+}
+
+func runBenchmarkIntGenISIS(args []string) error {
+	fs := flag.NewFlagSet("benchmark-intgenisis", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	profiles := fs.String("profiles", credential.ProfileIntGenISISB, "comma-separated IntGenISIS profiles")
+	packingFactor := fs.Int("s-sw", 16, "SmallWood packing factor")
+	jsonOut := fs.String("json-out", "", "optional JSON output path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return benchmarkIntGenISIS(*profiles, *packingFactor, *jsonOut)
+}
+
+func runSetupIntGenISISPublic(args []string) error {
+	fs := flag.NewFlagSet("setup-intgenisis-public", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	outPath := fs.String("out", defaultDemoPublicParamsPath, "output path for generated IntGenISIS credential public params")
+	force := fs.Bool("force", false, "overwrite an existing output path")
+	profileName := fs.String("profile", credential.ProfileIntGenISISB, "IntGenISIS profile name")
+	bPath := fs.String("b-path", "", "B-matrix path recorded in the public params")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return setupIntGenISISPublic(*outPath, *force, *profileName, *bPath)
 }
 
 func runSetupNTRUKeys(args []string) error {

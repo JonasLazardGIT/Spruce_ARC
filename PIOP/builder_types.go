@@ -12,6 +12,8 @@ type PublicInputs struct {
 	RI0                []*ring.Poly
 	RI1                []*ring.Poly
 	Ac                 [][]*ring.Poly
+	CM                 [][]*ring.Poly
+	AS                 [][]*ring.Poly
 	A                  [][]*ring.Poly
 	B                  []*ring.Poly
 	T                  []int64
@@ -24,6 +26,7 @@ type PublicInputs struct {
 	TargetHidingLambda int
 	RingDegree         int
 	HashRelation       string
+	IntGenISIS         bool
 	Extras             map[string]interface{}
 }
 
@@ -44,9 +47,15 @@ func publicInputsWithRingDegree(pub PublicInputs, ringDegree int) (PublicInputs,
 type CoeffNativeShowingWitness struct {
 	Sig []*ring.Poly
 	Mu  *ring.Poly
+	M   *ring.Poly
 	// Deprecated split rows retained only for older tests/fixtures.
 	M1          *ring.Poly
 	M2          *ring.Poly
+	S           []*ring.Poly
+	E           []*ring.Poly
+	MuSig       []*ring.Poly
+	X0          []*ring.Poly
+	X1          *ring.Poly
 	R0          []*ring.Poly
 	R1          *ring.Poly
 	Z           *ring.Poly
@@ -115,14 +124,20 @@ func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
 
 // WitnessInputs holds the witness vectors for a statement build.
 type WitnessInputs struct {
-	Mu  []*ring.Poly
-	M1  []*ring.Poly
-	M2  []*ring.Poly
-	RU0 []*ring.Poly
-	RU1 []*ring.Poly
-	R   []*ring.Poly
-	R0  []*ring.Poly
-	R1  []*ring.Poly
+	Mu    []*ring.Poly
+	M     []*ring.Poly
+	S     []*ring.Poly
+	E     []*ring.Poly
+	MuSig []*ring.Poly
+	X0    []*ring.Poly
+	X1    []*ring.Poly
+	M1    []*ring.Poly
+	M2    []*ring.Poly
+	RU0   []*ring.Poly
+	RU1   []*ring.Poly
+	R     []*ring.Poly
+	R0    []*ring.Poly
+	R1    []*ring.Poly
 	// K0/K1 satisfy RU* + RI* = R* + (2B+1)·K*.
 	K0 []*ring.Poly
 	K1 []*ring.Poly

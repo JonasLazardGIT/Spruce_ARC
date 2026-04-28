@@ -702,6 +702,13 @@ type RowLayout struct {
 	SigCount   int
 	MsgCount   int
 	RndCount   int
+	// IntGenISISPreSign records the committed-message pre-sign witness row
+	// inventory. The rows are raw ring-polynomial witnesses in the order
+	// M || s || e; no legacy r0/r1/challenge rows are present.
+	IntGenISISPreSign *IntGenISISPreSignRowLayout
+	// IntGenISISShowing records the committed-message showing witness inventory.
+	// The rows are raw ring-polynomial witnesses before PRF auxiliary rows.
+	IntGenISISShowing *IntGenISISShowingRowLayout
 	// Explicit base indices for post-sign witness rows.
 	// When false, the standard issuance row order is used.
 	HasExplicitBaseIdx     bool

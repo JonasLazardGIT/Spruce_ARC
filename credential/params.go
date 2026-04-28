@@ -11,24 +11,35 @@ import (
 
 // Params captures the public inputs required during issuance.
 type Params struct {
-	HashRelation       string
-	Ac                 commitment.Matrix
-	BPath              string
-	AcPath             string
-	BoundB             int64
-	X0Len              int
-	X0CoeffBound       int64
-	TargetDim          int
-	TargetHidingLambda int
-	RingDegree         int
-	X0Distribution     string
-	LenMu              int
-	MuLayout           string
-	LenM               int
-	LenK               int
-	LenR0H             int
-	LenR1H             int
-	LenRBar            int
+	HashRelation         string
+	Ac                   commitment.Matrix
+	CM                   commitment.Matrix
+	AS                   commitment.Matrix
+	BPath                string
+	AcPath               string
+	Profile              string
+	BoundB               int64
+	CommitmentBound      int64
+	EllM                 int
+	KS                   int
+	NC                   int
+	EllMuSig             int
+	EllX0                int
+	EllX1                int
+	SignaturePreimageLen int
+	X0Len                int
+	X0CoeffBound         int64
+	TargetDim            int
+	TargetHidingLambda   int
+	RingDegree           int
+	X0Distribution       string
+	LenMu                int
+	MuLayout             string
+	LenM                 int
+	LenK                 int
+	LenR0H               int
+	LenR1H               int
+	LenRBar              int
 	// Deprecated aliases retained so older tests can still build while the
 	// live runtime uses the semantic lengths above.
 	LenM1  int
@@ -64,8 +75,10 @@ func LoadRingWithDegree(ringDegree int) (*ring.Ring, error) {
 		n = 1024
 	case 512:
 		n = 512
+	case 256:
+		n = 256
 	default:
-		return nil, fmt.Errorf("unsupported research ring degree %d (supported: %d, 1024, 512)", ringDegree, par.N)
+		return nil, fmt.Errorf("unsupported research ring degree %d (supported: %d, 1024, 512, 256)", ringDegree, par.N)
 	}
 	return ring.NewRing(n, []uint64{par.Q})
 }
