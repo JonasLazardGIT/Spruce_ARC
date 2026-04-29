@@ -413,9 +413,8 @@ Files to modify:
 
 1. Define exact slot layout for profile B:
 
-   - attribute slots;
-   - key slots;
-   - reserved zero slots;
+   - attribute/message slots `M[0][0..N-9]`;
+   - key slots `M[0][N-8..N-1]`;
    - signed-lift convention;
    - coefficient bound convention.
 
@@ -1340,4 +1339,3 @@ The protocol can be called fully aligned only when all of the following are true
 11. Benchmarks report actual proof size, proving time, verification time, row inventory, PRF rows, shortness rows, bound rows, total rows, and degree/soundness parameters for the final relation.
 
 12. Documentation states that the implementation is paper-aligned and lists any remaining conditional assumptions, especially around DKLW sampling and security reductions.
-
