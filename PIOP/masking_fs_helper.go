@@ -463,10 +463,6 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			}
 		}
 
-		qLayout := BuildQLayout{
-			WitnessPolys: args.w1[:args.origW1Len],
-			MaskPolys:    out.M,
-		}
 		maskCoeffs := make([][]uint64, len(out.M))
 		for i := range out.M {
 			switch {
@@ -480,62 +476,12 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				return fmt.Errorf("missing mask coefficients for row %d", i)
 			}
 		}
-		qLayout.MaskCoeffs = maskCoeffs
 		proof.MaskCoeffDebug = copyMatrix(maskCoeffs)
 		proof.FparCoeffDebug = copyMatrix(args.FparAllCoeffs)
 		proof.FaggCoeffDebug = copyMatrix(args.FaggAllCoeffs)
-		if proof.Theta <= 1 {
-			totalRows := args.maskRowOffset + args.maskRowCount
-			fullRows := make([][]uint64, totalRows)
-			copy(fullRows, args.rows)
-			for i := 0; i < len(maskCoeffs) && i < args.maskRowCount; i++ {
-				row := make([]uint64, len(args.omega))
-				for j, w := range args.omega {
-					row[j] = EvalPoly(maskCoeffs[i], w%q, q)
-				}
-				fullRows[args.maskRowOffset+i] = row
-			}
-			args.rows = fullRows
-		}
-		qCoeffs, qErr := BuildQCoeffsChecked(
-			ringQ,
-			qLayout,
-			args.FparInt,
-			args.FparNorm,
-			args.FaggInt,
-			args.FaggNorm,
-			args.FparIntCoeffs,
-			args.FparNormCoeffs,
-			args.FaggIntCoeffs,
-			args.FaggNormCoeffs,
-			GammaPrime,
-			GammaAgg,
-		)
-		if qErr != nil {
-			return qErr
-		}
-		out.QCoeffs = qCoeffs
-		proof.QCoeffDebug = copyMatrix(qCoeffs)
-		if deg := maxDegreeFromCoeffRows(qCoeffs); deg > qDecsParams.Degree {
-			qDecsParams.Degree = deg
-		}
-		proof.QDegreeBound = qDecsParams.Degree
-		qDomainPoints = domainPoints
-		if len(qDomainPoints) == 0 {
-			return fmt.Errorf("explicit-domain mode requires non-empty Q domain points")
-		}
-		qProver, qErr = decs.NewProverWithParamsAndPointsFormalChecked(ringQ, qCoeffs, qDecsParams, qDomainPoints)
-		if qErr != nil {
-			return fmt.Errorf("build q prover: %w", qErr)
-		}
-		qRoot, qErr := qProver.CommitInit()
-		if qErr != nil {
-			return fmt.Errorf("commit Q: %w", qErr)
-		}
-		proof.QRoot = qRoot
 
+		var qCoeffs [][]uint64
 		if proof.Theta > 1 {
-			// Small-field branch: use K-masks for QK (paper §4.2 / §6.2).
 			MK := args.independentMasksK
 			if len(MK) == 0 {
 				maskOmega := args.omegaWitness
@@ -549,6 +495,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			}
 			out.MK = MK
 			proof.MKData = snapshotKPolys(MK)
+			proof.MaskCoeffDebug = splitKPolysToCoeffRows(MK, proof.Theta, q)
 			out.QK = BuildQK(
 				ringQ,
 				args.opts.DomainMode,
@@ -562,7 +509,11 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				GammaAggK,
 			)
 			proof.QKData = snapshotKPolys(out.QK)
-			// Mask degree check
+			qCoeffs = splitKPolysToCoeffRows(out.QK, proof.Theta, q)
+			if len(qCoeffs) != args.rho*proof.Theta {
+				return fmt.Errorf("split Q rows=%d want rho*theta=%d", len(qCoeffs), args.rho*proof.Theta)
+			}
+			// Mask degree check.
 			maskDegreeMax := -1
 			for _, kp := range MK {
 				if kp != nil && kp.Degree > maskDegreeMax {
@@ -572,7 +523,62 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			if maskDegreeMax > args.maskDegreeBound {
 				return fmt.Errorf("mask degree %d exceeds bound %d", maskDegreeMax, args.maskDegreeBound)
 			}
+		} else {
+			qLayout := BuildQLayout{
+				WitnessPolys: args.w1[:args.origW1Len],
+				MaskPolys:    out.M,
+				MaskCoeffs:   maskCoeffs,
+			}
+			totalRows := args.maskRowOffset + args.maskRowCount
+			fullRows := make([][]uint64, totalRows)
+			copy(fullRows, args.rows)
+			for i := 0; i < len(maskCoeffs) && i < args.maskRowCount; i++ {
+				row := make([]uint64, len(args.omega))
+				for j, w := range args.omega {
+					row[j] = EvalPoly(maskCoeffs[i], w%q, q)
+				}
+				fullRows[args.maskRowOffset+i] = row
+			}
+			args.rows = fullRows
+			var qErr error
+			qCoeffs, qErr = BuildQCoeffsChecked(
+				ringQ,
+				qLayout,
+				args.FparInt,
+				args.FparNorm,
+				args.FaggInt,
+				args.FaggNorm,
+				args.FparIntCoeffs,
+				args.FparNormCoeffs,
+				args.FaggIntCoeffs,
+				args.FaggNormCoeffs,
+				GammaPrime,
+				GammaAgg,
+			)
+			if qErr != nil {
+				return qErr
+			}
 		}
+		out.QCoeffs = qCoeffs
+		proof.QCoeffDebug = copyMatrix(qCoeffs)
+		if deg := maxDegreeFromCoeffRows(qCoeffs); deg > qDecsParams.Degree {
+			qDecsParams.Degree = deg
+		}
+		proof.QDegreeBound = qDecsParams.Degree
+		qDomainPoints = domainPoints
+		if len(qDomainPoints) == 0 {
+			return fmt.Errorf("explicit-domain mode requires non-empty Q domain points")
+		}
+		var qErr error
+		qProver, qErr = decs.NewProverWithParamsAndPointsFormalChecked(ringQ, qCoeffs, qDecsParams, qDomainPoints)
+		if qErr != nil {
+			return fmt.Errorf("build q prover: %w", qErr)
+		}
+		qRoot, qErr := qProver.CommitInit()
+		if qErr != nil {
+			return fmt.Errorf("commit Q: %w", qErr)
+		}
+		proof.QRoot = qRoot
 		return nil
 	}); err != nil {
 		return out, err
@@ -621,7 +627,11 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			return fmt.Errorf("missing Q prover")
 		}
 		gammaQRNG := newFSRNG("GammaQ", seed3)
-		gammaQ = sampleFSMatrix(args.decsParams.Eta, args.rho, q, gammaQRNG)
+		qRows := args.rho
+		if proof.Theta > 1 {
+			qRows *= proof.Theta
+		}
+		gammaQ = sampleFSMatrix(args.decsParams.Eta, qRows, q, gammaQRNG)
 		out.gammaQ = copyMatrix(gammaQ)
 		proof.setQR(qProver.CommitStep2Formal(gammaQ))
 

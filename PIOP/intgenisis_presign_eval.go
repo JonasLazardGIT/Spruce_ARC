@@ -15,6 +15,9 @@ type intGenISISPreSignReplayConfig struct {
 	CMCoeff      [][][]uint64
 	ASCoeff      [][][]uint64
 	ComCoeff     [][]uint64
+	BoundRows    []int
+	BoundPoly    []uint64
+	PolicyRows   [][]uint64
 }
 
 func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, omegaWitness, domainPoints []uint64) (*intGenISISPreSignReplayConfig, error) {
@@ -40,10 +43,14 @@ func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	if l == nil {
 		return nil, fmt.Errorf("missing IntGenISIS pre-sign row layout")
 	}
-	if l.MStart != 0 || l.SStart != l.MCount || l.EStart != l.MCount+l.SCount {
+	if l.MStart != 0 ||
+		l.MAttrStart != l.MStart+l.MCount ||
+		l.KStart != l.MAttrStart+l.MAttrCount ||
+		l.SStart != l.KStart+l.KCount ||
+		l.EStart != l.SStart+l.SCount {
 		return nil, fmt.Errorf("invalid IntGenISIS pre-sign row order")
 	}
-	if l.MCount <= 0 || l.SCount <= 0 || l.ECount <= 0 || l.CommitmentRows <= 0 {
+	if l.MCount <= 0 || l.MAttrCount != l.MCount || l.KCount != l.MCount || l.SCount <= 0 || l.ECount <= 0 || l.CommitmentRows <= 0 {
 		return nil, fmt.Errorf("invalid IntGenISIS pre-sign row counts")
 	}
 	if len(pub.Com) != l.CommitmentRows || len(pub.CM) != l.CommitmentRows || len(pub.AS) != l.CommitmentRows || l.ECount != l.CommitmentRows {
@@ -101,6 +108,19 @@ func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		}
 		comCoeff[i] = coeff
 	}
+	boundRows := intGenISISViewRowIndices(l.BoundViewStart, l.BoundViewCount)
+	policy, err := intGenISISPolicyFromPublic(pub)
+	if err != nil {
+		return nil, err
+	}
+	semanticLayout, err := intGenISISSemanticLayout(int(ringQ.N), pub.BoundB)
+	if err != nil {
+		return nil, err
+	}
+	policyRows, err := intGenISISPolicyCoeffViewCoeffs(ringQ, policy, semanticLayout, omegaWitness, len(omegaWitness))
+	if err != nil {
+		return nil, err
+	}
 	return &intGenISISPreSignReplayConfig{
 		Ring:         ringQ,
 		Layout:       *l,
@@ -108,6 +128,9 @@ func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		CMCoeff:      cmCoeff,
 		ASCoeff:      asCoeff,
 		ComCoeff:     comCoeff,
+		BoundRows:    boundRows,
+		BoundPoly:    NewRangeMembershipSpec(ringQ.Modulus[0], intGenISISTernaryBound).Coeffs,
+		PolicyRows:   policyRows,
 	}, nil
 }
 
@@ -134,7 +157,7 @@ func (cfg *intGenISISPreSignReplayConfig) CoreEvaluator() ConstraintEvaluator {
 			}
 			return EvalPoly(coeff, x, q) % q
 		}
-		fpar := make([]uint64, cfg.Layout.CommitmentRows)
+		fpar := make([]uint64, 0, cfg.Layout.CommitmentRows+cfg.Layout.MCount)
 		for out := 0; out < cfg.Layout.CommitmentRows; out++ {
 			sum := modSub(0, evalTheta(cfg.ComCoeff[out]), q)
 			for j := 0; j < cfg.Layout.MCount; j++ {
@@ -156,7 +179,44 @@ func (cfg *intGenISISPreSignReplayConfig) CoreEvaluator() ConstraintEvaluator {
 				return nil, nil, err
 			}
 			sum = modAdd(sum, row, q)
-			fpar[out] = sum
+			fpar = append(fpar, sum)
+		}
+		for i := 0; i < cfg.Layout.MCount; i++ {
+			m, err := getRow(cfg.Layout.MStart + i)
+			if err != nil {
+				return nil, nil, err
+			}
+			mAttr, err := getRow(cfg.Layout.MAttrStart + i)
+			if err != nil {
+				return nil, nil, err
+			}
+			k, err := getRow(cfg.Layout.KStart + i)
+			if err != nil {
+				return nil, nil, err
+			}
+			fpar = append(fpar, modSub(modSub(m, mAttr, q), k, q))
+		}
+		if len(cfg.PolicyRows) > 0 {
+			if cfg.Layout.MAttrViewStart <= 0 || cfg.Layout.ViewRowsPerPoly <= 0 {
+				return nil, nil, fmt.Errorf("policy requires m coefficient-view rows")
+			}
+			if len(cfg.PolicyRows) != cfg.Layout.MAttrCount*cfg.Layout.ViewRowsPerPoly {
+				return nil, nil, fmt.Errorf("policy rows=%d want %d", len(cfg.PolicyRows), cfg.Layout.MAttrCount*cfg.Layout.ViewRowsPerPoly)
+			}
+			for i := range cfg.PolicyRows {
+				mAttr, err := getRow(cfg.Layout.MAttrViewStart + i)
+				if err != nil {
+					return nil, nil, err
+				}
+				fpar = append(fpar, modSub(mAttr, evalTheta(cfg.PolicyRows[i]), q))
+			}
+		}
+		for _, idx := range cfg.BoundRows {
+			row, err := getRow(idx)
+			if err != nil {
+				return nil, nil, err
+			}
+			fpar = append(fpar, intGenISISEvalMembership(q, cfg.BoundPoly, row))
 		}
 		return fpar, nil, nil
 	}
@@ -182,7 +242,7 @@ func (cfg *intGenISISPreSignReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 			}
 			return K.EvalFPolyAtK(coeff, e)
 		}
-		fpar := make([]kf.Elem, cfg.Layout.CommitmentRows)
+		fpar := make([]kf.Elem, 0, cfg.Layout.CommitmentRows+cfg.Layout.MCount)
 		for out := 0; out < cfg.Layout.CommitmentRows; out++ {
 			sum := K.Sub(K.Zero(), evalTheta(cfg.ComCoeff[out]))
 			for j := 0; j < cfg.Layout.MCount; j++ {
@@ -204,7 +264,44 @@ func (cfg *intGenISISPreSignReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 				return nil, nil, err
 			}
 			sum = K.Add(sum, row)
-			fpar[out] = sum
+			fpar = append(fpar, sum)
+		}
+		for i := 0; i < cfg.Layout.MCount; i++ {
+			m, err := getRow(cfg.Layout.MStart + i)
+			if err != nil {
+				return nil, nil, err
+			}
+			mAttr, err := getRow(cfg.Layout.MAttrStart + i)
+			if err != nil {
+				return nil, nil, err
+			}
+			k, err := getRow(cfg.Layout.KStart + i)
+			if err != nil {
+				return nil, nil, err
+			}
+			fpar = append(fpar, K.Sub(K.Sub(m, mAttr), k))
+		}
+		if len(cfg.PolicyRows) > 0 {
+			if cfg.Layout.MAttrViewStart <= 0 || cfg.Layout.ViewRowsPerPoly <= 0 {
+				return nil, nil, fmt.Errorf("policy requires m coefficient-view rows")
+			}
+			if len(cfg.PolicyRows) != cfg.Layout.MAttrCount*cfg.Layout.ViewRowsPerPoly {
+				return nil, nil, fmt.Errorf("policy rows=%d want %d", len(cfg.PolicyRows), cfg.Layout.MAttrCount*cfg.Layout.ViewRowsPerPoly)
+			}
+			for i := range cfg.PolicyRows {
+				mAttr, err := getRow(cfg.Layout.MAttrViewStart + i)
+				if err != nil {
+					return nil, nil, err
+				}
+				fpar = append(fpar, K.Sub(mAttr, evalTheta(cfg.PolicyRows[i])))
+			}
+		}
+		for _, idx := range cfg.BoundRows {
+			row, err := getRow(idx)
+			if err != nil {
+				return nil, nil, err
+			}
+			fpar = append(fpar, intGenISISEvalKPolyAtElem(K, cfg.BoundPoly, row))
 		}
 		return fpar, nil, nil
 	}, nil

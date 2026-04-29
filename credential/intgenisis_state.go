@@ -31,6 +31,7 @@ type IntGenISISState struct {
 	BPath                string    `json:"b_path"`
 	PRFParamsPath        string    `json:"prf_params_path,omitempty"`
 	NTRUPublic           [][]int64 `json:"ntru_public,omitempty"`
+	SignatureBound       int64     `json:"signature_bound,omitempty"`
 }
 
 func SaveIntGenISISState(path string, st IntGenISISState) error {
@@ -79,6 +80,12 @@ func (st IntGenISISState) Validate() error {
 	if len(st.M) != profile.EllM {
 		return fmt.Errorf("M rows=%d want ell_M=%d", len(st.M), profile.EllM)
 	}
+	if len(st.MAttr) != profile.EllM {
+		return fmt.Errorf("m rows=%d want ell_M=%d", len(st.MAttr), profile.EllM)
+	}
+	if len(st.K) != profile.EllM {
+		return fmt.Errorf("k rows=%d want ell_M=%d", len(st.K), profile.EllM)
+	}
 	if len(st.S) != profile.KS {
 		return fmt.Errorf("s rows=%d want k_s=%d", len(st.S), profile.KS)
 	}
@@ -96,6 +103,8 @@ func (st IntGenISISState) Validate() error {
 	}
 	for name, rows := range map[string][][]int64{
 		"M":      st.M,
+		"m":      st.MAttr,
+		"k":      st.K,
 		"s":      st.S,
 		"e":      st.E,
 		"mu_sig": st.MuSig,
@@ -108,11 +117,38 @@ func (st IntGenISISState) Validate() error {
 			}
 		}
 	}
+	layout, err := DefaultSemanticMessageLayout(profile, 8)
+	if err != nil {
+		return err
+	}
+	if err := ValidateSemanticMessage(layout, SemanticMessage{M: st.M, MAttr: st.MAttr, K: st.K}); err != nil {
+		return fmt.Errorf("semantic message: %w", err)
+	}
+	if err := validateTernaryIntGenISISRows("s", st.S); err != nil {
+		return err
+	}
+	if err := validateTernaryIntGenISISRows("e", st.E); err != nil {
+		return err
+	}
 	if len(st.SigS1) > 0 && len(st.SigS1) != profile.N {
 		return fmt.Errorf("sig_s1 coefficient length=%d want %d", len(st.SigS1), profile.N)
 	}
 	if len(st.SigS2) > 0 && len(st.SigS2) != profile.N {
 		return fmt.Errorf("sig_s2 coefficient length=%d want %d", len(st.SigS2), profile.N)
+	}
+	if st.SignatureBound < 0 {
+		return fmt.Errorf("signature_bound=%d", st.SignatureBound)
+	}
+	return nil
+}
+
+func validateTernaryIntGenISISRows(name string, rows [][]int64) error {
+	for i := range rows {
+		for j, v := range rows[i] {
+			if v < -1 || v > 1 {
+				return fmt.Errorf("%s[%d][%d]=%d outside ternary domain {-1,0,1}", name, i, j, v)
+			}
+		}
 	}
 	return nil
 }

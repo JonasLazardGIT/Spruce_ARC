@@ -1,10 +1,12 @@
 package PIOP
 
 import (
+	"crypto/rand"
 	"fmt"
 	"runtime"
 	"sync"
 
+	lvcs "vSIS-Signature/LVCS"
 	kf "vSIS-Signature/internal/kfield"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -218,6 +220,87 @@ func buildSmallFieldWitnessRows(
 		}()
 	}
 	wg.Wait()
+	return rows, nil
+}
+
+func buildSmallFieldWitnessRowsFromLiteralInputs(
+	ringQ *ring.Ring,
+	omega []uint64,
+	ncols int,
+	K *kf.Field,
+	omegaS1 kf.Elem,
+	logicalRows []lvcs.RowInput,
+) ([][]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if K == nil {
+		return nil, fmt.Errorf("nil K field")
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega")
+	}
+	if ncols <= 0 {
+		return nil, fmt.Errorf("invalid ncols=%d", ncols)
+	}
+	s := len(omega)
+	if ncols < s {
+		return nil, fmt.Errorf("invalid lvcs ncols=%d (must be >= witness ncols=%d)", ncols, s)
+	}
+	if len(logicalRows) == 0 {
+		return nil, fmt.Errorf("empty logical row set")
+	}
+	q := ringQ.Modulus[0]
+	theta := K.Theta
+	blocks := ceilDiv(len(logicalRows), ncols)
+	if blocks <= 0 {
+		blocks = 1
+	}
+
+	yVals := make([]kf.Elem, len(logicalRows))
+	for i, row := range logicalRows {
+		if len(row.Head) != s {
+			return nil, fmt.Errorf("logical row %d head width=%d want %d", i, len(row.Head), s)
+		}
+		switch {
+		case len(row.PolyCoeffs) > 0:
+			yVals[i] = K.EvalFPolyAtK(trimCoeffsCopy(row.PolyCoeffs, q), omegaS1)
+		case row.Poly != nil:
+			yVals[i] = K.EvalFPolyAtK(trimCoeffsCopy(row.Poly.Coeffs[0], q), omegaS1)
+		default:
+			elem, err := K.RandomElement(rand.Reader)
+			if err != nil {
+				return nil, fmt.Errorf("logical row %d omegaS1 sample: %w", i, err)
+			}
+			yVals[i] = elem
+		}
+	}
+
+	totalRows := blocks * (s + theta)
+	rows := make([][]uint64, totalRows)
+	for block := 0; block < blocks; block++ {
+		baseRow := block * (s + theta)
+		for j := 0; j < s; j++ {
+			out := make([]uint64, ncols)
+			for t := 0; t < ncols; t++ {
+				idx := block*ncols + t
+				if idx < len(logicalRows) {
+					out[t] = logicalRows[idx].Head[j] % q
+				}
+			}
+			rows[baseRow+j] = out
+		}
+		for coord := 0; coord < theta; coord++ {
+			out := make([]uint64, ncols)
+			for t := 0; t < ncols; t++ {
+				idx := block*ncols + t
+				if idx < len(yVals) {
+					out[t] = yVals[idx].Limb[coord] % q
+				}
+			}
+			rows[baseRow+s+coord] = out
+		}
+	}
 	return rows, nil
 }
 

@@ -46,8 +46,18 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 		Bound: profile.B,
 	}
 	rng := rand.New(rand.NewSource(31))
-	M := []*ring.Poly{boundedPIOPPoly(ringQ, profile.B, rng)}
-	s, e, err := commitment.SampleCommitmentRandomness(targetParams, rng)
+	semanticLayout, err := credential.DefaultSemanticMessageLayout(profile, 8)
+	if err != nil {
+		t.Fatalf("semantic layout: %v", err)
+	}
+	msg, err := credential.EncodeSemanticMessage(semanticLayout, credential.ZeroSemanticAttributes(semanticLayout), []int64{1, 0, -1, 1, 0, -1, 1, 0})
+	if err != nil {
+		t.Fatalf("encode semantic message: %v", err)
+	}
+	M := polysFromInt64ForIntGenISISTest(ringQ, msg.M)
+	MAttr := polysFromInt64ForIntGenISISTest(ringQ, msg.MAttr)
+	K := polysFromInt64ForIntGenISISTest(ringQ, msg.K)
+	s, e, err := commitment.SampleTernaryCommitmentRandomness(targetParams, rng)
 	if err != nil {
 		t.Fatalf("sample opening: %v", err)
 	}
@@ -65,7 +75,7 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 		HashRelation: credential.HashRelationBBTran,
 		IntGenISIS:   true,
 	}
-	wit := WitnessInputs{M: M, S: s, E: e}
+	wit := WitnessInputs{M: M, MAttr: MAttr, K: K, S: s, E: e}
 	opts := ResolveSimOptsDefaults(SimOpts{
 		Credential: true,
 		RingDegree: profile.N,
@@ -82,18 +92,63 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build proof: %v", err)
 	}
-	if proof.RowLayout.SigCount != 4 {
-		t.Fatalf("witness row count=%d want 4", proof.RowLayout.SigCount)
+	if proof.RowLayout.IntGenISISPreSign == nil {
+		t.Fatal("missing IntGenISIS pre-sign layout")
 	}
-	if proof.MaskRowOffset != 4 {
-		t.Fatalf("mask offset=%d want 4", proof.MaskRowOffset)
+	if proof.RowLayout.IntGenISISPreSign.CoreRowCount != 6 {
+		t.Fatalf("core witness row count=%d want 6", proof.RowLayout.IntGenISISPreSign.CoreRowCount)
 	}
-	if string(proof.LabelsDigest) != string(computeLabelsDigest(BuildPublicLabels(pub))) {
+	if proof.RowLayout.IntGenISISPreSign.BoundViewCount == 0 {
+		t.Fatal("missing IntGenISIS coefficient-view bound rows")
+	}
+	if proof.MaskRowOffset != proof.RowLayout.SigCount {
+		t.Fatalf("mask offset=%d want committed witness rows=%d", proof.MaskRowOffset, proof.RowLayout.SigCount)
+	}
+	if got, want := proof.MaskDegreeBound, computeDQFromConstraintDegrees(3, 1, opts.NCols, opts.Ell); got != want || proof.QDegreeBound != want {
+		t.Fatalf("paper-conservative degree mismatch mask=%d q=%d want %d", got, proof.QDegreeBound, want)
+	}
+	pubWithExtras, err := bindIntGenISISPublicExtras(pub, profile.N)
+	if err != nil {
+		t.Fatalf("bind extras: %v", err)
+	}
+	if string(proof.LabelsDigest) != string(computeLabelsDigest(BuildPublicLabels(pubWithExtras))) {
 		t.Fatal("proof labels do not bind IntGenISIS public statement")
 	}
 	ok, err := VerifyIntGenISISPreSign(pub, proof, opts)
 	if err != nil || !ok {
 		t.Fatalf("verify proof: ok=%v err=%v", ok, err)
+	}
+	thetaOpts := opts
+	thetaOpts.Theta = 7
+	thetaOpts.Rho = 1
+	thetaOpts.EllPrime = 1
+	thetaProof, err := BuildIntGenISISPreSign(ringQ, pub, wit, thetaOpts)
+	if err != nil {
+		t.Fatalf("build theta>1 proof: %v", err)
+	}
+	if thetaProof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV1 {
+		t.Fatalf("theta>1 geometry kind=%q", thetaProof.PCSGeometry.Kind)
+	}
+	if thetaProof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRows {
+		t.Fatalf("theta>1 source=%q", thetaProof.PCSGeometry.SmallFieldSource)
+	}
+	if thetaProof.QOpening == nil || thetaProof.QOpening.R != thetaOpts.Rho*thetaOpts.Theta {
+		t.Fatalf("theta>1 Q rows=%v want %d", func() int {
+			if thetaProof.QOpening == nil {
+				return 0
+			}
+			return thetaProof.QOpening.R
+		}(), thetaOpts.Rho*thetaOpts.Theta)
+	}
+	ok, err = VerifyIntGenISISPreSign(pub, thetaProof, thetaOpts)
+	if err != nil || !ok {
+		t.Fatalf("verify theta>1 proof: ok=%v err=%v", ok, err)
+	}
+	tamperedTheta := *thetaProof
+	tamperedTheta.PCSGeometry.SmallFieldSource = "legacy"
+	ok, err = VerifyIntGenISISPreSign(pub, &tamperedTheta, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("theta>1 proof verified with tampered small-field source")
 	}
 	tampered := pub
 	tampered.Com = clonePolySliceForIntGenISISTest(ringQ, pub.Com)
@@ -133,6 +188,50 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	if err == nil && ok {
 		t.Fatal("tampered proof root verified")
 	}
+	badDegree := *proof
+	badDegree.MaskDegreeBound--
+	ok, err = VerifyIntGenISISPreSign(pub, &badDegree, opts)
+	if err == nil && ok {
+		t.Fatal("tampered mask degree verified")
+	}
+
+	policy, err := credential.NewIntGenISISMEqualsPolicy(msg.MAttr)
+	if err != nil {
+		t.Fatalf("policy: %v", err)
+	}
+	policyBytes, err := policy.CanonicalBytes()
+	if err != nil {
+		t.Fatalf("policy bytes: %v", err)
+	}
+	pubPolicy := pub
+	pubPolicy.Extras = map[string]interface{}{"IntGenISIS.policy": policyBytes}
+	policyProof, err := BuildIntGenISISPreSign(ringQ, pubPolicy, wit, opts)
+	if err != nil {
+		t.Fatalf("build policy proof: %v", err)
+	}
+	ok, err = VerifyIntGenISISPreSign(pubPolicy, policyProof, opts)
+	if err != nil || !ok {
+		t.Fatalf("verify policy proof: ok=%v err=%v", ok, err)
+	}
+	ok, err = VerifyIntGenISISPreSign(pub, policyProof, opts)
+	if err == nil && ok {
+		t.Fatal("policy proof verified under no-op policy")
+	}
+	badPolicyRows := credential.ZeroSemanticAttributes(semanticLayout)
+	badPolicyRows[0][0] = 1
+	badPolicy, err := credential.NewIntGenISISMEqualsPolicy(badPolicyRows)
+	if err != nil {
+		t.Fatalf("bad policy: %v", err)
+	}
+	badPolicyBytes, err := badPolicy.CanonicalBytes()
+	if err != nil {
+		t.Fatalf("bad policy bytes: %v", err)
+	}
+	pubBadPolicy := pub
+	pubBadPolicy.Extras = map[string]interface{}{"IntGenISIS.policy": badPolicyBytes}
+	if _, err := BuildIntGenISISPreSign(ringQ, pubBadPolicy, wit, opts); err == nil {
+		t.Fatal("mismatched m_eq policy accepted")
+	}
 }
 
 func chdirForPIOPIntGenISISTest(t *testing.T) {
@@ -167,6 +266,25 @@ func boundedPIOPPoly(ringQ *ring.Ring, bound int64, rng *rand.Rand) *ring.Poly {
 		}
 	}
 	return p
+}
+
+func polysFromInt64ForIntGenISISTest(ringQ *ring.Ring, rows [][]int64) []*ring.Poly {
+	out := make([]*ring.Poly, len(rows))
+	q := int64(ringQ.Modulus[0])
+	for i := range rows {
+		out[i] = ringQ.NewPoly()
+		for j, v := range rows[i] {
+			if j >= int(ringQ.N) {
+				break
+			}
+			v %= q
+			if v < 0 {
+				v += q
+			}
+			out[i].Coeffs[0][j] = uint64(v)
+		}
+	}
+	return out
 }
 
 func clonePolySliceForIntGenISISTest(ringQ *ring.Ring, in []*ring.Poly) []*ring.Poly {

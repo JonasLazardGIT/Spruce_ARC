@@ -78,13 +78,15 @@ func commitmentParamsFromIssuance(params *credential.Params) (commitment.TargetP
 	return out, nil
 }
 
-// SampleIntGenISISCommitmentRandomness samples s and e from [-B,B].
+// SampleIntGenISISCommitmentRandomness samples live IntGenISIS s and e from
+// the ternary domain {-1,0,1}. The public commitment bound remains available
+// as a compatibility envelope, but the proof relation enforces ternary rows.
 func SampleIntGenISISCommitmentRandomness(params *credential.Params, rng *rand.Rand) (s, e []*ring.Poly, err error) {
 	targetParams, err := commitmentParamsFromIssuance(params)
 	if err != nil {
 		return nil, nil, err
 	}
-	return commitment.SampleCommitmentRandomness(targetParams, rng)
+	return commitment.SampleTernaryCommitmentRandomness(targetParams, rng)
 }
 
 // SampleSignatureHashData samples issuer-side mu_sig, x0, and x1. The current

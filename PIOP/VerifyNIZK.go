@@ -74,6 +74,19 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if pcsNCols < witnessNCols {
 		return false, false, false, fmt.Errorf("VerifyNIZK: invalid pcs_ncols (pcs=%d < witness=%d)", pcsNCols, witnessNCols)
 	}
+	if proof.Theta > 1 {
+		if proof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV1 {
+			return false, false, false, fmt.Errorf("VerifyNIZK: theta>1 requires %s geometry, got %q", PCSGeometryKindSmallFieldMatrixV1, proof.PCSGeometry.Kind)
+		}
+		intGenISISSmallField := proof.RowLayout.IntGenISISPreSign != nil || proof.RowLayout.IntGenISISShowing != nil
+		if intGenISISSmallField && proof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRows {
+			return false, false, false, fmt.Errorf("VerifyNIZK: theta>1 requires small-field source %q, got %q", PCSGeometrySmallFieldSourceLiteralRows, proof.PCSGeometry.SmallFieldSource)
+		}
+		layerSize := witnessNCols + proof.Theta
+		if layerSize <= 0 || proof.PCSGeometry.ReplayWitnessRows <= 0 || proof.PCSGeometry.ReplayWitnessRows%layerSize != 0 {
+			return false, false, false, fmt.Errorf("VerifyNIZK: invalid small-field replay rows=%d layer_size=%d", proof.PCSGeometry.ReplayWitnessRows, layerSize)
+		}
+	}
 	ell := len(proof.Tail)
 	if proof.DomainMode != DomainModeExplicit {
 		return false, false, false, fmt.Errorf("VerifyNIZK: unsupported domain mode %d (only explicit mode is supported)", proof.DomainMode)
@@ -415,7 +428,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	// In θ>1 paper mode, mask-row layout and repetition count ρ are decoupled:
 	// ρ is carried by Γ′ dimensions, while mask rows encode A_{n+1}.
 	if proof.Theta > 1 && len(proof.GammaPrimeK) > 0 {
-		rhoQ = len(proof.GammaPrimeK)
+		rhoQ = len(proof.GammaPrimeK) * proof.Theta
 	} else if len(proof.GammaPrime) > 0 {
 		rhoQ = len(proof.GammaPrime)
 	}
@@ -539,11 +552,28 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 			return false, false, false, fmt.Errorf("VerifyNIZK: kfield.New: %w", fieldErr)
 		}
 		smallFieldK = field
-		if len(proof.QKData) == 0 || len(proof.MKData) == 0 {
+		if len(proof.QCoeffDebug) > 0 {
+			QK = restoreKPolysFromSplitCoeffRows(proof.QCoeffDebug, proof.Theta, q)
+			if len(QK) == 0 {
+				return false, false, false, errors.New("VerifyNIZK: invalid split Q coefficient rows for θ>1")
+			}
+			if len(proof.QKData) > 0 && !equalKPolys(QK, restoreKPolys(proof.QKData), q) {
+				return false, false, false, errors.New("VerifyNIZK: QK data mismatch with split Q coefficient rows")
+			}
+		} else if len(proof.QKData) > 0 {
+			QK = restoreKPolys(proof.QKData)
+		}
+		if len(proof.MaskCoeffDebug) > 0 && len(proof.MaskCoeffDebug)%proof.Theta == 0 {
+			MK = restoreKPolysFromSplitCoeffRows(proof.MaskCoeffDebug, proof.Theta, q)
+			if len(proof.MKData) > 0 && !equalKPolys(MK, restoreKPolys(proof.MKData), q) {
+				return false, false, false, errors.New("VerifyNIZK: MK data mismatch with split mask coefficient rows")
+			}
+		} else if len(proof.MKData) > 0 {
+			MK = restoreKPolys(proof.MKData)
+		}
+		if len(QK) == 0 || len(MK) == 0 {
 			return false, false, false, errors.New("VerifyNIZK: missing QK/MK data for θ>1")
 		}
-		QK = restoreKPolys(proof.QKData)
-		MK = restoreKPolys(proof.MKData)
 	}
 	if replay != nil && replay.Eval != nil {
 		// Ensure the FS-sampled Γ′/γ′ tensor dimensions match the constraint evaluator,

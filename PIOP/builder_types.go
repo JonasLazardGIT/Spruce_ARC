@@ -45,9 +45,11 @@ func publicInputsWithRingDegree(pub PublicInputs, ringDegree int) (PublicInputs,
 // witness. It carries the signed mu row directly so PRF key material can be
 // derived from the key slice of mu by construction.
 type CoeffNativeShowingWitness struct {
-	Sig []*ring.Poly
-	Mu  *ring.Poly
-	M   *ring.Poly
+	Sig   []*ring.Poly
+	Mu    *ring.Poly
+	M     *ring.Poly
+	MAttr *ring.Poly
+	K     *ring.Poly
 	// Deprecated split rows retained only for older tests/fixtures.
 	M1          *ring.Poly
 	M2          *ring.Poly
@@ -126,6 +128,8 @@ func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
 type WitnessInputs struct {
 	Mu    []*ring.Poly
 	M     []*ring.Poly
+	MAttr []*ring.Poly
+	K     []*ring.Poly
 	S     []*ring.Poly
 	E     []*ring.Poly
 	MuSig []*ring.Poly

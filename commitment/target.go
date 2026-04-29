@@ -86,6 +86,26 @@ func SampleCommitmentRandomness(params TargetParams, rng *rand.Rand) (s []*ring.
 	return s, e, nil
 }
 
+// SampleTernaryCommitmentRandomness samples s and e coefficient-wise from
+// {-1,0,1}. It is the live IntGenISIS profile-B randomness domain.
+func SampleTernaryCommitmentRandomness(params TargetParams, rng *rand.Rand) (s []*ring.Poly, e []*ring.Poly, err error) {
+	if err := params.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if rng == nil {
+		return nil, nil, fmt.Errorf("nil rng")
+	}
+	s = make([]*ring.Poly, params.KS)
+	for i := range s {
+		s[i] = sampleBoundedCoeffPoly(params.RingQ, 1, rng)
+	}
+	e = make([]*ring.Poly, params.NC)
+	for i := range e {
+		e[i] = sampleBoundedCoeffPoly(params.RingQ, 1, rng)
+	}
+	return s, e, nil
+}
+
 func sampleBoundedCoeffPoly(ringQ *ring.Ring, bound int64, rng *rand.Rand) *ring.Poly {
 	p := ringQ.NewPoly()
 	q := int64(ringQ.Modulus[0])

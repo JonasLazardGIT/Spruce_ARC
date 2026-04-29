@@ -657,6 +657,77 @@ func kpolyToCoeffPolys(r *ring.Ring, kp *KPoly) []*ring.Poly {
 	return out
 }
 
+func splitKPolysToCoeffRows(polys []*KPoly, theta int, q uint64) [][]uint64 {
+	if theta <= 0 || len(polys) == 0 {
+		return nil
+	}
+	out := make([][]uint64, 0, len(polys)*theta)
+	for _, kp := range polys {
+		for coord := 0; coord < theta; coord++ {
+			var row []uint64
+			if kp != nil && coord < len(kp.Limbs) {
+				row = trimCoeffsCopy(kp.Limbs[coord], q)
+			}
+			if len(row) == 0 {
+				row = []uint64{0}
+			}
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func restoreKPolysFromSplitCoeffRows(rows [][]uint64, theta int, q uint64) []*KPoly {
+	if theta <= 0 || len(rows) == 0 || len(rows)%theta != 0 {
+		return nil
+	}
+	out := make([]*KPoly, len(rows)/theta)
+	for i := range out {
+		limbs := make([][]uint64, theta)
+		maxDeg := -1
+		for coord := 0; coord < theta; coord++ {
+			src := rows[i*theta+coord]
+			limbs[coord] = trimCoeffsCopy(src, q)
+			if deg := maxDegreeFromCoeffs(limbs[coord]); deg > maxDeg {
+				maxDeg = deg
+			}
+		}
+		out[i] = &KPoly{Degree: maxDeg, Limbs: limbs}
+	}
+	return out
+}
+
+func equalKPolys(a, b []*KPoly, q uint64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] == nil || b[i] == nil {
+			if a[i] != b[i] {
+				return false
+			}
+			continue
+		}
+		theta := len(a[i].Limbs)
+		if len(b[i].Limbs) != theta {
+			return false
+		}
+		for coord := 0; coord < theta; coord++ {
+			ac := trimCoeffsCopy(a[i].Limbs[coord], q)
+			bc := trimCoeffsCopy(b[i].Limbs[coord], q)
+			if len(ac) != len(bc) {
+				return false
+			}
+			for j := range ac {
+				if ac[j]%q != bc[j]%q {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
 func evalKPolyAtF(K *kf.Field, kp *KPoly, w uint64) kf.Elem {
 	acc := K.Zero()
 	x := K.EmbedF(w % K.Q)

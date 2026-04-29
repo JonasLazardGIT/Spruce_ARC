@@ -202,6 +202,23 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		origWitnessCount := witnessCount
 		witnessPolys := rows[:origWitnessCount]
 		companionRowInputs := append([]lvcs.RowInput(nil), rowInputs[:origWitnessCount]...)
+		if opts.Theta > 1 && pub.IntGenISIS {
+			logical, lerr := normalizePreparedCredentialLogicalRows(
+				ringQ,
+				pub,
+				rows,
+				rowInputs,
+				rowLayout,
+				origWitnessCount,
+				omegaWitness,
+				witnessNCols,
+			)
+			if lerr != nil {
+				return nil, fmt.Errorf("normalize logical rows: %w", lerr)
+			}
+			witnessPolys = logical.Rows
+			companionRowInputs = logical.RowInputs
+		}
 
 		// Small-field params (theta>1) if needed.
 		var sfK *kf.Field
@@ -281,17 +298,33 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			if sfK == nil {
 				return nil, fmt.Errorf("missing K field for theta=%d", opts.Theta)
 			}
-			pcsRows, pcsErr := buildSmallFieldPCSRows(
-				ringQ,
-				omegaWitness,
-				len(omega),
-				opts.Ell,
-				sfK,
-				kf.Elem{Limb: append([]uint64(nil), sfOmegaS1...)},
-				witnessPolys,
-				maskPolysK,
-				maskTarget,
-			)
+			var pcsRows *builtPCSRows
+			var pcsErr error
+			if pub.IntGenISIS {
+				pcsRows, pcsErr = buildSmallFieldPCSRowsFromLiteralInputs(
+					ringQ,
+					omegaWitness,
+					len(omega),
+					opts.Ell,
+					sfK,
+					kf.Elem{Limb: append([]uint64(nil), sfOmegaS1...)},
+					companionRowInputs,
+					maskPolysK,
+					maskTarget,
+				)
+			} else {
+				pcsRows, pcsErr = buildSmallFieldPCSRows(
+					ringQ,
+					omegaWitness,
+					len(omega),
+					opts.Ell,
+					sfK,
+					kf.Elem{Limb: append([]uint64(nil), sfOmegaS1...)},
+					witnessPolys,
+					maskPolysK,
+					maskTarget,
+				)
+			}
 			if pcsErr != nil {
 				return nil, fmt.Errorf("small-field pcs rows: %w", pcsErr)
 			}
@@ -309,11 +342,11 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			}
 			rowInputs = make([]lvcs.RowInput, expectedRows)
 			intGenISISThetaRows := witnessCount
-			if pub.IntGenISIS && rowLayout.IntGenISISShowing != nil && rowLayout.IntGenISISShowing.CoreRowCount > 0 {
+			if pub.IntGenISIS && rowLayout.IntGenISISShowing != nil {
 				intGenISISThetaRows = rowLayout.IntGenISISShowing.CoreRowCount
 			}
 			if pub.IntGenISIS && rowLayout.IntGenISISPreSign != nil && rowLayout.IntGenISISPreSign.WitnessRows() > 0 {
-				intGenISISThetaRows = rowLayout.IntGenISISPreSign.WitnessRows()
+				intGenISISThetaRows = rowLayout.IntGenISISPreSign.ThetaRows()
 			}
 			if opts.DomainMode == DomainModeExplicit {
 				for i := 0; i < witnessCount; i++ {
@@ -482,7 +515,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 						set.AggregatedAlgDeg = preRows.AggregatedAlgDeg
 					}
 				} else if pub.IntGenISIS && len(pub.A) > 0 && len(pub.B) > 0 && len(pub.CM) > 0 && len(pub.AS) > 0 {
-					postRows, cerr := buildIntGenISISShowingConstraintSetFromRows(ringQ, pub, rowLayout, constraintRows, omegaWitness)
+					postRows, cerr := buildIntGenISISShowingConstraintSetFromRows(ringQ, pub, rowLayout, constraintRows, omegaWitness, set.PRFCompanionLayout)
 					if cerr != nil {
 						return nil, cerr
 					}
@@ -780,7 +813,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		// Build post-sign evaluator when A is present.
 		if len(pub.A) > 0 {
 			if pub.IntGenISIS {
-				cfgShow, cerr := newIntGenISISShowingReplayConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints)
+				cfgShow, cerr := newIntGenISISShowingReplayConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, set.PRFCompanionLayout)
 				if cerr != nil {
 					return false, cerr
 				}

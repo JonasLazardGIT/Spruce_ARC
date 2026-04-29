@@ -435,6 +435,11 @@ type SimOpts struct {
 	// SigShortnessNCols is reserved for future single-root signature packing
 	// research. The removed V12/V13 two-oracle paths are no longer live.
 	SigShortnessNCols int
+	// IntGenISISMSECompression selects the IntGenISIS ternary carrier
+	// compression level for showing-time M/s/e coefficient rows. Level 0 keeps
+	// the uncompressed rows. Level k>0 packs k+1 ternary source rows into one
+	// carrier row as in the SmallWood lattice-witness compression technique.
+	IntGenISISMSECompression int
 	// UnsafeSigLookupShadowR121L2 enables an explicitly unsound measurement
 	// mode for the R121/L2 fixed-table lookup idea. "free" omits interval
 	// membership from Q; "same_q" keeps the degree-121 membership in Q.
@@ -516,6 +521,9 @@ func (o *SimOpts) applyDefaults() {
 	}
 	if o.SigShortnessNCols < 0 {
 		o.SigShortnessNCols = 0
+	}
+	if o.IntGenISISMSECompression < 0 {
+		o.IntGenISISMSECompression = 0
 	}
 	o.UnsafeSigLookupShadowR121L2 = NormalizeSigLookupShadowR121L2Mode(o.UnsafeSigLookupShadowR121L2)
 	if sigLookupShadowR121L2EnabledForOpts(*o) {

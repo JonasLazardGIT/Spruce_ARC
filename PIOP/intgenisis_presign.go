@@ -10,18 +10,25 @@ import (
 )
 
 // BuildIntGenISISPreSign builds the committed-message pre-sign proof surface.
-// The witness rows are exactly M, s, and e; the only algebraic residual in this
-// first IntGenISIS relation is C_M M + A_s s + e - c.
+// The witness rows are M, m, k, s, and e. The algebraic residuals enforce the
+// commitment equation plus the deterministic semantic binding M=m||k.
 func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInputs, opts SimOpts) (*Proof, error) {
 	opts.applyDefaults()
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
 	pub.IntGenISIS = true
-	if err := validateIntGenISISPreSignInputs(pub, wit); err != nil {
+	var err error
+	pub, err = bindIntGenISISPublicExtras(pub, int(ringQ.N))
+	if err != nil {
+		return nil, err
+	}
+	if err := validateIntGenISISPreSignInputs(ringQ, pub, wit); err != nil {
 		return nil, err
 	}
 	witnessRows := append([]*ring.Poly{}, wit.M...)
+	witnessRows = append(witnessRows, wit.MAttr...)
+	witnessRows = append(witnessRows, wit.K...)
 	witnessRows = append(witnessRows, wit.S...)
 	witnessRows = append(witnessRows, wit.E...)
 	rowsNTT := make([]*ring.Poly, len(witnessRows))
@@ -34,13 +41,23 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 	if err != nil {
 		return nil, err
 	}
-	residuals, err := BuildCommitConstraints(ringQ, matrix, rowsNTT, pub.Com)
+	commitRowsNTT := make([]*ring.Poly, 0, len(wit.M)+len(wit.S)+len(wit.E))
+	commitRowsNTT = append(commitRowsNTT, rowsNTT[:len(wit.M)]...)
+	sStartForCommit := len(wit.M) + len(wit.MAttr) + len(wit.K)
+	commitRowsNTT = append(commitRowsNTT, rowsNTT[sStartForCommit:sStartForCommit+len(wit.S)]...)
+	commitRowsNTT = append(commitRowsNTT, rowsNTT[sStartForCommit+len(wit.S):sStartForCommit+len(wit.S)+len(wit.E)]...)
+	residuals, err := BuildCommitConstraints(ringQ, matrix, commitRowsNTT, pub.Com)
 	if err != nil {
 		return nil, err
 	}
+	binding, err := intGenISISMessageBindingResiduals(ringQ, wit.M, wit.MAttr, wit.K)
+	if err != nil {
+		return nil, err
+	}
+	residuals = append(residuals, binding...)
 	set := ConstraintSet{
 		FparInt:          residuals,
-		ParallelAlgDeg:   1,
+		ParallelAlgDeg:   intGenISISTernaryMembershipDegree,
 		AggregatedAlgDeg: 1,
 	}
 	ncols := opts.NCols
@@ -90,6 +107,40 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 		rho = 1
 	}
 	rows := append([]*ring.Poly{}, witnessRows...)
+	viewRowsPerPoly := int(ringQ.N) / ncols
+	mViewStart := len(rows)
+	mViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, wit.M, ncols)
+	if err != nil {
+		return nil, fmt.Errorf("M coefficient views: %w", err)
+	}
+	rows = append(rows, mViewRows...)
+	mAttrViewStart := len(rows)
+	mAttrViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, wit.MAttr, ncols)
+	if err != nil {
+		return nil, fmt.Errorf("m coefficient views: %w", err)
+	}
+	rows = append(rows, mAttrViewRows...)
+	kViewStart := len(rows)
+	kViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, wit.K, ncols)
+	if err != nil {
+		return nil, fmt.Errorf("k coefficient views: %w", err)
+	}
+	rows = append(rows, kViewRows...)
+	sViewStart := len(rows)
+	sViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, wit.S, ncols)
+	if err != nil {
+		return nil, fmt.Errorf("s coefficient views: %w", err)
+	}
+	rows = append(rows, sViewRows...)
+	eViewStart := len(rows)
+	eViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, wit.E, ncols)
+	if err != nil {
+		return nil, fmt.Errorf("e coefficient views: %w", err)
+	}
+	rows = append(rows, eViewRows...)
+	boundViewStart := mViewStart
+	boundViewCount := len(rows) - boundViewStart
+	coreRowCount := len(witnessRows)
 	for i := 0; i < rho; i++ {
 		rows = append(rows, ringQ.NewPoly())
 	}
@@ -103,16 +154,29 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 	}
 	layout := RowLayout{
 		RingDegree: int(ringQ.N),
-		SigCount:   len(witnessRows),
+		SigCount:   len(rows) - rho,
 		X0Len:      2,
 		IntGenISISPreSign: &IntGenISISPreSignRowLayout{
-			MStart:         0,
-			MCount:         len(wit.M),
-			SStart:         len(wit.M),
-			SCount:         len(wit.S),
-			EStart:         len(wit.M) + len(wit.S),
-			ECount:         len(wit.E),
-			CommitmentRows: len(pub.Com),
+			MStart:          0,
+			MCount:          len(wit.M),
+			MAttrStart:      len(wit.M),
+			MAttrCount:      len(wit.MAttr),
+			KStart:          len(wit.M) + len(wit.MAttr),
+			KCount:          len(wit.K),
+			SStart:          len(wit.M) + len(wit.MAttr) + len(wit.K),
+			SCount:          len(wit.S),
+			EStart:          len(wit.M) + len(wit.MAttr) + len(wit.K) + len(wit.S),
+			ECount:          len(wit.E),
+			CoreRowCount:    coreRowCount,
+			BoundViewStart:  boundViewStart,
+			BoundViewCount:  boundViewCount,
+			MViewStart:      mViewStart,
+			MAttrViewStart:  mAttrViewStart,
+			KViewStart:      kViewStart,
+			SViewStart:      sViewStart,
+			EViewStart:      eViewStart,
+			ViewRowsPerPoly: viewRowsPerPoly,
+			CommitmentRows:  len(pub.Com),
 		},
 	}
 	prepared := &preparedCredentialBuild{
@@ -120,9 +184,9 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 		rowInputs:     actualRowInputs,
 		rowLayout:     layout,
 		decsParams:    decs.Params{},
-		maskRowOffset: len(witnessRows),
+		maskRowOffset: len(rows) - rho,
 		maskRowCount:  rho,
-		witnessCount:  len(witnessRows),
+		witnessCount:  len(rows) - rho,
 		witnessNCols:  ncols,
 		omega:         omega,
 		omegaWitness:  omegaWitness,
@@ -137,13 +201,25 @@ func VerifyIntGenISISPreSign(pub PublicInputs, proof *Proof, opts SimOpts) (bool
 		return false, fmt.Errorf("nil proof")
 	}
 	pub.IntGenISIS = true
+	var err error
+	ringN := pub.RingDegree
+	if ringN == 0 && proof.RowLayout.RingDegree > 0 {
+		ringN = proof.RowLayout.RingDegree
+	}
+	pub, err = bindIntGenISISPublicExtras(pub, ringN)
+	if err != nil {
+		return false, err
+	}
 	opts.applyDefaults()
+	if err := validateIntGenISISProofDegreeMetadata(proof, pub, opts); err != nil {
+		return false, err
+	}
 	opts.Credential = true
 	set := ConstraintSet{}
 	return VerifyWithConstraints(proof, set, pub, opts, FSModeCredential)
 }
 
-func validateIntGenISISPreSignInputs(pub PublicInputs, wit WitnessInputs) error {
+func validateIntGenISISPreSignInputs(ringQ *ring.Ring, pub PublicInputs, wit WitnessInputs) error {
 	if len(pub.Com) == 0 {
 		return fmt.Errorf("missing commitment c")
 	}
@@ -156,6 +232,12 @@ func validateIntGenISISPreSignInputs(pub PublicInputs, wit WitnessInputs) error 
 	if len(wit.M) == 0 {
 		return fmt.Errorf("missing M witness")
 	}
+	if len(wit.MAttr) == 0 {
+		return fmt.Errorf("missing m witness")
+	}
+	if len(wit.K) == 0 {
+		return fmt.Errorf("missing k witness")
+	}
 	if len(wit.S) == 0 {
 		return fmt.Errorf("missing s witness")
 	}
@@ -164,6 +246,21 @@ func validateIntGenISISPreSignInputs(pub PublicInputs, wit WitnessInputs) error 
 	}
 	if len(pub.CM) != len(pub.Com) || len(pub.AS) != len(pub.Com) || len(wit.E) != len(pub.Com) {
 		return fmt.Errorf("commitment dimension mismatch")
+	}
+	if len(wit.MAttr) != len(wit.M) || len(wit.K) != len(wit.M) {
+		return fmt.Errorf("semantic dimension mismatch M=%d m=%d k=%d", len(wit.M), len(wit.MAttr), len(wit.K))
+	}
+	if err := validateIntGenISISSemanticPolys(ringQ, pub.BoundB, wit.M, wit.MAttr, wit.K); err != nil {
+		return fmt.Errorf("semantic message: %w", err)
+	}
+	if err := validateIntGenISISPolicyPolys(ringQ, pub, wit.M, wit.MAttr, wit.K); err != nil {
+		return fmt.Errorf("policy: %w", err)
+	}
+	if err := validateIntGenISISTernaryPolys(ringQ, "s", wit.S); err != nil {
+		return err
+	}
+	if err := validateIntGenISISTernaryPolys(ringQ, "e", wit.E); err != nil {
+		return err
 	}
 	return nil
 }
@@ -227,7 +324,7 @@ func buildIntGenISISPreSignConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 		}
 		return trimPoly(coeff, q), nil
 	}
-	residualCoeffs := make([][]uint64, l.CommitmentRows)
+	residualCoeffs := make([][]uint64, 0, l.CommitmentRows+l.MCount)
 	for out := 0; out < l.CommitmentRows; out++ {
 		comCoeff, err := thetaCoeff(pub.Com[out], fmt.Sprintf("Com[%d]", out))
 		if err != nil {
@@ -261,7 +358,50 @@ func buildIntGenISISPreSignConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 			return ConstraintSet{}, err
 		}
 		res = polyAdd(res, eCoeff, q)
-		residualCoeffs[out] = trimPoly(res, q)
+		residualCoeffs = append(residualCoeffs, trimPoly(res, q))
+	}
+	for i := 0; i < l.MCount; i++ {
+		mCoeff, err := rowCoeff(l.MStart + i)
+		if err != nil {
+			return ConstraintSet{}, err
+		}
+		mAttrCoeff, err := rowCoeff(l.MAttrStart + i)
+		if err != nil {
+			return ConstraintSet{}, err
+		}
+		kCoeff, err := rowCoeff(l.KStart + i)
+		if err != nil {
+			return ConstraintSet{}, err
+		}
+		res := polySub(polySub(mCoeff, mAttrCoeff, q), kCoeff, q)
+		residualCoeffs = append(residualCoeffs, trimPoly(res, q))
+	}
+	policy, err := intGenISISPolicyFromPublic(pub)
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	semanticLayout, err := intGenISISSemanticLayout(int(ringQ.N), pub.BoundB)
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	policyRows, err := intGenISISPolicyCoeffViewCoeffs(ringQ, policy, semanticLayout, omega, len(omega))
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	if len(policyRows) > 0 {
+		if l.MAttrViewStart <= 0 || l.ViewRowsPerPoly <= 0 {
+			return ConstraintSet{}, fmt.Errorf("policy requires m coefficient-view rows")
+		}
+		if len(policyRows) != l.MAttrCount*l.ViewRowsPerPoly {
+			return ConstraintSet{}, fmt.Errorf("policy view rows=%d want %d", len(policyRows), l.MAttrCount*l.ViewRowsPerPoly)
+		}
+		for i := range policyRows {
+			mAttrCoeff, err := rowCoeff(l.MAttrViewStart + i)
+			if err != nil {
+				return ConstraintSet{}, err
+			}
+			residualCoeffs = append(residualCoeffs, trimPoly(polySub(mAttrCoeff, policyRows[i], q), q))
+		}
 	}
 	fpar := make([]*ring.Poly, len(residualCoeffs))
 	for i := range residualCoeffs {
@@ -269,10 +409,18 @@ func buildIntGenISISPreSignConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 			fpar[i] = nttPolyFromFormalCoeffsIfFits(ringQ, residualCoeffs[i])
 		}
 	}
+	boundRows := intGenISISViewRowIndices(l.BoundViewStart, l.BoundViewCount)
+	boundPolys, boundCoeffs, err := intGenISISTernaryMembershipRows(ringQ, rowsNTT, boundRows)
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	policyDegree := intGenISISPolicyDegree(policy)
 	return ConstraintSet{
 		FparInt:          fpar,
 		FparIntCoeffs:    residualCoeffs,
-		ParallelAlgDeg:   1,
+		FparNorm:         boundPolys,
+		FparNormCoeffs:   boundCoeffs,
+		ParallelAlgDeg:   maxInt(maxInt(1, intGenISISTernaryMembershipDegree), policyDegree),
 		AggregatedAlgDeg: 1,
 	}, nil
 }

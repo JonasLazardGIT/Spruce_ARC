@@ -15,12 +15,22 @@ func TestIntGenISISStateRoundTripOmitsOldRandomness(t *testing.T) {
 		out[0] = v
 		return out
 	}
+	layout, err := DefaultSemanticMessageLayout(profile, 8)
+	if err != nil {
+		t.Fatalf("layout: %v", err)
+	}
+	semantic, err := EncodeSemanticMessage(layout, [][]int64{row(1)}, []int64{1, 0, -1, 1, 0, -1, 1, 0})
+	if err != nil {
+		t.Fatalf("encode semantic message: %v", err)
+	}
 	st := IntGenISISState{
 		Version:              IntGenISISStateVersion,
 		Profile:              profile.Name,
-		M:                    [][]int64{row(1)},
-		S:                    [][]int64{row(2), row(3)},
-		E:                    [][]int64{row(4)},
+		M:                    semantic.M,
+		MAttr:                semantic.MAttr,
+		K:                    semantic.K,
+		S:                    [][]int64{row(1), row(-1)},
+		E:                    [][]int64{row(0)},
 		MuSig:                [][]int64{row(5)},
 		X0:                   [][]int64{row(6), row(7)},
 		X1:                   [][]int64{row(8)},
