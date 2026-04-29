@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
 	ntrurio "vSIS-Signature/ntru/io"
+	"vSIS-Signature/ntru/keys"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -45,6 +48,25 @@ func mustReadFile(t *testing.T, path string) []byte {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return data
+}
+
+func runShowingCLIForIssuanceTest(t *testing.T, args ...string) {
+	t.Helper()
+	if err := runShowingCLIForIssuanceTestErr(t, args...); err != nil {
+		t.Fatalf("showing CLI %v: %v", args, err)
+	}
+}
+
+func runShowingCLIForIssuanceTestErr(t *testing.T, args ...string) error {
+	t.Helper()
+	cmdArgs := append([]string{"run", "./cmd/showing"}, args...)
+	cmd := exec.Command("go", cmdArgs...)
+	cmd.Dir = issuanceTestRepoRoot(t)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func maxAbsRows(rows [][]int64) int64 {
@@ -163,7 +185,15 @@ func TestBenchmarkIntGenISISWritesRowInventory(t *testing.T) {
 		t.Fatalf("read benchmark json: %v", err)
 	}
 	text := string(raw)
-	for _, want := range []string{"intgenisis_mlwe_presign", "intgenisis_mlwe_showing", `"showing_non_prf_rows": 352`, `"showing_non_prf_rows": 208`} {
+	for _, want := range []string{
+		"intgenisis_mlwe_presign",
+		"intgenisis_mlwe_showing",
+		`"showing_non_prf_rows": 416`,
+		`"showing_non_prf_rows": 240`,
+		`"measurement_status": "profile_b_live_presign"`,
+		`"measurement_status": "profile_b_live_showing"`,
+		`"proof_size_bytes": 0`,
+	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("benchmark json missing %q: %s", want, text)
 		}
@@ -225,6 +255,236 @@ func TestIntGenISISCLICommitProveAndChallengeGuard(t *testing.T) {
 	}
 	if len(sub.T) != 0 {
 		t.Fatalf("IntGenISIS pre-sign submission exposed target T with len=%d", len(sub.T))
+	}
+}
+
+func TestIntGenISISIssueResponseOmitsTargetAndVerifiesAUEqualsT(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+	ringQ, err := credential.LoadRingWithDegree(credential.PrimaryIntGenISISProfile().N)
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+	target := make([]int64, ringQ.N)
+	target[0] = 7
+	resp := issueResponseFile{
+		Version:              issuanceArtifactVersion,
+		CredentialPublicPath: "Parameters/credential_public.intgenisis_profile_b.json",
+		SigS1:                make([]int64, ringQ.N),
+		SigS2:                append([]int64(nil), target...),
+		NTRUPublic:           [][]int64{make([]int64, ringQ.N)},
+	}
+	raw, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	for _, stale := range []string{`"t"`, `"signature"`} {
+		if strings.Contains(string(raw), stale) {
+			t.Fatalf("IntGenISIS response leaked stale field %q: %s", stale, string(raw))
+		}
+	}
+	if err := verifyIntGenISISSignatureResponse(ringQ, resp, target); err != nil {
+		t.Fatalf("verify response: %v", err)
+	}
+	staleT := resp
+	staleT.T = append([]int64(nil), target...)
+	if err := verifyIntGenISISSignatureResponse(ringQ, staleT, target); err == nil {
+		t.Fatal("IntGenISIS response with serialized T accepted")
+	}
+	staleBundle := resp
+	staleBundle.Signature = &keys.Signature{}
+	if err := verifyIntGenISISSignatureResponse(ringQ, staleBundle, target); err == nil {
+		t.Fatal("IntGenISIS response with serialized signature bundle accepted")
+	}
+	resp.SigS2[0]++
+	if err := verifyIntGenISISSignatureResponse(ringQ, resp, target); err == nil {
+		t.Fatal("modified signature response accepted")
+	}
+}
+
+func TestIntGenISISFullCLIFlowPresentationReplay(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	tmp := t.TempDir()
+	publicPath := filepath.Join(tmp, "credential_public.intgenisis.json")
+	bPath := filepath.Join(tmp, "Bmatrix.intgenisis.json")
+	holderSecret := filepath.Join(tmp, "holder_secret.json")
+	commitRequest := filepath.Join(tmp, "commit_request.json")
+	submission := filepath.Join(tmp, "presign_submission.json")
+	response := filepath.Join(tmp, "issue_response.json")
+	statePath := filepath.Join(tmp, "credential_state.intgenisis.json")
+	signaturePath := filepath.Join(tmp, "signature.json")
+	verifierKey := filepath.Join(tmp, "intgenisis_verifier_key.json")
+	ntruParams := filepath.Join(tmp, "ntru_params.json")
+	ntruPublic := filepath.Join(tmp, "ntru_public.json")
+	ntruPrivate := filepath.Join(tmp, "ntru_private.json")
+	ntruSignature := filepath.Join(tmp, "ntru_signature.json")
+	presentation := filepath.Join(tmp, "presentation.json")
+	verifierState := filepath.Join(tmp, "verifier_state.json")
+
+	if err := run([]string{"setup-intgenisis-public", "-out", publicPath, "-b-path", bPath, "-force"}); err != nil {
+		t.Fatalf("setup-intgenisis-public: %v", err)
+	}
+	if err := run([]string{
+		"setup-ntru-keys",
+		"-research-ring-degree", "512",
+		"-params-out", ntruParams,
+		"-public-out", ntruPublic,
+		"-private-out", ntruPrivate,
+		"-force",
+		"-keygen-trials", "500",
+		"-attempts", "2",
+	}); err != nil {
+		t.Fatalf("setup-ntru-keys: %v", err)
+	}
+	if err := run([]string{
+		"holder-commit",
+		"-public-params", publicPath,
+		"-holder-secret", holderSecret,
+		"-commit-request", commitRequest,
+		"-seed", "11",
+		"-ncols", "16",
+		"-lvcs-ncols", "32",
+	}); err != nil {
+		t.Fatalf("holder-commit: %v", err)
+	}
+	if err := run([]string{"holder-prove", "-holder-secret", holderSecret, "-presign-submission", submission}); err != nil {
+		t.Fatalf("holder-prove: %v", err)
+	}
+	if err := run([]string{
+		"issuer-verify-sign",
+		"-commit-request", commitRequest,
+		"-presign-submission", submission,
+		"-issue-response", response,
+		"-ntru-params", ntruParams,
+		"-ntru-public-key", ntruPublic,
+		"-ntru-private-key", ntruPrivate,
+		"-ntru-signature-out", ntruSignature,
+		"-verifier-key-out", verifierKey,
+		"-max-trials", "512",
+	}); err != nil {
+		t.Fatalf("issuer-verify-sign: %v", err)
+	}
+	if err := run([]string{
+		"holder-finalize",
+		"-holder-secret", holderSecret,
+		"-commit-request", commitRequest,
+		"-issue-response", response,
+		"-state-out", statePath,
+		"-signature-out", signaturePath,
+		"-ntru-params", ntruParams,
+	}); err != nil {
+		t.Fatalf("holder-finalize: %v", err)
+	}
+	runShowingCLIForIssuanceTest(t,
+		"-showing-profile", "showing_intgenisis_profile_b",
+		"-state-path", statePath,
+		"-presentation-out", presentation,
+		"-ncols", "16",
+		"-lvcs-ncols", "32",
+		"-nleaves", "4096",
+		"-eta", "8",
+		"-rho", "1",
+		"-prf-checkpoint-samples", "2",
+	)
+	runShowingCLIForIssuanceTest(t,
+		"-showing-profile", "showing_intgenisis_profile_b",
+		"-verify-presentation", presentation,
+		"-public-params", publicPath,
+		"-verifier-key", verifierKey,
+		"-verifier-state", verifierState,
+		"-ncols", "16",
+		"-lvcs-ncols", "32",
+		"-nleaves", "4096",
+		"-eta", "8",
+		"-rho", "1",
+		"-prf-checkpoint-samples", "2",
+	)
+	replayErr := runShowingCLIForIssuanceTestErr(t,
+		"-showing-profile", "showing_intgenisis_profile_b",
+		"-verify-presentation", presentation,
+		"-public-params", publicPath,
+		"-verifier-key", verifierKey,
+		"-verifier-state", verifierState,
+		"-ncols", "16",
+		"-lvcs-ncols", "32",
+		"-nleaves", "4096",
+		"-eta", "8",
+		"-rho", "1",
+		"-prf-checkpoint-samples", "2",
+	)
+	if replayErr == nil || !strings.Contains(replayErr.Error(), "replayed IntGenISIS nonce/tag pair") {
+		t.Fatalf("replay error=%v", replayErr)
+	}
+	var presTop map[string]json.RawMessage
+	if err := json.Unmarshal(mustReadFile(t, presentation), &presTop); err != nil {
+		t.Fatalf("decode presentation: %v", err)
+	}
+	for _, stale := range []string{"c", "T", "M", "m", "k", "s", "e", "mu_sig", "x0", "x1", "Z", "u", "r0", "r1", "LHL", "shared"} {
+		if _, ok := presTop[stale]; ok {
+			t.Fatalf("presentation leaked top-level field %q", stale)
+		}
+	}
+	var key credential.IntGenISISVerifierKey
+	if err := json.Unmarshal(mustReadFile(t, verifierKey), &key); err != nil {
+		t.Fatalf("decode verifier key: %v", err)
+	}
+	if key.SignatureBound <= 0 {
+		t.Fatalf("verifier key signature_bound=%d", key.SignatureBound)
+	}
+}
+
+func TestBenchmarkIntGenISISE2ECommandWritesPaperTranscriptReport(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	tmp := t.TempDir()
+	reportPath := filepath.Join(tmp, "report.json")
+	if err := run([]string{
+		"benchmark-intgenisis-e2e",
+		"-artifact-dir", tmp,
+		"-force",
+		"-keygen-trials", "500",
+		"-attempts", "2",
+		"-max-trials", "512",
+		"-prf-checkpoint-samples", "2",
+		"-json-out", reportPath,
+	}); err != nil {
+		t.Fatalf("benchmark-intgenisis-e2e: %v", err)
+	}
+	var report benchmarkIntGenISISE2EReport
+	if err := json.Unmarshal(mustReadFile(t, reportPath), &report); err != nil {
+		t.Fatalf("decode e2e report: %v", err)
+	}
+	if report.Profile != credential.ProfileIntGenISISB || !report.ReplayRejected {
+		t.Fatalf("unexpected e2e report profile=%q replay=%v", report.Profile, report.ReplayRejected)
+	}
+	if report.Issuance.PaperTranscriptBytes <= 0 || report.Showing.PaperTranscriptBytes <= 0 {
+		t.Fatalf("missing paper transcript bytes: issuance=%d showing=%d", report.Issuance.PaperTranscriptBytes, report.Showing.PaperTranscriptBytes)
+	}
+	if report.Showing.ShortnessRows != 256 || report.Showing.HatRows != 256 || report.Showing.YHatRows != 32 || report.Showing.YLinearConstraints != 512 {
+		t.Fatalf("unexpected showing rows: shortness=%d hats=%d y_hats=%d y_linear=%d", report.Showing.ShortnessRows, report.Showing.HatRows, report.Showing.YHatRows, report.Showing.YLinearConstraints)
+	}
+}
+
+func TestBenchmarkIntGenISISE2ERejectsOverLeafCap(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	tmp := t.TempDir()
+	err := run([]string{
+		"benchmark-intgenisis-e2e",
+		"-artifact-dir", tmp,
+		"-force",
+		"-nleaves", "8192",
+		"-max-nleaves", "4096",
+	})
+	if err == nil {
+		t.Fatalf("expected benchmark-intgenisis-e2e to reject nleaves above cap")
+	}
+	if !strings.Contains(err.Error(), "exceeds max-nleaves=4096") {
+		t.Fatalf("unexpected cap error: %v", err)
 	}
 }
 

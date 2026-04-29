@@ -44,26 +44,40 @@ type intGenISISHolderWitnessSpec struct {
 	E     [][]int64 `json:"e"`
 }
 
+type smallWoodTuningSpec struct {
+	NCols     int    `json:"ncols,omitempty"`
+	LVCSNCols int    `json:"lvcs_ncols,omitempty"`
+	NLeaves   int    `json:"nleaves,omitempty"`
+	Ell       int    `json:"ell,omitempty"`
+	EllPrime  int    `json:"ell_prime,omitempty"`
+	Eta       int    `json:"eta,omitempty"`
+	Theta     int    `json:"theta,omitempty"`
+	Rho       int    `json:"rho,omitempty"`
+	Kappa     [4]int `json:"kappa,omitempty"`
+}
+
 type holderSecretFile struct {
-	Version              int      `json:"version"`
-	CredentialPublicPath string   `json:"credential_public_path"`
-	PRFParamsPath        string   `json:"prf_params_path"`
-	PackedNCols          int      `json:"packed_ncols"`
-	LVCSNCols            int      `json:"lvcs_ncols,omitempty"`
-	NLeaves              int      `json:"nleaves,omitempty"`
-	Omega                []uint64 `json:"omega"`
+	Version              int                  `json:"version"`
+	CredentialPublicPath string               `json:"credential_public_path"`
+	PRFParamsPath        string               `json:"prf_params_path"`
+	PackedNCols          int                  `json:"packed_ncols"`
+	LVCSNCols            int                  `json:"lvcs_ncols,omitempty"`
+	NLeaves              int                  `json:"nleaves,omitempty"`
+	SmallWood            *smallWoodTuningSpec `json:"smallwood,omitempty"`
+	Omega                []uint64             `json:"omega"`
 	holderWitnessSpec
 	IntGenISIS *intGenISISHolderWitnessSpec `json:"intgenisis,omitempty"`
 }
 
 type commitRequestFile struct {
-	Version              int       `json:"version"`
-	CredentialPublicPath string    `json:"credential_public_path"`
-	PackedNCols          int       `json:"packed_ncols,omitempty"`
-	LVCSNCols            int       `json:"lvcs_ncols,omitempty"`
-	NLeaves              int       `json:"nleaves,omitempty"`
-	Omega                []uint64  `json:"omega"`
-	Com                  [][]int64 `json:"com"`
+	Version              int                  `json:"version"`
+	CredentialPublicPath string               `json:"credential_public_path"`
+	PackedNCols          int                  `json:"packed_ncols,omitempty"`
+	LVCSNCols            int                  `json:"lvcs_ncols,omitempty"`
+	NLeaves              int                  `json:"nleaves,omitempty"`
+	SmallWood            *smallWoodTuningSpec `json:"smallwood,omitempty"`
+	Omega                []uint64             `json:"omega"`
+	Com                  [][]int64            `json:"com"`
 }
 
 type issueChallengeFile struct {
@@ -116,6 +130,12 @@ type issuanceRuntimeOverrides struct {
 	NCols      int
 	LVCSNCols  int
 	NLeaves    int
+	Ell        int
+	EllPrime   int
+	Eta        int
+	Theta      int
+	Rho        int
+	Kappa      [4]int
 	RingDegree int
 }
 
@@ -165,15 +185,85 @@ func resolveX0Profile(name string, x0Len int, x0Bound int64) (x0Profile, error) 
 }
 
 func persistedIssuanceRuntimeOverrides(ncols, lvcsNCols, nLeaves int, omega []uint64) issuanceRuntimeOverrides {
+	return persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves, omega, nil)
+}
+
+func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves int, omega []uint64, spec *smallWoodTuningSpec) issuanceRuntimeOverrides {
 	if ncols <= 0 && len(omega) > 0 {
 		ncols = len(omega)
 	}
-	return issuanceRuntimeOverrides{
+	out := issuanceRuntimeOverrides{
 		NCols:      ncols,
 		LVCSNCols:  lvcsNCols,
 		NLeaves:    nLeaves,
 		RingDegree: 0,
 	}
+	if spec != nil {
+		if spec.NCols > 0 {
+			out.NCols = spec.NCols
+		}
+		if out.NCols <= 0 && len(omega) > 0 {
+			out.NCols = len(omega)
+		}
+		out.LVCSNCols = spec.LVCSNCols
+		out.NLeaves = spec.NLeaves
+		out.Ell = spec.Ell
+		out.EllPrime = spec.EllPrime
+		out.Eta = spec.Eta
+		out.Theta = spec.Theta
+		out.Rho = spec.Rho
+		out.Kappa = spec.Kappa
+	}
+	return out
+}
+
+func smallWoodTuningSpecFromOpts(opts PIOP.SimOpts) *smallWoodTuningSpec {
+	return &smallWoodTuningSpec{
+		NCols:     opts.NCols,
+		LVCSNCols: opts.LVCSNCols,
+		NLeaves:   opts.NLeaves,
+		Ell:       opts.Ell,
+		EllPrime:  opts.EllPrime,
+		Eta:       opts.Eta,
+		Theta:     opts.Theta,
+		Rho:       opts.Rho,
+		Kappa:     opts.Kappa,
+	}
+}
+
+func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeOverrides) PIOP.SimOpts {
+	if overrides.NCols > 0 {
+		opts.NCols = overrides.NCols
+	}
+	if overrides.LVCSNCols > 0 {
+		opts.LVCSNCols = overrides.LVCSNCols
+		opts.PostSignLVCSNCols = overrides.LVCSNCols
+		opts.PRFLVCSNCols = overrides.LVCSNCols
+	}
+	if overrides.NLeaves > 0 {
+		opts.NLeaves = overrides.NLeaves
+		opts.PostSignNLeaves = overrides.NLeaves
+		opts.PRFNLeaves = overrides.NLeaves
+	}
+	if overrides.Ell > 0 {
+		opts.Ell = overrides.Ell
+	}
+	if overrides.EllPrime > 0 {
+		opts.EllPrime = overrides.EllPrime
+	}
+	if overrides.Eta > 0 {
+		opts.Eta = overrides.Eta
+	}
+	if overrides.Theta > 0 {
+		opts.Theta = overrides.Theta
+	}
+	if overrides.Rho > 0 {
+		opts.Rho = overrides.Rho
+	}
+	if overrides.Kappa != ([4]int{}) {
+		opts.Kappa = overrides.Kappa
+	}
+	return opts
 }
 
 func credentialPublicPathDefault() string {
@@ -253,7 +343,12 @@ func setupIntGenISISPublic(outPath string, force bool, profileName, bPath string
 		return err
 	}
 	log.Printf("[issuance-cli] wrote IntGenISIS public params to %s", outPath)
-	log.Printf("[issuance-cli] profile=%s N=%d q=%d ell_M=%d k_s=%d n_c=%d B=%d ell_x0=%d", profile.Name, profile.N, profile.Q, profile.EllM, profile.KS, profile.NC, profile.B, profile.EllX0)
+	layout, layoutErr := credential.DefaultSemanticMessageLayout(profile, 8)
+	if layoutErr == nil {
+		log.Printf("[issuance-cli] profile=%s N=%d q=%d ell_M=%d k_s=%d n_c=%d compat_B=%d live_M_s_e_domain=%s live_key_domain=%s live_bound=%d ell_x0=%d", profile.Name, profile.N, profile.Q, profile.EllM, profile.KS, profile.NC, profile.B, layout.MSEDomain, layout.KeyDomain, layout.Bound, profile.EllX0)
+	} else {
+		log.Printf("[issuance-cli] profile=%s N=%d q=%d ell_M=%d k_s=%d n_c=%d compat_B=%d ell_x0=%d", profile.Name, profile.N, profile.Q, profile.EllM, profile.KS, profile.NC, profile.B, profile.EllX0)
+	}
 	return nil
 }
 
@@ -477,14 +572,17 @@ func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expe
 		PackedNCols:          rt.opts.NCols,
 		LVCSNCols:            rt.opts.LVCSNCols,
 		NLeaves:              rt.opts.NLeaves,
+		SmallWood:            smallWoodTuningSpecFromOpts(rt.opts),
 		Omega:                append([]uint64(nil), rt.omega...),
 		holderWitnessSpec:    witnessSpecFromInputs(rt.ringQ, inputs),
 	}
 	request := commitRequestFile{
 		Version:              issuanceArtifactVersion,
 		CredentialPublicPath: publicPath,
+		PackedNCols:          rt.opts.NCols,
 		LVCSNCols:            rt.opts.LVCSNCols,
 		NLeaves:              rt.opts.NLeaves,
+		SmallWood:            smallWoodTuningSpecFromOpts(rt.opts),
 		Omega:                append([]uint64(nil), rt.omega...),
 		Com:                  polyVecToInt64(rt.ringQ, com, true),
 	}
@@ -507,15 +605,25 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 		return fmt.Errorf("unsupported IntGenISIS profile %q", rt.public.Profile)
 	}
 	rng := newLocalRNG(seed)
-	M := rt.ringQ.NewPoly()
-	K := rt.ringQ.NewPoly()
-	keyStart := int(rt.ringQ.N) / 2
-	for i := 0; i < rt.prfParams.LenKey; i++ {
-		v := int64(1 + rng.Intn(int(profile.B)))
-		M.Coeffs[0][keyStart+i] = uint64(v)
-		K.Coeffs[0][i] = uint64(v)
+	layout, err := credential.DefaultSemanticMessageLayout(profile, rt.prfParams.LenKey)
+	if err != nil {
+		return err
 	}
-	MAttr := rt.ringQ.NewPoly()
+	key := make([]int64, rt.prfParams.LenKey)
+	for i := 0; i < rt.prfParams.LenKey; i++ {
+		key[i] = int64(rng.Intn(3) - 1)
+	}
+	attrs := credential.ZeroSemanticAttributes(layout)
+	for _, slot := range layout.Attribute {
+		attrs[slot.Poly][slot.Coeff] = int64(rng.Intn(3) - 1)
+	}
+	semantic, err := credential.EncodeSemanticMessage(layout, attrs, key)
+	if err != nil {
+		return fmt.Errorf("encode IntGenISIS semantic message: %w", err)
+	}
+	M := polysFromInt64(rt.ringQ, semantic.M)[0]
+	MAttr := polysFromInt64(rt.ringQ, semantic.MAttr)[0]
+	K := polysFromInt64(rt.ringQ, semantic.K)[0]
 	s, e, err := issuance.SampleIntGenISISCommitmentRandomness(rt.params, rng)
 	if err != nil {
 		return fmt.Errorf("sample IntGenISIS commitment randomness: %w", err)
@@ -538,6 +646,7 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 		PackedNCols:          rt.opts.NCols,
 		LVCSNCols:            rt.opts.LVCSNCols,
 		NLeaves:              rt.opts.NLeaves,
+		SmallWood:            smallWoodTuningSpecFromOpts(rt.opts),
 		Omega:                append([]uint64(nil), rt.omega...),
 		IntGenISIS: &intGenISISHolderWitnessSpec{
 			M:     polyVecToInt64(rt.ringQ, inputs.M, false),
@@ -553,6 +662,7 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 		PackedNCols:          rt.opts.NCols,
 		LVCSNCols:            rt.opts.LVCSNCols,
 		NLeaves:              rt.opts.NLeaves,
+		SmallWood:            smallWoodTuningSpecFromOpts(rt.opts),
 		Omega:                append([]uint64(nil), rt.omega...),
 		Com:                  polyVecToInt64(rt.ringQ, com, true),
 	}
@@ -611,7 +721,7 @@ func holderProve(holderSecretPath, challengePath, submissionPath string) error {
 	if secret.Version != issuanceArtifactVersion {
 		return fmt.Errorf("unsupported holder secret version %d", secret.Version)
 	}
-	rt, err := loadIssuanceRuntime(secret.CredentialPublicPath, secret.PRFParamsPath, persistedIssuanceRuntimeOverrides(secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega))
+	rt, err := loadIssuanceRuntime(secret.CredentialPublicPath, secret.PRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega, secret.SmallWood))
 	if err != nil {
 		return err
 	}
@@ -686,9 +796,11 @@ func holderProveIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, submiss
 		IntGenISIS:   true,
 	}
 	proof, err := PIOP.BuildIntGenISISPreSign(rt.ringQ, pub, PIOP.WitnessInputs{
-		M: inputs.M,
-		S: inputs.S,
-		E: inputs.E,
+		M:     inputs.M,
+		MAttr: inputs.MAttr,
+		K:     inputs.K,
+		S:     inputs.S,
+		E:     inputs.E,
 	}, rt.opts)
 	if err != nil {
 		return fmt.Errorf("prove IntGenISIS pre-sign: %w", err)
@@ -705,7 +817,7 @@ func holderProveIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, submiss
 	return nil
 }
 
-func issuerVerifySign(commitRequestPath, challengePath, submissionPath, responsePath string, maxTrials int, ntruPaths signverify.SignPaths) error {
+func issuerVerifySign(commitRequestPath, challengePath, submissionPath, responsePath string, maxTrials int, ntruPaths signverify.SignPaths, verifierKeyOut string) error {
 	var req commitRequestFile
 	if err := readJSONFile(commitRequestPath, &req); err != nil {
 		return fmt.Errorf("read commit request: %w", err)
@@ -720,12 +832,12 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 	if submission.Version != issuanceArtifactVersion {
 		return fmt.Errorf("unsupported pre-sign submission version %d", submission.Version)
 	}
-	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, defaultPRFParamsPath, persistedIssuanceRuntimeOverrides(0, req.LVCSNCols, req.NLeaves, req.Omega))
+	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, defaultPRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(req.PackedNCols, req.LVCSNCols, req.NLeaves, req.Omega, req.SmallWood))
 	if err != nil {
 		return err
 	}
 	if rt.public.UsesIntGenISIS() {
-		return issuerVerifySignIntGenISIS(rt, req, submission, responsePath, maxTrials, ntruPaths)
+		return issuerVerifySignIntGenISIS(rt, req, submission, responsePath, maxTrials, ntruPaths, verifierKeyOut)
 	}
 	var challenge issueChallengeFile
 	if err := readJSONFile(challengePath, &challenge); err != nil {
@@ -794,7 +906,7 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 	return nil
 }
 
-func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, submission preSignSubmissionFile, responsePath string, maxTrials int, ntruPaths signverify.SignPaths) error {
+func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, submission preSignSubmissionFile, responsePath string, maxTrials int, ntruPaths signverify.SignPaths, verifierKeyOut string) error {
 	if submission.Proof == nil {
 		return fmt.Errorf("IntGenISIS pre-sign submission missing proof")
 	}
@@ -838,6 +950,10 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 	if err := validateNTRUSigningArtifacts(ntruPaths, len(target.TCoeff)); err != nil {
 		return err
 	}
+	ntruParams, err := loadNTRUParamsForBound(ntruPaths.ParamsPath)
+	if err != nil {
+		return err
+	}
 	sig, err := issuance.SignTargetAndSaveWithPaths(target.TCoeff, maxTrials, ntru.SamplerOpts{}, ntruPaths)
 	if err != nil {
 		return fmt.Errorf("sign IntGenISIS target: %w", err)
@@ -856,17 +972,32 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 	resp := issueResponseFile{
 		Version:              issuanceArtifactVersion,
 		CredentialPublicPath: req.CredentialPublicPath,
-		T:                    append([]int64(nil), target.TCoeff...),
 		MuSig:                polyVecToInt64(rt.ringQ, data.MuSig, false),
 		X0:                   polyVecToInt64(rt.ringQ, data.X0, false),
 		X1:                   polyVecToInt64(rt.ringQ, data.X1, false),
 		SigS1:                append([]int64(nil), sig.Signature.S1...),
 		SigS2:                append([]int64(nil), sig.Signature.S2...),
 		NTRUPublic:           [][]int64{append([]int64(nil), ntruPub.HCoeffs...)},
-		Signature:            sig,
 	}
 	if err := writeJSONFile(responsePath, resp, 0o644); err != nil {
 		return fmt.Errorf("write IntGenISIS issuer response: %w", err)
+	}
+	if verifierKeyOut != "" {
+		digest, err := credential.PublicParamsDigest(rt.public)
+		if err != nil {
+			return fmt.Errorf("digest IntGenISIS public params: %w", err)
+		}
+		key := credential.IntGenISISVerifierKey{
+			Version:            credential.IntGenISISVerifierKeyVersion,
+			Profile:            rt.public.Profile,
+			RingDegree:         int(rt.ringQ.N),
+			PublicParamsDigest: digest,
+			NTRUPublic:         [][]int64{append([]int64(nil), ntruPub.HCoeffs...)},
+			SignatureBound:     int64(ntruParams.Beta),
+		}
+		if err := credential.SaveIntGenISISVerifierKey(verifierKeyOut, key); err != nil {
+			return err
+		}
 	}
 	log.Printf("[issuance-cli] IntGenISIS issuer verify/sign wrote %s", responsePath)
 	return nil
@@ -877,7 +1008,7 @@ func holderFinalize(holderSecretPath, commitRequestPath, challengePath, response
 	if err := readJSONFile(holderSecretPath, &secretProbe); err != nil {
 		return fmt.Errorf("read holder secret: %w", err)
 	}
-	rtProbe, err := loadIssuanceRuntime(secretProbe.CredentialPublicPath, secretProbe.PRFParamsPath, persistedIssuanceRuntimeOverrides(secretProbe.PackedNCols, secretProbe.LVCSNCols, secretProbe.NLeaves, secretProbe.Omega))
+	rtProbe, err := loadIssuanceRuntime(secretProbe.CredentialPublicPath, secretProbe.PRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(secretProbe.PackedNCols, secretProbe.LVCSNCols, secretProbe.NLeaves, secretProbe.Omega, secretProbe.SmallWood))
 	if err != nil {
 		return err
 	}
@@ -948,14 +1079,6 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 	if !polyRowsEqual(polyVecToInt64(rt.ringQ, com, true), req.Com) {
 		return fmt.Errorf("holder-derived IntGenISIS commitment does not match commit request")
 	}
-	if resp.Signature != nil {
-		if err := signverify.VerifyWithParamsPath(resp.Signature, ntruParamsPath); err != nil {
-			return fmt.Errorf("verify IntGenISIS issue response signature: %w", err)
-		}
-		if !int64SliceEqual(resp.Signature.Hash.TCoeffs, resp.T) {
-			return fmt.Errorf("IntGenISIS issue response signature target does not match response T")
-		}
-	}
 	B, err := loadBAsNTT(rt.ringQ, rt.public.BPath)
 	if err != nil {
 		return err
@@ -965,8 +1088,16 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 		X0:    polysFromInt64(rt.ringQ, resp.X0),
 		X1:    polysFromInt64(rt.ringQ, resp.X1),
 	}
-	if err := issuance.VerifyIntGenISISTarget(rt.ringQ, B, com, data, resp.T); err != nil {
-		return fmt.Errorf("verify IntGenISIS target: %w", err)
+	target, err := issuance.ComputeIntGenISISTarget(rt.ringQ, B, com, data)
+	if err != nil {
+		return fmt.Errorf("recompute IntGenISIS target: %w", err)
+	}
+	if err := verifyIntGenISISSignatureResponse(rt.ringQ, resp, target.TCoeff); err != nil {
+		return fmt.Errorf("verify IntGenISIS signature response: %w", err)
+	}
+	ntruParams, err := loadNTRUParamsForBound(ntruParamsPath)
+	if err != nil {
+		return err
 	}
 	profile, ok := credential.LookupIntGenISISProfile(rt.public.Profile)
 	if !ok {
@@ -992,6 +1123,7 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 		BPath:                rt.public.BPath,
 		PRFParamsPath:        secret.PRFParamsPath,
 		NTRUPublic:           append([][]int64(nil), resp.NTRUPublic...),
+		SignatureBound:       int64(ntruParams.Beta),
 	}
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		return fmt.Errorf("mkdir state dir: %w", err)
@@ -999,12 +1131,62 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 	if err := credential.SaveIntGenISISState(statePath, state); err != nil {
 		return fmt.Errorf("save IntGenISIS credential state: %w", err)
 	}
+	log.Printf("[issuance-cli] IntGenISIS holder finalize wrote %s", statePath)
+	return nil
+}
+
+func loadNTRUParamsForBound(paramsPath string) (ntrurio.SystemParams, error) {
+	if paramsPath == "" {
+		paramsPath = defaultNTRUParamsPath
+	}
+	params, err := ntrurio.LoadParams(paramsPath, true)
+	if err != nil {
+		return ntrurio.SystemParams{}, fmt.Errorf("load NTRU params %s: %w", paramsPath, err)
+	}
+	if params.Beta == 0 {
+		return ntrurio.SystemParams{}, fmt.Errorf("NTRU params %s missing beta", paramsPath)
+	}
+	return params, nil
+}
+
+func verifyIntGenISISSignatureResponse(ringQ *ring.Ring, resp issueResponseFile, targetCoeff []int64) error {
+	if ringQ == nil {
+		return fmt.Errorf("nil ring")
+	}
+	if len(resp.T) != 0 {
+		return fmt.Errorf("IntGenISIS issuer response must not serialize target T")
+	}
 	if resp.Signature != nil {
-		if err := keys.SaveSignatureFile(signaturePath, resp.Signature); err != nil {
-			return fmt.Errorf("save IntGenISIS credential signature: %w", err)
+		return fmt.Errorf("IntGenISIS issuer response must not serialize full signature bundle")
+	}
+	if len(resp.NTRUPublic) != 1 || len(resp.NTRUPublic[0]) != int(ringQ.N) {
+		return fmt.Errorf("issuer response missing NTRU public row of length %d", ringQ.N)
+	}
+	if len(resp.SigS1) != int(ringQ.N) || len(resp.SigS2) != int(ringQ.N) {
+		return fmt.Errorf("issuer response signature rows have lengths s1=%d s2=%d want %d", len(resp.SigS1), len(resp.SigS2), ringQ.N)
+	}
+	if len(targetCoeff) != int(ringQ.N) {
+		return fmt.Errorf("target length=%d want %d", len(targetCoeff), ringQ.N)
+	}
+	h := polyFromInt64(ringQ, resp.NTRUPublic[0])
+	s1 := polyFromInt64(ringQ, resp.SigS1)
+	s2 := polyFromInt64(ringQ, resp.SigS2)
+	target := polyFromInt64(ringQ, targetCoeff)
+	ringQ.NTT(h, h)
+	ringQ.NTT(s1, s1)
+	ringQ.NTT(s2, s2)
+	ringQ.NTT(target, target)
+	lhs := ringQ.NewPoly()
+	ringQ.MulCoeffs(h, s1, lhs)
+	ringQ.Neg(lhs, lhs)
+	ringQ.Add(lhs, s2, lhs)
+	diff := ringQ.NewPoly()
+	ringQ.Sub(lhs, target, diff)
+	for _, c := range diff.Coeffs[0] {
+		if c%ringQ.Modulus[0] != 0 {
+			return fmt.Errorf("A u != T")
 		}
 	}
-	log.Printf("[issuance-cli] IntGenISIS holder finalize wrote %s", statePath)
 	return nil
 }
 
@@ -1029,7 +1211,7 @@ func demoLocal(publicPath, prfPath, artifactDir, statePath, signaturePath string
 		if err := holderProve(holderSecretPath, challengePath, submissionPath); err != nil {
 			return err
 		}
-		if err := issuerVerifySign(commitRequestPath, challengePath, submissionPath, responsePath, maxTrials, ntruPaths); err != nil {
+		if err := issuerVerifySign(commitRequestPath, challengePath, submissionPath, responsePath, maxTrials, ntruPaths, ""); err != nil {
 			return err
 		}
 		return holderFinalize(holderSecretPath, commitRequestPath, challengePath, responsePath, statePath, signaturePath, ntruPaths.ParamsPath)
@@ -1040,7 +1222,7 @@ func demoLocal(publicPath, prfPath, artifactDir, statePath, signaturePath string
 	if err := holderProve(holderSecretPath, challengePath, submissionPath); err != nil {
 		return err
 	}
-	if err := issuerVerifySign(commitRequestPath, challengePath, submissionPath, responsePath, maxTrials, ntruPaths); err != nil {
+	if err := issuerVerifySign(commitRequestPath, challengePath, submissionPath, responsePath, maxTrials, ntruPaths, ""); err != nil {
 		return err
 	}
 	return holderFinalize(holderSecretPath, commitRequestPath, challengePath, responsePath, statePath, signaturePath, ntruPaths.ParamsPath)
@@ -1075,19 +1257,7 @@ func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOv
 	}
 	opts := defaultIssuanceOpts(prfParams)
 	opts.RingDegree = int(ringQ.N)
-	if overrides.NCols > 0 {
-		opts.NCols = overrides.NCols
-	}
-	if overrides.LVCSNCols > 0 {
-		opts.LVCSNCols = overrides.LVCSNCols
-		opts.PostSignLVCSNCols = overrides.LVCSNCols
-		opts.PRFLVCSNCols = overrides.LVCSNCols
-	}
-	if overrides.NLeaves > 0 {
-		opts.NLeaves = overrides.NLeaves
-		opts.PostSignNLeaves = overrides.NLeaves
-		opts.PRFNLeaves = overrides.NLeaves
-	}
+	opts = applyIssuanceRuntimeOverrides(opts, overrides)
 	opts = defaultIssuanceOptsResolved(prfParams, opts)
 	omega, err := deriveOmegaForIssuanceOpts(ringQ, public.HashRelation, opts)
 	if err != nil {
@@ -1113,11 +1283,28 @@ func intGenISISInputsFromSecret(ringQ *ring.Ring, secret holderSecretFile) (issu
 	if err := validateInt64RowsExact("intgenisis.M", spec.M, int(ringQ.N)); err != nil {
 		return issuance.IntGenISISInputs{}, err
 	}
+	if err := validateInt64RowsExact("intgenisis.m", spec.MAttr, int(ringQ.N)); err != nil {
+		return issuance.IntGenISISInputs{}, err
+	}
+	if err := validateInt64RowsExact("intgenisis.k", spec.K, int(ringQ.N)); err != nil {
+		return issuance.IntGenISISInputs{}, err
+	}
 	if err := validateInt64RowsExact("intgenisis.s", spec.S, int(ringQ.N)); err != nil {
 		return issuance.IntGenISISInputs{}, err
 	}
 	if err := validateInt64RowsExact("intgenisis.e", spec.E, int(ringQ.N)); err != nil {
 		return issuance.IntGenISISInputs{}, err
+	}
+	profile := credential.PrimaryIntGenISISProfile()
+	if int(ringQ.N) != profile.N {
+		return issuance.IntGenISISInputs{}, fmt.Errorf("IntGenISIS semantic message only supports profile-B ring_degree=%d, got %d", profile.N, ringQ.N)
+	}
+	layout, err := credential.DefaultSemanticMessageLayout(profile, 8)
+	if err != nil {
+		return issuance.IntGenISISInputs{}, err
+	}
+	if err := credential.ValidateSemanticMessage(layout, credential.SemanticMessage{M: spec.M, MAttr: spec.MAttr, K: spec.K}); err != nil {
+		return issuance.IntGenISISInputs{}, fmt.Errorf("semantic message: %w", err)
 	}
 	return issuance.IntGenISISInputs{
 		M:     polysFromInt64(ringQ, spec.M),
@@ -1203,6 +1390,7 @@ func defaultIssuanceOpts(prfParams *prf.Params) PIOP.SimOpts {
 		EllPrime:   2,
 		Rho:        2,
 		NCols:      16,
+		LVCSNCols:  96,
 		Ell:        18,
 		Eta:        19,
 		DomainMode: PIOP.DomainModeExplicit,
@@ -1218,12 +1406,20 @@ func defaultIssuanceOptsResolved(prfParams *prf.Params, opts PIOP.SimOpts) PIOP.
 		opts.NCols++
 	}
 	opts.ShowingPreset = ""
-	opts.LVCSNCols = 96
+	if opts.LVCSNCols <= 0 {
+		opts.LVCSNCols = 96
+	}
 	if opts.LVCSNCols < opts.NCols {
 		opts.LVCSNCols = opts.NCols
 	}
 	opts.PostSignLVCSNCols = opts.LVCSNCols
 	opts.PRFLVCSNCols = opts.LVCSNCols
+	if opts.PostSignNLeaves <= 0 {
+		opts.PostSignNLeaves = opts.NLeaves
+	}
+	if opts.PRFNLeaves <= 0 {
+		opts.PRFNLeaves = opts.NLeaves
+	}
 	return opts
 }
 
@@ -1403,7 +1599,7 @@ func loadFinalizeInput(holderSecretPath, commitRequestPath, challengePath, respo
 	if in.response.Version != issuanceArtifactVersion {
 		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("unsupported response version %d", in.response.Version)
 	}
-	rt, err := loadIssuanceRuntime(in.secret.CredentialPublicPath, in.secret.PRFParamsPath, persistedIssuanceRuntimeOverrides(in.secret.PackedNCols, in.secret.LVCSNCols, in.secret.NLeaves, in.secret.Omega))
+	rt, err := loadIssuanceRuntime(in.secret.CredentialPublicPath, in.secret.PRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(in.secret.PackedNCols, in.secret.LVCSNCols, in.secret.NLeaves, in.secret.Omega, in.secret.SmallWood))
 	if err != nil {
 		return in, nil, issuance.Inputs{}, nil, err
 	}

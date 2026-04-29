@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -169,6 +170,7 @@ func manualShowingResearchOverrideActive(setFlags map[string]bool) bool {
 		"eta",
 		"theta",
 		"rho",
+		"ell",
 		"ell-prime",
 		"kappa1",
 		"kappa2",
@@ -238,12 +240,14 @@ func main() {
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
 	showingProfile := flag.String("showing-profile", defaultShowingProfile, fmt.Sprintf("maintained showing profile (%s); no flag uses %s", strings.Join(showingProfileNames(), ", "), defaultShowingProfile))
+	intGenISISPreset := flag.String("preset", "", "named IntGenISIS preset (fast-local, sw96-lvcs32, sw96-lvcs64, sw96-lvcs128, sw128-lvcs32, sw128-lvcs64, sw128-lvcs128)")
 	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
 	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
 	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override for soundness research")
 	etaOverride := flag.Int("eta", 0, "optional eta override for soundness research")
 	thetaOverride := flag.Int("theta", 0, "optional theta override for soundness research")
 	rhoOverride := flag.Int("rho", 0, "optional rho override for soundness research")
+	ellOverride := flag.Int("ell", 0, "optional ell override for soundness research")
 	ellPrimeOverride := flag.Int("ell-prime", 0, "optional ell-prime override for soundness research")
 	kappa1Override := flag.Int("kappa1", -1, "optional round-1 grinding override for soundness research (large values are infeasible)")
 	kappa2Override := flag.Int("kappa2", -1, "optional round-2 grinding override for soundness research")
@@ -256,7 +260,13 @@ func main() {
 	sigShortnessNCols := flag.Int("sig-shortness-ncols", 0, "reserved signature-shortness width override for future single-root packing research")
 	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth remains research-only; aux_instance enables the research-only split PRF proof)")
 	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
+	intGenISISCompressedRows := flag.Int("intgenisis-compressed-rows", 0, "IntGenISIS M/s/e compression level: 0 none, 1 pack2, 2 pack3, 3 pack4")
 	statePathFlag := flag.String("state-path", "", "credential state path for showing; defaults to the selected maintained profile artifact")
+	intGenISISPublicParamsPath := flag.String("public-params", "", "IntGenISIS public params path for standalone presentation verification")
+	intGenISISVerifierKeyPath := flag.String("verifier-key", "", "IntGenISIS verifier key path for standalone presentation verification")
+	presentationOut := flag.String("presentation-out", "", "IntGenISIS presentation output path")
+	verifyPresentation := flag.String("verify-presentation", "", "verify an IntGenISIS presentation artifact instead of proving")
+	verifierStatePath := flag.String("verifier-state", "", "persistent IntGenISIS verifier replay-state path")
 	unsafeSigLookupShadow := flag.String("unsafe-shadow-sig-lookup-r121-l2", "", "UNSAFE internal R121/L2 signature lookup viability mode: free or same_q")
 	flag.Parse()
 	setFlags := make(map[string]bool)
@@ -264,26 +274,97 @@ func main() {
 		setFlags[f.Name] = true
 	})
 
+	if strings.TrimSpace(*intGenISISPreset) != "" && !setFlags["showing-profile"] {
+		*showingProfile = showingProfileIntGenISISB
+	}
 	activeProfileName := strings.TrimSpace(*showingProfile)
 	if activeProfileName == "" {
 		activeProfileName = defaultShowingProfile
 	}
 	if activeProfileName == showingProfileIntGenISISB {
+		if strings.TrimSpace(*intGenISISPreset) != "" {
+			preset, err := credential.MustLookupIntGenISISPreset(*intGenISISPreset)
+			if err != nil {
+				cli.fatalf("[showing-cli] ", "%v", err)
+			}
+			t := preset.Showing
+			if !setFlags["ncols"] {
+				*ncolsOverride = t.NCols
+			}
+			if !setFlags["lvcs-ncols"] {
+				*lvcsNColsOverride = t.LVCSNCols
+			}
+			if !setFlags["nleaves"] {
+				*nLeavesOverride = t.NLeaves
+			}
+			if !setFlags["eta"] {
+				*etaOverride = t.Eta
+			}
+			if !setFlags["theta"] {
+				*thetaOverride = t.Theta
+			}
+			if !setFlags["rho"] {
+				*rhoOverride = t.Rho
+			}
+			if !setFlags["ell"] {
+				*ellOverride = t.Ell
+			}
+			if !setFlags["ell-prime"] {
+				*ellPrimeOverride = t.EllPrime
+			}
+			if !setFlags["kappa1"] {
+				*kappa1Override = t.Kappa[0]
+			}
+			if !setFlags["kappa2"] {
+				*kappa2Override = t.Kappa[1]
+			}
+			if !setFlags["kappa3"] {
+				*kappa3Override = t.Kappa[2]
+			}
+			if !setFlags["kappa4"] {
+				*kappa4Override = t.Kappa[3]
+			}
+			if !setFlags["prf-companion-mode"] && t.PRFCompanionMode != "" {
+				*prfCompanionMode = t.PRFCompanionMode
+			}
+			if !setFlags["prf-checkpoint-samples"] && t.CheckpointSamples > 0 {
+				*prfCheckpointSamples = t.CheckpointSamples
+			}
+			if !setFlags["sig-shortness-radix"] && t.SigShortnessRadix > 0 {
+				*sigShortnessRadix = t.SigShortnessRadix
+			}
+			if !setFlags["sig-shortness-digits"] && t.SigShortnessDigits > 0 {
+				*sigShortnessDigits = t.SigShortnessDigits
+			}
+			if !setFlags["intgenisis-compressed-rows"] {
+				*intGenISISCompressedRows = t.CompressedRows
+			}
+		}
 		if !setFlags["state-path"] {
 			*statePathFlag = filepath.Join("credential", "keys", "credential_state.json")
 		}
 		if err := runIntGenISISShowingCLI(
 			*statePathFlag,
+			*intGenISISPublicParamsPath,
+			*intGenISISVerifierKeyPath,
 			*ncolsOverride,
 			*lvcsNColsOverride,
 			*nLeavesOverride,
 			*etaOverride,
 			*thetaOverride,
 			*rhoOverride,
+			*ellOverride,
 			*ellPrimeOverride,
 			effectiveKappaFromFlags(*kappa1Override, *kappa2Override, *kappa3Override, *kappa4Override),
 			PIOP.PRFCompanionMode(*prfCompanionMode),
 			*prfCheckpointSamples,
+			*intGenISISCompressedRows,
+			*sigShortnessRadix,
+			*sigShortnessDigits,
+			*presentationOut,
+			*verifyPresentation,
+			*verifierStatePath,
+			*unsafeSigLookupShadow,
 		); err != nil {
 			cli.fatalf("[showing-cli] ", "%v", err)
 		}
@@ -669,8 +750,49 @@ func effectiveKappaFromFlags(k1, k2, k3, k4 int) [4]int {
 	return out
 }
 
-func runIntGenISISShowingCLI(statePath string, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples int) error {
+func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int, presentationOut, verifyPresentationPath, verifierStatePath, unsafeSigLookupShadow string) error {
 	cli.printf(categoryStatus, "[showing-cli] ", "starting IntGenISIS showing profile=%s state=%s", showingProfileIntGenISISB, statePath)
+	if unsafeSigLookupShadow != "" && PIOP.NormalizeSigLookupShadowR121L2Mode(unsafeSigLookupShadow) == PIOP.SigLookupShadowR121L2None {
+		return fmt.Errorf("unknown unsafe shadow sig lookup mode %q", unsafeSigLookupShadow)
+	}
+	if PIOP.NormalizeSigLookupShadowR121L2Mode(unsafeSigLookupShadow) != PIOP.SigLookupShadowR121L2None {
+		return fmt.Errorf("IntGenISIS showing does not support unsafe R121/L2 signature lookup shadow mode")
+	}
+	if verifyPresentationPath != "" {
+		if publicParamsPath == "" {
+			return fmt.Errorf("IntGenISIS presentation verification requires -public-params")
+		}
+		if verifierKeyPath == "" {
+			return fmt.Errorf("IntGenISIS presentation verification requires -verifier-key")
+		}
+		publicParams, err := credential.LoadPublicParams(publicParamsPath)
+		if err != nil {
+			return fmt.Errorf("load IntGenISIS public params: %w", err)
+		}
+		if !publicParams.UsesIntGenISIS() {
+			return fmt.Errorf("standalone verifier public params are not IntGenISIS")
+		}
+		verifierKey, err := credential.LoadIntGenISISVerifierKey(verifierKeyPath)
+		if err != nil {
+			return err
+		}
+		if verifierKey.PublicParamsDigest == "" {
+			return fmt.Errorf("verifier key missing public params digest")
+		}
+		digest, err := credential.PublicParamsDigest(publicParams)
+		if err != nil {
+			return fmt.Errorf("digest IntGenISIS public params: %w", err)
+		}
+		if verifierKey.PublicParamsDigest != digest {
+			return fmt.Errorf("verifier key public params digest mismatch")
+		}
+		ringQ, err := credential.LoadRingWithDegree(publicParams.RingDegree)
+		if err != nil {
+			return fmt.Errorf("load ring: %w", err)
+		}
+		opts := intGenISISShowingOpts(publicParams.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits)
+		return verifyIntGenISISPresentationCLI(verifyPresentationPath, verifierStatePath, verifierKey, publicParams, ringQ, opts)
+	}
 	st, err := credential.LoadIntGenISISState(statePath)
 	if err != nil {
 		return fmt.Errorf("load IntGenISIS credential state: %w", err)
@@ -682,6 +804,10 @@ func runIntGenISISShowingCLI(statePath string, ncolsOverride, lvcsNColsOverride,
 	if !publicParams.UsesIntGenISIS() {
 		return fmt.Errorf("state references non-IntGenISIS public params")
 	}
+	profile, ok := credential.LookupIntGenISISProfile(st.Profile)
+	if !ok {
+		return fmt.Errorf("unsupported IntGenISIS profile %q", st.Profile)
+	}
 	ringQ, err := credential.LoadRingWithDegree(st.RingDegree)
 	if err != nil {
 		return fmt.Errorf("load ring: %w", err)
@@ -690,6 +816,106 @@ func runIntGenISISShowingCLI(statePath string, ncolsOverride, lvcsNColsOverride,
 	if err != nil {
 		return fmt.Errorf("load prf params: %w", err)
 	}
+	opts := intGenISISShowingOpts(st.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits)
+	if opts.NCols < params.LenKey {
+		return fmt.Errorf("ncols=%d is too small for IntGenISIS PRF key width %d", opts.NCols, params.LenKey)
+	}
+	if verifyPresentationPath != "" {
+		return fmt.Errorf("unreachable IntGenISIS presentation verification branch")
+	}
+	B, err := loadBForIntGenISISShowing(ringQ, publicParams)
+	if err != nil {
+		return err
+	}
+	wit, err := buildIntGenISISWitnessFromState(ringQ, st, B, opts.NCols)
+	if err != nil {
+		return err
+	}
+	A, err := buildIntGenISISSignatureMatrix(ringQ, st)
+	if err != nil {
+		return err
+	}
+	cm, err := commitment.MatrixFromCoeff(ringQ, publicParams.CM)
+	if err != nil {
+		return fmt.Errorf("lift C_M: %w", err)
+	}
+	as, err := commitment.MatrixFromCoeff(ringQ, publicParams.AS)
+	if err != nil {
+		return fmt.Errorf("lift A_s: %w", err)
+	}
+	nonce, noncePublic := sampleNonce(params.LenNonce, opts.NCols, ringQ.Modulus[0])
+	layout, err := credential.DefaultSemanticMessageLayout(profile, params.LenKey)
+	if err != nil {
+		return err
+	}
+	keyScalars, err := credential.PRFKeyFromSemanticMessage(layout, st.M)
+	if err != nil {
+		return fmt.Errorf("extract IntGenISIS PRF key: %w", err)
+	}
+	key := make([]prf.Elem, len(keyScalars))
+	for i, v := range keyScalars {
+		key[i] = intGenISISFieldElemFromSigned(v, ringQ.Modulus[0])
+	}
+	tag, err := prf.Tag(key, nonce, params)
+	if err != nil {
+		return fmt.Errorf("compute IntGenISIS tag: %w", err)
+	}
+	pub := PIOP.PublicInputs{
+		A:            A,
+		B:            B,
+		CM:           cm,
+		AS:           as,
+		Tag:          lanesFromElems(tag, opts.NCols),
+		Nonce:        noncePublic,
+		BoundB:       publicParams.CommitmentBound,
+		X0Len:        publicParams.EllX0,
+		RingDegree:   int(ringQ.N),
+		HashRelation: publicParams.HashRelation,
+		IntGenISIS:   true,
+		Extras:       intGenISISSignatureBoundExtras(st.SignatureBound),
+	}
+	proofStart := time.Now()
+	proof, err := PIOP.BuildIntGenISISShowingCombined(pub, wit, opts)
+	if err != nil {
+		return fmt.Errorf("build IntGenISIS showing: %w", err)
+	}
+	proofDur := time.Since(proofStart)
+	verifyStart := time.Now()
+	verified, err := PIOP.VerifyIntGenISISShowing(pub, proof, opts)
+	verifyDur := time.Since(verifyStart)
+	if err != nil || !verified {
+		return fmt.Errorf("verify IntGenISIS showing failed: ok=%v err=%v", verified, err)
+	}
+	if presentationOut != "" {
+		proofRaw, err := json.Marshal(proof)
+		if err != nil {
+			return fmt.Errorf("marshal IntGenISIS proof: %w", err)
+		}
+		digest, err := credential.PublicParamsDigest(publicParams)
+		if err != nil {
+			return fmt.Errorf("digest IntGenISIS public params: %w", err)
+		}
+		pres := credential.IntGenISISPresentation{
+			Version:            credential.IntGenISISPresentationVersion,
+			Profile:            profile.Name,
+			PublicParamsDigest: digest,
+			Nonce:              noncePublic,
+			Tag:                lanesFromElems(tag, opts.NCols),
+			Proof:              proofRaw,
+		}
+		if err := credential.SaveIntGenISISPresentation(presentationOut, pres); err != nil {
+			return fmt.Errorf("save IntGenISIS presentation: %w", err)
+		}
+		cli.printf(categoryStatus, "[showing-cli] ", "IntGenISIS presentation wrote %s", presentationOut)
+	}
+	cli.printf(categoryStatus, "[showing-cli] ", "IntGenISIS showing proof verified")
+	printLogicalWitnessRowBreakdown("[showing-cli] ", proof)
+	printCommittedWitnessRowBreakdown("[showing-cli] ", proof)
+	_, _ = printProofReport("[showing-cli] ", proof, opts, publicParams.CommitmentBound, ringQ, proofDur, verifyDur)
+	return nil
+}
+
+func intGenISISShowingOpts(ringDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int) PIOP.SimOpts {
 	ncols := 16
 	if ncolsOverride > 0 {
 		ncols = ncolsOverride
@@ -717,6 +943,10 @@ func runIntGenISISShowingCLI(statePath string, ncolsOverride, lvcsNColsOverride,
 	if rhoOverride > 0 {
 		rho = rhoOverride
 	}
+	ell := 4
+	if ellOverride > 0 {
+		ell = ellOverride
+	}
 	ellPrime := 4
 	if ellPrimeOverride > 0 {
 		ellPrime = ellPrimeOverride
@@ -727,37 +957,55 @@ func runIntGenISISShowingCLI(statePath string, ncolsOverride, lvcsNColsOverride,
 	if checkpointSamples <= 0 {
 		checkpointSamples = 8
 	}
-	opts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-		Credential:           true,
-		CoeffPacking:         true,
-		RingDegree:           st.RingDegree,
-		NCols:                ncols,
-		LVCSNCols:            lvcsNCols,
-		PostSignLVCSNCols:    lvcsNCols,
-		PRFLVCSNCols:         lvcsNCols,
-		NLeaves:              nLeaves,
-		Ell:                  ellPrime,
-		Eta:                  eta,
-		Rho:                  rho,
-		Theta:                theta,
-		Kappa:                kappa,
-		DomainMode:           PIOP.DomainModeExplicit,
-		PRFGroupRounds:       2,
-		PRFCompanionMode:     companionMode,
-		PRFCheckpointSamples: checkpointSamples,
+	return PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
+		Credential:               true,
+		CoeffPacking:             true,
+		RingDegree:               ringDegree,
+		NCols:                    ncols,
+		LVCSNCols:                lvcsNCols,
+		PostSignLVCSNCols:        lvcsNCols,
+		PRFLVCSNCols:             lvcsNCols,
+		NLeaves:                  nLeaves,
+		Ell:                      ell,
+		EllPrime:                 ellPrime,
+		Eta:                      eta,
+		Rho:                      rho,
+		Theta:                    theta,
+		Kappa:                    kappa,
+		DomainMode:               PIOP.DomainModeExplicit,
+		PRFGroupRounds:           2,
+		PRFCompanionMode:         companionMode,
+		PRFCheckpointSamples:     checkpointSamples,
+		IntGenISISMSECompression: compressedRows,
+		SigShortnessRadix:        sigShortnessRadix,
+		SigShortnessL:            sigShortnessDigits,
 	})
-	if opts.NCols < params.LenKey {
-		return fmt.Errorf("ncols=%d is too small for IntGenISIS PRF key width %d", opts.NCols, params.LenKey)
+}
+
+func verifyIntGenISISPresentationCLI(path, verifierStatePath string, verifierKey credential.IntGenISISVerifierKey, publicParams credential.PublicParams, ringQ *ring.Ring, opts PIOP.SimOpts) error {
+	pres, err := credential.LoadIntGenISISPresentation(path)
+	if err != nil {
+		return err
+	}
+	digest, err := credential.PublicParamsDigest(publicParams)
+	if err != nil {
+		return fmt.Errorf("digest IntGenISIS public params: %w", err)
+	}
+	if pres.PublicParamsDigest != digest {
+		return fmt.Errorf("presentation public params digest mismatch")
+	}
+	if pres.Profile != verifierKey.Profile {
+		return fmt.Errorf("presentation profile=%q verifier key profile=%q", pres.Profile, verifierKey.Profile)
+	}
+	var proof PIOP.Proof
+	if err := json.Unmarshal(pres.Proof, &proof); err != nil {
+		return fmt.Errorf("unmarshal presentation proof: %w", err)
 	}
 	B, err := loadBForIntGenISISShowing(ringQ, publicParams)
 	if err != nil {
 		return err
 	}
-	wit, err := buildIntGenISISWitnessFromState(ringQ, st, B, opts.NCols)
-	if err != nil {
-		return err
-	}
-	A, err := buildIntGenISISSignatureMatrix(ringQ, st)
+	A, err := buildIntGenISISSignatureMatrixFromRows(ringQ, verifierKey.NTRUPublic)
 	if err != nil {
 		return err
 	}
@@ -769,45 +1017,58 @@ func runIntGenISISShowingCLI(statePath string, ncolsOverride, lvcsNColsOverride,
 	if err != nil {
 		return fmt.Errorf("lift A_s: %w", err)
 	}
-	nonce, noncePublic := sampleNonce(params.LenNonce, opts.NCols, ringQ.Modulus[0])
-	key, err := PIOP.ExtractSignedPRFKeyElemsFromMuCoeffs(ringQ, wit.CoeffNativeShowing.M, opts.NCols, params.LenKey)
-	if err != nil {
-		return fmt.Errorf("extract IntGenISIS PRF key: %w", err)
-	}
-	tag, err := prf.Tag(key, nonce, params)
-	if err != nil {
-		return fmt.Errorf("compute IntGenISIS tag: %w", err)
-	}
 	pub := PIOP.PublicInputs{
 		A:            A,
 		B:            B,
 		CM:           cm,
 		AS:           as,
-		Tag:          lanesFromElems(tag, opts.NCols),
-		Nonce:        noncePublic,
+		Tag:          pres.Tag,
+		Nonce:        pres.Nonce,
 		BoundB:       publicParams.CommitmentBound,
 		X0Len:        publicParams.EllX0,
 		RingDegree:   int(ringQ.N),
 		HashRelation: publicParams.HashRelation,
 		IntGenISIS:   true,
+		Extras:       intGenISISSignatureBoundExtras(verifierKey.SignatureBound),
 	}
-	proofStart := time.Now()
-	proof, err := PIOP.BuildIntGenISISShowingCombined(pub, wit, opts)
-	if err != nil {
-		return fmt.Errorf("build IntGenISIS showing: %w", err)
-	}
-	proofDur := time.Since(proofStart)
-	verifyStart := time.Now()
-	ok, err := PIOP.VerifyIntGenISISShowing(pub, proof, opts)
-	verifyDur := time.Since(verifyStart)
+	ok, err := PIOP.VerifyIntGenISISShowing(pub, &proof, opts)
 	if err != nil || !ok {
-		return fmt.Errorf("verify IntGenISIS showing failed: ok=%v err=%v", ok, err)
+		return fmt.Errorf("verify IntGenISIS presentation failed: ok=%v err=%v", ok, err)
 	}
-	cli.printf(categoryStatus, "[showing-cli] ", "IntGenISIS showing proof verified")
-	printLogicalWitnessRowBreakdown("[showing-cli] ", proof)
-	printCommittedWitnessRowBreakdown("[showing-cli] ", proof)
-	_, _ = printProofReport("[showing-cli] ", proof, opts, publicParams.CommitmentBound, ringQ, proofDur, verifyDur)
+	if verifierStatePath != "" {
+		state, err := credential.LoadIntGenISISVerifierState(verifierStatePath)
+		if err != nil {
+			return err
+		}
+		if err := state.MarkPresentation(pres); err != nil {
+			return err
+		}
+		if err := credential.SaveIntGenISISVerifierState(verifierStatePath, state); err != nil {
+			return err
+		}
+	}
+	cli.printf(categoryStatus, "[showing-cli] ", "IntGenISIS presentation verified")
 	return nil
+}
+
+func intGenISISSignatureBoundExtras(bound int64) map[string]interface{} {
+	if bound <= 0 {
+		return nil
+	}
+	return map[string]interface{}{
+		"IntGenISIS.signature_bound": []byte(fmt.Sprintf("%d", bound)),
+	}
+}
+
+func intGenISISFieldElemFromSigned(v int64, q uint64) prf.Elem {
+	if v >= 0 {
+		return prf.Elem(uint64(v) % q)
+	}
+	neg := uint64(-v) % q
+	if neg == 0 {
+		return 0
+	}
+	return prf.Elem((q - neg) % q)
 }
 
 func maxEllForGroupedPRF(ringN, ncols, prfDegree int) int {
@@ -915,10 +1176,14 @@ func loadBForIntGenISISShowing(r *ring.Ring, public credential.PublicParams) ([]
 }
 
 func buildIntGenISISSignatureMatrix(r *ring.Ring, st credential.IntGenISISState) ([][]*ring.Poly, error) {
-	if len(st.NTRUPublic) == 0 || len(st.NTRUPublic[0]) != int(r.N) {
+	return buildIntGenISISSignatureMatrixFromRows(r, st.NTRUPublic)
+}
+
+func buildIntGenISISSignatureMatrixFromRows(r *ring.Ring, ntruPublic [][]int64) ([][]*ring.Poly, error) {
+	if len(ntruPublic) == 0 || len(ntruPublic[0]) != int(r.N) {
 		return nil, fmt.Errorf("IntGenISIS state missing NTRU public row of length %d", r.N)
 	}
-	hNTT := polyFromInt64(r, st.NTRUPublic[0])
+	hNTT := polyFromInt64(r, ntruPublic[0])
 	r.NTT(hNTT, hNTT)
 	negHNTT := r.NewPoly()
 	r.Neg(hNTT, negHNTT)
@@ -939,7 +1204,9 @@ func buildIntGenISISWitnessFromState(r *ring.Ring, st credential.IntGenISISState
 	if len(B) != 3+len(st.X0) {
 		return PIOP.WitnessInputs{}, fmt.Errorf("B rows=%d want %d", len(B), 3+len(st.X0))
 	}
-	zNTT, err := vsishash.ComputeBBTranInverse(r, B[len(B)-1], x1Rows[0])
+	x1ForInverse := r.NewPoly()
+	ring.Copy(x1Rows[0], x1ForInverse)
+	zNTT, err := vsishash.ComputeBBTranInverse(r, B[len(B)-1], x1ForInverse)
 	if err != nil {
 		return PIOP.WitnessInputs{}, fmt.Errorf("compute Z from x1: %w", err)
 	}
@@ -949,6 +1216,8 @@ func buildIntGenISISWitnessFromState(r *ring.Ring, st credential.IntGenISISState
 	cn := &PIOP.CoeffNativeShowingWitness{
 		Sig:         []*ring.Poly{polyFromInt64(r, st.SigS1), polyFromInt64(r, st.SigS2)},
 		M:           polyFromInt64(r, st.M[0]),
+		MAttr:       polyFromInt64(r, st.MAttr[0]),
+		K:           polyFromInt64(r, st.K[0]),
 		S:           polysFromInt64(r, st.S),
 		E:           polysFromInt64(r, st.E),
 		MuSig:       polysFromInt64(r, st.MuSig),

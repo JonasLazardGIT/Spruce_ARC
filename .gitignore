@@ -7,3 +7,19 @@ out/repo_cleanup_sift_*.tmp
 
 # Local protocol working docs
 local_docs/
+
+# Generated IntGenISIS benchmark/sweep/audit artifacts.
+# Keep source fixtures such as credential/issuance/intgenisis/ tracked; these
+# patterns cover transient benchmark directories and JSON reports only.
+credential/issuance/intgenisis_audit_*/
+credential/issuance/intgenisis_audit_*.json
+credential/issuance/intgenisis_bench_*/
+credential/issuance/intgenisis_bench_*.json
+credential/issuance/intgenisis_e2e/
+credential/issuance/intgenisis_e2e_report.json
+credential/issuance/intgenisis_preset_measured/
+credential/issuance/intgenisis_preset_sweep*.json
+credential/issuance/intgenisis_sweep_*/
+credential/issuance/intgenisis_sweep_*.json
+credential/issuance/intgenisis_selected_presets*.json
+!credential/issuance/intgenisis_selected_presets_measured.json

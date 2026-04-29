@@ -61,6 +61,27 @@ func TestMaintainedShowingProfilesAreExactlyX0Len70(t *testing.T) {
 	}
 }
 
+func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T) {
+	preset, ok := credential.LookupIntGenISISPreset(credential.IntGenISISPresetSW128LVCS64)
+	if !ok {
+		t.Fatal("missing sw128-lvcs64 preset")
+	}
+	tuning := preset.Showing
+	opts := intGenISISShowingOpts(512, tuning.NCols, tuning.LVCSNCols, tuning.NLeaves, tuning.Eta, tuning.Theta, tuning.Rho, tuning.Ell, tuning.EllPrime, tuning.Kappa, PIOP.PRFCompanionMode(tuning.PRFCompanionMode), tuning.CheckpointSamples, tuning.CompressedRows, tuning.SigShortnessRadix, tuning.SigShortnessDigits)
+	if opts.NCols != tuning.NCols || opts.LVCSNCols != tuning.LVCSNCols || opts.NLeaves != tuning.NLeaves {
+		t.Fatalf("opts did not carry preset geometry: %+v preset=%+v", opts, tuning)
+	}
+	if opts.PRFCompanionMode != PIOP.PRFCompanionModeDirectAuth || opts.PRFCheckpointSamples != 2 {
+		t.Fatalf("opts PRF mode/samples=%s/%d", opts.PRFCompanionMode, opts.PRFCheckpointSamples)
+	}
+	if opts.SigShortnessRadix != 7 || opts.SigShortnessL != 5 {
+		t.Fatalf("opts shortness=%d/%d", opts.SigShortnessRadix, opts.SigShortnessL)
+	}
+	if opts.IntGenISISMSECompression != 1 {
+		t.Fatalf("opts compression=%d", opts.IntGenISISMSECompression)
+	}
+}
+
 func TestResearchRingDegree512RejectsDefaultN1024Artifacts(t *testing.T) {
 	root := showingTestRepoRoot(t)
 	chdirForShowingTest(t, root)
