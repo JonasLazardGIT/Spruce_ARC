@@ -238,6 +238,160 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("verify showing: ok=%v err=%v", ok, err)
 	}
+	projectionOpts := opts
+	projectionOpts.IntGenISISReplayProjection = IntGenISISReplayProjectionProjectUYHatV1
+	projectionDebugPub, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), projectionOpts)
+	if err != nil {
+		t.Fatalf("bind projection debug public extras: %v", err)
+	}
+	projectionRows, _, projectionDebugLayout, _, projectionDebugCompanion, _, _, _, _, _, projectionBuiltNCols, err := BuildCredentialRowsShowingIntGenISIS(ringQ, projectionDebugPub, WitnessInputs{CoeffNativeShowing: cn}, params.LenKey, params.LenNonce, params.RF, params.RP, projectionOpts.PRFGroupRounds, projectionOpts)
+	if err != nil {
+		t.Fatalf("projection debug rows: %v", err)
+	}
+	projectionLayout := projectionDebugLayout.IntGenISISShowing
+	if projectionLayout.LayoutVersion != intGenISISShowingLayoutVersionProjectionUYHatV1 {
+		t.Fatalf("projection layout version=%q", projectionLayout.LayoutVersion)
+	}
+	if projectionLayout.UHatStart >= 0 || projectionLayout.UHatCount != 0 || projectionLayout.YHatStart >= 0 || projectionLayout.YHatCount != 0 {
+		t.Fatalf("projection retained derived hats: u=(%d,%d) Y=(%d,%d)", projectionLayout.UHatStart, projectionLayout.UHatCount, projectionLayout.YHatStart, projectionLayout.YHatCount)
+	}
+	projectionRowsNTT := make([]*ring.Poly, len(projectionRows))
+	for i := range projectionRows {
+		projectionRowsNTT[i] = ringQ.NewPoly()
+		ring.Copy(projectionRows[i], projectionRowsNTT[i])
+		ringQ.NTT(projectionRowsNTT[i], projectionRowsNTT[i])
+	}
+	projectionOmega, err := deriveRelationWitnessOmega(ringQ.Modulus[0], projectionOpts.NLeaves, projectionOpts.NCols, projectionOpts.LVCSNCols, projectionOpts.Ell, pub.HashRelation)
+	if err != nil {
+		t.Fatalf("projection debug omega: %v", err)
+	}
+	projectionSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, projectionDebugPub, projectionDebugLayout, projectionRowsNTT, projectionOmega[:projectionBuiltNCols], projectionDebugCompanion)
+	if err != nil {
+		t.Fatalf("projection constraints: %v", err)
+	}
+	assertConstraintBucketVanishesOnOmega(t, ringQ, projectionOmega[:projectionBuiltNCols], "projection FparInt", projectionSet.FparInt, projectionSet.FparIntCoeffs)
+	if nonZero, err := bucketHasNonZeroOmegaSum(ringQ, projectionOmega[:projectionBuiltNCols], projectionSet.FaggNorm, projectionSet.FaggNormCoeffs); err != nil || nonZero {
+		t.Fatalf("projection FaggNorm nonzero=%v err=%v", nonZero, err)
+	}
+	projectionMutatedRowsNTT := func(rowIdx int) []*ring.Poly {
+		cp := clonePolySliceForIntGenISISTest(ringQ, projectionRows)
+		cp[rowIdx].Coeffs[0][0] = (cp[rowIdx].Coeffs[0][0] + 1) % ringQ.Modulus[0]
+		out := make([]*ring.Poly, len(cp))
+		for i := range cp {
+			out[i] = ringQ.NewPoly()
+			ring.Copy(cp[i], out[i])
+			ringQ.NTT(out[i], out[i])
+		}
+		return out
+	}
+	expectProjectionFaggFailure := func(name string, rowIdx int) {
+		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, projectionDebugPub, projectionDebugLayout, projectionMutatedRowsNTT(rowIdx), projectionOmega[:projectionBuiltNCols], projectionDebugCompanion)
+		if err != nil {
+			t.Fatalf("%s projection constraints: %v", name, err)
+		}
+		nonZero, err := bucketHasNonZeroOmegaSum(ringQ, projectionOmega[:projectionBuiltNCols], set.FaggNorm, set.FaggNormCoeffs)
+		if err != nil {
+			t.Fatalf("%s projection Fagg check: %v", name, err)
+		}
+		if !nonZero {
+			t.Fatalf("%s did not violate projected aggregate constraints", name)
+		}
+	}
+	expectProjectionFaggFailure("projection tampered u coefficient view", projectionLayout.UViewStart)
+	expectProjectionFaggFailure("projection tampered Y coefficient view", projectionLayout.YViewStart)
+	expectProjectionFaggFailure("projection tampered mu_sig hat", projectionLayout.MuSigHatStart)
+	projectionProof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, projectionOpts)
+	if err != nil {
+		t.Fatalf("build projection showing: %v", err)
+	}
+	if projectionProof.RowLayout.IntGenISISShowing.UHatCount != 0 || projectionProof.RowLayout.IntGenISISShowing.YHatCount != 0 {
+		t.Fatalf("projection proof retained U/Y hats")
+	}
+	ok, err = VerifyIntGenISISShowing(pub, projectionProof, projectionOpts)
+	if err != nil || !ok {
+		t.Fatalf("verify projection showing: ok=%v err=%v", ok, err)
+	}
+	ok, err = VerifyIntGenISISShowing(pub, projectionProof, opts)
+	if err == nil && ok {
+		t.Fatal("default verifier accepted projection proof without matching replay projection option")
+	}
+	v2Opts := opts
+	v2Opts.IntGenISISReplayProjection = IntGenISISReplayProjectionProjectUYHatYViewV2
+	v2DebugPub, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), v2Opts)
+	if err != nil {
+		t.Fatalf("bind projection v2 debug public extras: %v", err)
+	}
+	v2Rows, _, v2DebugLayout, _, v2DebugCompanion, _, _, _, _, _, v2BuiltNCols, err := BuildCredentialRowsShowingIntGenISIS(ringQ, v2DebugPub, WitnessInputs{CoeffNativeShowing: cn}, params.LenKey, params.LenNonce, params.RF, params.RP, v2Opts.PRFGroupRounds, v2Opts)
+	if err != nil {
+		t.Fatalf("projection v2 debug rows: %v", err)
+	}
+	v2Layout := v2DebugLayout.IntGenISISShowing
+	if v2Layout.LayoutVersion != intGenISISShowingLayoutVersionProjectionUYHatYViewV2 {
+		t.Fatalf("projection v2 layout version=%q", v2Layout.LayoutVersion)
+	}
+	if v2Layout.UHatStart >= 0 || v2Layout.UHatCount != 0 || v2Layout.YHatStart >= 0 || v2Layout.YHatCount != 0 || v2Layout.YViewStart >= 0 || v2Layout.YViewCount != 0 {
+		t.Fatalf("projection v2 retained derived rows: uhat=(%d,%d) yhat=(%d,%d) yview=(%d,%d)", v2Layout.UHatStart, v2Layout.UHatCount, v2Layout.YHatStart, v2Layout.YHatCount, v2Layout.YViewStart, v2Layout.YViewCount)
+	}
+	v2RowsNTT := make([]*ring.Poly, len(v2Rows))
+	for i := range v2Rows {
+		v2RowsNTT[i] = ringQ.NewPoly()
+		ring.Copy(v2Rows[i], v2RowsNTT[i])
+		ringQ.NTT(v2RowsNTT[i], v2RowsNTT[i])
+	}
+	v2Omega, err := deriveRelationWitnessOmega(ringQ.Modulus[0], v2Opts.NLeaves, v2Opts.NCols, v2Opts.LVCSNCols, v2Opts.Ell, pub.HashRelation)
+	if err != nil {
+		t.Fatalf("projection v2 debug omega: %v", err)
+	}
+	v2Set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v2DebugPub, v2DebugLayout, v2RowsNTT, v2Omega[:v2BuiltNCols], v2DebugCompanion)
+	if err != nil {
+		t.Fatalf("projection v2 constraints: %v", err)
+	}
+	assertConstraintBucketVanishesOnOmega(t, ringQ, v2Omega[:v2BuiltNCols], "projection v2 FparInt", v2Set.FparInt, v2Set.FparIntCoeffs)
+	if nonZero, err := bucketHasNonZeroOmegaSum(ringQ, v2Omega[:v2BuiltNCols], v2Set.FaggNorm, v2Set.FaggNormCoeffs); err != nil || nonZero {
+		t.Fatalf("projection v2 FaggNorm nonzero=%v err=%v", nonZero, err)
+	}
+	v2MutatedRowsNTT := func(rowIdx int) []*ring.Poly {
+		cp := clonePolySliceForIntGenISISTest(ringQ, v2Rows)
+		cp[rowIdx].Coeffs[0][0] = (cp[rowIdx].Coeffs[0][0] + 1) % ringQ.Modulus[0]
+		out := make([]*ring.Poly, len(cp))
+		for i := range cp {
+			out[i] = ringQ.NewPoly()
+			ring.Copy(cp[i], out[i])
+			ringQ.NTT(out[i], out[i])
+		}
+		return out
+	}
+	expectV2FaggFailure := func(name string, rowIdx int) {
+		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v2DebugPub, v2DebugLayout, v2MutatedRowsNTT(rowIdx), v2Omega[:v2BuiltNCols], v2DebugCompanion)
+		if err != nil {
+			t.Fatalf("%s projection v2 constraints: %v", name, err)
+		}
+		nonZero, err := bucketHasNonZeroOmegaSum(ringQ, v2Omega[:v2BuiltNCols], set.FaggNorm, set.FaggNormCoeffs)
+		if err != nil {
+			t.Fatalf("%s projection v2 Fagg check: %v", name, err)
+		}
+		if !nonZero {
+			t.Fatalf("%s did not violate projected v2 aggregate constraints", name)
+		}
+	}
+	expectV2FaggFailure("projection v2 tampered u coefficient view", v2Layout.UViewStart)
+	expectV2FaggFailure("projection v2 tampered M coefficient view", v2Layout.MViewStart)
+	expectV2FaggFailure("projection v2 tampered mu_sig hat", v2Layout.MuSigHatStart)
+	v2Proof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, v2Opts)
+	if err != nil {
+		t.Fatalf("build projection v2 showing: %v", err)
+	}
+	if v2Proof.RowLayout.IntGenISISShowing.UHatCount != 0 || v2Proof.RowLayout.IntGenISISShowing.YHatCount != 0 || v2Proof.RowLayout.IntGenISISShowing.YViewCount != 0 {
+		t.Fatalf("projection v2 proof retained U/Y derived rows")
+	}
+	ok, err = VerifyIntGenISISShowing(pub, v2Proof, v2Opts)
+	if err != nil || !ok {
+		t.Fatalf("verify projection v2 showing: ok=%v err=%v", ok, err)
+	}
+	ok, err = VerifyIntGenISISShowing(pub, v2Proof, projectionOpts)
+	if err == nil && ok {
+		t.Fatal("projection v1 verifier accepted projection v2 proof")
+	}
 	compressedOpts := opts
 	compressedOpts.IntGenISISMSECompression = 1
 	compressedProof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, compressedOpts)
@@ -302,6 +456,24 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	}
 	if nonZero, err := bucketHasNonZeroOmegaSum(ringQ, compressedOmega[:compressedBuiltNCols], compressedBadSet.FaggNorm, compressedBadSet.FaggNormCoeffs); err != nil || !nonZero {
 		t.Fatalf("tampered compressed carrier did not violate bridge: nonzero=%v err=%v", nonZero, err)
+	}
+	compressedV2Opts := compressedOpts
+	compressedV2Opts.IntGenISISReplayProjection = IntGenISISReplayProjectionProjectUYHatYViewV2
+	compressedV2Proof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, compressedV2Opts)
+	if err != nil {
+		t.Fatalf("build compressed projection v2 showing: %v", err)
+	}
+	compressedV2Layout := compressedV2Proof.RowLayout.IntGenISISShowing
+	if compressedV2Layout.YViewCount != 0 || compressedV2Layout.YHatCount != 0 || compressedV2Layout.UHatCount != 0 {
+		t.Fatalf("compressed projection v2 retained derived rows yview=%d yhat=%d uhat=%d", compressedV2Layout.YViewCount, compressedV2Layout.YHatCount, compressedV2Layout.UHatCount)
+	}
+	ok, err = VerifyIntGenISISShowing(pub, compressedV2Proof, compressedV2Opts)
+	if err != nil || !ok {
+		t.Fatalf("verify compressed projection v2 showing: ok=%v err=%v", ok, err)
+	}
+	ok, err = VerifyIntGenISISShowing(pub, compressedV2Proof, compressedOpts)
+	if err == nil && ok {
+		t.Fatal("compressed non-projected verifier accepted compressed projection v2 proof")
 	}
 	variantOpts := opts
 	variantOpts.SigShortnessRadix = 7

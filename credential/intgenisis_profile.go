@@ -55,6 +55,7 @@ func CompactIntGenISISProfile() IntGenISISProfile {
 		EllX1:                1,
 		SignaturePreimageLen: 2,
 		MLWEHidingBits:       194.4,
+		MSISBindingBits:      180.164,
 	}
 }
 
@@ -67,4 +68,13 @@ func LookupIntGenISISProfile(name string) (IntGenISISProfile, bool) {
 	default:
 		return IntGenISISProfile{}, false
 	}
+}
+
+func LookupIntGenISISProfileByRingDegree(n int) (IntGenISISProfile, bool) {
+	for _, profile := range []IntGenISISProfile{PrimaryIntGenISISProfile(), CompactIntGenISISProfile()} {
+		if profile.N == n {
+			return profile, true
+		}
+	}
+	return IntGenISISProfile{}, false
 }

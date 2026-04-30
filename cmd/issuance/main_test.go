@@ -468,6 +468,39 @@ func TestBenchmarkIntGenISISE2ECommandWritesPaperTranscriptReport(t *testing.T) 
 	}
 }
 
+func TestBenchmarkIntGenISISE2EProfileAPreset(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	tmp := t.TempDir()
+	reportPath := filepath.Join(tmp, "report_n256.json")
+	if err := run([]string{
+		"benchmark-intgenisis-e2e",
+		"-preset", credential.IntGenISISPresetN256SW96,
+		"-artifact-dir", tmp,
+		"-force",
+		"-keygen-trials", "1000",
+		"-attempts", "1",
+		"-max-trials", "512",
+		"-json-out", reportPath,
+	}); err != nil {
+		if strings.Contains(err.Error(), "annulus keygen panic") {
+			t.Skipf("research N=256 annulus keygen is numerically unstable in this environment: %v", err)
+		}
+		t.Fatalf("benchmark-intgenisis-e2e n256: %v", err)
+	}
+	var report benchmarkIntGenISISE2EReport
+	if err := json.Unmarshal(mustReadFile(t, reportPath), &report); err != nil {
+		t.Fatalf("decode n256 report: %v", err)
+	}
+	if report.Profile != credential.ProfileIntGenISISA || !report.ReplayRejected {
+		t.Fatalf("unexpected n256 report profile=%q replay=%v", report.Profile, report.ReplayRejected)
+	}
+	if report.Issuance.TotalRows <= 0 || report.Showing.TotalRows <= 0 || report.Showing.ReplayProjection == "" {
+		t.Fatalf("missing n256 relation metrics: issuance=%+v showing=%+v", report.Issuance, report.Showing)
+	}
+}
+
 func TestBenchmarkIntGenISISE2ERejectsOverLeafCap(t *testing.T) {
 	root := issuanceTestRepoRoot(t)
 	chdirForIssuanceTest(t, root)

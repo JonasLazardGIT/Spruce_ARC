@@ -11,6 +11,8 @@ func TestIntGenISISPresetRegistryResolvesSecureNames(t *testing.T) {
 		IntGenISISPresetSW128LVCS32,
 		IntGenISISPresetSW128LVCS64,
 		IntGenISISPresetSW128LVCS128,
+		IntGenISISPresetN256SW96,
+		IntGenISISPresetN256SW128,
 	}
 	for _, name := range want {
 		t.Run(name, func(t *testing.T) {
@@ -21,17 +23,37 @@ func TestIntGenISISPresetRegistryResolvesSecureNames(t *testing.T) {
 			if p.Name != name {
 				t.Fatalf("preset name=%q want %q", p.Name, name)
 			}
-			if p.Profile != ProfileIntGenISISB {
-				t.Fatalf("preset profile=%q want %q", p.Profile, ProfileIntGenISISB)
+			wantProfile := ProfileIntGenISISB
+			if name == IntGenISISPresetN256SW96 || name == IntGenISISPresetN256SW128 {
+				wantProfile = ProfileIntGenISISA
+			}
+			if p.Profile != wantProfile {
+				t.Fatalf("preset profile=%q want %q", p.Profile, wantProfile)
 			}
 			if name != IntGenISISPresetFastLocal {
-				if p.TargetEq8Bits != 96 && p.TargetEq8Bits != 128 {
+				if name == IntGenISISPresetSW96LVCS64 || name == IntGenISISPresetSW128LVCS64 || name == IntGenISISPresetN256SW96 || name == IntGenISISPresetN256SW128 {
+					wantTheorem := 96.0
+					wantKappa := [4]int{0, 0, 0, 6}
+					if name == IntGenISISPresetSW128LVCS64 || name == IntGenISISPresetN256SW128 {
+						wantTheorem = 128
+						wantKappa = [4]int{6, 0, 0, 11}
+					}
+					if p.TargetTheoremBits != wantTheorem || p.SoundnessGate != "theorem9_grinding" {
+						t.Fatalf("default preset theorem target/gate=(%v,%q)", p.TargetTheoremBits, p.SoundnessGate)
+					}
+					if p.Showing.LVCSNCols != 70 || p.Showing.Kappa != wantKappa {
+						t.Fatalf("default preset showing tuple=%+v", p.Showing)
+					}
+					if p.Showing.SigShortnessRadix != 11 || p.Showing.SigShortnessDigits != 4 || p.Showing.ReplayProjection == "" {
+						t.Fatalf("default preset missing R11/L4 projection: %+v", p.Showing)
+					}
+				} else if p.TargetEq8Bits != 96 && p.TargetEq8Bits != 128 {
 					t.Fatalf("target bits=%v", p.TargetEq8Bits)
 				}
-				if p.LVCSNCols != 32 && p.LVCSNCols != 64 && p.LVCSNCols != 128 {
+				if p.LVCSNCols != 32 && p.LVCSNCols != 64 && p.LVCSNCols != 70 && p.LVCSNCols != 128 {
 					t.Fatalf("lvcs_ncols=%d", p.LVCSNCols)
 				}
-				if p.Issuance.LVCSNCols != p.LVCSNCols || p.Showing.LVCSNCols != p.LVCSNCols {
+				if name != IntGenISISPresetSW96LVCS64 && name != IntGenISISPresetSW128LVCS64 && (p.Issuance.LVCSNCols != p.LVCSNCols || p.Showing.LVCSNCols != p.LVCSNCols) {
 					t.Fatalf("preset %s not fixed-lvcs: issuance=%d showing=%d track=%d", name, p.Issuance.LVCSNCols, p.Showing.LVCSNCols, p.LVCSNCols)
 				}
 				if p.Showing.PRFCompanionMode == "" || p.Showing.CheckpointSamples <= 0 {
@@ -44,7 +66,7 @@ func TestIntGenISISPresetRegistryResolvesSecureNames(t *testing.T) {
 
 func TestIntGenISISPresetNamesSorted(t *testing.T) {
 	names := IntGenISISPresetNames()
-	if len(names) < 7 {
+	if len(names) < 9 {
 		t.Fatalf("preset names=%v", names)
 	}
 	for i := 1; i < len(names); i++ {

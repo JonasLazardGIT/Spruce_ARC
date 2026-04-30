@@ -1,9 +1,13 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
 )
 
@@ -149,6 +153,262 @@ func TestSweepIntGenISISPresetAnalyticSmoke(t *testing.T) {
 	}
 }
 
+func TestSweepIntGenISISEstimateValidNColsByProfile(t *testing.T) {
+	a, ok := credential.LookupIntGenISISProfile(credential.ProfileIntGenISISA)
+	if !ok {
+		t.Fatal("missing profile A")
+	}
+	b := credential.PrimaryIntGenISISProfile()
+	for _, tc := range []struct {
+		profile credential.IntGenISISProfile
+		ncols   int
+		valid   bool
+	}{
+		{a, 8, true},
+		{a, 256, true},
+		{a, 512, false},
+		{a, 96, false},
+		{b, 8, true},
+		{b, 512, true},
+		{b, 96, false},
+	} {
+		t.Run(fmt.Sprintf("%s/%d", tc.profile.Name, tc.ncols), func(t *testing.T) {
+			tuning := intGenISISTuning{
+				NCols:              tc.ncols,
+				LVCSNCols:          maxIntMain(tc.ncols, 32),
+				NLeaves:            4096,
+				Eta:                8,
+				Theta:              1,
+				Rho:                1,
+				Ell:                4,
+				EllPrime:           4,
+				SigShortnessRadix:  11,
+				SigShortnessDigits: 4,
+				ReplayProjection:   PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2,
+			}
+			_, err := estimateIntGenISISGeometry(tc.profile, tuning, "showing")
+			if tc.valid && err != nil {
+				t.Fatalf("valid ncols rejected: %v", err)
+			}
+			if !tc.valid && err == nil {
+				t.Fatalf("invalid ncols=%d accepted for N=%d", tc.ncols, tc.profile.N)
+			}
+		})
+	}
+}
+
+func TestSweepIntGenISISEstimateDefaultGridIsPrePruned(t *testing.T) {
+	g, err := sweepIntGenISISEstimateGridFor("estimate-deep")
+	if err != nil {
+		t.Fatalf("estimate grid: %v", err)
+	}
+	if !sameInts(g.NCols, []int{8, 16, 32, 64, 128}) {
+		t.Fatalf("ncols=%v want tight divisor set through 128", g.NCols)
+	}
+	if containsIntTest(g.NCols, 96) || containsIntTest(g.NCols, 256) || containsIntTest(g.NCols, 512) {
+		t.Fatalf("default estimate grid includes dominated or invalid ncols: %v", g.NCols)
+	}
+	if maxIntTest(g.LVCSNCols) > 256 {
+		t.Fatalf("lvcs_ncols max=%d want <=256", maxIntTest(g.LVCSNCols))
+	}
+	if maxIntTest(g.Ell) > 32 {
+		t.Fatalf("ell max=%d want <=32", maxIntTest(g.Ell))
+	}
+	if maxIntTest(g.NLeavesBase) > 262144 {
+		t.Fatalf("nleaves base max=%d want <=262144", maxIntTest(g.NLeavesBase))
+	}
+	if !sameInts(g.Compression, []int{0, 1, 2}) {
+		t.Fatalf("compression levels=%v want [0 1 2]", g.Compression)
+	}
+	for _, fam := range g.Families {
+		if fam.Theta <= 0 || fam.Rho <= 0 || fam.EllPrime <= 0 {
+			t.Fatalf("invalid family %+v", fam)
+		}
+		if fam.Theta > 1 && fam.Theta*fam.Rho < 5 {
+			t.Fatalf("round-2-impossible theta>1 family survived pruning: %+v", fam)
+		}
+		if fam.Theta > 9 {
+			t.Fatalf("high-theta dominated family survived pruning: %+v", fam)
+		}
+		if fam.Theta == 1 && (fam.Rho < 5 || fam.Rho > 7 || fam.EllPrime < 9 || fam.EllPrime > 13) {
+			t.Fatalf("theta=1 family outside retained baseline window: %+v", fam)
+		}
+	}
+	for _, fam := range []sweepIntGenISISFamily{
+		{Theta: 7, Rho: 1, EllPrime: 1},
+		{Theta: 2, Rho: 4, EllPrime: 4},
+		{Theta: 3, Rho: 2, EllPrime: 3},
+		{Theta: 1, Rho: 7, EllPrime: 13},
+	} {
+		if !containsFamilyTest(g.Families, fam) {
+			t.Fatalf("default grid lost retained edge family %+v", fam)
+		}
+	}
+}
+
+func TestSweepIntGenISISEstimateDefaultKappasAreSmallTopups(t *testing.T) {
+	kappas := defaultSweepEstimateKappas()
+	for _, want := range [][4]int{
+		{0, 0, 0, 0},
+		{0, 0, 0, 4},
+		{0, 0, 0, 6},
+		{6, 0, 0, 0},
+		{6, 0, 0, 6},
+		{0, 0, 3, 0},
+	} {
+		if !containsKappaTest(kappas, want) {
+			t.Fatalf("default kappas missing %s", kappaTupleString(want))
+		}
+	}
+	for _, k := range kappas {
+		for round, v := range k {
+			if v > sweepEstimateMaxKappaPerRound {
+				t.Fatalf("kappa round %d in %s exceeds cap %d", round+1, kappaTupleString(k), sweepEstimateMaxKappaPerRound)
+			}
+		}
+	}
+	if err := validateSweepKappas([][4]int{{0, 0, 0, 7}}, sweepEstimateMaxKappaPerRound); err == nil {
+		t.Fatal("expected kappa cap validation failure")
+	}
+}
+
+func TestSweepIntGenISISEstimateSelectsMinimalKappaTopup(t *testing.T) {
+	issuance := benchmarkIntGenISISMetrics{
+		TheoremBits:      [4]float64{120, 120, 120, 120},
+		TheoremTotalBits: 118,
+		SoundnessEq8Bits: 118,
+		CollisionBits:    500,
+	}
+	showing := benchmarkIntGenISISMetrics{
+		TheoremBits:      [4]float64{120, 120, 120, 91.5},
+		TheoremTotalBits: 91.4,
+		SoundnessEq8Bits: 91.4,
+		CollisionBits:    500,
+	}
+	kappas := [][4]int{
+		{0, 0, 0, 0},
+		{0, 0, 0, 2},
+		{0, 0, 0, 3},
+		{0, 0, 0, 6},
+	}
+	kappa, _, boostedShowing, bits, ok, high := selectSweepKappaTopup(issuance, showing, kappas, 94, 135)
+	if !ok || high {
+		t.Fatalf("kappa selection failed ok=%v high=%v bits=%.2f", ok, high, bits)
+	}
+	if kappa != [4]int{0, 0, 0, 3} {
+		t.Fatalf("selected kappa=%s want 0/0/0/3", kappaTupleString(kappa))
+	}
+	if boostedShowing.TheoremBits[3] != 94.5 {
+		t.Fatalf("boosted round4=%.2f want 94.50", boostedShowing.TheoremBits[3])
+	}
+}
+
+func TestSweepIntGenISISEstimateShortnessCapacity(t *testing.T) {
+	const beta = int64(6142)
+	for _, shape := range []sweepIntGenISISShortness{{Radix: 11, Digits: 4}, {Radix: 7, Digits: 5}, {Radix: 5, Digits: 6}} {
+		if !sweepShortnessCoversSignatureBound(shape, beta) {
+			t.Fatalf("shape %+v should cover beta=%d", shape, beta)
+		}
+	}
+	for _, shape := range []sweepIntGenISISShortness{{Radix: 9, Digits: 4}, {Radix: 5, Digits: 5}} {
+		if sweepShortnessCoversSignatureBound(shape, beta) {
+			t.Fatalf("shape %+v should not cover beta=%d", shape, beta)
+		}
+	}
+}
+
+func TestSweepIntGenISISEstimateTheoremAndTranscriptFilters(t *testing.T) {
+	profile, ok := credential.LookupIntGenISISProfile(credential.ProfileIntGenISISA)
+	if !ok {
+		t.Fatal("missing profile A")
+	}
+	tuning := intGenISISTuning{
+		NCols:              32,
+		LVCSNCols:          70,
+		NLeaves:            42000,
+		Eta:                47,
+		Theta:              3,
+		Rho:                2,
+		Ell:                10,
+		EllPrime:           2,
+		Kappa:              [4]int{0, 0, 0, 6},
+		PRFCompanionMode:   PIOP.PRFCompanionModeDirectAuth,
+		CheckpointSamples:  2,
+		SigShortnessRadix:  11,
+		SigShortnessDigits: 4,
+		CompressedRows:     1,
+		ReplayProjection:   PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2,
+	}
+	issuance := tuning
+	issuance.PRFCompanionMode = ""
+	issuance.CheckpointSamples = 0
+	issuance.SigShortnessRadix = 0
+	issuance.SigShortnessDigits = 0
+	issuance.CompressedRows = 0
+	issuance.ReplayProjection = ""
+	im, err := estimateIntGenISISMetrics(profile, issuance, "issuance")
+	if err != nil {
+		t.Fatalf("issuance estimate: %v", err)
+	}
+	sm, err := estimateIntGenISISMetrics(profile, tuning, "showing")
+	if err != nil {
+		t.Fatalf("showing estimate: %v", err)
+	}
+	candidateBits := minFloat64Main(im.TheoremTotalBits, sm.TheoremTotalBits)
+	if candidateBits < 90 || candidateBits > 135 {
+		t.Fatalf("candidate theorem bits %.2f outside estimate sweep band", candidateBits)
+	}
+	if sm.PaperTranscriptBytes <= 0 || sm.PaperTranscriptBytes > 50000 {
+		t.Fatalf("showing bytes=%d outside cap", sm.PaperTranscriptBytes)
+	}
+	if sm.DQ != sweepComputeDQFromDegrees(11, 8, 32, 10) {
+		t.Fatalf("showing dQ=%d want conservative Eq.(3) dQ", sm.DQ)
+	}
+}
+
+func TestSweepIntGenISISEstimateCommandSmoke(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "estimate")
+	err := run([]string{
+		"sweep-intgenisis-estimate",
+		"-profiles", credential.ProfileIntGenISISA,
+		"-out-dir", outDir,
+		"-force",
+		"-ncols", "32",
+		"-lvcs-ncols", "70",
+		"-ell", "10",
+		"-nleaves", "42000",
+		"-theta", "3",
+		"-rho", "2",
+		"-ell-prime", "2",
+		"-compression-levels", "1",
+		"-shortness", "11/4",
+		"-kappa-tuples", "0/0/0/6",
+		"-soundness-min", "90",
+		"-soundness-max", "135",
+		"-max-showing-bytes", "50000",
+		"-top-k", "5",
+	})
+	if err != nil {
+		t.Fatalf("estimate command: %v", err)
+	}
+	for _, name := range []string{"summary.json", "accepted_candidates.jsonl", "frontier_all.csv", "frontier_96.json", "frontier_128.csv", "rejected_counts.json", "grid_config.json", "progress.json"} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing %s: %v", name, err)
+		}
+	}
+	gridConfig, err := os.ReadFile(filepath.Join(outDir, "grid_config.json"))
+	if err != nil {
+		t.Fatalf("read grid_config.json: %v", err)
+	}
+	if !strings.Contains(string(gridConfig), PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2) {
+		t.Fatalf("grid_config missing default V2 projection: %s", string(gridConfig))
+	}
+	if strings.Contains(string(gridConfig), PIOP.IntGenISISReplayProjectionProjectUYHatV1) ||
+		strings.Contains(string(gridConfig), PIOP.IntGenISISReplayProjectionNone) {
+		t.Fatalf("default estimate projection modes should be V2-only: %s", string(gridConfig))
+	}
+}
+
 func sameInts(a, b []int) bool {
 	if len(a) != len(b) {
 		return false
@@ -159,4 +419,48 @@ func sameInts(a, b []int) bool {
 		}
 	}
 	return true
+}
+
+func containsIntTest(values []int, want int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func maxIntTest(values []int) int {
+	max := 0
+	for _, value := range values {
+		if value > max {
+			max = value
+		}
+	}
+	return max
+}
+
+func containsFamilyTest(values []sweepIntGenISISFamily, want sweepIntGenISISFamily) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsKappaTest(values [][4]int, want [4]int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func minFloat64Main(a, b float64) float64 {
+	if a <= b {
+		return a
+	}
+	return b
 }

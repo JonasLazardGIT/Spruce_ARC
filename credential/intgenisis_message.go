@@ -7,11 +7,12 @@ import (
 )
 
 const (
-	IntGenISISMessageLayoutProfileBV2 = "intgenisis_message_profile_b_v2"
-	IntGenISISMessageLayoutProfileBV3 = "intgenisis_message_profile_b_v3"
-	IntGenISISSamplerUniformRQV1      = "uniform_rq_v1"
-	IntGenISISDomainTernaryV1         = "ternary_v1"
-	IntGenISISDegreeModePaperEq3V1    = "paper_eq3_v1"
+	IntGenISISMessageLayoutProfileBV2    = "intgenisis_message_profile_b_v2"
+	IntGenISISMessageLayoutProfileBV3    = "intgenisis_message_profile_b_v3"
+	IntGenISISMessageLayoutRingTailKeyV1 = "intgenisis_message_ring_tail_key_v1"
+	IntGenISISSamplerUniformRQV1         = "uniform_rq_v1"
+	IntGenISISDomainTernaryV1            = "ternary_v1"
+	IntGenISISDegreeModePaperEq3V1       = "paper_eq3_v1"
 )
 
 type MessageSlot struct {
@@ -42,17 +43,17 @@ type SemanticMessage struct {
 }
 
 func DefaultSemanticMessageLayout(profile IntGenISISProfile, lenKey int) (SemanticMessageLayout, error) {
-	if profile.Name != ProfileIntGenISISB {
-		return SemanticMessageLayout{}, fmt.Errorf("semantic message layout is only defined for %s, got %q", ProfileIntGenISISB, profile.Name)
+	if _, ok := LookupIntGenISISProfile(profile.Name); !ok {
+		return SemanticMessageLayout{}, fmt.Errorf("unsupported IntGenISIS profile %q", profile.Name)
 	}
 	if lenKey <= 0 {
 		return SemanticMessageLayout{}, fmt.Errorf("invalid PRF key length %d", lenKey)
 	}
 	if lenKey > 8 {
-		return SemanticMessageLayout{}, fmt.Errorf("profile-B semantic layout has 8 key slots, got lenkey=%d", lenKey)
+		return SemanticMessageLayout{}, fmt.Errorf("IntGenISIS semantic layout has at most 8 key slots, got lenkey=%d", lenKey)
 	}
 	if profile.N <= lenKey {
-		return SemanticMessageLayout{}, fmt.Errorf("ring degree %d too small for profile-B semantic layout", profile.N)
+		return SemanticMessageLayout{}, fmt.Errorf("ring degree %d too small for IntGenISIS semantic layout", profile.N)
 	}
 	keyStart := profile.N - lenKey
 	attr := make([]MessageSlot, keyStart)
@@ -64,8 +65,8 @@ func DefaultSemanticMessageLayout(profile IntGenISISProfile, lenKey int) (Semant
 		key[i] = MessageSlot{Poly: 0, Coeff: keyStart + i}
 	}
 	return SemanticMessageLayout{
-		Version:       3,
-		Name:          IntGenISISMessageLayoutProfileBV3,
+		Version:       4,
+		Name:          IntGenISISMessageLayoutRingTailKeyV1,
 		Profile:       profile.Name,
 		RingDegree:    profile.N,
 		MessageRows:   profile.EllM,
@@ -254,11 +255,21 @@ func ZeroSemanticAttributes(layout SemanticMessageLayout) [][]int64 {
 }
 
 func (l SemanticMessageLayout) validate() error {
-	if l.Version != 3 {
+	if l.Version != 4 {
 		return fmt.Errorf("unsupported semantic message layout version %d", l.Version)
 	}
 	if l.Name == "" || l.Profile == "" {
 		return fmt.Errorf("semantic message layout missing name/profile")
+	}
+	if l.Name != IntGenISISMessageLayoutRingTailKeyV1 {
+		return fmt.Errorf("unsupported semantic message layout %q", l.Name)
+	}
+	profile, ok := LookupIntGenISISProfile(l.Profile)
+	if !ok {
+		return fmt.Errorf("unsupported IntGenISIS profile %q", l.Profile)
+	}
+	if l.RingDegree != profile.N || l.MessageRows != profile.EllM {
+		return fmt.Errorf("semantic layout dimensions do not match profile %q", l.Profile)
 	}
 	if l.MSEDomain != IntGenISISDomainTernaryV1 || l.KeyDomain != IntGenISISDomainTernaryV1 {
 		return fmt.Errorf("unsupported semantic domains mse=%q key=%q", l.MSEDomain, l.KeyDomain)

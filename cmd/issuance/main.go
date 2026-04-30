@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
@@ -27,7 +29,7 @@ const (
 )
 
 func usage() {
-	fmt.Println(`usage: issuance <setup-intgenisis-public|setup-demo-public|setup-ntru-keys|holder-commit|issuer-challenge|holder-prove|issuer-verify-sign|holder-finalize|demo-local|benchmark-x0|benchmark-intgenisis|benchmark-intgenisis-e2e|sweep-intgenisis|sweep-intgenisis-presets> [options]
+	fmt.Println(`usage: issuance <setup-intgenisis-public|setup-demo-public|setup-ntru-keys|holder-commit|issuer-challenge|holder-prove|issuer-verify-sign|holder-finalize|demo-local|benchmark-x0|benchmark-intgenisis|benchmark-intgenisis-e2e|sweep-intgenisis|sweep-intgenisis-presets|sweep-intgenisis-estimate> [options]
 
 Subcommands:
   setup-intgenisis-public Generate IntGenISIS MLWE-hiding credential public parameters
@@ -40,10 +42,11 @@ Subcommands:
   holder-finalize    Verify and persist the final credential state
   demo-local         Run the full role-separated issuance flow in one process
   benchmark-x0      Benchmark legacy issuance + showing across x0 profiles
-  benchmark-intgenisis Report IntGenISIS MLWE row inventories and profile-B proof metrics
-  benchmark-intgenisis-e2e Run profile-B issuance + showing and print paper transcript sizes
+  benchmark-intgenisis Report IntGenISIS MLWE row inventories and proof metrics
+  benchmark-intgenisis-e2e Run IntGenISIS issuance + showing and print paper transcript sizes
   sweep-intgenisis  Sweep SmallWood parameters for IntGenISIS profile-B Eq. (8) soundness
-  sweep-intgenisis-presets Build fixed-LVCS preset frontiers for 96/128-bit IntGenISIS defaults`)
+  sweep-intgenisis-presets Build fixed-LVCS preset frontiers for 96/128-bit IntGenISIS defaults
+  sweep-intgenisis-estimate Estimate deep N=256/N=512 IntGenISIS transcript frontiers without building proofs`)
 }
 
 func main() {
@@ -87,6 +90,8 @@ func run(args []string) error {
 		return runSweepIntGenISIS(args[1:])
 	case "sweep-intgenisis-presets":
 		return runSweepIntGenISISPresets(args[1:])
+	case "sweep-intgenisis-estimate":
+		return runSweepIntGenISISEstimate(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -115,7 +120,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	profile := fs.String("profile", credential.ProfileIntGenISISB, "IntGenISIS profile name")
 	prfParamsPath := fs.String("prf-params", defaultPRFParamsPath, "PRF params path")
 	jsonOut := fs.String("json-out", "", "optional JSON output path")
-	presetName := fs.String("preset", "", "named IntGenISIS preset (fast-local, sw96-lvcs32, sw96-lvcs64, sw96-lvcs128, sw128-lvcs32, sw128-lvcs64, sw128-lvcs128)")
+	presetName := fs.String("preset", "", "named IntGenISIS preset (for example fast-local, sw96-lvcs64, sw128-lvcs64, n256-sw96, n256-sw128)")
 	force := fs.Bool("force", false, "overwrite existing artifacts")
 	seed := fs.Int64("seed", 11, "holder commitment sampling seed")
 	ncols := fs.Int("ncols", 16, "SmallWood packing width")
@@ -150,10 +155,12 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	showingShortnessRadix := fs.Int("showing-sig-shortness-radix", 0, "showing IntGenISIS u-shortness radix override")
 	showingShortnessDigits := fs.Int("showing-sig-shortness-digits", 0, "showing IntGenISIS u-shortness digit-count override")
 	showingCompressedRows := fs.Int("showing-compressed-rows", 0, "showing IntGenISIS M/s/e compression level: 0 none, 1 pack2, 2 pack3, 3 pack4")
+	showingReplayProjection := fs.String("showing-replay-projection", PIOP.IntGenISISReplayProjectionNone, "showing IntGenISIS replay projection mode: none, project_u_y_hat_v1, or project_u_y_hat_and_y_view_v2")
 	companionMode := fs.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "PRF companion mode: output_audit, direct_auth, or aux_instance")
 	checkpointSamples := fs.Int("prf-checkpoint-samples", 8, "PRF companion checkpoint samples")
 	keygenTrials := fs.Int("keygen-trials", 10000, "maximum annulus keygen trials")
 	keygenAttempts := fs.Int("attempts", 4, "annulus keygen attempts")
+	ntruBeta := fs.Uint64("ntru-beta", 0, "optional research NTRU signature beta override; 0 keeps profile default")
 	maxTrials := fs.Int("max-trials", 2048, "maximum NTRU signer trials")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -199,11 +206,15 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		SigShortnessRadix:  *showingShortnessRadix,
 		SigShortnessDigits: *showingShortnessDigits,
 		CompressedRows:     *showingCompressedRows,
+		ReplayProjection:   *showingReplayProjection,
 	}
 	if *presetName != "" {
 		preset, err := credential.MustLookupIntGenISISPreset(*presetName)
 		if err != nil {
 			return err
+		}
+		if !setFlags["profile"] {
+			*profile = preset.Profile
 		}
 		issuance = intGenISISTuningFromPresetSpec(preset.Issuance)
 		showing = intGenISISTuningFromPresetSpec(preset.Showing)
@@ -215,7 +226,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		applyCommonTuningFlagOverrides(&showing, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, baseKappa)
 		applyPrefixedTuningFlagOverrides(&issuance, setFlags, "issuance-", *issuanceNCols, *issuanceLVCSNCols, *issuanceNLeaves, *issuanceEta, *issuanceTheta, *issuanceRho, *issuanceEll, *issuanceEllPrime)
 		applyPrefixedTuningFlagOverrides(&showing, setFlags, "showing-", *showingNCols, *showingLVCSNCols, *showingNLeaves, *showingEta, *showingTheta, *showingRho, *showingEll, *showingEllPrime)
-		applyShowingSpecificFlagOverrides(&showing, setFlags, PIOP.PRFCompanionMode(*companionMode), *checkpointSamples, *showingShortnessRadix, *showingShortnessDigits, *showingCompressedRows)
+		applyShowingSpecificFlagOverrides(&showing, setFlags, PIOP.PRFCompanionMode(*companionMode), *checkpointSamples, *showingShortnessRadix, *showingShortnessDigits, *showingCompressedRows, *showingReplayProjection)
 	}
 	_, err := benchmarkIntGenISISE2E(benchmarkIntGenISISE2EConfig{
 		ArtifactDir:       *artifactDir,
@@ -238,6 +249,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		CheckpointSamples: *checkpointSamples,
 		KeygenTrials:      *keygenTrials,
 		KeygenAttempts:    *keygenAttempts,
+		NTRUBeta:          *ntruBeta,
 		MaxTrials:         *maxTrials,
 		MaxNLeaves:        *maxNLeaves,
 	})
@@ -247,12 +259,15 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 func runSetupIntGenISISPublic(args []string) error {
 	fs := flag.NewFlagSet("setup-intgenisis-public", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	outPath := fs.String("out", defaultDemoPublicParamsPath, "output path for generated IntGenISIS credential public params")
+	outPath := fs.String("out", "", "output path for generated IntGenISIS credential public params")
 	force := fs.Bool("force", false, "overwrite an existing output path")
 	profileName := fs.String("profile", credential.ProfileIntGenISISB, "IntGenISIS profile name")
 	bPath := fs.String("b-path", "", "B-matrix path recorded in the public params")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if strings.TrimSpace(*outPath) == "" {
+		*outPath = filepath.Join("Parameters", fmt.Sprintf("credential_public.%s.json", *profileName))
 	}
 	return setupIntGenISISPublic(*outPath, *force, *profileName, *bPath)
 }
@@ -260,17 +275,18 @@ func runSetupIntGenISISPublic(args []string) error {
 func runSetupNTRUKeys(args []string) error {
 	fs := flag.NewFlagSet("setup-ntru-keys", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree for generated NTRU params/keys (supported: 1024 or 512; 0 keeps default)")
-	paramsOut := fs.String("params-out", "", "output path for generated NTRU params (default keeps canonical path for N=1024, research_n512 path for N=512)")
+	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree for generated NTRU params/keys (supported: 1024, 512, or 256; 0 keeps default)")
+	paramsOut := fs.String("params-out", "", "output path for generated NTRU params (default keeps canonical path for N=1024, research_n512 path for N=512, research_n256 path for N=256)")
 	publicOut := fs.String("public-out", "", "output path for generated NTRU public key")
 	privateOut := fs.String("private-out", "", "output path for generated NTRU private key")
 	force := fs.Bool("force", false, "overwrite existing output paths")
 	keygenTrials := fs.Int("keygen-trials", 10000, "maximum trials for each annulus keygen attempt")
 	attempts := fs.Int("attempts", 4, "number of annulus keygen attempts before failing")
+	ntruBeta := fs.Uint64("ntru-beta", 0, "optional research NTRU signature beta override; 0 keeps profile default")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return setupNTRUKeys(*researchRingDegree, *paramsOut, *publicOut, *privateOut, *force, *keygenTrials, *attempts)
+	return setupNTRUKeys(*researchRingDegree, *paramsOut, *publicOut, *privateOut, *force, *keygenTrials, *attempts, *ntruBeta)
 }
 
 func runSetupDemoPublic(args []string) error {
@@ -283,7 +299,7 @@ func runSetupDemoPublic(args []string) error {
 	x0Profile := fs.String("x0-profile", "lhl_default", "x0 profile (legacy_scalar, lhl_default, lhl_alt)")
 	x0Len := fs.Int("x0-len", 0, "optional x0 vector length override")
 	x0Bound := fs.Int64("x0-bound", 0, "optional x0 coefficient bound override")
-	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree for generated public params (supported: 1024 or 512; 0 keeps default)")
+	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree for generated public params (supported: 1024, 512, or 256; 0 keeps default)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -312,7 +328,7 @@ func runHolderCommit(args []string) error {
 	kappa2 := fs.Int("kappa2", 0, "optional theorem aggregation kappa round 2")
 	kappa3 := fs.Int("kappa3", 0, "optional theorem aggregation kappa round 3")
 	kappa4 := fs.Int("kappa4", 0, "optional theorem aggregation kappa round 4")
-	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree override for issuance (supported: 1024 or 512; 0 follows public params)")
+	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree override for issuance (supported: 1024, 512, or 256; 0 follows public params)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -427,7 +443,7 @@ func runDemoLocal(args []string) error {
 	kappa2 := fs.Int("kappa2", 0, "optional theorem aggregation kappa round 2")
 	kappa3 := fs.Int("kappa3", 0, "optional theorem aggregation kappa round 3")
 	kappa4 := fs.Int("kappa4", 0, "optional theorem aggregation kappa round 4")
-	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree override for issuance (supported: 1024 or 512; 0 follows public params)")
+	researchRingDegree := fs.Int("research-ring-degree", 0, "opt-in research ring degree override for issuance (supported: 1024, 512, or 256; 0 follows public params)")
 	ntruParamsPath := fs.String("ntru-params", defaultNTRUParamsPath, "NTRU params path used for signature beta bound")
 	ntruPublicPath := fs.String("ntru-public-key", defaultNTRUPublicKeyPath, "NTRU public key path")
 	ntruPrivatePath := fs.String("ntru-private-key", defaultNTRUPrivateKeyPath, "NTRU private key path")

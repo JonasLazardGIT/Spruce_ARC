@@ -183,6 +183,7 @@ func manualShowingResearchOverrideActive(setFlags map[string]bool) bool {
 		"sig-shortness-ncols",
 		"prf-companion-mode",
 		"prf-checkpoint-samples",
+		"intgenisis-replay-projection",
 		"unsafe-shadow-sig-lookup-r121-l2",
 	} {
 		if setFlags[name] {
@@ -240,7 +241,7 @@ func main() {
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
 	showingProfile := flag.String("showing-profile", defaultShowingProfile, fmt.Sprintf("maintained showing profile (%s); no flag uses %s", strings.Join(showingProfileNames(), ", "), defaultShowingProfile))
-	intGenISISPreset := flag.String("preset", "", "named IntGenISIS preset (fast-local, sw96-lvcs32, sw96-lvcs64, sw96-lvcs128, sw128-lvcs32, sw128-lvcs64, sw128-lvcs128)")
+	intGenISISPreset := flag.String("preset", "", "named IntGenISIS preset (for example fast-local, sw96-lvcs64, sw128-lvcs64, n256-sw96, n256-sw128)")
 	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
 	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
 	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override for soundness research")
@@ -261,6 +262,7 @@ func main() {
 	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth remains research-only; aux_instance enables the research-only split PRF proof)")
 	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
 	intGenISISCompressedRows := flag.Int("intgenisis-compressed-rows", 0, "IntGenISIS M/s/e compression level: 0 none, 1 pack2, 2 pack3, 3 pack4")
+	intGenISISReplayProjection := flag.String("intgenisis-replay-projection", PIOP.IntGenISISReplayProjectionNone, "IntGenISIS replay projection mode: none, project_u_y_hat_v1, or project_u_y_hat_and_y_view_v2")
 	statePathFlag := flag.String("state-path", "", "credential state path for showing; defaults to the selected maintained profile artifact")
 	intGenISISPublicParamsPath := flag.String("public-params", "", "IntGenISIS public params path for standalone presentation verification")
 	intGenISISVerifierKeyPath := flag.String("verifier-key", "", "IntGenISIS verifier key path for standalone presentation verification")
@@ -339,6 +341,9 @@ func main() {
 			if !setFlags["intgenisis-compressed-rows"] {
 				*intGenISISCompressedRows = t.CompressedRows
 			}
+			if !setFlags["intgenisis-replay-projection"] && t.ReplayProjection != "" {
+				*intGenISISReplayProjection = t.ReplayProjection
+			}
 		}
 		if !setFlags["state-path"] {
 			*statePathFlag = filepath.Join("credential", "keys", "credential_state.json")
@@ -361,6 +366,7 @@ func main() {
 			*intGenISISCompressedRows,
 			*sigShortnessRadix,
 			*sigShortnessDigits,
+			*intGenISISReplayProjection,
 			*presentationOut,
 			*verifyPresentation,
 			*verifierStatePath,
@@ -750,7 +756,7 @@ func effectiveKappaFromFlags(k1, k2, k3, k4 int) [4]int {
 	return out
 }
 
-func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int, presentationOut, verifyPresentationPath, verifierStatePath, unsafeSigLookupShadow string) error {
+func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int, replayProjection, presentationOut, verifyPresentationPath, verifierStatePath, unsafeSigLookupShadow string) error {
 	cli.printf(categoryStatus, "[showing-cli] ", "starting IntGenISIS showing profile=%s state=%s", showingProfileIntGenISISB, statePath)
 	if unsafeSigLookupShadow != "" && PIOP.NormalizeSigLookupShadowR121L2Mode(unsafeSigLookupShadow) == PIOP.SigLookupShadowR121L2None {
 		return fmt.Errorf("unknown unsafe shadow sig lookup mode %q", unsafeSigLookupShadow)
@@ -790,7 +796,7 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 		if err != nil {
 			return fmt.Errorf("load ring: %w", err)
 		}
-		opts := intGenISISShowingOpts(publicParams.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits)
+		opts := intGenISISShowingOpts(publicParams.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits, replayProjection)
 		return verifyIntGenISISPresentationCLI(verifyPresentationPath, verifierStatePath, verifierKey, publicParams, ringQ, opts)
 	}
 	st, err := credential.LoadIntGenISISState(statePath)
@@ -816,7 +822,7 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 	if err != nil {
 		return fmt.Errorf("load prf params: %w", err)
 	}
-	opts := intGenISISShowingOpts(st.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits)
+	opts := intGenISISShowingOpts(st.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits, replayProjection)
 	if opts.NCols < params.LenKey {
 		return fmt.Errorf("ncols=%d is too small for IntGenISIS PRF key width %d", opts.NCols, params.LenKey)
 	}
@@ -915,7 +921,7 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 	return nil
 }
 
-func intGenISISShowingOpts(ringDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int) PIOP.SimOpts {
+func intGenISISShowingOpts(ringDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int, replayProjection string) PIOP.SimOpts {
 	ncols := 16
 	if ncolsOverride > 0 {
 		ncols = ncolsOverride
@@ -958,27 +964,28 @@ func intGenISISShowingOpts(ringDegree, ncolsOverride, lvcsNColsOverride, nLeaves
 		checkpointSamples = 8
 	}
 	return PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-		Credential:               true,
-		CoeffPacking:             true,
-		RingDegree:               ringDegree,
-		NCols:                    ncols,
-		LVCSNCols:                lvcsNCols,
-		PostSignLVCSNCols:        lvcsNCols,
-		PRFLVCSNCols:             lvcsNCols,
-		NLeaves:                  nLeaves,
-		Ell:                      ell,
-		EllPrime:                 ellPrime,
-		Eta:                      eta,
-		Rho:                      rho,
-		Theta:                    theta,
-		Kappa:                    kappa,
-		DomainMode:               PIOP.DomainModeExplicit,
-		PRFGroupRounds:           2,
-		PRFCompanionMode:         companionMode,
-		PRFCheckpointSamples:     checkpointSamples,
-		IntGenISISMSECompression: compressedRows,
-		SigShortnessRadix:        sigShortnessRadix,
-		SigShortnessL:            sigShortnessDigits,
+		Credential:                 true,
+		CoeffPacking:               true,
+		RingDegree:                 ringDegree,
+		NCols:                      ncols,
+		LVCSNCols:                  lvcsNCols,
+		PostSignLVCSNCols:          lvcsNCols,
+		PRFLVCSNCols:               lvcsNCols,
+		NLeaves:                    nLeaves,
+		Ell:                        ell,
+		EllPrime:                   ellPrime,
+		Eta:                        eta,
+		Rho:                        rho,
+		Theta:                      theta,
+		Kappa:                      kappa,
+		DomainMode:                 PIOP.DomainModeExplicit,
+		PRFGroupRounds:             2,
+		PRFCompanionMode:           companionMode,
+		PRFCheckpointSamples:       checkpointSamples,
+		IntGenISISMSECompression:   compressedRows,
+		IntGenISISReplayProjection: replayProjection,
+		SigShortnessRadix:          sigShortnessRadix,
+		SigShortnessL:              sigShortnessDigits,
 	})
 }
 

@@ -44,6 +44,7 @@ type benchmarkIntGenISISE2EConfig struct {
 	CheckpointSamples int
 	KeygenTrials      int
 	KeygenAttempts    int
+	NTRUBeta          uint64
 	MaxTrials         int
 	MaxNLeaves        int
 }
@@ -63,6 +64,7 @@ type intGenISISTuning struct {
 	SigShortnessRadix  int                   `json:"sig_shortness_radix,omitempty"`
 	SigShortnessDigits int                   `json:"sig_shortness_digits,omitempty"`
 	CompressedRows     int                   `json:"compressed_rows,omitempty"`
+	ReplayProjection   string                `json:"replay_projection,omitempty"`
 }
 
 type benchmarkIntGenISISE2ETimings struct {
@@ -205,11 +207,15 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		if t.CompressedRows < 0 {
 			t.CompressedRows = 0
 		}
+		if t.ReplayProjection == "" {
+			t.ReplayProjection = fallback.ReplayProjection
+		}
 	} else {
 		t.PRFCompanionMode = ""
 		t.CheckpointSamples = 0
 		t.SigShortnessRadix = 0
 		t.SigShortnessDigits = 0
+		t.ReplayProjection = ""
 	}
 	return t
 }
@@ -252,27 +258,28 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 		lvcsNCols = t.NCols
 	}
 	return PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-		Credential:               true,
-		CoeffPacking:             true,
-		RingDegree:               ringDegree,
-		NCols:                    t.NCols,
-		LVCSNCols:                lvcsNCols,
-		PostSignLVCSNCols:        lvcsNCols,
-		PRFLVCSNCols:             lvcsNCols,
-		NLeaves:                  t.NLeaves,
-		Ell:                      t.Ell,
-		EllPrime:                 t.EllPrime,
-		Eta:                      t.Eta,
-		Rho:                      t.Rho,
-		Theta:                    t.Theta,
-		Kappa:                    t.Kappa,
-		DomainMode:               PIOP.DomainModeExplicit,
-		PRFGroupRounds:           2,
-		PRFCompanionMode:         t.PRFCompanionMode,
-		PRFCheckpointSamples:     t.CheckpointSamples,
-		SigShortnessRadix:        t.SigShortnessRadix,
-		SigShortnessL:            t.SigShortnessDigits,
-		IntGenISISMSECompression: t.CompressedRows,
+		Credential:                 true,
+		CoeffPacking:               true,
+		RingDegree:                 ringDegree,
+		NCols:                      t.NCols,
+		LVCSNCols:                  lvcsNCols,
+		PostSignLVCSNCols:          lvcsNCols,
+		PRFLVCSNCols:               lvcsNCols,
+		NLeaves:                    t.NLeaves,
+		Ell:                        t.Ell,
+		EllPrime:                   t.EllPrime,
+		Eta:                        t.Eta,
+		Rho:                        t.Rho,
+		Theta:                      t.Theta,
+		Kappa:                      t.Kappa,
+		DomainMode:                 PIOP.DomainModeExplicit,
+		PRFGroupRounds:             2,
+		PRFCompanionMode:           t.PRFCompanionMode,
+		PRFCheckpointSamples:       t.CheckpointSamples,
+		SigShortnessRadix:          t.SigShortnessRadix,
+		SigShortnessL:              t.SigShortnessDigits,
+		IntGenISISMSECompression:   t.CompressedRows,
+		IntGenISISReplayProjection: t.ReplayProjection,
 	})
 }
 
@@ -283,9 +290,6 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	profile, ok := credential.LookupIntGenISISProfile(cfg.Profile)
 	if !ok {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("unsupported IntGenISIS profile %q", cfg.Profile)
-	}
-	if profile.Name != credential.ProfileIntGenISISB {
-		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("end-to-end IntGenISIS benchmark only supports %s", credential.ProfileIntGenISISB)
 	}
 	if cfg.PRFParamsPath == "" {
 		cfg.PRFParamsPath = defaultPRFParamsPath
@@ -326,8 +330,8 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	}
 
 	paths := benchmarkIntGenISISE2EArtifacts{
-		PublicParams:  filepath.Join(artifactDir, "credential_public.intgenisis_profile_b.json"),
-		BMatrix:       filepath.Join(artifactDir, "Bmatrix.intgenisis_profile_b.json"),
+		PublicParams:  filepath.Join(artifactDir, fmt.Sprintf("credential_public.%s.json", profile.Name)),
+		BMatrix:       filepath.Join(artifactDir, fmt.Sprintf("Bmatrix.%s.json", profile.Name)),
 		HolderSecret:  filepath.Join(artifactDir, "holder_secret.json"),
 		CommitRequest: filepath.Join(artifactDir, "commit_request.json"),
 		Submission:    filepath.Join(artifactDir, "presign_submission.json"),
@@ -356,7 +360,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	timings.SetupPublicMS = millisSince(t0)
 
 	t0 = time.Now()
-	if err := setupNTRUKeys(profile.N, paths.NTRUParams, paths.NTRUPublic, paths.NTRUPrivate, cfg.Force, cfg.KeygenTrials, cfg.KeygenAttempts); err != nil {
+	if err := setupNTRUKeys(profile.N, paths.NTRUParams, paths.NTRUPublic, paths.NTRUPrivate, cfg.Force, cfg.KeygenTrials, cfg.KeygenAttempts, cfg.NTRUBeta); err != nil {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("setup NTRU keys: %w", err)
 	}
 	timings.SetupNTRUKeysMS = millisSince(t0)
@@ -413,10 +417,10 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		Artifacts:      paths,
 		ReplayRejected: replayRejected,
 		Notes: []string{
-			"profile-B semantic layout uses ternary m in coefficients [0,N-8) and ternary PRF key k in coefficients [N-8,N)",
+			"semantic layout uses ternary m in coefficients [0,N-8) and ternary PRF key k in coefficients [N-8,N)",
 			"live IntGenISIS M,s,e membership is ternary_v1 and dQ/masks use paper Eq. (3) conservative degree accounting",
 			"max_nleaves caps the explicit DECS/LVCS evaluation domain; pass -max-nleaves 0 only for uncapped research sweeps",
-			"showing shortness proves the R11/L4 representable bound 7320; exact beta remains builder-side and Fiat-Shamir-bound",
+			"showing shortness proves the configured signed-radix representable bound; the public signature beta is builder-validated and Fiat-Shamir-bound",
 		},
 	}
 	benchmarkIntGenISISE2EPrintReport(report)
@@ -546,7 +550,11 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("lift A_s: %w", err)
 	}
-	layout, err := credential.DefaultSemanticMessageLayout(credential.PrimaryIntGenISISProfile(), params.LenKey)
+	profile, ok := credential.LookupIntGenISISProfile(st.Profile)
+	if !ok {
+		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("unsupported IntGenISIS profile %q", st.Profile)
+	}
+	layout, err := credential.DefaultSemanticMessageLayout(profile, params.LenKey)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, err
 	}
@@ -590,7 +598,7 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	}
 	verifyPub.Extras = benchmarkIntGenISISE2ESignatureBoundExtras(verifierKey.SignatureBound)
 	verifyStart := time.Now()
-	ok, err := PIOP.VerifyIntGenISISShowing(verifyPub, proof, opts)
+	ok, err = PIOP.VerifyIntGenISISShowing(verifyPub, proof, opts)
 	verifyDur := time.Since(verifyStart)
 	if err != nil || !ok {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("standalone verify IntGenISIS showing: ok=%v err=%v", ok, err)
@@ -737,7 +745,7 @@ func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics
 		m.CommittedCols,
 		m.Clamped,
 	)
-	log.Printf("[issuance-cli] IntGenISIS %s degree parallel_alg=%d aggregated_alg=%d dominant=%s paper_conservative_dq=%d mask_degree_bound=%d ternary_rows=%d compressed_rows=%d mse_compression_level=%d pack_width=%d compression_degree=%d",
+	log.Printf("[issuance-cli] IntGenISIS %s degree parallel_alg=%d aggregated_alg=%d dominant=%s paper_conservative_dq=%d mask_degree_bound=%d ternary_rows=%d compressed_rows=%d mse_compression_level=%d pack_width=%d compression_degree=%d replay_projection=%s projected_sig_constraints=%d source_bridge_constraints=%d",
 		label,
 		m.ParallelAlgDegree,
 		m.AggregatedAlgDegree,
@@ -749,6 +757,9 @@ func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics
 		m.MSECompressionLevel,
 		m.MSECompressionPackWidth,
 		m.MSECompressionDegree,
+		m.ReplayProjection,
+		m.ProjectedSignatureConstraints,
+		m.SourceBridgeConstraints,
 	)
 	log.Printf("[issuance-cli] IntGenISIS %s paper_buckets q=%d r=%d pdecs=%d auth=%d sig_shortness=%d vtargets=%d barsets=%d",
 		label,

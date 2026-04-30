@@ -12,7 +12,7 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-const intGenISISProfileBKeyLen = 8
+const intGenISISPRFKeyLen = 8
 const intGenISISMaxDirectSignatureRangeBound = 64
 const intGenISISTernaryBound = 1
 const intGenISISTernaryMembershipDegree = 3
@@ -44,14 +44,14 @@ type intGenISISUShortnessShape struct {
 }
 
 func intGenISISSemanticLayout(ringN int, bound int64) (credential.SemanticMessageLayout, error) {
-	profile := credential.PrimaryIntGenISISProfile()
-	if ringN != profile.N {
-		return credential.SemanticMessageLayout{}, fmt.Errorf("IntGenISIS semantic layout only supports profile B ring_degree=%d, got %d", profile.N, ringN)
+	profile, ok := credential.LookupIntGenISISProfileByRingDegree(ringN)
+	if !ok {
+		return credential.SemanticMessageLayout{}, fmt.Errorf("IntGenISIS semantic layout does not support ring_degree=%d", ringN)
 	}
 	if bound > 0 {
 		profile.B = bound
 	}
-	return credential.DefaultSemanticMessageLayout(profile, intGenISISProfileBKeyLen)
+	return credential.DefaultSemanticMessageLayout(profile, intGenISISPRFKeyLen)
 }
 
 func bindIntGenISISPublicExtras(pub PublicInputs, ringN int) (PublicInputs, error) {
@@ -79,6 +79,13 @@ func bindIntGenISISPublicExtrasWithOpts(pub PublicInputs, ringN int, opts SimOpt
 		return pub, err
 	}
 	pub.Extras["IntGenISIS.compression_mode"] = compressionBytes
+	if normalizeIntGenISISReplayProjection(opts.IntGenISISReplayProjection) != IntGenISISReplayProjectionNone {
+		projectionBytes, err := intGenISISReplayProjectionDescriptorBytes(opts.IntGenISISReplayProjection)
+		if err != nil {
+			return pub, err
+		}
+		pub.Extras["IntGenISIS.replay_projection"] = projectionBytes
+	}
 	pub.Extras["IntGenISIS.policy"] = policyBytes
 	pub.Extras["IntGenISIS.sampler_profile"] = []byte(credential.IntGenISISSamplerUniformRQV1)
 	pub.Extras["IntGenISIS.presentation_schema"] = []byte("intgenisis_presentation_v1")
@@ -657,6 +664,11 @@ func validateIntGenISISProofDegreeMetadata(proof *Proof, pub PublicInputs, opts 
 		}
 		if got != want {
 			return fmt.Errorf("IntGenISIS M/s/e compression level=%d want verifier option %d", got, want)
+		}
+		gotProjection := intGenISISProjectionModeFromLayout(proof.RowLayout.IntGenISISShowing)
+		wantProjection := normalizeIntGenISISReplayProjection(opts.IntGenISISReplayProjection)
+		if gotProjection != wantProjection {
+			return fmt.Errorf("IntGenISIS replay projection=%q want verifier option %q", gotProjection, wantProjection)
 		}
 	}
 	meta, err := IntGenISISDegreeMetadataForProof(proof, pub, opts)

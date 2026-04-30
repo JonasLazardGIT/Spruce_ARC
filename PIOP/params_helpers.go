@@ -89,8 +89,10 @@ func resolveResearchRingDegree(requested int, defaultN int) (int, error) {
 		return 1024, nil
 	case 512:
 		return 512, nil
+	case 256:
+		return 256, nil
 	default:
-		return 0, fmt.Errorf("unsupported research ring degree %d (supported: %d, 1024, 512)", requested, defaultN)
+		return 0, fmt.Errorf("unsupported research ring degree %d (supported: %d, 1024, 512, 256)", requested, defaultN)
 	}
 }
 

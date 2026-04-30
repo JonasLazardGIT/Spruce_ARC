@@ -11,7 +11,7 @@ This document describes the IntGenISIS-style ARC-SPRUCE implementation currently
 
 The short status is:
 
-The repository now has a working IntGenISIS prototype path for profile B. It supports target-shaped commitments, a canonical `M=m||k` semantic layout, issuer-side target computation, PIOP verifier replay for the new pre-sign and showing rows, coefficient-view bound/key rows, a pre-sign policy hook, minimized issuer responses without serialized `T`, profile-routed CLI issuance, standalone presentation JSON, a public verifier-key artifact, and persistent verifier replay checks. The implementation is still not paper-complete. Remaining gaps are listed in [Correctness And Completeness Status](#correctness-and-completeness-status) and [Remaining Work](#remaining-work).
+The repository now has working IntGenISIS prototype paths for profile B (`N=512`) and profile A (`N=256`). They support target-shaped commitments, a canonical ring-tail-key semantic layout `M=m||k`, issuer-side target computation, PIOP verifier replay for the new pre-sign and showing rows, coefficient-view bound/key rows, a pre-sign policy hook, minimized issuer responses without serialized `T`, profile-routed CLI issuance, standalone presentation JSON, a public verifier-key artifact, and persistent verifier replay checks. The implementation is still not paper-complete. Remaining gaps are listed in [Correctness And Completeness Status](#correctness-and-completeness-status) and [Remaining Work](#remaining-work).
 
 ## Paper Construction Implemented
 
@@ -42,7 +42,7 @@ The paper locations that define this shape are:
 - `docs/arc_spruce_intgenisis/sections/05_smallwood_model.tex`
   - SmallWood statement shapes for issuance and showing.
 - `docs/arc_spruce_intgenisis/sections/06_parameters.tex`
-  - primary profile B base row arithmetic. The pre-sign relation uses explicit `M`, `m`, and `k` rows. The default no-disclosure showing relation now commits a compact surface: packed coefficient views for `u`, `M`, `s`, `e`, and the combined commitment-linear term `Y = C_M M + A_s s + e`; direct hat rows for `mu_sig`, `x0`, `x1`, and `Z`; bridged hats only for `u` and `Y`; and no standalone `m`/`k` projection rows.
+  - profile B and compact profile A base row arithmetic. The pre-sign relation uses explicit `M`, `m`, and `k` rows. The default no-disclosure showing relation now commits a compact surface: packed coefficient views for `u`, `M`, `s`, `e`, and the combined commitment-linear term `Y = C_M M + A_s s + e`; direct hat rows for `mu_sig`, `x0`, `x1`, and `Z`; bridged hats only for `u` and `Y` in non-projected mode; and no standalone `m`/`k` projection rows.
 
 ## Implemented Repository Routines
 
@@ -61,7 +61,7 @@ intgenisis_profile_b
 intgenisis_profile_a
 ```
 
-Primary profile B is the active target:
+Profile B is the N=512 target:
 
 ```text
 N = 512
@@ -78,7 +78,7 @@ MLWE hiding estimate = 194.408 bits
 MSIS binding estimate = 427.780 bits
 ```
 
-Compact profile A is represented for row inventory:
+Profile A is the compact N=256 target:
 
 ```text
 N = 256
@@ -92,9 +92,10 @@ ell_x0 = 2
 ell_x1 = 1
 signature_preimage_len = 2
 MLWE hiding estimate ~= 194.4 bits
+MSIS binding estimate ~= 180.164 bits
 ```
 
-Profile A is not yet an end-to-end supported protocol profile because the `N=256` NTRU/ring path has not been verified as a full issuance and showing stack.
+Profile A is now wired through setup, NTRU keygen, issuance, showing, standalone presentation verification, and replay rejection. It remains a candidate profile until `parameter_search/run_intgenisis_degree256.sage` is rerun with the selected estimator and the promoted q/security tuple is reviewed.
 
 Important public parameter fields:
 
@@ -226,10 +227,10 @@ NTRU public row
 profile and path metadata
 ```
 
-Canonical semantic layout for profile B:
+Canonical semantic layout for profiles A and B:
 
 ```text
-layout = intgenisis_message_profile_b_v3
+layout = intgenisis_message_ring_tail_key_v1
 domain = ternary_v1
 degree_mode = paper_eq3_v1
 M[0][0..N-9] = ternary semantic message/attribute slots m
@@ -449,7 +450,7 @@ What this corresponds to in the paper:
 Current limitations:
 
 - The current showing proof verifies the blockwise hat-row signature/inverse equations, coefficient-view bounds for `M,s,e`, the coefficient-domain linear relation `Y = C_M M + A_s s + e`, PRF key equality against the semantic key lanes inside `M`, signed-radix packed-view `u` shortness, small-bound direct `u` membership, coeff-to-hat aggregate bridges for `u,Y`, and the PRF companion relation.
-- The default no-disclosure showing proof no longer commits explicit packed `m` and `k` coefficient-view rows. The holder still validates the profile-B semantic message before proving, and policy/disclosure rows should be reintroduced only for presentation policies that need them.
+- The default no-disclosure showing proof no longer commits explicit packed `m` and `k` coefficient-view rows. The holder still validates the ring-tail-key semantic message before proving, and policy/disclosure rows should be reintroduced only for presentation policies that need them.
 - It does not yet prove `mu_sig`, `x0`, or `x1` distribution/range constraints if those are required by the final concrete DKLW domain.
 - The live NTRU `u` shortness bound is carried in credential state/verifier key artifacts and bound into Fiat-Shamir. The current large-beta PIOP proves the `7320` signed-radix capacity while the builder enforces exact `beta=6142`; exact beta comparison inside the proof remains open.
 - The executable sweep now includes the `theta>1` small-field branch from the 2025/1085 model. The PCS path preserves IntGenISIS literal row heads on Ω, expands them into the §5.4 small-field matrix, and commits split extension-field Q rows. Existing `theta=1, rho=7` candidates remain useful as a stable baseline while new `theta>1` sweeps are regenerated.
@@ -487,7 +488,7 @@ go run ./cmd/issuance benchmark-intgenisis-e2e \
   -json-out credential/issuance/intgenisis_e2e_report.json
 ```
 
-This command runs profile-B setup, NTRU key setup, holder commit, holder pre-sign proof, issuer verify/sign, holder finalize, standalone showing proof, standalone presentation verification, and replay-state rejection. It prints live proof payload bytes plus the paper transcript byte buckets for both issuance and showing.
+This command runs profile-routed setup, NTRU key setup, holder commit, holder pre-sign proof, issuer verify/sign, holder finalize, standalone showing proof, standalone presentation verification, and replay-state rejection. It prints live proof payload bytes plus the paper transcript byte buckets for both issuance and showing.
 
 Profile B at `s_SW=16`:
 
@@ -516,9 +517,9 @@ showing non-PRF ring polynomials = 15
 showing non-PRF rows = 240
 ```
 
-The JSON report also includes relation-bucket metrics for coefficient-view rows, bound rows, R11/L4 shortness rows, hat rows, coeff-to-hat bridge families, degree metadata, proof-report bucket counts, and live proof-size/proving-time/verification-time measurements for profile B. Profile A stays inventory-only.
+The JSON report also includes relation-bucket metrics for coefficient-view rows, bound rows, R11/L4 shortness rows, hat rows, coeff-to-hat bridge families, degree metadata, proof-report bucket counts, and live proof-size/proving-time/verification-time measurements for the selected profile.
 
-The live degree metadata now distinguishes the ternary witness domain from the public compatibility bound. For real profile-B showing proofs with the default R11/L4 shortness, the parallel algebraic degree is dominated by shortness (`d=11`), not the old direct `[-8,8]` range polynomial. For pre-sign proofs, ternary membership gives `d=3`. Q and mask sampling use the paper Eq. (3) conservative degree:
+The live degree metadata now distinguishes the ternary witness domain from the public compatibility bound. For real IntGenISIS showing proofs with the default R11/L4 shortness, the parallel algebraic degree is dominated by shortness (`d=11`), not the old direct `[-8,8]` range polynomial. For pre-sign proofs, ternary membership gives `d=3`. Q and mask sampling use the paper Eq. (3) conservative degree:
 
 ```text
 d_Q = max(d * (ell + ncols - 1) + ncols - 1, d_agg * (ell + ncols - 1))
@@ -528,7 +529,7 @@ d_Q = max(d * (ell + ncols - 1) + ncols - 1, d_agg * (ell + ncols - 1))
 
 The showing branch now has an opt-in row-compression path for the ternary `M`, `s`, and `e` coefficient-view surface. This follows the lattice-witness compression method from `docs/2025-1085.pdf`: pack `p` small-alphabet values into one carrier `c in S`, prove `c in S`, and use public univariate decompression polynomials to recover the logical values inside the remaining constraints.
 
-For IntGenISIS profile B the source alphabet is centered ternary. The implementation maps:
+For IntGenISIS profiles A and B the source alphabet is centered ternary. The implementation maps:
 
 ```text
 {-1,0,1} -> {0,1,2}
@@ -550,10 +551,52 @@ benchmark/sweep compressed_rows=3, showing CLI -intgenisis-compressed-rows 3: pa
 Only `M`, `s`, and `e` coefficient-view rows are compressed. The proof does not commit the removed raw views. Instead:
 
 ```text
-M/s/e carrier rows -> Decompress_i(carrier) -> coefficient-domain Y = C_M M + A_s s + e -> YView -> coeff-to-hat aggregate bridge -> YHat
+non-projected and projection v1:
+  M/s/e carrier rows -> Decompress_i(carrier) -> coefficient-domain Y = C_M M + A_s s + e -> YView -> coeff-to-hat aggregate bridge/projected signature
+
+projection v2:
+  M/s/e carrier rows -> Decompress_i(carrier) -> direct projected signature contribution C_M(omega_t) Transform(M) + A_s(omega_t) Transform(s) + Transform(e)
 ```
 
-The PRF key-source equality also reads the semantic key slots through `Decompress_i(M carrier)`, so compressed `M` remains the single key source. Compression metadata, the selected level, the carrier alphabet, and the resulting degree accounting are Fiat-Shamir-bound through the IntGenISIS public extras and row layout. The default remains `compressed_rows=0`.
+The PRF key-source equality also reads the semantic key slots through `Decompress_i(M carrier)`, so compressed `M` remains the single key source. Compression metadata, the selected level, the carrier alphabet, replay projection mode, and the resulting degree accounting are Fiat-Shamir-bound through the IntGenISIS public extras and row layout. The raw flag default remains `compressed_rows=0`; the promoted compact `sw96-lvcs64` preset uses `compressed_rows=1`.
+
+Current V2 audit snapshot for `sw96-lvcs64`:
+
+```text
+mode / showing override                 show_bytes  proof_bytes  eq8_bits  rows  replay_rows  Pdecs  VTargets  Q     R
+non-projected selected preset            35295       76459        98.01     375   228          12337  6058      5973  7524
+project_u_y_hat_v1                       35463       76802        98.01     327   228          12337  6058      5973  7524
+project_u_y_hat_and_y_view_v2            32418       73595        98.01     311   190          10645  5050      5973  7524
+v2, nleaves=53500 eta=46 ell=10          32293       72612        96.10     311   190          10645  5050      5973  7364
+v2, theta=5 ell_prime=2 ell=10           33632       74908        96.10     311   185           8989  8410      4965  7364
+v2, ell=12 nleaves=19952 eta=41          34009       71571        96.13     311   190          12766  5050      6243  6563
+v2, R11/L4 theta=3 rho=2 ell'=2 kappa4=6 31232       80590        91.38*    279   140           8323  4420      7189  8229
+```
+
+`*` The promoted R11/L4 tuple is gated by SmallWood Theorem 9, not raw Eq. (8): measured theorem_total_bits is `96.50`, with `kappa4=6`. Raw Eq. (8) remains printed and should not be confused with the theorem-grinding target.
+
+The promoted compact 96-bit projection point is:
+
+```bash
+go run ./cmd/issuance benchmark-intgenisis-e2e \
+  -preset sw96-lvcs64 \
+  -artifact-dir /tmp/intgenisis_r11l4_lvcs70_leaf42000_ell10_ncols32_projection_v2_k4only \
+  -force \
+  -showing-replay-projection project_u_y_hat_and_y_view_v2 \
+  -showing-ncols 32 \
+  -showing-lvcs-ncols 70 \
+  -showing-nleaves 42000 \
+  -showing-eta 47 \
+  -showing-ell 10 \
+  -showing-theta 3 \
+  -showing-rho 2 \
+  -showing-ell-prime 2 \
+  -showing-sig-shortness-radix 11 \
+  -showing-sig-shortness-digits 4 \
+  -showing-compressed-rows 1 \
+  -kappa4 6 \
+  -json-out /tmp/intgenisis_r11l4_lvcs70_leaf42000_ell10_ncols32_projection_v2_k4only.json
+```
 
 ## Commands To Run In Order
 
@@ -587,14 +630,14 @@ Flag meanings:
 
 - `-out`: output public-parameter JSON path.
 - `-b-path`: output path for the BB-tran `B` matrix. If omitted, the command writes a default `Bmatrix.<profile>.json` beside `-out`.
-- `-profile`: IntGenISIS profile name. Use `intgenisis_profile_b` for the primary implementation. `intgenisis_profile_a` is inventory-only unless `N=256` is verified end to end.
+- `-profile`: IntGenISIS profile name. Use `intgenisis_profile_b` for the N=512 implementation or `intgenisis_profile_a` for the N=256 implementation.
 - `-force`: overwrite existing `-out` and `-b-path` files.
 
 Paper correspondence:
 
 - setup for `C_M`, `A_s`, and `B` in `Setup`.
 
-### 2. Generate NTRU/SampPre Keys For Profile B
+### 2. Generate NTRU/SampPre Keys
 
 ```bash
 go run ./cmd/issuance setup-ntru-keys \
@@ -605,15 +648,26 @@ go run ./cmd/issuance setup-ntru-keys \
   -force
 ```
 
+For profile A / `N=256`, use:
+
+```bash
+go run ./cmd/issuance setup-ntru-keys \
+  -research-ring-degree 256 \
+  -params-out Parameters/Parameters.research_n256.json \
+  -public-out ntru_keys/public.research_n256.json \
+  -private-out ntru_keys/private.research_n256.json \
+  -force
+```
+
 What it does:
 
-- generates NTRU parameters for `N=512`;
+- generates NTRU parameters for the selected ring degree;
 - generates issuer public/private key material;
 - produces the trapdoor-backed signing material used by `issuer-verify-sign`.
 
 Flag meanings:
 
-- `-research-ring-degree`: must be `512` for profile B. If omitted, the command uses legacy defaults that are not profile-B aligned.
+- `-research-ring-degree`: use `512` for profile B or `256` for profile A. If omitted, the command uses legacy defaults that are not profile-aligned for IntGenISIS.
 - `-params-out`: output NTRU parameter path.
 - `-public-out`: output public key path.
 - `-private-out`: output private key path.
@@ -642,7 +696,7 @@ go run ./cmd/issuance holder-commit \
 What it does on IntGenISIS public params:
 
 - samples ternary message slots `m` and a ternary PRF key `k`;
-- packs `m` and `k` with `intgenisis_message_profile_b_v3` into the semantic message polynomial `M`;
+- packs `m` and `k` with `intgenisis_message_ring_tail_key_v1` into the semantic message polynomial `M`;
 - samples `s` and `e` from `{-1,0,1}`;
 - computes `c = C_M M + A_s s + e`;
 - writes local holder witness material to `-holder-secret`;
@@ -661,10 +715,10 @@ Flag meanings:
 - `-commit-request`: public issuance request artifact path.
 - `-expert-input`: legacy-only. The IntGenISIS branch rejects it.
 - `-seed`: deterministic local sampling seed for reproducible tests. Use `0` for nondeterministic local RNG behavior.
-- `-ncols`: witness packing width used by the pre-sign PIOP. Profile-B examples use `16`.
-- `-lvcs-ncols`: LVCS width. Profile-B examples use `32`, though the pre-sign builder internally narrows the prepared commitment rows to the witness width where needed.
-- `-nleaves`: explicit-domain size. Profile-B examples use `4096`.
-- `-research-ring-degree`: optional override. Normally omitted because the public params already say `N=512`.
+- `-ncols`: witness packing width used by the pre-sign PIOP. Examples use `16`.
+- `-lvcs-ncols`: LVCS width. Examples use `32`, though the pre-sign builder internally narrows the prepared commitment rows to the witness width where needed.
+- `-nleaves`: explicit-domain size. Fast examples use `4096`.
+- `-research-ring-degree`: optional override. Normally omitted because the public params already state the ring degree.
 
 Paper correspondence:
 
@@ -984,7 +1038,7 @@ Flag meanings:
 
 Important limitation:
 
-- this command reports relation buckets and row counts for every requested profile, but live proof-size/proving-time/verification-time fields are populated only for profile B. Profile A remains inventory-only until it is end-to-end supported.
+- this command reports relation buckets and row counts for every requested profile. It is still primarily a row-inventory command; use `benchmark-intgenisis-e2e -preset n256-sw96` or `n256-sw128` for live profile-A proof measurements.
 
 ### 11. End-To-End Transcript Benchmark
 
@@ -1001,7 +1055,7 @@ go run ./cmd/issuance benchmark-intgenisis-e2e \
 
 What it does:
 
-- generates profile-B public params and profile-B NTRU key material;
+- generates profile-routed public params and matching NTRU key material;
 - runs holder commit, holder prove, issuer verify/sign, and holder finalize;
 - builds a standalone IntGenISIS presentation from the finalized state;
 - verifies the presentation from public params plus verifier key only;
@@ -1009,28 +1063,129 @@ What it does:
 - prints and optionally writes JSON for proof bytes, paper transcript bytes, proving time, verification time, row counts, PRF rows, bound rows, shortness rows, hat rows, `d_Q`, and paper transcript buckets.
 - supports separate issuance/showing knobs with `-issuance-ncols`, `-issuance-lvcs-ncols`, `-issuance-nleaves`, `-issuance-eta`, `-issuance-theta`, `-issuance-rho`, `-issuance-ell`, `-issuance-ell-prime` and the matching `-showing-*` flags. Unprefixed knobs are shared defaults.
 - supports showing shortness-shape tuning with `-showing-sig-shortness-radix` and `-showing-sig-shortness-digits`. Supported tuning shapes are odd signed-radix decompositions that cover `beta`; R121/L2 is rejected for IntGenISIS.
-- supports named presets with `-preset`. Current static names are `fast-local`, `sw96-lvcs32`, `sw96-lvcs64`, `sw96-lvcs128`, `sw128-lvcs32`, `sw128-lvcs64`, and `sw128-lvcs128`. Explicit flags override preset values.
+- supports the experimental IntGenISIS-native replay projection with `-showing-replay-projection project_u_y_hat_v1` or `-showing-replay-projection project_u_y_hat_and_y_view_v2`. V1 commits `UView` and `YView`, removes committed `UHat/YHat`, and derives their lane-projected NTT contribution inside the aggregate signature residual. V2 also removes `YView` and derives the `YHat` contribution directly as `C_M(omega_t) Transform(M) + A_s(omega_t) Transform(s) + Transform(e)` from authenticated `M/s/e` roots or carriers. Projection descriptors are Fiat-Shamir-bound, verifier options must match them, and proofs carrying omitted rows in projection mode are rejected. The compact `sw96-lvcs64` default now uses V2 projection; the raw flag default remains `none` for explicit non-preset experiments.
+- supports named presets with `-preset`. Current static names are `fast-local`, `sw96-lvcs32`, `sw96-lvcs64`, `sw96-lvcs128`, `sw128-lvcs32`, `sw128-lvcs64`, `sw128-lvcs128`, `n256-sw96`, and `n256-sw128`. Explicit flags override preset values.
 - caps explicit-domain size with `-max-nleaves`, default `65536`. Use `-max-nleaves 0` only for intentionally uncapped research runs.
 
-Current measured preset values promoted from the compact evidence file `credential/issuance/intgenisis_selected_presets_measured.json`:
+Current measured preset values promoted into the static registry:
 
 ```text
-preset          ncols  lvcs  nleaves  eta  theta  rho  ell  ell'  prf          samples  shortness  compressed_rows
-sw96-lvcs32     32     32    32448    29   6      1    10   1     direct_auth  2        R7/L5      1
-sw96-lvcs64     32     64    61056    47   6      1    10   1     direct_auth  2        R7/L5      1
-sw96-lvcs128    32     128   64512    77   6      1    11   1     direct_auth  2        R7/L5      1
-sw128-lvcs32    32     32    41088    33   7      1    13   1     direct_auth  2        R7/L5      1
-sw128-lvcs64    32     64    48384    49   7      1    14   1     direct_auth  2        R7/L5      1
-sw128-lvcs128   32     128   57344    79   7      1    15   1     direct_auth  2        R7/L5      1
+preset          ncols  lvcs  nleaves  eta  theta  rho  ell  ell'  kappa       prf          samples  shortness  comp  projection
+sw96-lvcs32     32     32    32448    29   6      1    10   1     {0,0,0,0} direct_auth  2        R7/L5      1     none
+sw96-lvcs64     32     70    42000    47   3      2    10   2     {0,0,0,6} direct_auth  2        R11/L4     1     project_u_y_hat_and_y_view_v2
+sw96-lvcs128    32     128   64512    77   6      1    11   1     {0,0,0,0} direct_auth  2        R7/L5      1     none
+sw128-lvcs32    32     32    41088    33   7      1    13   1     {0,0,0,0} direct_auth  2        R7/L5      1     none
+sw128-lvcs64    32     70    262144   59   7      1    10   1     {6,0,0,11} direct_auth 2        R11/L4     1     project_u_y_hat_and_y_view_v2
+sw128-lvcs128   32     128   57344    79   7      1    15   1     {0,0,0,0} direct_auth  2        R7/L5      1     none
+n256-sw96       32     70    42000    47   3      2    10   2     {0,0,0,6} direct_auth  2        R11/L4     1     project_u_y_hat_and_y_view_v2
+n256-sw128      32     70    262144   59   7      1    10   1     {6,0,0,11} direct_auth 2        R11/L4     1     project_u_y_hat_and_y_view_v2
+```
+
+`sw96-lvcs64` and `sw128-lvcs64` are historical names for the compact projected defaults. Their showing LVCS width is now `70`, and their pass condition is theorem-level SmallWood ROM soundness rather than raw Eq. (8): `sw96-lvcs64` uses `kappa4=6` with measured `theorem_total_bits≈96.50`; `sw128-lvcs64` uses `kappa={6,0,0,11}` with measured showing snapshot `paper_transcript_bytes=36938`, `d_Q=482`, `VTargets=5155`, `Pdecs=9325`, `Q=8404`, `R=10330`, and `theorem_total_bits≈128.01`. A smaller 36,694-byte 128-bit research variant used `nleaves=180000`, `eta=58`, and `kappa4=16`, but its proving time was substantially higher. The issuance side of the compact 96-bit preset stays on the previous measured issuance tuple (`lvcs_ncols=64`, `theta=6`, `rho=1`, `ell'=1`) because issuance is not the recurring presentation cost.
+
+The current N=256 smoke measurements are:
+
+```text
+n256-sw96  showing paper_transcript_bytes=28389, dQ=482, theorem_total_bits=96.50, raw Eq.(8)=91.38
+n256-sw128 showing paper_transcript_bytes=33799, dQ=482, theorem_total_bits=128.01, raw Eq.(8)=117.79
+```
+
+Run them with:
+
+```bash
+go run ./cmd/issuance benchmark-intgenisis-e2e \
+  -preset n256-sw96 \
+  -artifact-dir /tmp/intgenisis_n256_sw96 \
+  -force \
+  -json-out /tmp/intgenisis_n256_sw96.json
+```
+
+```bash
+go run ./cmd/issuance benchmark-intgenisis-e2e \
+  -preset n256-sw128 \
+  -artifact-dir /tmp/intgenisis_n256_sw128 \
+  -force \
+  -json-out /tmp/intgenisis_n256_sw128.json
 ```
 
 If `-artifact-dir` is omitted, the command creates a temporary artifact directory and leaves it in place for inspection. Use `-force` when reusing an existing artifact directory.
 
 Generated benchmark and sweep artifacts are intentionally not source artifacts. The repository ignores transient `credential/issuance/intgenisis_bench_*`, `intgenisis_sweep_*`, `intgenisis_audit_*`, `intgenisis_e2e`, and preset-measurement artifact directories/reports. Keep only compact curated evidence files when they are used to promote static presets; regenerate full measured reports with the commands below when auditing a tuning decision.
 
+### 12. Degree-256 Parameter Search
+
+Profile A is wired as an executable candidate, but parameter promotion must start from the Sage search pipeline. The N=256 orchestrator runs fixed-q and fully-split q-scan tracks for commitment, signature, and NTRU security, using the live ternary `B=1` witness domain.
+
+```bash
+python3 parameter_search/run_intgenisis_degree256.sage \
+  --targets 96,128 \
+  --estimator-path /tmp/lattice-estimator-dklw \
+  --bits-start 12 \
+  --bits-end 24 \
+  --qs-per-bit 2 \
+  --full-top 20 \
+  --out-dir parameter_search/results/intgenisis_n256
+```
+
+Outputs:
+
+```text
+parameter_search/results/intgenisis_n256/target_96/*.csv
+parameter_search/results/intgenisis_n256/target_128/*.csv
+parameter_search/results/intgenisis_n256/intgenisis_n256_summary.json
+```
+
+The summary records accepted commitment/signature/NTRU counts, combined candidates, live ternary bound, compatibility public bound, and suggested Go preset commands. Promote an N=256 tuple only after the search summary and measured Go e2e run agree on commitment hiding, commitment binding, signature security, NTRU security, issuance proof soundness, showing proof soundness, presentation verification, and replay rejection.
+
 For behavior-preserving cleanup passes, use `docs/arc_spruce_intgenisis/INTGENISIS_CLEANUP_PROMPT.md`. It records the current live profile-B invariants, legacy quarantine rules, and the focused verification commands.
 
 ### 12. Eq. (8) Parameter Sweep
+
+For large tuning passes that should not build proofs, use the estimate-only sweep. It covers both live IntGenISIS ring degrees, filters on SmallWood Theorem 9 with `candidate_bits=min(issuance,showing)`, keeps only candidates in the 94-to-135-bit band by default, and drops candidates whose estimated showing transcript exceeds 50 KB. The sweep estimates each proof geometry once with `kappa={0,0,0,0}` and then chooses the smallest allowed kappa top-up that places the candidate in the target band; it does not emit a duplicate row for every kappa tuple because kappa changes grinding/prover work, not row counts, `d_Q`, or paper transcript bytes. The default kappa grid treats grinding as a small top-up only: every `kappa_i` is capped at 6 bits, with single-round top-ups and the measured-useful `kappa1/kappa4` combinations included.
+
+```bash
+go run ./cmd/issuance sweep-intgenisis-estimate \
+  -profiles intgenisis_profile_a,intgenisis_profile_b \
+  -grid estimate-deep \
+  -soundness-min 94 \
+  -soundness-max 135 \
+  -max-showing-bytes 50000 \
+  -max-kappa-per-round 6 \
+  -out-dir credential/issuance/intgenisis_estimate_sweeps/run_001 \
+  -progress \
+  -progress-interval 1000 \
+  -checkpoint-interval 5000 \
+  -force
+```
+
+For the long full-grid run on a separate machine, keep the same command and choose a fresh run directory:
+
+```bash
+go run ./cmd/issuance sweep-intgenisis-estimate \
+  -profiles intgenisis_profile_a,intgenisis_profile_b \
+  -grid estimate-deep \
+  -soundness-min 94 \
+  -soundness-max 135 \
+  -max-showing-bytes 50000 \
+  -max-kappa-per-round 6 \
+  -out-dir credential/issuance/intgenisis_estimate_sweeps/run_$(date -u +%Y%m%d_%H%M%S)_low_kappa \
+  -progress \
+  -progress-interval 1000 \
+  -checkpoint-interval 5000 \
+  -force
+```
+
+The command streams accepted candidates to `accepted_candidates.jsonl`, periodically syncs the file, rewrites the frontier CSV/JSON files as checkpoints, and updates `progress.json` plus a terminal progress bar over the outer grid. It writes `summary.json`, `frontier_all.csv`, `frontier_96.{json,csv}`, `frontier_128.{json,csv}`, `rejected_counts.json`, and `grid_config.json` under the selected output directory. Set `-progress=false` to silence the terminal bar or `-checkpoint-interval 0` to keep only the streaming JSONL plus final frontier files. It estimates row geometry, paper-conservative Eq. (3) `d_Q`, Eq. (8)/Theorem 9 round bits, and paper transcript buckets without setup, NTRU keygen, proving, presentation verification, or replay-state mutation. The accepted JSONL can be hundreds of GB on the full grid; for preset selection, the frontier CSV/JSON files plus `summary.json`, `rejected_counts.json`, and `grid_config.json` are the practical artifacts to copy back. Use the measured `benchmark-intgenisis-e2e` command on the selected frontier rows before promoting presets.
+
+All generated estimate/sweep directories are ignored by git. To remove local sweep data after copying the frontier files you need, run:
+
+```bash
+rm -rf credential/issuance/intgenisis_estimate_sweeps \
+       credential/issuance/intgenisis_sweep_* \
+       credential/issuance/intgenisis_preset_sweep*.json
+```
+
+The default `estimate-deep` grid is intentionally pre-pruned before any candidate scoring. It keeps only round-2-plausible `theta/rho/ell_prime` families, uses V2 replay projection by default, excludes `ncols >= 256`, excludes `lvcs_ncols > 256`, excludes `ell > 32`, caps default leaf bases at `262144`, and skips compression level `3`. The retained grid is wider around the compact measured regions: `lvcs_ncols` includes the neighborhood around `70`, `ell` includes every value from `16` through `28`, small leaf bases include `768..2048`, and low-theta families include `theta=2,rho=3/4,ell_prime=3/4` plus nearby `theta=3/4` comparisons. These axes are chosen to catch candidates that barely miss the 96-bit line and can be boosted by at most six grinding bits without jumping to the old large-kappa regime. Re-enable pruned axes only for research checks with explicit `-theta`, `-rho`, `-ell-prime`, `-ncols`, `-lvcs-ncols`, `-ell`, `-nleaves`, `-compression-levels`, or `-projection-modes` overrides.
 
 For preset generation, use the fixed-LVCS preset sweep first. It creates independent 96-bit and 128-bit tracks for `lvcs_ncols` equal to `32`, `64`, and `128`, keeps a compact analytic frontier per track, and optionally measures only the top candidates:
 
@@ -1406,7 +1561,7 @@ What the current tests cover:
 
 Known test gap:
 
-- the full CLI integration test covers profile B only; profile A remains inventory-only.
+- the full CLI integration tests cover profile B and an N=256 profile-A preset smoke, but final profile-A parameter promotion still depends on the Sage search summary and measured frontier review.
 
 ## Artifact Map
 
@@ -1418,6 +1573,11 @@ Parameters/Bmatrix.intgenisis.json
 Parameters/Parameters.research_n512.json
 ntru_keys/public.research_n512.json
 ntru_keys/private.research_n512.json
+Parameters/credential_public.intgenisis_profile_a.json
+Parameters/Bmatrix.intgenisis_profile_a.json
+Parameters/Parameters.research_n256.json
+ntru_keys/public.research_n256.json
+ntru_keys/private.research_n256.json
 credential/issuance/intgenisis_holder_secret.json
 credential/issuance/intgenisis_commit_request.json
 credential/issuance/intgenisis_presign_submission.json
@@ -1476,7 +1636,7 @@ The implementation is not yet a complete ARC-SPRUCE IntGenISIS realization. The 
 
 1. Pre-sign relation incompleteness:
    - implemented: `c = C_M M + A_s s + e`;
-   - implemented: whole-row `M=m+k` binding under the profile-B semantic layout;
+   - implemented: whole-row `M=m+k` binding under the ring-tail-key semantic layout;
    - implemented: coefficient-view ternary membership for `M,m,k,s,e`, including `K_key={-1,0,1}^8` in the live profile-B proof;
    - implemented: default `noop` policy and public `m_eq` test policy;
    - remaining review item: formalize the coefficient-view bridge in the paper-facing SmallWood model.
@@ -1590,4 +1750,4 @@ Recommended implementation order:
 
 ## Practical Recommendation
 
-Use the current implementation for prototype development and relation debugging, not as a complete cryptographic implementation. The implemented algebraic core is the right IntGenISIS direction: `M` is hidden by the target-shaped MLWE commitment, `mu_sig/x0/x1` are issuer-side BB-tran values, packed `u` coefficients are shortness-checked and bridged into the hat rows consumed by the signature equation, issuer-side BB-tran rows are hat-only in the default showing surface, and showing no longer uses old `r0/r1` target-hiding randomness. The remaining caveats are now narrower: the default R11/L4 `u` shortness surface proves the `7320` capacity rather than exact `6142` inside the proof, presentation policies that need disclosed `m` slots need explicit projection rows, `mu_sig/x0/x1` sampling domains remain placeholders, and profile A is inventory-only.
+Use the current implementation for prototype development and relation debugging, not as a complete cryptographic implementation. The implemented algebraic core is the right IntGenISIS direction: `M` is hidden by the target-shaped MLWE commitment, `mu_sig/x0/x1` are issuer-side BB-tran values, packed `u` coefficients are shortness-checked and bridged or projected into the signature equation, issuer-side BB-tran rows are hat-only in the default showing surface, and showing no longer uses old `r0/r1` target-hiding randomness. The remaining caveats are now narrower: the default R11/L4 `u` shortness surface proves the `7320` capacity rather than exact `6142` inside the proof, presentation policies that need disclosed `m` slots need explicit projection rows, `mu_sig/x0/x1` sampling domains remain placeholders, and profile A still requires estimator-backed parameter promotion before it should be treated as final.

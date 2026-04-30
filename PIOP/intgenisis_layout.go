@@ -95,6 +95,7 @@ func (l *IntGenISISPreSignRowLayout) ThetaRows() int {
 
 type IntGenISISShowingRowLayout struct {
 	LayoutVersion              string `json:"layout_version,omitempty"`
+	ReplayProjection           string `json:"replay_projection,omitempty"`
 	UStart                     int    `json:"u_start"`
 	UCount                     int    `json:"u_count"`
 	MStart                     int    `json:"m_start"`

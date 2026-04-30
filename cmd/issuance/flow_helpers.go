@@ -439,7 +439,7 @@ func setupDemoPublic(outPath string, force bool, bPath, hashRelation, x0ProfileN
 	return nil
 }
 
-func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, force bool, keygenTrials, attempts int) error {
+func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, force bool, keygenTrials, attempts int, betaOverride uint64) error {
 	ringQ, err := credential.LoadRingWithDegree(ringDegree)
 	if err != nil {
 		return fmt.Errorf("load ring: %w", err)
@@ -448,6 +448,8 @@ func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, forc
 	if paramsOut == "" {
 		if selectedN == 512 {
 			paramsOut = filepath.Join("Parameters", "Parameters.research_n512.json")
+		} else if selectedN == 256 {
+			paramsOut = filepath.Join("Parameters", "Parameters.research_n256.json")
 		} else {
 			paramsOut = defaultNTRUParamsPath
 		}
@@ -455,6 +457,8 @@ func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, forc
 	if publicOut == "" {
 		if selectedN == 512 {
 			publicOut = filepath.Join("ntru_keys", "public.research_n512.json")
+		} else if selectedN == 256 {
+			publicOut = filepath.Join("ntru_keys", "public.research_n256.json")
 		} else {
 			publicOut = defaultNTRUPublicKeyPath
 		}
@@ -462,6 +466,8 @@ func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, forc
 	if privateOut == "" {
 		if selectedN == 512 {
 			privateOut = filepath.Join("ntru_keys", "private.research_n512.json")
+		} else if selectedN == 256 {
+			privateOut = filepath.Join("ntru_keys", "private.research_n256.json")
 		} else {
 			privateOut = defaultNTRUPrivateKeyPath
 		}
@@ -489,6 +495,12 @@ func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, forc
 		N:    selectedN,
 		Q:    ringQ.Modulus[0],
 		Beta: base.Beta,
+	}
+	if betaOverride > 0 {
+		if betaOverride > base.Beta {
+			return fmt.Errorf("ntru beta override=%d exceeds base beta=%d", betaOverride, base.Beta)
+		}
+		params.Beta = betaOverride
 	}
 	if err := ntrurio.SaveParams(paramsOut, params); err != nil {
 		return fmt.Errorf("write NTRU params: %w", err)
@@ -1295,9 +1307,9 @@ func intGenISISInputsFromSecret(ringQ *ring.Ring, secret holderSecretFile) (issu
 	if err := validateInt64RowsExact("intgenisis.e", spec.E, int(ringQ.N)); err != nil {
 		return issuance.IntGenISISInputs{}, err
 	}
-	profile := credential.PrimaryIntGenISISProfile()
-	if int(ringQ.N) != profile.N {
-		return issuance.IntGenISISInputs{}, fmt.Errorf("IntGenISIS semantic message only supports profile-B ring_degree=%d, got %d", profile.N, ringQ.N)
+	profile, ok := credential.LookupIntGenISISProfileByRingDegree(int(ringQ.N))
+	if !ok {
+		return issuance.IntGenISISInputs{}, fmt.Errorf("IntGenISIS semantic message does not support ring_degree=%d", ringQ.N)
 	}
 	layout, err := credential.DefaultSemanticMessageLayout(profile, 8)
 	if err != nil {

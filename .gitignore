@@ -17,9 +17,36 @@ credential/issuance/intgenisis_bench_*/
 credential/issuance/intgenisis_bench_*.json
 credential/issuance/intgenisis_e2e/
 credential/issuance/intgenisis_e2e_report.json
+credential/issuance/intgenisis_estimate_sweeps/
+credential/issuance/intgenisis_measure_*/
+credential/issuance/intgenisis_measure_*.json
+credential/issuance/intgenisis_n256_*/
+credential/issuance/intgenisis_n256_*.json
+credential/issuance/intgenisis_n512_*/
+credential/issuance/intgenisis_n512_*.json
 credential/issuance/intgenisis_preset_measured/
 credential/issuance/intgenisis_preset_sweep*.json
+credential/issuance/intgenisis_projection_*/
+credential/issuance/intgenisis_projection_*.json
+credential/issuance/intgenisis_r11l4_*/
+credential/issuance/intgenisis_r11l4_*.json
 credential/issuance/intgenisis_sweep_*/
 credential/issuance/intgenisis_sweep_*.json
+credential/issuance/intgenisis_sw96_*/
+credential/issuance/intgenisis_sw96_*.json
+credential/issuance/intgenisis_sw128_*/
+credential/issuance/intgenisis_sw128_*.json
 credential/issuance/intgenisis_selected_presets*.json
 !credential/issuance/intgenisis_selected_presets_measured.json
+
+# Generated estimate-sweep internals when copied outside their run directory.
+credential/issuance/accepted_candidates*.jsonl
+credential/issuance/frontier_*.csv
+credential/issuance/frontier_*.json
+credential/issuance/grid_config.json
+credential/issuance/progress.json
+credential/issuance/rejected_counts.json
+credential/issuance/summary.json
+
+# Parameter-search outputs are generated; keep scripts tracked, not result runs.
+parameter_search/results/

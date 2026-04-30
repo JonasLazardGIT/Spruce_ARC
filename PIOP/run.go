@@ -440,6 +440,9 @@ type SimOpts struct {
 	// the uncompressed rows. Level k>0 packs k+1 ternary source rows into one
 	// carrier row as in the SmallWood lattice-witness compression technique.
 	IntGenISISMSECompression int
+	// IntGenISISReplayProjection selects the IntGenISIS showing replay
+	// projection mode. Empty and "none" keep the explicit hat-row relation.
+	IntGenISISReplayProjection string
 	// UnsafeSigLookupShadowR121L2 enables an explicitly unsound measurement
 	// mode for the R121/L2 fixed-table lookup idea. "free" omits interval
 	// membership from Q; "same_q" keeps the degree-121 membership in Q.
@@ -525,6 +528,7 @@ func (o *SimOpts) applyDefaults() {
 	if o.IntGenISISMSECompression < 0 {
 		o.IntGenISISMSECompression = 0
 	}
+	o.IntGenISISReplayProjection = normalizeIntGenISISReplayProjection(o.IntGenISISReplayProjection)
 	o.UnsafeSigLookupShadowR121L2 = NormalizeSigLookupShadowR121L2Mode(o.UnsafeSigLookupShadowR121L2)
 	if sigLookupShadowR121L2EnabledForOpts(*o) {
 		o.SigShortnessRadix = sigLookupShadowR121L2Radix

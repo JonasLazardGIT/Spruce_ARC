@@ -26,70 +26,73 @@ type benchmarkIntGenISISProfile struct {
 }
 
 type benchmarkIntGenISISMetrics struct {
-	ProofSizeBytes              int        `json:"proof_size_bytes"`
-	PaperTranscriptBytes        int        `json:"paper_transcript_bytes"`
-	PaperTranscriptKB           float64    `json:"paper_transcript_kb"`
-	QBytes                      int        `json:"q_bytes"`
-	RBytes                      int        `json:"r_bytes"`
-	PdecsBytes                  int        `json:"pdecs_bytes"`
-	AuthBytes                   int        `json:"auth_bytes"`
-	SigShortnessBytes           int        `json:"sig_shortness_bytes"`
-	VTargetsBytes               int        `json:"vtargets_bytes"`
-	BarSetsBytes                int        `json:"barsets_bytes"`
-	ProvingMS                   float64    `json:"proving_ms"`
-	VerificationMS              float64    `json:"verification_ms"`
-	TotalRows                   int        `json:"total_rows"`
-	PRFRows                     int        `json:"prf_rows"`
-	CoefficientViewRows         int        `json:"coefficient_view_rows"`
-	UCoefficientViewRows        int        `json:"u_coefficient_view_rows,omitempty"`
-	SemanticViewRows            int        `json:"semantic_view_rows,omitempty"`
-	CommitmentViewRows          int        `json:"commitment_view_rows,omitempty"`
-	YCoefficientViewRows        int        `json:"y_coefficient_view_rows,omitempty"`
-	IssuerViewRows              int        `json:"issuer_view_rows,omitempty"`
-	BoundRows                   int        `json:"bound_rows"`
-	ShortnessRows               int        `json:"shortness_rows"`
-	ShortnessConstraints        int        `json:"shortness_constraints,omitempty"`
-	HatRows                     int        `json:"hat_rows"`
-	YHatRows                    int        `json:"y_hat_rows,omitempty"`
-	SourceBridgeConstraints     int        `json:"source_bridge_constraints"`
-	UBridgeConstraints          int        `json:"u_bridge_constraints,omitempty"`
-	CommitmentBridgeConstraints int        `json:"commitment_bridge_constraints,omitempty"`
-	YLinearConstraints          int        `json:"y_linear_constraints,omitempty"`
-	IssuerBridgeConstraints     int        `json:"issuer_bridge_constraints,omitempty"`
-	PRFKeyBridgeConstraints     int        `json:"prf_key_bridge_constraints,omitempty"`
-	FparIntConstraints          int        `json:"fpar_int_constraints,omitempty"`
-	RangeConstraints            int        `json:"range_constraints,omitempty"`
-	ParallelDegree              int        `json:"parallel_degree"`
-	AggregatedDegree            int        `json:"aggregated_degree"`
-	ParallelAlgDegree           int        `json:"parallel_alg_degree,omitempty"`
-	AggregatedAlgDegree         int        `json:"aggregated_alg_degree,omitempty"`
-	PaperConservativeDQ         int        `json:"paper_conservative_dq,omitempty"`
-	MaskDegreeBound             int        `json:"mask_degree_bound,omitempty"`
-	DominantDegreeSource        string     `json:"dominant_degree_source,omitempty"`
-	TernaryRows                 int        `json:"ternary_rows,omitempty"`
-	CompressedRows              int        `json:"compressed_rows"`
-	MSECompressionLevel         int        `json:"mse_compression_level,omitempty"`
-	MSECompressionPackWidth     int        `json:"mse_compression_pack_width,omitempty"`
-	MSECompressionDegree        int        `json:"mse_compression_degree,omitempty"`
-	RoundBits                   [4]float64 `json:"round_bits"`
-	RawRoundBits                [4]float64 `json:"raw_round_bits"`
-	TheoremBits                 [4]float64 `json:"theorem_bits"`
-	TheoremTotalBits            float64    `json:"theorem_total_bits"`
-	CollisionBits               float64    `json:"collision_bits"`
-	Clamped                     [4]bool    `json:"clamped"`
-	SoundnessEq8Bits            float64    `json:"soundness_eq8_bits"`
-	DQ                          int        `json:"dq"`
-	DDECS                       int        `json:"ddecs"`
-	WitnessSupportCols          int        `json:"witness_support_cols"`
-	CommittedCols               int        `json:"committed_cols"`
-	ProofReportBuckets          int        `json:"proof_report_buckets"`
-	Theta                       int        `json:"theta"`
-	Rho                         int        `json:"rho"`
-	EllPrime                    int        `json:"ell_prime"`
-	SmallFieldReplayRows        int        `json:"smallfield_replay_rows,omitempty"`
-	QSplitRows                  int        `json:"q_split_rows,omitempty"`
-	QLimbRows                   int        `json:"q_limb_rows,omitempty"`
-	MeasurementStatus           string     `json:"measurement_status"`
+	ProofSizeBytes                int        `json:"proof_size_bytes"`
+	PaperTranscriptBytes          int        `json:"paper_transcript_bytes"`
+	PaperTranscriptKB             float64    `json:"paper_transcript_kb"`
+	QBytes                        int        `json:"q_bytes"`
+	RBytes                        int        `json:"r_bytes"`
+	PdecsBytes                    int        `json:"pdecs_bytes"`
+	AuthBytes                     int        `json:"auth_bytes"`
+	SigShortnessBytes             int        `json:"sig_shortness_bytes"`
+	VTargetsBytes                 int        `json:"vtargets_bytes"`
+	BarSetsBytes                  int        `json:"barsets_bytes"`
+	ProvingMS                     float64    `json:"proving_ms"`
+	VerificationMS                float64    `json:"verification_ms"`
+	TotalRows                     int        `json:"total_rows"`
+	PRFRows                       int        `json:"prf_rows"`
+	CoefficientViewRows           int        `json:"coefficient_view_rows"`
+	UCoefficientViewRows          int        `json:"u_coefficient_view_rows,omitempty"`
+	SemanticViewRows              int        `json:"semantic_view_rows,omitempty"`
+	CommitmentViewRows            int        `json:"commitment_view_rows,omitempty"`
+	YCoefficientViewRows          int        `json:"y_coefficient_view_rows,omitempty"`
+	IssuerViewRows                int        `json:"issuer_view_rows,omitempty"`
+	BoundRows                     int        `json:"bound_rows"`
+	ShortnessRows                 int        `json:"shortness_rows"`
+	ShortnessConstraints          int        `json:"shortness_constraints,omitempty"`
+	HatRows                       int        `json:"hat_rows"`
+	YHatRows                      int        `json:"y_hat_rows,omitempty"`
+	SourceBridgeConstraints       int        `json:"source_bridge_constraints"`
+	UBridgeConstraints            int        `json:"u_bridge_constraints,omitempty"`
+	CommitmentBridgeConstraints   int        `json:"commitment_bridge_constraints,omitempty"`
+	YLinearConstraints            int        `json:"y_linear_constraints,omitempty"`
+	ProjectedSignatureConstraints int        `json:"projected_signature_constraints,omitempty"`
+	ReplayProjection              string     `json:"replay_projection,omitempty"`
+	IssuerBridgeConstraints       int        `json:"issuer_bridge_constraints,omitempty"`
+	PRFKeyBridgeConstraints       int        `json:"prf_key_bridge_constraints,omitempty"`
+	FparIntConstraints            int        `json:"fpar_int_constraints,omitempty"`
+	RangeConstraints              int        `json:"range_constraints,omitempty"`
+	ParallelDegree                int        `json:"parallel_degree"`
+	AggregatedDegree              int        `json:"aggregated_degree"`
+	ParallelAlgDegree             int        `json:"parallel_alg_degree,omitempty"`
+	AggregatedAlgDegree           int        `json:"aggregated_alg_degree,omitempty"`
+	PaperConservativeDQ           int        `json:"paper_conservative_dq,omitempty"`
+	MaskDegreeBound               int        `json:"mask_degree_bound,omitempty"`
+	DominantDegreeSource          string     `json:"dominant_degree_source,omitempty"`
+	TernaryRows                   int        `json:"ternary_rows,omitempty"`
+	CompressedRows                int        `json:"compressed_rows"`
+	MSECompressionLevel           int        `json:"mse_compression_level,omitempty"`
+	MSECompressionPackWidth       int        `json:"mse_compression_pack_width,omitempty"`
+	MSECompressionDegree          int        `json:"mse_compression_degree,omitempty"`
+	RoundBits                     [4]float64 `json:"round_bits"`
+	RawRoundBits                  [4]float64 `json:"raw_round_bits"`
+	TheoremBits                   [4]float64 `json:"theorem_bits"`
+	TheoremTotalBits              float64    `json:"theorem_total_bits"`
+	CollisionBits                 float64    `json:"collision_bits"`
+	Clamped                       [4]bool    `json:"clamped"`
+	SoundnessEq8Bits              float64    `json:"soundness_eq8_bits"`
+	DQ                            int        `json:"dq"`
+	DDECS                         int        `json:"ddecs"`
+	WitnessSupportCols            int        `json:"witness_support_cols"`
+	CommittedCols                 int        `json:"committed_cols"`
+	ProofReportBuckets            int        `json:"proof_report_buckets"`
+	Theta                         int        `json:"theta"`
+	Rho                           int        `json:"rho"`
+	EllPrime                      int        `json:"ell_prime"`
+	SmallFieldReplayRows          int        `json:"smallfield_replay_rows,omitempty"`
+	MaskRows                      int        `json:"mask_rows,omitempty"`
+	QSplitRows                    int        `json:"q_split_rows,omitempty"`
+	QLimbRows                     int        `json:"q_limb_rows,omitempty"`
+	MeasurementStatus             string     `json:"measurement_status"`
 }
 
 type benchmarkIntGenISISReport struct {
@@ -113,8 +116,8 @@ func benchmarkIntGenISIS(profilesCSV string, packingFactor int, jsonOut string) 
 		Version:   benchmarkIntGenISISVersion,
 		Generated: time.Now().UTC().Format(time.RFC3339),
 		Notes: []string{
-			"profile-B proof_size_bytes/proving_ms/verification_ms come from an in-process proof build and verification; profile-A rows remain inventory-only",
-			"profile A remains inventory-only until the live aligned profile-B relation is promoted",
+			"benchmark-intgenisis is a row-inventory command; profile-B proof_size_bytes/proving_ms/verification_ms come from the historical in-process proof smoke",
+			"use benchmark-intgenisis-e2e -preset n256-sw96 or n256-sw128 for live profile-A issuance/showing measurements",
 		},
 	}
 	var measuredB *benchmarkIntGenISISMeasuredProfile
@@ -522,6 +525,7 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		metrics.Rho = len(proof.GammaPrimeK)
 		metrics.EllPrime = len(proof.KPoint)
 		metrics.SmallFieldReplayRows = proof.PCSGeometry.ReplayWitnessRows
+		metrics.MaskRows = proof.PCSGeometry.MaskRows
 		metrics.QLimbRows = proof.Theta
 	} else {
 		metrics.Rho = len(proof.GammaPrime)
@@ -571,6 +575,12 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		metrics.ShortnessConstraints = l.UShortnessSourceViewRows * (1 + l.UShortnessRowsPerGroup)
 		metrics.YHatRows = l.YHatCount
 		metrics.HatRows = l.UHatCount + l.MHatCount + l.SHatCount + l.EHatCount + l.YHatCount + l.MuSigHatCount + l.X0HatCount + l.X1HatCount + l.ZHatCount
+		metrics.ReplayProjection = l.ReplayProjection
+		if metrics.ReplayProjection == "" && l.LayoutVersion == "intgenisis_showing_project_u_y_hat_v1" {
+			metrics.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUYHatV1
+		} else if metrics.ReplayProjection == "" && l.LayoutVersion == "intgenisis_showing_project_u_y_hat_y_view_v2" {
+			metrics.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2
+		}
 		if l.ViewRowsPerPoly > 0 {
 			ncols := proof.RowLayout.RingDegree / l.ViewRowsPerPoly
 			bridgeRows := func(viewStart, hatCount int) int {
@@ -583,13 +593,20 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 			metrics.CommitmentBridgeConstraints = bridgeRows(l.YViewStart, l.YHatCount)
 			metrics.YLinearConstraints = l.YViewCount * ncols
 			metrics.IssuerBridgeConstraints = bridgeRows(l.MuSigViewStart, l.MuSigHatCount) + bridgeRows(l.X0ViewStart, l.X0HatCount) + bridgeRows(l.X1ViewStart, l.X1HatCount) + bridgeRows(l.ZViewStart, l.ZHatCount)
-			metrics.SourceBridgeConstraints = metrics.UBridgeConstraints + metrics.CommitmentBridgeConstraints + metrics.YLinearConstraints + metrics.IssuerBridgeConstraints
+			if metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 {
+				metrics.ProjectedSignatureConstraints = l.ViewRowsPerPoly * ncols
+			}
+			metrics.SourceBridgeConstraints = metrics.UBridgeConstraints + metrics.CommitmentBridgeConstraints + metrics.YLinearConstraints + metrics.ProjectedSignatureConstraints + metrics.IssuerBridgeConstraints
 		}
 		semanticConstraints := 0
 		if l.MViewStart >= 0 && l.MAttrViewStart >= 0 && l.KViewStart >= 0 {
 			semanticConstraints = l.ViewRowsPerPoly
 		}
-		metrics.FparIntConstraints = 2*l.ViewRowsPerPoly + semanticConstraints
+		if metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 {
+			metrics.FparIntConstraints = l.ViewRowsPerPoly + semanticConstraints
+		} else {
+			metrics.FparIntConstraints = 2*l.ViewRowsPerPoly + semanticConstraints
+		}
 	}
 	if proof.RowLayout.IntGenISISPreSign != nil || proof.RowLayout.IntGenISISShowing != nil {
 		if meta, err := PIOP.IntGenISISDegreeMetadataForProof(proof, pub, opts); err == nil {
