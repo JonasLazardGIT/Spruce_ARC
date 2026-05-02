@@ -2,28 +2,38 @@ package main
 
 import (
 	"encoding/csv"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"math"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
+	"vSIS-Signature/prf"
 )
 
 const (
 	sweepIntGenISISEstimateVersion = 1
 	sweepEstimateDefaultGrid       = "estimate-deep"
-	sweepEstimateDefaultMinBits    = 94.0
-	sweepEstimateMaxKappaPerRound  = 6
+	sweepEstimateDefaultMinBits    = 88.0
+	sweepEstimateMaxKappaPerRound  = 0
+	sweepEstimateMaxRecordedTuples = 2000
+	sweepEstimatePRFGroupRounds    = 2
 )
+
+var sweepEstimatePRFParamsCache struct {
+	once   sync.Once
+	params *prf.Params
+	err    error
+}
 
 type sweepIntGenISISEstimateConfig struct {
 	Profiles         []string
@@ -40,15 +50,18 @@ type sweepIntGenISISEstimateConfig struct {
 	CheckpointEvery  int
 	MaxKappaPerRound int
 
-	NCols       []int
-	LVCSNCols   []int
-	Ell         []int
-	NLeavesBase []int
-	Families    []sweepIntGenISISFamily
-	Shortness   []sweepIntGenISISShortness
-	Compression []int
-	Projection  []string
-	Kappa       [][4]int
+	NCols          []int
+	LVCSNCols      []int
+	Ell            []int
+	NLeavesBase    []int
+	Families       []sweepIntGenISISFamily
+	Shortness      []sweepIntGenISISShortness
+	Compression    []int
+	Projection     []string
+	PRFModes       []PIOP.PRFCompanionMode
+	PRFGroupRounds []int
+	Checkpoints    []int
+	Kappa          [][4]int
 }
 
 type sweepIntGenISISEstimateCandidate struct {
@@ -174,7 +187,7 @@ func runSweepIntGenISISEstimate(args []string) error {
 	maxShowingBytes := fs.Int("max-showing-bytes", 50000, "maximum estimated showing paper transcript bytes")
 	maxNLeaves := fs.Int("max-nleaves", 1<<20, "maximum generated explicit-domain leaves; 0 disables the cap below q")
 	topK := fs.Int("top-k", 500, "number of candidates to keep in each frontier output")
-	maxKappaPerRound := fs.Int("max-kappa-per-round", sweepEstimateMaxKappaPerRound, "maximum grinding bits per SmallWood theorem round; must be <=6 for default IntGenISIS tuning")
+	maxKappaPerRound := fs.Int("max-kappa-per-round", sweepEstimateMaxKappaPerRound, "maximum grinding bits per SmallWood theorem round; estimate sweeps default to zero-grinding candidates only")
 	progress := fs.Bool("progress", true, "print a terminal progress bar while estimating")
 	progressInterval := fs.Int("progress-interval", 1000, "outer grid points between terminal progress updates; 0 disables terminal progress")
 	checkpointInterval := fs.Int("checkpoint-interval", 5000, "outer grid points between progressive checkpoint writes; 0 disables checkpoints except final")
@@ -188,6 +201,9 @@ func runSweepIntGenISISEstimate(args []string) error {
 	shortnessCSV := fs.String("shortness", "11/4,7/5,5/6", "comma-separated signed-radix shapes R/L")
 	compressionCSV := fs.String("compression-levels", "", "optional comma-separated M/s/e compression levels")
 	projectionCSV := fs.String("projection-modes", "", "optional comma-separated projection modes")
+	prfModesCSV := fs.String("prf-companion-modes", string(PIOP.PRFCompanionModeDirectAuth), "comma-separated PRF companion modes: direct_auth, output_audit, aux_instance")
+	prfGroupRoundsCSV := fs.String("prf-group-rounds", strconv.Itoa(sweepEstimatePRFGroupRounds), "comma-separated grouped PRF round counts")
+	checkpointSamplesCSV := fs.String("prf-checkpoint-samples", "2", "comma-separated PRF companion checkpoint sample counts")
 	kappaCSV := fs.String("kappa-tuples", "", "optional comma-separated kappa tuples k1/k2/k3/k4")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -253,7 +269,7 @@ func runSweepIntGenISISEstimate(args []string) error {
 		return fmt.Errorf("parse -shortness: %w", err)
 	}
 	if *compressionCSV != "" {
-		grid.Compression, err = parseIntCSV(*compressionCSV)
+		grid.Compression, err = parseNonNegativeIntCSV(*compressionCSV)
 		if err != nil {
 			return fmt.Errorf("parse -compression-levels: %w", err)
 		}
@@ -264,6 +280,18 @@ func runSweepIntGenISISEstimate(args []string) error {
 		if err != nil {
 			return fmt.Errorf("parse -projection-modes: %w", err)
 		}
+	}
+	prfModes, err := parsePRFCompanionModeCSV(*prfModesCSV)
+	if err != nil {
+		return fmt.Errorf("parse -prf-companion-modes: %w", err)
+	}
+	prfGroupRounds, err := parseIntCSV(*prfGroupRoundsCSV)
+	if err != nil {
+		return fmt.Errorf("parse -prf-group-rounds: %w", err)
+	}
+	checkpoints, err := parseIntCSV(*checkpointSamplesCSV)
+	if err != nil {
+		return fmt.Errorf("parse -prf-checkpoint-samples: %w", err)
 	}
 	kappas := defaultSweepEstimateKappas()
 	if *kappaCSV != "" {
@@ -300,6 +328,9 @@ func runSweepIntGenISISEstimate(args []string) error {
 		Shortness:        grid.Shortness,
 		Compression:      grid.Compression,
 		Projection:       projectionModes,
+		PRFModes:         prfModes,
+		PRFGroupRounds:   prfGroupRounds,
+		Checkpoints:      checkpoints,
 		Kappa:            kappas,
 	}
 	report, err := sweepIntGenISISEstimate(cfg)
@@ -308,7 +339,7 @@ func runSweepIntGenISISEstimate(args []string) error {
 	}
 	if len(report.FrontierAll) > 0 {
 		best := report.FrontierAll[0]
-		fmt.Printf("[issuance-cli] estimate sweep best profile=%s bits=%.2f showing_bytes=%d ncols=%d lvcs=%d nleaves=%d theta=%d rho=%d ell=%d ell'=%d short=%d/%d comp=%d projection=%s\n",
+		fmt.Printf("[issuance-cli] estimate sweep best profile=%s bits=%.2f showing_bytes=%d ncols=%d lvcs=%d nleaves=%d theta=%d rho=%d ell=%d ell'=%d short=%d/%d comp=%d projection=%s prf_mode=%s prf_group_rounds=%d prf_samples=%d\n",
 			best.Profile,
 			displayBits(best.CandidateTheoremBits),
 			best.ShowingTranscriptBytes,
@@ -323,6 +354,9 @@ func runSweepIntGenISISEstimate(args []string) error {
 			best.Showing.SigShortnessDigits,
 			best.Showing.CompressedRows,
 			best.Showing.ReplayProjection,
+			best.Showing.PRFCompanionMode,
+			best.Showing.PRFGroupRounds,
+			best.Showing.CheckpointSamples,
 		)
 	}
 	return nil
@@ -344,6 +378,9 @@ func sweepIntGenISISEstimate(cfg sweepIntGenISISEstimateConfig) (sweepIntGenISIS
 	if cfg.TopK <= 0 {
 		cfg.TopK = 500
 	}
+	if cfg.TopK > sweepEstimateMaxRecordedTuples {
+		cfg.TopK = sweepEstimateMaxRecordedTuples
+	}
 	if cfg.ProgressEvery < 0 {
 		cfg.ProgressEvery = 0
 	}
@@ -362,6 +399,30 @@ func sweepIntGenISISEstimate(cfg sweepIntGenISISEstimateConfig) (sweepIntGenISIS
 	if err := validateSweepKappas(cfg.Kappa, cfg.MaxKappaPerRound); err != nil {
 		return sweepIntGenISISEstimateReport{}, err
 	}
+	if len(cfg.PRFGroupRounds) == 0 {
+		cfg.PRFGroupRounds = []int{sweepEstimatePRFGroupRounds}
+	}
+	if len(cfg.PRFModes) == 0 {
+		cfg.PRFModes = []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth}
+	}
+	for _, mode := range cfg.PRFModes {
+		if !validSweepPRFCompanionMode(mode) {
+			return sweepIntGenISISEstimateReport{}, fmt.Errorf("invalid PRF companion mode=%q", mode)
+		}
+	}
+	for _, groupRounds := range cfg.PRFGroupRounds {
+		if groupRounds < 2 {
+			return sweepIntGenISISEstimateReport{}, fmt.Errorf("invalid PRF group rounds=%d: live IntGenISIS showing requires grouped PRF rounds >=2", groupRounds)
+		}
+	}
+	if len(cfg.Checkpoints) == 0 {
+		cfg.Checkpoints = []int{2}
+	}
+	for _, samples := range cfg.Checkpoints {
+		if samples <= 0 {
+			return sweepIntGenISISEstimateReport{}, fmt.Errorf("invalid PRF checkpoint samples=%d", samples)
+		}
+	}
 	if cfg.OutDir == "" {
 		cfg.OutDir = filepath.Join("credential", "issuance", "intgenisis_estimate_sweeps", "run_"+time.Now().UTC().Format("20060102_150405"))
 	}
@@ -378,8 +439,9 @@ func sweepIntGenISISEstimate(cfg sweepIntGenISISEstimateConfig) (sweepIntGenISIS
 		NLeavesBase: cfg.NLeavesBase,
 		Shortness:   cfg.Shortness,
 		Compression: cfg.Compression,
-		PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth},
-		Checkpoints: []int{2},
+		PRFModes:    append([]PIOP.PRFCompanionMode(nil), cfg.PRFModes...),
+		PRFGroups:   append([]int(nil), cfg.PRFGroupRounds...),
+		Checkpoints: append([]int(nil), cfg.Checkpoints...),
 		EtaSlack:    4,
 		MaxEta:      160,
 		Notes: []string{
@@ -417,19 +479,11 @@ func sweepIntGenISISEstimate(cfg sweepIntGenISISEstimateConfig) (sweepIntGenISIS
 		ProgressEvery:              cfg.ProgressEvery,
 		CheckpointEvery:            cfg.CheckpointEvery,
 		NoProofGeneration:          true,
-		KappaSelection:             "post_geometry_minimal_topup_v1",
+		KappaSelection:             "zero_grinding_only_v1",
 	}
 	if err := writeJSONFile(filepath.Join(cfg.OutDir, "grid_config.json"), gridConfigPayload, 0o644); err != nil {
 		return sweepIntGenISISEstimateReport{}, fmt.Errorf("write grid_config.json: %w", err)
 	}
-
-	jsonlPath := filepath.Join(cfg.OutDir, "accepted_candidates.jsonl")
-	jsonl, err := os.Create(jsonlPath)
-	if err != nil {
-		return sweepIntGenISISEstimateReport{}, fmt.Errorf("create accepted jsonl: %w", err)
-	}
-	defer jsonl.Close()
-	enc := json.NewEncoder(jsonl)
 
 	rejected := sweepIntGenISISEstimateRejectedCounts{}
 	accepted := make([]sweepIntGenISISEstimateCandidate, 0, cfg.TopK)
@@ -441,7 +495,6 @@ func sweepIntGenISISEstimate(cfg sweepIntGenISISEstimateConfig) (sweepIntGenISIS
 	started := time.Now()
 	outerTotal := estimateOuterGridTotal(cfg)
 	outerDone := 0
-	acceptedSinceSync := 0
 	progressCurrent := ""
 	writeCheckpoint := func(final bool) error {
 		if !final && cfg.CheckpointEvery == 0 {
@@ -449,12 +502,6 @@ func sweepIntGenISISEstimate(cfg sweepIntGenISISEstimateConfig) (sweepIntGenISIS
 		}
 		if !final && cfg.CheckpointEvery > 0 && outerDone%cfg.CheckpointEvery != 0 {
 			return nil
-		}
-		if acceptedSinceSync > 0 || final {
-			if err := jsonl.Sync(); err != nil {
-				return fmt.Errorf("sync accepted jsonl: %w", err)
-			}
-			acceptedSinceSync = 0
 		}
 		return writeEstimateProgressCheckpoint(cfg.OutDir, accepted, rejected, outerDone, outerTotal, started, progressCurrent, cfg.TopK)
 	}
@@ -537,66 +584,69 @@ func sweepIntGenISISEstimate(cfg sweepIntGenISISEstimateConfig) (sweepIntGenISIS
 									}
 									for _, compression := range cfg.Compression {
 										for _, projection := range cfg.Projection {
-											showing := intGenISISTuning{
-												NCols:              ncols,
-												LVCSNCols:          lvcs,
-												NLeaves:            nLeaves,
-												Eta:                eta,
-												Theta:              fam.Theta,
-												Rho:                fam.Rho,
-												Ell:                ell,
-												EllPrime:           fam.EllPrime,
-												Kappa:              [4]int{},
-												PRFCompanionMode:   PIOP.PRFCompanionModeDirectAuth,
-												CheckpointSamples:  2,
-												SigShortnessRadix:  shape.Radix,
-												SigShortnessDigits: shape.Digits,
-												CompressedRows:     compression,
-												ReplayProjection:   projection,
-											}
-											rejected.GeneratedCandidates++
-											showingMetricsBase, err := estimateIntGenISISMetrics(profile, showing, "showing")
-											if err != nil {
-												rejected.EstimatorError++
-												continue
-											}
-											if showingMetricsBase.PaperTranscriptBytes > cfg.MaxShowingBytes {
-												rejected.TranscriptCap++
-												continue
-											}
-											kappa, issuanceMetrics, showingMetrics, candBits, ok, high := selectSweepKappaTopup(issuanceMetricsBase, showingMetricsBase, cfg.Kappa, cfg.SoundnessMin, cfg.SoundnessMax)
-											if !ok {
-												if high {
-													rejected.SoundnessHigh++
-												} else {
-													rejected.SoundnessLow++
+											for _, prfMode := range cfg.PRFModes {
+												for _, groupRounds := range cfg.PRFGroupRounds {
+													for _, samples := range cfg.Checkpoints {
+														showing := intGenISISTuning{
+															NCols:              ncols,
+															LVCSNCols:          lvcs,
+															NLeaves:            nLeaves,
+															Eta:                eta,
+															Theta:              fam.Theta,
+															Rho:                fam.Rho,
+															Ell:                ell,
+															EllPrime:           fam.EllPrime,
+															Kappa:              [4]int{},
+															PRFCompanionMode:   prfMode,
+															PRFGroupRounds:     groupRounds,
+															CheckpointSamples:  samples,
+															SigShortnessRadix:  shape.Radix,
+															SigShortnessDigits: shape.Digits,
+															CompressedRows:     compression,
+															ReplayProjection:   projection,
+														}
+														rejected.GeneratedCandidates++
+														showingMetricsBase, err := estimateIntGenISISMetrics(profile, showing, "showing")
+														if err != nil {
+															rejected.EstimatorError++
+															continue
+														}
+														if showingMetricsBase.PaperTranscriptBytes > cfg.MaxShowingBytes {
+															rejected.TranscriptCap++
+															continue
+														}
+														kappa, issuanceMetrics, showingMetrics, candBits, ok, high := selectSweepKappaTopup(issuanceMetricsBase, showingMetricsBase, cfg.Kappa, cfg.SoundnessMin, cfg.SoundnessMax)
+														if !ok {
+															if high {
+																rejected.SoundnessHigh++
+															} else {
+																rejected.SoundnessLow++
+															}
+															continue
+														}
+														issuance.Kappa = kappa
+														showing.Kappa = kappa
+														id++
+														cand := sweepIntGenISISEstimateCandidate{
+															ID:                     fmt.Sprintf("est_%06d", id),
+															Profile:                profile.Name,
+															RingDegree:             profile.N,
+															Q:                      profile.Q,
+															Issuance:               issuance,
+															Showing:                showing,
+															IssuanceMetrics:        issuanceMetrics,
+															ShowingMetrics:         showingMetrics,
+															CandidateTheoremBits:   candBits,
+															CandidateEq8Bits:       math.Min(issuanceMetrics.SoundnessEq8Bits, showingMetrics.SoundnessEq8Bits),
+															ShowingTranscriptBytes: showingMetrics.PaperTranscriptBytes,
+															TotalTranscriptBytes:   issuanceMetrics.PaperTranscriptBytes + showingMetrics.PaperTranscriptBytes,
+														}
+														accepted = append(accepted, cand)
+														rejected.AcceptedCandidates++
+														accepted = pruneEstimateFrontier(accepted, cfg.TopK)
+													}
 												}
-												continue
 											}
-											issuance.Kappa = kappa
-											showing.Kappa = kappa
-											id++
-											cand := sweepIntGenISISEstimateCandidate{
-												ID:                     fmt.Sprintf("est_%06d", id),
-												Profile:                profile.Name,
-												RingDegree:             profile.N,
-												Q:                      profile.Q,
-												Issuance:               issuance,
-												Showing:                showing,
-												IssuanceMetrics:        issuanceMetrics,
-												ShowingMetrics:         showingMetrics,
-												CandidateTheoremBits:   candBits,
-												CandidateEq8Bits:       math.Min(issuanceMetrics.SoundnessEq8Bits, showingMetrics.SoundnessEq8Bits),
-												ShowingTranscriptBytes: showingMetrics.PaperTranscriptBytes,
-												TotalTranscriptBytes:   issuanceMetrics.PaperTranscriptBytes + showingMetrics.PaperTranscriptBytes,
-											}
-											if err := enc.Encode(cand); err != nil {
-												return sweepIntGenISISEstimateReport{}, fmt.Errorf("write accepted jsonl: %w", err)
-											}
-											acceptedSinceSync++
-											accepted = append(accepted, cand)
-											rejected.AcceptedCandidates++
-											accepted = pruneEstimateFrontier(accepted, cfg.TopK*8)
 										}
 									}
 								}
@@ -616,6 +666,7 @@ func sweepIntGenISISEstimate(cfg sweepIntGenISISEstimateConfig) (sweepIntGenISIS
 	}
 	printProgress(true)
 
+	accepted = efficientEstimateFrontier(accepted, cfg.TopK)
 	sortEstimateCandidates(accepted, 0)
 	frontierAll := limitEstimateCandidates(accepted, cfg.TopK)
 	frontier96 := estimateTargetFrontier(accepted, 96, cfg.TopK)
@@ -637,6 +688,7 @@ func sweepIntGenISISEstimate(cfg sweepIntGenISISEstimateConfig) (sweepIntGenISIS
 		Frontier128:     frontier128,
 		EstimatorNotes: []string{
 			"This is an estimate-only report: no proofs, signatures, verifier states, or presentations were generated.",
+			"The sweep records only bounded efficient frontiers; all accepted candidates are counted but not streamed to disk.",
 			"Q and R buckets use the same closed-form paper formulas as the live report.",
 			"Pdecs/Auth/VTargets/BarSets are deterministic conservative estimates calibrated to current IntGenISIS measured geometry; use benchmark-intgenisis-e2e for final promotion.",
 			"Candidate bits are min(issuance theorem_total_bits, showing theorem_total_bits); raw Eq. (8) bits are recorded but not used as the filter.",
@@ -648,8 +700,15 @@ func sweepIntGenISISEstimate(cfg sweepIntGenISISEstimateConfig) (sweepIntGenISIS
 			{Name: "projected R11/L4 best", ExpectedShowingBytes: 31232, ExpectedDQ: 482, ExpectedTheoremBits: 96.50, Notes: "Reference from measured retuning snapshot."},
 		},
 	}
-	if err := writeJSONFile(filepath.Join(cfg.OutDir, "summary.json"), report, 0o644); err != nil {
+	summary := report
+	summary.FrontierAll = nil
+	summary.Frontier96 = nil
+	summary.Frontier128 = nil
+	if err := writeJSONFile(filepath.Join(cfg.OutDir, "summary.json"), summary, 0o644); err != nil {
 		return sweepIntGenISISEstimateReport{}, fmt.Errorf("write summary.json: %w", err)
+	}
+	if err := writeJSONFile(filepath.Join(cfg.OutDir, "frontier_all.json"), frontierAll, 0o644); err != nil {
+		return sweepIntGenISISEstimateReport{}, fmt.Errorf("write frontier_all.json: %w", err)
 	}
 	if err := writeJSONFile(filepath.Join(cfg.OutDir, "frontier_96.json"), frontier96, 0o644); err != nil {
 		return sweepIntGenISISEstimateReport{}, fmt.Errorf("write frontier_96.json: %w", err)
@@ -730,7 +789,7 @@ func sweepIntGenISISEstimateGridFor(name string) (sweepIntGenISISGrid, error) {
 				"Estimate-deep searches both profile-A N=256 and profile-B N=512 through the calling command.",
 				"The default grid is pre-pruned to remove round-2-impossible theta/rho pairs, dominated high-rho/high-theta families, ncols>=256, lvcs_ncols>256, ell>32, nleaves bases above 262144, compression level 3, and non-projected layouts.",
 				"All pruned axes remain available through explicit -theta/-rho/-ell-prime/-ncols/-lvcs-ncols/-ell/-nleaves/-compression-levels/-projection-modes overrides.",
-				"The grid intentionally spans 94-to-135-bit Theorem 9 candidates, with per-round grinding capped at 6 bits, rather than a single raw Eq. (8) target.",
+				"The grid intentionally spans 88-to-135-bit Theorem 9 candidates with zero grinding, rather than a single raw Eq. (8) target.",
 			},
 		}, nil
 	default:
@@ -759,6 +818,7 @@ func estimateIntGenISISMetrics(profile credential.IntGenISISProfile, tuning intG
 		Theta:                      tuning.Theta,
 		Kappa:                      tuning.Kappa,
 		DomainMode:                 PIOP.DomainModeExplicit,
+		PRFGroupRounds:             estimatePRFGroupRounds(tuning),
 		PRFCompanionMode:           tuning.PRFCompanionMode,
 		PRFCheckpointSamples:       tuning.CheckpointSamples,
 		SigShortnessRadix:          tuning.SigShortnessRadix,
@@ -919,8 +979,16 @@ func estimateIntGenISISGeometry(profile credential.IntGenISISProfile, tuning int
 			yHatRows = 0
 		}
 		issuerHatRows := (profile.EllMuSig + profile.EllX0 + profile.EllX1 + 1) * blocks
-		prfRows := estimatePRFRows(tuning)
-		geom.Rows = uRows + shortRows + mseRows + yViewRows + uHatRows + yHatRows + issuerHatRows + prfRows
+		prfRows, prfKeyBridge, err := estimatePRFGeometry(tuning)
+		if err != nil {
+			return sweepEstimateGeometry{}, err
+		}
+		baseRows := uRows + shortRows + mseRows + yViewRows + uHatRows + yHatRows + issuerHatRows + prfRows
+		bridgeStripeRows := 0
+		if estimatePRFCompanionMode(tuning) == PIOP.PRFCompanionModeAuxInstance {
+			bridgeStripeRows = estimatePRFBridgeStripeRows(baseRows, lvcs, prfRows)
+		}
+		geom.Rows = baseRows + bridgeStripeRows
 		geom.PRFRows = prfRows
 		geom.BoundRows = mseRows
 		geom.TernaryRows = mseRows
@@ -941,7 +1009,7 @@ func estimateIntGenISISGeometry(profile credential.IntGenISISProfile, tuning int
 		geom.CommitmentViewRows = sRows + eRows
 		geom.YCoefficientViewRows = yViewRows
 		geom.Range = mseRows
-		geom.PRFKeyBridge = 8
+		geom.PRFKeyBridge = prfKeyBridge
 		if mode == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || mode == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 {
 			geom.ProjectedSignature = blocks * ncols
 			geom.FparInt = blocks
@@ -978,6 +1046,7 @@ type estimatePaperBuckets struct {
 
 func estimatePaperTranscript(profile credential.IntGenISISProfile, tuning intGenISISTuning, geom sweepEstimateGeometry) estimatePaperBuckets {
 	qLog := math.Log2(float64(profile.Q))
+	qBits := estimateFieldElementBitWidth(profile.Q)
 	qTheta := 1
 	if tuning.Theta > 1 {
 		qTheta = tuning.Theta
@@ -994,21 +1063,126 @@ func estimatePaperTranscript(profile credential.IntGenISISProfile, tuning intGen
 	if ell <= 0 {
 		ell = 1
 	}
+	theta := tuning.Theta
+	if theta <= 0 {
+		theta = 1
+	}
+	ncols := tuning.NCols
+	if ncols <= 0 {
+		ncols = 16
+	}
+	lvcs := tuning.LVCSNCols
+	if lvcs < ncols {
+		lvcs = ncols
+	}
 	rBytes := bitsToBytesMain(float64(tuning.Eta) * float64(maxIntMain(geom.DDECS+1-ell, 0)) * qLog)
 	qBytes := bitsToBytesMain(float64(rho*maxIntMain(geom.PaperConservativeDQ-(ellPrime+1), 0)*qTheta) * qLog)
-	openingRows := geom.SmallFieldReplayRows + geom.MaskRows
-	pdecsBytes := bitsToBytesMain(float64(openingRows)*360 + 512)
 	authBytes := bitsToBytesMain(float64(ell)*math.Log2(float64(maxIntMain(tuning.NLeaves, 2)))*32 + 12000)
-	constraintCount := geom.FparInt + geom.Range + geom.ShortnessConstraints + geom.SourceBridge + geom.PRFKeyBridge
-	vtargetsBytes := int(math.Ceil(float64(constraintCount)*4.65 + 875))
-	if vtargetsBytes < 0 {
-		vtargetsBytes = 0
+	rowsBlock := ceilDivMain(geom.Rows, lvcs)
+	auditRows := rowsBlock * ellPrime
+	if theta > 1 {
+		auditRows *= theta
 	}
-	rowsBlock := ceilDivMain(geom.Rows, maxIntMain(tuning.LVCSNCols, tuning.NCols))
-	barsetsBytes := bitsToBytesMain(float64(rowsBlock*maxIntMain(tuning.Theta, 1)*maxIntMain(ellPrime, 1))*64 + 4096)
+	pdecsBytes := estimateRowOpeningPdecsBytes(tuning, geom, auditRows, qBits)
+	vtargetsBytes := estimatePackedMatrixBytes(auditRows, lvcs, qBits)
+	barsetsBytes := estimatePackedMatrixBytes(auditRows, ell, qBits)
 	fixedBytes := 16 + 64 + 32
 	total := fixedBytes + qBytes + rBytes + pdecsBytes + authBytes + vtargetsBytes + barsetsBytes
 	return estimatePaperBuckets{total: total, q: qBytes, r: rBytes, pdecs: pdecsBytes, auth: authBytes, vtargets: vtargetsBytes, barsets: barsetsBytes}
+}
+
+func estimateFieldElementBitWidth(q uint64) int {
+	if q <= 1 {
+		return 1
+	}
+	return bits.Len64(q - 1)
+}
+
+func estimatePackedMatrixBytes(rows, cols, bitWidth int) int {
+	if rows <= 0 || cols <= 0 || bitWidth <= 0 {
+		return 0
+	}
+	return 10 + ceilDivInt64ToInt(int64(rows)*int64(cols)*int64(bitWidth), 8)
+}
+
+func estimatePackedPayloadBytes(rows, cols, bitWidth int) int {
+	if rows <= 0 || cols <= 0 || bitWidth <= 0 {
+		return 0
+	}
+	return ceilDivInt64ToInt(int64(rows)*int64(cols)*int64(bitWidth), 8)
+}
+
+func estimateRowOpeningPdecsBytes(tuning intGenISISTuning, geom sweepEstimateGeometry, auditRows, qBits int) int {
+	ell := tuning.Ell
+	if ell <= 0 {
+		ell = 1
+	}
+	theta := tuning.Theta
+	if theta <= 0 {
+		theta = 1
+	}
+	rho := tuning.Rho
+	if rho <= 0 {
+		rho = 1
+	}
+	if theta > 1 {
+		openingCols := geom.SmallFieldReplayRows + geom.MaskRows - auditRows
+		if openingCols <= 0 {
+			return 0
+		}
+		rows := ell * theta
+		payload := estimatePackedPayloadBytes(rows, openingCols, qBits)
+		metadata := 1 + varintSizeMain(openingCols) + estimateSmallFieldPOmitColsVarintBytes(tuning, geom, auditRows) + 1
+		return payload + metadata
+	}
+	openingCols := geom.Rows + rho
+	rows := 2 * ell
+	payload := estimatePackedPayloadBytes(rows, openingCols, qBits)
+	if payload == 0 {
+		return 0
+	}
+	// Format 0 row openings carry the P residue stream plus its bit-width byte.
+	return payload + 1
+}
+
+func estimateSmallFieldPOmitColsVarintBytes(tuning intGenISISTuning, geom sweepEstimateGeometry, auditRows int) int {
+	if auditRows <= 0 {
+		return 0
+	}
+	ncols := tuning.NCols
+	if ncols <= 0 {
+		ncols = 16
+	}
+	lvcs := tuning.LVCSNCols
+	if lvcs < ncols {
+		lvcs = ncols
+	}
+	theta := tuning.Theta
+	if theta <= 1 {
+		return 0
+	}
+	ellPrime := tuning.EllPrime
+	if ellPrime <= 0 {
+		ellPrime = 1
+	}
+	rowsBlock := ceilDivMain(geom.Rows, lvcs)
+	perBlock := theta * ellPrime
+	if rowsBlock <= 0 || perBlock <= 0 || rowsBlock*perBlock != auditRows {
+		total := 0
+		for col := 0; col < auditRows; col++ {
+			total += varintSizeMain(col)
+		}
+		return total
+	}
+	stride := ncols + theta
+	total := 0
+	for block := 0; block < rowsBlock; block++ {
+		base := block * stride
+		for i := 0; i < perBlock; i++ {
+			total += varintSizeMain(base + i)
+		}
+	}
+	return total
 }
 
 func estimateDominantDegreeSource(t intGenISISTuning, kind string) string {
@@ -1032,19 +1206,72 @@ func estimateDominantDegreeSource(t intGenISISTuning, kind string) string {
 	return "signature"
 }
 
-func estimatePRFRows(t intGenISISTuning) int {
-	samples := t.CheckpointSamples
-	if samples <= 0 {
-		samples = 2
+func estimatePRFRows(t intGenISISTuning) (int, error) {
+	rows, _, err := estimatePRFGeometry(t)
+	return rows, err
+}
+
+func estimatePRFGeometry(t intGenISISTuning) (rows int, keyBridge int, err error) {
+	ncols := t.NCols
+	if ncols <= 0 {
+		ncols = 16
 	}
+	params, err := loadSweepEstimatePRFParams()
+	if err != nil {
+		return 0, 0, err
+	}
+	if ncols < params.LenKey {
+		return 0, 0, fmt.Errorf("estimate PRF rows: ncols=%d < lenkey=%d", ncols, params.LenKey)
+	}
+	groupRounds := estimatePRFGroupRounds(t)
+	checkpoints, err := prf.SBoxOutputCountGrouped(params, groupRounds)
+	if err != nil {
+		return 0, 0, fmt.Errorf("estimate PRF rows: grouped sbox count: %w", err)
+	}
+	keyRows := ceilDivMain(params.LenKey, ncols)
+	traceRows := ceilDivMain(checkpoints+params.LenTag, ncols)
+	return keyRows + traceRows, params.LenKey, nil
+}
+
+func estimatePRFGroupRounds(t intGenISISTuning) int {
+	if t.PRFGroupRounds > 0 {
+		return t.PRFGroupRounds
+	}
+	return sweepEstimatePRFGroupRounds
+}
+
+func estimatePRFCompanionMode(t intGenISISTuning) PIOP.PRFCompanionMode {
 	switch t.PRFCompanionMode {
-	case PIOP.PRFCompanionModeOutputAudit:
-		return maxIntMain(7, samples+4)
-	case PIOP.PRFCompanionModeDirectAuth, "":
-		return 7
+	case PIOP.PRFCompanionModeDirectAuth, PIOP.PRFCompanionModeOutputAudit, PIOP.PRFCompanionModeAuxInstance:
+		return t.PRFCompanionMode
+	case "":
+		return PIOP.PRFCompanionModeOutputAudit
 	default:
-		return 7
+		return PIOP.PRFCompanionModeOutputAudit
 	}
+}
+
+func estimatePRFBridgeStripeRows(currentWitnessRows, pcsNCols, sourceRows int) int {
+	if currentWitnessRows < 0 || pcsNCols <= 0 || sourceRows <= 0 {
+		return 0
+	}
+	targetSlots := minIntMain(4, sourceRows)
+	baseBlock := ceilDivMain(currentWitnessRows, pcsNCols)
+	lastPhysical := (baseBlock+(sourceRows-1)/targetSlots)*pcsNCols + ((sourceRows - 1) % targetSlots)
+	if lastPhysical < currentWitnessRows {
+		return sourceRows
+	}
+	return lastPhysical - currentWitnessRows + 1
+}
+
+func loadSweepEstimatePRFParams() (*prf.Params, error) {
+	sweepEstimatePRFParamsCache.once.Do(func() {
+		sweepEstimatePRFParamsCache.params, sweepEstimatePRFParamsCache.err = prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+	})
+	if sweepEstimatePRFParamsCache.err != nil {
+		return nil, fmt.Errorf("load PRF params for estimate: %w", sweepEstimatePRFParamsCache.err)
+	}
+	return sweepEstimatePRFParamsCache.params, nil
 }
 
 func sweepShortnessCoversSignatureBound(shape sweepIntGenISISShortness, beta int64) bool {
@@ -1092,8 +1319,66 @@ func pruneEstimateFrontier(candidates []sweepIntGenISISEstimateCandidate, limit 
 	if limit <= 0 || len(candidates) <= limit*2 {
 		return candidates
 	}
-	sortEstimateCandidates(candidates, 0)
-	return candidates[:limit]
+	return efficientEstimateFrontier(candidates, limit)
+}
+
+func efficientEstimateFrontier(candidates []sweepIntGenISISEstimateCandidate, limit int) []sweepIntGenISISEstimateCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	sorted := append([]sweepIntGenISISEstimateCandidate(nil), candidates...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		if a.ShowingTranscriptBytes != b.ShowingTranscriptBytes {
+			return a.ShowingTranscriptBytes < b.ShowingTranscriptBytes
+		}
+		if a.TotalTranscriptBytes != b.TotalTranscriptBytes {
+			return a.TotalTranscriptBytes < b.TotalTranscriptBytes
+		}
+		if math.Abs(a.CandidateTheoremBits-b.CandidateTheoremBits) > 1e-9 {
+			return a.CandidateTheoremBits > b.CandidateTheoremBits
+		}
+		return a.ID < b.ID
+	})
+	frontier := make([]sweepIntGenISISEstimateCandidate, 0, minIntMain(len(sorted), maxIntMain(limit, 1)))
+	for _, cand := range sorted {
+		dominated := false
+		for _, kept := range frontier {
+			if estimateCandidateDominates(kept, cand) {
+				dominated = true
+				break
+			}
+		}
+		if dominated {
+			continue
+		}
+		dst := frontier[:0]
+		for _, kept := range frontier {
+			if !estimateCandidateDominates(cand, kept) {
+				dst = append(dst, kept)
+			}
+		}
+		frontier = append(dst, cand)
+	}
+	sortEstimateCandidates(frontier, 0)
+	return limitEstimateCandidates(frontier, limit)
+}
+
+func estimateCandidateDominates(a, b sweepIntGenISISEstimateCandidate) bool {
+	const eps = 1e-9
+	if a.ShowingTranscriptBytes > b.ShowingTranscriptBytes {
+		return false
+	}
+	if a.TotalTranscriptBytes > b.TotalTranscriptBytes {
+		return false
+	}
+	if a.CandidateTheoremBits+eps < b.CandidateTheoremBits {
+		return false
+	}
+	return a.ShowingTranscriptBytes < b.ShowingTranscriptBytes ||
+		a.TotalTranscriptBytes < b.TotalTranscriptBytes ||
+		a.CandidateTheoremBits > b.CandidateTheoremBits+eps ||
+		a.ID < b.ID
 }
 
 func sortEstimateCandidates(candidates []sweepIntGenISISEstimateCandidate, target float64) {
@@ -1140,7 +1425,7 @@ func writeEstimateProgressCheckpoint(outDir string, accepted []sweepIntGenISISEs
 	if elapsed <= 0 {
 		elapsed = 1e-9
 	}
-	sorted := append([]sweepIntGenISISEstimateCandidate(nil), accepted...)
+	sorted := efficientEstimateFrontier(accepted, topK)
 	sortEstimateCandidates(sorted, 0)
 	frontierAll := limitEstimateCandidates(sorted, topK)
 	frontier96 := estimateTargetFrontier(sorted, 96, topK)
@@ -1177,6 +1462,9 @@ func writeEstimateProgressCheckpoint(outDir string, accepted []sweepIntGenISISEs
 	}
 	if err := writeJSONFile(filepath.Join(outDir, "rejected_counts.json"), rejected, 0o644); err != nil {
 		return fmt.Errorf("write rejected_counts.json: %w", err)
+	}
+	if err := writeJSONFile(filepath.Join(outDir, "frontier_all.json"), frontierAll, 0o644); err != nil {
+		return fmt.Errorf("write frontier_all.json: %w", err)
 	}
 	if err := writeEstimateCSV(filepath.Join(outDir, "frontier_all.csv"), frontierAll); err != nil {
 		return err
@@ -1280,9 +1568,10 @@ func writeEstimateCSV(path string, candidates []sweepIntGenISISEstimateCandidate
 	header := []string{
 		"id", "profile", "N", "candidate_theorem_bits", "candidate_eq8_bits", "showing_bytes", "total_bytes",
 		"ncols", "lvcs_ncols", "nleaves", "eta", "theta", "rho", "ell", "ell_prime",
+		"issuance_ncols", "prf_mode", "prf_group_rounds", "prf_checkpoint_samples",
 		"kappa", "projection", "compression", "shortness_radix", "shortness_digits",
 		"issuance_theorem", "showing_theorem", "issuance_eq8", "showing_eq8",
-		"showing_rows", "showing_replay_rows", "showing_mask_rows", "showing_dq", "showing_ddecs",
+		"showing_rows", "showing_prf_rows", "showing_replay_rows", "showing_mask_rows", "showing_dq", "showing_ddecs",
 		"q_bytes", "r_bytes", "pdecs_bytes", "auth_bytes", "vtargets_bytes", "barsets_bytes",
 	}
 	if err := w.Write(header); err != nil {
@@ -1305,6 +1594,10 @@ func writeEstimateCSV(path string, candidates []sweepIntGenISISEstimateCandidate
 			strconv.Itoa(c.Showing.Rho),
 			strconv.Itoa(c.Showing.Ell),
 			strconv.Itoa(c.Showing.EllPrime),
+			strconv.Itoa(c.Issuance.NCols),
+			string(c.Showing.PRFCompanionMode),
+			strconv.Itoa(c.Showing.PRFGroupRounds),
+			strconv.Itoa(c.Showing.CheckpointSamples),
 			kappaTupleString(c.Showing.Kappa),
 			c.Showing.ReplayProjection,
 			strconv.Itoa(c.Showing.CompressedRows),
@@ -1315,6 +1608,7 @@ func writeEstimateCSV(path string, candidates []sweepIntGenISISEstimateCandidate
 			fmt.Sprintf("%.4f", c.IssuanceMetrics.SoundnessEq8Bits),
 			fmt.Sprintf("%.4f", c.ShowingMetrics.SoundnessEq8Bits),
 			strconv.Itoa(c.ShowingMetrics.TotalRows),
+			strconv.Itoa(c.ShowingMetrics.PRFRows),
 			strconv.Itoa(c.ShowingMetrics.SmallFieldReplayRows),
 			strconv.Itoa(c.ShowingMetrics.MaskRows),
 			strconv.Itoa(c.ShowingMetrics.DQ),
@@ -1351,6 +1645,35 @@ func parseStringCSV(s string) ([]string, error) {
 		return nil, fmt.Errorf("empty string list")
 	}
 	return out, nil
+}
+
+func parsePRFCompanionModeCSV(s string) ([]PIOP.PRFCompanionMode, error) {
+	parts, err := parseStringCSV(s)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PIOP.PRFCompanionMode, 0, len(parts))
+	seen := make(map[PIOP.PRFCompanionMode]bool, len(parts))
+	for _, part := range parts {
+		mode := PIOP.PRFCompanionMode(strings.TrimSpace(part))
+		if !validSweepPRFCompanionMode(mode) {
+			return nil, fmt.Errorf("unsupported PRF companion mode %q", part)
+		}
+		if !seen[mode] {
+			out = append(out, mode)
+			seen[mode] = true
+		}
+	}
+	return out, nil
+}
+
+func validSweepPRFCompanionMode(mode PIOP.PRFCompanionMode) bool {
+	switch mode {
+	case PIOP.PRFCompanionModeDirectAuth, PIOP.PRFCompanionModeOutputAudit, PIOP.PRFCompanionModeAuxInstance:
+		return true
+	default:
+		return false
+	}
 }
 
 func parseSweepShortnessCSV(s string) ([]sweepIntGenISISShortness, error) {
@@ -1413,29 +1736,7 @@ func parseKappaTuplesCSV(s string) ([][4]int, error) {
 }
 
 func defaultSweepEstimateKappas() [][4]int {
-	seen := make(map[[4]int]bool)
-	out := make([][4]int, 0, 61)
-	add := func(k [4]int) {
-		if seen[k] {
-			return
-		}
-		seen[k] = true
-		out = append(out, k)
-	}
-	add([4]int{})
-	for round := 0; round < 4; round++ {
-		for k := 1; k <= sweepEstimateMaxKappaPerRound; k++ {
-			var tuple [4]int
-			tuple[round] = k
-			add(tuple)
-		}
-	}
-	for k1 := 1; k1 <= sweepEstimateMaxKappaPerRound; k1++ {
-		for k4 := 1; k4 <= sweepEstimateMaxKappaPerRound; k4++ {
-			add([4]int{k1, 0, 0, k4})
-		}
-	}
-	return out
+	return [][4]int{{0, 0, 0, 0}}
 }
 
 func validateSweepKappas(kappas [][4]int, maxPerRound int) error {
@@ -1590,6 +1891,26 @@ func bitsToBytesMain(bits float64) int {
 	return int(math.Ceil(bits / 8))
 }
 
+func ceilDivInt64ToInt(a, b int64) int {
+	if b <= 0 || a <= 0 {
+		return 0
+	}
+	return int((a + b - 1) / b)
+}
+
+func varintSizeMain(x int) int {
+	if x < 0 {
+		x = -x
+	}
+	ux := uint64(x)
+	size := 1
+	for ux >= 0x80 {
+		size++
+		ux >>= 7
+	}
+	return size
+}
+
 func powInt(base, exp int) int {
 	if exp <= 0 {
 		return 1
@@ -1609,4 +1930,11 @@ func ceilDivMain(a, b int) int {
 		return 0
 	}
 	return (a + b - 1) / b
+}
+
+func minIntMain(a, b int) int {
+	if a <= b {
+		return a
+	}
+	return b
 }

@@ -246,19 +246,10 @@ func TestSweepIntGenISISEstimateDefaultGridIsPrePruned(t *testing.T) {
 	}
 }
 
-func TestSweepIntGenISISEstimateDefaultKappasAreSmallTopups(t *testing.T) {
+func TestSweepIntGenISISEstimateDefaultKappasAreZeroGrindingOnly(t *testing.T) {
 	kappas := defaultSweepEstimateKappas()
-	for _, want := range [][4]int{
-		{0, 0, 0, 0},
-		{0, 0, 0, 4},
-		{0, 0, 0, 6},
-		{6, 0, 0, 0},
-		{6, 0, 0, 6},
-		{0, 0, 3, 0},
-	} {
-		if !containsKappaTest(kappas, want) {
-			t.Fatalf("default kappas missing %s", kappaTupleString(want))
-		}
+	if len(kappas) != 1 || kappas[0] != [4]int{} {
+		t.Fatalf("default kappas=%v want only 0/0/0/0", kappaTupleStrings(kappas))
 	}
 	for _, k := range kappas {
 		for round, v := range k {
@@ -317,6 +308,197 @@ func TestSweepIntGenISISEstimateShortnessCapacity(t *testing.T) {
 	}
 }
 
+func TestParseNonNegativeIntCSVKeepsCompressionZero(t *testing.T) {
+	got, err := parseNonNegativeIntCSV("0,1,2,0")
+	if err != nil {
+		t.Fatalf("parse non-negative CSV: %v", err)
+	}
+	if !sameInts(got, []int{0, 1, 2}) {
+		t.Fatalf("parse non-negative CSV=%v want [0 1 2]", got)
+	}
+	if _, err := parseNonNegativeIntCSV("-1"); err == nil {
+		t.Fatal("parse non-negative CSV accepted a negative value")
+	}
+}
+
+func TestSweepIntGenISISEstimatePRFRowsUsePackedCompanionGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ncols int
+		want  int
+	}{
+		{name: "ncols16", ncols: 16, want: 12},
+		{name: "ncols32", ncols: 32, want: 7},
+		{name: "ncols64", ncols: 64, want: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := estimatePRFRows(intGenISISTuning{
+				NCols:             tc.ncols,
+				PRFCompanionMode:  PIOP.PRFCompanionModeDirectAuth,
+				PRFGroupRounds:    2,
+				CheckpointSamples: 2,
+			})
+			if err != nil {
+				t.Fatalf("estimate PRF rows: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("PRF rows=%d want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSweepIntGenISISEstimateProfileA96BitShowingPRFGeometry(t *testing.T) {
+	profile, ok := credential.LookupIntGenISISProfile(credential.ProfileIntGenISISA)
+	if !ok {
+		t.Fatal("missing profile A")
+	}
+	geom, err := estimateIntGenISISGeometry(profile, intGenISISTuning{
+		NCols:              16,
+		LVCSNCols:          48,
+		NLeaves:            262144,
+		Eta:                44,
+		Theta:              2,
+		Rho:                3,
+		Ell:                8,
+		EllPrime:           3,
+		PRFCompanionMode:   PIOP.PRFCompanionModeDirectAuth,
+		PRFGroupRounds:     2,
+		CheckpointSamples:  2,
+		SigShortnessRadix:  7,
+		SigShortnessDigits: 5,
+		CompressedRows:     1,
+		ReplayProjection:   PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2,
+	}, "showing")
+	if err != nil {
+		t.Fatalf("estimate geometry: %v", err)
+	}
+	if got, want := geom.PRFRows, 12; got != want {
+		t.Fatalf("profile-A 96-bit PRF rows=%d want %d", got, want)
+	}
+	if got, want := geom.Rows, 332; got != want {
+		t.Fatalf("profile-A 96-bit rows=%d want %d", got, want)
+	}
+	if got, want := geom.SmallFieldReplayRows, 126; got != want {
+		t.Fatalf("profile-A 96-bit smallfield replay rows=%d want %d", got, want)
+	}
+}
+
+func TestSweepIntGenISISEstimatePaperTranscriptUsesPackedBucketShapes(t *testing.T) {
+	profile, ok := credential.LookupIntGenISISProfile(credential.ProfileIntGenISISA)
+	if !ok {
+		t.Fatal("missing profile A")
+	}
+	tuning := intGenISISTuning{
+		NCols:              16,
+		LVCSNCols:          60,
+		NLeaves:            3712,
+		Eta:                32,
+		Theta:              2,
+		Rho:                3,
+		Ell:                17,
+		EllPrime:           3,
+		PRFCompanionMode:   PIOP.PRFCompanionModeDirectAuth,
+		PRFGroupRounds:     2,
+		CheckpointSamples:  2,
+		SigShortnessRadix:  5,
+		SigShortnessDigits: 6,
+		ReplayProjection:   PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2,
+	}
+	sm, err := estimateIntGenISISMetrics(profile, tuning, "showing")
+	if err != nil {
+		t.Fatalf("showing estimate: %v", err)
+	}
+	if got, want := sm.PdecsBytes, 9149; got != want {
+		t.Fatalf("Pdecs bytes=%d want measured row-opening residue shape %d", got, want)
+	}
+	if got, want := sm.VTargetsBytes, 6625; got != want {
+		t.Fatalf("VTargets bytes=%d want packed matrix shape %d", got, want)
+	}
+	if got, want := sm.BarSetsBytes, 1885; got != want {
+		t.Fatalf("BarSets bytes=%d want packed matrix shape %d", got, want)
+	}
+	if got, measured := sm.PaperTranscriptBytes, 27569; got < measured-200 || got > measured+200 {
+		t.Fatalf("paper transcript bytes=%d outside measured neighborhood around %d", got, measured)
+	}
+}
+
+func TestSweepIntGenISISEstimatePaperTranscriptCurrent96BitPresetShape(t *testing.T) {
+	profile, ok := credential.LookupIntGenISISProfile(credential.ProfileIntGenISISA)
+	if !ok {
+		t.Fatal("missing profile A")
+	}
+	tuning := intGenISISTuning{
+		NCols:              16,
+		LVCSNCols:          48,
+		NLeaves:            262144,
+		Eta:                44,
+		Theta:              2,
+		Rho:                3,
+		Ell:                8,
+		EllPrime:           3,
+		PRFCompanionMode:   PIOP.PRFCompanionModeDirectAuth,
+		PRFGroupRounds:     2,
+		CheckpointSamples:  2,
+		SigShortnessRadix:  7,
+		SigShortnessDigits: 5,
+		CompressedRows:     1,
+		ReplayProjection:   PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2,
+	}
+	sm, err := estimateIntGenISISMetrics(profile, tuning, "showing")
+	if err != nil {
+		t.Fatalf("showing estimate: %v", err)
+	}
+	if got, want := sm.PdecsBytes, 4833; got != want {
+		t.Fatalf("Pdecs bytes=%d want current 96-bit row-opening shape %d", got, want)
+	}
+	if got, want := sm.VTargetsBytes, 5302; got != want {
+		t.Fatalf("VTargets bytes=%d want current 96-bit packed matrix shape %d", got, want)
+	}
+	if got, want := sm.BarSetsBytes, 892; got != want {
+		t.Fatalf("BarSets bytes=%d want current 96-bit packed matrix shape %d", got, want)
+	}
+	if got, measured := sm.PaperTranscriptBytes, 22116; got < measured-400 || got > measured+400 {
+		t.Fatalf("paper transcript bytes=%d outside measured neighborhood around %d", got, measured)
+	}
+}
+
+func TestSweepIntGenISISEstimatePaperTranscriptTheta1PResidueShape(t *testing.T) {
+	profile, ok := credential.LookupIntGenISISProfile(credential.ProfileIntGenISISB)
+	if !ok {
+		t.Fatal("missing profile B")
+	}
+	tuning := intGenISISTuning{
+		NCols:              128,
+		LVCSNCols:          128,
+		NLeaves:            4096,
+		Eta:                54,
+		Theta:              1,
+		Rho:                7,
+		Ell:                27,
+		EllPrime:           13,
+		PRFCompanionMode:   PIOP.PRFCompanionModeDirectAuth,
+		PRFGroupRounds:     2,
+		CheckpointSamples:  2,
+		SigShortnessRadix:  5,
+		SigShortnessDigits: 6,
+		ReplayProjection:   PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2,
+	}
+	sm, err := estimateIntGenISISMetrics(profile, tuning, "showing")
+	if err != nil {
+		t.Fatalf("showing estimate: %v", err)
+	}
+	if got, want := sm.PdecsBytes, 14460; got != want {
+		t.Fatalf("theta=1 Pdecs bytes=%d want measured P residue stream shape %d", got, want)
+	}
+	if got, want := sm.VTargetsBytes, 4378; got != want {
+		t.Fatalf("theta=1 VTargets bytes=%d want packed matrix shape %d", got, want)
+	}
+	if got, want := sm.BarSetsBytes, 932; got != want {
+		t.Fatalf("theta=1 BarSets bytes=%d want packed matrix shape %d", got, want)
+	}
+}
+
 func TestSweepIntGenISISEstimateTheoremAndTranscriptFilters(t *testing.T) {
 	profile, ok := credential.LookupIntGenISISProfile(credential.ProfileIntGenISISA)
 	if !ok {
@@ -333,6 +515,7 @@ func TestSweepIntGenISISEstimateTheoremAndTranscriptFilters(t *testing.T) {
 		EllPrime:           2,
 		Kappa:              [4]int{0, 0, 0, 6},
 		PRFCompanionMode:   PIOP.PRFCompanionModeDirectAuth,
+		PRFGroupRounds:     2,
 		CheckpointSamples:  2,
 		SigShortnessRadix:  11,
 		SigShortnessDigits: 4,
@@ -380,10 +563,10 @@ func TestSweepIntGenISISEstimateCommandSmoke(t *testing.T) {
 		"-theta", "3",
 		"-rho", "2",
 		"-ell-prime", "2",
-		"-compression-levels", "1",
+		"-compression-levels", "0,1",
 		"-shortness", "11/4",
-		"-kappa-tuples", "0/0/0/6",
-		"-soundness-min", "90",
+		"-kappa-tuples", "0/0/0/0",
+		"-soundness-min", "88",
 		"-soundness-max", "135",
 		"-max-showing-bytes", "50000",
 		"-top-k", "5",
@@ -391,10 +574,13 @@ func TestSweepIntGenISISEstimateCommandSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("estimate command: %v", err)
 	}
-	for _, name := range []string{"summary.json", "accepted_candidates.jsonl", "frontier_all.csv", "frontier_96.json", "frontier_128.csv", "rejected_counts.json", "grid_config.json", "progress.json"} {
+	for _, name := range []string{"summary.json", "frontier_all.json", "frontier_all.csv", "frontier_96.json", "frontier_128.csv", "rejected_counts.json", "grid_config.json", "progress.json"} {
 		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
 			t.Fatalf("missing %s: %v", name, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "accepted_candidates.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("accepted_candidates.jsonl should not be written, stat err=%v", err)
 	}
 	gridConfig, err := os.ReadFile(filepath.Join(outDir, "grid_config.json"))
 	if err != nil {
@@ -406,6 +592,11 @@ func TestSweepIntGenISISEstimateCommandSmoke(t *testing.T) {
 	if strings.Contains(string(gridConfig), PIOP.IntGenISISReplayProjectionProjectUYHatV1) ||
 		strings.Contains(string(gridConfig), PIOP.IntGenISISReplayProjectionNone) {
 		t.Fatalf("default estimate projection modes should be V2-only: %s", string(gridConfig))
+	}
+	for _, want := range []string{`"prf_companion_modes"`, string(PIOP.PRFCompanionModeDirectAuth), `"prf_group_rounds"`, `"prf_checkpoint_samples"`} {
+		if !strings.Contains(string(gridConfig), want) {
+			t.Fatalf("grid_config missing %s: %s", want, string(gridConfig))
+		}
 	}
 }
 

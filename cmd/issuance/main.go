@@ -120,7 +120,8 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	profile := fs.String("profile", credential.ProfileIntGenISISB, "IntGenISIS profile name")
 	prfParamsPath := fs.String("prf-params", defaultPRFParamsPath, "PRF params path")
 	jsonOut := fs.String("json-out", "", "optional JSON output path")
-	presetName := fs.String("preset", "", "named IntGenISIS preset (for example fast-local, sw96-lvcs64, sw128-lvcs64, n256-sw96, n256-sw128)")
+	presetName := fs.String("preset", "", "named IntGenISIS preset (for example 96bit, 120bitsf, fast-local, sw96-lvcs64, sw128-lvcs64, n256-sw96, n256-sw128)")
+	preset96Bit := fs.Bool("96bit", false, "use the general IntGenISIS 96-bit preset")
 	force := fs.Bool("force", false, "overwrite existing artifacts")
 	seed := fs.Int64("seed", 11, "holder commitment sampling seed")
 	ncols := fs.Int("ncols", 16, "SmallWood packing width")
@@ -157,6 +158,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	showingCompressedRows := fs.Int("showing-compressed-rows", 0, "showing IntGenISIS M/s/e compression level: 0 none, 1 pack2, 2 pack3, 3 pack4")
 	showingReplayProjection := fs.String("showing-replay-projection", PIOP.IntGenISISReplayProjectionNone, "showing IntGenISIS replay projection mode: none, project_u_y_hat_v1, or project_u_y_hat_and_y_view_v2")
 	companionMode := fs.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "PRF companion mode: output_audit, direct_auth, or aux_instance")
+	prfGroupRounds := fs.Int("prf-group-rounds", 2, "grouped PRF rounds for the showing companion witness")
 	checkpointSamples := fs.Int("prf-checkpoint-samples", 8, "PRF companion checkpoint samples")
 	keygenTrials := fs.Int("keygen-trials", 10000, "maximum annulus keygen trials")
 	keygenAttempts := fs.Int("attempts", 4, "annulus keygen attempts")
@@ -166,6 +168,10 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		return err
 	}
 	setFlags := visitedFlagNames(fs)
+	selectedPresetName, err := credential.ResolveIntGenISISPresetSelector(*presetName, *preset96Bit)
+	if err != nil {
+		return err
+	}
 	baseKappa := [4]int{*kappa1, *kappa2, *kappa3, *kappa4}
 	base := intGenISISTuning{
 		NCols:             *ncols,
@@ -178,6 +184,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		EllPrime:          *ellPrime,
 		Kappa:             baseKappa,
 		PRFCompanionMode:  PIOP.PRFCompanionMode(*companionMode),
+		PRFGroupRounds:    *prfGroupRounds,
 		CheckpointSamples: *checkpointSamples,
 	}
 	issuance := intGenISISTuning{
@@ -202,14 +209,15 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		EllPrime:           *showingEllPrime,
 		Kappa:              baseKappa,
 		PRFCompanionMode:   PIOP.PRFCompanionMode(*companionMode),
+		PRFGroupRounds:     *prfGroupRounds,
 		CheckpointSamples:  *checkpointSamples,
 		SigShortnessRadix:  *showingShortnessRadix,
 		SigShortnessDigits: *showingShortnessDigits,
 		CompressedRows:     *showingCompressedRows,
 		ReplayProjection:   *showingReplayProjection,
 	}
-	if *presetName != "" {
-		preset, err := credential.MustLookupIntGenISISPreset(*presetName)
+	if selectedPresetName != "" {
+		preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
 		if err != nil {
 			return err
 		}
@@ -226,9 +234,9 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		applyCommonTuningFlagOverrides(&showing, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, baseKappa)
 		applyPrefixedTuningFlagOverrides(&issuance, setFlags, "issuance-", *issuanceNCols, *issuanceLVCSNCols, *issuanceNLeaves, *issuanceEta, *issuanceTheta, *issuanceRho, *issuanceEll, *issuanceEllPrime)
 		applyPrefixedTuningFlagOverrides(&showing, setFlags, "showing-", *showingNCols, *showingLVCSNCols, *showingNLeaves, *showingEta, *showingTheta, *showingRho, *showingEll, *showingEllPrime)
-		applyShowingSpecificFlagOverrides(&showing, setFlags, PIOP.PRFCompanionMode(*companionMode), *checkpointSamples, *showingShortnessRadix, *showingShortnessDigits, *showingCompressedRows, *showingReplayProjection)
+		applyShowingSpecificFlagOverrides(&showing, setFlags, PIOP.PRFCompanionMode(*companionMode), *prfGroupRounds, *checkpointSamples, *showingShortnessRadix, *showingShortnessDigits, *showingCompressedRows, *showingReplayProjection)
 	}
-	_, err := benchmarkIntGenISISE2E(benchmarkIntGenISISE2EConfig{
+	_, err = benchmarkIntGenISISE2E(benchmarkIntGenISISE2EConfig{
 		ArtifactDir:       *artifactDir,
 		Profile:           *profile,
 		PRFParamsPath:     *prfParamsPath,
@@ -246,6 +254,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		Ell:               *ell,
 		EllPrime:          *ellPrime,
 		PRFCompanionMode:  PIOP.PRFCompanionMode(*companionMode),
+		PRFGroupRounds:    *prfGroupRounds,
 		CheckpointSamples: *checkpointSamples,
 		KeygenTrials:      *keygenTrials,
 		KeygenAttempts:    *keygenAttempts,
@@ -315,6 +324,7 @@ func runHolderCommit(args []string) error {
 	commitRequestPath := fs.String("commit-request", defaultCommitRequestPath, "commit request artifact path")
 	expertInputPath := fs.String("expert-input", "", "optional expert witness JSON path")
 	presetName := fs.String("preset", "", "named IntGenISIS issuance preset")
+	preset96Bit := fs.Bool("96bit", false, "use the general IntGenISIS 96-bit issuance preset")
 	seed := fs.Int64("seed", 0, "optional deterministic sampling seed")
 	ncols := fs.Int("ncols", 0, "optional witness packing width override for issuance research")
 	lvcsNCols := fs.Int("lvcs-ncols", 0, "optional LVCS width override for issuance research")
@@ -333,13 +343,20 @@ func runHolderCommit(args []string) error {
 		return err
 	}
 	setFlags := visitedFlagNames(fs)
+	selectedPresetName, err := credential.ResolveIntGenISISPresetSelector(*presetName, *preset96Bit)
+	if err != nil {
+		return err
+	}
 	kappa := [4]int{*kappa1, *kappa2, *kappa3, *kappa4}
 	ncolsVal, lvcsVal, nLeavesVal := *ncols, *lvcsNCols, *nLeaves
 	etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal := *eta, *theta, *rho, *ell, *ellPrime
-	if *presetName != "" {
-		preset, err := credential.MustLookupIntGenISISPreset(*presetName)
+	if selectedPresetName != "" {
+		preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
 		if err != nil {
 			return err
+		}
+		if !setFlags["public-params"] && preset.Profile == credential.ProfileIntGenISISA {
+			*publicPath = filepath.Join("Parameters", fmt.Sprintf("credential_public.%s.json", preset.Profile))
 		}
 		t := intGenISISTuningFromPresetSpec(preset.Issuance)
 		applyCommonTuningFlagOverrides(&t, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, kappa)
@@ -429,6 +446,7 @@ func runDemoLocal(args []string) error {
 	statePath := fs.String("state-out", defaultCredentialStatePath, "final credential state path")
 	signaturePath := fs.String("signature-out", defaultCredentialSignaturePath, "final signature artifact path")
 	presetName := fs.String("preset", "", "named IntGenISIS issuance preset")
+	preset96Bit := fs.Bool("96bit", false, "use the general IntGenISIS 96-bit issuance preset")
 	seed := fs.Int64("seed", 0, "optional deterministic sampling seed")
 	maxTrials := fs.Int("max-trials", 2048, "maximum NTRU signer trials")
 	ncols := fs.Int("ncols", 0, "optional witness packing width override for issuance research")
@@ -452,13 +470,20 @@ func runDemoLocal(args []string) error {
 		return err
 	}
 	setFlags := visitedFlagNames(fs)
+	selectedPresetName, err := credential.ResolveIntGenISISPresetSelector(*presetName, *preset96Bit)
+	if err != nil {
+		return err
+	}
 	kappa := [4]int{*kappa1, *kappa2, *kappa3, *kappa4}
 	ncolsVal, lvcsVal, nLeavesVal := *ncols, *lvcsNCols, *nLeaves
 	etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal := *eta, *theta, *rho, *ell, *ellPrime
-	if *presetName != "" {
-		preset, err := credential.MustLookupIntGenISISPreset(*presetName)
+	if selectedPresetName != "" {
+		preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
 		if err != nil {
 			return err
+		}
+		if !setFlags["public-params"] && preset.Profile == credential.ProfileIntGenISISA {
+			*publicPath = filepath.Join("Parameters", fmt.Sprintf("credential_public.%s.json", preset.Profile))
 		}
 		t := intGenISISTuningFromPresetSpec(preset.Issuance)
 		applyCommonTuningFlagOverrides(&t, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, kappa)

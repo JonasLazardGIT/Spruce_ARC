@@ -62,6 +62,7 @@ type sweepIntGenISISGrid struct {
 	Shortness   []sweepIntGenISISShortness
 	Compression []int
 	PRFModes    []PIOP.PRFCompanionMode
+	PRFGroups   []int
 	Checkpoints []int
 	EtaSlack    int
 	MaxEta      int
@@ -78,6 +79,7 @@ type sweepIntGenISISGridSummary struct {
 	Shortness   []sweepIntGenISISShortness `json:"shortness_shapes"`
 	Compression []int                      `json:"mse_compression_levels"`
 	PRFModes    []PIOP.PRFCompanionMode    `json:"prf_companion_modes"`
+	PRFGroups   []int                      `json:"prf_group_rounds"`
 	Checkpoints []int                      `json:"prf_checkpoint_samples"`
 	EtaSlack    int                        `json:"eta_slack"`
 	MaxEta      int                        `json:"max_eta"`
@@ -309,11 +311,11 @@ func runSweepIntGenISISPresets(args []string) error {
 		return err
 	}
 	for _, p := range report.SelectedPresets {
-		log.Printf("[issuance-cli] preset candidate %s: issuance={ncols=%d lvcs=%d nleaves=%d eta=%d theta=%d rho=%d ell=%d ell'=%d} showing={ncols=%d lvcs=%d nleaves=%d eta=%d theta=%d rho=%d ell=%d ell'=%d short=%d/%d comp=%d mode=%s samples=%d}",
+		log.Printf("[issuance-cli] preset candidate %s: issuance={ncols=%d lvcs=%d nleaves=%d eta=%d theta=%d rho=%d ell=%d ell'=%d} showing={ncols=%d lvcs=%d nleaves=%d eta=%d theta=%d rho=%d ell=%d ell'=%d short=%d/%d comp=%d mode=%s group_rounds=%d samples=%d}",
 			p.Name,
 			p.Issuance.NCols, p.Issuance.LVCSNCols, p.Issuance.NLeaves, p.Issuance.Eta, p.Issuance.Theta, p.Issuance.Rho, p.Issuance.Ell, p.Issuance.EllPrime,
 			p.Showing.NCols, p.Showing.LVCSNCols, p.Showing.NLeaves, p.Showing.Eta, p.Showing.Theta, p.Showing.Rho, p.Showing.Ell, p.Showing.EllPrime,
-			p.Showing.SigShortnessRadix, p.Showing.SigShortnessDigits, p.Showing.CompressedRows, p.Showing.PRFCompanionMode, p.Showing.CheckpointSamples,
+			p.Showing.SigShortnessRadix, p.Showing.SigShortnessDigits, p.Showing.CompressedRows, p.Showing.PRFCompanionMode, p.Showing.PRFGroupRounds, p.Showing.CheckpointSamples,
 		)
 	}
 	return nil
@@ -413,10 +415,10 @@ func sweepIntGenISIS(cfg sweepIntGenISISConfig) (sweepIntGenISISReport, error) {
 	measured := make([]sweepIntGenISISCandidate, 0, measuredLimit)
 	for i := 0; i < measuredLimit; i++ {
 		cand := analytic[i]
-		log.Printf("[issuance-cli] sweep measure %d/%d id=%s issuance={ncols=%d lvcs=%d nleaves=%d eta=%d theta=%d rho=%d ell=%d ell'=%d} showing={ncols=%d lvcs=%d nleaves=%d eta=%d theta=%d rho=%d ell=%d ell'=%d mode=%s samples=%d}",
+		log.Printf("[issuance-cli] sweep measure %d/%d id=%s issuance={ncols=%d lvcs=%d nleaves=%d eta=%d theta=%d rho=%d ell=%d ell'=%d} showing={ncols=%d lvcs=%d nleaves=%d eta=%d theta=%d rho=%d ell=%d ell'=%d mode=%s group_rounds=%d samples=%d}",
 			i+1, measuredLimit, cand.ID,
 			cand.Issuance.NCols, cand.Issuance.LVCSNCols, cand.Issuance.NLeaves, cand.Issuance.Eta, cand.Issuance.Theta, cand.Issuance.Rho, cand.Issuance.Ell, cand.Issuance.EllPrime,
-			cand.Showing.NCols, cand.Showing.LVCSNCols, cand.Showing.NLeaves, cand.Showing.Eta, cand.Showing.Theta, cand.Showing.Rho, cand.Showing.Ell, cand.Showing.EllPrime, cand.Showing.PRFCompanionMode, cand.Showing.CheckpointSamples,
+			cand.Showing.NCols, cand.Showing.LVCSNCols, cand.Showing.NLeaves, cand.Showing.Eta, cand.Showing.Theta, cand.Showing.Rho, cand.Showing.Ell, cand.Showing.EllPrime, cand.Showing.PRFCompanionMode, cand.Showing.PRFGroupRounds, cand.Showing.CheckpointSamples,
 		)
 		pre, err := sweepIntGenISISPreSignMetrics(setupReport.Artifacts, cand.Issuance)
 		if err != nil {
@@ -796,12 +798,13 @@ func sweepIntGenISISPresetGrid(target float64, lvcs int) (sweepIntGenISISGrid, e
 		},
 		Compression: []int{0, 1, 2},
 		PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth},
+		PRFGroups:   []int{2},
 		Checkpoints: []int{2},
 		EtaSlack:    2,
 		MaxEta:      128,
 		Notes: []string{
 			"Preset grid fixes lvcs_ncols and searches only paper-faithful theta>1 families.",
-			"Direct-auth PRF with two checkpoint samples is used as the primary compact presentation mode.",
+			"Direct-auth PRF with grouped PRF rounds=2 and two checkpoint samples is used as the primary compact presentation mode.",
 			"M/s/e compression levels 0, 1, and 2 are analytic candidates; high-degree level 3 is excluded from defaults.",
 		},
 	}, nil
@@ -884,6 +887,29 @@ func parseIntCSV(s string) ([]int, error) {
 	return uniqueSortedInts(out), nil
 }
 
+func parseNonNegativeIntCSV(s string) ([]int, error) {
+	parts := strings.Split(s, ",")
+	out := make([]int, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		v, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, err
+		}
+		if v < 0 {
+			return nil, fmt.Errorf("negative integer %d", v)
+		}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("empty integer list")
+	}
+	return uniqueSortedNonNegativeInts(out), nil
+}
+
 func parseFloatCSV(s string) ([]float64, error) {
 	parts := strings.Split(s, ",")
 	out := make([]float64, 0, len(parts))
@@ -964,6 +990,7 @@ func sweepIntGenISISGridFor(name string) (sweepIntGenISISGrid, error) {
 				{Radix: 5, Digits: 6},
 			},
 			PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeOutputAudit, PIOP.PRFCompanionModeDirectAuth},
+			PRFGroups:   []int{2},
 			Compression: []int{0, 1, 2},
 			Checkpoints: []int{2, 4, 8},
 			EtaSlack:    3,
@@ -992,6 +1019,7 @@ func sweepIntGenISISGridFor(name string) (sweepIntGenISISGrid, error) {
 				{Radix: 7, Digits: 5},
 			},
 			PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth, PIOP.PRFCompanionModeOutputAudit},
+			PRFGroups:   []int{2},
 			Compression: []int{0, 1},
 			Checkpoints: []int{2, 8},
 			EtaSlack:    1,
@@ -1018,6 +1046,7 @@ func sweepIntGenISISGridFor(name string) (sweepIntGenISISGrid, error) {
 				{Radix: 5, Digits: 6},
 			},
 			PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth},
+			PRFGroups:   []int{2},
 			Compression: []int{0, 1, 2, 3},
 			Checkpoints: []int{2},
 			EtaSlack:    1,
@@ -1051,6 +1080,7 @@ func sweepIntGenISISGridFor(name string) (sweepIntGenISISGrid, error) {
 				{Radix: 5, Digits: 6},
 			},
 			PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth},
+			PRFGroups:   []int{2},
 			Compression: []int{1, 2, 3},
 			Checkpoints: []int{2},
 			EtaSlack:    2,
@@ -1111,6 +1141,7 @@ func sweepIntGenISISPackingGrid(name string, ncols, lvcs []int, note string) (sw
 	g.NCols = append([]int(nil), ncols...)
 	g.LVCSNCols = append([]int(nil), lvcs...)
 	g.PRFModes = []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth, PIOP.PRFCompanionModeOutputAudit}
+	g.PRFGroups = []int{2}
 	g.Checkpoints = []int{2, 4, 8}
 	g.Notes = append(g.Notes,
 		note,
@@ -1131,6 +1162,7 @@ func sweepIntGenISISGridSummaryFromGrid(g sweepIntGenISISGrid) sweepIntGenISISGr
 		Shortness:   append([]sweepIntGenISISShortness(nil), g.Shortness...),
 		Compression: append([]int(nil), g.Compression...),
 		PRFModes:    append([]PIOP.PRFCompanionMode(nil), g.PRFModes...),
+		PRFGroups:   append([]int(nil), g.PRFGroups...),
 		Checkpoints: append([]int(nil), g.Checkpoints...),
 		EtaSlack:    g.EtaSlack,
 		MaxEta:      g.MaxEta,
@@ -1154,6 +1186,10 @@ func sweepIntGenISISGenerateCandidates(profile credential.IntGenISISProfile, thr
 	compressionLevels := append([]int(nil), grid.Compression...)
 	if len(compressionLevels) == 0 {
 		compressionLevels = []int{0}
+	}
+	prfGroups := append([]int(nil), grid.PRFGroups...)
+	if len(prfGroups) == 0 {
+		prfGroups = []int{2}
 	}
 	id := 0
 	for _, fam := range grid.Families {
@@ -1190,6 +1226,7 @@ func sweepIntGenISISGenerateCandidates(profile credential.IntGenISISProfile, thr
 							Ell:               ell,
 							EllPrime:          fam.EllPrime,
 							PRFCompanionMode:  PIOP.PRFCompanionModeOutputAudit,
+							PRFGroupRounds:    prfGroups[0],
 							CheckpointSamples: 8,
 						}
 						minEta := sweepMinEta(profile, baseIssuance, threshold, grid.MaxEta, cache)
@@ -1212,22 +1249,25 @@ func sweepIntGenISISGenerateCandidates(profile credential.IntGenISISProfile, thr
 									continue
 								}
 								for _, mode := range grid.PRFModes {
-									for _, samples := range grid.Checkpoints {
-										for _, compression := range compressionLevels {
-											showingWithPRF := showingWithShape
-											showingWithPRF.PRFCompanionMode = mode
-											showingWithPRF.CheckpointSamples = samples
-											showingWithPRF.CompressedRows = compression
-											if sweepAnalyticEq8Bits(profile, showingWithPRF, "showing", cache) < threshold {
-												continue
+									for _, groupRounds := range prfGroups {
+										for _, samples := range grid.Checkpoints {
+											for _, compression := range compressionLevels {
+												showingWithPRF := showingWithShape
+												showingWithPRF.PRFCompanionMode = mode
+												showingWithPRF.PRFGroupRounds = groupRounds
+												showingWithPRF.CheckpointSamples = samples
+												showingWithPRF.CompressedRows = compression
+												if sweepAnalyticEq8Bits(profile, showingWithPRF, "showing", cache) < threshold {
+													continue
+												}
+												id++
+												out = append(out, sweepIntGenISISCandidate{
+													ID:             fmt.Sprintf("cand_%05d", id),
+													Issuance:       issuance,
+													Showing:        showingWithPRF,
+													HeuristicScore: sweepHeuristicScore(issuance, showingWithPRF),
+												})
 											}
-											id++
-											out = append(out, sweepIntGenISISCandidate{
-												ID:             fmt.Sprintf("cand_%05d", id),
-												Issuance:       issuance,
-												Showing:        showingWithPRF,
-												HeuristicScore: sweepHeuristicScore(issuance, showingWithPRF),
-											})
 										}
 									}
 								}
@@ -1393,6 +1433,23 @@ func uniqueSortedInts(vals []int) []int {
 	last := -1
 	for _, v := range vals {
 		if v <= 0 || v == last {
+			continue
+		}
+		out = append(out, v)
+		last = v
+	}
+	return out
+}
+
+func uniqueSortedNonNegativeInts(vals []int) []int {
+	if len(vals) == 0 {
+		return nil
+	}
+	sort.Ints(vals)
+	out := vals[:0]
+	last := -1
+	for _, v := range vals {
+		if v < 0 || v == last {
 			continue
 		}
 		out = append(out, v)

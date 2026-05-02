@@ -476,7 +476,7 @@ func TestBenchmarkIntGenISISE2EProfileAPreset(t *testing.T) {
 	reportPath := filepath.Join(tmp, "report_n256.json")
 	if err := run([]string{
 		"benchmark-intgenisis-e2e",
-		"-preset", credential.IntGenISISPresetN256SW96,
+		"-96bit",
 		"-artifact-dir", tmp,
 		"-force",
 		"-keygen-trials", "1000",
@@ -498,6 +498,33 @@ func TestBenchmarkIntGenISISE2EProfileAPreset(t *testing.T) {
 	}
 	if report.Issuance.TotalRows <= 0 || report.Showing.TotalRows <= 0 || report.Showing.ReplayProjection == "" {
 		t.Fatalf("missing n256 relation metrics: issuance=%+v showing=%+v", report.Issuance, report.Showing)
+	}
+	if got, want := report.Options.Issuance.LVCSNCols, 48; got != want {
+		t.Fatalf("unexpected 96-bit issuance lvcs_ncols=%d want %d", got, want)
+	}
+	if got, want := report.Issuance.CommittedCols, 48; got != want {
+		t.Fatalf("96-bit issuance committed_cols=%d want %d", got, want)
+	}
+	if got, want := report.Issuance.SmallFieldReplayRows, 54; got != want {
+		t.Fatalf("96-bit issuance smallfield_replay_rows=%d want %d", got, want)
+	}
+	if bits := report.Issuance.SoundnessEq8Bits; bits < 98 || bits > 99 {
+		t.Fatalf("96-bit issuance soundness_eq8_bits=%.2f want in [98,99]", bits)
+	}
+	if got, want := report.Options.Showing.LVCSNCols, 48; got != want {
+		t.Fatalf("unexpected 96-bit showing lvcs_ncols=%d want %d", got, want)
+	}
+	if got, want := report.Showing.CommittedCols, 48; got != want {
+		t.Fatalf("96-bit showing committed_cols=%d want %d", got, want)
+	}
+	if got, want := report.Showing.TotalRows, 332; got != want {
+		t.Fatalf("96-bit showing rows=%d want %d", got, want)
+	}
+	if got, want := report.Showing.SmallFieldReplayRows, 126; got != want {
+		t.Fatalf("96-bit showing smallfield_replay_rows=%d want %d", got, want)
+	}
+	if bits := report.Showing.SoundnessEq8Bits; bits < 96 || bits > 97 {
+		t.Fatalf("96-bit showing soundness_eq8_bits=%.2f want in [96,97]", bits)
 	}
 }
 

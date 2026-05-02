@@ -41,6 +41,7 @@ type benchmarkIntGenISISE2EConfig struct {
 	Ell               int
 	EllPrime          int
 	PRFCompanionMode  PIOP.PRFCompanionMode
+	PRFGroupRounds    int
 	CheckpointSamples int
 	KeygenTrials      int
 	KeygenAttempts    int
@@ -60,6 +61,7 @@ type intGenISISTuning struct {
 	EllPrime           int                   `json:"ell_prime"`
 	Kappa              [4]int                `json:"kappa"`
 	PRFCompanionMode   PIOP.PRFCompanionMode `json:"prf_companion_mode,omitempty"`
+	PRFGroupRounds     int                   `json:"prf_group_rounds,omitempty"`
 	CheckpointSamples  int                   `json:"prf_checkpoint_samples,omitempty"`
 	SigShortnessRadix  int                   `json:"sig_shortness_radix,omitempty"`
 	SigShortnessDigits int                   `json:"sig_shortness_digits,omitempty"`
@@ -124,6 +126,7 @@ func defaultIntGenISISTuning() intGenISISTuning {
 		Ell:               4,
 		EllPrime:          4,
 		PRFCompanionMode:  PIOP.PRFCompanionModeOutputAudit,
+		PRFGroupRounds:    2,
 		CheckpointSamples: 8,
 	}
 }
@@ -156,6 +159,9 @@ func intGenISISTuningFromLegacyConfig(cfg benchmarkIntGenISISE2EConfig) intGenIS
 	}
 	if cfg.PRFCompanionMode != "" {
 		t.PRFCompanionMode = cfg.PRFCompanionMode
+	}
+	if cfg.PRFGroupRounds > 0 {
+		t.PRFGroupRounds = cfg.PRFGroupRounds
 	}
 	if cfg.CheckpointSamples > 0 {
 		t.CheckpointSamples = cfg.CheckpointSamples
@@ -195,6 +201,13 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		if t.PRFCompanionMode == "" {
 			t.PRFCompanionMode = fallback.PRFCompanionMode
 		}
+		if t.PRFGroupRounds <= 0 {
+			if fallback.PRFGroupRounds > 0 {
+				t.PRFGroupRounds = fallback.PRFGroupRounds
+			} else {
+				t.PRFGroupRounds = defaultIntGenISISTuning().PRFGroupRounds
+			}
+		}
 		if t.CheckpointSamples <= 0 {
 			t.CheckpointSamples = fallback.CheckpointSamples
 		}
@@ -212,6 +225,7 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		}
 	} else {
 		t.PRFCompanionMode = ""
+		t.PRFGroupRounds = 0
 		t.CheckpointSamples = 0
 		t.SigShortnessRadix = 0
 		t.SigShortnessDigits = 0
@@ -273,7 +287,7 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 		Theta:                      t.Theta,
 		Kappa:                      t.Kappa,
 		DomainMode:                 PIOP.DomainModeExplicit,
-		PRFGroupRounds:             2,
+		PRFGroupRounds:             t.PRFGroupRounds,
 		PRFCompanionMode:           t.PRFCompanionMode,
 		PRFCheckpointSamples:       t.CheckpointSamples,
 		SigShortnessRadix:          t.SigShortnessRadix,

@@ -144,6 +144,41 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("verify theta>1 proof: ok=%v err=%v", ok, err)
 	}
+	wideOpts := opts
+	wideOpts.NLeaves = 1600
+	wideOpts.LVCSNCols = 68
+	wideOpts.Ell = 22
+	wideOpts.Eta = 30
+	wideOpts.Rho = 3
+	wideOpts.EllPrime = 3
+	wideOpts.Theta = 2
+	wideProof, err := BuildIntGenISISPreSign(ringQ, pub, wit, wideOpts)
+	if err != nil {
+		t.Fatalf("build wide LVCS pre-sign proof: %v", err)
+	}
+	if got, want := wideProof.NColsUsed, wideOpts.NCols; got != want {
+		t.Fatalf("wide pre-sign witness ncols=%d want %d", got, want)
+	}
+	if got, want := wideProof.PCSNColsUsed, wideOpts.LVCSNCols; got != want {
+		t.Fatalf("wide pre-sign pcs ncols=%d want %d", got, want)
+	}
+	if got, want := wideProof.LVCSNColsUsed, wideOpts.LVCSNCols; got != want {
+		t.Fatalf("wide pre-sign lvcs ncols=%d want %d", got, want)
+	}
+	if got, want := wideProof.PCSGeometry.WitnessPackingCols, wideOpts.NCols; got != want {
+		t.Fatalf("wide pre-sign witness packing cols=%d want %d", got, want)
+	}
+	if got, want := wideProof.PCSGeometry.PCSNCols, wideOpts.LVCSNCols; got != want {
+		t.Fatalf("wide pre-sign geometry pcs ncols=%d want %d", got, want)
+	}
+	wantReplayRows := ceilDiv(wideProof.PCSGeometry.LogicalWitnessPolys, wideOpts.LVCSNCols) * (wideOpts.NCols + wideOpts.Theta)
+	if got, want := wideProof.PCSGeometry.ReplayWitnessRows, wantReplayRows; got != want {
+		t.Fatalf("wide pre-sign small-field replay rows=%d want %d", got, want)
+	}
+	ok, err = VerifyIntGenISISPreSign(pub, wideProof, wideOpts)
+	if err != nil || !ok {
+		t.Fatalf("verify wide LVCS pre-sign proof: ok=%v err=%v", ok, err)
+	}
 	tamperedTheta := *thetaProof
 	tamperedTheta.PCSGeometry.SmallFieldSource = "legacy"
 	ok, err = VerifyIntGenISISPreSign(pub, &tamperedTheta, thetaOpts)

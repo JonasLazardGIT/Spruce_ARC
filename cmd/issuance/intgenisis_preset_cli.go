@@ -27,6 +27,7 @@ func intGenISISTuningFromPresetSpec(spec credential.IntGenISISTuningPreset) intG
 		EllPrime:           spec.EllPrime,
 		Kappa:              spec.Kappa,
 		PRFCompanionMode:   PIOP.PRFCompanionMode(spec.PRFCompanionMode),
+		PRFGroupRounds:     spec.PRFGroupRounds,
 		CheckpointSamples:  spec.CheckpointSamples,
 		SigShortnessRadix:  spec.SigShortnessRadix,
 		SigShortnessDigits: spec.SigShortnessDigits,
@@ -47,6 +48,7 @@ func intGenISISTuningPresetFromTuning(t intGenISISTuning, target float64) creden
 		EllPrime:           t.EllPrime,
 		Kappa:              t.Kappa,
 		PRFCompanionMode:   string(t.PRFCompanionMode),
+		PRFGroupRounds:     t.PRFGroupRounds,
 		CheckpointSamples:  t.CheckpointSamples,
 		SigShortnessRadix:  t.SigShortnessRadix,
 		SigShortnessDigits: t.SigShortnessDigits,
@@ -113,9 +115,12 @@ func applyPrefixedTuningFlagOverrides(t *intGenISISTuning, set map[string]bool, 
 	}
 }
 
-func applyShowingSpecificFlagOverrides(t *intGenISISTuning, set map[string]bool, companionMode PIOP.PRFCompanionMode, checkpointSamples, shortnessRadix, shortnessDigits, compressedRows int, replayProjection string) {
+func applyShowingSpecificFlagOverrides(t *intGenISISTuning, set map[string]bool, companionMode PIOP.PRFCompanionMode, prfGroupRounds, checkpointSamples, shortnessRadix, shortnessDigits, compressedRows int, replayProjection string) {
 	if set["prf-companion-mode"] {
 		t.PRFCompanionMode = companionMode
+	}
+	if set["prf-group-rounds"] {
+		t.PRFGroupRounds = prfGroupRounds
 	}
 	if set["prf-checkpoint-samples"] {
 		t.CheckpointSamples = checkpointSamples

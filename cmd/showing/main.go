@@ -241,7 +241,8 @@ func main() {
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
 	showingProfile := flag.String("showing-profile", defaultShowingProfile, fmt.Sprintf("maintained showing profile (%s); no flag uses %s", strings.Join(showingProfileNames(), ", "), defaultShowingProfile))
-	intGenISISPreset := flag.String("preset", "", "named IntGenISIS preset (for example fast-local, sw96-lvcs64, sw128-lvcs64, n256-sw96, n256-sw128)")
+	intGenISISPreset := flag.String("preset", "", "named IntGenISIS preset (for example 96bit, 120bitsf, fast-local, sw96-lvcs64, sw128-lvcs64, n256-sw96, n256-sw128)")
+	intGenISIS96Bit := flag.Bool("96bit", false, "use the general IntGenISIS 96-bit preset")
 	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
 	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
 	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override for soundness research")
@@ -276,6 +277,11 @@ func main() {
 		setFlags[f.Name] = true
 	})
 
+	selectedIntGenISISPreset, err := credential.ResolveIntGenISISPresetSelector(*intGenISISPreset, *intGenISIS96Bit)
+	if err != nil {
+		cli.fatalf("[showing-cli] ", "%v", err)
+	}
+	*intGenISISPreset = selectedIntGenISISPreset
 	if strings.TrimSpace(*intGenISISPreset) != "" && !setFlags["showing-profile"] {
 		*showingProfile = showingProfileIntGenISISB
 	}

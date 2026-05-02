@@ -68,10 +68,6 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 	if lvcsNCols <= 0 {
 		lvcsNCols = ncols
 	}
-	// The prepared IntGenISIS pre-sign surface commits exactly the witness
-	// rows over their packing width. Keeping the PCS prefix equal to ncols
-	// avoids mixing a wider legacy LVCS prefix into the row-opening transcript.
-	lvcsNCols = ncols
 	var omega []uint64
 	var omegaWitness []uint64
 	var domainPoints []uint64
