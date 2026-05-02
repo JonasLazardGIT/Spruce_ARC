@@ -1038,7 +1038,7 @@ Flag meanings:
 
 Important limitation:
 
-- this command reports relation buckets and row counts for every requested profile. It is still primarily a row-inventory command; use `benchmark-intgenisis-e2e -preset n256-sw96` or `n256-sw128` for live profile-A proof measurements.
+- this command reports relation buckets and row counts for every requested profile. It is still primarily a row-inventory command; use `benchmark-intgenisis-e2e -96bit`, `-preset 120bitsf`, or `-preset n256-sw128` for live profile-A proof measurements.
 
 ### 11. End-To-End Transcript Benchmark
 
@@ -1064,40 +1064,57 @@ What it does:
 - supports separate issuance/showing knobs with `-issuance-ncols`, `-issuance-lvcs-ncols`, `-issuance-nleaves`, `-issuance-eta`, `-issuance-theta`, `-issuance-rho`, `-issuance-ell`, `-issuance-ell-prime` and the matching `-showing-*` flags. Unprefixed knobs are shared defaults.
 - supports showing shortness-shape tuning with `-showing-sig-shortness-radix` and `-showing-sig-shortness-digits`. Supported tuning shapes are odd signed-radix decompositions that cover `beta`; R121/L2 is rejected for IntGenISIS.
 - supports the experimental IntGenISIS-native replay projection with `-showing-replay-projection project_u_y_hat_v1` or `-showing-replay-projection project_u_y_hat_and_y_view_v2`. V1 commits `UView` and `YView`, removes committed `UHat/YHat`, and derives their lane-projected NTT contribution inside the aggregate signature residual. V2 also removes `YView` and derives the `YHat` contribution directly as `C_M(omega_t) Transform(M) + A_s(omega_t) Transform(s) + Transform(e)` from authenticated `M/s/e` roots or carriers. Projection descriptors are Fiat-Shamir-bound, verifier options must match them, and proofs carrying omitted rows in projection mode are rejected. The compact `sw96-lvcs64` default now uses V2 projection; the raw flag default remains `none` for explicit non-preset experiments.
-- supports named presets with `-preset`. Current static names are `fast-local`, `sw96-lvcs32`, `sw96-lvcs64`, `sw96-lvcs128`, `sw128-lvcs32`, `sw128-lvcs64`, `sw128-lvcs128`, `n256-sw96`, and `n256-sw128`. Explicit flags override preset values.
-- caps explicit-domain size with `-max-nleaves`, default `65536`. Use `-max-nleaves 0` only for intentionally uncapped research runs.
+- supports named presets with `-preset` and the `-96bit` shorthand. Current static names are `96bit`, `120bitsf`, `fast-local`, `sw96-lvcs32`, `sw96-lvcs64`, `sw96-lvcs128`, `sw128-lvcs32`, `sw128-lvcs64`, `sw128-lvcs128`, `n256-sw96`, and `n256-sw128`. Explicit flags override preset values.
+- caps explicit-domain size with `-max-nleaves`, default `65536`; named presets can raise this cap when their measured tuple requires a larger domain. Use `-max-nleaves 0` only for intentionally uncapped research runs.
 
-Current measured preset values promoted into the static registry:
+Current preset values promoted into the static registry:
 
 ```text
-preset          ncols  lvcs  nleaves  eta  theta  rho  ell  ell'  kappa       prf          samples  shortness  comp  projection
-sw96-lvcs32     32     32    32448    29   6      1    10   1     {0,0,0,0} direct_auth  2        R7/L5      1     none
-sw96-lvcs64     32     70    42000    47   3      2    10   2     {0,0,0,6} direct_auth  2        R11/L4     1     project_u_y_hat_and_y_view_v2
-sw96-lvcs128    32     128   64512    77   6      1    11   1     {0,0,0,0} direct_auth  2        R7/L5      1     none
-sw128-lvcs32    32     32    41088    33   7      1    13   1     {0,0,0,0} direct_auth  2        R7/L5      1     none
-sw128-lvcs64    32     70    262144   59   7      1    10   1     {6,0,0,11} direct_auth 2        R11/L4     1     project_u_y_hat_and_y_view_v2
-sw128-lvcs128   32     128   57344    79   7      1    15   1     {0,0,0,0} direct_auth  2        R7/L5      1     none
-n256-sw96       32     70    42000    47   3      2    10   2     {0,0,0,6} direct_auth  2        R11/L4     1     project_u_y_hat_and_y_view_v2
-n256-sw128      32     70    262144   59   7      1    10   1     {6,0,0,11} direct_auth 2        R11/L4     1     project_u_y_hat_and_y_view_v2
+preset          ncols  lvcs  nleaves  eta  theta  rho  ell  ell'  kappa       prf          g  samples  shortness  comp  projection
+96bit           16     48    262144   44   2      3    8    3     {0,0,0,0} direct_auth  2  2        R7/L5      1     project_u_y_hat_and_y_view_v2
+120bitsf        32     36    618048   42   2      3    9    4     {0,0,0,0} direct_auth  2  2        R5/L6      0     project_u_y_hat_and_y_view_v2
+sw96-lvcs32     32     32    32448    29   6      1    10   1     {0,0,0,0} direct_auth  2  2        R7/L5      1     none
+sw96-lvcs64     32     70    42000    47   3      2    10   2     {0,0,0,6} direct_auth  2  2        R11/L4     1     project_u_y_hat_and_y_view_v2
+sw96-lvcs128    32     128   64512    77   6      1    11   1     {0,0,0,0} direct_auth  2  2        R7/L5      1     none
+sw128-lvcs32    32     32    41088    33   7      1    13   1     {0,0,0,0} direct_auth  2  2        R7/L5      1     none
+sw128-lvcs64    32     70    262144   59   7      1    10   1     {6,0,0,11} direct_auth 2  2        R11/L4     1     project_u_y_hat_and_y_view_v2
+sw128-lvcs128   32     128   57344    79   7      1    15   1     {0,0,0,0} direct_auth  2  2        R7/L5      1     none
+n256-sw96       16     48    262144   44   2      3    8    3     {0,0,0,0} direct_auth  2  2        R7/L5      1     project_u_y_hat_and_y_view_v2
+n256-sw128      32     32    917504   40   1      7    9    11    {0,0,0,0} direct_auth  2  2        R5/L6      0     project_u_y_hat_and_y_view_v2
 ```
 
 `sw96-lvcs64` and `sw128-lvcs64` are historical names for the compact projected defaults. Their showing LVCS width is now `70`, and their pass condition is theorem-level SmallWood ROM soundness rather than raw Eq. (8): `sw96-lvcs64` uses `kappa4=6` with measured `theorem_total_bits≈96.50`; `sw128-lvcs64` uses `kappa={6,0,0,11}` with measured showing snapshot `paper_transcript_bytes=36938`, `d_Q=482`, `VTargets=5155`, `Pdecs=9325`, `Q=8404`, `R=10330`, and `theorem_total_bits≈128.01`. A smaller 36,694-byte 128-bit research variant used `nleaves=180000`, `eta=58`, and `kappa4=16`, but its proving time was substantially higher. The issuance side of the compact 96-bit preset stays on the previous measured issuance tuple (`lvcs_ncols=64`, `theta=6`, `rho=1`, `ell'=1`) because issuance is not the recurring presentation cost.
 
-The current N=256 smoke measurements are:
+The general `96bit` preset and the profile-specific `n256-sw96` preset both use measured viable-frontier candidate `est_000514` from the corrected 88-to-100-bit profile-A sweep. Its measured showing snapshot is `paper_transcript_bytes=22116`, `d_Q=222`, `rows=332`, `committed_cols=48`, `theorem_total_bits≈96.33`, and raw Eq. (8) `≈96.33`; its measured issuance snapshot is `paper_transcript_bytes=13652`, `committed_cols=48`, and `theorem_total_bits≈98.27`. The combined measured paper transcript size is `35768` bytes.
+
+The `120bitsf` preset promotes measured focused-sweep candidate `est_1246730` as a zero-kappa 120-bit small-field baseline. Its measured showing snapshot is `paper_transcript_bytes=25232`, `d_Q=231`, `rows=207`, `committed_cols=36`, `theorem_total_bits≈120.01`, and raw Eq. (8) `≈120.01`; its measured issuance snapshot is `paper_transcript_bytes=14822`, `committed_cols=36`, and `theorem_total_bits≈120.01`. The combined measured paper transcript size is `40054` bytes.
+
+The `n256-sw128` preset promotes measured focused-sweep candidate `est_490949` as the zero-kappa 128-bit profile-A default. Its measured showing snapshot is `paper_transcript_bytes=23100`, `d_Q=231`, `rows=207`, `committed_cols=32`, `theorem_total_bits≈131.49`, and raw Eq. (8) `≈131.49`; its measured issuance snapshot is `paper_transcript_bytes=15438`, `committed_cols=32`, and `theorem_total_bits≈131.75`. The combined measured paper transcript size is `38538` bytes.
+
+The current N=256 preset references are:
 
 ```text
-n256-sw96  showing paper_transcript_bytes=28389, dQ=482, theorem_total_bits=96.50, raw Eq.(8)=91.38
-n256-sw128 showing paper_transcript_bytes=33799, dQ=482, theorem_total_bits=128.01, raw Eq.(8)=117.79
+n256-sw96  measured showing paper_transcript_bytes=22116, dQ=222, theorem_total_bits=96.33, raw Eq.(8)=96.33, combined_paper_transcript_bytes=35768
+120bitsf   measured showing paper_transcript_bytes=25232, dQ=231, theorem_total_bits=120.01, raw Eq.(8)=120.01, combined_paper_transcript_bytes=40054
+n256-sw128 measured showing paper_transcript_bytes=23100, dQ=231, theorem_total_bits=131.49, raw Eq.(8)=131.49, combined_paper_transcript_bytes=38538
 ```
 
 Run them with:
 
 ```bash
 go run ./cmd/issuance benchmark-intgenisis-e2e \
-  -preset n256-sw96 \
+  -96bit \
   -artifact-dir /tmp/intgenisis_n256_sw96 \
   -force \
   -json-out /tmp/intgenisis_n256_sw96.json
+```
+
+```bash
+go run ./cmd/issuance benchmark-intgenisis-e2e \
+  -preset 120bitsf \
+  -artifact-dir /tmp/intgenisis_120bitsf \
+  -force \
+  -json-out /tmp/intgenisis_120bitsf.json
 ```
 
 ```bash
@@ -1151,6 +1168,9 @@ go run ./cmd/issuance sweep-intgenisis-estimate \
   -soundness-max 135 \
   -max-showing-bytes 50000 \
   -max-kappa-per-round 6 \
+  -prf-companion-modes direct_auth \
+  -prf-group-rounds 2 \
+  -prf-checkpoint-samples 2 \
   -out-dir credential/issuance/intgenisis_estimate_sweeps/run_001 \
   -progress \
   -progress-interval 1000 \
@@ -1168,6 +1188,9 @@ go run ./cmd/issuance sweep-intgenisis-estimate \
   -soundness-max 135 \
   -max-showing-bytes 50000 \
   -max-kappa-per-round 6 \
+  -prf-companion-modes direct_auth \
+  -prf-group-rounds 2 \
+  -prf-checkpoint-samples 2 \
   -out-dir credential/issuance/intgenisis_estimate_sweeps/run_$(date -u +%Y%m%d_%H%M%S)_low_kappa \
   -progress \
   -progress-interval 1000 \
@@ -1175,7 +1198,7 @@ go run ./cmd/issuance sweep-intgenisis-estimate \
   -force
 ```
 
-The command streams accepted candidates to `accepted_candidates.jsonl`, periodically syncs the file, rewrites the frontier CSV/JSON files as checkpoints, and updates `progress.json` plus a terminal progress bar over the outer grid. It writes `summary.json`, `frontier_all.csv`, `frontier_96.{json,csv}`, `frontier_128.{json,csv}`, `rejected_counts.json`, and `grid_config.json` under the selected output directory. Set `-progress=false` to silence the terminal bar or `-checkpoint-interval 0` to keep only the streaming JSONL plus final frontier files. It estimates row geometry, paper-conservative Eq. (3) `d_Q`, Eq. (8)/Theorem 9 round bits, and paper transcript buckets without setup, NTRU keygen, proving, presentation verification, or replay-state mutation. The accepted JSONL can be hundreds of GB on the full grid; for preset selection, the frontier CSV/JSON files plus `summary.json`, `rejected_counts.json`, and `grid_config.json` are the practical artifacts to copy back. Use the measured `benchmark-intgenisis-e2e` command on the selected frontier rows before promoting presets.
+The command streams accepted candidates to `accepted_candidates.jsonl`, periodically syncs the file, rewrites the frontier CSV/JSON files as checkpoints, and updates `progress.json` plus a terminal progress bar over the outer grid. It writes `summary.json`, `frontier_all.csv`, `frontier_96.{json,csv}`, `frontier_128.{json,csv}`, `rejected_counts.json`, and `grid_config.json` under the selected output directory. Set `-progress=false` to silence the terminal bar or `-checkpoint-interval 0` to keep only the streaming JSONL plus final frontier files. It estimates row geometry, paper-conservative Eq. (3) `d_Q`, Eq. (8)/Theorem 9 round bits, and paper transcript buckets without setup, NTRU keygen, proving, presentation verification, or replay-state mutation. The PRF companion geometry is not a constant: the estimator loads `prf/prf_params.json`, applies the selected `-prf-group-rounds`, and packs key, checkpoint, and final-tag scalars at the candidate `ncols`; candidates with `ncols < lenkey` are rejected. The CSV frontiers include `issuance_ncols`, `prf_mode`, `prf_group_rounds`, `prf_checkpoint_samples`, and `showing_prf_rows` so a selected row can be replayed directly through `benchmark-intgenisis-e2e`. The accepted JSONL can be hundreds of GB on the full grid; for preset selection, the frontier CSV/JSON files plus `summary.json`, `rejected_counts.json`, and `grid_config.json` are the practical artifacts to copy back. Use the measured `benchmark-intgenisis-e2e` command on the selected frontier rows before promoting presets.
 
 All generated estimate/sweep directories are ignored by git. To remove local sweep data after copying the frontier files you need, run:
 
@@ -1185,7 +1208,7 @@ rm -rf credential/issuance/intgenisis_estimate_sweeps \
        credential/issuance/intgenisis_preset_sweep*.json
 ```
 
-The default `estimate-deep` grid is intentionally pre-pruned before any candidate scoring. It keeps only round-2-plausible `theta/rho/ell_prime` families, uses V2 replay projection by default, excludes `ncols >= 256`, excludes `lvcs_ncols > 256`, excludes `ell > 32`, caps default leaf bases at `262144`, and skips compression level `3`. The retained grid is wider around the compact measured regions: `lvcs_ncols` includes the neighborhood around `70`, `ell` includes every value from `16` through `28`, small leaf bases include `768..2048`, and low-theta families include `theta=2,rho=3/4,ell_prime=3/4` plus nearby `theta=3/4` comparisons. These axes are chosen to catch candidates that barely miss the 96-bit line and can be boosted by at most six grinding bits without jumping to the old large-kappa regime. Re-enable pruned axes only for research checks with explicit `-theta`, `-rho`, `-ell-prime`, `-ncols`, `-lvcs-ncols`, `-ell`, `-nleaves`, `-compression-levels`, or `-projection-modes` overrides.
+The default `estimate-deep` grid is intentionally pre-pruned before any candidate scoring. It keeps only round-2-plausible `theta/rho/ell_prime` families, uses V2 replay projection by default, excludes `ncols >= 256`, excludes `lvcs_ncols > 256`, excludes `ell > 32`, caps default leaf bases at `262144`, and skips compression level `3`. The retained grid is wider around the compact measured regions: `lvcs_ncols` includes the neighborhood around `70`, `ell` includes every value from `16` through `28`, small leaf bases include `768..2048`, and low-theta families include `theta=2,rho=3/4,ell_prime=3/4` plus nearby `theta=3/4` comparisons. These axes are chosen to catch candidates that barely miss the 96-bit line and can be boosted by at most six grinding bits without jumping to the old large-kappa regime. Re-enable pruned axes only for research checks with explicit `-theta`, `-rho`, `-ell-prime`, `-ncols`, `-lvcs-ncols`, `-ell`, `-nleaves`, `-compression-levels`, `-projection-modes`, `-prf-companion-modes`, `-prf-group-rounds`, or `-prf-checkpoint-samples` overrides.
 
 For preset generation, use the fixed-LVCS preset sweep first. It creates independent 96-bit and 128-bit tracks for `lvcs_ncols` equal to `32`, `64`, and `128`, keeps a compact analytic frontier per track, and optionally measures only the top candidates:
 
