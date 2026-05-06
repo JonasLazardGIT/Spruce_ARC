@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"sort"
+
+	"golang.org/x/crypto/sha3"
 )
 
 type frontierActive struct {
@@ -397,10 +399,7 @@ func computeLeafHash(op *DECSOpening, leafIdx int) ([16]byte, error) {
 			copy(buf[off:], rho)
 		}
 	}
-	withPrefix := make([]byte, 1+len(buf))
-	withPrefix[0] = leafPrefix
-	copy(withPrefix[1:], buf)
-	return shake16(withPrefix), nil
+	return hashLeafWith(sha3.NewShake256(), buf), nil
 }
 
 func hashNode(left, right [16]byte) [16]byte {

@@ -18,20 +18,26 @@ type MerkleTree struct {
 // BuildMerkleTree builds a balanced tree from leaves.
 func BuildMerkleTree(leaves [][]byte) *MerkleTree {
 	n := len(leaves)
+	leafHashes := make([][16]byte, n)
+	h := sha3.NewShake256()
+	for i := 0; i < n; i++ {
+		leafHashes[i] = hashLeafWith(h, leaves[i])
+	}
+	return BuildMerkleTreeFromLeafHashes(leafHashes)
+}
+
+func BuildMerkleTreeFromLeafHashes(leaves [][16]byte) *MerkleTree {
+	n := len(leaves)
 	size := 1
 	for size < n {
 		size <<= 1
 	}
 	layer := make([][16]byte, size)
-	for i := 0; i < n; i++ {
-		leaf := leaves[i]
-		buf := make([]byte, 1+len(leaf))
-		buf[0] = leafPrefix
-		copy(buf[1:], leaf)
-		layer[i] = shake16(buf)
-	}
+	copy(layer, leaves)
+	h := sha3.NewShake256()
+	emptyLeaf := hashLeafWith(h, nil)
 	for i := n; i < size; i++ {
-		layer[i] = shake16([]byte{leafPrefix})
+		layer[i] = emptyLeaf
 	}
 	layers := [][][16]byte{layer}
 
@@ -39,11 +45,7 @@ func BuildMerkleTree(leaves [][]byte) *MerkleTree {
 		prev := layers[len(layers)-1]
 		next := make([][16]byte, sz/2)
 		for i := 0; i < sz; i += 2 {
-			var buf [1 + 16 + 16]byte
-			buf[0] = nodePrefix
-			copy(buf[1:], prev[i][:])
-			copy(buf[1+16:], prev[i+1][:])
-			next[i/2] = shake16(buf[:])
+			next[i/2] = hashNodeWith(h, prev[i], prev[i+1])
 		}
 		layers = append(layers, next)
 	}
@@ -58,24 +60,38 @@ func (mt *MerkleTree) Root() [16]byte {
 
 // VerifyPath checks leaf→root via path.
 func VerifyPath(leaf []byte, path [][]byte, root [16]byte, idx int) bool {
-	buf := make([]byte, 1+len(leaf))
-	buf[0] = leafPrefix
-	copy(buf[1:], leaf)
-	h := shake16(buf)
+	shake := sha3.NewShake256()
+	h := hashLeafWith(shake, leaf)
 	for _, sib := range path {
-		var tmp [1 + 16 + 16]byte
-		tmp[0] = nodePrefix
+		var sibHash [16]byte
+		copy(sibHash[:], sib)
 		if idx&1 == 0 {
-			copy(tmp[1:], h[:])
-			copy(tmp[1+16:], sib)
+			h = hashNodeWith(shake, h, sibHash)
 		} else {
-			copy(tmp[1:], sib)
-			copy(tmp[1+16:], h[:])
+			h = hashNodeWith(shake, sibHash, h)
 		}
-		h = shake16(tmp[:])
 		idx >>= 1
 	}
 	return bytes.Equal(h[:], root[:])
+}
+
+func hashLeafWith(h sha3.ShakeHash, leaf []byte) [16]byte {
+	var out [16]byte
+	h.Reset()
+	_, _ = h.Write([]byte{leafPrefix})
+	_, _ = h.Write(leaf)
+	_, _ = h.Read(out[:])
+	return out
+}
+
+func hashNodeWith(h sha3.ShakeHash, left, right [16]byte) [16]byte {
+	var out [16]byte
+	h.Reset()
+	_, _ = h.Write([]byte{nodePrefix})
+	_, _ = h.Write(left[:])
+	_, _ = h.Write(right[:])
+	_, _ = h.Read(out[:])
+	return out
 }
 
 func shake16(data []byte) [16]byte {

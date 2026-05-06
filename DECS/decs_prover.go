@@ -10,6 +10,7 @@ import (
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 	"github.com/tuneinsight/lattigo/v4/utils"
+	"golang.org/x/crypto/sha3"
 )
 
 const nonceDeriveLabel = "decs-nonce"
@@ -19,38 +20,77 @@ func DeriveNonce(seed []byte, idx int, nonceBytes int) []byte {
 }
 
 func deriveNonce(seed []byte, idx int, nonceBytes int) []byte {
-	h := sha256.New()
-	_, _ = h.Write([]byte(nonceDeriveLabel))
-	_, _ = h.Write(seed)
+	scratch := make([]byte, 0, len(nonceDeriveLabel)+len(seed)+5)
+	out := make([]byte, nonceBytes)
+	_ = deriveNonceInto(out, scratch, seed, idx)
+	return out
+}
+
+func deriveNonceInto(dst []byte, scratch []byte, seed []byte, idx int) []byte {
+	nonceBytes := len(dst)
+	if nonceBytes <= 0 {
+		return scratch
+	}
+	scratch = scratch[:0]
+	scratch = append(scratch, nonceDeriveLabel...)
+	scratch = append(scratch, seed...)
 	var idxBuf [4]byte
 	binary.LittleEndian.PutUint32(idxBuf[:], uint32(idx))
-	_, _ = h.Write(idxBuf[:])
-	hSum := h.Sum(nil)
-	if nonceBytes >= len(hSum) {
-		out := make([]byte, nonceBytes)
-		copy(out, hSum)
-		if nonceBytes > len(hSum) {
-			// expand deterministically if more bytes required
-			var counter byte = 1
-			pos := len(hSum)
-			for pos < nonceBytes {
-				hi := sha256.New()
-				_, _ = hi.Write([]byte(nonceDeriveLabel))
-				_, _ = hi.Write(seed)
-				_, _ = hi.Write(idxBuf[:])
-				_, _ = hi.Write([]byte{counter})
-				counter++
-				chunk := hi.Sum(nil)
-				n := copy(out[pos:], chunk)
-				if n == 0 {
-					break
-				}
-				pos += n
-			}
+	scratch = append(scratch, idxBuf[:]...)
+	sum := sha256.Sum256(scratch)
+	n := copy(dst, sum[:])
+	if n < nonceBytes {
+		baseLen := len(scratch)
+		var counter byte = 1
+		for n < nonceBytes {
+			scratch = scratch[:baseLen]
+			scratch = append(scratch, counter)
+			counter++
+			chunk := sha256.Sum256(scratch)
+			n += copy(dst[n:], chunk[:])
 		}
-		return out
 	}
-	return append([]byte(nil), hSum[:nonceBytes]...)
+	return scratch
+}
+
+type formalEvalPlan struct {
+	rowCount int
+	maxDeg   int
+	coeffs   []uint64
+}
+
+func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
+	maxDeg := 0
+	for _, row := range rows {
+		if len(row) > 0 && len(row)-1 > maxDeg {
+			maxDeg = len(row) - 1
+		}
+	}
+	rowCount := len(rows)
+	coeffs := make([]uint64, (maxDeg+1)*rowCount)
+	for j, row := range rows {
+		for d, c := range row {
+			if c >= q {
+				c %= q
+			}
+			coeffs[d*rowCount+j] = c
+		}
+	}
+	return formalEvalPlan{rowCount: rowCount, maxDeg: maxDeg, coeffs: coeffs}
+}
+
+func (p formalEvalPlan) evalInto(dst []uint64, x, q uint64) {
+	if p.rowCount == 0 {
+		return
+	}
+	top := p.coeffs[p.maxDeg*p.rowCount : (p.maxDeg+1)*p.rowCount]
+	copy(dst[:p.rowCount], top)
+	for d := p.maxDeg - 1; d >= 0; d-- {
+		row := p.coeffs[d*p.rowCount : (d+1)*p.rowCount]
+		for j := 0; j < p.rowCount; j++ {
+			dst[j] = addMod64Reduced(mulMod64Reduced(dst[j], x, q), row[j], q)
+		}
+	}
 }
 
 // Prover encapsulates the prover state for DECS.
@@ -148,8 +188,8 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 
 	// 1b) explicit-domain path computes evaluations on demand
 
-	// 1c) build leaves
-	leaves := make([][]byte, N)
+	// 1c) build leaf hashes
+	leafHashes := make([][16]byte, N)
 	if len(pr.nonceSeed) == 0 {
 		pr.nonceSeed = make([]byte, pr.params.NonceBytes)
 		if _, err := rand.Read(pr.nonceSeed); err != nil {
@@ -158,20 +198,79 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 	} else if len(pr.nonceSeed) != pr.params.NonceBytes {
 		return [16]byte{}, fmt.Errorf("decs: nonce seed length mismatch: got=%d want=%d", len(pr.nonceSeed), pr.params.NonceBytes)
 	}
-	buildLeaf := func(i int) []byte {
-		buf := make([]byte, 4*(r+pr.params.Eta)+2+pr.params.NonceBytes)
-		off := 0
-		x := pr.points[i] % q
-		if pr.PFormal != nil {
-			for j := 0; j < r; j++ {
-				binary.LittleEndian.PutUint32(buf[off:], uint32(evalPoly(pr.PFormal[j], x, q)))
-				off += 4
-			}
-			for k := 0; k < pr.params.Eta; k++ {
-				binary.LittleEndian.PutUint32(buf[off:], uint32(evalPoly(pr.MFormal[k], x, q)))
-				off += 4
+	leafBytes := 4*(r+pr.params.Eta) + 2 + pr.params.NonceBytes
+	if pr.PFormal != nil {
+		pPlan := newFormalEvalPlan(pr.PFormal, q)
+		mPlan := newFormalEvalPlan(pr.MFormal, q)
+		workers := runtime.GOMAXPROCS(0)
+		if workers < 2 || N < 128 {
+			buf := make([]byte, leafBytes)
+			pScratch := make([]uint64, r)
+			mScratch := make([]uint64, pr.params.Eta)
+			nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
+			shake := nilShake()
+			for i := 0; i < N; i++ {
+				buf = buf[:leafBytes]
+				x := pr.points[i] % q
+				pPlan.evalInto(pScratch, x, q)
+				mPlan.evalInto(mScratch, x, q)
+				off := 0
+				for j := 0; j < r; j++ {
+					binary.LittleEndian.PutUint32(buf[off:], uint32(pScratch[j]))
+					off += 4
+				}
+				for k := 0; k < pr.params.Eta; k++ {
+					binary.LittleEndian.PutUint32(buf[off:], uint32(mScratch[k]))
+					off += 4
+				}
+				binary.LittleEndian.PutUint16(buf[off:], uint16(i))
+				off += 2
+				nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
+				leafHashes[i] = hashLeafWith(shake, buf)
 			}
 		} else {
+			if workers > N {
+				workers = N
+			}
+			var wg sync.WaitGroup
+			wg.Add(workers)
+			for worker := 0; worker < workers; worker++ {
+				start := worker
+				go func() {
+					defer wg.Done()
+					buf := make([]byte, leafBytes)
+					pScratch := make([]uint64, r)
+					mScratch := make([]uint64, pr.params.Eta)
+					nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
+					shake := nilShake()
+					for i := start; i < N; i += workers {
+						buf = buf[:leafBytes]
+						x := pr.points[i] % q
+						pPlan.evalInto(pScratch, x, q)
+						mPlan.evalInto(mScratch, x, q)
+						off := 0
+						for j := 0; j < r; j++ {
+							binary.LittleEndian.PutUint32(buf[off:], uint32(pScratch[j]))
+							off += 4
+						}
+						for k := 0; k < pr.params.Eta; k++ {
+							binary.LittleEndian.PutUint32(buf[off:], uint32(mScratch[k]))
+							off += 4
+						}
+						binary.LittleEndian.PutUint16(buf[off:], uint16(i))
+						off += 2
+						nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
+						leafHashes[i] = hashLeafWith(shake, buf)
+					}
+				}()
+			}
+			wg.Wait()
+		}
+	} else {
+		buildLeaf := func(i int) []byte {
+			buf := make([]byte, leafBytes)
+			off := 0
+			x := pr.points[i] % q
 			for j := 0; j < r; j++ {
 				binary.LittleEndian.PutUint32(buf[off:], uint32(evalPoly(pr.P[j].Coeffs[0], x, q)))
 				off += 4
@@ -180,41 +279,47 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 				binary.LittleEndian.PutUint32(buf[off:], uint32(evalPoly(pr.M[k].Coeffs[0], x, q)))
 				off += 4
 			}
+			binary.LittleEndian.PutUint16(buf[off:], uint16(i))
+			off += 2
+			rho := deriveNonce(pr.nonceSeed, i, pr.params.NonceBytes)
+			copy(buf[off:], rho)
+			return buf
 		}
-		binary.LittleEndian.PutUint16(buf[off:], uint16(i))
-		off += 2
-		rho := deriveNonce(pr.nonceSeed, i, pr.params.NonceBytes)
-		copy(buf[off:], rho)
-		return buf
-	}
-	workers := runtime.GOMAXPROCS(0)
-	if workers < 2 || N < 128 {
-		for i := 0; i < N; i++ {
-			leaves[i] = buildLeaf(i)
+		workers := runtime.GOMAXPROCS(0)
+		if workers < 2 || N < 128 {
+			h := nilShake()
+			for i := 0; i < N; i++ {
+				leafHashes[i] = hashLeafWith(h, buildLeaf(i))
+			}
+		} else {
+			if workers > N {
+				workers = N
+			}
+			var wg sync.WaitGroup
+			wg.Add(workers)
+			for worker := 0; worker < workers; worker++ {
+				start := worker
+				go func() {
+					defer wg.Done()
+					h := nilShake()
+					for i := start; i < N; i += workers {
+						leafHashes[i] = hashLeafWith(h, buildLeaf(i))
+					}
+				}()
+			}
+			wg.Wait()
 		}
-	} else {
-		if workers > N {
-			workers = N
-		}
-		var wg sync.WaitGroup
-		wg.Add(workers)
-		for worker := 0; worker < workers; worker++ {
-			start := worker
-			go func() {
-				defer wg.Done()
-				for i := start; i < N; i += workers {
-					leaves[i] = buildLeaf(i)
-				}
-			}()
-		}
-		wg.Wait()
 	}
 
 	// 1d) Merkle tree
-	pr.mt = BuildMerkleTree(leaves)
+	pr.mt = BuildMerkleTreeFromLeafHashes(leafHashes)
 	pr.root = pr.mt.Root()
 
 	return pr.root, nil
+}
+
+func nilShake() sha3.ShakeHash {
+	return sha3.NewShake256()
 }
 
 // CommitStep2Formal computes R_k(X) = M_k(X) + Σ_j Γ[k][j]·P_j(X) as formal
