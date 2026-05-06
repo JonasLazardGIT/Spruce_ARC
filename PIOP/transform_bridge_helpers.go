@@ -1,7 +1,10 @@
 package PIOP
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
+	"sync"
 
 	"vSIS-Signature/credential"
 	kf "vSIS-Signature/internal/kfield"
@@ -16,6 +19,68 @@ type transformBridgeBasisCache struct {
 	TransformH     [][]uint64
 	TransformHEval [][]uint64
 	BlockFactors   [][]uint64
+}
+
+type transformBridgeBasisGlobalEntry struct {
+	key   [32]byte
+	value *transformBridgeBasisCache
+	ok    bool
+}
+
+var transformBridgeBasisGlobalCache = struct {
+	sync.Mutex
+	next    int
+	entries [4]transformBridgeBasisGlobalEntry
+}{}
+
+func transformBridgeBasisCacheKey(ringQ *ring.Ring, omega []uint64, outputCount, sourceBlocks int) [32]byte {
+	h := sha256.New()
+	var buf [8]byte
+	writeU64 := func(v uint64) {
+		binary.LittleEndian.PutUint64(buf[:], v)
+		_, _ = h.Write(buf[:])
+	}
+	writeInt := func(v int) {
+		writeU64(uint64(v))
+	}
+	writeU64(ringQ.Modulus[0])
+	writeInt(int(ringQ.N))
+	writeInt(outputCount)
+	writeInt(sourceBlocks)
+	writeInt(len(omega))
+	for _, v := range omega {
+		writeU64(v)
+	}
+	var key [32]byte
+	copy(key[:], h.Sum(nil))
+	return key
+}
+
+func loadTransformBridgeBasisGlobalCache(key [32]byte) (*transformBridgeBasisCache, bool) {
+	transformBridgeBasisGlobalCache.Lock()
+	defer transformBridgeBasisGlobalCache.Unlock()
+	for i := range transformBridgeBasisGlobalCache.entries {
+		entry := &transformBridgeBasisGlobalCache.entries[i]
+		if entry.ok && entry.key == key {
+			return entry.value, true
+		}
+	}
+	return nil, false
+}
+
+func storeTransformBridgeBasisGlobalCache(key [32]byte, value *transformBridgeBasisCache) {
+	if value == nil {
+		return
+	}
+	transformBridgeBasisGlobalCache.Lock()
+	defer transformBridgeBasisGlobalCache.Unlock()
+	idx := transformBridgeBasisGlobalCache.next % len(transformBridgeBasisGlobalCache.entries)
+	transformBridgeBasisGlobalCache.entries[idx] = transformBridgeBasisGlobalEntry{
+		key:   key,
+		value: value,
+		ok:    true,
+	}
+	transformBridgeBasisGlobalCache.next = (idx + 1) % len(transformBridgeBasisGlobalCache.entries)
 }
 
 // newTransformBridgeBasisCache derives the fixed public basis used by the
@@ -40,6 +105,10 @@ func newTransformBridgeBasisCache(ringQ *ring.Ring, omega []uint64, outputCount 
 	if sourceBlocks <= 0 {
 		return nil, fmt.Errorf("invalid source blocks=%d", sourceBlocks)
 	}
+	key := transformBridgeBasisCacheKey(ringQ, omega, outputCount, sourceBlocks)
+	if cached, ok := loadTransformBridgeBasisGlobalCache(key); ok {
+		return cached, nil
+	}
 	ncols := len(omega)
 	lagrangeBasis, err := buildLagrangeBasisCoeffs(omega, ringQ.Modulus[0])
 	if err != nil {
@@ -53,12 +122,14 @@ func newTransformBridgeBasisCache(ringQ *ring.Ring, omega []uint64, outputCount 
 	if len(transformHEval) > ncols {
 		transformHEval = transformHEval[:ncols]
 	}
-	return &transformBridgeBasisCache{
+	out := &transformBridgeBasisCache{
 		LagrangeBasis:  lagrangeBasis,
 		TransformH:     transformH,
 		TransformHEval: transformHEval,
 		BlockFactors:   blockFactors,
-	}, nil
+	}
+	storeTransformBridgeBasisGlobalCache(key, out)
+	return out, nil
 }
 
 // newRowTransformBridgeBasisCache derives the transform basis for explicit-domain
