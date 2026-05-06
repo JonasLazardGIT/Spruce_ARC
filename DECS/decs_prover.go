@@ -223,15 +223,16 @@ func (p formalEvalPlan) evalIntoPowers(dst []uint64, red modReducer64, powers []
 	} else {
 		for d := 0; d <= p.maxDeg; d++ {
 			pow := powers[d]
-			if pow == 0 {
-				continue
+			base := d * p.rowCount
+			j := 0
+			for ; j+4 <= p.rowCount; j += 4 {
+				dst[j] += p.coeffs[base+j] * pow
+				dst[j+1] += p.coeffs[base+j+1] * pow
+				dst[j+2] += p.coeffs[base+j+2] * pow
+				dst[j+3] += p.coeffs[base+j+3] * pow
 			}
-			row := p.coeffs[d*p.rowCount : (d+1)*p.rowCount]
-			for j, c := range row {
-				if c == 0 {
-					continue
-				}
-				dst[j] += c * pow
+			for ; j < p.rowCount; j++ {
+				dst[j] += p.coeffs[base+j] * pow
 			}
 		}
 	}
