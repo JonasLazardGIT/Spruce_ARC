@@ -1486,25 +1486,45 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	if l.ViewRowsPerPoly*ncols != n {
 		return nil, nil, fmt.Errorf("IntGenISIS projected signature rows/poly*ncols=%d want ringN=%d", l.ViewRowsPerPoly*ncols, n)
 	}
+	stage := func(label string, fn func() error) error {
+		start := time.Now()
+		err := fn()
+		if phase != nil {
+			phase.RecordDuration(label, time.Since(start))
+		}
+		return err
+	}
 	plan, err := newIntGenISISProjectedSignaturePlan(ringQ, pub, l, basis, omega)
 	if err != nil {
 		return nil, nil, err
 	}
-	transformLaneCoeff := func(sourceStart, comp, block, lane int) ([]uint64, error) {
-		t := block*ncols + lane
+	buildSourceTransform := func(sourceCoeffs [][]uint64, t int) ([]uint64, error) {
 		if t < 0 || t >= len(basis.TransformH) || t >= len(basis.BlockFactors) {
 			return nil, fmt.Errorf("projected signature transform lane t=%d out of range", t)
 		}
+		if len(sourceCoeffs) != l.ViewRowsPerPoly {
+			return nil, fmt.Errorf("projected signature source blocks=%d want %d", len(sourceCoeffs), l.ViewRowsPerPoly)
+		}
 		left := make([]uint64, n)
 		for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
-			sourceCoeff, err := rowCache.Row(sourceStart + comp*l.ViewRowsPerPoly + srcBlock)
-			if err != nil {
-				return nil, err
-			}
 			scale := basis.BlockFactors[t][srcBlock] % q
-			addMulModXN1Into(left, basis.TransformH[t], sourceCoeff, scale, q)
+			addMulModXN1Into(left, basis.TransformH[t], sourceCoeffs[srcBlock], scale, q)
 		}
 		return trimPoly(left, q), nil
+	}
+	buildFlatTransforms := func(sourceCoeffs [][][]uint64) ([][][]uint64, error) {
+		out := make([][][]uint64, len(sourceCoeffs))
+		for comp := range sourceCoeffs {
+			out[comp] = make([][]uint64, l.ViewRowsPerPoly*ncols)
+			for t := range out[comp] {
+				coeff, err := buildSourceTransform(sourceCoeffs[comp], t)
+				if err != nil {
+					return nil, err
+				}
+				out[comp][t] = coeff
+			}
+		}
+		return out, nil
 	}
 	var ySourceCoeffs [][][][]uint64
 	if intGenISISProjectionDerivesYView(l) {
@@ -1514,102 +1534,122 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 			return nil, nil, yerr
 		}
 	}
-	transformLaneFromSourceCoeffs := func(sourceCoeffs [][][]uint64, comp, block, lane int) ([]uint64, error) {
-		t := block*ncols + lane
-		if t < 0 || t >= len(basis.TransformH) || t >= len(basis.BlockFactors) || comp < 0 || comp >= len(sourceCoeffs) {
-			return nil, fmt.Errorf("projected source transform lane t=%d comp=%d out of range", t, comp)
-		}
-		left := make([]uint64, n)
-		for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
-			if srcBlock >= len(sourceCoeffs[comp]) {
-				return nil, fmt.Errorf("projected source block=%d outside component rows=%d", srcBlock, len(sourceCoeffs[comp]))
+	var uTrans [][][]uint64
+	var yTrans [][][][]uint64
+	var yViewTrans [][][]uint64
+	if err := stage("showing.constraints.projected.transform_cache", func() error {
+		uSourceCoeffs := make([][][]uint64, l.UCount)
+		for comp := 0; comp < l.UCount; comp++ {
+			uSourceCoeffs[comp] = make([][]uint64, l.ViewRowsPerPoly)
+			for block := 0; block < l.ViewRowsPerPoly; block++ {
+				coeff, err := rowCache.Row(l.UViewStart + comp*l.ViewRowsPerPoly + block)
+				if err != nil {
+					return err
+				}
+				uSourceCoeffs[comp][block] = coeff
 			}
-			scale := basis.BlockFactors[t][srcBlock] % q
-			addMulModXN1Into(left, basis.TransformH[t], sourceCoeffs[comp][srcBlock], scale, q)
 		}
-		return trimPoly(left, q), nil
+		var terr error
+		uTrans, terr = buildFlatTransforms(uSourceCoeffs)
+		if terr != nil {
+			return terr
+		}
+		if intGenISISProjectionDerivesYView(l) {
+			yTrans = make([][][][]uint64, len(ySourceCoeffs))
+			for ti := range ySourceCoeffs {
+				yTrans[ti], terr = buildFlatTransforms(ySourceCoeffs[ti])
+				if terr != nil {
+					return terr
+				}
+			}
+		} else {
+			ySource := [][][]uint64{make([][]uint64, l.ViewRowsPerPoly)}
+			for block := 0; block < l.ViewRowsPerPoly; block++ {
+				coeff, err := rowCache.Row(l.YViewStart + block)
+				if err != nil {
+					return err
+				}
+				ySource[0][block] = coeff
+			}
+			yViewTrans, terr = buildFlatTransforms(ySource)
+			if terr != nil {
+				return terr
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, nil, err
 	}
 	derivedYHatLaneCoeff := func(block, lane int) ([]uint64, error) {
 		if len(ySourceCoeffs) != 3 {
 			return nil, fmt.Errorf("projected Y source terms=%d want 3", len(ySourceCoeffs))
 		}
-		left := []uint64{0}
-		mLane, err := transformLaneFromSourceCoeffs(ySourceCoeffs[0], 0, block, lane)
-		if err != nil {
-			return nil, err
-		}
+		t := block*ncols + lane
+		left := make([]uint64, n)
 		cmVal := plan.cmAtOmega[block][lane]
-		left = polyAdd(left, scalePoly(mLane, cmVal, q), q)
+		addScaledInto(left, yTrans[0][0][t], cmVal, q)
 		for i := 0; i < l.SCount; i++ {
-			sLane, err := transformLaneFromSourceCoeffs(ySourceCoeffs[1], i, block, lane)
-			if err != nil {
-				return nil, err
-			}
 			asVal := plan.asAtOmega[i][block][lane]
-			left = polyAdd(left, scalePoly(sLane, asVal, q), q)
+			addScaledInto(left, yTrans[1][i][t], asVal, q)
 		}
-		eLane, err := transformLaneFromSourceCoeffs(ySourceCoeffs[2], 0, block, lane)
-		if err != nil {
-			return nil, err
-		}
-		left = polyAdd(left, eLane, q)
-		return reducePolyModXN1(left, n, q), nil
+		addScaledInto(left, yTrans[2][0][t], 1, q)
+		return trimPoly(left, q), nil
 	}
 	fagg := make([]*ring.Poly, 0, l.ViewRowsPerPoly*ncols)
 	coeffs := make([][]uint64, 0, l.ViewRowsPerPoly*ncols)
-	for block := 0; block < l.ViewRowsPerPoly; block++ {
-		muCoeff, err := rowCache.Row(l.MuSigHatStart + block)
-		if err != nil {
-			return nil, nil, err
-		}
-		x0Coeff := make([][]uint64, l.X0Count)
-		for i := 0; i < l.X0Count; i++ {
-			x0Coeff[i], err = rowCache.Row(l.X0HatStart + i*l.ViewRowsPerPoly + block)
+	if err := stage("showing.constraints.projected.emit", func() error {
+		for block := 0; block < l.ViewRowsPerPoly; block++ {
+			muCoeff, err := rowCache.Row(l.MuSigHatStart + block)
 			if err != nil {
-				return nil, nil, err
+				return err
 			}
-		}
-		zCoeff, err := rowCache.Row(l.ZHatStart + block)
-		if err != nil {
-			return nil, nil, err
-		}
-		rhs := make([]uint64, n)
-		addScaledInto(rhs, plan.bBlockCoeff[0][block], 1, q)
-		addMulModXN1Into(rhs, plan.bBlockCoeff[1][block], muCoeff, 1, q)
-		for i := 0; i < l.X0Count; i++ {
-			addMulModXN1Into(rhs, plan.bBlockCoeff[2+i][block], x0Coeff[i], 1, q)
-		}
-		addScaledInto(rhs, zCoeff, 1, q)
-		for lane := 0; lane < ncols; lane++ {
-			res := []uint64{0}
-			for i := 0; i < l.UCount; i++ {
-				aVal := plan.aAtOmega[i][block][lane]
-				uLaneCoeff, err := transformLaneCoeff(l.UViewStart, i, block, lane)
+			x0Coeff := make([][]uint64, l.X0Count)
+			for i := 0; i < l.X0Count; i++ {
+				x0Coeff[i], err = rowCache.Row(l.X0HatStart + i*l.ViewRowsPerPoly + block)
 				if err != nil {
-					return nil, nil, err
-				}
-				res = polyAdd(res, scalePoly(uLaneCoeff, aVal, q), q)
-			}
-			laneRHS := make([]uint64, n)
-			mulModXN1(laneRHS, basis.LagrangeBasis[lane], rhs, q)
-			res = polySub(res, laneRHS, q)
-			var yLaneCoeff []uint64
-			if intGenISISProjectionDerivesYView(l) {
-				yLaneCoeff, err = derivedYHatLaneCoeff(block, lane)
-				if err != nil {
-					return nil, nil, err
-				}
-			} else {
-				yLaneCoeff, err = transformLaneCoeff(l.YViewStart, 0, block, lane)
-				if err != nil {
-					return nil, nil, err
+					return err
 				}
 			}
-			res = reducePolyModXN1(polySub(res, yLaneCoeff, q), n, q)
-			res = trimPoly(res, q)
-			coeffs = append(coeffs, res)
-			fagg = append(fagg, nttPolyFromFormalCoeffsIfFits(ringQ, res))
+			zCoeff, err := rowCache.Row(l.ZHatStart + block)
+			if err != nil {
+				return err
+			}
+			rhs := make([]uint64, n)
+			addScaledInto(rhs, plan.bBlockCoeff[0][block], 1, q)
+			addMulModXN1Into(rhs, plan.bBlockCoeff[1][block], muCoeff, 1, q)
+			for i := 0; i < l.X0Count; i++ {
+				addMulModXN1Into(rhs, plan.bBlockCoeff[2+i][block], x0Coeff[i], 1, q)
+			}
+			addScaledInto(rhs, zCoeff, 1, q)
+			for lane := 0; lane < ncols; lane++ {
+				t := block*ncols + lane
+				res := make([]uint64, n)
+				for i := 0; i < l.UCount; i++ {
+					aVal := plan.aAtOmega[i][block][lane]
+					addScaledInto(res, uTrans[i][t], aVal, q)
+				}
+				laneRHS := make([]uint64, n)
+				mulModXN1(laneRHS, basis.LagrangeBasis[lane], rhs, q)
+				subInto(res, laneRHS, q)
+				var yLaneCoeff []uint64
+				if intGenISISProjectionDerivesYView(l) {
+					var yerr error
+					yLaneCoeff, yerr = derivedYHatLaneCoeff(block, lane)
+					if yerr != nil {
+						return yerr
+					}
+				} else {
+					yLaneCoeff = yViewTrans[0][t]
+				}
+				subInto(res, yLaneCoeff, q)
+				res = trimPoly(res, q)
+				coeffs = append(coeffs, res)
+				fagg = append(fagg, nttPolyFromFormalCoeffsIfFits(ringQ, res))
+			}
 		}
+		return nil
+	}); err != nil {
+		return nil, nil, err
 	}
 	return fagg, coeffs, nil
 }
