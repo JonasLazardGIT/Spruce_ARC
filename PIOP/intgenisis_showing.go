@@ -1288,17 +1288,19 @@ func intGenISISYLinearConstraintFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.P
 		}
 		for lane := 0; lane < ncols; lane++ {
 			outIdx := block*ncols + lane
-			leftCoeff := []uint64{0}
+			leftCoeff := make([]uint64, int(ringQ.N))
 			for ti, term := range cache.Terms {
 				for comp := 0; comp < term.Components; comp++ {
 					for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
-						termCoeff := reducePolyModXN1(polyMul(term.H[comp][outIdx][srcBlock], sourceCoeffs[ti][comp][srcBlock], q), int(ringQ.N), q)
-						leftCoeff = polyAdd(leftCoeff, termCoeff, q)
+						addMulModXN1Into(leftCoeff, term.H[comp][outIdx][srcBlock], sourceCoeffs[ti][comp][srcBlock], 1, q)
 					}
 				}
 			}
-			rightCoeff := reducePolyModXN1(polyMul(cache.Lagrange[lane], yCoeff, q), int(ringQ.N), q)
-			res := reducePolyModXN1(polySub(leftCoeff, rightCoeff, q), int(ringQ.N), q)
+			rightCoeff := make([]uint64, int(ringQ.N))
+			mulModXN1(rightCoeff, cache.Lagrange[lane], yCoeff, q)
+			res := append([]uint64(nil), leftCoeff...)
+			subInto(res, rightCoeff, q)
+			res = trimPoly(res, q)
 			coeffs = append(coeffs, res)
 			fagg = append(fagg, nttPolyFromFormalCoeffsIfFits(ringQ, res))
 		}
@@ -1340,17 +1342,16 @@ func intGenISISCoeffToHatBridgeFormalCoeffs(ringQ *ring.Ring, rowCache *intGenIS
 			}
 			for lane := 0; lane < ncols; lane++ {
 				t := block*ncols + lane
-				leftCoeff := []uint64{0}
+				leftCoeff := make([]uint64, int(ringQ.N))
 				for srcBlock := 0; srcBlock < rowsPerPoly; srcBlock++ {
-					term := reducePolyModXN1(polyMul(basis.TransformH[t], sourceCoeffs[srcBlock], q), int(ringQ.N), q)
 					scale := basis.BlockFactors[t][srcBlock] % q
-					if scale != 1 {
-						term = scalePoly(term, scale, q)
-					}
-					leftCoeff = polyAdd(leftCoeff, term, q)
+					addMulModXN1Into(leftCoeff, basis.TransformH[t], sourceCoeffs[srcBlock], scale, q)
 				}
-				rightCoeff := reducePolyModXN1(polyMul(basis.LagrangeBasis[lane], hatCoeff, q), int(ringQ.N), q)
-				bridgeCoeff := reducePolyModXN1(polySub(leftCoeff, rightCoeff, q), int(ringQ.N), q)
+				rightCoeff := make([]uint64, int(ringQ.N))
+				mulModXN1(rightCoeff, basis.LagrangeBasis[lane], hatCoeff, q)
+				bridgeCoeff := append([]uint64(nil), leftCoeff...)
+				subInto(bridgeCoeff, rightCoeff, q)
+				bridgeCoeff = trimPoly(bridgeCoeff, q)
 				coeffs = append(coeffs, bridgeCoeff)
 				fagg = append(fagg, nttPolyFromFormalCoeffsIfFits(ringQ, bridgeCoeff))
 			}
@@ -1387,20 +1388,16 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		if t < 0 || t >= len(basis.TransformH) || t >= len(basis.BlockFactors) {
 			return nil, fmt.Errorf("projected signature transform lane t=%d out of range", t)
 		}
-		left := []uint64{0}
+		left := make([]uint64, n)
 		for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
 			sourceCoeff, err := rowCache.Row(sourceStart + comp*l.ViewRowsPerPoly + srcBlock)
 			if err != nil {
 				return nil, err
 			}
-			term := reducePolyModXN1(polyMul(basis.TransformH[t], sourceCoeff, q), n, q)
 			scale := basis.BlockFactors[t][srcBlock] % q
-			if scale != 1 {
-				term = scalePoly(term, scale, q)
-			}
-			left = polyAdd(left, term, q)
+			addMulModXN1Into(left, basis.TransformH[t], sourceCoeff, scale, q)
 		}
-		return reducePolyModXN1(left, n, q), nil
+		return trimPoly(left, q), nil
 	}
 	var ySourceCoeffs [][][][]uint64
 	if intGenISISProjectionDerivesYView(l) {
@@ -1415,19 +1412,15 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		if t < 0 || t >= len(basis.TransformH) || t >= len(basis.BlockFactors) || comp < 0 || comp >= len(sourceCoeffs) {
 			return nil, fmt.Errorf("projected source transform lane t=%d comp=%d out of range", t, comp)
 		}
-		left := []uint64{0}
+		left := make([]uint64, n)
 		for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
 			if srcBlock >= len(sourceCoeffs[comp]) {
 				return nil, fmt.Errorf("projected source block=%d outside component rows=%d", srcBlock, len(sourceCoeffs[comp]))
 			}
-			term := reducePolyModXN1(polyMul(basis.TransformH[t], sourceCoeffs[comp][srcBlock], q), n, q)
 			scale := basis.BlockFactors[t][srcBlock] % q
-			if scale != 1 {
-				term = scalePoly(term, scale, q)
-			}
-			left = polyAdd(left, term, q)
+			addMulModXN1Into(left, basis.TransformH[t], sourceCoeffs[comp][srcBlock], scale, q)
 		}
-		return reducePolyModXN1(left, n, q), nil
+		return trimPoly(left, q), nil
 	}
 	derivedYHatLaneCoeff := func(block, lane int, cmCoeff []uint64, asCoeff [][]uint64) ([]uint64, error) {
 		if len(ySourceCoeffs) != 3 {
@@ -1517,12 +1510,15 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 				}
 				res = polyAdd(res, scalePoly(uLaneCoeff, aVal, q), q)
 			}
-			rhs := polyAdd(b0, reducePolyModXN1(polyMul(b1, muCoeff, q), n, q), q)
+			rhs := make([]uint64, n)
+			addScaledInto(rhs, b0, 1, q)
+			addMulModXN1Into(rhs, b1, muCoeff, 1, q)
 			for i := 0; i < l.X0Count; i++ {
-				rhs = polyAdd(rhs, reducePolyModXN1(polyMul(bX0[i], x0Coeff[i], q), n, q), q)
+				addMulModXN1Into(rhs, bX0[i], x0Coeff[i], 1, q)
 			}
-			rhs = polyAdd(rhs, zCoeff, q)
-			laneRHS := reducePolyModXN1(polyMul(basis.LagrangeBasis[lane], rhs, q), n, q)
+			addScaledInto(rhs, zCoeff, 1, q)
+			laneRHS := make([]uint64, n)
+			mulModXN1(laneRHS, basis.LagrangeBasis[lane], rhs, q)
 			res = polySub(res, laneRHS, q)
 			var yLaneCoeff []uint64
 			if intGenISISProjectionDerivesYView(l) {
@@ -1714,7 +1710,10 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 						return fmt.Errorf("PRF key source row: %w", err)
 					}
 				}
-				res := reducePolyModXN1(polySub(polyMul(selectorCoeff[keySlot.Coeff], keyCoeff, q), polyMul(selectorCoeff[srcSlot.Coeff], srcCoeff, q), q), int(ringQ.N), q)
+				res := make([]uint64, int(ringQ.N))
+				addMulModXN1Into(res, selectorCoeff[keySlot.Coeff], keyCoeff, 1, q)
+				addMulModXN1Into(res, selectorCoeff[srcSlot.Coeff], srcCoeff, q-1, q)
+				res = trimPoly(res, q)
 				keyBindCoeffs = append(keyBindCoeffs, res)
 				keyBindPolys = append(keyBindPolys, nttPolyFromFormalCoeffsIfFits(ringQ, res))
 			}

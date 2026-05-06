@@ -1133,6 +1133,91 @@ func scalePoly(p []uint64, c, q uint64) []uint64 {
 	return out
 }
 
+func mulModXN1(dst, a, b []uint64, q uint64) {
+	for i := range dst {
+		dst[i] = 0
+	}
+	addMulModXN1Into(dst, a, b, 1, q)
+}
+
+func addMulModXN1Into(dst, a, b []uint64, scale, q uint64) {
+	n := len(dst)
+	if n == 0 || len(a) == 0 || len(b) == 0 {
+		return
+	}
+	if scale >= q {
+		scale %= q
+	}
+	if scale == 0 {
+		return
+	}
+	for i, av := range a {
+		if av >= q {
+			av %= q
+		}
+		if av == 0 {
+			continue
+		}
+		av = modMulReduced(av, scale, q)
+		for j, bv := range b {
+			if bv >= q {
+				bv %= q
+			}
+			if bv == 0 {
+				continue
+			}
+			term := modMulReduced(av, bv, q)
+			deg := i + j
+			idx := deg % n
+			if ((deg / n) % 2) == 1 {
+				dst[idx] = modSubReduced(dst[idx], term, q)
+			} else {
+				dst[idx] = modAddReduced(dst[idx], term, q)
+			}
+		}
+	}
+}
+
+func addScaledInto(dst, src []uint64, scale, q uint64) {
+	if scale >= q {
+		scale %= q
+	}
+	if scale == 0 {
+		return
+	}
+	limit := len(src)
+	if len(dst) < limit {
+		limit = len(dst)
+	}
+	for i := 0; i < limit; i++ {
+		v := src[i]
+		if v >= q {
+			v %= q
+		}
+		if v == 0 {
+			continue
+		}
+		dst[i] = modAddReduced(dst[i], modMulReduced(v, scale, q), q)
+	}
+}
+
+func subInto(dst, src []uint64, q uint64) {
+	limit := len(src)
+	if len(dst) < limit {
+		limit = len(dst)
+	}
+	for i := 0; i < limit; i++ {
+		v := src[i]
+		if v >= q {
+			v %= q
+		}
+		if v == 0 {
+			continue
+		}
+		dst[i] = modSubReduced(dst[i], v, q)
+	}
+}
+
 // trimPoly removes trailing zero coefficients (mod q) while keeping at least one term.
 func trimPoly(coeffs []uint64, q uint64) []uint64 {
 	n := len(coeffs)
