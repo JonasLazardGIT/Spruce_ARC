@@ -3,6 +3,7 @@ package PIOP
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
@@ -402,7 +403,11 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			decsParams.Degree = rowDeg
 		}
 		// Commit rows to get root/pk/layout using possibly updated rowInputs/layout.
+		commitStart := time.Now()
 		root, pk, oracleLayout, err = commitRows(ringQ, rowInputs, opts.Ell, decsParams, witnessCount, maskRowOffset, maskRowCount, domainPoints)
+		if opts.PhaseRecorder != nil {
+			opts.PhaseRecorder.RecordDuration("showing.lvcs_commit_total", time.Since(commitStart))
+		}
 		if err != nil {
 			return nil, fmt.Errorf("commit rows: %w", err)
 		}
