@@ -1,128 +1,180 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import csv
-import itertools
+import json
 import math
-from contextlib import contextmanager
-import io
 import os
+import platform
+import subprocess
 import sys
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Iterable
 
-from sage.all import RR, oo, pi, sqrt, floor, log, randint, is_prime
+try:
+    from sage.all import RR, is_prime, oo
+except Exception:  # pragma: no cover - these scripts are intended for Sage Python.
+    RR = None
+    oo = math.inf
+
+    def is_prime(n: int) -> bool:
+        if n < 2:
+            return False
+        if n % 2 == 0:
+            return n == 2
+        d = 3
+        while d * d <= n:
+            if n % d == 0:
+                return False
+            d += 2
+        return True
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+DEFAULT_ESTIMATOR_PATH = "/tmp/lattice-estimator-dklw"
+ESTIMATOR_REMOTE = "https://github.com/malb/lattice-estimator.git"
 
 
 @dataclass
-class EstimatorResult:
-    attack: str
-    log2_rop: Optional[float]
-    log2_red: Optional[float]
-    log2_mem: Optional[float]
-    beta: Optional[float]
-    d: Optional[int]
-    bkz_beta: Optional[float]
-    tag: Optional[str]
-    raw: dict
+class EstimatorSetup:
+    path: str
+    commit: str
+    requested_ref: str | None
+    checkout_ok: bool
+    messages: list[str]
 
 
-@contextmanager
-def _suppress_stdout_stderr():
-    stream = io.StringIO()
-    old_stdout, old_stderr = sys.stdout, sys.stderr
-    sys.stdout = stream
-    sys.stderr = stream
-    try:
-        yield
-    finally:
-        sys.stdout = old_stdout
-        sys.stderr = old_stderr
+def project_path(*parts: str) -> Path:
+    return REPO_ROOT.joinpath(*parts)
 
 
-def estimator_call_silent(fn, *args, **kwargs):
-    with _suppress_stdout_stderr():
-        return fn(*args, **kwargs)
+def results_path(output_dir: str | os.PathLike[str], name: str) -> Path:
+    path = Path(output_dir)
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    path.mkdir(parents=True, exist_ok=True)
+    return path / name
 
 
-def ensure_path(path: str) -> str:
-    path = os.path.abspath(os.path.expanduser(path))
-    if os.path.isdir(path) and path not in sys.path:
-        sys.path.insert(0, path)
-    return path
+def run_cmd(cmd: list[str], cwd: str | os.PathLike[str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd is not None else None,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
 
-def load_estimator_modules(estimator_path: Optional[str] = None):
-    if estimator_path is None:
-        estimator_path = os.path.abspath('/tmp/lattice-estimator-dklw')
-    estimator_path = ensure_path(estimator_path)
-    from estimator import LWE, SIS, NTRU, ND
-    from sage.all import oo, sqrt, pi
-    return LWE, SIS, NTRU, ND, oo, sqrt, pi
+def command_text(cmd: Iterable[str]) -> str:
+    return " ".join(str(x) for x in cmd)
 
 
-def safe_float_log2(value) -> Optional[float]:
-    if value is None:
-        return None
-    if value == oo:
-        return None
-    try:
-        return float(RR(value).log(2))
-    except Exception:
-        try:
-            return float(log(value, 2))
-        except Exception:
-            return None
+def setup_estimator(estimator_path: str = DEFAULT_ESTIMATOR_PATH, estimator_ref: str | None = None) -> EstimatorSetup:
+    path = Path(estimator_path).expanduser().resolve()
+    messages: list[str] = []
+    checkout_ok = True
 
+    if not path.exists():
+        proc = run_cmd(["git", "clone", ESTIMATOR_REMOTE, str(path)])
+        if proc.returncode != 0:
+            raise RuntimeError(f"git clone failed: {proc.stderr.strip() or proc.stdout.strip()}")
+        messages.append(f"cloned {ESTIMATOR_REMOTE}")
+    else:
+        if not (path / ".git").exists():
+            raise RuntimeError(f"estimator path is not a git repository: {path}")
+        fetch = run_cmd(["git", "-C", str(path), "fetch", "--all", "--tags", "--prune"])
+        if fetch.returncode == 0:
+            messages.append("fetched estimator remotes")
+        else:
+            messages.append(f"estimator fetch failed: {fetch.stderr.strip() or fetch.stdout.strip()}")
 
-def estimate_to_entry_dict(estimator_raw, include_attack_name: Optional[str] = None) -> List[EstimatorResult]:
-    entries = []
-    if not estimator_raw:
-        return entries
+        branch = run_cmd(["git", "-C", str(path), "rev-parse", "--abbrev-ref", "HEAD"])
+        if branch.returncode == 0 and branch.stdout.strip() != "HEAD":
+            pull = run_cmd(["git", "-C", str(path), "pull", "--ff-only"])
+            if pull.returncode == 0:
+                messages.append("updated estimator branch with --ff-only")
+            else:
+                messages.append(f"estimator pull skipped/failed: {pull.stderr.strip() or pull.stdout.strip()}")
 
-    for attack_name, attack_res in estimator_raw.items():
-        if not hasattr(attack_res, 'get'):
-            continue
-        rop = attack_res.get('rop')
-        red = attack_res.get('red')
-        mem = attack_res.get('mem')
-        beta = attack_res.get('beta') or attack_res.get('β')
-        d = attack_res.get('d')
-        tag = attack_res.get('tag')
-
-        entries.append(
-            EstimatorResult(
-                attack=include_attack_name or attack_name,
-                log2_rop=safe_float_log2(rop),
-                log2_red=safe_float_log2(red),
-                log2_mem=safe_float_log2(mem),
-                beta=float(beta) if beta not in (None, oo) else None,
-                d=int(d) if d not in (None, oo) else None,
-                bkz_beta=float(attack_res.get('beta') or attack_res.get('η') or 0.0)
-                if attack_res.get('beta') not in (None, oo)
-                else None,
-                tag=tag,
-                raw=attack_res,
+    if estimator_ref:
+        checkout = run_cmd(["git", "-C", str(path), "checkout", estimator_ref])
+        if checkout.returncode == 0:
+            messages.append(f"checked out estimator ref {estimator_ref}")
+        else:
+            checkout_ok = False
+            messages.append(
+                f"could not check out estimator ref {estimator_ref}: "
+                f"{checkout.stderr.strip() or checkout.stdout.strip()}"
             )
-        )
-    return entries
+
+    commit_proc = run_cmd(["git", "-C", str(path), "rev-parse", "HEAD"])
+    commit = commit_proc.stdout.strip() if commit_proc.returncode == 0 else "unknown"
+    setup = EstimatorSetup(str(path), commit, estimator_ref, checkout_ok, messages)
+    write_estimator_commit(setup)
+    return setup
 
 
-def best_estimator_entry(entries: List[EstimatorResult]) -> Optional[EstimatorResult]:
-    best = None
-    for e in entries:
-        if e.log2_rop is None:
-            continue
-        if best is None or e.log2_rop < best.log2_rop:
-            best = e
-    return best
+def write_estimator_commit(setup: EstimatorSetup, output_dir: str | os.PathLike[str] | None = None) -> None:
+    lines = [
+        f"lattice_estimator_path={setup.path}",
+        f"lattice_estimator_commit={setup.commit}",
+        f"requested_ref={setup.requested_ref or ''}",
+        f"checkout_ok={str(setup.checkout_ok).lower()}",
+    ]
+    for msg in setup.messages:
+        lines.append(f"note={msg}")
+    text = "\n".join(lines) + "\n"
+    (SCRIPT_DIR / "estimator_commit.txt").write_text(text)
+    if output_dir is not None:
+        out = Path(output_dir)
+        if not out.is_absolute():
+            out = REPO_ROOT / out
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "estimator_commit.txt").write_text(text)
 
 
-def _is_rough_prime(q: int) -> bool:
+def full_split_condition(q: int, N: int) -> bool:
+    return int(q) % (2 * int(N)) == 1
+
+
+def log2_value(x: Any) -> float | None:
+    if x is None:
+        return None
+    if x == oo:
+        return math.inf
     try:
-        return is_prime(int(q))
+        if hasattr(x, "log"):
+            return float(x.log(2))
     except Exception:
-        return False
+        pass
+    try:
+        return float(math.log2(float(x)))
+    except Exception:
+        if RR is not None:
+            try:
+                return float(RR(x).log(2))
+            except Exception:
+                return None
+        return None
+
+
+def sigma_b(B: int) -> float:
+    return math.sqrt(int(B) * (int(B) + 1) / 3.0)
+
+
+def range_grade(B: int) -> str:
+    degree = 2 * int(B) + 1
+    if degree <= 17:
+        return "direct preferred"
+    if degree <= 33:
+        return "direct likely acceptable; benchmark"
+    if degree <= 65:
+        return "benchmark-required"
+    return "decomposition-required"
 
 
 def prime_candidates_for_bits(
@@ -130,57 +182,164 @@ def prime_candidates_for_bits(
     bits_start: int = 12,
     bits_end: int = 30,
     per_bit: int = 2,
-    max_delta_steps: int = 2000,
-) -> List[int]:
-    mod = 2 * N
-    candidates = set()
+    max_delta_steps: int = 20000,
+) -> list[int]:
+    if bits_start > bits_end:
+        raise ValueError("bits_start must be <= bits_end")
+    candidates: set[int] = set()
+    mod = 2 * int(N)
     for bits in range(bits_start, bits_end + 1):
         lower = 1 << (bits - 1)
         upper = (1 << bits) - 1
         center = 1 << bits
         base = center + ((1 - center) % mod)
-        found = []
-
+        found: list[int] = []
         for k in range(max_delta_steps + 1):
             deltas = [0] if k == 0 else [k, -k]
-            for dk in deltas:
-                q = int(base + dk * mod)
-                if q < lower or q > upper:
+            for delta in deltas:
+                q = int(base + delta * mod)
+                if q < lower or q > upper or not full_split_condition(q, N):
                     continue
-                if q % mod != 1:
-                    continue
-                if _is_rough_prime(q):
+                if is_prime(q):
                     if q not in found:
                         found.append(q)
                     if len(found) >= per_bit:
                         break
             if len(found) >= per_bit:
                 break
-
         candidates.update(found)
     return sorted(candidates)
 
 
-def full_split_condition(q: int, N: int) -> bool:
-    return q % (2 * N) == 1
+def q_values_for_N(args: Any, N: int) -> list[int]:
+    if getattr(args, "q", None):
+        return sorted(dict.fromkeys(int(q) for q in args.q))
+    return prime_candidates_for_bits(
+        N,
+        bits_start=int(args.bits_start),
+        bits_end=int(args.bits_end),
+        per_bit=int(args.qs_per_bit),
+        max_delta_steps=int(getattr(args, "max_delta_steps", 20000)),
+    )
 
 
-def log2_int(x: int) -> float:
-    return math.log2(x)
-
-
-def l1_norm_sd(B: int) -> float:
-    return math.sqrt(B * (B + 1) / 3)
-
-
-def to_bool(v: bool) -> str:
-    return 'yes' if v else 'no'
-
-
-def write_csv(path: str, rows: List[dict], fieldnames: List[str]):
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+def write_csv(path: str | os.PathLike[str], rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
-            writer.writerow({k: row.get(k, '') for k in fieldnames})
+            writer.writerow({key: csv_value(row.get(key, "")) for key in fieldnames})
+
+
+def read_csv(path: str | os.PathLike[str]) -> list[dict[str, str]]:
+    with Path(path).open(newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def csv_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, float):
+        if math.isinf(value):
+            return "inf"
+        if math.isnan(value):
+            return "nan"
+        return f"{value:.12g}"
+    return str(value)
+
+
+def bool_text(value: bool) -> str:
+    return "yes" if value else "no"
+
+
+def is_yes(value: Any) -> bool:
+    return str(value).strip().lower() in {"yes", "true", "1"}
+
+
+def parse_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def parse_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def safe_json_obj(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        return str(value)
+    if hasattr(value, "__dataclass_fields__"):
+        return safe_json_obj(asdict(value))
+    if isinstance(value, dict):
+        return {str(k): safe_json_obj(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [safe_json_obj(v) for v in value]
+    if RR is not None:
+        try:
+            return float(RR(value))
+        except Exception:
+            pass
+    return str(value)
+
+
+def append_jsonl(path: str | os.PathLike[str], record: dict[str, Any]) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as fh:
+        fh.write(json.dumps(safe_json_obj(record), sort_keys=True) + "\n")
+
+
+def write_json(path: str | os.PathLike[str], data: Any) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(safe_json_obj(data), indent=2, sort_keys=True) + "\n")
+
+
+def sage_version_text() -> str:
+    try:
+        import sage.env
+
+        return str(getattr(sage.env, "SAGE_VERSION", "unknown"))
+    except Exception:
+        return "unknown"
+
+
+def runtime_summary() -> dict[str, str]:
+    return {
+        "python": sys.version.replace("\n", " "),
+        "python_executable": sys.executable,
+        "platform": platform.platform(),
+        "sage": sage_version_text(),
+    }
+
+
+def format_float(value: float | None, digits: int = 3) -> str:
+    if value is None:
+        return ""
+    if math.isinf(value):
+        return "inf"
+    return f"{value:.{digits}f}"
+
+
+def require_sage_python_hint() -> str:
+    return (
+        "Use Sage Python. On this machine `python3` imports Sage; many Sage installs use "
+        "`sage --python`; some use `sage -python`."
+    )
