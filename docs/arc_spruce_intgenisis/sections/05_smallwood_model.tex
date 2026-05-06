@@ -21,12 +21,17 @@ For each row \(i\), the prover interpolates a polynomial \(P_i\in\Fq[X]\) of deg
 committed witness is therefore a family of row polynomials \(P=(P_1,\ldots,P_n)\).
 
 SmallWood proves families of constraints over these rows.  Parallel constraints are slotwise identities; aggregated
-constraints are domain-summed identities.  In ARC-SPRUCE, the target-shaped commitment equation and the signature
-equation are linear coefficient-wise constraints; the inverse-witness equation
-\((B_3-\mathbf 1_nx_1)\Had Z=1_n\) is bilinear; and the PRF checks contain the nonlinear Poseidon2-style
-S-box constraints.  Range, carry, packing-consistency, and norm gadgets may additionally use aggregated checks.
-The whole showing relation is therefore not linear, but its only rational-hash nonlinearity is the bilinear inverse
-check.
+constraints are domain-summed identities.  We use the compiled proof as a NIZK-ARK in the sense of
+Definition~\ref{def:nizk-ark}: completeness gives accepting proofs for honest witnesses, straightline-extractable
+knowledge soundness gives an extracted row witness from an accepting proof except with the stated soundness error,
+and zero knowledge hides all unopened witness rows.  The theorems below state the coefficient-domain consequences
+of such an extracted witness.
+
+In ARC-SPRUCE, the target-shaped commitment equation and the signature equation are linear coefficient-wise
+constraints; the inverse-witness equation \((B_3-\mathbf 1_nx_1)\Had Z=1_n\) is bilinear; and the PRF checks contain
+the nonlinear Poseidon2-style S-box constraints.  Range, carry, packing-consistency, and norm gadgets may additionally
+use aggregated checks.  The whole showing relation is therefore not linear, but its only rational-hash nonlinearity is
+the bilinear inverse check.
 
 \subsection{Issuance as a SmallWood statement}
 \label{subsec:smallwood-issuance}

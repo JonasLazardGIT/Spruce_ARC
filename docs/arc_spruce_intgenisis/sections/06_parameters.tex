@@ -158,6 +158,50 @@ ring polynomials, contributing \(4\cdot32=128\) rows at the same packing.  These
 statements only; final proof sizes require running the SmallWood optimizer with the actual row inventory, constraint
 degrees, Fiat--Shamir parameters, and PRF checkpoint schedule.
 
+\subsection{Paper-shaped small-field transcript accounting}
+\label{subsec:paper-shaped-smallfield-accounting}
+
+The implementation now uses the strict small-field transcript shape of SmallWood~2025/1085, Section~5.4 for the
+promoted \(N=1024\) IntGenISIS showing presets.  In this paper-shaped specialization the PIOP is over an extension
+\(K/\Fq\) of degree \(\theta\), and the canonical setting is
+\[
+  \rho=1,
+  \qquad
+  \ell'=1.
+\]
+The live protocol mode \texttt{smallfield\_2025\_1085\_v1} is therefore guarded to this canonical shape; tuples with
+\(\rho>1\) or \(\ell'>1\) remain outside the promoted strict path and must be retuned before being claimed as
+paper-shaped live transcripts.
+
+Let \(n\) be the number of witness row polynomials, let \(s\) be the witness support size, and let \(c\) be the
+SmallWood-LVCS row width.  The paper-shaped small-field matrix has
+\[
+  n_{\mathrm{rows}}
+    =
+    \left\lceil \frac{n}{c} \right\rceil (s+\theta)
+    +
+    \left\lceil \frac{d_Q+1}{c} \right\rceil \theta
+\]
+committed base-field rows.  The number of LVCS queries for one extension-field opening is
+\[
+  m
+    =
+    \left(\left\lceil \frac{n}{c} \right\rceil + 1\right)\theta .
+\]
+The transcript-size estimator reports the corresponding paper buckets separately:
+\[
+  Q:\ (d_Q-2)\theta\log_2 q,
+  \qquad
+  v:\ (n+c)\theta\log_2 q,
+  \qquad
+  \bar v:\ m\ell\log_2 q,
+\]
+and the DECS opening term applies the paper reconstruction saving of \(m\ell\) field elements across the sampled
+tail rows.  The strict verifier consumes the paper \(v,\bar v,P_{\mathrm{decs}}\vert_E,M_{\mathrm{decs}}\vert_E\)
+payload directly: mask-coordinate checks are carried by \(\bar v\), not by serialized DECS mask openings.  The
+omitted \(P\)-entries are recomputed from deterministic pivot columns of the LVCS matrix, and all \(M\)-entries are
+reconstructed from \(R=M+\Gamma P\).  The verifier rejects unless the reconstruction system has full rank.
+
 \subsection{Secondary compact profile}
 A smaller-ring candidate is
 \[
