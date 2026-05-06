@@ -983,6 +983,45 @@ func intGenISISPublicCoeffFromNTT(ringQ *ring.Ring, pNTT *ring.Poly, name string
 	return trimCoeffsCopy(coeff, ringQ.Modulus[0]), nil
 }
 
+type intGenISISRowCoeffCache struct {
+	ringQ *ring.Ring
+	q     uint64
+	rows  []*ring.Poly
+	coeff [][]uint64
+}
+
+func newIntGenISISRowCoeffCache(ringQ *ring.Ring, rowsNTT []*ring.Poly) (*intGenISISRowCoeffCache, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	q := ringQ.Modulus[0]
+	cache := &intGenISISRowCoeffCache{
+		ringQ: ringQ,
+		q:     q,
+		rows:  rowsNTT,
+		coeff: make([][]uint64, len(rowsNTT)),
+	}
+	for i := range rowsNTT {
+		if rowsNTT[i] == nil {
+			return nil, fmt.Errorf("nil row index %d", i)
+		}
+		tmp := ringQ.NewPoly()
+		ringQ.InvNTT(rowsNTT[i], tmp)
+		cache.coeff[i] = trimCoeffsCopy(tmp.Coeffs[0], q)
+	}
+	return cache, nil
+}
+
+func (c *intGenISISRowCoeffCache) Row(idx int) ([]uint64, error) {
+	if c == nil {
+		return nil, fmt.Errorf("missing row coefficient cache")
+	}
+	if idx < 0 || idx >= len(c.coeff) || c.rows[idx] == nil {
+		return nil, fmt.Errorf("invalid row index %d", idx)
+	}
+	return c.coeff[idx], nil
+}
+
 func intGenISISNegacyclicWeight(multCoeff []uint64, outIdx, srcIdx, n int, q uint64) uint64 {
 	if n <= 0 || outIdx < 0 || outIdx >= n || srcIdx < 0 || srcIdx >= n || len(multCoeff) == 0 {
 		return 0
@@ -1190,21 +1229,12 @@ func newIntGenISISYLinearMapCache(ringQ *ring.Ring, pub PublicInputs, l *IntGenI
 	return out, nil
 }
 
-func intGenISISYLinearSourceFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Poly, l *IntGenISISShowingRowLayout, cache *intGenISISYLinearMapCache, compressionSpec intGenISISMSECompressionSpec) ([][][][]uint64, error) {
+func intGenISISYLinearSourceFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Poly, rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, cache *intGenISISYLinearMapCache, compressionSpec intGenISISMSECompressionSpec) ([][][][]uint64, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
 	if l == nil || cache == nil {
 		return nil, fmt.Errorf("missing IntGenISIS Y-linear metadata")
-	}
-	q := ringQ.Modulus[0]
-	rowCoeff := func(idx int) ([]uint64, error) {
-		if idx < 0 || idx >= len(rowsNTT) || rowsNTT[idx] == nil {
-			return nil, fmt.Errorf("invalid Y-linear row index %d", idx)
-		}
-		tmp := ringQ.NewPoly()
-		ringQ.InvNTT(rowsNTT[idx], tmp)
-		return trimCoeffsCopy(tmp.Coeffs[0], q), nil
 	}
 	sourceCoeffs := make([][][][]uint64, len(cache.Terms))
 	for ti, term := range cache.Terms {
@@ -1225,7 +1255,7 @@ func intGenISISYLinearSourceFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Poly,
 		for comp := 0; comp < term.Components; comp++ {
 			sourceCoeffs[ti][comp] = make([][]uint64, l.ViewRowsPerPoly)
 			for block := 0; block < l.ViewRowsPerPoly; block++ {
-				coeff, err := rowCoeff(term.Source + comp*l.ViewRowsPerPoly + block)
+				coeff, err := rowCache.Row(term.Source + comp*l.ViewRowsPerPoly + block)
 				if err != nil {
 					return nil, err
 				}
@@ -1236,7 +1266,7 @@ func intGenISISYLinearSourceFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Poly,
 	return sourceCoeffs, nil
 }
 
-func intGenISISYLinearConstraintFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Poly, l *IntGenISISShowingRowLayout, cache *intGenISISYLinearMapCache, compressionSpec intGenISISMSECompressionSpec) ([]*ring.Poly, [][]uint64, error) {
+func intGenISISYLinearConstraintFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Poly, rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, cache *intGenISISYLinearMapCache, compressionSpec intGenISISMSECompressionSpec) ([]*ring.Poly, [][]uint64, error) {
 	if ringQ == nil {
 		return nil, nil, fmt.Errorf("nil ring")
 	}
@@ -1244,15 +1274,7 @@ func intGenISISYLinearConstraintFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.P
 		return nil, nil, fmt.Errorf("missing IntGenISIS Y-linear metadata")
 	}
 	q := ringQ.Modulus[0]
-	rowCoeff := func(idx int) ([]uint64, error) {
-		if idx < 0 || idx >= len(rowsNTT) || rowsNTT[idx] == nil {
-			return nil, fmt.Errorf("invalid Y-linear row index %d", idx)
-		}
-		tmp := ringQ.NewPoly()
-		ringQ.InvNTT(rowsNTT[idx], tmp)
-		return trimCoeffsCopy(tmp.Coeffs[0], q), nil
-	}
-	sourceCoeffs, err := intGenISISYLinearSourceFormalCoeffs(ringQ, rowsNTT, l, cache, compressionSpec)
+	sourceCoeffs, err := intGenISISYLinearSourceFormalCoeffs(ringQ, rowsNTT, rowCache, l, cache, compressionSpec)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1260,7 +1282,7 @@ func intGenISISYLinearConstraintFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.P
 	fagg := make([]*ring.Poly, 0, l.ViewRowsPerPoly*ncols)
 	coeffs := make([][]uint64, 0, l.ViewRowsPerPoly*ncols)
 	for block := 0; block < l.ViewRowsPerPoly; block++ {
-		yCoeff, err := rowCoeff(l.YViewStart + block)
+		yCoeff, err := rowCache.Row(l.YViewStart + block)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1284,7 +1306,7 @@ func intGenISISYLinearConstraintFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.P
 	return fagg, coeffs, nil
 }
 
-func intGenISISCoeffToHatBridgeFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Poly, omega []uint64, sourceStart, components, hatStart, rowsPerPoly int, name string) ([]*ring.Poly, [][]uint64, error) {
+func intGenISISCoeffToHatBridgeFormalCoeffs(ringQ *ring.Ring, rowCache *intGenISISRowCoeffCache, omega []uint64, sourceStart, components, hatStart, rowsPerPoly int, name string) ([]*ring.Poly, [][]uint64, error) {
 	if ringQ == nil {
 		return nil, nil, fmt.Errorf("nil ring")
 	}
@@ -1300,27 +1322,19 @@ func intGenISISCoeffToHatBridgeFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Po
 		return nil, nil, fmt.Errorf("%s bridge basis: %w", name, err)
 	}
 	q := ringQ.Modulus[0]
-	rowCoeff := func(idx int) ([]uint64, error) {
-		if idx < 0 || idx >= len(rowsNTT) || rowsNTT[idx] == nil {
-			return nil, fmt.Errorf("invalid %s bridge row index %d", name, idx)
-		}
-		tmp := ringQ.NewPoly()
-		ringQ.InvNTT(rowsNTT[idx], tmp)
-		return trimCoeffsCopy(tmp.Coeffs[0], q), nil
-	}
 	fagg := make([]*ring.Poly, 0, components*rowsPerPoly*ncols)
 	coeffs := make([][]uint64, 0, components*rowsPerPoly*ncols)
 	for comp := 0; comp < components; comp++ {
 		sourceCoeffs := make([][]uint64, rowsPerPoly)
 		for srcBlock := 0; srcBlock < rowsPerPoly; srcBlock++ {
-			coeff, err := rowCoeff(sourceStart + comp*rowsPerPoly + srcBlock)
+			coeff, err := rowCache.Row(sourceStart + comp*rowsPerPoly + srcBlock)
 			if err != nil {
 				return nil, nil, err
 			}
 			sourceCoeffs[srcBlock] = coeff
 		}
 		for block := 0; block < rowsPerPoly; block++ {
-			hatCoeff, err := rowCoeff(hatStart + comp*rowsPerPoly + block)
+			hatCoeff, err := rowCache.Row(hatStart + comp*rowsPerPoly + block)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -1349,7 +1363,7 @@ func intGenISISCoeffToHatBridgeFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Po
 // transform into the signature equation. The transform bridge is an Ω-sum
 // identity, so public A terms are bound as lane scalars rather than as
 // pointwise row polynomials.
-func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs, rowsNTT []*ring.Poly, l *IntGenISISShowingRowLayout, basis *transformBridgeBasisCache, omega []uint64, yLinearCache *intGenISISYLinearMapCache, compressionSpec intGenISISMSECompressionSpec, phase *PhaseRecorder) ([]*ring.Poly, [][]uint64, error) {
+func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs, rowsNTT []*ring.Poly, rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, basis *transformBridgeBasisCache, omega []uint64, yLinearCache *intGenISISYLinearMapCache, compressionSpec intGenISISMSECompressionSpec, phase *PhaseRecorder) ([]*ring.Poly, [][]uint64, error) {
 	if ringQ == nil {
 		return nil, nil, fmt.Errorf("nil ring")
 	}
@@ -1368,14 +1382,6 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	if l.ViewRowsPerPoly*ncols != n {
 		return nil, nil, fmt.Errorf("IntGenISIS projected signature rows/poly*ncols=%d want ringN=%d", l.ViewRowsPerPoly*ncols, n)
 	}
-	rowCoeff := func(idx int) ([]uint64, error) {
-		if idx < 0 || idx >= len(rowsNTT) || rowsNTT[idx] == nil {
-			return nil, fmt.Errorf("invalid projected signature row index %d", idx)
-		}
-		tmp := ringQ.NewPoly()
-		ringQ.InvNTT(rowsNTT[idx], tmp)
-		return trimCoeffsCopy(tmp.Coeffs[0], q), nil
-	}
 	transformLaneCoeff := func(sourceStart, comp, block, lane int) ([]uint64, error) {
 		t := block*ncols + lane
 		if t < 0 || t >= len(basis.TransformH) || t >= len(basis.BlockFactors) {
@@ -1383,7 +1389,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		}
 		left := []uint64{0}
 		for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
-			sourceCoeff, err := rowCoeff(sourceStart + comp*l.ViewRowsPerPoly + srcBlock)
+			sourceCoeff, err := rowCache.Row(sourceStart + comp*l.ViewRowsPerPoly + srcBlock)
 			if err != nil {
 				return nil, err
 			}
@@ -1399,7 +1405,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	var ySourceCoeffs [][][][]uint64
 	if intGenISISProjectionDerivesYView(l) {
 		var yerr error
-		ySourceCoeffs, yerr = intGenISISYLinearSourceFormalCoeffs(ringQ, rowsNTT, l, yLinearCache, compressionSpec)
+		ySourceCoeffs, yerr = intGenISISYLinearSourceFormalCoeffs(ringQ, rowsNTT, rowCache, l, yLinearCache, compressionSpec)
 		if yerr != nil {
 			return nil, nil, yerr
 		}
@@ -1482,18 +1488,18 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 				}
 			}
 		}
-		muCoeff, err := rowCoeff(l.MuSigHatStart + block)
+		muCoeff, err := rowCache.Row(l.MuSigHatStart + block)
 		if err != nil {
 			return nil, nil, err
 		}
 		x0Coeff := make([][]uint64, l.X0Count)
 		for i := 0; i < l.X0Count; i++ {
-			x0Coeff[i], err = rowCoeff(l.X0HatStart + i*l.ViewRowsPerPoly + block)
+			x0Coeff[i], err = rowCache.Row(l.X0HatStart + i*l.ViewRowsPerPoly + block)
 			if err != nil {
 				return nil, nil, err
 			}
 		}
-		zCoeff, err := rowCoeff(l.ZHatStart + block)
+		zCoeff, err := rowCache.Row(l.ZHatStart + block)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1596,17 +1602,17 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 	}); err != nil {
 		return ConstraintSet{}, err
 	}
-	rowCoeff := func(idx int) ([]uint64, error) {
-		if idx < 0 || idx >= len(rowsNTT) || rowsNTT[idx] == nil {
-			return nil, fmt.Errorf("invalid row index %d", idx)
-		}
-		tmp := ringQ.NewPoly()
-		ringQ.InvNTT(rowsNTT[idx], tmp)
-		return trimCoeffsCopy(tmp.Coeffs[0], q), nil
+	var rowCache *intGenISISRowCoeffCache
+	if err := stage("showing.constraints.projected.row_coeff_cache", func() error {
+		var rerr error
+		rowCache, rerr = newIntGenISISRowCoeffCache(ringQ, rowsNTT)
+		return rerr
+	}); err != nil {
+		return ConstraintSet{}, err
 	}
 	coeffs := make([][]uint64, 0, 2*l.ViewRowsPerPoly)
 	for block := 0; block < l.ViewRowsPerPoly; block++ {
-		zCoeff, err := rowCoeff(l.ZHatStart + block)
+		zCoeff, err := rowCache.Row(l.ZHatStart + block)
 		if err != nil {
 			return ConstraintSet{}, err
 		}
@@ -1617,7 +1623,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 				if err != nil {
 					return ConstraintSet{}, err
 				}
-				uCoeff, err := rowCoeff(l.UHatStart + i*l.ViewRowsPerPoly + block)
+				uCoeff, err := rowCache.Row(l.UHatStart + i*l.ViewRowsPerPoly + block)
 				if err != nil {
 					return ConstraintSet{}, err
 				}
@@ -1632,7 +1638,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 			if err != nil {
 				return ConstraintSet{}, err
 			}
-			muCoeff, err := rowCoeff(l.MuSigHatStart + block)
+			muCoeff, err := rowCache.Row(l.MuSigHatStart + block)
 			if err != nil {
 				return ConstraintSet{}, err
 			}
@@ -1642,14 +1648,14 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 				if err != nil {
 					return ConstraintSet{}, err
 				}
-				x0Coeff, err := rowCoeff(l.X0HatStart + i*l.ViewRowsPerPoly + block)
+				x0Coeff, err := rowCache.Row(l.X0HatStart + i*l.ViewRowsPerPoly + block)
 				if err != nil {
 					return ConstraintSet{}, err
 				}
 				sig = polySub(sig, polyMul(bCoeff, x0Coeff, q), q)
 			}
 			sig = polySub(sig, zCoeff, q)
-			yHatCoeff, err := rowCoeff(l.YHatStart + block)
+			yHatCoeff, err := rowCache.Row(l.YHatStart + block)
 			if err != nil {
 				return ConstraintSet{}, err
 			}
@@ -1661,7 +1667,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 		if err != nil {
 			return ConstraintSet{}, err
 		}
-		x1Coeff, err := rowCoeff(l.X1HatStart + block)
+		x1Coeff, err := rowCache.Row(l.X1HatStart + block)
 		if err != nil {
 			return ConstraintSet{}, err
 		}
@@ -1689,7 +1695,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 				if keySlot.Coeff < 0 || keySlot.Coeff >= len(selectorCoeff) || srcSlot.Coeff < 0 || srcSlot.Coeff >= len(selectorCoeff) {
 					return fmt.Errorf("PRF key binding slot out of range")
 				}
-				keyCoeff, err := rowCoeff(keySlot.Row)
+				keyCoeff, err := rowCache.Row(keySlot.Row)
 				if err != nil {
 					return fmt.Errorf("PRF key row: %w", err)
 				}
@@ -1703,7 +1709,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 						return err
 					}
 				} else {
-					srcCoeff, err = rowCoeff(srcSlot.Row)
+					srcCoeff, err = rowCache.Row(srcSlot.Row)
 					if err != nil {
 						return fmt.Errorf("PRF key source row: %w", err)
 					}
@@ -1773,7 +1779,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 	bridgePolys := append([]*ring.Poly{}, keyBindPolys...)
 	bridgeCoeffs := append([][]uint64{}, keyBindCoeffs...)
 	if !derivedYView {
-		yPolys, yCoeffs, err := intGenISISYLinearConstraintFormalCoeffs(ringQ, rowsNTT, l, yLinearCache, compressionSpec)
+		yPolys, yCoeffs, err := intGenISISYLinearConstraintFormalCoeffs(ringQ, rowsNTT, rowCache, l, yLinearCache, compressionSpec)
 		if err != nil {
 			return ConstraintSet{}, err
 		}
@@ -1789,7 +1795,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 				return fmt.Errorf("IntGenISIS projected signature bridge basis: %w", berr)
 			}
 			var perr error
-			projectedPolys, projectedCoeffs, perr = intGenISISProjectedSignatureFormalCoeffs(ringQ, pub, rowsNTT, l, basis, omega, yLinearCache, compressionSpec, phase)
+			projectedPolys, projectedCoeffs, perr = intGenISISProjectedSignatureFormalCoeffs(ringQ, pub, rowsNTT, rowCache, l, basis, omega, yLinearCache, compressionSpec, phase)
 			return perr
 		}); err != nil {
 			return ConstraintSet{}, err
@@ -1824,7 +1830,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 			if bridge.compressed {
 				polys, coeffs, berr = intGenISISCompressedCoeffToHatBridgeFormalCoeffs(ringQ, rowsNTT, omega, source, bridge.components, bridge.hat, l.ViewRowsPerPoly, l.MSECompressionPackWidth, compressionSpec.DecodePolys, bridge.name)
 			} else {
-				polys, coeffs, berr = intGenISISCoeffToHatBridgeFormalCoeffs(ringQ, rowsNTT, omega, source, bridge.components, bridge.hat, l.ViewRowsPerPoly, bridge.name)
+				polys, coeffs, berr = intGenISISCoeffToHatBridgeFormalCoeffs(ringQ, rowCache, omega, source, bridge.components, bridge.hat, l.ViewRowsPerPoly, bridge.name)
 			}
 			if berr != nil {
 				return ConstraintSet{}, berr
