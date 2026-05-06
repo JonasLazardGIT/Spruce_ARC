@@ -21,6 +21,35 @@ func addMod64Reduced(a, b, m uint64) uint64 {
 	return s
 }
 
+type modReducer64 struct {
+	mod   uint64
+	recip uint64
+	fast  bool
+}
+
+func newModReducer64(mod uint64) modReducer64 {
+	red := modReducer64{mod: mod}
+	if mod > 1 && mod <= uint64(^uint32(0)) {
+		red.recip, _ = bits.Div64(1, 0, mod)
+		red.fast = true
+	}
+	return red
+}
+
+func (r modReducer64) mulReduced(a, b uint64) uint64 {
+	hi, lo := bits.Mul64(a, b)
+	if r.fast && hi == 0 {
+		qhat, _ := bits.Mul64(lo, r.recip)
+		rem := lo - qhat*r.mod
+		for rem >= r.mod {
+			rem -= r.mod
+		}
+		return rem
+	}
+	_, rem := bits.Div64(hi, lo, r.mod)
+	return rem
+}
+
 func mulMod64(a, b, m uint64) uint64 {
 	if a >= m {
 		a %= m

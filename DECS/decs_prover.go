@@ -79,16 +79,17 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 	return formalEvalPlan{rowCount: rowCount, maxDeg: maxDeg, coeffs: coeffs}
 }
 
-func (p formalEvalPlan) evalInto(dst []uint64, x, q uint64) {
+func (p formalEvalPlan) evalInto(dst []uint64, x uint64, red modReducer64) {
 	if p.rowCount == 0 {
 		return
 	}
+	q := red.mod
 	top := p.coeffs[p.maxDeg*p.rowCount : (p.maxDeg+1)*p.rowCount]
 	copy(dst[:p.rowCount], top)
 	for d := p.maxDeg - 1; d >= 0; d-- {
 		row := p.coeffs[d*p.rowCount : (d+1)*p.rowCount]
 		for j := 0; j < p.rowCount; j++ {
-			dst[j] = addMod64Reduced(mulMod64Reduced(dst[j], x, q), row[j], q)
+			dst[j] = addMod64Reduced(red.mulReduced(dst[j], x), row[j], q)
 		}
 	}
 }
@@ -200,6 +201,7 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 	}
 	leafBytes := 4*(r+pr.params.Eta) + 2 + pr.params.NonceBytes
 	if pr.PFormal != nil {
+		red := newModReducer64(q)
 		pPlan := newFormalEvalPlan(pr.PFormal, q)
 		mPlan := newFormalEvalPlan(pr.MFormal, q)
 		workers := runtime.GOMAXPROCS(0)
@@ -212,8 +214,8 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 			for i := 0; i < N; i++ {
 				buf = buf[:leafBytes]
 				x := pr.points[i] % q
-				pPlan.evalInto(pScratch, x, q)
-				mPlan.evalInto(mScratch, x, q)
+				pPlan.evalInto(pScratch, x, red)
+				mPlan.evalInto(mScratch, x, red)
 				off := 0
 				for j := 0; j < r; j++ {
 					binary.LittleEndian.PutUint32(buf[off:], uint32(pScratch[j]))
@@ -246,8 +248,8 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 					for i := start; i < N; i += workers {
 						buf = buf[:leafBytes]
 						x := pr.points[i] % q
-						pPlan.evalInto(pScratch, x, q)
-						mPlan.evalInto(mScratch, x, q)
+						pPlan.evalInto(pScratch, x, red)
+						mPlan.evalInto(mScratch, x, red)
 						off := 0
 						for j := 0; j < r; j++ {
 							binary.LittleEndian.PutUint32(buf[off:], uint32(pScratch[j]))
