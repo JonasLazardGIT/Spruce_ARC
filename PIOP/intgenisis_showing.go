@@ -1,8 +1,11 @@
 package PIOP
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
@@ -961,6 +964,13 @@ type intGenISISYLinearMapCache struct {
 	Terms    []intGenISISYLinearTermCache
 }
 
+var intGenISISYLinearGlobalCache struct {
+	sync.RWMutex
+	key   [32]byte
+	value *intGenISISYLinearMapCache
+	ok    bool
+}
+
 func intGenISISPublicCoeffFromNTT(ringQ *ring.Ring, pNTT *ring.Poly, name string) ([]uint64, error) {
 	if pNTT == nil {
 		return nil, fmt.Errorf("nil %s", name)
@@ -1022,12 +1032,101 @@ func intGenISISLinearHForMultiplier(ringQ *ring.Ring, omega []uint64, multCoeff 
 	return out, nil
 }
 
+func intGenISISYLinearCacheKey(ringQ *ring.Ring, pub PublicInputs, l *IntGenISISShowingRowLayout, omega []uint64) ([32]byte, bool) {
+	if ringQ == nil || l == nil || len(ringQ.Modulus) == 0 {
+		return [32]byte{}, false
+	}
+	h := sha256.New()
+	var buf [8]byte
+	writeU64 := func(v uint64) {
+		binary.LittleEndian.PutUint64(buf[:], v)
+		_, _ = h.Write(buf[:])
+	}
+	writeInt := func(v int) {
+		writeU64(uint64(v))
+	}
+	writePoly := func(p *ring.Poly) {
+		if p == nil {
+			writeU64(^uint64(0))
+			return
+		}
+		writeInt(len(p.Coeffs))
+		for i := range p.Coeffs {
+			writeInt(len(p.Coeffs[i]))
+			for _, v := range p.Coeffs[i] {
+				writeU64(v)
+			}
+		}
+	}
+	_, _ = h.Write([]byte("intgenisis-y-linear-map-cache-v1"))
+	writeU64(ringQ.Modulus[0])
+	writeInt(int(ringQ.N))
+	writeInt(len(omega))
+	for _, v := range omega {
+		writeU64(v)
+	}
+	writeInt(l.ViewRowsPerPoly)
+	writeInt(l.MSECompressionLevel)
+	writeInt(l.MViewStart)
+	writeInt(l.SViewStart)
+	writeInt(l.EViewStart)
+	writeInt(l.MCarrierStart)
+	writeInt(l.SCarrierStart)
+	writeInt(l.ECarrierStart)
+	writeInt(l.MCount)
+	writeInt(l.SCount)
+	writeInt(l.ECount)
+	writeInt(len(pub.CM))
+	for i := range pub.CM {
+		writeInt(len(pub.CM[i]))
+		for j := range pub.CM[i] {
+			writePoly(pub.CM[i][j])
+		}
+	}
+	writeInt(len(pub.AS))
+	for i := range pub.AS {
+		writeInt(len(pub.AS[i]))
+		for j := range pub.AS[i] {
+			writePoly(pub.AS[i][j])
+		}
+	}
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out, true
+}
+
+func loadIntGenISISYLinearGlobalCache(key [32]byte) (*intGenISISYLinearMapCache, bool) {
+	intGenISISYLinearGlobalCache.RLock()
+	defer intGenISISYLinearGlobalCache.RUnlock()
+	if intGenISISYLinearGlobalCache.ok && intGenISISYLinearGlobalCache.key == key && intGenISISYLinearGlobalCache.value != nil {
+		return intGenISISYLinearGlobalCache.value, true
+	}
+	return nil, false
+}
+
+func storeIntGenISISYLinearGlobalCache(key [32]byte, value *intGenISISYLinearMapCache) {
+	if value == nil {
+		return
+	}
+	intGenISISYLinearGlobalCache.Lock()
+	intGenISISYLinearGlobalCache.key = key
+	intGenISISYLinearGlobalCache.value = value
+	intGenISISYLinearGlobalCache.ok = true
+	intGenISISYLinearGlobalCache.Unlock()
+}
+
 func newIntGenISISYLinearMapCache(ringQ *ring.Ring, pub PublicInputs, l *IntGenISISShowingRowLayout, omega []uint64) (*intGenISISYLinearMapCache, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
 	if l == nil {
 		return nil, fmt.Errorf("missing IntGenISIS showing layout")
+	}
+	cacheKey, cacheable := intGenISISYLinearCacheKey(ringQ, pub, l, omega)
+	if cacheable {
+		if cached, ok := loadIntGenISISYLinearGlobalCache(cacheKey); ok {
+			return cached, nil
+		}
 	}
 	lagrange, err := buildLagrangeBasisCoeffs(omega, ringQ.Modulus[0])
 	if err != nil {
@@ -1080,10 +1179,14 @@ func newIntGenISISYLinearMapCache(ringQ *ring.Ring, pub PublicInputs, l *IntGenI
 	if err != nil {
 		return nil, err
 	}
-	return &intGenISISYLinearMapCache{
+	out := &intGenISISYLinearMapCache{
 		Lagrange: lagrange,
 		Terms:    []intGenISISYLinearTermCache{mTerm, sTerm, eTerm},
-	}, nil
+	}
+	if cacheable {
+		storeIntGenISISYLinearGlobalCache(cacheKey, out)
+	}
+	return out, nil
 }
 
 func intGenISISYLinearSourceFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Poly, l *IntGenISISShowingRowLayout, cache *intGenISISYLinearMapCache, compressionSpec intGenISISMSECompressionSpec) ([][][][]uint64, error) {
