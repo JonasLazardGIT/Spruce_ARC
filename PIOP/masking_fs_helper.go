@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
@@ -218,7 +219,11 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		q = ringQ.Modulus[0]
 	}
 	stage := func(label string, fn func() error) error {
+		start := time.Now()
 		err := fn()
+		if o.PhaseRecorder != nil {
+			o.PhaseRecorder.RecordDuration(label, time.Since(start))
+		}
 		return err
 	}
 	// FS initialization

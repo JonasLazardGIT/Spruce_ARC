@@ -6,6 +6,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/pprof"
+	"runtime/trace"
 	"strings"
 
 	"vSIS-Signature/PIOP"
@@ -184,6 +187,9 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	keygenAttempts := fs.Int("attempts", 4, "annulus keygen attempts")
 	ntruBeta := fs.Uint64("ntru-beta", 0, "optional research NTRU signature beta override; 0 keeps profile default")
 	maxTrials := fs.Int("max-trials", 2048, "maximum NTRU signer trials")
+	cpuProfile := fs.String("cpuprofile", "", "write CPU profile to this path")
+	memProfile := fs.String("memprofile", "", "write heap allocation profile to this path")
+	traceProfile := fs.String("trace", "", "write runtime trace to this path")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -257,7 +263,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		applyPrefixedTuningFlagOverrides(&showing, setFlags, "showing-", *showingNCols, *showingLVCSNCols, *showingNLeaves, *showingEta, *showingTheta, *showingRho, *showingEll, *showingEllPrime)
 		applyShowingSpecificFlagOverrides(&showing, setFlags, PIOP.PRFCompanionMode(*companionMode), *prfGroupRounds, *checkpointSamples, *showingShortnessRadix, *showingShortnessDigits, *showingCompressedRows, *showingReplayProjection, *showingTranscriptMode)
 	}
-	_, err = benchmarkIntGenISISE2E(benchmarkIntGenISISE2EConfig{
+	cfg := benchmarkIntGenISISE2EConfig{
 		ArtifactDir:       *artifactDir,
 		Profile:           *profile,
 		ProfileBound:      *profileBound,
@@ -283,7 +289,65 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		NTRUBeta:          *ntruBeta,
 		MaxTrials:         *maxTrials,
 		MaxNLeaves:        *maxNLeaves,
+	}
+	return runWithBenchmarkProfiles(*cpuProfile, *memProfile, *traceProfile, func() error {
+		_, err := benchmarkIntGenISISE2E(cfg)
+		return err
 	})
+}
+
+func runWithBenchmarkProfiles(cpuPath, memPath, tracePath string, fn func() error) (err error) {
+	if cpuPath != "" {
+		f, createErr := os.Create(cpuPath)
+		if createErr != nil {
+			return fmt.Errorf("create CPU profile %s: %w", cpuPath, createErr)
+		}
+		if startErr := pprof.StartCPUProfile(f); startErr != nil {
+			_ = f.Close()
+			return fmt.Errorf("start CPU profile %s: %w", cpuPath, startErr)
+		}
+		defer func() {
+			pprof.StopCPUProfile()
+			if closeErr := f.Close(); closeErr != nil && err == nil {
+				err = fmt.Errorf("close CPU profile %s: %w", cpuPath, closeErr)
+			}
+		}()
+	}
+	if tracePath != "" {
+		f, createErr := os.Create(tracePath)
+		if createErr != nil {
+			return fmt.Errorf("create trace %s: %w", tracePath, createErr)
+		}
+		if startErr := trace.Start(f); startErr != nil {
+			_ = f.Close()
+			return fmt.Errorf("start trace %s: %w", tracePath, startErr)
+		}
+		defer func() {
+			trace.Stop()
+			if closeErr := f.Close(); closeErr != nil && err == nil {
+				err = fmt.Errorf("close trace %s: %w", tracePath, closeErr)
+			}
+		}()
+	}
+	err = fn()
+	if memPath != "" {
+		runtime.GC()
+		f, createErr := os.Create(memPath)
+		if createErr != nil {
+			if err == nil {
+				err = fmt.Errorf("create memory profile %s: %w", memPath, createErr)
+			}
+			return err
+		}
+		writeErr := pprof.WriteHeapProfile(f)
+		closeErr := f.Close()
+		if err == nil && writeErr != nil {
+			err = fmt.Errorf("write memory profile %s: %w", memPath, writeErr)
+		}
+		if err == nil && closeErr != nil {
+			err = fmt.Errorf("close memory profile %s: %w", memPath, closeErr)
+		}
+	}
 	return err
 }
 

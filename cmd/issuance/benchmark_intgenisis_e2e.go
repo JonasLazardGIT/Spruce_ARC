@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"vSIS-Signature/PIOP"
@@ -561,6 +562,7 @@ func benchmarkIntGenISISE2EPreSignMetrics(holderSecretPath, commitRequestPath, s
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, err
 	}
+	rt.opts.PhaseRecorder = PIOP.NewPhaseRecorder()
 	cm, as, err := intGenISISCommitmentMatricesNTT(rt.ringQ, rt.public)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, err
@@ -578,10 +580,13 @@ func benchmarkIntGenISISE2EPreSignMetrics(holderSecretPath, commitRequestPath, s
 	verifyStart := time.Now()
 	ok, err := PIOP.VerifyIntGenISISPreSign(pub, sub.Proof, rt.opts)
 	verifyDur := time.Since(verifyStart)
+	rt.opts.PhaseRecorder.RecordDuration("issuance.verify_total", verifyDur)
 	if err != nil || !ok {
 		return benchmarkIntGenISISMetrics{}, fmt.Errorf("verify e2e pre-sign proof for metrics: ok=%v err=%v", ok, err)
 	}
+	reportStart := time.Now()
 	rep, err := PIOP.BuildProofReport(sub.Proof, rt.opts, rt.ringQ)
+	rt.opts.PhaseRecorder.RecordDuration("issuance.report", time.Since(reportStart))
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, fmt.Errorf("pre-sign proof report: %w", err)
 	}
@@ -610,6 +615,7 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("load prf params: %w", err)
 	}
 	opts := benchmarkIntGenISISE2EShowingOpts(st.RingDegree, cfg)
+	opts.PhaseRecorder = PIOP.NewPhaseRecorder()
 	if opts.NCols < params.LenKey {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("ncols=%d is too small for PRF key width %d", opts.NCols, params.LenKey)
 	}
@@ -671,6 +677,7 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	proveStart := time.Now()
 	proof, err := PIOP.BuildIntGenISISShowingCombined(pub, wit, opts)
 	proveDur := time.Since(proveStart)
+	opts.PhaseRecorder.RecordDuration("showing.prove_total", proveDur)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("build IntGenISIS showing: %w", err)
 	}
@@ -683,10 +690,13 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	verifyStart := time.Now()
 	ok, err = PIOP.VerifyIntGenISISShowing(verifyPub, proof, opts)
 	verifyDur := time.Since(verifyStart)
+	opts.PhaseRecorder.RecordDuration("showing.verify_total", verifyDur)
 	if err != nil || !ok {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("standalone verify IntGenISIS showing: ok=%v err=%v", ok, err)
 	}
+	reportStart := time.Now()
 	rep, err := PIOP.BuildProofReport(proof, opts, ringQ)
+	opts.PhaseRecorder.RecordDuration("showing.report", time.Since(reportStart))
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("showing proof report: %w", err)
 	}
@@ -879,6 +889,18 @@ func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics
 			label,
 			m.TranscriptSecurityStatus,
 		)
+	}
+	if len(m.PhaseTimings) > 0 {
+		var b strings.Builder
+		for i, ph := range m.PhaseTimings {
+			if i > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString(ph.Label)
+			b.WriteByte('=')
+			b.WriteString(fmt.Sprintf("%.2fms", ph.Milliseconds))
+		}
+		log.Printf("[issuance-cli] IntGenISIS %s phase_timings %s", label, b.String())
 	}
 	log.Printf("[issuance-cli] IntGenISIS %s audit views total=%d u=%d semantic=%d commitment=%d y=%d issuer=%d constraints fpar_int=%d range=%d shortness=%d y_linear=%d bridge_total=%d bridge_u=%d bridge_commitment=%d bridge_issuer=%d prf_key=%d",
 		label,

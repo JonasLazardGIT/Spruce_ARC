@@ -517,6 +517,7 @@ type SimOpts struct {
 	// Empty preserves the legacy implementation. The SmallWood 2025 version is
 	// introduced incrementally and requires an explicit PACS Q payload.
 	TranscriptVersion string
+	PhaseRecorder     *PhaseRecorder                                                                               `json:"-"`
 	Mutate            func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
 	Credential        bool
 }
