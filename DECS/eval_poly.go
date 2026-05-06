@@ -57,6 +57,21 @@ func (r modReducer64) mulReduced(a, b uint64) uint64 {
 	return rem
 }
 
+func (r modReducer64) reduceUint64(v uint64) uint64 {
+	if v < r.mod {
+		return v
+	}
+	if r.fast {
+		qhat, _ := bits.Mul64(v, r.recip)
+		rem := v - qhat*r.mod
+		for rem >= r.mod {
+			rem -= r.mod
+		}
+		return rem
+	}
+	return v % r.mod
+}
+
 func mulMod64(a, b, m uint64) uint64 {
 	if a >= m {
 		a %= m

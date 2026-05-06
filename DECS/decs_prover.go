@@ -54,32 +54,147 @@ func deriveNonceInto(dst []byte, scratch []byte, seed []byte, idx int) []byte {
 }
 
 type formalEvalPlan struct {
-	rowCount int
-	maxDeg   int
-	coeffs   []uint64
+	rowCount    int
+	maxDeg      int
+	nnz         int
+	rowDeg      []int
+	coeffs      []uint64
+	dotSafe     bool
+	sparseTerms []formalEvalTerm
+}
+
+type formalEvalTerm struct {
+	degree int
+	row    int
+	coeff  uint64
 }
 
 func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
-	maxDeg := 0
-	for _, row := range rows {
-		if len(row) > 0 && len(row)-1 > maxDeg {
-			maxDeg = len(row) - 1
-		}
-	}
 	rowCount := len(rows)
-	coeffs := make([]uint64, (maxDeg+1)*rowCount)
+	rowDeg := make([]int, rowCount)
+	for i := range rowDeg {
+		rowDeg[i] = -1
+	}
+	maxDeg := -1
+	nnz := 0
 	for j, row := range rows {
-		for d, c := range row {
+		for d := len(row) - 1; d >= 0; d-- {
+			c := row[d]
 			if c >= q {
 				c %= q
 			}
-			coeffs[d*rowCount+j] = c
+			if c == 0 {
+				continue
+			}
+			rowDeg[j] = d
+			if d > maxDeg {
+				maxDeg = d
+			}
+			break
+		}
+		for d := 0; d < len(row); d++ {
+			c := row[d]
+			if c >= q {
+				c %= q
+			}
+			if c != 0 {
+				nnz++
+			}
 		}
 	}
-	return formalEvalPlan{rowCount: rowCount, maxDeg: maxDeg, coeffs: coeffs}
+	if maxDeg < 0 {
+		maxDeg = 0
+	}
+	denseSlots := (maxDeg + 1) * rowCount
+	dotSafe := formalEvalDotSafe(maxDeg, q)
+	useSparse := dotSafe && nnz*4 < denseSlots
+	coeffs := make([]uint64, (maxDeg+1)*rowCount)
+	var sparseTerms []formalEvalTerm
+	if useSparse {
+		sparseTerms = make([]formalEvalTerm, 0, nnz)
+	}
+	for j, row := range rows {
+		limit := rowDeg[j]
+		if limit < 0 {
+			continue
+		}
+		for d := 0; d <= limit; d++ {
+			c := row[d]
+			if c >= q {
+				c %= q
+			}
+			if c == 0 {
+				continue
+			}
+			coeffs[d*rowCount+j] = c
+			if useSparse {
+				sparseTerms = append(sparseTerms, formalEvalTerm{degree: d, row: j, coeff: c})
+			}
+		}
+	}
+	return formalEvalPlan{
+		rowCount:    rowCount,
+		maxDeg:      maxDeg,
+		nnz:         nnz,
+		rowDeg:      rowDeg,
+		coeffs:      coeffs,
+		dotSafe:     dotSafe,
+		sparseTerms: sparseTerms,
+	}
+}
+
+func formalEvalDotSafe(maxDeg int, q uint64) bool {
+	if maxDeg < 0 || q <= 1 {
+		return true
+	}
+	v := q - 1
+	if v != 0 && v > ^uint64(0)/v {
+		return false
+	}
+	term := v * v
+	if term == 0 {
+		return true
+	}
+	return uint64(maxDeg+1) <= ^uint64(0)/term
+}
+
+func (p formalEvalPlan) usesPowerEval() bool {
+	return p.dotSafe
+}
+
+func computeFormalEvalPowers(powers []uint64, x uint64, red modReducer64) {
+	if len(powers) == 0 {
+		return
+	}
+	q := red.mod
+	if x >= q {
+		x %= q
+	}
+	powers[0] = 1 % q
+	for i := 1; i < len(powers); i++ {
+		powers[i] = red.mulReduced(powers[i-1], x)
+	}
 }
 
 func (p formalEvalPlan) evalInto(dst []uint64, x uint64, red modReducer64) {
+	if p.usesPowerEval() {
+		powers := make([]uint64, p.maxDeg+1)
+		computeFormalEvalPowers(powers, x, red)
+		p.evalIntoPrepared(dst, x, red, powers)
+		return
+	}
+	p.evalIntoHorner(dst, x, red)
+}
+
+func (p formalEvalPlan) evalIntoPrepared(dst []uint64, x uint64, red modReducer64, powers []uint64) {
+	if p.usesPowerEval() && len(powers) > p.maxDeg {
+		p.evalIntoPowers(dst, red, powers)
+		return
+	}
+	p.evalIntoHorner(dst, x, red)
+}
+
+func (p formalEvalPlan) evalIntoHorner(dst []uint64, x uint64, red modReducer64) {
 	if p.rowCount == 0 {
 		return
 	}
@@ -91,6 +206,37 @@ func (p formalEvalPlan) evalInto(dst []uint64, x uint64, red modReducer64) {
 		for j := 0; j < p.rowCount; j++ {
 			dst[j] = addMod64Reduced(red.mulReduced(dst[j], x), row[j], q)
 		}
+	}
+}
+
+func (p formalEvalPlan) evalIntoPowers(dst []uint64, red modReducer64, powers []uint64) {
+	if p.rowCount == 0 {
+		return
+	}
+	for j := 0; j < p.rowCount; j++ {
+		dst[j] = 0
+	}
+	if len(p.sparseTerms) > 0 {
+		for _, term := range p.sparseTerms {
+			dst[term.row] += term.coeff * powers[term.degree]
+		}
+	} else {
+		for d := 0; d <= p.maxDeg; d++ {
+			pow := powers[d]
+			if pow == 0 {
+				continue
+			}
+			row := p.coeffs[d*p.rowCount : (d+1)*p.rowCount]
+			for j, c := range row {
+				if c == 0 {
+					continue
+				}
+				dst[j] += c * pow
+			}
+		}
+	}
+	for j := 0; j < p.rowCount; j++ {
+		dst[j] = red.reduceUint64(dst[j])
 	}
 }
 
@@ -204,18 +350,30 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 		red := newModReducer64(q)
 		pPlan := newFormalEvalPlan(pr.PFormal, q)
 		mPlan := newFormalEvalPlan(pr.MFormal, q)
+		usePowerEval := pPlan.usesPowerEval() || mPlan.usesPowerEval()
+		powerCount := pPlan.maxDeg + 1
+		if mPlan.maxDeg+1 > powerCount {
+			powerCount = mPlan.maxDeg + 1
+		}
 		workers := runtime.GOMAXPROCS(0)
 		if workers < 2 || N < 128 {
 			buf := make([]byte, leafBytes)
 			pScratch := make([]uint64, r)
 			mScratch := make([]uint64, pr.params.Eta)
+			var powerScratch []uint64
+			if usePowerEval {
+				powerScratch = make([]uint64, powerCount)
+			}
 			nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
 			shake := nilShake()
 			for i := 0; i < N; i++ {
 				buf = buf[:leafBytes]
 				x := pr.points[i] % q
-				pPlan.evalInto(pScratch, x, red)
-				mPlan.evalInto(mScratch, x, red)
+				if usePowerEval {
+					computeFormalEvalPowers(powerScratch, x, red)
+				}
+				pPlan.evalIntoPrepared(pScratch, x, red, powerScratch)
+				mPlan.evalIntoPrepared(mScratch, x, red, powerScratch)
 				off := 0
 				for j := 0; j < r; j++ {
 					binary.LittleEndian.PutUint32(buf[off:], uint32(pScratch[j]))
@@ -248,13 +406,20 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 					buf := make([]byte, leafBytes)
 					pScratch := make([]uint64, r)
 					mScratch := make([]uint64, pr.params.Eta)
+					var powerScratch []uint64
+					if usePowerEval {
+						powerScratch = make([]uint64, powerCount)
+					}
 					nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
 					shake := nilShake()
 					for i := start; i < end; i++ {
 						buf = buf[:leafBytes]
 						x := pr.points[i] % q
-						pPlan.evalInto(pScratch, x, red)
-						mPlan.evalInto(mScratch, x, red)
+						if usePowerEval {
+							computeFormalEvalPowers(powerScratch, x, red)
+						}
+						pPlan.evalIntoPrepared(pScratch, x, red, powerScratch)
+						mPlan.evalIntoPrepared(mScratch, x, red, powerScratch)
 						off := 0
 						for j := 0; j < r; j++ {
 							binary.LittleEndian.PutUint32(buf[off:], uint32(pScratch[j]))

@@ -24,11 +24,14 @@ func benchmarkFormalEvalPlanShape(b *testing.B, rowCount, degree, nLeaves int) {
 	plan := newFormalEvalPlan(rows, q)
 	red := newModReducer64(q)
 	dst := make([]uint64, rowCount)
+	powers := make([]uint64, plan.maxDeg+1)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		plan.evalInto(dst, points[i%len(points)], red)
+		x := points[i%len(points)]
+		computeFormalEvalPowers(powers, x, red)
+		plan.evalIntoPrepared(dst, x, red, powers)
 	}
 }
 
