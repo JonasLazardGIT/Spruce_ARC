@@ -1360,6 +1360,109 @@ func intGenISISCoeffToHatBridgeFormalCoeffs(ringQ *ring.Ring, rowCache *intGenIS
 	return fagg, coeffs, nil
 }
 
+type intGenISISProjectedSignaturePlan struct {
+	n      int
+	ncols  int
+	blocks int
+	omega  []uint64
+	basis  *transformBridgeBasisCache
+
+	aBlockCoeff  [][][]uint64
+	aAtOmega     [][][]uint64
+	bBlockCoeff  [][][]uint64
+	cmBlockCoeff [][]uint64
+	cmAtOmega    [][]uint64
+	asBlockCoeff [][][]uint64
+	asAtOmega    [][][]uint64
+}
+
+func newIntGenISISProjectedSignaturePlan(ringQ *ring.Ring, pub PublicInputs, l *IntGenISISShowingRowLayout, basis *transformBridgeBasisCache, omega []uint64) (*intGenISISProjectedSignaturePlan, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if l == nil || basis == nil {
+		return nil, fmt.Errorf("missing IntGenISIS projected signature metadata")
+	}
+	q := ringQ.Modulus[0]
+	n := int(ringQ.N)
+	ncols := len(omega)
+	blocks := l.ViewRowsPerPoly
+	if blocks*ncols != n {
+		return nil, fmt.Errorf("IntGenISIS projected signature rows/poly*ncols=%d want ringN=%d", blocks*ncols, n)
+	}
+	out := &intGenISISProjectedSignaturePlan{
+		n:            n,
+		ncols:        ncols,
+		blocks:       blocks,
+		omega:        omega,
+		basis:        basis,
+		aBlockCoeff:  make([][][]uint64, l.UCount),
+		aAtOmega:     make([][][]uint64, l.UCount),
+		bBlockCoeff:  make([][][]uint64, len(pub.B)),
+		cmBlockCoeff: nil,
+		cmAtOmega:    nil,
+		asBlockCoeff: nil,
+		asAtOmega:    nil,
+	}
+	for i := 0; i < l.UCount; i++ {
+		out.aBlockCoeff[i] = make([][]uint64, blocks)
+		out.aAtOmega[i] = make([][]uint64, blocks)
+		for block := 0; block < blocks; block++ {
+			coeff, err := intGenISISThetaBlockCoeff(ringQ, pub.A[0][i], omega, block, blocks, fmt.Sprintf("A[0][%d]", i))
+			if err != nil {
+				return nil, err
+			}
+			out.aBlockCoeff[i][block] = coeff
+			out.aAtOmega[i][block] = evalCoeffOnOmega(coeff, omega, q)
+		}
+	}
+	for j := range pub.B {
+		out.bBlockCoeff[j] = make([][]uint64, blocks)
+		for block := 0; block < blocks; block++ {
+			coeff, err := intGenISISThetaBlockCoeff(ringQ, pub.B[j], omega, block, blocks, fmt.Sprintf("B[%d]", j))
+			if err != nil {
+				return nil, err
+			}
+			out.bBlockCoeff[j][block] = coeff
+		}
+	}
+	if intGenISISProjectionDerivesYView(l) {
+		out.cmBlockCoeff = make([][]uint64, blocks)
+		out.cmAtOmega = make([][]uint64, blocks)
+		for block := 0; block < blocks; block++ {
+			coeff, err := intGenISISThetaBlockCoeff(ringQ, pub.CM[0][0], omega, block, blocks, "C_M[0][0]")
+			if err != nil {
+				return nil, err
+			}
+			out.cmBlockCoeff[block] = coeff
+			out.cmAtOmega[block] = evalCoeffOnOmega(coeff, omega, q)
+		}
+		out.asBlockCoeff = make([][][]uint64, l.SCount)
+		out.asAtOmega = make([][][]uint64, l.SCount)
+		for i := 0; i < l.SCount; i++ {
+			out.asBlockCoeff[i] = make([][]uint64, blocks)
+			out.asAtOmega[i] = make([][]uint64, blocks)
+			for block := 0; block < blocks; block++ {
+				coeff, err := intGenISISThetaBlockCoeff(ringQ, pub.AS[0][i], omega, block, blocks, fmt.Sprintf("A_s[0][%d]", i))
+				if err != nil {
+					return nil, err
+				}
+				out.asBlockCoeff[i][block] = coeff
+				out.asAtOmega[i][block] = evalCoeffOnOmega(coeff, omega, q)
+			}
+		}
+	}
+	return out, nil
+}
+
+func evalCoeffOnOmega(coeff, omega []uint64, q uint64) []uint64 {
+	out := make([]uint64, len(omega))
+	for i := range omega {
+		out[i] = EvalPoly(coeff, omega[i]%q, q) % q
+	}
+	return out
+}
+
 // intGenISISProjectedSignatureFormalCoeffs substitutes the aggregate packed-coeff
 // transform into the signature equation. The transform bridge is an Ω-sum
 // identity, so public A terms are bound as lane scalars rather than as
@@ -1382,6 +1485,10 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	ncols := len(omega)
 	if l.ViewRowsPerPoly*ncols != n {
 		return nil, nil, fmt.Errorf("IntGenISIS projected signature rows/poly*ncols=%d want ringN=%d", l.ViewRowsPerPoly*ncols, n)
+	}
+	plan, err := newIntGenISISProjectedSignaturePlan(ringQ, pub, l, basis, omega)
+	if err != nil {
+		return nil, nil, err
 	}
 	transformLaneCoeff := func(sourceStart, comp, block, lane int) ([]uint64, error) {
 		t := block*ncols + lane
@@ -1422,7 +1529,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		}
 		return trimPoly(left, q), nil
 	}
-	derivedYHatLaneCoeff := func(block, lane int, cmCoeff []uint64, asCoeff [][]uint64) ([]uint64, error) {
+	derivedYHatLaneCoeff := func(block, lane int) ([]uint64, error) {
 		if len(ySourceCoeffs) != 3 {
 			return nil, fmt.Errorf("projected Y source terms=%d want 3", len(ySourceCoeffs))
 		}
@@ -1431,14 +1538,14 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		if err != nil {
 			return nil, err
 		}
-		cmVal := EvalPoly(cmCoeff, omega[lane]%q, q) % q
+		cmVal := plan.cmAtOmega[block][lane]
 		left = polyAdd(left, scalePoly(mLane, cmVal, q), q)
 		for i := 0; i < l.SCount; i++ {
 			sLane, err := transformLaneFromSourceCoeffs(ySourceCoeffs[1], i, block, lane)
 			if err != nil {
 				return nil, err
 			}
-			asVal := EvalPoly(asCoeff[i], omega[lane]%q, q) % q
+			asVal := plan.asAtOmega[i][block][lane]
 			left = polyAdd(left, scalePoly(sLane, asVal, q), q)
 		}
 		eLane, err := transformLaneFromSourceCoeffs(ySourceCoeffs[2], 0, block, lane)
@@ -1451,36 +1558,6 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	fagg := make([]*ring.Poly, 0, l.ViewRowsPerPoly*ncols)
 	coeffs := make([][]uint64, 0, l.ViewRowsPerPoly*ncols)
 	for block := 0; block < l.ViewRowsPerPoly; block++ {
-		b0, err := intGenISISThetaBlockCoeff(ringQ, pub.B[0], omega, block, l.ViewRowsPerPoly, "B[0]")
-		if err != nil {
-			return nil, nil, err
-		}
-		b1, err := intGenISISThetaBlockCoeff(ringQ, pub.B[1], omega, block, l.ViewRowsPerPoly, "B[1]")
-		if err != nil {
-			return nil, nil, err
-		}
-		bX0 := make([][]uint64, l.X0Count)
-		for i := 0; i < l.X0Count; i++ {
-			bX0[i], err = intGenISISThetaBlockCoeff(ringQ, pub.B[2+i], omega, block, l.ViewRowsPerPoly, fmt.Sprintf("B[%d]", 2+i))
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		var cmCoeff []uint64
-		var asCoeff [][]uint64
-		if intGenISISProjectionDerivesYView(l) {
-			cmCoeff, err = intGenISISThetaBlockCoeff(ringQ, pub.CM[0][0], omega, block, l.ViewRowsPerPoly, "C_M[0][0]")
-			if err != nil {
-				return nil, nil, err
-			}
-			asCoeff = make([][]uint64, l.SCount)
-			for i := 0; i < l.SCount; i++ {
-				asCoeff[i], err = intGenISISThetaBlockCoeff(ringQ, pub.AS[0][i], omega, block, l.ViewRowsPerPoly, fmt.Sprintf("A_s[0][%d]", i))
-				if err != nil {
-					return nil, nil, err
-				}
-			}
-		}
 		muCoeff, err := rowCache.Row(l.MuSigHatStart + block)
 		if err != nil {
 			return nil, nil, err
@@ -1496,33 +1573,29 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		if err != nil {
 			return nil, nil, err
 		}
+		rhs := make([]uint64, n)
+		addScaledInto(rhs, plan.bBlockCoeff[0][block], 1, q)
+		addMulModXN1Into(rhs, plan.bBlockCoeff[1][block], muCoeff, 1, q)
+		for i := 0; i < l.X0Count; i++ {
+			addMulModXN1Into(rhs, plan.bBlockCoeff[2+i][block], x0Coeff[i], 1, q)
+		}
+		addScaledInto(rhs, zCoeff, 1, q)
 		for lane := 0; lane < ncols; lane++ {
 			res := []uint64{0}
 			for i := 0; i < l.UCount; i++ {
-				aCoeff, err := intGenISISThetaBlockCoeff(ringQ, pub.A[0][i], omega, block, l.ViewRowsPerPoly, fmt.Sprintf("A[0][%d]", i))
-				if err != nil {
-					return nil, nil, err
-				}
-				aVal := EvalPoly(aCoeff, omega[lane]%q, q) % q
+				aVal := plan.aAtOmega[i][block][lane]
 				uLaneCoeff, err := transformLaneCoeff(l.UViewStart, i, block, lane)
 				if err != nil {
 					return nil, nil, err
 				}
 				res = polyAdd(res, scalePoly(uLaneCoeff, aVal, q), q)
 			}
-			rhs := make([]uint64, n)
-			addScaledInto(rhs, b0, 1, q)
-			addMulModXN1Into(rhs, b1, muCoeff, 1, q)
-			for i := 0; i < l.X0Count; i++ {
-				addMulModXN1Into(rhs, bX0[i], x0Coeff[i], 1, q)
-			}
-			addScaledInto(rhs, zCoeff, 1, q)
 			laneRHS := make([]uint64, n)
 			mulModXN1(laneRHS, basis.LagrangeBasis[lane], rhs, q)
 			res = polySub(res, laneRHS, q)
 			var yLaneCoeff []uint64
 			if intGenISISProjectionDerivesYView(l) {
-				yLaneCoeff, err = derivedYHatLaneCoeff(block, lane, cmCoeff, asCoeff)
+				yLaneCoeff, err = derivedYHatLaneCoeff(block, lane)
 				if err != nil {
 					return nil, nil, err
 				}
