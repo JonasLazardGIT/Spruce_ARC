@@ -126,7 +126,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("debug omega: %v", err)
 	}
-	debugSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, rowsNTT, debugOmega[:builtNCols], debugCompanion)
+	debugSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, rowsNTT, debugOmega[:builtNCols], debugCompanion, nil)
 	if err != nil {
 		t.Fatalf("debug constraints: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		return out
 	}
 	expectFaggFailure := func(name string, rowIdx int) {
-		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, mutatedRowsNTT(rowIdx), debugOmega[:builtNCols], debugCompanion)
+		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, mutatedRowsNTT(rowIdx), debugOmega[:builtNCols], debugCompanion, nil)
 		if err != nil {
 			t.Fatalf("%s constraints: %v", name, err)
 		}
@@ -160,7 +160,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		}
 	}
 	expectFparFailure := func(name string, rowIdx int, fparNorm bool) {
-		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, mutatedRowsNTT(rowIdx), debugOmega[:builtNCols], debugCompanion)
+		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, mutatedRowsNTT(rowIdx), debugOmega[:builtNCols], debugCompanion, nil)
 		if err != nil {
 			t.Fatalf("%s constraints: %v", name, err)
 		}
@@ -268,7 +268,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("projection debug omega: %v", err)
 	}
-	projectionSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, projectionDebugPub, projectionDebugLayout, projectionRowsNTT, projectionOmega[:projectionBuiltNCols], projectionDebugCompanion)
+	projectionSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, projectionDebugPub, projectionDebugLayout, projectionRowsNTT, projectionOmega[:projectionBuiltNCols], projectionDebugCompanion, nil)
 	if err != nil {
 		t.Fatalf("projection constraints: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		return out
 	}
 	expectProjectionFaggFailure := func(name string, rowIdx int) {
-		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, projectionDebugPub, projectionDebugLayout, projectionMutatedRowsNTT(rowIdx), projectionOmega[:projectionBuiltNCols], projectionDebugCompanion)
+		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, projectionDebugPub, projectionDebugLayout, projectionMutatedRowsNTT(rowIdx), projectionOmega[:projectionBuiltNCols], projectionDebugCompanion, nil)
 		if err != nil {
 			t.Fatalf("%s projection constraints: %v", name, err)
 		}
@@ -345,7 +345,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("projection v2 debug omega: %v", err)
 	}
-	v2Set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v2DebugPub, v2DebugLayout, v2RowsNTT, v2Omega[:v2BuiltNCols], v2DebugCompanion)
+	v2Set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v2DebugPub, v2DebugLayout, v2RowsNTT, v2Omega[:v2BuiltNCols], v2DebugCompanion, nil)
 	if err != nil {
 		t.Fatalf("projection v2 constraints: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		return out
 	}
 	expectV2FaggFailure := func(name string, rowIdx int) {
-		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v2DebugPub, v2DebugLayout, v2MutatedRowsNTT(rowIdx), v2Omega[:v2BuiltNCols], v2DebugCompanion)
+		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v2DebugPub, v2DebugLayout, v2MutatedRowsNTT(rowIdx), v2Omega[:v2BuiltNCols], v2DebugCompanion, nil)
 		if err != nil {
 			t.Fatalf("%s projection v2 constraints: %v", name, err)
 		}

@@ -515,7 +515,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 						set.AggregatedAlgDeg = preRows.AggregatedAlgDeg
 					}
 				} else if pub.IntGenISIS && len(pub.A) > 0 && len(pub.B) > 0 && len(pub.CM) > 0 && len(pub.AS) > 0 {
-					postRows, cerr := buildIntGenISISShowingConstraintSetFromRows(ringQ, pub, rowLayout, constraintRows, omegaWitness, set.PRFCompanionLayout)
+					postRows, cerr := buildIntGenISISShowingConstraintSetFromRows(ringQ, pub, rowLayout, constraintRows, omegaWitness, set.PRFCompanionLayout, opts.PhaseRecorder)
 					if cerr != nil {
 						return nil, cerr
 					}

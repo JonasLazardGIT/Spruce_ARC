@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"time"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
@@ -1348,7 +1349,7 @@ func intGenISISCoeffToHatBridgeFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Po
 // transform into the signature equation. The transform bridge is an Ω-sum
 // identity, so public A terms are bound as lane scalars rather than as
 // pointwise row polynomials.
-func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs, rowsNTT []*ring.Poly, l *IntGenISISShowingRowLayout, basis *transformBridgeBasisCache, omega []uint64, yLinearCache *intGenISISYLinearMapCache, compressionSpec intGenISISMSECompressionSpec) ([]*ring.Poly, [][]uint64, error) {
+func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs, rowsNTT []*ring.Poly, l *IntGenISISShowingRowLayout, basis *transformBridgeBasisCache, omega []uint64, yLinearCache *intGenISISYLinearMapCache, compressionSpec intGenISISMSECompressionSpec, phase *PhaseRecorder) ([]*ring.Poly, [][]uint64, error) {
 	if ringQ == nil {
 		return nil, nil, fmt.Errorf("nil ring")
 	}
@@ -1538,7 +1539,21 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	return fagg, coeffs, nil
 }
 
-func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout) (ConstraintSet, error) {
+func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout, phase *PhaseRecorder) (ConstraintSet, error) {
+	constraintsStart := time.Now()
+	if phase != nil {
+		defer func() {
+			phase.RecordDuration("showing.constraints.total", time.Since(constraintsStart))
+		}()
+	}
+	stage := func(label string, fn func() error) error {
+		start := time.Now()
+		err := fn()
+		if phase != nil {
+			phase.RecordDuration(label, time.Since(start))
+		}
+		return err
+	}
 	if ringQ == nil {
 		return ConstraintSet{}, fmt.Errorf("nil ring")
 	}
@@ -1573,8 +1588,12 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 			return ConstraintSet{}, cerr
 		}
 	}
-	yLinearCache, err := newIntGenISISYLinearMapCache(ringQ, pub, l, omega)
-	if err != nil {
+	var yLinearCache *intGenISISYLinearMapCache
+	if err := stage("showing.constraints.y_linear_plan", func() error {
+		var yerr error
+		yLinearCache, yerr = newIntGenISISYLinearMapCache(ringQ, pub, l, omega)
+		return yerr
+	}); err != nil {
 		return ConstraintSet{}, err
 	}
 	rowCoeff := func(idx int) ([]uint64, error) {
@@ -1652,46 +1671,51 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 	}
 	keyBindCoeffs := make([][]uint64, 0)
 	keyBindPolys := make([]*ring.Poly, 0)
-	if prfCompanionLayout != nil && prfCompanionLayout.KeyCount > 0 {
-		_, selectorCoeff, err := buildOmegaDeltaSelectors(ringQ, omega)
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("key source selectors: %w", err)
-		}
-		if len(prfCompanionLayout.KeySourceSlots) != len(prfCompanionLayout.KeySlots) {
-			return ConstraintSet{}, fmt.Errorf("PRF key source slots=%d want key slots=%d", len(prfCompanionLayout.KeySourceSlots), len(prfCompanionLayout.KeySlots))
-		}
-		for i := 0; i < prfCompanionLayout.KeyCount; i++ {
-			if i >= len(prfCompanionLayout.KeySlots) || i >= len(prfCompanionLayout.KeySourceSlots) {
-				return ConstraintSet{}, fmt.Errorf("PRF key slot %d out of range", i)
-			}
-			keySlot := prfCompanionLayout.KeySlots[i]
-			srcSlot := prfCompanionLayout.KeySourceSlots[i]
-			if keySlot.Coeff < 0 || keySlot.Coeff >= len(selectorCoeff) || srcSlot.Coeff < 0 || srcSlot.Coeff >= len(selectorCoeff) {
-				return ConstraintSet{}, fmt.Errorf("PRF key binding slot out of range")
-			}
-			keyCoeff, err := rowCoeff(keySlot.Row)
+	if err := stage("showing.constraints.key_bind", func() error {
+		if prfCompanionLayout != nil && prfCompanionLayout.KeyCount > 0 {
+			_, selectorCoeff, err := buildOmegaDeltaSelectors(ringQ, omega)
 			if err != nil {
-				return ConstraintSet{}, fmt.Errorf("PRF key row: %w", err)
+				return fmt.Errorf("key source selectors: %w", err)
 			}
-			var srcCoeff []uint64
-			if len(prfCompanionLayout.KeySourceDecodeLanes) > 0 {
-				if i >= len(prfCompanionLayout.KeySourceDecodeLanes) {
-					return ConstraintSet{}, fmt.Errorf("missing PRF key source decode lane %d", i)
-				}
-				srcCoeff, err = intGenISISCompressedCarrierLaneFormalCoeff(ringQ, rowsNTT, srcSlot.Row, prfCompanionLayout.KeySourceDecodeLanes[i], compressionSpec.DecodePolys, "PRF key source")
-				if err != nil {
-					return ConstraintSet{}, err
-				}
-			} else {
-				srcCoeff, err = rowCoeff(srcSlot.Row)
-				if err != nil {
-					return ConstraintSet{}, fmt.Errorf("PRF key source row: %w", err)
-				}
+			if len(prfCompanionLayout.KeySourceSlots) != len(prfCompanionLayout.KeySlots) {
+				return fmt.Errorf("PRF key source slots=%d want key slots=%d", len(prfCompanionLayout.KeySourceSlots), len(prfCompanionLayout.KeySlots))
 			}
-			res := reducePolyModXN1(polySub(polyMul(selectorCoeff[keySlot.Coeff], keyCoeff, q), polyMul(selectorCoeff[srcSlot.Coeff], srcCoeff, q), q), int(ringQ.N), q)
-			keyBindCoeffs = append(keyBindCoeffs, res)
-			keyBindPolys = append(keyBindPolys, nttPolyFromFormalCoeffsIfFits(ringQ, res))
+			for i := 0; i < prfCompanionLayout.KeyCount; i++ {
+				if i >= len(prfCompanionLayout.KeySlots) || i >= len(prfCompanionLayout.KeySourceSlots) {
+					return fmt.Errorf("PRF key slot %d out of range", i)
+				}
+				keySlot := prfCompanionLayout.KeySlots[i]
+				srcSlot := prfCompanionLayout.KeySourceSlots[i]
+				if keySlot.Coeff < 0 || keySlot.Coeff >= len(selectorCoeff) || srcSlot.Coeff < 0 || srcSlot.Coeff >= len(selectorCoeff) {
+					return fmt.Errorf("PRF key binding slot out of range")
+				}
+				keyCoeff, err := rowCoeff(keySlot.Row)
+				if err != nil {
+					return fmt.Errorf("PRF key row: %w", err)
+				}
+				var srcCoeff []uint64
+				if len(prfCompanionLayout.KeySourceDecodeLanes) > 0 {
+					if i >= len(prfCompanionLayout.KeySourceDecodeLanes) {
+						return fmt.Errorf("missing PRF key source decode lane %d", i)
+					}
+					srcCoeff, err = intGenISISCompressedCarrierLaneFormalCoeff(ringQ, rowsNTT, srcSlot.Row, prfCompanionLayout.KeySourceDecodeLanes[i], compressionSpec.DecodePolys, "PRF key source")
+					if err != nil {
+						return err
+					}
+				} else {
+					srcCoeff, err = rowCoeff(srcSlot.Row)
+					if err != nil {
+						return fmt.Errorf("PRF key source row: %w", err)
+					}
+				}
+				res := reducePolyModXN1(polySub(polyMul(selectorCoeff[keySlot.Coeff], keyCoeff, q), polyMul(selectorCoeff[srcSlot.Coeff], srcCoeff, q), q), int(ringQ.N), q)
+				keyBindCoeffs = append(keyBindCoeffs, res)
+				keyBindPolys = append(keyBindPolys, nttPolyFromFormalCoeffsIfFits(ringQ, res))
+			}
 		}
+		return nil
+	}); err != nil {
+		return ConstraintSet{}, err
 	}
 	fpar := make([]*ring.Poly, len(coeffs))
 	for i := range coeffs {
@@ -1699,39 +1723,46 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 			fpar[i] = nttPolyFromFormalCoeffsIfFits(ringQ, coeffs[i])
 		}
 	}
-	sigBound, err := intGenISISSignatureBoundFromPublic(pub)
-	if err != nil {
-		return ConstraintSet{}, err
-	}
-	shortSpec, err := intGenISISUShortnessLayoutSpec(ringQ, l, sigBound)
-	if err != nil {
-		return ConstraintSet{}, err
-	}
+	var sigBound int64
+	var shortSpec LinfSpec
 	nonSigRows := intGenISISViewRowIndices(l.BoundViewStart, l.BoundViewCount)
 	var shortPolys []*ring.Poly
 	var shortCoeffs [][]uint64
-	if intGenISISUseDirectSignatureRange(sigBound) {
-		shortRows := intGenISISViewRowIndices(l.UViewStart, l.UCount*l.ViewRowsPerPoly)
-		shortPolys, shortCoeffs, err = intGenISISRangeMembershipRows(ringQ, rowsNTT, shortRows, sigBound)
-		if err != nil {
-			return ConstraintSet{}, err
-		}
-	}
 	var boundPolys []*ring.Poly
 	var boundCoeffs [][]uint64
-	if compressedMSE {
-		boundPolys, boundCoeffs, err = intGenISISCompressedCarrierMembershipRows(ringQ, rowsNTT, nonSigRows, compressionSpec)
-		if err != nil {
-			return ConstraintSet{}, err
+	var radixPolys []*ring.Poly
+	var radixCoeffs [][]uint64
+	if err := stage("showing.constraints.bounds", func() error {
+		var berr error
+		sigBound, berr = intGenISISSignatureBoundFromPublic(pub)
+		if berr != nil {
+			return berr
 		}
-	} else {
-		boundPolys, boundCoeffs, err = intGenISISLiveMembershipRows(ringQ, rowsNTT, nonSigRows, pub.BoundB)
-		if err != nil {
-			return ConstraintSet{}, err
+		shortSpec, berr = intGenISISUShortnessLayoutSpec(ringQ, l, sigBound)
+		if berr != nil {
+			return berr
 		}
-	}
-	radixPolys, radixCoeffs, err := intGenISISUShortnessConstraintRows(ringQ, rowsNTT, l, shortSpec)
-	if err != nil {
+		if intGenISISUseDirectSignatureRange(sigBound) {
+			shortRows := intGenISISViewRowIndices(l.UViewStart, l.UCount*l.ViewRowsPerPoly)
+			shortPolys, shortCoeffs, berr = intGenISISRangeMembershipRows(ringQ, rowsNTT, shortRows, sigBound)
+			if berr != nil {
+				return berr
+			}
+		}
+		if compressedMSE {
+			boundPolys, boundCoeffs, berr = intGenISISCompressedCarrierMembershipRows(ringQ, rowsNTT, nonSigRows, compressionSpec)
+			if berr != nil {
+				return berr
+			}
+		} else {
+			boundPolys, boundCoeffs, berr = intGenISISLiveMembershipRows(ringQ, rowsNTT, nonSigRows, pub.BoundB)
+			if berr != nil {
+				return berr
+			}
+		}
+		radixPolys, radixCoeffs, berr = intGenISISUShortnessConstraintRows(ringQ, rowsNTT, l, shortSpec)
+		return berr
+	}); err != nil {
 		return ConstraintSet{}, err
 	}
 	boundPolys = append(shortPolys, boundPolys...)
@@ -1750,13 +1781,18 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 		bridgeCoeffs = append(bridgeCoeffs, yCoeffs...)
 	}
 	if projectedUY {
-		basis, berr := newTransformBridgeBasisCache(ringQ, omega, l.ViewRowsPerPoly*len(omega), l.ViewRowsPerPoly)
-		if berr != nil {
-			return ConstraintSet{}, fmt.Errorf("IntGenISIS projected signature bridge basis: %w", berr)
-		}
-		projectedPolys, projectedCoeffs, perr := intGenISISProjectedSignatureFormalCoeffs(ringQ, pub, rowsNTT, l, basis, omega, yLinearCache, compressionSpec)
-		if perr != nil {
-			return ConstraintSet{}, perr
+		var projectedPolys []*ring.Poly
+		var projectedCoeffs [][]uint64
+		if err := stage("showing.constraints.projected_signature", func() error {
+			basis, berr := newTransformBridgeBasisCache(ringQ, omega, l.ViewRowsPerPoly*len(omega), l.ViewRowsPerPoly)
+			if berr != nil {
+				return fmt.Errorf("IntGenISIS projected signature bridge basis: %w", berr)
+			}
+			var perr error
+			projectedPolys, projectedCoeffs, perr = intGenISISProjectedSignatureFormalCoeffs(ringQ, pub, rowsNTT, l, basis, omega, yLinearCache, compressionSpec, phase)
+			return perr
+		}); err != nil {
+			return ConstraintSet{}, err
 		}
 		bridgePolys = append(bridgePolys, projectedPolys...)
 		bridgeCoeffs = append(bridgeCoeffs, projectedCoeffs...)
@@ -1876,7 +1912,11 @@ func BuildIntGenISISShowingCombined(pub PublicInputs, wit WitnessInputs, opts Si
 		if groupRounds <= 0 {
 			groupRounds = 1
 		}
+		rowsStart := time.Now()
 		rows, rowInputs, layout, prfLayout, prfCompanionLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, builtNCols, err := BuildCredentialRowsShowingIntGenISIS(ringQ, pub, wit, params.LenKey, params.LenNonce, params.RF, params.RP, groupRounds, opts)
+		if opts.PhaseRecorder != nil {
+			opts.PhaseRecorder.RecordDuration("showing.rows", time.Since(rowsStart))
+		}
 		if err != nil {
 			return nil, fmt.Errorf("build IntGenISIS showing rows: %w", err)
 		}
@@ -1885,13 +1925,17 @@ func BuildIntGenISISShowingCombined(pub PublicInputs, wit WitnessInputs, opts Si
 			opts = bumpExplicitPCSNCols(opts, requiredPCSNCols)
 			continue
 		}
+		rowsNTTStart := time.Now()
 		rowsNTT := make([]*ring.Poly, len(rows))
 		for i := range rows {
 			rowsNTT[i] = ringQ.NewPoly()
 			ring.Copy(rows[i], rowsNTT[i])
 			ringQ.NTT(rowsNTT[i], rowsNTT[i])
 		}
-		postSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, pub, layout, rowsNTT, omega[:builtNCols], prfCompanionLayout)
+		if opts.PhaseRecorder != nil {
+			opts.PhaseRecorder.RecordDuration("showing.rows_ntt", time.Since(rowsNTTStart))
+		}
+		postSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, pub, layout, rowsNTT, omega[:builtNCols], prfCompanionLayout, opts.PhaseRecorder)
 		if err != nil {
 			return nil, fmt.Errorf("build IntGenISIS showing constraints: %w", err)
 		}
