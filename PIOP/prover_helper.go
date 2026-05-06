@@ -731,10 +731,11 @@ func equalKPolys(a, b []*KPoly, q uint64) bool {
 func evalKPolyAtF(K *kf.Field, kp *KPoly, w uint64) kf.Elem {
 	acc := K.Zero()
 	x := K.EmbedF(w % K.Q)
+	coeff := K.Zero()
 	for k := kp.Degree; k >= 0; k-- {
-		acc = K.Mul(acc, x)
-		coeff := K.Phi(kp.coeffLimbs(k))
-		acc = K.Add(acc, coeff)
+		K.MulInto(&acc, acc, x)
+		setKPolyCoeff(K, &coeff, kp, k)
+		K.AddInto(&acc, acc, coeff)
 		if k == 0 {
 			break
 		}
@@ -744,15 +745,25 @@ func evalKPolyAtF(K *kf.Field, kp *KPoly, w uint64) kf.Elem {
 
 func evalKPolyAtK(K *kf.Field, kp *KPoly, e kf.Elem) kf.Elem {
 	acc := K.Zero()
+	evalKPolyAtKInto(K, &acc, kp, e)
+	return acc
+}
+
+func evalKPolyAtKInto(K *kf.Field, dst *kf.Elem, kp *KPoly, e kf.Elem) {
+	ensureKElem(K, dst)
+	clear(dst.Limb)
+	if kp == nil {
+		return
+	}
+	coeff := K.Zero()
 	for k := kp.Degree; k >= 0; k-- {
-		acc = K.Mul(acc, e)
-		coeff := K.Phi(kp.coeffLimbs(k))
-		acc = K.Add(acc, coeff)
+		K.MulInto(dst, *dst, e)
+		setKPolyCoeff(K, &coeff, kp, k)
+		K.AddInto(dst, *dst, coeff)
 		if k == 0 {
 			break
 		}
 	}
-	return acc
 }
 
 func evalKScalarPolyAtF(K *kf.Field, coeffs []KScalar, w uint64) kf.Elem {
@@ -764,14 +775,57 @@ func evalKScalarPolyAtF(K *kf.Field, coeffs []KScalar, w uint64) kf.Elem {
 // coefficient slice (ascending degree) at a K-point e.
 func evalKScalarPolyAtK(K *kf.Field, coeffs []KScalar, e kf.Elem) kf.Elem {
 	acc := K.Zero()
+	evalKScalarPolyAtKInto(K, &acc, coeffs, e)
+	return acc
+}
+
+func evalKScalarPolyAtKInto(K *kf.Field, dst *kf.Elem, coeffs []KScalar, e kf.Elem) {
+	ensureKElem(K, dst)
+	clear(dst.Limb)
+	coeff := K.Zero()
 	for i := len(coeffs) - 1; i >= 0; i-- {
-		acc = K.Mul(acc, e)
-		acc = K.Add(acc, K.Phi(coeffs[i]))
+		K.MulInto(dst, *dst, e)
+		setKCoords(K, &coeff, coeffs[i])
+		K.AddInto(dst, *dst, coeff)
 		if i == 0 {
 			break
 		}
 	}
-	return acc
+}
+
+func ensureKElem(K *kf.Field, dst *kf.Elem) {
+	if len(dst.Limb) != K.Theta {
+		dst.Limb = make([]uint64, K.Theta)
+	}
+}
+
+func setKCoords(K *kf.Field, dst *kf.Elem, coords []uint64) {
+	ensureKElem(K, dst)
+	clear(dst.Limb)
+	n := len(coords)
+	if n > K.Theta {
+		n = K.Theta
+	}
+	for i := 0; i < n; i++ {
+		dst.Limb[i] = coords[i] % K.Q
+	}
+}
+
+func setKPolyCoeff(K *kf.Field, dst *kf.Elem, kp *KPoly, degree int) {
+	ensureKElem(K, dst)
+	clear(dst.Limb)
+	if kp == nil || degree < 0 {
+		return
+	}
+	theta := K.Theta
+	if theta > len(kp.Limbs) {
+		theta = len(kp.Limbs)
+	}
+	for j := 0; j < theta; j++ {
+		if degree < len(kp.Limbs[j]) {
+			dst.Limb[j] = kp.Limbs[j][degree] % K.Q
+		}
+	}
 }
 
 // maskSamplerParams configures sampling of independent PACS masks M_i of degree

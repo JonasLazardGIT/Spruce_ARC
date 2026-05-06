@@ -246,6 +246,7 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 		return false, fmt.Errorf("invalid rowsPerPoint=%d", rowsPerPoint)
 	}
 	rho := len(in.QK)
+	debugEq4K := os.Getenv("PIOP_DEBUG_EQ4_K") == "1"
 	for kpIdx, limbs := range in.KPoints {
 		e := in.K.Phi(limbs)
 		rowVals, err := buildRowValsFromVTargets(in.K, in.VTargets, kpIdx, len(in.KPoints), in.WitnessCount)
@@ -281,25 +282,36 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 				}
 			}
 		}
+		lhs := in.K.Zero()
+		rhs := in.K.Zero()
+		rhsMask := in.K.Zero()
+		rhsPar := in.K.Zero()
+		rhsAgg := in.K.Zero()
+		g := in.K.Zero()
+		term := in.K.Zero()
 		for i := 0; i < rho; i++ {
 			if i >= len(in.MK) || in.QK[i] == nil || in.MK[i] == nil {
 				return false, fmt.Errorf("missing K polys at row %d", i)
 			}
-			lhs := evalKPolyAtK(in.K, in.QK[i], e)
-			rhsMask := evalKPolyAtK(in.K, in.MK[i], e)
-			rhs := rhsMask
-			rhsPar := in.K.Zero()
-			rhsAgg := in.K.Zero()
+			evalKPolyAtKInto(in.K, &lhs, in.QK[i], e)
+			evalKPolyAtKInto(in.K, &rhs, in.MK[i], e)
+			if debugEq4K {
+				copy(rhsMask.Limb, rhs.Limb)
+				clear(rhsPar.Limb)
+				clear(rhsAgg.Limb)
+			}
 			if i < len(in.GammaPrimeK) {
 				rowGamma := in.GammaPrimeK[i]
 				for j, val := range fpar {
 					if j >= len(rowGamma) {
 						continue
 					}
-					g := evalKScalarPolyAtK(in.K, rowGamma[j], e)
-					term := in.K.Mul(g, val)
-					rhsPar = in.K.Add(rhsPar, term)
-					rhs = in.K.Add(rhs, term)
+					evalKScalarPolyAtKInto(in.K, &g, rowGamma[j], e)
+					in.K.MulInto(&term, g, val)
+					if debugEq4K {
+						in.K.AddInto(&rhsPar, rhsPar, term)
+					}
+					in.K.AddInto(&rhs, rhs, term)
 				}
 			}
 			if i < len(in.GammaAggK) {
@@ -308,14 +320,16 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 					if j >= len(rowGamma) {
 						continue
 					}
-					g := in.K.Phi(rowGamma[j])
-					term := in.K.Mul(g, val)
-					rhsAgg = in.K.Add(rhsAgg, term)
-					rhs = in.K.Add(rhs, term)
+					setKCoords(in.K, &g, rowGamma[j])
+					in.K.MulInto(&term, g, val)
+					if debugEq4K {
+						in.K.AddInto(&rhsAgg, rhsAgg, term)
+					}
+					in.K.AddInto(&rhs, rhs, term)
 				}
 			}
 			if !elemEqual(in.K, lhs, rhs) {
-				if os.Getenv("PIOP_DEBUG_EQ4_K") == "1" && kpIdx == 0 && i == 0 {
+				if debugEq4K && kpIdx == 0 && i == 0 {
 					var gammaPrimeLen, gammaAggLen int
 					if i < len(in.GammaPrimeK) {
 						gammaPrimeLen = len(in.GammaPrimeK[i])
