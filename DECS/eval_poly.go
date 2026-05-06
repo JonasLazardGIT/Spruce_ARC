@@ -14,6 +14,13 @@ func mulMod64Reduced(a, b, m uint64) uint64 {
 }
 
 func addMod64Reduced(a, b, m uint64) uint64 {
+	if m <= uint64(^uint32(0)) {
+		s := a + b
+		if s >= m {
+			s -= m
+		}
+		return s
+	}
 	s, c := bits.Add64(a, b, 0)
 	if c == 1 || s >= m {
 		s -= m

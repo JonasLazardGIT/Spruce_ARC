@@ -236,8 +236,13 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 			}
 			var wg sync.WaitGroup
 			wg.Add(workers)
+			chunk := (N + workers - 1) / workers
 			for worker := 0; worker < workers; worker++ {
-				start := worker
+				start := worker * chunk
+				end := start + chunk
+				if end > N {
+					end = N
+				}
 				go func() {
 					defer wg.Done()
 					buf := make([]byte, leafBytes)
@@ -245,7 +250,7 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 					mScratch := make([]uint64, pr.params.Eta)
 					nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
 					shake := nilShake()
-					for i := start; i < N; i += workers {
+					for i := start; i < end; i++ {
 						buf = buf[:leafBytes]
 						x := pr.points[i] % q
 						pPlan.evalInto(pScratch, x, red)
@@ -299,12 +304,17 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 			}
 			var wg sync.WaitGroup
 			wg.Add(workers)
+			chunk := (N + workers - 1) / workers
 			for worker := 0; worker < workers; worker++ {
-				start := worker
+				start := worker * chunk
+				end := start + chunk
+				if end > N {
+					end = N
+				}
 				go func() {
 					defer wg.Done()
 					h := nilShake()
-					for i := start; i < N; i += workers {
+					for i := start; i < end; i++ {
 						leafHashes[i] = hashLeafWith(h, buildLeaf(i))
 					}
 				}()
