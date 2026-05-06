@@ -188,7 +188,12 @@ func (pp PublicParams) InferRingDegree() int {
 }
 
 func (pp PublicParams) UsesIntGenISIS() bool {
-	return pp.Profile == ProfileIntGenISISB || pp.Profile == ProfileIntGenISISA || len(pp.CM) > 0 || len(pp.AS) > 0
+	if pp.Profile != "" {
+		if _, ok := LookupIntGenISISProfile(pp.Profile); ok {
+			return true
+		}
+	}
+	return len(pp.CM) > 0 || len(pp.AS) > 0
 }
 
 func (pp *PublicParams) Validate() error {
@@ -246,8 +251,12 @@ func (pp *PublicParams) Validate() error {
 }
 
 func (pp *PublicParams) validateIntGenISIS() error {
-	if _, ok := LookupIntGenISISProfile(pp.Profile); pp.Profile != "" && !ok {
-		return fmt.Errorf("unsupported IntGenISIS profile %q", pp.Profile)
+	wantEllX0 := 2
+	if profile, ok := LookupIntGenISISProfile(pp.Profile); pp.Profile != "" {
+		if !ok {
+			return fmt.Errorf("unsupported IntGenISIS profile %q", pp.Profile)
+		}
+		wantEllX0 = profile.EllX0
 	}
 	if pp.CommitmentBound <= 0 {
 		return fmt.Errorf("invalid commitment bound B=%d", pp.CommitmentBound)
@@ -258,8 +267,8 @@ func (pp *PublicParams) validateIntGenISIS() error {
 	if pp.EllMuSig != 1 {
 		return fmt.Errorf("ell_mu_sig=%d want 1", pp.EllMuSig)
 	}
-	if pp.EllX0 != 2 {
-		return fmt.Errorf("ell_x0=%d want 2", pp.EllX0)
+	if pp.EllX0 != wantEllX0 {
+		return fmt.Errorf("ell_x0=%d want %d", pp.EllX0, wantEllX0)
 	}
 	if pp.EllX1 != 1 {
 		return fmt.Errorf("ell_x1=%d want 1", pp.EllX1)

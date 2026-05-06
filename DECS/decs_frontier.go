@@ -336,10 +336,10 @@ func getPackedBit(bits []byte, leaf, level, depth int) bool {
 func computeLeafHash(op *DECSOpening, leafIdx int) ([16]byte, error) {
 	var out [16]byte
 	r := op.R
-	if op.FormatVersion == 1 && len(op.Pvals) == 0 {
+	if openingPRequiresReconstruction(op) && len(op.Pvals) == 0 {
 		return out, errors.New("decs: compressed opening requires reconstructed P rows")
 	}
-	if op.MFormatVersion == 1 && len(op.Mvals) == 0 {
+	if openingMRequiresReconstruction(op) && len(op.Mvals) == 0 {
 		return out, errors.New("decs: compressed opening requires reconstructed M rows")
 	}
 	if r <= 0 {

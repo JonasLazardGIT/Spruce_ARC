@@ -154,7 +154,7 @@ func TestSetupIntGenISISPublicWritesProfileBParams(t *testing.T) {
 		t.Fatalf("load public params: %v", err)
 	}
 	profile := credential.PrimaryIntGenISISProfile()
-	if public.Profile != profile.Name || public.EllM != 1 || public.KS != 2 || public.NC != 1 || public.CommitmentBound != 8 {
+	if public.Profile != profile.Name || public.EllM != 1 || public.KS != 2 || public.NC != 1 || public.CommitmentBound != 4 {
 		t.Fatalf("unexpected IntGenISIS public params: %+v", public)
 	}
 	if len(public.CM) != profile.NC || len(public.CM[0]) != profile.EllM {
@@ -169,6 +169,33 @@ func TestSetupIntGenISISPublicWritesProfileBParams(t *testing.T) {
 	}
 	if meta.X0Len != profile.EllX0 || len(meta.B) != 3+profile.EllX0 {
 		t.Fatalf("unexpected B metadata: x0_len=%d rows=%d", meta.X0Len, len(meta.B))
+	}
+}
+
+func TestSetupIntGenISISPublicWritesProfileCWithSingleX0(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "credential_public.intgenisis_profile_c.json")
+	bPath := filepath.Join(tmp, "Bmatrix.intgenisis_profile_c.json")
+	if err := run([]string{"setup-intgenisis-public", "-profile", credential.ProfileIntGenISISC, "-out", out, "-b-path", bPath, "-force"}); err != nil {
+		t.Fatalf("setup-intgenisis-public profile C: %v", err)
+	}
+	public, err := credential.LoadPublicParams(out)
+	if err != nil {
+		t.Fatalf("load public params: %v", err)
+	}
+	profile := credential.Ternary1024IntGenISISProfile()
+	if public.Profile != profile.Name || public.RingDegree != profile.N || public.EllX0 != 1 || public.X0Len != 1 {
+		t.Fatalf("unexpected profile-C public params: %+v", public)
+	}
+	meta, err := ntrurio.LoadBMatrixMetadata(bPath)
+	if err != nil {
+		t.Fatalf("load B matrix: %v", err)
+	}
+	if meta.X0Len != 1 || len(meta.B) != 4 || meta.RingDegree != 1024 {
+		t.Fatalf("unexpected profile-C B metadata: x0_len=%d rows=%d ring=%d", meta.X0Len, len(meta.B), meta.RingDegree)
 	}
 }
 
@@ -508,8 +535,8 @@ func TestBenchmarkIntGenISISE2EProfileAPreset(t *testing.T) {
 	if got, want := report.Issuance.SmallFieldReplayRows, 54; got != want {
 		t.Fatalf("96-bit issuance smallfield_replay_rows=%d want %d", got, want)
 	}
-	if bits := report.Issuance.SoundnessEq8Bits; bits < 98 || bits > 99 {
-		t.Fatalf("96-bit issuance soundness_eq8_bits=%.2f want in [98,99]", bits)
+	if bits := report.Issuance.SoundnessEq8Bits; bits < 96 || bits > 97 {
+		t.Fatalf("96-bit issuance soundness_eq8_bits=%.2f want in [96,97]", bits)
 	}
 	if got, want := report.Options.Showing.LVCSNCols, 48; got != want {
 		t.Fatalf("unexpected 96-bit showing lvcs_ncols=%d want %d", got, want)
@@ -517,10 +544,10 @@ func TestBenchmarkIntGenISISE2EProfileAPreset(t *testing.T) {
 	if got, want := report.Showing.CommittedCols, 48; got != want {
 		t.Fatalf("96-bit showing committed_cols=%d want %d", got, want)
 	}
-	if got, want := report.Showing.TotalRows, 332; got != want {
+	if got, want := report.Showing.TotalRows, 380; got != want {
 		t.Fatalf("96-bit showing rows=%d want %d", got, want)
 	}
-	if got, want := report.Showing.SmallFieldReplayRows, 126; got != want {
+	if got, want := report.Showing.SmallFieldReplayRows, 144; got != want {
 		t.Fatalf("96-bit showing smallfield_replay_rows=%d want %d", got, want)
 	}
 	if bits := report.Showing.SoundnessEq8Bits; bits < 96 || bits > 97 {

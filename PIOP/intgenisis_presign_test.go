@@ -57,7 +57,7 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	M := polysFromInt64ForIntGenISISTest(ringQ, msg.M)
 	MAttr := polysFromInt64ForIntGenISISTest(ringQ, msg.MAttr)
 	K := polysFromInt64ForIntGenISISTest(ringQ, msg.K)
-	s, e, err := commitment.SampleTernaryCommitmentRandomness(targetParams, rng)
+	s, e, err := commitment.SampleCommitmentRandomness(targetParams, rng)
 	if err != nil {
 		t.Fatalf("sample opening: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	if proof.MaskRowOffset != proof.RowLayout.SigCount {
 		t.Fatalf("mask offset=%d want committed witness rows=%d", proof.MaskRowOffset, proof.RowLayout.SigCount)
 	}
-	if got, want := proof.MaskDegreeBound, computeDQFromConstraintDegrees(3, 1, opts.NCols, opts.Ell); got != want || proof.QDegreeBound != want {
+	if got, want := proof.MaskDegreeBound, computeDQFromConstraintDegrees(9, 1, opts.NCols, opts.Ell); got != want || proof.QDegreeBound != want {
 		t.Fatalf("paper-conservative degree mismatch mask=%d q=%d want %d", got, proof.QDegreeBound, want)
 	}
 	pubWithExtras, err := bindIntGenISISPublicExtras(pub, profile.N)
@@ -118,10 +118,14 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("verify proof: ok=%v err=%v", ok, err)
 	}
+	if proof.QOpening == nil || proof.QRoot == ([16]byte{}) || len(proof.QRBits) == 0 {
+		t.Fatal("legacy proof did not carry Q DECS material")
+	}
 	thetaOpts := opts
 	thetaOpts.Theta = 7
 	thetaOpts.Rho = 1
 	thetaOpts.EllPrime = 1
+	thetaOpts.TranscriptVersion = TranscriptVersionSmallWood2025
 	thetaProof, err := BuildIntGenISISPreSign(ringQ, pub, wit, thetaOpts)
 	if err != nil {
 		t.Fatalf("build theta>1 proof: %v", err)
@@ -132,17 +136,60 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	if thetaProof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRows {
 		t.Fatalf("theta>1 source=%q", thetaProof.PCSGeometry.SmallFieldSource)
 	}
-	if thetaProof.QOpening == nil || thetaProof.QOpening.R != thetaOpts.Rho*thetaOpts.Theta {
-		t.Fatalf("theta>1 Q rows=%v want %d", func() int {
-			if thetaProof.QOpening == nil {
-				return 0
-			}
-			return thetaProof.QOpening.R
-		}(), thetaOpts.Rho*thetaOpts.Theta)
+	if thetaProof.QRoot != ([16]byte{}) || len(thetaProof.QRBits) != 0 || thetaProof.QOpening != nil {
+		t.Fatal("strict theta>1 proof carried redundant Q DECS material")
+	}
+	if len(thetaProof.QPayloadMatrix()) != thetaOpts.Rho*thetaOpts.Theta {
+		t.Fatalf("theta>1 Q payload rows mismatch")
 	}
 	ok, err = VerifyIntGenISISPreSign(pub, thetaProof, thetaOpts)
 	if err != nil || !ok {
 		t.Fatalf("verify theta>1 proof: ok=%v err=%v", ok, err)
+	}
+	badQPayload := *thetaProof
+	badQPayload.QPayload = copyMatrix(thetaProof.QPayloadMatrix())
+	badQPayload.QPayloadBits = nil
+	badQPayload.QPayload[0][0] = (badQPayload.QPayload[0][0] + 1) % ringQ.Modulus[0]
+	ok, err = VerifyIntGenISISPreSign(pub, &badQPayload, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("theta>1 proof verified with tampered Q payload")
+	}
+	missingQPayload := *thetaProof
+	missingQPayload.QPayload = nil
+	missingQPayload.QPayloadBits = nil
+	ok, err = VerifyIntGenISISPreSign(pub, &missingQPayload, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("theta>1 proof verified without Q payload")
+	}
+	badQRows := *thetaProof
+	badQRows.QPayload = copyMatrix(thetaProof.QPayloadMatrix())
+	badQRows.QPayloadBits = nil
+	if len(badQRows.QPayload) > 1 {
+		badQRows.QPayload = badQRows.QPayload[:len(badQRows.QPayload)-1]
+	} else {
+		badQRows.QPayload = append(badQRows.QPayload, append([]uint64(nil), badQRows.QPayload[0]...))
+	}
+	ok, err = VerifyIntGenISISPreSign(pub, &badQRows, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("theta>1 proof verified with tampered Q payload row count")
+	}
+	badQDegree := *thetaProof
+	badQDegree.QPayload = copyMatrix(thetaProof.QPayloadMatrix())
+	badQDegree.QPayloadBits = nil
+	overflowCoeff := thetaProof.QDegreeBound + 1
+	for len(badQDegree.QPayload[0]) <= overflowCoeff {
+		badQDegree.QPayload[0] = append(badQDegree.QPayload[0], 0)
+	}
+	badQDegree.QPayload[0][overflowCoeff] = 1
+	ok, err = VerifyIntGenISISPreSign(pub, &badQDegree, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("theta>1 proof verified with Q payload degree overflow")
+	}
+	redundantQ := *thetaProof
+	redundantQ.QRoot[0] = 1
+	ok, err = VerifyIntGenISISPreSign(pub, &redundantQ, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("theta>1 proof verified with redundant strict QRoot")
 	}
 	wideOpts := opts
 	wideOpts.NLeaves = 1600

@@ -8,9 +8,11 @@ import (
 )
 
 const (
-	vTargetsFormatDense  = byte(1)
-	vTargetsFormatRagged = byte(2)
-	vTargetsHeaderSize   = 10
+	vTargetsFormatDense        = byte(1)
+	vTargetsFormatRagged       = byte(2)
+	vTargetsFormatRowWidths    = byte(3)
+	vTargetsFormatColumnWidths = byte(4)
+	vTargetsHeaderSize         = 10
 )
 
 func (p *Proof) setVTargets(mat [][]uint64) {
@@ -71,13 +73,36 @@ func packProofVTargets(p *Proof, mat [][]uint64) ([]byte, int, int, int) {
 		format = vTargetsFormatRagged
 	}
 	payload := packVariableWidthUintRows(mat, rowWidths, width)
-	bits := make([]byte, vTargetsHeaderSize+len(payload))
+	bestPayload := payload
+	bestFormat := format
+	bestWidth := width
+	bestPrefix := []byte(nil)
+	if p != nil && p.VTargetsWidthCodec {
+		rowBitWidths := vTargetsRowBitWidths(mat, rowWidths)
+		rowPayload := packVariableRowWidthUintRows(mat, rowWidths, rowBitWidths)
+		if len(rowPayload) > 0 && vTargetsPackedCandidateLen(rowPayload, rowBitWidths) < vTargetsPackedCandidateLen(bestPayload, bestPrefix) {
+			bestPayload = rowPayload
+			bestFormat = vTargetsFormatRowWidths
+			bestWidth = maxInt(maxUint8(rowBitWidths), 1)
+			bestPrefix = rowBitWidths
+		}
+		colBitWidths := vTargetsColumnBitWidths(mat, rowWidths, cols)
+		colPayload := packVariableColumnWidthUintRows(mat, rowWidths, colBitWidths)
+		if len(colPayload) > 0 && vTargetsPackedCandidateLen(colPayload, colBitWidths) < vTargetsPackedCandidateLen(bestPayload, bestPrefix) {
+			bestPayload = colPayload
+			bestFormat = vTargetsFormatColumnWidths
+			bestWidth = maxInt(maxUint8(colBitWidths), 1)
+			bestPrefix = colBitWidths
+		}
+	}
+	bits := make([]byte, vTargetsHeaderSize+len(bestPrefix)+len(bestPayload))
 	binary.LittleEndian.PutUint32(bits[0:4], uint32(rows))
 	binary.LittleEndian.PutUint32(bits[4:8], uint32(cols))
-	bits[8] = byte(width)
-	bits[9] = format
-	copy(bits[vTargetsHeaderSize:], payload)
-	return bits, rows, cols, width
+	bits[8] = byte(bestWidth)
+	bits[9] = bestFormat
+	copy(bits[vTargetsHeaderSize:], bestPrefix)
+	copy(bits[vTargetsHeaderSize+len(bestPrefix):], bestPayload)
+	return bits, rows, cols, bestWidth
 }
 
 func unpackProofVTargets(p *Proof, bits []byte) ([][]uint64, int, int, int, error) {
@@ -107,6 +132,34 @@ func unpackProofVTargets(p *Proof, bits []byte) ([][]uint64, int, int, int, erro
 			return nil, 0, 0, 0, fmt.Errorf("proof: ragged VTargets geometry unavailable")
 		}
 		rowWidths = ragged
+	case vTargetsFormatRowWidths:
+		ragged := deriveVTargetsRaggedWidths(p, rows, cols)
+		if len(ragged) == rows {
+			rowWidths = ragged
+		}
+		if len(bits) < vTargetsHeaderSize+rows {
+			return nil, 0, 0, 0, fmt.Errorf("proof: truncated row-width VTargets header")
+		}
+		rowBitWidths := bits[vTargetsHeaderSize : vTargetsHeaderSize+rows]
+		mat, err := unpackVariableRowWidthUintRows(bits[vTargetsHeaderSize+rows:], rows, cols, rowWidths, rowBitWidths)
+		if err != nil {
+			return nil, 0, 0, 0, err
+		}
+		return mat, rows, cols, width, nil
+	case vTargetsFormatColumnWidths:
+		ragged := deriveVTargetsRaggedWidths(p, rows, cols)
+		if len(ragged) == rows {
+			rowWidths = ragged
+		}
+		if len(bits) < vTargetsHeaderSize+cols {
+			return nil, 0, 0, 0, fmt.Errorf("proof: truncated column-width VTargets header")
+		}
+		colBitWidths := bits[vTargetsHeaderSize : vTargetsHeaderSize+cols]
+		mat, err := unpackVariableColumnWidthUintRows(bits[vTargetsHeaderSize+cols:], rows, cols, rowWidths, colBitWidths)
+		if err != nil {
+			return nil, 0, 0, 0, err
+		}
+		return mat, rows, cols, width, nil
 	default:
 		return nil, 0, 0, 0, fmt.Errorf("proof: unknown VTargets format %d", format)
 	}
@@ -202,6 +255,213 @@ func packVariableWidthUintRows(rows [][]uint64, rowWidths []int, width int) []by
 		}
 	}
 	return out
+}
+
+func vTargetsPackedCandidateLen(payload []byte, prefix []byte) int {
+	if len(payload) == 0 {
+		return 0
+	}
+	return len(prefix) + len(payload)
+}
+
+func vTargetsRowBitWidths(rows [][]uint64, rowWidths []int) []uint8 {
+	if len(rows) == 0 || len(rowWidths) != len(rows) {
+		return nil
+	}
+	out := make([]uint8, len(rows))
+	for i, row := range rows {
+		var max uint64
+		for j := 0; j < rowWidths[i] && j < len(row); j++ {
+			if row[j] > max {
+				max = row[j]
+			}
+		}
+		out[i] = uint8(packedwidth.ExactForMax(max))
+	}
+	return out
+}
+
+func vTargetsColumnBitWidths(rows [][]uint64, rowWidths []int, cols int) []uint8 {
+	if len(rows) == 0 || len(rowWidths) != len(rows) || cols <= 0 {
+		return nil
+	}
+	maxVals := make([]uint64, cols)
+	for i, row := range rows {
+		for j := 0; j < rowWidths[i] && j < len(row); j++ {
+			if row[j] > maxVals[j] {
+				maxVals[j] = row[j]
+			}
+		}
+	}
+	out := make([]uint8, cols)
+	for j, max := range maxVals {
+		out[j] = uint8(packedwidth.ExactForMax(max))
+	}
+	return out
+}
+
+func packVariableRowWidthUintRows(rows [][]uint64, rowWidths []int, bitWidths []uint8) []byte {
+	if len(rows) == 0 || len(rowWidths) != len(rows) || len(bitWidths) != len(rows) {
+		return nil
+	}
+	totalBits := 0
+	for i, rowWidth := range rowWidths {
+		width := int(bitWidths[i])
+		if rowWidth < 0 || width <= 0 || width > 64 {
+			return nil
+		}
+		totalBits += rowWidth * width
+	}
+	out := make([]byte, (totalBits+7)/8)
+	bitPos := 0
+	for i, row := range rows {
+		width := int(bitWidths[i])
+		for j := 0; j < rowWidths[i]; j++ {
+			val := uint64(0)
+			if j < len(row) {
+				val = row[j]
+			}
+			packBitsAt(out, bitPos, width, val)
+			bitPos += width
+		}
+	}
+	return out
+}
+
+func unpackVariableRowWidthUintRows(bits []byte, rows, cols int, rowWidths []int, bitWidths []byte) ([][]uint64, error) {
+	if rows <= 0 || cols <= 0 || len(rowWidths) != rows || len(bitWidths) != rows {
+		return nil, fmt.Errorf("proof: invalid row-width matrix shape")
+	}
+	expectedBits := 0
+	for i, rowWidth := range rowWidths {
+		width := int(bitWidths[i])
+		if rowWidth < 0 || rowWidth > cols || width <= 0 || width > 64 {
+			return nil, fmt.Errorf("proof: invalid row-width VTargets row=%d width=%d cols=%d", i, width, rowWidth)
+		}
+		expectedBits += rowWidth * width
+	}
+	if len(bits)*8 < expectedBits {
+		return nil, fmt.Errorf("proof: truncated row-width VTargets payload")
+	}
+	out := make([][]uint64, rows)
+	bitPos := 0
+	for r := 0; r < rows; r++ {
+		row := make([]uint64, cols)
+		width := int(bitWidths[r])
+		for c := 0; c < rowWidths[r]; c++ {
+			row[c] = unpackBitsAt(bits, bitPos, width)
+			bitPos += width
+		}
+		out[r] = row
+	}
+	return out, nil
+}
+
+func packVariableColumnWidthUintRows(rows [][]uint64, rowWidths []int, bitWidths []uint8) []byte {
+	if len(rows) == 0 || len(rowWidths) != len(rows) || len(bitWidths) == 0 {
+		return nil
+	}
+	totalBits := 0
+	for _, rowWidth := range rowWidths {
+		if rowWidth < 0 || rowWidth > len(bitWidths) {
+			return nil
+		}
+		for c := 0; c < rowWidth; c++ {
+			width := int(bitWidths[c])
+			if width <= 0 || width > 64 {
+				return nil
+			}
+			totalBits += width
+		}
+	}
+	out := make([]byte, (totalBits+7)/8)
+	bitPos := 0
+	for r, row := range rows {
+		for c := 0; c < rowWidths[r]; c++ {
+			val := uint64(0)
+			if c < len(row) {
+				val = row[c]
+			}
+			width := int(bitWidths[c])
+			packBitsAt(out, bitPos, width, val)
+			bitPos += width
+		}
+	}
+	return out
+}
+
+func unpackVariableColumnWidthUintRows(bits []byte, rows, cols int, rowWidths []int, bitWidths []byte) ([][]uint64, error) {
+	if rows <= 0 || cols <= 0 || len(rowWidths) != rows || len(bitWidths) != cols {
+		return nil, fmt.Errorf("proof: invalid column-width matrix shape")
+	}
+	expectedBits := 0
+	for r, rowWidth := range rowWidths {
+		if rowWidth < 0 || rowWidth > cols {
+			return nil, fmt.Errorf("proof: invalid column-width row width %d for cols=%d", rowWidth, cols)
+		}
+		for c := 0; c < rowWidth; c++ {
+			width := int(bitWidths[c])
+			if width <= 0 || width > 64 {
+				return nil, fmt.Errorf("proof: invalid column-width VTargets col=%d width=%d row=%d", c, width, r)
+			}
+			expectedBits += width
+		}
+	}
+	if len(bits)*8 < expectedBits {
+		return nil, fmt.Errorf("proof: truncated column-width VTargets payload")
+	}
+	out := make([][]uint64, rows)
+	bitPos := 0
+	for r := 0; r < rows; r++ {
+		row := make([]uint64, cols)
+		for c := 0; c < rowWidths[r]; c++ {
+			width := int(bitWidths[c])
+			row[c] = unpackBitsAt(bits, bitPos, width)
+			bitPos += width
+		}
+		out[r] = row
+	}
+	return out, nil
+}
+
+func packBitsAt(out []byte, bitPos, width int, val uint64) {
+	if width <= 0 {
+		return
+	}
+	var mask uint64
+	if width >= 64 {
+		mask = ^uint64(0)
+	} else {
+		mask = (uint64(1) << width) - 1
+	}
+	bytePos := bitPos >> 3
+	shift := uint(bitPos & 7)
+	chunk := (val & mask) << shift
+	bytesNeeded := (width + int(shift) + 7) / 8
+	for k := 0; k < bytesNeeded && (bytePos+k) < len(out); k++ {
+		out[bytePos+k] |= byte(chunk & 0xFF)
+		chunk >>= 8
+	}
+}
+
+func unpackBitsAt(bits []byte, bitPos, width int) uint64 {
+	if width <= 0 {
+		return 0
+	}
+	bytePos := bitPos >> 3
+	shift := uint(bitPos & 7)
+	var mask uint64
+	if width >= 64 {
+		mask = ^uint64(0)
+	} else {
+		mask = (uint64(1) << width) - 1
+	}
+	var chunk uint64
+	bytesNeeded := (width + int(shift) + 7) / 8
+	for k := 0; k < bytesNeeded && (bytePos+k) < len(bits); k++ {
+		chunk |= uint64(bits[bytePos+k]) << (8 * k)
+	}
+	return (chunk >> shift) & mask
 }
 
 func unpackVariableWidthUintRows(bits []byte, rows, cols int, rowWidths []int, width int) ([][]uint64, error) {

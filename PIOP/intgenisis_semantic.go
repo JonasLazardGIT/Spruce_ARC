@@ -16,6 +16,7 @@ const intGenISISPRFKeyLen = 8
 const intGenISISMaxDirectSignatureRangeBound = 64
 const intGenISISTernaryBound = 1
 const intGenISISTernaryMembershipDegree = 3
+const intGenISISDefaultBound = 4
 const intGenISISDegreeModePaperEq3V1 = credential.IntGenISISDegreeModePaperEq3V1
 const intGenISISUShortnessVersion = "intgenisis_u_shortness_r11_l4_v1"
 const intGenISISUShortnessMode = "radix_capacity_slack_builder_exact_beta"
@@ -71,10 +72,10 @@ func bindIntGenISISPublicExtrasWithOpts(pub PublicInputs, ringN int, opts SimOpt
 		return pub, err
 	}
 	pub.Extras["IntGenISIS.semantic_message_layout"] = layout.Digest()
-	pub.Extras["IntGenISIS.mse_domain"] = []byte(credential.IntGenISISDomainTernaryV1)
-	pub.Extras["IntGenISIS.key_domain"] = []byte(credential.IntGenISISDomainTernaryV1)
+	pub.Extras["IntGenISIS.mse_domain"] = []byte(layout.MSEDomain)
+	pub.Extras["IntGenISIS.key_domain"] = []byte(layout.KeyDomain)
 	pub.Extras["IntGenISIS.degree_mode"] = []byte(intGenISISDegreeModePaperEq3V1)
-	compressionBytes, err := intGenISISMSECompressionDescriptorBytes(opts.IntGenISISMSECompression, 0)
+	compressionBytes, err := intGenISISMSECompressionDescriptorBytesForBound(opts.IntGenISISMSECompression, 0, pub.BoundB)
 	if err != nil {
 		return pub, err
 	}
@@ -100,6 +101,16 @@ func bindIntGenISISPublicExtrasWithOpts(pub PublicInputs, ringN int, opts SimOpt
 	pub.Extras["IntGenISIS.signature_bound"] = []byte(strconv.FormatInt(sigBound, 10))
 	pub.Extras["IntGenISIS.u_shortness"] = shortnessBytes
 	return pub, nil
+}
+
+func intGenISISX0LenFromPublic(pub PublicInputs) (int, error) {
+	if pub.X0Len > 0 {
+		return pub.X0Len, nil
+	}
+	if len(pub.B) > 3 {
+		return len(pub.B) - 3, nil
+	}
+	return 0, fmt.Errorf("missing IntGenISIS x0 length")
 }
 
 func intGenISISSignatureBoundFromPublic(pub PublicInputs) (int64, error) {
@@ -350,6 +361,10 @@ func validateIntGenISISTernaryPolys(ringQ *ring.Ring, name string, rows []*ring.
 	return validateIntGenISISBoundedPolys(ringQ, intGenISISTernaryBound, name, rows)
 }
 
+func validateIntGenISISLiveBoundPolys(ringQ *ring.Ring, bound int64, name string, rows []*ring.Poly) error {
+	return validateIntGenISISBoundedPolys(ringQ, bound, name, rows)
+}
+
 func intGenISISPolyRowsToInt64(ringQ *ring.Ring, rows []*ring.Poly) [][]int64 {
 	out := make([][]int64, len(rows))
 	if ringQ == nil {
@@ -524,6 +539,27 @@ func intGenISISTernaryMembershipRows(ringQ *ring.Ring, rowsNTT []*ring.Poly, ind
 	return intGenISISRangeMembershipRows(ringQ, rowsNTT, indices, intGenISISTernaryBound)
 }
 
+func intGenISISLiveMembershipRows(ringQ *ring.Ring, rowsNTT []*ring.Poly, indices []int, bound int64) ([]*ring.Poly, [][]uint64, error) {
+	return intGenISISRangeMembershipRows(ringQ, rowsNTT, indices, bound)
+}
+
+func intGenISISMembershipDegree(bound int64) int {
+	if bound <= 0 {
+		bound = intGenISISDefaultBound
+	}
+	return int(2*bound + 1)
+}
+
+func rejectIntGenISISMSECompressionForBound(bound int64, level int) error {
+	if level <= 0 {
+		return nil
+	}
+	if bound != intGenISISTernaryBound {
+		return fmt.Errorf("IntGenISIS M/s/e compression level %d requires ternary bound 1; B=%d bounded-range compression is disabled", level, bound)
+	}
+	return nil
+}
+
 type IntGenISISDegreeMetadata struct {
 	ParallelAlgDegree    int    `json:"parallel_alg_degree"`
 	AggregatedAlgDegree  int    `json:"aggregated_alg_degree"`
@@ -560,10 +596,10 @@ func intGenISISDegreeMetadataForLayout(ringQ *ring.Ring, pub PublicInputs, layou
 		ell = 1
 	}
 	meta := IntGenISISDegreeMetadata{
-		TernaryDegree: intGenISISTernaryMembershipDegree,
+		TernaryDegree: intGenISISMembershipDegree(pub.BoundB),
 		PolicyDegree:  1,
 	}
-	compressionDesc, err := intGenISISMSECompressionDescriptorForLevel(opts.IntGenISISMSECompression)
+	compressionDesc, err := intGenISISMSECompressionDescriptorForBound(opts.IntGenISISMSECompression, pub.BoundB)
 	if err != nil {
 		return IntGenISISDegreeMetadata{}, err
 	}
@@ -585,7 +621,7 @@ func intGenISISDegreeMetadataForLayout(ringQ *ring.Ring, pub PublicInputs, layou
 			name string
 			deg  int
 		}{
-			{"ternary", meta.TernaryDegree},
+			{"bounded_range", meta.TernaryDegree},
 			{"policy", meta.PolicyDegree},
 			{"linear", 1},
 		})
@@ -619,7 +655,7 @@ func intGenISISDegreeMetadataForLayout(ringQ *ring.Ring, pub PublicInputs, layou
 		}{
 			{"shortness", meta.ShortnessDegree},
 			{"compression", meta.CompressionDegree},
-			{"ternary", meta.TernaryDegree},
+			{"bounded_range", meta.TernaryDegree},
 			{"signature", meta.SignatureDegree},
 			{"policy", meta.PolicyDegree},
 		})

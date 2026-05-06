@@ -129,7 +129,7 @@ func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		ASCoeff:      asCoeff,
 		ComCoeff:     comCoeff,
 		BoundRows:    boundRows,
-		BoundPoly:    NewRangeMembershipSpec(ringQ.Modulus[0], intGenISISTernaryBound).Coeffs,
+		BoundPoly:    NewRangeMembershipSpec(ringQ.Modulus[0], int(pub.BoundB)).Coeffs,
 		PolicyRows:   policyRows,
 	}, nil
 }

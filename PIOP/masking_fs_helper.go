@@ -230,7 +230,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			return out, fmt.Errorf("rand salt: %w", err)
 		}
 	}
-	fs := NewFS(baseXOF, salt, FSParams{Lambda: o.Lambda, Kappa: o.Kappa})
+	fs := NewFS(baseXOF, salt, FSParams{Lambda: o.Lambda, Kappa: o.Kappa, TranscriptVersion: o.TranscriptVersion})
 	proof := &Proof{
 		Root:            args.root,
 		RingDegree:      int(ringQ.N),
@@ -249,6 +249,24 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		PCSGeometry:     args.pcsGeometry,
 		LabelsDigest:    append([]byte(nil), args.labelsDigest...),
 		SigShortness:    args.sigShortness,
+	}
+	proof.TranscriptVersion = normalizeTranscriptVersion(o.TranscriptVersion)
+	proof.TranscriptProtocolMode = normalizeTranscriptProtocolMode(o.TranscriptProtocolMode)
+	paperQPayloadOnly := proofUsesPaperQPayloadOnly(proof)
+	strictSmallField2025 := proof.TranscriptProtocolMode == TranscriptProtocolSmallField2025V1
+	if strictSmallField2025 {
+		if !paperQPayloadOnly {
+			return out, fmt.Errorf("%s requires transcript version %s", TranscriptProtocolSmallField2025V1, TranscriptVersionSmallWood2025)
+		}
+		if o.Theta <= 1 || o.Rho != 1 || o.EllPrime != 1 {
+			return out, fmt.Errorf("%s requires theta>1, rho=1, ell_prime=1 (got theta=%d rho=%d ell_prime=%d)", TranscriptProtocolSmallField2025V1, o.Theta, o.Rho, o.EllPrime)
+		}
+		if proof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV1 {
+			return out, fmt.Errorf("%s requires %s geometry", TranscriptProtocolSmallField2025V1, PCSGeometryKindSmallFieldMatrixV1)
+		}
+		if proof.PCSGeometry.SmallFieldSource != "" && proof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRows {
+			return out, fmt.Errorf("%s requires small-field source %q, got %q", TranscriptProtocolSmallField2025V1, PCSGeometrySmallFieldSourceLiteralRows, proof.PCSGeometry.SmallFieldSource)
+		}
 	}
 	if proof.RowLayout.RingDegree == 0 {
 		proof.RowLayout.RingDegree = int(ringQ.N)
@@ -317,7 +335,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			totalAgg += args.prfCompanionBridgeChecks
 		}
 		transcript2 := [][]byte{args.root[:], gammaBytes, rTranscript}
-		if len(args.labelsDigest) > 0 {
+		if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 {
+			transcript2 = [][]byte{rTranscript}
+		} else if len(args.labelsDigest) > 0 {
 			transcript2 = append(transcript2, args.labelsDigest)
 		}
 		if proof.Theta > 1 {
@@ -560,6 +580,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			}
 		}
 		out.QCoeffs = qCoeffs
+		proof.setQPayload(qCoeffs)
 		proof.QCoeffDebug = copyMatrix(qCoeffs)
 		if deg := maxDegreeFromCoeffRows(qCoeffs); deg > qDecsParams.Degree {
 			qDecsParams.Degree = deg
@@ -568,6 +589,12 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		qDomainPoints = domainPoints
 		if len(qDomainPoints) == 0 {
 			return fmt.Errorf("explicit-domain mode requires non-empty Q domain points")
+		}
+		if paperQPayloadOnly {
+			proof.QRoot = [16]byte{}
+			proof.setQR(nil)
+			proof.QOpening = nil
+			return nil
 		}
 		var qErr error
 		qProver, qErr = decs.NewProverWithParamsAndPointsFormalChecked(ringQ, qCoeffs, qDecsParams, qDomainPoints)
@@ -607,11 +634,16 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			gammaPrimeBytes = bytesFromKScalarTensor3(GammaPrimeK)
 			gammaAggBytes = bytesFromKScalarMat(GammaAggK)
 		}
-		round3Material := [][]byte{args.root[:], gammaBytes, gammaPrimeBytes, gammaAggBytes, proof.QRoot[:]}
+		var round3Material [][]byte
+		if paperQPayloadOnly {
+			round3Material = [][]byte{proof.QPayloadBytes()}
+		} else {
+			round3Material = [][]byte{args.root[:], gammaBytes, gammaPrimeBytes, gammaAggBytes, proof.QRoot[:], proof.QPayloadBytes()}
+		}
 		if proof.PRFCompanion != nil && len(proof.PRFCompanion.CoordDigest) > 0 {
 			round3Material = append(round3Material, proof.PRFCompanion.CoordDigest)
 		}
-		if len(args.labelsDigest) > 0 {
+		if normalizeTranscriptVersion(proof.TranscriptVersion) != TranscriptVersionSmallWood2025 && len(args.labelsDigest) > 0 {
 			round3Material = append(round3Material, args.labelsDigest)
 		}
 		round3 := fsRound(fs, proof, 2, func() string {
@@ -623,17 +655,19 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		seed3 := round3.Seed
 
 		// CommitStep2 for Q: derive Γ_Q after QRoot is bound in FS round 2.
-		if qProver == nil {
-			return fmt.Errorf("missing Q prover")
+		if !paperQPayloadOnly {
+			if qProver == nil {
+				return fmt.Errorf("missing Q prover")
+			}
+			gammaQRNG := newFSRNG("GammaQ", seed3)
+			qRows := args.rho
+			if proof.Theta > 1 {
+				qRows *= proof.Theta
+			}
+			gammaQ = sampleFSMatrix(args.decsParams.Eta, qRows, q, gammaQRNG)
+			out.gammaQ = copyMatrix(gammaQ)
+			proof.setQR(qProver.CommitStep2Formal(gammaQ))
 		}
-		gammaQRNG := newFSRNG("GammaQ", seed3)
-		qRows := args.rho
-		if proof.Theta > 1 {
-			qRows *= proof.Theta
-		}
-		gammaQ = sampleFSMatrix(args.decsParams.Eta, qRows, q, gammaQRNG)
-		out.gammaQ = copyMatrix(gammaQ)
-		proof.setQR(qProver.CommitStep2Formal(gammaQ))
 
 		if proof.Theta > 1 {
 			kPointRNG := round3.RNG
@@ -642,6 +676,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			barSets = [][]uint64{}
 			evalReqs := make([]lvcs.EvalRequest, 0, ellPrime*proof.Theta)
 			smallFieldEvals := make([]kf.Elem, 0, ellPrime)
+			var strictPlan smallField2025CoeffPlan
 			for len(smallFieldEvals) < ellPrime {
 				limbs := make([]uint64, proof.Theta)
 				for i := 0; i < proof.Theta; i++ {
@@ -678,6 +713,14 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 					continue
 				}
 				coeffBlock := buildKPointCoeffMatrix(ringQ, args.smallFieldK, omegaWitness, args.rows, candidate, args.smallFieldOmegaS1, args.smallFieldMuInv, args.pcsGeometry.ReplayWitnessRows, args.maskRowOffset, args.maskRowCount)
+				if strictSmallField2025 {
+					plan, planErr := buildSmallField2025CoeffPlan(ringQ, args.smallFieldK, omegaWitness, args.rows, candidate, args.smallFieldOmegaS1, args.smallFieldMuInv, args.pcsGeometry.ReplayWitnessRows, args.maskRowOffset, args.maskRowCount)
+					if planErr != nil {
+						return fmt.Errorf("build smallfield2025 coefficient plan: %w", planErr)
+					}
+					coeffBlock = plan.C
+					strictPlan = plan
+				}
 				coeffMatrix = append(coeffMatrix, coeffBlock...)
 				for i := range coeffBlock {
 					rowCopy := append([]uint64(nil), coeffBlock[i]...)
@@ -701,6 +744,14 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			proof.setVTargets(vTargets)
 			proof.CoeffMatrix = copyMatrix(coeffMatrix)
 			proof.KPoint = copyMatrix(kPointLimbs)
+			if strictSmallField2025 {
+				if len(strictPlan.C) == 0 {
+					return fmt.Errorf("missing smallfield2025 coefficient plan")
+				}
+				if err := attachSmallField2025Proof(proof, strictPlan, args.decsParams.Eta); err != nil {
+					return err
+				}
+			}
 			out.barSets = barSets
 			out.coeffMatrix = coeffMatrix
 			out.kPoint = kPointLimbs
@@ -795,19 +846,31 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	// Round 4: tail sampling and openings (use same FS state) – only for θ>1
 	if err := stage("RunMaskFS.Round4TailOpen", func() error {
 		if proof.Theta <= 1 {
-			transcript4 := [][]byte{
-				args.root[:],
-				gammaBytes,
-				gammaPrimeBytes,
-				proof.QRoot[:],
-				proof.QRBytes(),
-				encodeUint64Slice(out.evalPoints),
-				bytesFromUint64Matrix(coeffMatrix),
-				bytesFromUint64Matrix(barSets),
-				bytesFromUint64Matrix(vTargets),
+			var transcript4 [][]byte
+			if paperQPayloadOnly {
+				transcript4 = [][]byte{
+					proof.VTargetsBits,
+					proof.BarSetsBits,
+				}
+			} else {
+				transcript4 = [][]byte{
+					args.root[:],
+					gammaBytes,
+					gammaPrimeBytes,
+					proof.QRoot[:],
+					proof.QPayloadBytes(),
+					proof.QRBytes(),
+					encodeUint64Slice(out.evalPoints),
+					bytesFromUint64Matrix(coeffMatrix),
+					bytesFromUint64Matrix(barSets),
+					bytesFromUint64Matrix(vTargets),
+				}
 			}
 			if proof.PRFCompanion != nil && prfCompanionHasOpeningPayload(proof.PRFCompanion) {
 				transcript4 = append(transcript4, prfCompanionOpeningPayloadBytes(proof.PRFCompanion))
+			}
+			if proof.SmallField2025 != nil {
+				transcript4 = append(transcript4, smallField2025TranscriptBytes(proof.SmallField2025))
 			}
 			proof.TailTranscript = flattenBytes(transcript4)
 			round4 := fsRound(fs, proof, 3, "TailPoints", transcript4...)
@@ -841,11 +904,13 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				qIdx = append(qIdx, i)
 			}
 			qIdx = append(qIdx, E...)
-			qOpen := qProver.EvalOpen(qIdx)
-			out.qOpeningRaw = cloneDECSOpening(qOpen)
-			proof.QOpening = cloneDECSOpening(qOpen)
-			maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
-			decs.PackOpening(proof.QOpening)
+			if !paperQPayloadOnly {
+				qOpen := qProver.EvalOpen(qIdx)
+				out.qOpeningRaw = cloneDECSOpening(qOpen)
+				proof.QOpening = cloneDECSOpening(qOpen)
+				maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
+				decs.PackOpening(proof.QOpening)
+			}
 
 			out.openMask = openMask
 			out.openTail = openTail
@@ -862,17 +927,29 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if tailLen < args.ell {
 			return fmt.Errorf("insufficient tail: tailLen=%d ell=%d", tailLen, args.ell)
 		}
-		transcript4 := [][]byte{
-			args.root[:],
-			gammaBytes,
-			bytesFromKScalarTensor3(GammaPrimeK),
-			bytesFromKScalarMat(GammaAggK),
-			proof.QRoot[:],
-			proof.QRBytes(),
-			bytesFromUint64Matrix(kPointLimbs),
-			bytesFromUint64Matrix(coeffMatrix),
-			bytesFromUint64Matrix(barSets),
-			bytesFromUint64Matrix(vTargets),
+		var transcript4 [][]byte
+		if paperQPayloadOnly {
+			transcript4 = [][]byte{
+				proof.VTargetsBits,
+				proof.BarSetsBits,
+			}
+		} else {
+			transcript4 = [][]byte{
+				args.root[:],
+				gammaBytes,
+				bytesFromKScalarTensor3(GammaPrimeK),
+				bytesFromKScalarMat(GammaAggK),
+				proof.QRoot[:],
+				proof.QPayloadBytes(),
+				proof.QRBytes(),
+				bytesFromUint64Matrix(kPointLimbs),
+				bytesFromUint64Matrix(coeffMatrix),
+				bytesFromUint64Matrix(barSets),
+				bytesFromUint64Matrix(vTargets),
+			}
+		}
+		if proof.SmallField2025 != nil {
+			transcript4 = append(transcript4, smallField2025TranscriptBytes(proof.SmallField2025))
 		}
 		if proof.PRFCompanion != nil && prfCompanionHasOpeningPayload(proof.PRFCompanion) {
 			transcript4 = append(transcript4, prfCompanionOpeningPayloadBytes(proof.PRFCompanion))
@@ -886,14 +963,32 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		for i := 0; i < args.ell; i++ {
 			maskIdx[i] = args.ncols + i
 		}
-		openMask := lvcs.EvalFinish(args.PK, maskIdx)
 		openTail := lvcs.EvalFinish(args.PK, E)
-		combinedOpen := combineOpenings(openMask.DECSOpen, openTail.DECSOpen)
-		proof.PCSOpening = cloneDECSOpening(combinedOpen)
+		var openMask *lvcs.Opening
+		var combinedOpen *decs.DECSOpening
+		if strictSmallField2025 {
+			proof.PCSOpening = cloneDECSOpening(openTail.DECSOpen)
+		} else {
+			openMask = lvcs.EvalFinish(args.PK, maskIdx)
+			combinedOpen = combineOpenings(openMask.DECSOpen, openTail.DECSOpen)
+			proof.PCSOpening = cloneDECSOpening(combinedOpen)
+		}
 		proof.PCSOpening.R = len(args.rowInputs)
 		proof.PCSOpening.Eta = args.decsParams.Eta
-		maybeCompressRowOpeningPvals(proof.PCSOpening, coeffMatrix, args.q)
+		if strictSmallField2025 {
+			if proof.SmallField2025 == nil {
+				return fmt.Errorf("missing smallfield2025 metadata before opening compression")
+			}
+			if err := applySmallField2025RowOpeningCompression(proof.PCSOpening, coeffMatrix, proof.SmallField2025.POmitCols, args.q); err != nil {
+				return err
+			}
+		} else {
+			maybeCompressRowOpeningPvals(proof.PCSOpening, coeffMatrix, args.q)
+		}
 		omitAllRowOpeningMvals(proof.PCSOpening)
+		if strictSmallField2025 {
+			proof.PCSOpening.MOmitCols = nil
+		}
 		decs.PackOpening(proof.PCSOpening)
 		proof.RowOpening = proof.PCSOpening
 
@@ -905,15 +1000,21 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			qIdx = append(qIdx, i)
 		}
 		qIdx = append(qIdx, E...)
-		qOpen := qProver.EvalOpen(qIdx)
-		out.qOpeningRaw = cloneDECSOpening(qOpen)
-		proof.QOpening = cloneDECSOpening(qOpen)
-		maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
-		decs.PackOpening(proof.QOpening)
+		if !paperQPayloadOnly {
+			qOpen := qProver.EvalOpen(qIdx)
+			out.qOpeningRaw = cloneDECSOpening(qOpen)
+			proof.QOpening = cloneDECSOpening(qOpen)
+			maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
+			decs.PackOpening(proof.QOpening)
+		}
 
 		out.openMask = openMask
 		out.openTail = openTail
-		out.combinedOpen = combinedOpen
+		if strictSmallField2025 {
+			out.combinedOpen = proof.PCSOpening
+		} else {
+			out.combinedOpen = combinedOpen
+		}
 		out.tailIndices = append([]int(nil), E...)
 		return nil
 	}); err != nil {

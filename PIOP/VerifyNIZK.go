@@ -29,6 +29,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if proof == nil {
 		return false, false, false, errors.New("VerifyNIZK: nil proof")
 	}
+	paperQPayloadOnly := proofUsesPaperQPayloadOnly(proof)
 	defer func() {
 		if proof != nil {
 			decs.PackOpening(resolveProofPCSOpening(proof))
@@ -87,6 +88,9 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 			return false, false, false, fmt.Errorf("VerifyNIZK: invalid small-field replay rows=%d layer_size=%d", proof.PCSGeometry.ReplayWitnessRows, layerSize)
 		}
 	}
+	if err := ValidateSmallField2025Proof(proof); err != nil {
+		return false, false, false, fmt.Errorf("VerifyNIZK: %w", err)
+	}
 	ell := len(proof.Tail)
 	if proof.DomainMode != DomainModeExplicit {
 		return false, false, false, fmt.Errorf("VerifyNIZK: unsupported domain mode %d (only explicit mode is supported)", proof.DomainMode)
@@ -117,7 +121,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if lambda <= 0 {
 		lambda = 256
 	}
-	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa})
+	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa, TranscriptVersion: proof.TranscriptVersion})
 	rootBytes := append([]byte(nil), proof.Root[:]...)
 	material0 := [][]byte{rootBytes}
 	if len(proof.LabelsDigest) > 0 {
@@ -169,7 +173,9 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	gammaBytes := bytesFromUint64Matrix(Gamma)
 	rBytes := bytesFromUint64Matrix(proof.R)
 	transcript2 := [][]byte{rootBytes, gammaBytes, rBytes}
-	if len(proof.LabelsDigest) > 0 {
+	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 {
+		transcript2 = [][]byte{rBytes}
+	} else if len(proof.LabelsDigest) > 0 {
 		transcript2 = append(transcript2, proof.LabelsDigest)
 	}
 	if proof.Theta > 1 {
@@ -211,7 +217,11 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		}
 	}
 
-	if proof.QRoot == ([16]byte{}) {
+	if paperQPayloadOnly {
+		if proofHasLegacyQDECS(proof) {
+			return false, false, false, errors.New("VerifyNIZK: strict SmallWood transcript carries redundant legacy Q DECS material")
+		}
+	} else if proof.QRoot == ([16]byte{}) {
 		return false, false, false, errors.New("VerifyNIZK: missing QRoot commitment")
 	}
 
@@ -277,17 +287,23 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		transcript4 [][]byte
 	)
 
-	transcript3 := [][]byte{
-		rootBytes,
-		gammaBytes,
-		gammaPrimeBytes,
-		gammaAggBytes,
-		proof.QRoot[:],
+	var transcript3 [][]byte
+	if paperQPayloadOnly {
+		transcript3 = [][]byte{proof.QPayloadBytes()}
+	} else {
+		transcript3 = [][]byte{
+			rootBytes,
+			gammaBytes,
+			gammaPrimeBytes,
+			gammaAggBytes,
+			proof.QRoot[:],
+			proof.QPayloadBytes(),
+		}
 	}
 	if proof.PRFCompanion != nil && len(proof.PRFCompanion.CoordDigest) > 0 {
 		transcript3 = append(transcript3, proof.PRFCompanion.CoordDigest)
 	}
-	if len(proof.LabelsDigest) > 0 {
+	if !paperQPayloadOnly && len(proof.LabelsDigest) > 0 {
 		transcript3 = append(transcript3, proof.LabelsDigest)
 	}
 	h3, err := verifyRoundDigest(fs, 2, proof.Ctr[2], transcript3, proof.Digests[2], proof.Kappa[2])
@@ -296,13 +312,17 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	}
 	seed3 := h3
 
-	qr := proof.QRMatrix()
-	if len(qr) == 0 {
-		return false, false, false, errors.New("VerifyNIZK: missing QR (Q degree-check polynomials)")
-	}
-	qrBytes := proof.QRBytes()
-	if len(qrBytes) == 0 {
-		return false, false, false, errors.New("VerifyNIZK: missing packed QR payload")
+	var qr [][]uint64
+	var qrBytes []byte
+	if !paperQPayloadOnly {
+		qr = proof.QRMatrix()
+		if len(qr) == 0 {
+			return false, false, false, errors.New("VerifyNIZK: missing QR (Q degree-check polynomials)")
+		}
+		qrBytes = proof.QRBytes()
+		if len(qrBytes) == 0 {
+			return false, false, false, errors.New("VerifyNIZK: missing packed QR payload")
+		}
 	}
 
 	if proof.Theta > 1 {
@@ -310,17 +330,40 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 			return false, false, false, errors.New("VerifyNIZK: missing coefficient matrix or K points for θ>1")
 		}
 		coeffMatrix = copyMatrix(proof.CoeffMatrix)
-		transcript4 = [][]byte{
-			rootBytes,
-			gammaBytes,
-			bytesFromKScalarTensor3(proof.GammaPrimeK),
-			bytesFromKScalarMat(proof.GammaAggK),
-			proof.QRoot[:],
-			qrBytes,
-			bytesFromUint64Matrix(proof.KPoint),
-			bytesFromUint64Matrix(coeffMatrix),
-			bytesFromUint64Matrix(barSets),
-			bytesFromUint64Matrix(vTargets),
+		if proofUsesSmallField2025LVCS(proof) {
+			omegaWitness := omega
+			if witnessNCols > 0 && len(omegaWitness) > witnessNCols {
+				omegaWitness = omegaWitness[:witnessNCols]
+			}
+			if err := verifySmallField2025CoeffPlan(proof, ringQ, omegaWitness, rRows, seed3); err != nil {
+				return false, false, false, fmt.Errorf("VerifyNIZK: %w", err)
+			}
+		}
+		if paperQPayloadOnly {
+			transcript4 = [][]byte{
+				proof.VTargetsBits,
+				proof.BarSetsBits,
+			}
+		} else {
+			transcript4 = [][]byte{
+				rootBytes,
+				gammaBytes,
+				bytesFromKScalarTensor3(proof.GammaPrimeK),
+				bytesFromKScalarMat(proof.GammaAggK),
+				proof.QRoot[:],
+				proof.QPayloadBytes(),
+				qrBytes,
+				bytesFromUint64Matrix(proof.KPoint),
+				bytesFromUint64Matrix(coeffMatrix),
+				bytesFromUint64Matrix(barSets),
+				bytesFromUint64Matrix(vTargets),
+			}
+		}
+		if proof.SmallField2025 != nil {
+			transcript4 = append(transcript4, smallField2025TranscriptBytes(proof.SmallField2025))
+		}
+		if proof.PRFCompanion != nil && prfCompanionHasOpeningPayload(proof.PRFCompanion) {
+			transcript4 = append(transcript4, prfCompanionOpeningPayloadBytes(proof.PRFCompanion))
 		}
 	} else {
 		ellPrime := len(barSets)
@@ -349,23 +392,39 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if len(proof.CoeffMatrix) > 0 && !matrixEqual(coeffMatrix, proof.CoeffMatrix) {
 			return false, false, false, errors.New("VerifyNIZK: coefficient matrix mismatch")
 		}
-		transcript4 = [][]byte{
-			rootBytes,
-			gammaBytes,
-			gammaPrimeBytes,
-			proof.QRoot[:],
-			qrBytes,
-			encodeUint64Slice(points),
-			bytesFromUint64Matrix(coeffMatrix),
-			bytesFromUint64Matrix(barSets),
-			bytesFromUint64Matrix(vTargets),
+		if paperQPayloadOnly {
+			transcript4 = [][]byte{
+				proof.VTargetsBits,
+				proof.BarSetsBits,
+			}
+		} else {
+			transcript4 = [][]byte{
+				rootBytes,
+				gammaBytes,
+				gammaPrimeBytes,
+				proof.QRoot[:],
+				proof.QPayloadBytes(),
+				qrBytes,
+				encodeUint64Slice(points),
+				bytesFromUint64Matrix(coeffMatrix),
+				bytesFromUint64Matrix(barSets),
+				bytesFromUint64Matrix(vTargets),
+			}
 		}
 		if proof.PRFCompanion != nil && prfCompanionHasOpeningPayload(proof.PRFCompanion) {
 			transcript4 = append(transcript4, prfCompanionOpeningPayloadBytes(proof.PRFCompanion))
 		}
+		if proof.SmallField2025 != nil {
+			transcript4 = append(transcript4, smallField2025TranscriptBytes(proof.SmallField2025))
+		}
 	}
 	transcriptForRound3 := transcript4
-	if len(proof.TailTranscript) > 0 {
+	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 && len(proof.TailTranscript) > 0 {
+		recomputed := flattenBytes(transcript4)
+		if !bytes.Equal(recomputed, proof.TailTranscript) {
+			return false, false, false, fmt.Errorf("VerifyNIZK: reconstructed tail transcript mismatch (got %d bytes want %d)", len(recomputed), len(proof.TailTranscript))
+		}
+	} else if len(proof.TailTranscript) > 0 {
 		transcriptForRound3 = [][]byte{proof.TailTranscript}
 	}
 	_, err = verifyRoundDigest(fs, 3, proof.Ctr[3], transcriptForRound3, proof.Digests[3], proof.Kappa[3])
@@ -388,7 +447,13 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		return false, false, false, errors.New("VerifyNIZK: invalid packed row opening")
 	}
 	expectedEvalEntries := len(proof.Tail) + ell
+	if proofUsesSmallField2025LVCS(proof) {
+		expectedEvalEntries = len(proof.Tail)
+	}
 	if opening.EntryCount() != expectedEvalEntries {
+		if proofUsesSmallField2025LVCS(proof) {
+			return false, false, false, fmt.Errorf("VerifyNIZK: smallfield2025 opening entries=%d want %d", opening.EntryCount(), expectedEvalEntries)
+		}
 		maskIdx := make([]int, ell)
 		for i := 0; i < ell; i++ {
 			maskIdx[i] = ncols + i
@@ -414,43 +479,19 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 			return false, false, false, fmt.Errorf("VerifyNIZK: subset row opening: %w", err)
 		}
 	}
-	okLin = vrf.EvalStep2(barSets, proof.Tail, opening, coeffMatrix, vTargets)
+	if proofUsesSmallField2025LVCS(proof) {
+		okLin = vrf.EvalStep2SmallField2025(smallField2025EvalInput(proof, opening, coeffMatrix, vTargets, barSets))
+	} else {
+		okLin = vrf.EvalStep2(barSets, proof.Tail, opening, coeffMatrix, vTargets)
+	}
 	if !okLin {
 		return false, false, false, errors.New("VerifyNIZK: LVCS EvalStep2 rejected")
 	}
 
 	// ----------------------------------------------------------------- Q commitment + ΣΩ check (Eq.7)
-	if proof.QOpening == nil {
-		return okLin, false, false, errors.New("VerifyNIZK: missing Q opening")
-	}
-	// Recompute Γ_Q from the FS round-2 digest and verify the DECS opening against QRoot.
-	rhoQ := 0
-	// In θ>1 paper mode, mask-row layout and repetition count ρ are decoupled:
-	// ρ is carried by Γ′ dimensions, while mask rows encode A_{n+1}.
-	if proof.Theta > 1 && len(proof.GammaPrimeK) > 0 {
-		rhoQ = len(proof.GammaPrimeK) * proof.Theta
-	} else if len(proof.GammaPrime) > 0 {
-		rhoQ = len(proof.GammaPrime)
-	}
-	if rhoQ <= 0 && proof.QOpening != nil {
-		rhoQ = proof.QOpening.R
-	}
+	rhoQ := proofQRowsExpected(proof)
 	if rhoQ <= 0 {
 		return okLin, false, false, errors.New("VerifyNIZK: invalid rho for Q commitment")
-	}
-	if proof.QOpening.R != rhoQ {
-		return okLin, false, false, fmt.Errorf("VerifyNIZK: Q opening row count R=%d want %d", proof.QOpening.R, rhoQ)
-	}
-	if len(qr) != eta {
-		return okLin, false, false, fmt.Errorf("VerifyNIZK: QR count mismatch: got %d want %d", len(qr), eta)
-	}
-	gammaQRNG := newFSRNG("GammaQ", seed3)
-	GammaQ := sampleFSMatrix(eta, rhoQ, q, gammaQRNG)
-	qNonceBytes := 16
-	if proof.QOpening.NonceBytes > 0 {
-		qNonceBytes = proof.QOpening.NonceBytes
-	} else if len(proof.QOpening.Nonces) > 0 && len(proof.QOpening.Nonces[0]) > 0 {
-		qNonceBytes = len(proof.QOpening.Nonces[0])
 	}
 	qDegBound := proof.QDegreeBound
 	if qDegBound <= 0 {
@@ -459,38 +500,83 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if qDegBound <= 0 {
 		qDegBound = rowDegBound
 	}
-	qParams := decs.Params{Degree: qDegBound, Eta: eta, NonceBytes: qNonceBytes}
-	qVrf, err := decs.NewVerifierWithParamsAndPointsChecked(ringQ, rhoQ, qParams, domainPoints)
-	if err != nil {
-		return okLin, false, false, fmt.Errorf("VerifyNIZK: invalid Q verifier params: %w", err)
+	qPayload, qPayloadErr := resolveProofQPayloadRows(proof, rhoQ, qDegBound, q)
+	if qPayloadErr != nil {
+		return okLin, false, false, fmt.Errorf("VerifyNIZK: Q payload: %w", qPayloadErr)
 	}
-	for i := range qr {
-		row := qr[i]
-		for d := qDegBound + 1; d < len(row); d++ {
-			if row[d]%q != 0 {
-				return okLin, false, false, fmt.Errorf("VerifyNIZK: QR[%d] exceeds degree bound %d", i, qDegBound)
+	badRow := -1
+	var badSum uint64
+	var qOpeningPrepared *decs.DECSOpening
+	okSum, badRow, badSum = verifySumOnQPayload(qPayload, witnessNCols, domainPoints, q)
+	if paperQPayloadOnly {
+		qOpeningPrepared, err = buildQPayloadTailOpening(qPayload, proof.Tail, domainPoints, q)
+		if err != nil {
+			return okLin, false, false, fmt.Errorf("VerifyNIZK: Q payload tail opening: %w", err)
+		}
+	} else {
+		if proof.QOpening == nil {
+			return okLin, false, false, errors.New("VerifyNIZK: missing Q opening")
+		}
+		// Recompute Γ_Q from the FS round-2 digest and verify the DECS opening against QRoot.
+		if proof.QOpening.R != rhoQ {
+			return okLin, false, false, fmt.Errorf("VerifyNIZK: Q opening row count R=%d want %d", proof.QOpening.R, rhoQ)
+		}
+		if len(qr) != eta {
+			return okLin, false, false, fmt.Errorf("VerifyNIZK: QR count mismatch: got %d want %d", len(qr), eta)
+		}
+		gammaQRNG := newFSRNG("GammaQ", seed3)
+		GammaQ := sampleFSMatrix(eta, rhoQ, q, gammaQRNG)
+		qNonceBytes := 16
+		if proof.QOpening.NonceBytes > 0 {
+			qNonceBytes = proof.QOpening.NonceBytes
+		} else if len(proof.QOpening.Nonces) > 0 && len(proof.QOpening.Nonces[0]) > 0 {
+			qNonceBytes = len(proof.QOpening.Nonces[0])
+		}
+		qParams := decs.Params{Degree: qDegBound, Eta: eta, NonceBytes: qNonceBytes}
+		qVrf, err := decs.NewVerifierWithParamsAndPointsChecked(ringQ, rhoQ, qParams, domainPoints)
+		if err != nil {
+			return okLin, false, false, fmt.Errorf("VerifyNIZK: invalid Q verifier params: %w", err)
+		}
+		for i := range qr {
+			row := qr[i]
+			for d := qDegBound + 1; d < len(row); d++ {
+				if row[d]%q != 0 {
+					return okLin, false, false, fmt.Errorf("VerifyNIZK: QR[%d] exceeds degree bound %d", i, qDegBound)
+				}
 			}
 		}
+		qPrefix := witnessNCols + ell
+		qIdx := make([]int, 0, qPrefix+ell)
+		for i := 0; i < qPrefix; i++ {
+			qIdx = append(qIdx, i)
+		}
+		qIdx = append(qIdx, proof.Tail...)
+		var qPrepErr error
+		qOpeningPrepared, qPrepErr = prepareQOpeningForVerify(expandPackedOpening(proof.QOpening), GammaQ, qr, domainPoints, q)
+		if qPrepErr != nil {
+			return okLin, false, false, fmt.Errorf("VerifyNIZK: prepare Q opening: %w", qPrepErr)
+		}
+		if !qVrf.VerifyEvalAtFormal(proof.QRoot, GammaQ, qr, qOpeningPrepared, qIdx) {
+			return okLin, false, false, errors.New("VerifyNIZK: Q DECS opening rejected")
+		}
+		if len(qPayload) > 0 {
+			if err := verifyQPayloadOpeningConsistency(qPayload, qOpeningPrepared, domainPoints, q); err != nil {
+				return okLin, false, false, fmt.Errorf("VerifyNIZK: Q payload/opening mismatch: %w", err)
+			}
+		}
+		if len(qPayload) == 0 {
+			okSum, badRow, badSum = verifySumOnQOpening(qOpeningPrepared, rhoQ, witnessNCols, q)
+		}
 	}
-	qPrefix := witnessNCols + ell
-	qIdx := make([]int, 0, qPrefix+ell)
-	for i := 0; i < qPrefix; i++ {
-		qIdx = append(qIdx, i)
-	}
-	qIdx = append(qIdx, proof.Tail...)
-	qOpeningPrepared, qPrepErr := prepareQOpeningForVerify(expandPackedOpening(proof.QOpening), GammaQ, qr, domainPoints, q)
-	if qPrepErr != nil {
-		return okLin, false, false, fmt.Errorf("VerifyNIZK: prepare Q opening: %w", qPrepErr)
-	}
-	if !qVrf.VerifyEvalAtFormal(proof.QRoot, GammaQ, qr, qOpeningPrepared, qIdx) {
-		return okLin, false, false, errors.New("VerifyNIZK: Q DECS opening rejected")
-	}
-	okSum, badRow, badSum := verifySumOnQOpening(qOpeningPrepared, rhoQ, witnessNCols, q)
 	if !okSum {
-		if badRow >= 0 && badRow < len(proof.QCoeffDebug) {
+		debugQRows := qPayload
+		if len(debugQRows) == 0 {
+			debugQRows = proof.QCoeffDebug
+		}
+		if badRow >= 0 && badRow < len(debugQRows) {
 			dbgSum := uint64(0)
 			for i := 0; i < witnessNCols && i < len(domainPoints); i++ {
-				dbgSum = lvcs.MulAddMod64(dbgSum, 1, EvalPoly(proof.QCoeffDebug[badRow], domainPoints[i]%q, q)%q, q)
+				dbgSum = lvcs.MulAddMod64(dbgSum, 1, EvalPoly(debugQRows[badRow], domainPoints[i]%q, q)%q, q)
 			}
 			faggBad := make([]string, 0, 4)
 			fparBad := make([]string, 0, 4)
@@ -535,7 +621,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 					fparBad = append(fparBad, fmt.Sprintf("%d:%d", i, sum%q))
 				}
 			}
-			return okLin, false, false, fmt.Errorf("VerifyNIZK: ΣΩ failed (row=%d sum=%d qcoeff_sum=%d deg=%d bad_fpar=%v bad_fagg=%v)", badRow, badSum, dbgSum, len(proof.QCoeffDebug[badRow])-1, fparBad, faggBad)
+			return okLin, false, false, fmt.Errorf("VerifyNIZK: ΣΩ failed (row=%d sum=%d qcoeff_sum=%d deg=%d bad_fpar=%v bad_fagg=%v)", badRow, badSum, dbgSum, len(debugQRows[badRow])-1, fparBad, faggBad)
 		}
 		return okLin, false, false, fmt.Errorf("VerifyNIZK: ΣΩ failed (row=%d sum=%d)", badRow, badSum)
 	}
@@ -552,8 +638,12 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 			return false, false, false, fmt.Errorf("VerifyNIZK: kfield.New: %w", fieldErr)
 		}
 		smallFieldK = field
-		if len(proof.QCoeffDebug) > 0 {
-			QK = restoreKPolysFromSplitCoeffRows(proof.QCoeffDebug, proof.Theta, q)
+		qRowsForK := qPayload
+		if len(qRowsForK) == 0 {
+			qRowsForK = proof.QCoeffDebug
+		}
+		if len(qRowsForK) > 0 {
+			QK = restoreKPolysFromSplitCoeffRows(qRowsForK, proof.Theta, q)
 			if len(QK) == 0 {
 				return false, false, false, errors.New("VerifyNIZK: invalid split Q coefficient rows for θ>1")
 			}
@@ -663,10 +753,22 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 				}
 				witnessCount = len(vTargets[0])
 			}
+			vTargetsForK := vTargets
+			if proofUsesSmallField2025LVCS(proof) {
+				maxReplayWitness := proof.SmallField2025.WitnessLayers * ncols
+				if witnessCount > maxReplayWitness {
+					return okLin, false, false, fmt.Errorf("VerifyNIZK: smallfield2025 K replay witness count %d exceeds paper replay capacity %d", witnessCount, maxReplayWitness)
+				}
+				replayRows := proof.SmallField2025.WitnessLayers * proof.Theta
+				if replayRows <= 0 || replayRows > len(vTargets) {
+					return okLin, false, false, fmt.Errorf("VerifyNIZK: invalid smallfield2025 K replay rows=%d vtargets=%d", replayRows, len(vTargets))
+				}
+				vTargetsForK = vTargets[:replayRows]
+			}
 			ok, err := EvaluateConstraintsOnKPoints(replay.EvalK, EvalKInput{
 				K:                smallFieldK,
 				KPoints:          proof.KPoint,
-				VTargets:         vTargets,
+				VTargets:         vTargetsForK,
 				QK:               QK,
 				MK:               MK,
 				GammaPrimeK:      proof.GammaPrimeK,
@@ -734,7 +836,7 @@ func verifyRoundDigest(fs *FS, round int, ctr uint64, material [][]byte, expecte
 	if round < 0 || round >= len(fs.labels) {
 		return nil, fmt.Errorf("invalid FS round %d", round)
 	}
-	input := append([]byte(nil), fs.salt...)
+	input := fs.roundInput(round)
 	for _, m := range material {
 		input = append(input, m...)
 	}
@@ -746,6 +848,8 @@ func verifyRoundDigest(fs *FS, round int, ctr uint64, material [][]byte, expecte
 	if !hasZeroPrefix(digest, kappa) {
 		return nil, fmt.Errorf("grinding predicate failed in round %d", round)
 	}
+	fs.h[round] = append([]byte(nil), digest...)
+	fs.ctr[round] = ctr
 	return digest, nil
 }
 
@@ -781,7 +885,7 @@ func prepareQOpeningForVerify(open *decs.DECSOpening, gammaQ, qr [][]uint64, poi
 		return nil, fmt.Errorf("QR rows=%d < eta=%d", len(qr), open.Eta)
 	}
 
-	if open.FormatVersion == 1 {
+	if len(open.POmitCols) > 0 {
 		omitCols, eqRows, ok := qCompressionPOmitPlan(gammaQ, open.R, q)
 		if !ok || len(omitCols) == 0 {
 			return nil, errors.New("compressed Q opening is not reconstructible (P)")
@@ -806,7 +910,7 @@ func prepareQOpeningForVerify(open *decs.DECSOpening, gammaQ, qr [][]uint64, poi
 		for i := range mPosByLogical {
 			mPosByLogical[i] = -1
 		}
-		if open.MFormatVersion == 1 {
+		if len(open.MOmitCols) > 0 {
 			mKeepCols = compressionKeepCols(open.Eta, open.MOmitCols)
 			if open.MColsEncoded != len(mKeepCols) {
 				return nil, fmt.Errorf("compressed Q opening MColsEncoded=%d want=%d", open.MColsEncoded, len(mKeepCols))
@@ -851,7 +955,7 @@ func prepareQOpeningForVerify(open *decs.DECSOpening, gammaQ, qr [][]uint64, poi
 			for i, rowIdx := range eqRows {
 				target := EvalPoly(qr[rowIdx], x, q) % q
 				mVal := uint64(0)
-				if open.MFormatVersion == 1 {
+				if len(open.MOmitCols) > 0 {
 					pos := mPosByLogical[rowIdx]
 					if pos < 0 {
 						return nil, fmt.Errorf("compressed Q opening M missing row %d", rowIdx)
@@ -880,7 +984,7 @@ func prepareQOpeningForVerify(open *decs.DECSOpening, gammaQ, qr [][]uint64, poi
 		open.Pvals = fullRows
 	}
 
-	if open.MFormatVersion == 1 {
+	if len(open.MOmitCols) > 0 {
 		omitCols := append([]int(nil), open.MOmitCols...)
 		for _, col := range omitCols {
 			if col < 0 || col >= open.Eta {
@@ -989,12 +1093,12 @@ func prepareRowOpeningForVerify(
 			return nil, fmt.Errorf("gamma row %d width=%d < R=%d", k, len(gamma[k]), open.R)
 		}
 	}
-	if open.FormatVersion == 1 {
+	if len(open.POmitCols) > 0 {
 		if err := reconstructRowOpeningPvals(open, coeffMatrix, qVals, barSets, maskIdx, tail, ncols, domainPoints, ringQ); err != nil {
 			return nil, err
 		}
 	}
-	if open.MFormatVersion == 1 {
+	if len(open.MOmitCols) > 0 {
 		if err := reconstructRowOpeningMvals(open, gamma, rPolys, domainPoints, ringQ); err != nil {
 			return nil, err
 		}
@@ -1380,6 +1484,111 @@ func verifySumOnQOpening(open *decs.DECSOpening, rho, ncols int, q uint64) (ok b
 	for i := 0; i < rho; i++ {
 		if sum[i]%q != 0 {
 			return false, i, sum[i] % q
+		}
+	}
+	return true, -1, 0
+}
+
+func resolveProofQPayloadRows(proof *Proof, rhoQ, degreeBound int, q uint64) ([][]uint64, error) {
+	if proof == nil {
+		return nil, errors.New("nil proof")
+	}
+	rows := proof.QPayloadMatrix()
+	if len(rows) == 0 {
+		if paperQPayloadOnly := proofUsesPaperQPayloadOnly(proof); paperQPayloadOnly {
+			return nil, errors.New("missing paper Q coefficient payload")
+		}
+		// Legacy proofs kept the PACS Q coefficients in this debug snapshot.
+		rows = proof.QCoeffDebug
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	if rhoQ > 0 && len(rows) != rhoQ {
+		return nil, fmt.Errorf("row count=%d want %d", len(rows), rhoQ)
+	}
+	for i, row := range rows {
+		if len(row) == 0 {
+			return nil, fmt.Errorf("row %d is empty", i)
+		}
+		for j, v := range row {
+			if v >= q {
+				return nil, fmt.Errorf("row %d coeff %d out of field", i, j)
+			}
+		}
+		for d := degreeBound + 1; d < len(row); d++ {
+			if row[d]%q != 0 {
+				return nil, fmt.Errorf("row %d exceeds degree bound %d at coeff %d", i, degreeBound, d)
+			}
+		}
+	}
+	return rows, nil
+}
+
+func verifyQPayloadOpeningConsistency(qRows [][]uint64, open *decs.DECSOpening, points []uint64, q uint64) error {
+	if len(qRows) == 0 || open == nil {
+		return nil
+	}
+	if open.R != len(qRows) {
+		return fmt.Errorf("opening rows=%d payload rows=%d", open.R, len(qRows))
+	}
+	for pos := 0; pos < open.EntryCount(); pos++ {
+		idx := open.IndexAt(pos)
+		if idx < 0 || idx >= len(points) {
+			return fmt.Errorf("opening index %d outside domain", idx)
+		}
+		x := points[idx] % q
+		for row := 0; row < len(qRows); row++ {
+			got := decs.GetOpeningPval(open, pos, row) % q
+			want := EvalPoly(qRows[row], x, q) % q
+			if got != want {
+				return fmt.Errorf("idx=%d row=%d got=%d want=%d", idx, row, got, want)
+			}
+		}
+	}
+	return nil
+}
+
+func buildQPayloadTailOpening(qRows [][]uint64, indices []int, points []uint64, q uint64) (*decs.DECSOpening, error) {
+	if len(qRows) == 0 {
+		return nil, errors.New("missing Q payload rows")
+	}
+	if len(indices) == 0 {
+		return nil, nil
+	}
+	pvals := make([][]uint64, len(indices))
+	for pos, idx := range indices {
+		if idx < 0 || idx >= len(points) {
+			return nil, fmt.Errorf("tail index %d outside domain", idx)
+		}
+		x := points[idx] % q
+		pvals[pos] = make([]uint64, len(qRows))
+		for row := range qRows {
+			pvals[pos][row] = EvalPoly(qRows[row], x, q) % q
+		}
+	}
+	return &decs.DECSOpening{
+		Indices:   append([]int(nil), indices...),
+		Pvals:     pvals,
+		R:         len(qRows),
+		TailCount: len(indices),
+	}, nil
+}
+
+func verifySumOnQPayload(qRows [][]uint64, ncols int, points []uint64, q uint64) (ok bool, badRow int, badSum uint64) {
+	if len(qRows) == 0 || ncols <= 0 {
+		return false, -1, 0
+	}
+	if ncols > len(points) {
+		return false, -1, 0
+	}
+	for row := 0; row < len(qRows); row++ {
+		sum := uint64(0)
+		for i := 0; i < ncols; i++ {
+			sum = lvcs.MulAddMod64(sum, 1, EvalPoly(qRows[row], points[i]%q, q)%q, q)
+		}
+		if sum%q != 0 {
+			return false, row, sum % q
 		}
 	}
 	return true, -1, 0
@@ -1917,7 +2126,7 @@ func expandPackedOpening(op *decs.DECSOpening) *decs.DECSOpening {
 	clone.PathBitWidth = 0
 	clone.PathDepth = 0
 	pCols := clone.R
-	if clone.FormatVersion == 1 && clone.PColsEncoded > 0 {
+	if clone.PColsEncoded > 0 {
 		pCols = clone.PColsEncoded
 	}
 	if len(clone.Pvals) == 0 && pCols > 0 {
@@ -1930,8 +2139,11 @@ func expandPackedOpening(op *decs.DECSOpening) *decs.DECSOpening {
 		}
 	}
 	mCols := clone.Eta
-	if clone.MFormatVersion == 1 {
+	if clone.MFormatVersion != decs.OpeningFormatPlain {
 		mCols = clone.MColsEncoded
+		if mCols == 0 && len(clone.MvalsColumnWidths) > 0 {
+			mCols = len(clone.MvalsColumnWidths)
+		}
 	}
 	if len(clone.Mvals) == 0 && mCols > 0 {
 		clone.Mvals = make([][]uint64, len(clone.Indices))
@@ -1941,7 +2153,7 @@ func expandPackedOpening(op *decs.DECSOpening) *decs.DECSOpening {
 				clone.Mvals[i][j] = decs.GetOpeningMval(op, i, j)
 			}
 		}
-	} else if len(clone.Mvals) == 0 && clone.MFormatVersion == 1 && mCols == 0 {
+	} else if len(clone.Mvals) == 0 && clone.MFormatVersion != decs.OpeningFormatPlain && mCols == 0 {
 		clone.Mvals = make([][]uint64, len(clone.Indices))
 	}
 	_ = decs.EnsureMerkleDecoded(clone)

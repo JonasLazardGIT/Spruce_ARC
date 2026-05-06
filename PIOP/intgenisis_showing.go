@@ -42,8 +42,12 @@ func (wit *CoeffNativeShowingWitness) ValidateIntGenISIS(ringN int, pub PublicIn
 	if len(wit.MuSig) != 1 {
 		return fmt.Errorf("mu_sig rows=%d want 1", len(wit.MuSig))
 	}
-	if len(wit.X0) != 2 {
-		return fmt.Errorf("x0 rows=%d want 2", len(wit.X0))
+	x0Len, err := intGenISISX0LenFromPublic(pub)
+	if err != nil {
+		return err
+	}
+	if len(wit.X0) != x0Len {
+		return fmt.Errorf("x0 rows=%d want %d", len(wit.X0), x0Len)
 	}
 	if wit.X1 == nil {
 		return fmt.Errorf("missing x1 row")
@@ -132,13 +136,17 @@ func BuildCredentialRowsShowingIntGenISIS(
 	if err := cn.ValidateIntGenISIS(int(ringQ.N), pub); err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
+	x0Len, err := intGenISISX0LenFromPublic(pub)
+	if err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+	}
 	if err := validateIntGenISISSemanticPolys(ringQ, pub.BoundB, []*ring.Poly{cn.M}, []*ring.Poly{cn.MAttr}, []*ring.Poly{cn.K}); err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("semantic message: %w", err)
 	}
-	if err := validateIntGenISISTernaryPolys(ringQ, "s", cn.S); err != nil {
+	if err := validateIntGenISISLiveBoundPolys(ringQ, pub.BoundB, "s", cn.S); err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
-	if err := validateIntGenISISTernaryPolys(ringQ, "e", cn.E); err != nil {
+	if err := validateIntGenISISLiveBoundPolys(ringQ, pub.BoundB, "e", cn.E); err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
 	sigBound, err := intGenISISSignatureBoundFromPublic(pub)
@@ -207,7 +215,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
-	mseCompressionDesc, err := intGenISISMSECompressionDescriptorForLevel(opts.IntGenISISMSECompression)
+	mseCompressionDesc, err := intGenISISMSECompressionDescriptorForBound(opts.IntGenISISMSECompression, pub.BoundB)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
@@ -499,7 +507,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	layout = RowLayout{
 		RingDegree:         int(ringQ.N),
 		SigCount:           len(rows),
-		X0Len:              2,
+		X0Len:              x0Len,
 		HasExplicitBaseIdx: true,
 		IntGenISISShowing: &IntGenISISShowingRowLayout{
 			LayoutVersion:              layoutVersion,
@@ -746,7 +754,7 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 	if l.CoreRowCount != 0 {
 		return fmt.Errorf("IntGenISIS packed showing requires core_row_count=0, got %d", l.CoreRowCount)
 	}
-	if l.UCount <= 0 || l.MCount != 1 || l.MAttrCount != 1 || l.KCount != 1 || l.MuSigCount != 1 || l.X0Count != 2 || l.X1Count != 1 || l.ZCount != 1 {
+	if l.UCount <= 0 || l.MCount != 1 || l.MAttrCount != 1 || l.KCount != 1 || l.MuSigCount != 1 || l.X0Count <= 0 || l.X1Count != 1 || l.ZCount != 1 {
 		return fmt.Errorf("invalid IntGenISIS showing row counts")
 	}
 	if l.ViewRowsPerPoly <= 0 {
@@ -758,7 +766,7 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 	rpp := l.ViewRowsPerPoly
 	compressed := l.MSECompressionLevel > 0
 	if compressed {
-		desc, err := intGenISISMSECompressionDescriptorForLevel(l.MSECompressionLevel)
+		desc, err := intGenISISMSECompressionDescriptorForBound(l.MSECompressionLevel, intGenISISTernaryBound)
 		if err != nil {
 			return err
 		}
@@ -1457,7 +1465,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 	compressionSpec := intGenISISMSECompressionSpec{}
 	if compressedMSE {
 		var cerr error
-		compressionSpec, cerr = newIntGenISISMSECompressionSpec(q, l.MSECompressionLevel)
+		compressionSpec, cerr = newIntGenISISMSECompressionSpecForBound(q, l.MSECompressionLevel, pub.BoundB)
 		if cerr != nil {
 			return ConstraintSet{}, cerr
 		}
@@ -1614,7 +1622,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 			return ConstraintSet{}, err
 		}
 	} else {
-		boundPolys, boundCoeffs, err = intGenISISTernaryMembershipRows(ringQ, rowsNTT, nonSigRows)
+		boundPolys, boundCoeffs, err = intGenISISLiveMembershipRows(ringQ, rowsNTT, nonSigRows, pub.BoundB)
 		if err != nil {
 			return ConstraintSet{}, err
 		}
@@ -1698,7 +1706,7 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 		FparNormCoeffs:   boundCoeffs,
 		FaggNorm:         bridgePolys,
 		FaggNormCoeffs:   bridgeCoeffs,
-		ParallelAlgDeg:   maxInt(maxInt(2, intGenISISTernaryMembershipDegree), maxInt(shortDegree, compressionSpec.Descriptor.MembershipDeg)),
+		ParallelAlgDeg:   maxInt(maxInt(2, intGenISISMembershipDegree(pub.BoundB)), maxInt(shortDegree, compressionSpec.Descriptor.MembershipDeg)),
 		AggregatedAlgDeg: maxInt(2, compressionSpec.Descriptor.DecodeDegree),
 	}, nil
 }

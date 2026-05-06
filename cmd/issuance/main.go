@@ -29,7 +29,7 @@ const (
 )
 
 func usage() {
-	fmt.Println(`usage: issuance <setup-intgenisis-public|setup-demo-public|setup-ntru-keys|holder-commit|issuer-challenge|holder-prove|issuer-verify-sign|holder-finalize|demo-local|benchmark-x0|benchmark-intgenisis|benchmark-intgenisis-e2e|sweep-intgenisis|sweep-intgenisis-presets|sweep-intgenisis-estimate> [options]
+	fmt.Println(`usage: issuance <setup-intgenisis-public|setup-demo-public|setup-ntru-keys|holder-commit|issuer-challenge|holder-prove|issuer-verify-sign|holder-finalize|demo-local|benchmark-x0|benchmark-intgenisis|benchmark-intgenisis-e2e|sweep-intgenisis|sweep-intgenisis-presets|sweep-intgenisis-estimate|sweep-intgenisis-runtime96|sweep-intgenisis-runtime96-deep|sweep-intgenisis-n1024-ternary-deep|sweep-intgenisis-n1024-ternary-lowleaves|sweep-intgenisis-n1024-smallfield90-zero|sweep-intgenisis-n1024-smallfield115-zero> [options]
 
 Subcommands:
   setup-intgenisis-public Generate IntGenISIS MLWE-hiding credential public parameters
@@ -46,7 +46,13 @@ Subcommands:
   benchmark-intgenisis-e2e Run IntGenISIS issuance + showing and print paper transcript sizes
   sweep-intgenisis  Sweep SmallWood parameters for IntGenISIS profile-B Eq. (8) soundness
   sweep-intgenisis-presets Build fixed-LVCS preset frontiers for 96/128-bit IntGenISIS defaults
-  sweep-intgenisis-estimate Estimate deep N=256/N=512 IntGenISIS transcript frontiers without building proofs`)
+  sweep-intgenisis-estimate Estimate deep N=256/N=512 IntGenISIS transcript frontiers without building proofs
+  sweep-intgenisis-runtime96 Estimate N=256 96-bit candidates ranked by showing_bytes*log2(nleaves)
+  sweep-intgenisis-runtime96-deep Estimate a broader N=256 96-bit runtime frontier with more low-leaf axes
+  sweep-intgenisis-n1024-ternary-deep Estimate N=1024 ternary transcript-size leaders for 96/128-bit targets
+  sweep-intgenisis-n1024-ternary-lowleaves Estimate N=1024 ternary low-leaf candidates ranked by showing_bytes*log2(nleaves)
+  sweep-intgenisis-n1024-smallfield90-zero Estimate N=1024 strict smallfield rho=1 ell'=1 candidates above 90 bits with zero grinding
+  sweep-intgenisis-n1024-smallfield115-zero Estimate N=1024 strict smallfield rho=1 ell'=1 candidates above 115 bits with zero grinding`)
 }
 
 func main() {
@@ -92,6 +98,18 @@ func run(args []string) error {
 		return runSweepIntGenISISPresets(args[1:])
 	case "sweep-intgenisis-estimate":
 		return runSweepIntGenISISEstimate(args[1:])
+	case "sweep-intgenisis-runtime96":
+		return runSweepIntGenISISRuntime96(args[1:])
+	case "sweep-intgenisis-runtime96-deep":
+		return runSweepIntGenISISRuntime96Deep(args[1:])
+	case "sweep-intgenisis-n1024-ternary-deep":
+		return runSweepIntGenISISN1024TernaryDeep(args[1:])
+	case "sweep-intgenisis-n1024-ternary-lowleaves":
+		return runSweepIntGenISISN1024TernaryLowLeaves(args[1:])
+	case "sweep-intgenisis-n1024-smallfield90-zero":
+		return runSweepIntGenISISN1024StrictSmallField90Zero(args[1:])
+	case "sweep-intgenisis-n1024-smallfield115-zero":
+		return runSweepIntGenISISN1024StrictSmallField115Zero(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -118,9 +136,10 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	fs.SetOutput(os.Stderr)
 	artifactDir := fs.String("artifact-dir", "", "artifact directory; defaults to a temporary directory")
 	profile := fs.String("profile", credential.ProfileIntGenISISB, "IntGenISIS profile name")
+	profileBound := fs.Int64("profile-bound", 0, "override IntGenISIS public BoundB/CommitmentBound for bounded-range experiments; 0 uses the profile default")
 	prfParamsPath := fs.String("prf-params", defaultPRFParamsPath, "PRF params path")
 	jsonOut := fs.String("json-out", "", "optional JSON output path")
-	presetName := fs.String("preset", "", "named IntGenISIS preset (for example 96bit, 120bitsf, fast-local, sw96-lvcs64, sw128-lvcs64, n256-sw96, n256-sw128)")
+	presetName := fs.String("preset", "", "named IntGenISIS preset (for example 96bit, fast96, 120bitsf, fast-local, sw96-lvcs64, sw128-lvcs64, n256-sw96, n256-sw128, n1024-sw90-smallfield, n1024-sw115-smallfield, n1024-sw120-smallfield, n1024-sw128)")
 	preset96Bit := fs.Bool("96bit", false, "use the general IntGenISIS 96-bit preset")
 	force := fs.Bool("force", false, "overwrite existing artifacts")
 	seed := fs.Int64("seed", 11, "holder commitment sampling seed")
@@ -155,8 +174,9 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	showingEllPrime := fs.Int("showing-ell-prime", 0, "showing ell-prime override")
 	showingShortnessRadix := fs.Int("showing-sig-shortness-radix", 0, "showing IntGenISIS u-shortness radix override")
 	showingShortnessDigits := fs.Int("showing-sig-shortness-digits", 0, "showing IntGenISIS u-shortness digit-count override")
-	showingCompressedRows := fs.Int("showing-compressed-rows", 0, "showing IntGenISIS M/s/e compression level: 0 none, 1 pack2, 2 pack3, 3 pack4")
+	showingCompressedRows := fs.Int("showing-compressed-rows", 0, "showing IntGenISIS M/s/e compression level: 0 none; bounded-range presets reject levels >0")
 	showingReplayProjection := fs.String("showing-replay-projection", PIOP.IntGenISISReplayProjectionNone, "showing IntGenISIS replay projection mode: none, project_u_y_hat_v1, or project_u_y_hat_and_y_view_v2")
+	showingTranscriptMode := fs.String("showing-transcript-mode", "", "showing transcript mode: baseline, column_widths_v1, or smallfield_2025_1085_v1; strict smallfield presets set this automatically")
 	companionMode := fs.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "PRF companion mode: output_audit, direct_auth, or aux_instance")
 	prfGroupRounds := fs.Int("prf-group-rounds", 2, "grouped PRF rounds for the showing companion witness")
 	checkpointSamples := fs.Int("prf-checkpoint-samples", 8, "PRF companion checkpoint samples")
@@ -215,6 +235,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		SigShortnessDigits: *showingShortnessDigits,
 		CompressedRows:     *showingCompressedRows,
 		ReplayProjection:   *showingReplayProjection,
+		TranscriptMode:     *showingTranscriptMode,
 	}
 	if selectedPresetName != "" {
 		preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
@@ -234,11 +255,12 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		applyCommonTuningFlagOverrides(&showing, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, baseKappa)
 		applyPrefixedTuningFlagOverrides(&issuance, setFlags, "issuance-", *issuanceNCols, *issuanceLVCSNCols, *issuanceNLeaves, *issuanceEta, *issuanceTheta, *issuanceRho, *issuanceEll, *issuanceEllPrime)
 		applyPrefixedTuningFlagOverrides(&showing, setFlags, "showing-", *showingNCols, *showingLVCSNCols, *showingNLeaves, *showingEta, *showingTheta, *showingRho, *showingEll, *showingEllPrime)
-		applyShowingSpecificFlagOverrides(&showing, setFlags, PIOP.PRFCompanionMode(*companionMode), *prfGroupRounds, *checkpointSamples, *showingShortnessRadix, *showingShortnessDigits, *showingCompressedRows, *showingReplayProjection)
+		applyShowingSpecificFlagOverrides(&showing, setFlags, PIOP.PRFCompanionMode(*companionMode), *prfGroupRounds, *checkpointSamples, *showingShortnessRadix, *showingShortnessDigits, *showingCompressedRows, *showingReplayProjection, *showingTranscriptMode)
 	}
 	_, err = benchmarkIntGenISISE2E(benchmarkIntGenISISE2EConfig{
 		ArtifactDir:       *artifactDir,
 		Profile:           *profile,
+		ProfileBound:      *profileBound,
 		PRFParamsPath:     *prfParamsPath,
 		JSONOut:           *jsonOut,
 		Force:             *force,
@@ -355,7 +377,7 @@ func runHolderCommit(args []string) error {
 		if err != nil {
 			return err
 		}
-		if !setFlags["public-params"] && preset.Profile == credential.ProfileIntGenISISA {
+		if !setFlags["public-params"] && preset.Profile != credential.ProfileIntGenISISB {
 			*publicPath = filepath.Join("Parameters", fmt.Sprintf("credential_public.%s.json", preset.Profile))
 		}
 		t := intGenISISTuningFromPresetSpec(preset.Issuance)
@@ -482,7 +504,7 @@ func runDemoLocal(args []string) error {
 		if err != nil {
 			return err
 		}
-		if !setFlags["public-params"] && preset.Profile == credential.ProfileIntGenISISA {
+		if !setFlags["public-params"] && preset.Profile != credential.ProfileIntGenISISB {
 			*publicPath = filepath.Join("Parameters", fmt.Sprintf("credential_public.%s.json", preset.Profile))
 		}
 		t := intGenISISTuningFromPresetSpec(preset.Issuance)

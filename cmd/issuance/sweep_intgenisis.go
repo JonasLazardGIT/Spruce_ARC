@@ -21,6 +21,7 @@ import (
 const (
 	sweepIntGenISISVersion     = 1
 	sweepIntGenISISDefaultGrid = "wide"
+	sweepIntGenISISLiveBound   = 4
 )
 
 type sweepIntGenISISConfig struct {
@@ -53,37 +54,41 @@ type sweepIntGenISISShortness struct {
 }
 
 type sweepIntGenISISGrid struct {
-	Name        string
-	Families    []sweepIntGenISISFamily
-	NCols       []int
-	LVCSNCols   []int
-	Ell         []int
-	NLeavesBase []int
-	Shortness   []sweepIntGenISISShortness
-	Compression []int
-	PRFModes    []PIOP.PRFCompanionMode
-	PRFGroups   []int
-	Checkpoints []int
-	EtaSlack    int
-	MaxEta      int
-	Notes       []string
+	Name              string
+	Families          []sweepIntGenISISFamily
+	NCols             []int
+	LVCSNCols         []int
+	Ell               []int
+	NLeavesBase       []int
+	ExhaustiveNLeaves bool
+	Shortness         []sweepIntGenISISShortness
+	Compression       []int
+	Projection        []string
+	PRFModes          []PIOP.PRFCompanionMode
+	PRFGroups         []int
+	Checkpoints       []int
+	EtaSlack          int
+	MaxEta            int
+	Notes             []string
 }
 
 type sweepIntGenISISGridSummary struct {
-	Name        string                     `json:"name"`
-	Families    []sweepIntGenISISFamily    `json:"families"`
-	NCols       []int                      `json:"ncols"`
-	LVCSNCols   []int                      `json:"lvcs_ncols"`
-	Ell         []int                      `json:"ell"`
-	NLeavesBase []int                      `json:"nleaves_base"`
-	Shortness   []sweepIntGenISISShortness `json:"shortness_shapes"`
-	Compression []int                      `json:"mse_compression_levels"`
-	PRFModes    []PIOP.PRFCompanionMode    `json:"prf_companion_modes"`
-	PRFGroups   []int                      `json:"prf_group_rounds"`
-	Checkpoints []int                      `json:"prf_checkpoint_samples"`
-	EtaSlack    int                        `json:"eta_slack"`
-	MaxEta      int                        `json:"max_eta"`
-	Notes       []string                   `json:"notes"`
+	Name              string                     `json:"name"`
+	Families          []sweepIntGenISISFamily    `json:"families"`
+	NCols             []int                      `json:"ncols"`
+	LVCSNCols         []int                      `json:"lvcs_ncols"`
+	Ell               []int                      `json:"ell"`
+	NLeavesBase       []int                      `json:"nleaves_base"`
+	ExhaustiveNLeaves bool                       `json:"exhaustive_nleaves_base"`
+	Shortness         []sweepIntGenISISShortness `json:"shortness_shapes"`
+	Compression       []int                      `json:"mse_compression_levels"`
+	Projection        []string                   `json:"projection_modes"`
+	PRFModes          []PIOP.PRFCompanionMode    `json:"prf_companion_modes"`
+	PRFGroups         []int                      `json:"prf_group_rounds"`
+	Checkpoints       []int                      `json:"prf_checkpoint_samples"`
+	EtaSlack          int                        `json:"eta_slack"`
+	MaxEta            int                        `json:"max_eta"`
+	Notes             []string                   `json:"notes"`
 }
 
 type sweepNLeavesCacheKey struct {
@@ -91,6 +96,7 @@ type sweepNLeavesCacheKey struct {
 	Ell            int
 	ThresholdMilli int
 	CapLeaves      int
+	Exhaustive     bool
 }
 
 type sweepLogCombCacheKey struct {
@@ -796,7 +802,7 @@ func sweepIntGenISISPresetGrid(target float64, lvcs int) (sweepIntGenISISGrid, e
 			{Radix: 7, Digits: 5},
 			{Radix: 5, Digits: 6},
 		},
-		Compression: []int{0, 1, 2},
+		Compression: []int{0},
 		PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth},
 		PRFGroups:   []int{2},
 		Checkpoints: []int{2},
@@ -805,7 +811,7 @@ func sweepIntGenISISPresetGrid(target float64, lvcs int) (sweepIntGenISISGrid, e
 		Notes: []string{
 			"Preset grid fixes lvcs_ncols and searches only paper-faithful theta>1 families.",
 			"Direct-auth PRF with grouped PRF rounds=2 and two checkpoint samples is used as the primary compact presentation mode.",
-			"M/s/e compression levels 0, 1, and 2 are analytic candidates; high-degree level 3 is excluded from defaults.",
+			"M/s/e compression is disabled for bounded-range B>1 experiments.",
 		},
 	}, nil
 }
@@ -991,7 +997,7 @@ func sweepIntGenISISGridFor(name string) (sweepIntGenISISGrid, error) {
 			},
 			PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeOutputAudit, PIOP.PRFCompanionModeDirectAuth},
 			PRFGroups:   []int{2},
-			Compression: []int{0, 1, 2},
+			Compression: []int{0},
 			Checkpoints: []int{2, 4, 8},
 			EtaSlack:    3,
 			MaxEta:      96,
@@ -1020,7 +1026,7 @@ func sweepIntGenISISGridFor(name string) (sweepIntGenISISGrid, error) {
 			},
 			PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth, PIOP.PRFCompanionModeOutputAudit},
 			PRFGroups:   []int{2},
-			Compression: []int{0, 1},
+			Compression: []int{0},
 			Checkpoints: []int{2, 8},
 			EtaSlack:    1,
 			MaxEta:      72,
@@ -1047,7 +1053,7 @@ func sweepIntGenISISGridFor(name string) (sweepIntGenISISGrid, error) {
 			},
 			PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth},
 			PRFGroups:   []int{2},
-			Compression: []int{0, 1, 2, 3},
+			Compression: []int{0},
 			Checkpoints: []int{2},
 			EtaSlack:    1,
 			MaxEta:      80,
@@ -1081,14 +1087,14 @@ func sweepIntGenISISGridFor(name string) (sweepIntGenISISGrid, error) {
 			},
 			PRFModes:    []PIOP.PRFCompanionMode{PIOP.PRFCompanionModeDirectAuth},
 			PRFGroups:   []int{2},
-			Compression: []int{1, 2, 3},
+			Compression: []int{0},
 			Checkpoints: []int{2},
 			EtaSlack:    2,
 			MaxEta:      128,
 			Notes: []string{
 				"Leaf-cap grid forces the Eq. (8) round-4 tradeoff into larger ell rather than very large explicit domains.",
 				"Use with the default -max-nleaves=65536, or set a stricter cap such as 32768 to search smaller Merkle domains.",
-				"The grid assumes the optimized ternary M/s/e relation and prioritizes direct_auth with M/s/e compression.",
+				"The grid assumes the bounded-range M/s/e relation and keeps M/s/e compression disabled.",
 			},
 		}, nil
 	case "deep":
@@ -1153,20 +1159,22 @@ func sweepIntGenISISPackingGrid(name string, ncols, lvcs []int, note string) (sw
 
 func sweepIntGenISISGridSummaryFromGrid(g sweepIntGenISISGrid) sweepIntGenISISGridSummary {
 	return sweepIntGenISISGridSummary{
-		Name:        g.Name,
-		Families:    append([]sweepIntGenISISFamily(nil), g.Families...),
-		NCols:       append([]int(nil), g.NCols...),
-		LVCSNCols:   append([]int(nil), g.LVCSNCols...),
-		Ell:         append([]int(nil), g.Ell...),
-		NLeavesBase: append([]int(nil), g.NLeavesBase...),
-		Shortness:   append([]sweepIntGenISISShortness(nil), g.Shortness...),
-		Compression: append([]int(nil), g.Compression...),
-		PRFModes:    append([]PIOP.PRFCompanionMode(nil), g.PRFModes...),
-		PRFGroups:   append([]int(nil), g.PRFGroups...),
-		Checkpoints: append([]int(nil), g.Checkpoints...),
-		EtaSlack:    g.EtaSlack,
-		MaxEta:      g.MaxEta,
-		Notes:       append([]string(nil), g.Notes...),
+		Name:              g.Name,
+		Families:          append([]sweepIntGenISISFamily(nil), g.Families...),
+		NCols:             append([]int(nil), g.NCols...),
+		LVCSNCols:         append([]int(nil), g.LVCSNCols...),
+		Ell:               append([]int(nil), g.Ell...),
+		NLeavesBase:       append([]int(nil), g.NLeavesBase...),
+		ExhaustiveNLeaves: g.ExhaustiveNLeaves,
+		Shortness:         append([]sweepIntGenISISShortness(nil), g.Shortness...),
+		Compression:       append([]int(nil), g.Compression...),
+		Projection:        append([]string(nil), g.Projection...),
+		PRFModes:          append([]PIOP.PRFCompanionMode(nil), g.PRFModes...),
+		PRFGroups:         append([]int(nil), g.PRFGroups...),
+		Checkpoints:       append([]int(nil), g.Checkpoints...),
+		EtaSlack:          g.EtaSlack,
+		MaxEta:            g.MaxEta,
+		Notes:             append([]string(nil), g.Notes...),
 	}
 }
 
@@ -1327,6 +1335,7 @@ func sweepCachedNLeavesCandidates(profile credential.IntGenISISProfile, grid swe
 		Ell:            ell,
 		ThresholdMilli: int(math.Round(threshold * 1000)),
 		CapLeaves:      capLeaves,
+		Exhaustive:     grid.ExhaustiveNLeaves,
 	}
 	if vals, ok := cache.NLeaves[key]; ok {
 		return vals
@@ -1341,24 +1350,39 @@ func sweepNLeavesCandidates(profile credential.IntGenISISProfile, grid sweepIntG
 	if minLeaves <= 0 {
 		return nil
 	}
-	vals := make([]int, 0, 16)
+	vals := make([]int, 0, 64)
 	add := func(v int) {
 		if v < minLeaves || v > capLeaves {
 			return
 		}
 		vals = append(vals, v)
 	}
-	for _, factor := range []float64{1, 1.03, 1.06, 1.10, 1.18, 1.25, 1.50, 2.00} {
+	factors := []float64{1, 1.03, 1.06, 1.10, 1.18, 1.25, 1.50, 2.00}
+	if grid.ExhaustiveNLeaves {
+		factors = []float64{1, 1.10, 1.50, 2.00, 4.00}
+	}
+	for _, factor := range factors {
 		add(roundUpInt(int(math.Ceil(float64(minLeaves)*factor)), 64))
+	}
+	if grid.ExhaustiveNLeaves {
+		for _, multiple := range []int{1024, 16384} {
+			add(roundUpInt(minLeaves, multiple))
+		}
+		for _, fraction := range []float64{0.50, 0.9375} {
+			add(roundUpInt(int(math.Ceil(float64(capLeaves)*fraction)), 64))
+		}
 	}
 	add(roundUpInt(minLeaves, 1024))
 	add(roundUpInt(minLeaves, 4096))
 	for _, base := range grid.NLeavesBase {
-		if base >= minLeaves && base <= capLeaves && base <= minLeaves*3 {
+		if base < minLeaves || base > capLeaves {
+			continue
+		}
+		if grid.ExhaustiveNLeaves || base <= minLeaves*3 {
 			add(base)
 		}
 	}
-	if capLeaves <= minLeaves*2 {
+	if grid.ExhaustiveNLeaves || capLeaves <= minLeaves*2 {
 		add(capLeaves)
 	}
 	return uniqueSortedInts(vals)
@@ -1369,9 +1393,10 @@ func sweepMaxNLeaves(profile credential.IntGenISISProfile, configuredMax int) in
 	if capLeaves <= 0 {
 		return 0
 	}
-	if capLeaves > 1<<20 {
+	if configuredMax != 0 && capLeaves > 1<<20 {
 		// Profile B has q=1054721. Keep generated domains below q while using the
-		// tested 2^20 explicit-domain ceiling for large-boundary probes.
+		// tested 2^20 explicit-domain ceiling for large-boundary probes. Passing
+		// max-nleaves=0 disables this research cap and scans up to q-1.
 		capLeaves = 1 << 20
 	}
 	if configuredMax > 0 && configuredMax < capLeaves {
@@ -1543,7 +1568,7 @@ func sweepAnalyticEq8Bits(profile credential.IntGenISISProfile, tuning intGenISI
 	if theta > 1 {
 		raw2 = float64(theta*rho) * qLog
 	}
-	analyticDQ := sweepAnalyticDQ(tuning, kind)
+	analyticDQ := sweepAnalyticDQForBound(tuning, kind, profile.B)
 	raw3 := math.Inf(1)
 	if analyticDQ >= ellPrime {
 		raw3 = sweepRaw3Bits(profile, ncols, theta, ellPrime, analyticDQ, cache)
@@ -1683,11 +1708,15 @@ func sweepAnalyticSoundness(profile credential.IntGenISISProfile, tuning intGenI
 		Kappa:      tuning.Kappa,
 		DomainMode: PIOP.DomainModeExplicit,
 	})
-	analyticDQ := sweepAnalyticDQ(tuning, kind)
+	analyticDQ := sweepAnalyticDQForBound(tuning, kind, profile.B)
 	return PIOP.ComputeSoundnessBudgetForParams(opts, profile.Q, analyticDQ, ncols, lvcs, tuning.NLeaves, rows)
 }
 
 func sweepAnalyticDQ(tuning intGenISISTuning, kind string) int {
+	return sweepAnalyticDQForBound(tuning, kind, sweepIntGenISISLiveBound)
+}
+
+func sweepAnalyticDQForBound(tuning intGenISISTuning, kind string, bound int64) int {
 	ncols := tuning.NCols
 	if ncols <= 0 {
 		ncols = 16
@@ -1696,34 +1725,54 @@ func sweepAnalyticDQ(tuning intGenISISTuning, kind string) int {
 	if ell <= 0 {
 		ell = 1
 	}
-	par, agg := sweepRelationDegrees(tuning, kind)
+	par, agg := sweepRelationDegreesForBound(tuning, kind, bound)
 	return sweepComputeDQFromDegrees(par, agg, ncols, ell)
 }
 
 func sweepRelationDegrees(tuning intGenISISTuning, kind string) (parallel, aggregated int) {
+	return sweepRelationDegreesForBound(tuning, kind, sweepIntGenISISLiveBound)
+}
+
+func sweepRelationDegreesForBound(tuning intGenISISTuning, kind string, bound int64) (parallel, aggregated int) {
+	membershipDegree := sweepMembershipDegreeForBound(bound)
+	liveAlphabet := membershipDegree
 	switch kind {
 	case "issuance":
-		return 3, 1
+		return membershipDegree, 1
 	case "showing":
 		radix := tuning.SigShortnessRadix
 		if radix <= 0 {
 			radix = 11
 		}
-		compressionMembership := 3
+		if tuning.TranscriptMode == sweepTranscriptModeShortnessLookup && tuning.SigShortnessRadix == 25 && tuning.SigShortnessDigits == 3 {
+			radix = 5
+		}
+		compressionMembership := membershipDegree
 		compressionDecode := 0
 		if tuning.CompressedRows > 0 {
 			pack := tuning.CompressedRows + 1
 			alphabet := 1
 			for i := 0; i < pack; i++ {
-				alphabet *= 3
+				alphabet *= liveAlphabet
 			}
 			compressionMembership = alphabet
 			compressionDecode = alphabet - 1
+			if tuning.TranscriptMode == sweepTranscriptModeMSELookupPack2 && tuning.CompressedRows == 1 {
+				compressionMembership = 5
+				compressionDecode = 2
+			}
 		}
-		return maxIntMain(maxIntMain(maxIntMain(2, 3), radix), compressionMembership), maxIntMain(2, compressionDecode)
+		return maxIntMain(maxIntMain(maxIntMain(2, membershipDegree), radix), compressionMembership), maxIntMain(2, compressionDecode)
 	default:
-		return 3, 1
+		return membershipDegree, 1
 	}
+}
+
+func sweepMembershipDegreeForBound(bound int64) int {
+	if bound <= 0 {
+		bound = sweepIntGenISISLiveBound
+	}
+	return int(2*bound + 1)
 }
 
 func sweepComputeDQFromDegrees(d, dPrime, s, ell int) int {

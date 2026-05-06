@@ -147,7 +147,7 @@ func prfCompanionReplayConsumedRows(layout *PRFCompanionLayout, mode PRFCompanio
 	return out
 }
 
-func prfCompanionSelectedReplayRows(layout *PRFCompanionLayout, mode PRFCompanionMode) []int {
+func prfCompanionActiveReplayRows(layout *PRFCompanionLayout, mode PRFCompanionMode) []int {
 	rows := append([]int(nil), prfCompanionReplayConsumedRows(layout, mode)...)
 	rows = append(rows, prfCompanionKeyRowIndices(layout)...)
 	return sortedUniqueInts(rows)

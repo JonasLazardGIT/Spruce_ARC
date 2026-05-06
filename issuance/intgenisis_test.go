@@ -84,6 +84,7 @@ func TestIntGenISISIssuanceCommitAndTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sample s/e: %v", err)
 	}
+	assertB4Randomness(t, ringQ, params.CommitmentBound, append(s, e...))
 	inputs := IntGenISISInputs{M: M, S: s, E: e}
 	c, err := PrepareIntGenISISCommit(params, inputs)
 	if err != nil {
@@ -169,4 +170,27 @@ func boundedTestPoly(ringQ *ring.Ring, bound int64, rng *rand.Rand) *ring.Poly {
 		}
 	}
 	return p
+}
+
+func assertB4Randomness(t *testing.T, ringQ *ring.Ring, bound int64, rows []*ring.Poly) {
+	t.Helper()
+	q := int64(ringQ.Modulus[0])
+	sawNonTernary := false
+	for i, row := range rows {
+		for j, coeff := range row.Coeffs[0] {
+			v := int64(coeff % ringQ.Modulus[0])
+			if v > q/2 {
+				v -= q
+			}
+			if v < -bound || v > bound {
+				t.Fatalf("row %d coeff %d=%d outside [-%d,%d]", i, j, v, bound, bound)
+			}
+			if v < -1 || v > 1 {
+				sawNonTernary = true
+			}
+		}
+	}
+	if bound == 4 && !sawNonTernary {
+		t.Fatal("seeded B=4 randomness stayed ternary")
+	}
 }

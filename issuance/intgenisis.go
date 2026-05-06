@@ -79,14 +79,13 @@ func commitmentParamsFromIssuance(params *credential.Params) (commitment.TargetP
 }
 
 // SampleIntGenISISCommitmentRandomness samples live IntGenISIS s and e from
-// the ternary domain {-1,0,1}. The public commitment bound remains available
-// as a compatibility envelope, but the proof relation enforces ternary rows.
+// the public bounded range [-B,B]. The proof relation enforces the same bound.
 func SampleIntGenISISCommitmentRandomness(params *credential.Params, rng *rand.Rand) (s, e []*ring.Poly, err error) {
 	targetParams, err := commitmentParamsFromIssuance(params)
 	if err != nil {
 		return nil, nil, err
 	}
-	return commitment.SampleTernaryCommitmentRandomness(targetParams, rng)
+	return commitment.SampleCommitmentRandomness(targetParams, rng)
 }
 
 // SampleSignatureHashData samples issuer-side mu_sig, x0, and x1. The current
@@ -102,8 +101,8 @@ func SampleSignatureHashData(ringQ *ring.Ring, B []*ring.Poly, ellMuSig, ellX0 i
 	if ellMuSig != 1 {
 		return SignatureHashData{}, fmt.Errorf("ell_mu_sig=%d want 1", ellMuSig)
 	}
-	if ellX0 != 2 {
-		return SignatureHashData{}, fmt.Errorf("ell_x0=%d want 2", ellX0)
+	if ellX0 <= 0 {
+		return SignatureHashData{}, fmt.Errorf("invalid ell_x0=%d", ellX0)
 	}
 	if rng == nil {
 		return SignatureHashData{}, fmt.Errorf("nil rng")
@@ -156,8 +155,8 @@ func ComputeIntGenISISTarget(ringQ *ring.Ring, B []*ring.Poly, c commitment.Vect
 		return IntGenISISTarget{}, fmt.Errorf("nil ring")
 	}
 	ellX0 := len(data.X0)
-	if ellX0 != 2 {
-		return IntGenISISTarget{}, fmt.Errorf("x0 length=%d want 2", ellX0)
+	if ellX0 <= 0 {
+		return IntGenISISTarget{}, fmt.Errorf("invalid x0 length=%d", ellX0)
 	}
 	if len(B) != 3+ellX0 {
 		return IntGenISISTarget{}, fmt.Errorf("B length=%d want %d", len(B), 3+ellX0)

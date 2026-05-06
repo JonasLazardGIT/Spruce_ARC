@@ -124,10 +124,10 @@ func (st IntGenISISState) Validate() error {
 	if err := ValidateSemanticMessage(layout, SemanticMessage{M: st.M, MAttr: st.MAttr, K: st.K}); err != nil {
 		return fmt.Errorf("semantic message: %w", err)
 	}
-	if err := validateTernaryIntGenISISRows("s", st.S); err != nil {
+	if err := validateBoundedIntGenISISRows("s", st.S, profile.B); err != nil {
 		return err
 	}
-	if err := validateTernaryIntGenISISRows("e", st.E); err != nil {
+	if err := validateBoundedIntGenISISRows("e", st.E, profile.B); err != nil {
 		return err
 	}
 	if len(st.SigS1) > 0 && len(st.SigS1) != profile.N {
@@ -142,11 +142,14 @@ func (st IntGenISISState) Validate() error {
 	return nil
 }
 
-func validateTernaryIntGenISISRows(name string, rows [][]int64) error {
+func validateBoundedIntGenISISRows(name string, rows [][]int64, bound int64) error {
+	if bound <= 0 {
+		return fmt.Errorf("invalid %s bound %d", name, bound)
+	}
 	for i := range rows {
 		for j, v := range rows[i] {
-			if v < -1 || v > 1 {
-				return fmt.Errorf("%s[%d][%d]=%d outside ternary domain {-1,0,1}", name, i, j, v)
+			if v < -bound || v > bound {
+				return fmt.Errorf("%s[%d][%d]=%d outside [-%d,%d]", name, i, j, v, bound, bound)
 			}
 		}
 	}

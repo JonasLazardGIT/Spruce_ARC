@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"vSIS-Signature/credential"
 	"vSIS-Signature/internal/fpoly"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -47,21 +48,35 @@ func intGenISISMSECompressionPackWidth(level int) (int, error) {
 }
 
 func intGenISISMSECompressionDescriptorForLevel(level int) (intGenISISMSECompressionDescriptor, error) {
+	return intGenISISMSECompressionDescriptorForBound(level, intGenISISDefaultBound)
+}
+
+func intGenISISMSECompressionDescriptorForBound(level int, bound int64) (intGenISISMSECompressionDescriptor, error) {
 	packWidth, err := intGenISISMSECompressionPackWidth(level)
 	if err != nil {
 		return intGenISISMSECompressionDescriptor{}, err
 	}
+	if bound <= 0 {
+		return intGenISISMSECompressionDescriptor{}, fmt.Errorf("invalid IntGenISIS M/s/e bound %d", bound)
+	}
 	if level == intGenISISMSECompressionNone {
+		sourceDomain := credential.IntGenISISDomainBoundedRangeV1
+		if bound == intGenISISTernaryBound {
+			sourceDomain = credential.IntGenISISDomainTernaryV1
+		}
 		return intGenISISMSECompressionDescriptor{
 			Version:       "none",
 			Level:         0,
 			PackWidth:     1,
-			Alphabet:      3,
-			SourceDomain:  "ternary_v1",
+			Alphabet:      2*bound + 1,
+			SourceDomain:  sourceDomain,
 			CarrierSet:    "uncompressed",
 			DecodeDegree:  1,
-			MembershipDeg: intGenISISTernaryMembershipDegree,
+			MembershipDeg: intGenISISMembershipDegree(bound),
 		}, nil
+	}
+	if err := rejectIntGenISISMSECompressionForBound(bound, level); err != nil {
+		return intGenISISMSECompressionDescriptor{}, err
 	}
 	alphabet, err := packedMuCarrierAlphabetSize(intGenISISTernaryBound, packWidth)
 	if err != nil {
@@ -80,7 +95,11 @@ func intGenISISMSECompressionDescriptorForLevel(level int) (intGenISISMSECompres
 }
 
 func intGenISISMSECompressionDescriptorBytes(level int, compressedRows int) ([]byte, error) {
-	desc, err := intGenISISMSECompressionDescriptorForLevel(level)
+	return intGenISISMSECompressionDescriptorBytesForBound(level, compressedRows, intGenISISDefaultBound)
+}
+
+func intGenISISMSECompressionDescriptorBytesForBound(level int, compressedRows int, bound int64) ([]byte, error) {
+	desc, err := intGenISISMSECompressionDescriptorForBound(level, bound)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +108,11 @@ func intGenISISMSECompressionDescriptorBytes(level int, compressedRows int) ([]b
 }
 
 func newIntGenISISMSECompressionSpec(q uint64, level int) (intGenISISMSECompressionSpec, error) {
-	desc, err := intGenISISMSECompressionDescriptorForLevel(level)
+	return newIntGenISISMSECompressionSpecForBound(q, level, intGenISISDefaultBound)
+}
+
+func newIntGenISISMSECompressionSpecForBound(q uint64, level int, bound int64) (intGenISISMSECompressionSpec, error) {
+	desc, err := intGenISISMSECompressionDescriptorForBound(level, bound)
 	if err != nil {
 		return intGenISISMSECompressionSpec{}, err
 	}

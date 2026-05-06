@@ -25,6 +25,41 @@ type VerifierState struct {
 	RFormal [][]uint64
 }
 
+const (
+	SmallField2025ModeV1       = "smallfield_2025_1085_v1"
+	SmallField2025HeadDomainV1 = "smallfield_head_v1"
+)
+
+type SmallField2025EvalMetadata struct {
+	Version          int
+	Mode             string
+	HeadDomainMode   string
+	ReductionEnabled bool
+	NRows            int
+	NCols            int
+	Theta            int
+	WitnessLayers    int
+	MaskRows         int
+	QueryCount       int
+	VHeadRows        int
+	VHeadCols        int
+	VBarRows         int
+	VBarCols         int
+	POmitCols        []int
+	MOmitCols        []int
+	MatrixDigest     []byte
+	PayloadDigest    []byte
+}
+
+type SmallField2025EvalInput struct {
+	VHead    [][]uint64
+	VBar     [][]uint64
+	Tail     []int
+	Opening  *decs.DECSOpening
+	C        [][]uint64
+	Metadata SmallField2025EvalMetadata
+}
+
 func NewVerifierWithParamsAndPoints(ringQ *ring.Ring, r int, params decs.Params, ncols int, points []uint64) *VerifierState {
 	if len(points) == 0 {
 		panic("lvcs: explicit points are required")
@@ -68,6 +103,257 @@ func (v *VerifierState) EvalStep2(
 	open *decs.DECSOpening,
 	C [][]uint64, // coefficient matrix
 	vTargets [][]uint64, // public v_k on Ω
+) bool {
+	return v.evalStep2Core(bar, E, open, C, vTargets)
+}
+
+func (v *VerifierState) EvalStep2SmallField2025(in SmallField2025EvalInput) bool {
+	debug := os.Getenv("LVCS_DEBUG_EVALSTEP2") == "1"
+	if !v.validateSmallField2025EvalInput(in, debug) {
+		return false
+	}
+	return v.evalStep2SmallField2025Core(in, debug)
+}
+
+func (v *VerifierState) validateSmallField2025EvalInput(in SmallField2025EvalInput, debug bool) bool {
+	meta := in.Metadata
+	if meta.Version != 1 || meta.Mode != SmallField2025ModeV1 || meta.HeadDomainMode != SmallField2025HeadDomainV1 {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] invalid smallfield2025 metadata version=%d mode=%q head=%q\n", meta.Version, meta.Mode, meta.HeadDomainMode)
+		}
+		return false
+	}
+	if !meta.ReductionEnabled || meta.Theta <= 1 {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 reduction disabled or theta invalid enabled=%v theta=%d\n", meta.ReductionEnabled, meta.Theta)
+		}
+		return false
+	}
+	if meta.WitnessLayers <= 0 || meta.QueryCount != (meta.WitnessLayers+1)*meta.Theta {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 query count=%d witness_layers=%d theta=%d\n", meta.QueryCount, meta.WitnessLayers, meta.Theta)
+		}
+		return false
+	}
+	if in.Opening == nil {
+		return false
+	}
+	m := len(in.C)
+	if m == 0 || len(in.VHead) != m || len(in.VBar) != m {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 query dims C=%d vhead=%d vbar=%d\n", len(in.C), len(in.VHead), len(in.VBar))
+		}
+		return false
+	}
+	if meta.QueryCount != m || meta.VHeadRows != len(in.VHead) || meta.VBarRows != len(in.VBar) {
+		return false
+	}
+	if meta.NRows != v.r || meta.NCols != v.ncols {
+		return false
+	}
+	if meta.VHeadCols != v.ncols {
+		return false
+	}
+	if len(in.VBar[0]) == 0 || meta.MaskRows != len(in.VBar[0]) || meta.VBarCols != len(in.VBar[0]) {
+		return false
+	}
+	if meta.VHeadCols <= 0 || meta.VBarCols <= 0 {
+		return false
+	}
+	for k := 0; k < m; k++ {
+		if len(in.C[k]) != v.r || len(in.VHead[k]) != meta.VHeadCols || len(in.VBar[k]) != meta.VBarCols {
+			return false
+		}
+	}
+	if len(in.Tail) != meta.MaskRows {
+		return false
+	}
+	if in.Opening.R != v.r || in.Opening.MaskCount != 0 || in.Opening.EntryCount() != len(in.Tail) {
+		return false
+	}
+	if in.Opening.FormatVersion != decs.OpeningFormatOmitCols && in.Opening.FormatVersion != decs.OpeningFormatColumnWidths {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 requires omitted P columns, format=%d\n", in.Opening.FormatVersion)
+		}
+		return false
+	}
+	pivots, fullRank := pivotColumnsFullRank(in.C, in.Opening.R, v.RingQ.Modulus[0])
+	if !fullRank || len(pivots) != m {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 rank/omit mismatch pivots=%v query_count=%d fullRank=%v\n", pivots, m, fullRank)
+		}
+		return false
+	}
+	if len(in.Opening.POmitCols) > 0 && !equalIntSlicesExact(in.Opening.POmitCols, pivots) {
+		return false
+	}
+	if len(meta.POmitCols) > 0 && !equalIntSlicesExact(meta.POmitCols, pivots) {
+		return false
+	}
+	if in.Opening.PColsEncoded != v.r-len(pivots) {
+		return false
+	}
+	allMOmit := consecutiveInts(in.Opening.Eta)
+	if in.Opening.Eta != v.params.Eta {
+		return false
+	}
+	if in.Opening.MFormatVersion != decs.OpeningFormatOmitCols && in.Opening.MFormatVersion != decs.OpeningFormatColumnWidths {
+		return false
+	}
+	if in.Opening.MColsEncoded != 0 {
+		return false
+	}
+	if len(in.Opening.MOmitCols) > 0 && !equalIntSlicesExact(in.Opening.MOmitCols, allMOmit) {
+		return false
+	}
+	if len(meta.MOmitCols) > 0 && !equalIntSlicesExact(meta.MOmitCols, allMOmit) {
+		return false
+	}
+	return true
+}
+
+func consecutiveInts(n int) []int {
+	if n <= 0 {
+		return nil
+	}
+	out := make([]int, n)
+	for i := range out {
+		out[i] = i
+	}
+	return out
+}
+
+func ensureDeterministicSmallFieldMOmit(open *decs.DECSOpening) bool {
+	if open == nil {
+		return false
+	}
+	if open.MFormatVersion != decs.OpeningFormatOmitCols && open.MFormatVersion != decs.OpeningFormatColumnWidths {
+		return false
+	}
+	if open.MColsEncoded != 0 {
+		return false
+	}
+	allMOmit := consecutiveInts(open.Eta)
+	if len(open.MOmitCols) == 0 {
+		open.MOmitCols = allMOmit
+		return true
+	}
+	return equalIntSlicesExact(open.MOmitCols, allMOmit)
+}
+
+func (v *VerifierState) evalStep2SmallField2025Core(in SmallField2025EvalInput, debug bool) bool {
+	m := len(in.C)
+	ell := in.Metadata.MaskRows
+	ncols := v.ncols
+	N := v.nLeaves
+	maskEnd := ncols + ell
+	if maskEnd > N {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 maskEnd=%d > N=%d\n", maskEnd, N)
+		}
+		return false
+	}
+	tailSeen := make(map[int]struct{}, len(in.Tail))
+	for _, idx := range in.Tail {
+		if idx < maskEnd || idx >= N {
+			if debug {
+				fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 tail idx %d outside [%d,%d)\n", idx, maskEnd, N)
+			}
+			return false
+		}
+		if _, dup := tailSeen[idx]; dup {
+			if debug {
+				fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 duplicate tail idx %d\n", idx)
+			}
+			return false
+		}
+		tailSeen[idx] = struct{}{}
+	}
+
+	mod := v.RingQ.Modulus[0]
+	interpPlan, err := getInterpolationPlan(v.points[:maskEnd], ncols, ell, mod)
+	if err != nil {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 interpolation plan error: %v\n", err)
+		}
+		return false
+	}
+	Qcoefs := make([][]uint64, m)
+	for k := 0; k < m; k++ {
+		Qcoefs[k], err = interpolateRowCoeffsWithPlan(in.VHead[k], in.VBar[k], interpPlan)
+		if err != nil {
+			if debug {
+				fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 interpolate row %d: %v\n", k, err)
+			}
+			return false
+		}
+	}
+	if !prepareTailOnlyOpeningForSmallField2025(in.Opening, in.C, in.Tail, v.points, Qcoefs, v.Gamma, v.RFormal, mod) {
+		if debug {
+			fmt.Println("[LVCS_DEBUG_EVALSTEP2] prepareTailOnlyOpeningForSmallField2025 rejected")
+		}
+		return false
+	}
+	if err := decs.EnsureMerkleDecoded(in.Opening); err != nil {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 merkle decode: %v\n", err)
+		}
+		return false
+	}
+	if !equalSets(in.Opening.AllIndices(), in.Tail) {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 tail opening indices mismatch got=%v want=%v\n", in.Opening.AllIndices(), in.Tail)
+		}
+		return false
+	}
+
+	decv, err := decs.NewVerifierWithParamsAndPointsChecked(v.RingQ, v.r, v.params, v.points)
+	if err != nil {
+		return false
+	}
+	if len(v.RFormal) > 0 {
+		if !decv.VerifyEvalAtFormal(v.Root, v.Gamma, v.RFormal, in.Opening, in.Tail) {
+			if debug {
+				fmt.Println("[LVCS_DEBUG_EVALSTEP2] smallfield2025 VerifyEvalAtFormal(tail) rejected")
+			}
+			return false
+		}
+	} else if !decv.VerifyEvalAt(v.Root, v.Gamma, v.R, in.Opening, in.Tail) {
+		if debug {
+			fmt.Println("[LVCS_DEBUG_EVALSTEP2] smallfield2025 VerifyEvalAt(tail) rejected")
+		}
+		return false
+	}
+
+	for t, idx := range in.Opening.AllIndices() {
+		if len(in.Opening.Pvals[t]) != v.r {
+			return false
+		}
+		x := v.points[idx] % mod
+		for k := 0; k < m; k++ {
+			lhs := evalPolyCoeffs(Qcoefs[k], x, mod)
+			rhs := uint64(0)
+			for j := 0; j < v.r; j++ {
+				rhs = MulAddMod64(rhs, in.C[k][j], in.Opening.Pvals[t][j], mod)
+			}
+			if lhs != rhs {
+				if debug {
+					fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 tail linear mismatch t=%d idx=%d k=%d lhs=%d rhs=%d\n", t, idx, k, lhs, rhs)
+				}
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func (v *VerifierState) evalStep2Core(
+	bar [][]uint64,
+	E []int,
+	open *decs.DECSOpening,
+	C [][]uint64,
+	vTargets [][]uint64,
 ) bool {
 	debug := os.Getenv("LVCS_DEBUG_EVALSTEP2") == "1"
 	if open == nil {
@@ -437,6 +723,109 @@ func prepareOpeningForEvalStep2(
 			fullRows[t] = row
 		}
 		open.Pvals = fullRows
+	}
+	return materializeOrReconstructMvals(open, n, points, gamma, rFormal, mod)
+}
+
+func prepareTailOnlyOpeningForSmallField2025(
+	open *decs.DECSOpening,
+	C [][]uint64,
+	tail []int,
+	points []uint64,
+	qcoefs [][]uint64,
+	gamma [][]uint64,
+	rFormal [][]uint64,
+	mod uint64,
+) bool {
+	if open == nil || open.MaskCount != 0 {
+		return false
+	}
+	n := open.EntryCount()
+	if n <= 0 || n != len(tail) {
+		return false
+	}
+	if open.R <= 0 || len(C) == 0 || len(C[0]) < open.R {
+		return false
+	}
+	if open.FormatVersion != decs.OpeningFormatOmitCols && open.FormatVersion != decs.OpeningFormatColumnWidths {
+		return false
+	}
+	omitCols, fullRank := pivotColumnsFullRank(C, open.R, mod)
+	if !fullRank || len(omitCols) == 0 || len(omitCols) != len(C) {
+		return false
+	}
+	if len(open.POmitCols) > 0 && !equalIntSlicesExact(omitCols, open.POmitCols) {
+		return false
+	}
+	keepCols := complementCols(open.R, omitCols)
+	if open.PColsEncoded != len(keepCols) {
+		return false
+	}
+	encodedRows, ok := materializeEncodedPvals(open, n, open.PColsEncoded)
+	if !ok {
+		return false
+	}
+	a := make([][]uint64, len(C))
+	for i := range C {
+		a[i] = make([]uint64, len(omitCols))
+		for j, col := range omitCols {
+			a[i][j] = C[i][col] % mod
+		}
+	}
+	aInv, ok := invertMatrixMod(a, mod)
+	if !ok {
+		return false
+	}
+	tailSet := make(map[int]struct{}, len(tail))
+	for _, idx := range tail {
+		if idx < 0 || idx >= len(points) {
+			return false
+		}
+		if _, dup := tailSet[idx]; dup {
+			return false
+		}
+		tailSet[idx] = struct{}{}
+	}
+	openSeen := make(map[int]struct{}, n)
+	fullRows := make([][]uint64, n)
+	for t := 0; t < n; t++ {
+		idx := open.IndexAt(t)
+		if idx < 0 || idx >= len(points) {
+			return false
+		}
+		if _, ok := tailSet[idx]; !ok {
+			return false
+		}
+		if _, dup := openSeen[idx]; dup {
+			return false
+		}
+		openSeen[idx] = struct{}{}
+		x := points[idx] % mod
+		rhs := make([]uint64, len(C))
+		for k := 0; k < len(C); k++ {
+			rhs[k] = evalPolyCoeffs(qcoefs[k], x, mod)
+			known := uint64(0)
+			for j, col := range keepCols {
+				known = MulAddMod64(known, C[k][col], encodedRows[t][j], mod)
+			}
+			rhs[k] = subMod64(rhs[k], known, mod)
+		}
+		missing := mulMatVecMod(aInv, rhs, mod)
+		row := make([]uint64, open.R)
+		for j, col := range keepCols {
+			row[col] = encodedRows[t][j] % mod
+		}
+		for j, col := range omitCols {
+			row[col] = missing[j] % mod
+		}
+		fullRows[t] = row
+	}
+	if len(openSeen) != len(tailSet) {
+		return false
+	}
+	open.Pvals = fullRows
+	if !ensureDeterministicSmallFieldMOmit(open) {
+		return false
 	}
 	return materializeOrReconstructMvals(open, n, points, gamma, rFormal, mod)
 }

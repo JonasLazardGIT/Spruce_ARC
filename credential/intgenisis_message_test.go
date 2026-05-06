@@ -12,7 +12,7 @@ func TestSemanticMessageRingTailKeyRoundTrip(t *testing.T) {
 			if layout.Name != IntGenISISMessageLayoutRingTailKeyV1 || layout.Version != 4 {
 				t.Fatalf("layout version/name=%d/%q", layout.Version, layout.Name)
 			}
-			if layout.MSEDomain != IntGenISISDomainTernaryV1 || layout.KeyDomain != IntGenISISDomainTernaryV1 || layout.Bound != 1 {
+			if layout.MSEDomain != IntGenISISDomainBoundedRangeV1 || layout.KeyDomain != IntGenISISDomainBoundedRangeV1 || layout.Bound != 4 {
 				t.Fatalf("layout domain/bound mse=%q key=%q bound=%d", layout.MSEDomain, layout.KeyDomain, layout.Bound)
 			}
 			if len(layout.Attribute) != profile.N-8 || len(layout.Key) != 8 {
@@ -23,9 +23,9 @@ func TestSemanticMessageRingTailKeyRoundTrip(t *testing.T) {
 			}
 			attrs := ZeroSemanticAttributes(layout)
 			for i := 0; i < len(layout.Attribute); i++ {
-				attrs[0][layout.Attribute[i].Coeff] = int64((i % 3) - 1)
+				attrs[0][layout.Attribute[i].Coeff] = int64((i % 9) - 4)
 			}
-			key := []int64{1, -1, 0, 1, -1, 0, 1, -1}
+			key := []int64{4, -4, 3, -3, 2, -2, 1, -1}
 			msg, err := EncodeSemanticMessage(layout, attrs, key)
 			if err != nil {
 				t.Fatalf("encode: %v", err)
@@ -50,6 +50,27 @@ func TestSemanticMessageRingTailKeyRoundTrip(t *testing.T) {
 				t.Fatalf("decoded validate: %v", err)
 			}
 		})
+	}
+}
+
+func TestSemanticMessageTernary1024Defaults(t *testing.T) {
+	profile := Ternary1024IntGenISISProfile()
+	layout, err := DefaultSemanticMessageLayout(profile, 8)
+	if err != nil {
+		t.Fatalf("layout: %v", err)
+	}
+	if layout.Bound != 1 || layout.MSEDomain != IntGenISISDomainTernaryV1 || layout.KeyDomain != IntGenISISDomainTernaryV1 {
+		t.Fatalf("profile C layout domain/bound mse=%q key=%q bound=%d", layout.MSEDomain, layout.KeyDomain, layout.Bound)
+	}
+	attrs := ZeroSemanticAttributes(layout)
+	for i, slot := range layout.Attribute {
+		attrs[slot.Poly][slot.Coeff] = int64((i % 3) - 1)
+	}
+	if _, err := EncodeSemanticMessage(layout, attrs, []int64{-1, 0, 1, -1, 0, 1, -1, 0}); err != nil {
+		t.Fatalf("ternary encode rejected: %v", err)
+	}
+	if _, err := EncodeSemanticMessage(layout, attrs, []int64{2, 0, 1, -1, 0, 1, -1, 0}); err == nil {
+		t.Fatal("ternary profile accepted key value 2")
 	}
 }
 
@@ -101,7 +122,7 @@ func TestSemanticMessageRejectsKeyAndBindingMutations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	msg.K[0][layout.Key[0].Coeff] = 2
+	msg.K[0][layout.Key[0].Coeff] = 5
 	if err := ValidateSemanticMessage(layout, msg); err == nil {
 		t.Fatal("out-of-bound key mutation accepted")
 	}

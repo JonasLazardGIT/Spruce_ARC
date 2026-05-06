@@ -102,6 +102,52 @@ func packFlatUintMatrix(rows [][]uint64, rowLen, width int) []byte {
 	return packUintMatrixBody(rows, rowLen, width)
 }
 
+func packColumnWidthUintMatrix(rows [][]uint64, rowLen int, widths []uint8) []byte {
+	if rowLen <= 0 || len(widths) != rowLen || len(rows) == 0 {
+		return nil
+	}
+	totalBits := 0
+	for _, width := range widths {
+		if width == 0 || width > 64 {
+			return nil
+		}
+		totalBits += int(width) * len(rows)
+	}
+	out := make([]byte, (totalBits+7)/8)
+	bitPos := 0
+	for _, row := range rows {
+		for j := 0; j < rowLen; j++ {
+			width := int(widths[j])
+			val := uint64(0)
+			if j < len(row) {
+				val = row[j]
+			}
+			packUintAt(out, bitPos, width, val)
+			bitPos += width
+		}
+	}
+	return out
+}
+
+func columnWidthsForMatrix(rows [][]uint64, rowLen int) []uint8 {
+	if rowLen <= 0 || len(rows) == 0 {
+		return nil
+	}
+	maxVals := make([]uint64, rowLen)
+	for _, row := range rows {
+		for j := 0; j < rowLen && j < len(row); j++ {
+			if row[j] > maxVals[j] {
+				maxVals[j] = row[j]
+			}
+		}
+	}
+	widths := make([]uint8, rowLen)
+	for j, max := range maxVals {
+		widths[j] = uint8(selectBitWidth(max))
+	}
+	return widths
+}
+
 func unpackFlatUint(bits []byte, index, width int) uint64 {
 	if index < 0 || width <= 0 {
 		return 0
@@ -122,6 +168,25 @@ func unpackFlatUint(bits []byte, index, width int) uint64 {
 	}
 	chunk >>= bitOff
 	return chunk & mask
+}
+
+func unpackColumnWidthUint(bits []byte, row, col, rowLen int, widths []uint8) uint64 {
+	if row < 0 || col < 0 || rowLen <= 0 || col >= rowLen || len(widths) != rowLen {
+		return 0
+	}
+	bitPos := 0
+	rowBits := 0
+	for _, width := range widths {
+		if width == 0 || width > 64 {
+			return 0
+		}
+		rowBits += int(width)
+	}
+	bitPos += row * rowBits
+	for j := 0; j < col; j++ {
+		bitPos += int(widths[j])
+	}
+	return unpackUintAt(bits, bitPos, int(widths[col]))
 }
 
 func unpackUintMatrixBody(bits []byte, rows, rowLen, width int) [][]uint64 {
@@ -152,6 +217,46 @@ func unpackUintMatrixBody(bits []byte, rows, rowLen, width int) [][]uint64 {
 		out[r] = row
 	}
 	return out
+}
+
+func packUintAt(out []byte, bitPos, width int, val uint64) {
+	if width <= 0 {
+		return
+	}
+	var mask uint64
+	if width >= 64 {
+		mask = ^uint64(0)
+	} else {
+		mask = (uint64(1) << width) - 1
+	}
+	bytePos := bitPos >> 3
+	shift := uint(bitPos & 7)
+	chunk := (val & mask) << shift
+	bytesNeeded := (width + int(shift) + 7) / 8
+	for k := 0; k < bytesNeeded && (bytePos+k) < len(out); k++ {
+		out[bytePos+k] |= byte(chunk & 0xFF)
+		chunk >>= 8
+	}
+}
+
+func unpackUintAt(bits []byte, bitPos, width int) uint64 {
+	if width <= 0 {
+		return 0
+	}
+	bytePos := bitPos >> 3
+	shift := uint(bitPos & 7)
+	var mask uint64
+	if width >= 64 {
+		mask = ^uint64(0)
+	} else {
+		mask = (uint64(1) << width) - 1
+	}
+	var chunk uint64
+	bytesNeeded := (width + int(shift) + 7) / 8
+	for k := 0; k < bytesNeeded && (bytePos+k) < len(bits); k++ {
+		chunk |= uint64(bits[bytePos+k]) << (8 * k)
+	}
+	return (chunk >> shift) & mask
 }
 
 func maxMatrixValue(rows [][]uint64) uint64 {

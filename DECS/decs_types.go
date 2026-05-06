@@ -1,5 +1,11 @@
 package decs
 
+const (
+	OpeningFormatPlain        uint8 = 0
+	OpeningFormatOmitCols     uint8 = 1
+	OpeningFormatColumnWidths uint8 = 2
+)
+
 // DECSOpening holds the DECS opening data sent by the prover.
 type DECSOpening struct {
 	// FormatVersion selects the P-value encoding.
@@ -21,23 +27,25 @@ type DECSOpening struct {
 	Pvals     [][]uint64 // optional: P_j(e) for each e∈E, j∈[0..r)
 	Mvals     [][]uint64 // optional: M_k(e) for each e∈E, k∈[0..η)
 	// Width 0 keeps the full residue encoding.
-	PvalsBits        []byte
-	MvalsBits        []byte
-	PvalsBitWidth    uint8
-	MvalsBitWidth    uint8
-	R                int // number of P columns (rows committed)
-	Eta              int // number of mask polys (η)
-	Nodes            [][]byte
-	PathIndex        [][]int // optional: explicit indices
-	PathBits         []byte  // packed path indices (row-major t×depth), optional
-	PathBitWidth     uint8   // bit width per path entry when PathBits is set
-	PathDepth        int     // path length when PathBits is set
-	FrontierRefsBits []byte  // packed indices into FrontierNodes (union)
-	FrontierRefWidth uint8   // bit width for FrontierRefsBits entries
-	FrontierRefCount int     // number of references encoded in FrontierRefsBits
-	Nonces           [][]byte
-	NonceSeed        []byte
-	NonceBytes       int
+	PvalsBits         []byte
+	MvalsBits         []byte
+	PvalsBitWidth     uint8
+	MvalsBitWidth     uint8
+	PvalsColumnWidths []uint8
+	MvalsColumnWidths []uint8
+	R                 int // number of P columns (rows committed)
+	Eta               int // number of mask polys (η)
+	Nodes             [][]byte
+	PathIndex         [][]int // optional: explicit indices
+	PathBits          []byte  // packed path indices (row-major t×depth), optional
+	PathBitWidth      uint8   // bit width per path entry when PathBits is set
+	PathDepth         int     // path length when PathBits is set
+	FrontierRefsBits  []byte  // packed indices into FrontierNodes (union)
+	FrontierRefWidth  uint8   // bit width for FrontierRefsBits entries
+	FrontierRefCount  int     // number of references encoded in FrontierRefsBits
+	Nonces            [][]byte
+	NonceSeed         []byte
+	NonceBytes        int
 
 	// Frontier-based openings can be expanded with EnsureMerkleDecoded.
 	FrontierNodes [][]byte

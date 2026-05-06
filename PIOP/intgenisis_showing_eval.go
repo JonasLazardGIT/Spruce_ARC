@@ -133,7 +133,7 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		}
 	}
 	boundRows = append(boundRows, nonSigRows...)
-	msgSpec := NewRangeMembershipSpec(ringQ.Modulus[0], intGenISISTernaryBound).Coeffs
+	msgSpec := NewRangeMembershipSpec(ringQ.Modulus[0], int(pub.BoundB)).Coeffs
 	for range nonSigRows {
 		boundPolys = append(boundPolys, msgSpec)
 	}
@@ -151,7 +151,7 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	}
 	compressionSpec := intGenISISMSECompressionSpec{}
 	if l.MSECompressionLevel > 0 {
-		compressionSpec, err = newIntGenISISMSECompressionSpec(ringQ.Modulus[0], l.MSECompressionLevel)
+		compressionSpec, err = newIntGenISISMSECompressionSpecForBound(ringQ.Modulus[0], l.MSECompressionLevel, pub.BoundB)
 		if err != nil {
 			return nil, err
 		}

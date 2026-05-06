@@ -94,6 +94,36 @@ func TestPaperTranscriptReportIncludesRingDegree(t *testing.T) {
 	}
 }
 
+func TestStrictSmallWoodProofSizeExcludesLegacyQDECS(t *testing.T) {
+	proof := &Proof{
+		TranscriptVersion: TranscriptVersionSmallWood2025,
+		QRoot:             [16]byte{1},
+		QRBits:            []byte{1, 2, 3},
+		QPayloadBits:      []byte{4, 5},
+		VTargetsBits:      []byte{6},
+		BarSetsBits:       []byte{7},
+		PCSOpening:        testOpening(),
+		QOpening:          testOpening(),
+	}
+	parts, total := proofSizeBreakdown(proof)
+	if total == 0 {
+		t.Fatal("strict proof size unexpectedly zero")
+	}
+	if parts["QRoot"] != 0 || parts["QR"] != 0 || parts["QOpening"] != 0 {
+		t.Fatalf("strict proof counted legacy Q DECS components: QRoot=%d QR=%d QOpening=%d", parts["QRoot"], parts["QR"], parts["QOpening"])
+	}
+	if parts["QPayload"] != len(proof.QPayloadBits) {
+		t.Fatalf("strict proof QPayload bytes=%d want %d", parts["QPayload"], len(proof.QPayloadBits))
+	}
+	audit, err := BuildProofPackingAudit(proof, 12289)
+	if err != nil {
+		t.Fatalf("packing audit: %v", err)
+	}
+	if audit.QR.Bytes != 0 || audit.QOpening.TotalBytes != 0 {
+		t.Fatalf("strict packing audit counted legacy Q DECS components: QR=%d QOpening=%d", audit.QR.Bytes, audit.QOpening.TotalBytes)
+	}
+}
+
 func TestSigShortnessV18LayoutDigestBindsRingDegree(t *testing.T) {
 	layout := RowLayout{
 		RingDegree: 1024,

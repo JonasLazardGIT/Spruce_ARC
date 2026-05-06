@@ -32,13 +32,18 @@ type benchmarkIntGenISISMetrics struct {
 	QBytes                        int        `json:"q_bytes"`
 	RBytes                        int        `json:"r_bytes"`
 	PdecsBytes                    int        `json:"pdecs_bytes"`
+	MdecsBytes                    int        `json:"mdecs_bytes,omitempty"`
 	AuthBytes                     int        `json:"auth_bytes"`
+	TapesBytes                    int        `json:"tapes_bytes,omitempty"`
 	SigShortnessBytes             int        `json:"sig_shortness_bytes"`
 	VTargetsBytes                 int        `json:"vtargets_bytes"`
 	BarSetsBytes                  int        `json:"barsets_bytes"`
 	ProvingMS                     float64    `json:"proving_ms"`
 	VerificationMS                float64    `json:"verification_ms"`
 	TotalRows                     int        `json:"total_rows"`
+	RowsBlock                     int        `json:"rows_block,omitempty"`
+	AuditRows                     int        `json:"audit_rows,omitempty"`
+	OpeningCols                   int        `json:"opening_cols,omitempty"`
 	PRFRows                       int        `json:"prf_rows"`
 	CoefficientViewRows           int        `json:"coefficient_view_rows"`
 	UCoefficientViewRows          int        `json:"u_coefficient_view_rows,omitempty"`
@@ -92,6 +97,17 @@ type benchmarkIntGenISISMetrics struct {
 	MaskRows                      int        `json:"mask_rows,omitempty"`
 	QSplitRows                    int        `json:"q_split_rows,omitempty"`
 	QLimbRows                     int        `json:"q_limb_rows,omitempty"`
+	PDecsBitWidth                 int        `json:"pdecs_bit_width,omitempty"`
+	VTargetsBitWidth              int        `json:"vtargets_bit_width,omitempty"`
+	PaperShapeNRows               int        `json:"paper_shape_nrows,omitempty"`
+	PaperShapeQueries             int        `json:"paper_shape_queries,omitempty"`
+	PaperShapeWitnessLayers       int        `json:"paper_shape_witness_layers,omitempty"`
+	PaperShapeMaskRows            int        `json:"paper_shape_mask_rows,omitempty"`
+	PaperShapeVHeadBytes          int        `json:"paper_shape_vhead_bytes,omitempty"`
+	PaperShapeVBarBytes           int        `json:"paper_shape_vbar_bytes,omitempty"`
+	PaperShapeOpeningOmitEntries  int        `json:"paper_shape_opening_omit_entries,omitempty"`
+	PaperShapeCanonical           bool       `json:"paper_shape_canonical,omitempty"`
+	TranscriptSecurityStatus      string     `json:"transcript_security_status,omitempty"`
 	MeasurementStatus             string     `json:"measurement_status"`
 }
 
@@ -164,6 +180,10 @@ func benchmarkIntGenISIS(profilesCSV string, packingFactor int, jsonOut string) 
 
 func intGenISISInventoryMetrics(inv PIOP.IntGenISISRowInventory, kind string) benchmarkIntGenISISMetrics {
 	rowsPerPoly := inv.RowsPerRingPoly
+	membershipDegree := sweepIntGenISISLiveBound*2 + 1
+	if profile, ok := credential.LookupIntGenISISProfile(inv.Profile); ok {
+		membershipDegree = sweepMembershipDegreeForBound(profile.B)
+	}
 	switch kind {
 	case "presign":
 		core := inv.PreSignRows
@@ -172,11 +192,11 @@ func intGenISISInventoryMetrics(inv PIOP.IntGenISISRowInventory, kind string) be
 			TotalRows:            core + boundRows,
 			BoundRows:            boundRows,
 			TernaryRows:          boundRows,
-			ParallelDegree:       3,
+			ParallelDegree:       membershipDegree,
 			AggregatedDegree:     1,
-			ParallelAlgDegree:    3,
+			ParallelAlgDegree:    membershipDegree,
 			AggregatedAlgDegree:  1,
-			DominantDegreeSource: "ternary",
+			DominantDegreeSource: "bounded_range",
 			ProofReportBuckets:   2,
 			MeasurementStatus:    "inventory_plus_relation_buckets",
 		}
@@ -329,11 +349,11 @@ func measureIntGenISISProfileBProofs(packingFactor int) (benchmarkIntGenISISMeas
 	}
 	keySigned := make([]int64, prfParams.LenKey)
 	for i := range keySigned {
-		keySigned[i] = int64((i % 3) - 1)
+		keySigned[i] = int64((i % int(2*profile.B+1)) - int(profile.B))
 	}
 	attrs := credential.ZeroSemanticAttributes(layout)
 	for i, slot := range layout.Attribute {
-		attrs[slot.Poly][slot.Coeff] = int64((i % 3) - 1)
+		attrs[slot.Poly][slot.Coeff] = int64((i % int(2*profile.B+1)) - int(profile.B))
 	}
 	msg, err := credential.EncodeSemanticMessage(layout, attrs, keySigned)
 	if err != nil {
@@ -351,7 +371,7 @@ func measureIntGenISISProfileBProofs(packingFactor int) (benchmarkIntGenISISMeas
 		NC:    profile.NC,
 		Bound: profile.B,
 	}
-	s, e, err := commitment.SampleTernaryCommitmentRandomness(targetParams, rand.New(rand.NewSource(71317)))
+	s, e, err := commitment.SampleCommitmentRandomness(targetParams, rand.New(rand.NewSource(71317)))
 	if err != nil {
 		return benchmarkIntGenISISMeasuredProfile{}, fmt.Errorf("sample opening: %w", err)
 	}
@@ -488,34 +508,40 @@ func intGenISISBenchmarkShowingFixture(ringQ *ring.Ring, profile credential.IntG
 
 func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub PIOP.PublicInputs, opts PIOP.SimOpts, proveDur, verifyDur time.Duration, status string) benchmarkIntGenISISMetrics {
 	metrics := benchmarkIntGenISISMetrics{
-		ProofSizeBytes:       report.ProofBytes,
-		PaperTranscriptBytes: report.PaperTranscript.OptimizedBytes,
-		PaperTranscriptKB:    float64(report.PaperTranscript.OptimizedBytes) / 1024.0,
-		QBytes:               report.PaperTranscript.Q.OptimizedBytes,
-		RBytes:               report.PaperTranscript.R.OptimizedBytes,
-		PdecsBytes:           report.PaperTranscript.Pdecs.OptimizedBytes,
-		AuthBytes:            report.PaperTranscript.Auth.OptimizedBytes,
-		SigShortnessBytes:    report.PaperTranscript.SigShortness.OptimizedBytes,
-		VTargetsBytes:        report.PaperTranscript.VTargets.OptimizedBytes,
-		BarSetsBytes:         report.PaperTranscript.BarSets.OptimizedBytes,
-		ProvingMS:            float64(proveDur.Microseconds()) / 1000.0,
-		VerificationMS:       float64(verifyDur.Microseconds()) / 1000.0,
-		TotalRows:            proof.RowLayout.SigCount,
-		ParallelDegree:       proof.QDegreeBound,
-		AggregatedDegree:     proof.QDegreeBound,
-		RoundBits:            report.Soundness.Bits,
-		RawRoundBits:         report.Soundness.RawBits,
-		TheoremBits:          report.Soundness.TheoremBits,
-		TheoremTotalBits:     report.Soundness.TotalBits,
-		CollisionBits:        report.Soundness.CollisionBits,
-		Clamped:              report.Soundness.Clamped,
-		SoundnessEq8Bits:     report.Soundness.Eq8TotalBits,
-		DQ:                   report.DQ,
-		DDECS:                report.Soundness.DDECS,
-		WitnessSupportCols:   report.Soundness.WitnessSupportCols,
-		CommittedCols:        report.Soundness.CommittedCols,
-		ProofReportBuckets:   intGenISISProofSizeBucketCount(proof),
-		MeasurementStatus:    status,
+		ProofSizeBytes:           report.ProofBytes,
+		PaperTranscriptBytes:     report.PaperTranscript.OptimizedBytes,
+		PaperTranscriptKB:        float64(report.PaperTranscript.OptimizedBytes) / 1024.0,
+		QBytes:                   report.PaperTranscript.Q.OptimizedBytes,
+		RBytes:                   report.PaperTranscript.R.OptimizedBytes,
+		PdecsBytes:               report.PaperTranscript.Pdecs.OptimizedBytes,
+		AuthBytes:                report.PaperTranscript.Auth.OptimizedBytes,
+		SigShortnessBytes:        report.PaperTranscript.SigShortness.OptimizedBytes,
+		VTargetsBytes:            report.PaperTranscript.VTargets.OptimizedBytes,
+		BarSetsBytes:             report.PaperTranscript.BarSets.OptimizedBytes,
+		ProvingMS:                float64(proveDur.Microseconds()) / 1000.0,
+		VerificationMS:           float64(verifyDur.Microseconds()) / 1000.0,
+		TotalRows:                proof.RowLayout.SigCount,
+		RowsBlock:                report.TranscriptFocus.RowsBlock,
+		AuditRows:                report.TranscriptFocus.AuditRows,
+		OpeningCols:              report.TranscriptFocus.OpeningCols,
+		ParallelDegree:           proof.QDegreeBound,
+		AggregatedDegree:         proof.QDegreeBound,
+		RoundBits:                report.Soundness.Bits,
+		RawRoundBits:             report.Soundness.RawBits,
+		TheoremBits:              report.Soundness.TheoremBits,
+		TheoremTotalBits:         report.Soundness.TotalBits,
+		CollisionBits:            report.Soundness.CollisionBits,
+		Clamped:                  report.Soundness.Clamped,
+		SoundnessEq8Bits:         report.Soundness.Eq8TotalBits,
+		DQ:                       report.DQ,
+		DDECS:                    report.Soundness.DDECS,
+		WitnessSupportCols:       report.Soundness.WitnessSupportCols,
+		CommittedCols:            report.Soundness.CommittedCols,
+		ProofReportBuckets:       intGenISISProofSizeBucketCount(proof),
+		PDecsBitWidth:            report.TranscriptFocus.PDecsBitWidth,
+		VTargetsBitWidth:         report.TranscriptFocus.VTargetsBitWidth,
+		TranscriptSecurityStatus: report.TranscriptFocus.TranscriptSecurityStatus,
+		MeasurementStatus:        status,
 	}
 	metrics.Theta = proof.Theta
 	if metrics.Theta <= 0 {
@@ -531,6 +557,15 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		metrics.Rho = len(proof.GammaPrime)
 		metrics.EllPrime = len(proof.EvalPoints)
 	}
+	if qPayloadRows := len(proof.QPayloadMatrix()); qPayloadRows > 0 {
+		metrics.QSplitRows = qPayloadRows
+		if metrics.Rho <= 0 {
+			metrics.Rho = qPayloadRows
+			if proof.Theta > 1 && proof.Theta > 0 {
+				metrics.Rho = qPayloadRows / proof.Theta
+			}
+		}
+	}
 	if metrics.Rho <= 0 && proof.QOpening != nil {
 		metrics.Rho = proof.QOpening.R
 		if proof.Theta > 1 && proof.Theta > 0 {
@@ -544,9 +579,9 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		l := proof.RowLayout.IntGenISISPreSign
 		metrics.BoundRows = l.BoundViewCount
 		metrics.TernaryRows = l.BoundViewCount
-		metrics.ParallelAlgDegree = 3
+		metrics.ParallelAlgDegree = 9
 		metrics.AggregatedAlgDegree = 1
-		metrics.DominantDegreeSource = "ternary"
+		metrics.DominantDegreeSource = "bounded_range"
 		metrics.ParallelDegree = metrics.ParallelAlgDegree
 		metrics.AggregatedDegree = metrics.AggregatedAlgDegree
 	}

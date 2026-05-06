@@ -16,6 +16,9 @@ import (
 
 const (
 	CoeffNativeSigModelLiteralPackedAggregatedV3 = "literal_packed_aggregated_v3"
+	TranscriptCodecColumnWidthsV1                = "column_widths_v1"
+	TranscriptProtocolSmallField2025V1           = "smallfield_2025_1085_v1"
+	TranscriptVersionSmallWood2025               = "smallwood_2025_1085_v1"
 )
 
 const (
@@ -74,6 +77,64 @@ func normalizeShowingReplayMode(mode ShowingReplayMode) ShowingReplayMode {
 	default:
 		return ShowingReplayModeReduced
 	}
+}
+
+func normalizeTranscriptProtocolMode(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case "", "baseline":
+		return ""
+	case TranscriptProtocolSmallField2025V1, "smallfield-2025-1085-v1", "smallfield_2025", "smallfield-2025":
+		return TranscriptProtocolSmallField2025V1
+	default:
+		return strings.TrimSpace(mode)
+	}
+}
+
+func normalizeTranscriptVersion(version string) string {
+	switch strings.TrimSpace(version) {
+	case "", "legacy":
+		return ""
+	case TranscriptVersionSmallWood2025, "smallwood-2025-1085-v1", "2025-1085", "paper":
+		return TranscriptVersionSmallWood2025
+	default:
+		return strings.TrimSpace(version)
+	}
+}
+
+func proofUsesPaperQPayloadOnly(proof *Proof) bool {
+	return proof != nil && normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025
+}
+
+func proofHasLegacyQDECS(proof *Proof) bool {
+	if proof == nil {
+		return false
+	}
+	return proof.QRoot != ([16]byte{}) ||
+		len(proof.QR) > 0 ||
+		len(proof.QRBits) > 0 ||
+		proof.QRRows != 0 ||
+		proof.QRCols != 0 ||
+		proof.QRBitWidth != 0 ||
+		proof.QOpening != nil
+}
+
+func proofQRowsExpected(proof *Proof) int {
+	if proof == nil {
+		return 0
+	}
+	if proof.Theta > 1 && len(proof.GammaPrimeK) > 0 {
+		return len(proof.GammaPrimeK) * proof.Theta
+	}
+	if len(proof.GammaPrime) > 0 {
+		return len(proof.GammaPrime)
+	}
+	if proof.QOpening != nil {
+		return proof.QOpening.R
+	}
+	if rows := proof.QPayloadMatrix(); len(rows) > 0 {
+		return len(rows)
+	}
+	return 0
 }
 
 func ResolveShowingStatementClass(proof *Proof, opts SimOpts) string {
@@ -435,10 +496,9 @@ type SimOpts struct {
 	// SigShortnessNCols is reserved for future single-root signature packing
 	// research. The removed V12/V13 two-oracle paths are no longer live.
 	SigShortnessNCols int
-	// IntGenISISMSECompression selects the IntGenISIS ternary carrier
+	// IntGenISISMSECompression selects the legacy IntGenISIS ternary carrier
 	// compression level for showing-time M/s/e coefficient rows. Level 0 keeps
-	// the uncompressed rows. Level k>0 packs k+1 ternary source rows into one
-	// carrier row as in the SmallWood lattice-witness compression technique.
+	// the uncompressed rows; bounded-range B>1 profiles reject level k>0.
 	IntGenISISMSECompression int
 	// IntGenISISReplayProjection selects the IntGenISIS showing replay
 	// projection mode. Empty and "none" keep the explicit hat-row relation.
@@ -447,8 +507,18 @@ type SimOpts struct {
 	// mode for the R121/L2 fixed-table lookup idea. "free" omits interval
 	// membership from Q; "same_q" keeps the degree-121 membership in Q.
 	UnsafeSigLookupShadowR121L2 string
-	Mutate                      func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
-	Credential                  bool
+	// TranscriptCodec selects exact serialization codecs that do not change the
+	// algebraic relation. Empty keeps the historical transcript encoding.
+	TranscriptCodec string
+	// TranscriptProtocolMode selects transcript-shape protocol changes. Empty
+	// keeps the historical dense replay protocol.
+	TranscriptProtocolMode string
+	// TranscriptVersion selects the Fiat-Shamir/proof-message transcript shape.
+	// Empty preserves the legacy implementation. The SmallWood 2025 version is
+	// introduced incrementally and requires an explicit PACS Q payload.
+	TranscriptVersion string
+	Mutate            func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
+	Credential        bool
 }
 
 func defaultSimOpts() SimOpts {
@@ -636,6 +706,8 @@ func (o *SimOpts) applyDefaults() {
 	}
 	o.PRFCompanionMode = normalizePRFCompanionMode(o.PRFCompanionMode)
 	o.ShowingReplayMode = normalizeShowingReplayMode(o.ShowingReplayMode)
+	o.TranscriptProtocolMode = normalizeTranscriptProtocolMode(o.TranscriptProtocolMode)
+	o.TranscriptVersion = normalizeTranscriptVersion(o.TranscriptVersion)
 	if o.DomainMode != DomainModeExplicit {
 		o.DomainMode = DomainModeExplicit
 	}
@@ -856,46 +928,55 @@ type KPolySnapshot struct {
 // Proof captures the transcript material emitted by the prover following the
 // nine-round SmallWood–ARK flow.
 type Proof struct {
-	Root             [16]byte
-	RingDegree       int
-	HashRelation     string
-	Salt             []byte
-	Ctr              [4]uint64
-	Digests          [4][]byte
-	LabelsDigest     []byte
-	Lambda           int
-	Kappa            [4]int
-	Theta            int
-	Chi              []uint64
-	Zeta             []uint64
-	Tail             []int
-	VTargets         [][]uint64
-	VTargetsBits     []byte
-	VTargetsRows     int
-	VTargetsCols     int
-	VTargetsBitWidth uint8
-	BarSets          [][]uint64
-	BarSetsBits      []byte
-	BarSetsRows      int
-	BarSetsCols      int
-	BarSetsBitWidth  uint8
-	CoeffMatrix      [][]uint64
-	KPoint           [][]uint64
-	GammaPrimeK      [][][]KScalar
-	GammaAggK        [][]KScalar
-	GammaPrime       [][][]uint64
-	GammaAgg         [][]uint64
-	R                [][]uint64
-	// Q commitment (paper Fig. 6, Step 6): Merkle root, degree-check R polynomials,
-	// and an opening that reveals Q on Ω and at queried tail points.
-	QRoot        [16]byte
-	QR           [][]uint64
-	QRBits       []byte
-	QRRows       int
-	QRCols       int
-	QRBitWidth   uint8
-	QDegreeBound int
-	QOpening     *decs.DECSOpening
+	Root                   [16]byte
+	RingDegree             int
+	HashRelation           string
+	TranscriptVersion      string
+	TranscriptProtocolMode string
+	Salt                   []byte
+	Ctr                    [4]uint64
+	Digests                [4][]byte
+	LabelsDigest           []byte
+	Lambda                 int
+	Kappa                  [4]int
+	Theta                  int
+	Chi                    []uint64
+	Zeta                   []uint64
+	Tail                   []int
+	VTargets               [][]uint64
+	VTargetsBits           []byte
+	VTargetsRows           int
+	VTargetsCols           int
+	VTargetsBitWidth       uint8
+	VTargetsWidthCodec     bool `json:"-"`
+	SmallField2025         *SmallField2025LVCSProof
+	BarSets                [][]uint64
+	BarSetsBits            []byte
+	BarSetsRows            int
+	BarSetsCols            int
+	BarSetsBitWidth        uint8
+	CoeffMatrix            [][]uint64
+	KPoint                 [][]uint64
+	GammaPrimeK            [][][]KScalar
+	GammaAggK              [][]KScalar
+	GammaPrime             [][][]uint64
+	GammaAgg               [][]uint64
+	R                      [][]uint64
+	// Q material. Legacy proofs carry a redundant Q DECS commitment/opening here;
+	// smallwood_2025_1085_v1 proofs carry the paper-shaped QPayload only.
+	QRoot            [16]byte
+	QR               [][]uint64
+	QRBits           []byte
+	QRRows           int
+	QRCols           int
+	QRBitWidth       uint8
+	QPayload         [][]uint64
+	QPayloadBits     []byte
+	QPayloadRows     int
+	QPayloadCols     int
+	QPayloadBitWidth uint8
+	QDegreeBound     int
+	QOpening         *decs.DECSOpening
 	// These coefficient snapshots are retained so verifier-side constraint
 	// replay can reconstruct explicit-domain residual families after the proof
 	// crosses a JSON boundary.
@@ -1151,6 +1232,52 @@ func (p *Proof) QRBytes() []byte {
 	return p.QRBits
 }
 
+func (p *Proof) setQPayload(mat [][]uint64) {
+	if len(mat) == 0 {
+		p.QPayload = nil
+		p.QPayloadBits = nil
+		p.QPayloadRows = 0
+		p.QPayloadCols = 0
+		p.QPayloadBitWidth = 0
+		return
+	}
+	bits, rows, cols, width := decs.PackUintMatrix(mat)
+	p.QPayloadBits = bits
+	p.QPayloadRows = rows
+	p.QPayloadCols = cols
+	p.QPayloadBitWidth = uint8(width)
+	p.QPayload = copyMatrix(mat)
+}
+
+func (p *Proof) ensureQPayloadPacked() {
+	if len(p.QPayloadBits) == 0 && len(p.QPayload) > 0 {
+		p.setQPayload(p.QPayload)
+	}
+}
+
+func (p *Proof) QPayloadMatrix() [][]uint64 {
+	if len(p.QPayload) > 0 {
+		return p.QPayload
+	}
+	if len(p.QPayloadBits) == 0 {
+		return nil
+	}
+	mat, rows, cols, width, err := decs.UnpackUintMatrix(p.QPayloadBits)
+	if err != nil {
+		return nil
+	}
+	p.QPayload = mat
+	p.QPayloadRows = rows
+	p.QPayloadCols = cols
+	p.QPayloadBitWidth = uint8(width)
+	return mat
+}
+
+func (p *Proof) QPayloadBytes() []byte {
+	p.ensureQPayloadPacked()
+	return p.QPayloadBits
+}
+
 func (p *Proof) ensureBarSetsPacked() {
 	if len(p.BarSetsBits) == 0 && len(p.BarSets) > 0 {
 		p.setBarSets(p.BarSets)
@@ -1178,28 +1305,32 @@ func (p *Proof) BarSetsMatrix() [][]uint64 {
 // SoundnessBudget captures the four Eq. (8) error components together with the
 // theorem-level ROM aggregation from Theorem 9 and the Eq. (10) size counters.
 type SoundnessBudget struct {
-	Eps                [4]float64
-	RawBits            [4]float64
-	Bits               [4]float64
-	Clamped            [4]bool
-	Grinding           [4]float64
-	GrindingBits       [4]float64
-	TheoremTerms       [4]float64
-	TheoremBits        [4]float64
-	Eq8Total           float64
-	Eq8TotalBits       float64
-	Collision          float64
-	CollisionBits      float64
-	Total              float64
-	TotalBits          float64
-	DQ                 int
-	DDECS              int
-	WitnessSupportCols int
-	CommittedCols      int
-	CollisionSpaceBits int
-	QueryCaps          [5]int
-	NRows              int
-	M                  int
+	Eps                 [4]float64
+	RawBits             [4]float64
+	Bits                [4]float64
+	Clamped             [4]bool
+	Grinding            [4]float64
+	GrindingBits        [4]float64
+	TheoremTerms        [4]float64
+	TheoremBits         [4]float64
+	Eq8Total            float64
+	Eq8TotalBits        float64
+	Collision           float64
+	CollisionBits       float64
+	Total               float64
+	TotalBits           float64
+	DQ                  int
+	DDECS               int
+	WitnessSupportCols  int
+	CommittedCols       int
+	FSLambdaBits        int
+	DECSHashBits        int
+	DECSTapeBits        int
+	EffectiveLambdaBits int
+	CollisionSpaceBits  int
+	QueryCaps           [5]int
+	NRows               int
+	M                   int
 }
 
 func maxDegreeFromCoeffs(poly []uint64) int {
@@ -1524,10 +1655,16 @@ func cloneDECSOpening(op *decs.DECSOpening) *decs.DECSOpening {
 		clone.PvalsBits = append([]byte(nil), op.PvalsBits...)
 	}
 	clone.PvalsBitWidth = op.PvalsBitWidth
+	if len(op.PvalsColumnWidths) > 0 {
+		clone.PvalsColumnWidths = append([]uint8(nil), op.PvalsColumnWidths...)
+	}
 	if op.MvalsBits != nil {
 		clone.MvalsBits = append([]byte(nil), op.MvalsBits...)
 	}
 	clone.MvalsBitWidth = op.MvalsBitWidth
+	if len(op.MvalsColumnWidths) > 0 {
+		clone.MvalsColumnWidths = append([]uint8(nil), op.MvalsColumnWidths...)
+	}
 	if len(op.Pvals) > 0 {
 		clone.Pvals = make([][]uint64, len(op.Pvals))
 		for i := range op.Pvals {
@@ -1715,6 +1852,18 @@ func maybeCompressQOpening(open *decs.DECSOpening, gammaQ [][]uint64, mod uint64
 		var keepM []int
 		keepM = eqRows
 		maybeCompressQOpeningMvals(open, keepM)
+	}
+}
+
+func maybeEnableColumnWidthOpeningCodec(open *decs.DECSOpening, codec string) {
+	if open == nil || codec != TranscriptCodecColumnWidthsV1 {
+		return
+	}
+	if len(open.Pvals) > 0 {
+		open.FormatVersion = decs.OpeningFormatColumnWidths
+	}
+	if len(open.Mvals) > 0 {
+		open.MFormatVersion = decs.OpeningFormatColumnWidths
 	}
 }
 
@@ -2011,11 +2160,30 @@ func computeSoundnessBudget(
 	if collisionSpaceBits <= 0 {
 		collisionSpaceBits = fsCollisionSpaceBits(o.Lambda, 0)
 	}
+	const decsHashBits = 16 * 8
+	const decsTapeBits = 16 * 8
+	effectiveLambdaBits := o.Lambda
+	if effectiveLambdaBits <= 0 {
+		effectiveLambdaBits = defaultSimOpts().Lambda
+	}
+	if decsHashBits < effectiveLambdaBits {
+		effectiveLambdaBits = decsHashBits
+	}
+	if decsTapeBits < effectiveLambdaBits {
+		effectiveLambdaBits = decsTapeBits
+	}
+	if effectiveLambdaBits < collisionSpaceBits {
+		collisionSpaceBits = effectiveLambdaBits
+	}
 	qf := float64(q)
 	ddecs := ncolsLVCS + ell - 1
 	sb.DDECS = ddecs
 	sb.WitnessSupportCols = sWitness
 	sb.CommittedCols = ncolsLVCS
+	sb.FSLambdaBits = o.Lambda
+	sb.DECSHashBits = decsHashBits
+	sb.DECSTapeBits = decsTapeBits
+	sb.EffectiveLambdaBits = effectiveLambdaBits
 	sb.CollisionSpaceBits = collisionSpaceBits
 	sb.QueryCaps = o.ROQueryCaps
 
@@ -2201,6 +2369,7 @@ func sizeDECSOpening(open *decs.DECSOpening) int {
 		if open.PvalsBitWidth != 0 {
 			sum += 1
 		}
+		sum += len(open.PvalsColumnWidths)
 		sum += len(open.PvalsBits)
 	} else {
 		sum += sizeUint64Matrix(open.Pvals)
@@ -2209,6 +2378,7 @@ func sizeDECSOpening(open *decs.DECSOpening) int {
 		if open.MvalsBitWidth != 0 {
 			sum += 1
 		}
+		sum += len(open.MvalsColumnWidths)
 		sum += len(open.MvalsBits)
 	} else {
 		sum += sizeUint64Matrix(open.Mvals)
@@ -2258,7 +2428,10 @@ func estimateProofSize(proof *Proof) int {
 		return 0
 	}
 	proof.syncPCSCompat()
-	proof.ensureQRPacked()
+	proof.ensureQPayloadPacked()
+	if !proofUsesPaperQPayloadOnly(proof) {
+		proof.ensureQRPacked()
+	}
 	proof.ensureVTargetsPacked()
 	proof.ensureBarSetsPacked()
 	sum := 0
@@ -2273,16 +2446,22 @@ func estimateProofSize(proof *Proof) int {
 	sum += len(proof.Chi) * 8
 	sum += len(proof.Zeta) * 8
 	sum += len(proof.Tail) * 4
-	sum += 16 // QRoot
-	sum += len(proof.QRBits)
+	sum += len(proof.QPayloadBits)
+	if !proofUsesPaperQPayloadOnly(proof) {
+		sum += 16 // QRoot
+		sum += len(proof.QRBits)
+	}
 	// CoeffMatrix (C) re-derived on verifier
 	sum += len(proof.VTargetsBits)
 	sum += len(proof.BarSetsBits)
 	sum += sizeDECSOpening(resolveProofPCSOpening(proof))
-	sum += sizeDECSOpening(proof.QOpening)
+	if !proofUsesPaperQPayloadOnly(proof) {
+		sum += sizeDECSOpening(proof.QOpening)
+	}
 	sum += sizePRFCompanionProof(proof.PRFCompanion)
 	sum += sizeSourceProductBridge(proof.SourceProductBridge)
 	sum += sizeSigShortnessProof(proof.SigShortness)
+	sum += sizeSmallField2025Proof(proof.SmallField2025)
 	return sum
 }
 
@@ -2292,7 +2471,10 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 		return map[string]int{}, 0
 	}
 	proof.syncPCSCompat()
-	proof.ensureQRPacked()
+	proof.ensureQPayloadPacked()
+	if !proofUsesPaperQPayloadOnly(proof) {
+		proof.ensureQRPacked()
+	}
 	proof.ensureVTargetsPacked()
 	proof.ensureBarSetsPacked()
 	sizes := make(map[string]int)
@@ -2312,16 +2494,25 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 	sizes["Chi"] = len(proof.Chi) * 8
 	sizes["Zeta"] = len(proof.Zeta) * 8
 	sizes["TailIndices"] = len(proof.Tail) * 4
-	sizes["QRoot"] = 16
-	sizes["QR"] = len(proof.QRBits)
+	sizes["QRoot"] = 0
+	sizes["QR"] = 0
+	if !proofUsesPaperQPayloadOnly(proof) {
+		sizes["QRoot"] = 16
+		sizes["QR"] = len(proof.QRBits)
+	}
+	sizes["QPayload"] = len(proof.QPayloadBits)
 	// C re-derived on verifier
 	sizes["VTargets"] = len(proof.VTargetsBits)
 	sizes["BarSets"] = len(proof.BarSetsBits)
 	sizes["RowOpening"] = sizeDECSOpening(resolveProofPCSOpening(proof))
-	sizes["QOpening"] = sizeDECSOpening(proof.QOpening)
+	sizes["QOpening"] = 0
+	if !proofUsesPaperQPayloadOnly(proof) {
+		sizes["QOpening"] = sizeDECSOpening(proof.QOpening)
+	}
 	sizes["PRFCompanion"] = sizePRFCompanionProof(proof.PRFCompanion)
 	sizes["SourceProductBridge"] = sizeSourceProductBridge(proof.SourceProductBridge)
 	sizes["SigShortness"] = sizeSigShortnessProof(proof.SigShortness)
+	sizes["SmallField2025"] = sizeSmallField2025Proof(proof.SmallField2025)
 	total := 0
 	for _, v := range sizes {
 		total += v

@@ -163,13 +163,15 @@ func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptPar
 
 	rowOpening := resolveProofPCSOpening(proof)
 	openingRep := BuildOpeningPaperReport(rowOpening)
+	smallField2025Bits := float64(len(smallField2025TranscriptBytes(proof.SmallField2025)) * 8)
+	extraMetadataBits := smallField2025Bits
 
 	out := PaperTranscriptReport{
 		RingDegree: p.RingDegree,
 		X0Len:      p.X0Len,
 		Counters:   newPaperBucket(128, 128),
 		SaltRoot:   newPaperBucket(float64(4*p.Lambda), float64(4*p.Lambda)),
-		ExtraHash:  newPaperBucket(0, float64(2*p.Lambda)),
+		ExtraHash:  newPaperBucket(extraMetadataBits, float64(2*p.Lambda)+extraMetadataBits),
 		R: newPaperBucket(
 			float64(p.Eta)*float64(maxInt(p.DDECS+1, 0))*logQ,
 			float64(p.Eta)*float64(maxInt(p.DDECS+1-p.Ell, 0))*logQ,
@@ -198,10 +200,10 @@ func BuildOpeningPaperReport(open *decs.DECSOpening) openingPaperReport {
 		return openingPaperReport{}
 	}
 	pdecsBits := residueMetadataBits(open.FormatVersion, open.PColsEncoded, open.POmitCols)
-	pdecsBits += residueStreamBits(open.Pvals, open.PvalsBits, open.PvalsBitWidth, openingAuditPCols(open))
+	pdecsBits += residueStreamBits(open.Pvals, open.PvalsBits, open.PvalsBitWidth, open.PvalsColumnWidths, openingAuditPCols(open))
 
 	mdecsBits := residueMetadataBits(open.MFormatVersion, open.MColsEncoded, open.MOmitCols)
-	mdecsBits += residueStreamBits(open.Mvals, open.MvalsBits, open.MvalsBitWidth, openingAuditMCols(open))
+	mdecsBits += residueStreamBits(open.Mvals, open.MvalsBits, open.MvalsBitWidth, open.MvalsColumnWidths, openingAuditMCols(open))
 
 	authBits := 0.0
 	if open.MaskCount > 0 {
@@ -357,12 +359,13 @@ func residueMetadataBits(formatVersion uint8, encodedCols int, omitCols []int) f
 	return bits
 }
 
-func residueStreamBits(rows [][]uint64, bits []byte, width uint8, cols int) float64 {
+func residueStreamBits(rows [][]uint64, bits []byte, width uint8, columnWidths []uint8, cols int) float64 {
 	if len(bits) > 0 {
 		out := float64(len(bits) * 8)
 		if width != 0 {
 			out += 8
 		}
+		out += float64(len(columnWidths) * 8)
 		return out
 	}
 	if len(rows) == 0 || cols <= 0 {

@@ -41,6 +41,7 @@ type ProofPackingAudit struct {
 	ModulusCeilingBits int                `json:"modulus_ceiling_bits"`
 	MaxFieldBitWidth   int                `json:"max_field_bit_width"`
 	VTargets           PackedMatrixAudit  `json:"vtargets"`
+	QPayload           PackedMatrixAudit  `json:"q_payload"`
 	QR                 PackedMatrixAudit  `json:"qr"`
 	BarSets            PackedMatrixAudit  `json:"barsets"`
 	RowOpening         PackedOpeningAudit `json:"row_opening"`
@@ -55,20 +56,27 @@ func BuildProofPackingAudit(proof *Proof, q uint64) (ProofPackingAudit, error) {
 		return ProofPackingAudit{}, fmt.Errorf("nil proof")
 	}
 	proof.syncPCSCompat()
-	proof.ensureQRPacked()
+	proof.ensureQPayloadPacked()
+	if !proofUsesPaperQPayloadOnly(proof) {
+		proof.ensureQRPacked()
+	}
 	proof.ensureVTargetsPacked()
 	proof.ensureBarSetsPacked()
 	audit := ProofPackingAudit{
 		ModulusCeilingBits: packedwidth.ModulusCeiling(q),
 	}
 	audit.VTargets = buildPackedMatrixAudit("VTargets", proof.VTargetsMatrix(), proof.VTargetsBits, proof.VTargetsRows, proof.VTargetsCols, proof.VTargetsBitWidth)
-	audit.QR = buildPackedMatrixAudit("QR", proof.QRMatrix(), proof.QRBits, proof.QRRows, proof.QRCols, proof.QRBitWidth)
+	audit.QPayload = buildPackedMatrixAudit("QPayload", proof.QPayloadMatrix(), proof.QPayloadBits, proof.QPayloadRows, proof.QPayloadCols, proof.QPayloadBitWidth)
 	audit.BarSets = buildPackedMatrixAudit("BarSets", proof.BarSetsMatrix(), proof.BarSetsBits, proof.BarSetsRows, proof.BarSetsCols, proof.BarSetsBitWidth)
 	audit.RowOpening = buildPackedOpeningAudit("RowOpening", resolveProofPCSOpening(proof))
-	audit.QOpening = buildPackedOpeningAudit("QOpening", proof.QOpening)
 	audit.PCSOpening = buildPackedOpeningAudit("PCSOpening", proof.PCSOpening)
+	if !proofUsesPaperQPayloadOnly(proof) {
+		audit.QR = buildPackedMatrixAudit("QR", proof.QRMatrix(), proof.QRBits, proof.QRRows, proof.QRCols, proof.QRBitWidth)
+		audit.QOpening = buildPackedOpeningAudit("QOpening", proof.QOpening)
+	}
 	audit.MaxFieldBitWidth = maxPackingWidth(
 		audit.VTargets.BitWidth,
+		audit.QPayload.BitWidth,
 		audit.QR.BitWidth,
 		audit.BarSets.BitWidth,
 		audit.RowOpening.Pvals.BitWidth,
@@ -114,14 +122,14 @@ func buildPackedOpeningAudit(component string, open *decs.DECSOpening) PackedOpe
 		Pvals: PackedOpeningResidueAudit{
 			MaxValue:    openingAuditMaxPValue(open),
 			BitWidth:    openingAuditPBitWidth(open),
-			Bytes:       openingAuditResidueBytes(open.Pvals, open.PvalsBits),
+			Bytes:       openingAuditResidueBytes(open.Pvals, open.PvalsBits, open.PvalsColumnWidths),
 			EncodedCols: openingAuditPCols(open),
 			OmittedCols: len(open.POmitCols),
 		},
 		Mvals: PackedOpeningResidueAudit{
 			MaxValue:    openingAuditMaxMValue(open),
 			BitWidth:    openingAuditMBitWidth(open),
-			Bytes:       openingAuditResidueBytes(open.Mvals, open.MvalsBits),
+			Bytes:       openingAuditResidueBytes(open.Mvals, open.MvalsBits, open.MvalsColumnWidths),
 			EncodedCols: openingAuditMCols(open),
 			OmittedCols: len(open.MOmitCols),
 		},
@@ -154,9 +162,12 @@ func openingAuditPCols(open *decs.DECSOpening) int {
 	if open == nil {
 		return 0
 	}
-	if open.FormatVersion == 1 {
+	if open.FormatVersion != decs.OpeningFormatPlain {
 		if open.PColsEncoded > 0 {
 			return open.PColsEncoded
+		}
+		if len(open.PvalsColumnWidths) > 0 {
+			return len(open.PvalsColumnWidths)
 		}
 		return 0
 	}
@@ -173,9 +184,12 @@ func openingAuditMCols(open *decs.DECSOpening) int {
 	if open == nil {
 		return 0
 	}
-	if open.MFormatVersion == 1 {
+	if open.MFormatVersion != decs.OpeningFormatPlain {
 		if open.MColsEncoded > 0 {
 			return open.MColsEncoded
+		}
+		if len(open.MvalsColumnWidths) > 0 {
+			return len(open.MvalsColumnWidths)
 		}
 		return 0
 	}
@@ -195,6 +209,9 @@ func openingAuditPBitWidth(open *decs.DECSOpening) int {
 	if open.PvalsBitWidth != 0 {
 		return int(open.PvalsBitWidth)
 	}
+	if len(open.PvalsColumnWidths) > 0 {
+		return maxUint8(open.PvalsColumnWidths)
+	}
 	if len(open.PvalsBits) > 0 || len(open.Pvals) > 0 {
 		return 20
 	}
@@ -207,6 +224,9 @@ func openingAuditMBitWidth(open *decs.DECSOpening) int {
 	}
 	if open.MvalsBitWidth != 0 {
 		return int(open.MvalsBitWidth)
+	}
+	if len(open.MvalsColumnWidths) > 0 {
+		return maxUint8(open.MvalsColumnWidths)
 	}
 	if len(open.MvalsBits) > 0 || len(open.Mvals) > 0 {
 		return 20
@@ -246,11 +266,21 @@ func openingAuditMaxMValue(open *decs.DECSOpening) uint64 {
 	return max
 }
 
-func openingAuditResidueBytes(rows [][]uint64, bits []byte) int {
+func openingAuditResidueBytes(rows [][]uint64, bits []byte, columnWidths []uint8) int {
 	if len(bits) > 0 {
-		return len(bits)
+		return len(bits) + len(columnWidths)
 	}
 	return sizeUint64Matrix(rows)
+}
+
+func maxUint8(vals []uint8) int {
+	max := 0
+	for _, v := range vals {
+		if int(v) > max {
+			max = int(v)
+		}
+	}
+	return max
 }
 
 func maxPackingWidth(widths ...int) int {

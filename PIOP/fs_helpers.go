@@ -70,18 +70,20 @@ func (s Shake256XOF) Expand(label string, parts ...[]byte) []byte {
 
 // FSParams bundles the Fiat–Shamir security parameters.
 type FSParams struct {
-	Lambda int // random oracle security parameter (bits)
-	Kappa  [4]int
+	Lambda            int // random oracle security parameter (bits)
+	Kappa             [4]int
+	TranscriptVersion string
 }
 
 // FS tracks the four grinding rounds in the SmallWood–ARK transcript.
 type FS struct {
-	xof    XOF
-	params FSParams
-	salt   []byte
-	ctr    [4]uint64
-	h      [4][]byte
-	labels [4]string
+	xof     XOF
+	params  FSParams
+	salt    []byte
+	ctr     [4]uint64
+	h       [4][]byte
+	labels  [4]string
+	chained bool
 }
 
 // NewFS prepares the Fiat–Shamir state with the provided XOF and salt.
@@ -95,6 +97,7 @@ func NewFS(x XOF, salt []byte, params FSParams) *FS {
 		salt:   append([]byte(nil), salt...),
 		labels: [4]string{"fs-gamma", "fs-gammap", "fs-eprime", "fs-tail"},
 	}
+	fs.chained = normalizeTranscriptVersion(params.TranscriptVersion) == TranscriptVersionSmallWood2025
 	return fs
 }
 
@@ -107,8 +110,7 @@ func (fs *FS) GrindAndDerive(round int, material [][]byte, derive func([]byte) [
 	kappa := fs.params.Kappa[round]
 	counter := fs.ctr[round]
 	for {
-		input := make([]byte, len(fs.salt))
-		copy(input, fs.salt)
+		input := fs.roundInput(round)
 		for _, m := range material {
 			input = append(input, m...)
 		}
@@ -125,6 +127,18 @@ func (fs *FS) GrindAndDerive(round int, material [][]byte, derive func([]byte) [
 			panic("FS.GrindAndDerive: counter wrapped")
 		}
 	}
+}
+
+func (fs *FS) roundInput(round int) []byte {
+	if fs.chained && round > 0 {
+		if len(fs.h[round-1]) == 0 {
+			panic("FS.roundInput: missing previous chained digest")
+		}
+		return append([]byte(nil), fs.h[round-1]...)
+	}
+	input := make([]byte, len(fs.salt))
+	copy(input, fs.salt)
+	return input
 }
 
 // hasZeroPrefix checks whether the first kappa bits of buf are zero.

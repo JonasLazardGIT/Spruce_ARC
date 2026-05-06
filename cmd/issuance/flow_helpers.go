@@ -275,6 +275,10 @@ func setupIntGenISISPublic(outPath string, force bool, profileName, bPath string
 	if !ok {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", profileName)
 	}
+	return setupIntGenISISPublicForProfile(outPath, force, profile, bPath)
+}
+
+func setupIntGenISISPublicForProfile(outPath string, force bool, profile credential.IntGenISISProfile, bPath string) error {
 	ringQ, err := credential.LoadRingWithDegree(profile.N)
 	if err != nil {
 		return fmt.Errorf("load ring: %w", err)
@@ -616,18 +620,24 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 	if !ok {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", rt.public.Profile)
 	}
+	if rt.public.CommitmentBound > 0 {
+		profile.B = rt.public.CommitmentBound
+	}
 	rng := newLocalRNG(seed)
 	layout, err := credential.DefaultSemanticMessageLayout(profile, rt.prfParams.LenKey)
 	if err != nil {
 		return err
 	}
+	sampleLive := func() int64 {
+		return rng.Int63n(2*layout.Bound+1) - layout.Bound
+	}
 	key := make([]int64, rt.prfParams.LenKey)
 	for i := 0; i < rt.prfParams.LenKey; i++ {
-		key[i] = int64(rng.Intn(3) - 1)
+		key[i] = sampleLive()
 	}
 	attrs := credential.ZeroSemanticAttributes(layout)
 	for _, slot := range layout.Attribute {
-		attrs[slot.Poly][slot.Coeff] = int64(rng.Intn(3) - 1)
+		attrs[slot.Poly][slot.Coeff] = sampleLive()
 	}
 	semantic, err := credential.EncodeSemanticMessage(layout, attrs, key)
 	if err != nil {

@@ -787,7 +787,7 @@ func deriveMainPCSSubsetGamma(proof *Proof, rowCount int, q uint64) ([][]uint64,
 	if lambda <= 0 {
 		lambda = 256
 	}
-	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa})
+	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa, TranscriptVersion: proof.TranscriptVersion})
 	material0 := [][]byte{append([]byte(nil), proof.Root[:]...)}
 	if len(proof.LabelsDigest) > 0 {
 		material0 = append(material0, proof.LabelsDigest)
@@ -839,12 +839,12 @@ func prepareSigShortnessOpeningForVerify(
 		return nil, fmt.Errorf("missing sig shortness opening")
 	}
 	open := expandPackedOpening(opening)
-	if open.FormatVersion == 1 {
+	if len(open.POmitCols) > 0 {
 		if err := reconstructSigShortnessOpeningPvals(open, replayWitnessRows); err != nil {
 			return nil, fmt.Errorf("reconstruct sig shortness P values: %w", err)
 		}
 	}
-	if open.MFormatVersion == 1 {
+	if len(open.MOmitCols) > 0 {
 		if err := reconstructRowOpeningMvalsFormal(open, gamma, rCoeffRows, domainPoints, ringQ.Modulus[0]); err != nil {
 			return nil, fmt.Errorf("reconstruct sig shortness M values: %w", err)
 		}

@@ -10,6 +10,20 @@ import (
 func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 	chdirForCredentialTest(t)
 	profile := PrimaryIntGenISISProfile()
+	if profile.B != 4 {
+		t.Fatalf("profile B bound=%d want 4", profile.B)
+	}
+	compact := CompactIntGenISISProfile()
+	if compact.B != 4 {
+		t.Fatalf("profile A bound=%d want 4", compact.B)
+	}
+	ternary1024 := Ternary1024IntGenISISProfile()
+	if ternary1024.N != 1024 || ternary1024.B != 1 || ternary1024.KS != 1 || ternary1024.EllX0 != 1 {
+		t.Fatalf("profile C tuple N/B/KS/ell_x0=%d/%d/%d/%d want 1024/1/1/1", ternary1024.N, ternary1024.B, ternary1024.KS, ternary1024.EllX0)
+	}
+	if got, ok := LookupIntGenISISProfileByRingDegree(1024); !ok || got.Name != ProfileIntGenISISC {
+		t.Fatalf("ring-degree lookup 1024=(%q,%v), want %q", got.Name, ok, ProfileIntGenISISC)
+	}
 	ringQ, err := LoadRingWithDegree(profile.N)
 	if err != nil {
 		t.Fatalf("load ring: %v", err)
@@ -58,7 +72,7 @@ func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commitment params: %v", err)
 	}
-	if targetParams.EllM != 1 || targetParams.KS != 2 || targetParams.NC != 1 || targetParams.Bound != 8 {
+	if targetParams.EllM != 1 || targetParams.KS != 2 || targetParams.NC != 1 || targetParams.Bound != 4 {
 		t.Fatalf("unexpected target params: %+v", targetParams)
 	}
 }

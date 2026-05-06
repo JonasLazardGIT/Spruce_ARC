@@ -48,7 +48,7 @@ func (v *Verifier) VerifyEvalFormal(
 	if open == nil {
 		return false
 	}
-	if open.FormatVersion == 1 {
+	if openingPRequiresReconstruction(open) {
 		if len(open.Pvals) == 0 {
 			// Compressed openings must be reconstructed before DECS verification.
 			return false
@@ -62,7 +62,7 @@ func (v *Verifier) VerifyEvalFormal(
 			}
 		}
 	}
-	if open.MFormatVersion == 1 {
+	if openingMRequiresReconstruction(open) {
 		if len(open.Mvals) == 0 {
 			// Compressed M openings must be reconstructed before DECS verification.
 			return false
@@ -172,6 +172,9 @@ func getPval(open *DECSOpening, t, j int) uint64 {
 	if j >= rowCols {
 		return 0
 	}
+	if len(open.PvalsColumnWidths) == rowCols {
+		return unpackColumnWidthUint(open.PvalsBits, t, j, rowCols, open.PvalsColumnWidths)
+	}
 	idx := t*rowCols + j
 	return unpackFlatUint(open.PvalsBits, idx, openingPBitWidth(open))
 }
@@ -180,7 +183,11 @@ func getMval(open *DECSOpening, t, k int) uint64 {
 	if open.Mvals != nil {
 		return open.Mvals[t][k]
 	}
-	idx := t*open.Eta + k
+	rowCols := openingMCols(open)
+	if len(open.MvalsColumnWidths) == rowCols {
+		return unpackColumnWidthUint(open.MvalsBits, t, k, rowCols, open.MvalsColumnWidths)
+	}
+	idx := t*rowCols + k
 	return unpackFlatUint(open.MvalsBits, idx, openingMBitWidth(open))
 }
 
@@ -200,6 +207,9 @@ func GetOpeningPval(open *DECSOpening, t, j int) uint64 {
 	if rowCols <= 0 || j >= rowCols {
 		return 0
 	}
+	if len(open.PvalsColumnWidths) == rowCols {
+		return unpackColumnWidthUint(open.PvalsBits, t, j, rowCols, open.PvalsColumnWidths)
+	}
 	idx := t*rowCols + j
 	return unpackFlatUint(open.PvalsBits, idx, openingPBitWidth(open))
 }
@@ -208,9 +218,12 @@ func openingPCols(open *DECSOpening) int {
 	if open == nil {
 		return 0
 	}
-	if open.FormatVersion == 1 {
+	if open.FormatVersion == OpeningFormatOmitCols || open.FormatVersion == OpeningFormatColumnWidths {
 		if open.PColsEncoded > 0 {
 			return open.PColsEncoded
+		}
+		if open.FormatVersion == OpeningFormatColumnWidths && len(open.PvalsColumnWidths) > 0 {
+			return len(open.PvalsColumnWidths)
 		}
 		return 0
 	}
@@ -233,6 +246,9 @@ func GetOpeningMval(open *DECSOpening, t, k int) uint64 {
 	if rowCols <= 0 || k >= rowCols {
 		return 0
 	}
+	if len(open.MvalsColumnWidths) == rowCols {
+		return unpackColumnWidthUint(open.MvalsBits, t, k, rowCols, open.MvalsColumnWidths)
+	}
 	idx := t*rowCols + k
 	return unpackFlatUint(open.MvalsBits, idx, openingMBitWidth(open))
 }
@@ -241,9 +257,12 @@ func openingMCols(open *DECSOpening) int {
 	if open == nil {
 		return 0
 	}
-	if open.MFormatVersion == 1 {
+	if open.MFormatVersion == OpeningFormatOmitCols || open.MFormatVersion == OpeningFormatColumnWidths {
 		if open.MColsEncoded > 0 {
 			return open.MColsEncoded
+		}
+		if open.MFormatVersion == OpeningFormatColumnWidths && len(open.MvalsColumnWidths) > 0 {
+			return len(open.MvalsColumnWidths)
 		}
 		return 0
 	}
@@ -262,6 +281,14 @@ func openingMBitWidth(open *DECSOpening) int {
 		return 20
 	}
 	return int(open.MvalsBitWidth)
+}
+
+func openingPRequiresReconstruction(open *DECSOpening) bool {
+	return open != nil && len(open.POmitCols) > 0 && (open.FormatVersion == OpeningFormatOmitCols || open.FormatVersion == OpeningFormatColumnWidths)
+}
+
+func openingMRequiresReconstruction(open *DECSOpening) bool {
+	return open != nil && len(open.MOmitCols) > 0 && (open.MFormatVersion == OpeningFormatOmitCols || open.MFormatVersion == OpeningFormatColumnWidths)
 }
 
 func pathRowIndices(open *DECSOpening, row int) ([]int, bool) {

@@ -125,6 +125,9 @@ type TranscriptOptimizationReport struct {
 	NLeaves                         int    `json:"nleaves"`
 	WitnessRows                     int    `json:"witness_rows"`
 	RowsBlock                       int    `json:"rows_block"`
+	AuditRows                       int    `json:"audit_rows"`
+	OpeningCols                     int    `json:"opening_cols"`
+	SmallFieldReplayRows            int    `json:"smallfield_replay_rows"`
 	MaskChunks                      int    `json:"mask_chunks"`
 	NRows                           int    `json:"nrows"`
 	M                               int    `json:"m"`
@@ -135,6 +138,17 @@ type TranscriptOptimizationReport struct {
 	VTargetsBytes                   int    `json:"vtargets_bytes"`
 	BarSetsBytes                    int    `json:"barsets_bytes"`
 	QBytes                          int    `json:"q_bytes"`
+	PDecsBitWidth                   int    `json:"pdecs_bit_width"`
+	VTargetsBitWidth                int    `json:"vtargets_bit_width"`
+	TranscriptSecurityStatus        string `json:"transcript_security_status,omitempty"`
+	SmallField2025Status            string `json:"smallfield_2025_status,omitempty"`
+	SmallField2025ReductionEnabled  bool   `json:"smallfield_2025_reduction_enabled,omitempty"`
+	SmallField2025QueryCount        int    `json:"smallfield_2025_query_count,omitempty"`
+	SmallField2025VHeadRows         int    `json:"smallfield_2025_vhead_rows,omitempty"`
+	SmallField2025VHeadCols         int    `json:"smallfield_2025_vhead_cols,omitempty"`
+	SmallField2025VBarRows          int    `json:"smallfield_2025_vbar_rows,omitempty"`
+	SmallField2025VBarCols          int    `json:"smallfield_2025_vbar_cols,omitempty"`
+	SmallField2025Notes             string `json:"smallfield_2025_notes,omitempty"`
 }
 
 // BuildProofReport derives proof size + soundness metrics for a given proof/options.
@@ -384,6 +398,8 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 		VTargetsBytes:     paper.VTargets.OptimizedBytes,
 		BarSetsBytes:      paper.BarSets.OptimizedBytes,
 		QBytes:            paper.Q.OptimizedBytes,
+		PDecsBitWidth:     packing.RowOpening.Pvals.BitWidth,
+		VTargetsBitWidth:  packing.VTargets.BitWidth,
 	}
 	out.LVCSNCols = lvcsNCols
 	out.MainLVCSNCols = lvcsNCols
@@ -425,6 +441,10 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 		}
 	}
 	out.MaskRows = geometry.MaskRowsCommitted
+	out.SmallFieldReplayRows = proof.PCSGeometry.ReplayWitnessRows
+	if out.SmallFieldReplayRows <= 0 {
+		out.SmallFieldReplayRows = proof.MaskRowOffset
+	}
 	out.AggregateR0Replay = opts.AggregateR0Replay || out.ReplayR0B2HatRows > 0 || out.ReplayTargetMR0HatRows > 0
 	out.NLeaves = proof.NLeavesUsed
 	if out.NLeaves <= 0 {
@@ -447,6 +467,20 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 			out.MaskChunks = dQ/out.LVCSNCols + 1
 		}
 	}
+	if opts.EllPrime > 0 {
+		out.AuditRows = out.RowsBlock * opts.EllPrime
+		if opts.Theta > 1 {
+			out.AuditRows *= opts.Theta
+		}
+	}
+	if opts.Theta > 1 {
+		out.OpeningCols = out.SmallFieldReplayRows + out.MaskRows - out.AuditRows
+	} else {
+		out.OpeningCols = out.WitnessRows + maxInt(opts.Rho, 1)
+	}
+	if out.OpeningCols < 0 {
+		out.OpeningCols = 0
+	}
 	out.SigShortnessProfile = ResolveSignatureShortnessProfileLabelForOpts(opts)
 	if base, L, _, degree, err := ResolveSignatureShortnessMetricsForOpts(q, opts); err == nil {
 		out.SigShortnessRadix = base
@@ -460,6 +494,31 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	}
 	if proof == nil {
 		return out
+	}
+	out.TranscriptSecurityStatus = "baseline_live"
+	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 {
+		out.TranscriptSecurityStatus = "smallwood_2025_1085_live"
+	}
+	if opts.TranscriptCodec != "" {
+		out.TranscriptSecurityStatus = "serialization_live"
+	}
+	if proof.SmallField2025 != nil {
+		out.TranscriptSecurityStatus = proof.SmallField2025.Status
+		out.SmallField2025Status = proof.SmallField2025.Status
+		out.SmallField2025ReductionEnabled = proof.SmallField2025.ReductionEnabled
+		out.SmallField2025QueryCount = proof.SmallField2025.QueryCount
+		out.SmallField2025VHeadRows = proof.SmallField2025.VHeadRows
+		out.SmallField2025VHeadCols = proof.SmallField2025.VHeadCols
+		out.SmallField2025VBarRows = proof.SmallField2025.VBarRows
+		out.SmallField2025VBarCols = proof.SmallField2025.VBarCols
+		out.SmallField2025Notes = proof.SmallField2025.Notes
+		if proof.SmallField2025.ReductionEnabled {
+			out.AuditRows = proof.SmallField2025.QueryCount
+			out.MaskRows = proof.SmallField2025.MaskRows
+			if out.PCols > 0 {
+				out.OpeningCols = out.PCols
+			}
+		}
 	}
 	if proof.SigShortness != nil && proof.SigShortness.V6 != nil && proof.SigShortness.V6.HiddenProof != nil {
 		out.HiddenShortnessProfile = signatureShortnessProfileLabelFromMetrics(proof.SigShortness.V6.Radix, proof.SigShortness.V6.Digits)

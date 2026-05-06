@@ -26,6 +26,7 @@ const (
 type benchmarkIntGenISISE2EConfig struct {
 	ArtifactDir       string
 	Profile           string
+	ProfileBound      int64
 	PRFParamsPath     string
 	JSONOut           string
 	Force             bool
@@ -67,6 +68,7 @@ type intGenISISTuning struct {
 	SigShortnessDigits int                   `json:"sig_shortness_digits,omitempty"`
 	CompressedRows     int                   `json:"compressed_rows,omitempty"`
 	ReplayProjection   string                `json:"replay_projection,omitempty"`
+	TranscriptMode     string                `json:"transcript_mode,omitempty"`
 }
 
 type benchmarkIntGenISISE2ETimings struct {
@@ -104,6 +106,7 @@ type benchmarkIntGenISISE2EReport struct {
 	Version        int                             `json:"version"`
 	Generated      string                          `json:"generated_at"`
 	Profile        string                          `json:"profile"`
+	ProfileBound   int64                           `json:"profile_bound,omitempty"`
 	ArtifactDir    string                          `json:"artifact_dir"`
 	MaxNLeaves     int                             `json:"max_nleaves,omitempty"`
 	Options        benchmarkIntGenISISE2EOptions   `json:"options"`
@@ -223,6 +226,9 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		if t.ReplayProjection == "" {
 			t.ReplayProjection = fallback.ReplayProjection
 		}
+		if t.TranscriptMode == "" {
+			t.TranscriptMode = fallback.TranscriptMode
+		}
 	} else {
 		t.PRFCompanionMode = ""
 		t.PRFGroupRounds = 0
@@ -230,6 +236,7 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		t.SigShortnessRadix = 0
 		t.SigShortnessDigits = 0
 		t.ReplayProjection = ""
+		t.TranscriptMode = ""
 	}
 	return t
 }
@@ -294,7 +301,59 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 		SigShortnessL:              t.SigShortnessDigits,
 		IntGenISISMSECompression:   t.CompressedRows,
 		IntGenISISReplayProjection: t.ReplayProjection,
+		TranscriptCodec:            intGenISISLiveTranscriptCodecOrDefault(t.TranscriptMode),
+		TranscriptProtocolMode:     intGenISISLiveTranscriptProtocolOrDefault(t.TranscriptMode),
+		TranscriptVersion:          intGenISISLiveTranscriptVersionOrDefault(t.TranscriptMode),
 	})
+}
+
+func intGenISISLiveTranscriptConfig(mode string) (codec, protocol string, err error) {
+	normalized, err := normalizeSweepTranscriptMode(mode)
+	if err != nil {
+		return "", "", err
+	}
+	switch normalized {
+	case sweepTranscriptModeBaseline:
+		return "", "", nil
+	case sweepTranscriptModeColumnWidths:
+		return "", "", fmt.Errorf("transcript mode %q has codec support but is not enabled for live proofs because verifier integration is incomplete", normalized)
+	case sweepTranscriptModeSmallField2025:
+		return "", PIOP.TranscriptProtocolSmallField2025V1, nil
+	default:
+		return "", "", fmt.Errorf("transcript mode %q is estimator-only and has no live verifier implementation", normalized)
+	}
+}
+
+func intGenISISLiveTranscriptCodec(mode string) (string, error) {
+	codec, _, err := intGenISISLiveTranscriptConfig(mode)
+	return codec, err
+}
+
+func intGenISISLiveTranscriptCodecOrDefault(mode string) string {
+	codec, err := intGenISISLiveTranscriptCodec(mode)
+	if err != nil {
+		return ""
+	}
+	return codec
+}
+
+func intGenISISLiveTranscriptProtocolOrDefault(mode string) string {
+	_, protocol, err := intGenISISLiveTranscriptConfig(mode)
+	if err != nil {
+		return ""
+	}
+	return protocol
+}
+
+func intGenISISLiveTranscriptVersionOrDefault(mode string) string {
+	normalized, err := normalizeSweepTranscriptMode(mode)
+	if err != nil {
+		return ""
+	}
+	if normalized == sweepTranscriptModeSmallField2025 {
+		return PIOP.TranscriptVersionSmallWood2025
+	}
+	return ""
 }
 
 func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenISISE2EReport, error) {
@@ -304,6 +363,12 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	profile, ok := credential.LookupIntGenISISProfile(cfg.Profile)
 	if !ok {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("unsupported IntGenISIS profile %q", cfg.Profile)
+	}
+	if cfg.ProfileBound < 0 {
+		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("invalid profile bound %d", cfg.ProfileBound)
+	}
+	if cfg.ProfileBound > 0 {
+		profile.B = cfg.ProfileBound
 	}
 	if cfg.PRFParamsPath == "" {
 		cfg.PRFParamsPath = defaultPRFParamsPath
@@ -316,6 +381,9 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		return benchmarkIntGenISISE2EReport{}, err
 	}
 	if err := validateIntGenISISLeafCap("showing", cfg.Showing, cfg.MaxNLeaves); err != nil {
+		return benchmarkIntGenISISE2EReport{}, err
+	}
+	if _, _, err := intGenISISLiveTranscriptConfig(cfg.Showing.TranscriptMode); err != nil {
 		return benchmarkIntGenISISE2EReport{}, err
 	}
 	switch cfg.Showing.PRFCompanionMode {
@@ -368,7 +436,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 
 	var timings benchmarkIntGenISISE2ETimings
 	t0 := time.Now()
-	if err := setupIntGenISISPublic(paths.PublicParams, cfg.Force, profile.Name, paths.BMatrix); err != nil {
+	if err := setupIntGenISISPublicForProfile(paths.PublicParams, cfg.Force, profile, paths.BMatrix); err != nil {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("setup IntGenISIS public params: %w", err)
 	}
 	timings.SetupPublicMS = millisSince(t0)
@@ -416,11 +484,12 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	}
 
 	report := benchmarkIntGenISISE2EReport{
-		Version:     benchmarkIntGenISISE2EVersion,
-		Generated:   time.Now().UTC().Format(time.RFC3339),
-		Profile:     profile.Name,
-		ArtifactDir: artifactDir,
-		MaxNLeaves:  cfg.MaxNLeaves,
+		Version:      benchmarkIntGenISISE2EVersion,
+		Generated:    time.Now().UTC().Format(time.RFC3339),
+		Profile:      profile.Name,
+		ProfileBound: profile.B,
+		ArtifactDir:  artifactDir,
+		MaxNLeaves:   cfg.MaxNLeaves,
 		Options: benchmarkIntGenISISE2EOptions{
 			Issuance: cfg.Issuance,
 			Showing:  cfg.Showing,
@@ -431,8 +500,8 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		Artifacts:      paths,
 		ReplayRejected: replayRejected,
 		Notes: []string{
-			"semantic layout uses ternary m in coefficients [0,N-8) and ternary PRF key k in coefficients [N-8,N)",
-			"live IntGenISIS M,s,e membership is ternary_v1 and dQ/masks use paper Eq. (3) conservative degree accounting",
+			fmt.Sprintf("semantic layout uses B=%d bounded-range m in coefficients [0,N-8) and B=%d bounded-range PRF key k in coefficients [N-8,N)", profile.B, profile.B),
+			fmt.Sprintf("live IntGenISIS M,s,e membership uses the public B=%d range and dQ/masks use the corresponding range-membership degree accounting", profile.B),
 			"max_nleaves caps the explicit DECS/LVCS evaluation domain; pass -max-nleaves 0 only for uncapped research sweeps",
 			"showing shortness proves the configured signed-radix representable bound; the public signature beta is builder-validated and Fiat-Shamir-bound",
 		},
@@ -726,7 +795,7 @@ func benchmarkIntGenISISE2EPrintReport(report benchmarkIntGenISISE2EReport) {
 }
 
 func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics) {
-	log.Printf("[issuance-cli] IntGenISIS %s proof_bytes=%d paper_transcript_bytes=%d paper_transcript_kb=%.2f prove_ms=%.2f verify_ms=%.2f rows=%d prf_rows=%d bound_rows=%d shortness_rows=%d hat_rows=%d theta=%d rho=%d ell_prime=%d smallfield_replay_rows=%d q_split_rows=%d q_limb_rows=%d dq=%d soundness_eq8_bits=%.2f",
+	log.Printf("[issuance-cli] IntGenISIS %s proof_bytes=%d paper_transcript_bytes=%d paper_transcript_kb=%.2f prove_ms=%.2f verify_ms=%.2f rows=%d rows_block=%d audit_rows=%d opening_cols=%d prf_rows=%d bound_rows=%d shortness_rows=%d hat_rows=%d theta=%d rho=%d ell_prime=%d smallfield_replay_rows=%d q_split_rows=%d q_limb_rows=%d dq=%d soundness_eq8_bits=%.2f",
 		label,
 		m.ProofSizeBytes,
 		m.PaperTranscriptBytes,
@@ -734,6 +803,9 @@ func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics
 		m.ProvingMS,
 		m.VerificationMS,
 		m.TotalRows,
+		m.RowsBlock,
+		m.AuditRows,
+		m.OpeningCols,
 		m.PRFRows,
 		m.BoundRows,
 		m.ShortnessRows,
@@ -775,16 +847,39 @@ func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics
 		m.ProjectedSignatureConstraints,
 		m.SourceBridgeConstraints,
 	)
-	log.Printf("[issuance-cli] IntGenISIS %s paper_buckets q=%d r=%d pdecs=%d auth=%d sig_shortness=%d vtargets=%d barsets=%d",
+	log.Printf("[issuance-cli] IntGenISIS %s paper_buckets q=%d r=%d pdecs=%d mdecs=%d auth=%d tapes=%d sig_shortness=%d vtargets=%d barsets=%d pdecs_bit_width=%d vtargets_bit_width=%d",
 		label,
 		m.QBytes,
 		m.RBytes,
 		m.PdecsBytes,
+		m.MdecsBytes,
 		m.AuthBytes,
+		m.TapesBytes,
 		m.SigShortnessBytes,
 		m.VTargetsBytes,
 		m.BarSetsBytes,
+		m.PDecsBitWidth,
+		m.VTargetsBitWidth,
 	)
+	if m.PaperShapeNRows > 0 || m.PaperShapeQueries > 0 {
+		log.Printf("[issuance-cli] IntGenISIS %s paper_shape nrows=%d queries=%d witness_layers=%d mask_rows=%d vhead=%d vbar=%d omit_entries=%d canonical=%v",
+			label,
+			m.PaperShapeNRows,
+			m.PaperShapeQueries,
+			m.PaperShapeWitnessLayers,
+			m.PaperShapeMaskRows,
+			m.PaperShapeVHeadBytes,
+			m.PaperShapeVBarBytes,
+			m.PaperShapeOpeningOmitEntries,
+			m.PaperShapeCanonical,
+		)
+	}
+	if m.TranscriptSecurityStatus != "" {
+		log.Printf("[issuance-cli] IntGenISIS %s transcript_status=%s",
+			label,
+			m.TranscriptSecurityStatus,
+		)
+	}
 	log.Printf("[issuance-cli] IntGenISIS %s audit views total=%d u=%d semantic=%d commitment=%d y=%d issuer=%d constraints fpar_int=%d range=%d shortness=%d y_linear=%d bridge_total=%d bridge_u=%d bridge_commitment=%d bridge_issuer=%d prf_key=%d",
 		label,
 		m.CoefficientViewRows,

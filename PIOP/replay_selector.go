@@ -77,7 +77,7 @@ func buildShowingReplayActiveRowSelectorWithSourceProductBridge(layout RowLayout
 			}
 		}
 	}
-	for _, idx := range prfCompanionSelectedReplayRows(companion, mode) {
+	for _, idx := range prfCompanionActiveReplayRows(companion, mode) {
 		add(idx)
 	}
 

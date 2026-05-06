@@ -26,6 +26,10 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 	if err := validateIntGenISISPreSignInputs(ringQ, pub, wit); err != nil {
 		return nil, err
 	}
+	x0Len, err := intGenISISX0LenFromPublic(pub)
+	if err != nil {
+		return nil, err
+	}
 	witnessRows := append([]*ring.Poly{}, wit.M...)
 	witnessRows = append(witnessRows, wit.MAttr...)
 	witnessRows = append(witnessRows, wit.K...)
@@ -57,7 +61,7 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 	residuals = append(residuals, binding...)
 	set := ConstraintSet{
 		FparInt:          residuals,
-		ParallelAlgDeg:   intGenISISTernaryMembershipDegree,
+		ParallelAlgDeg:   intGenISISMembershipDegree(pub.BoundB),
 		AggregatedAlgDeg: 1,
 	}
 	ncols := opts.NCols
@@ -151,7 +155,7 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 	layout := RowLayout{
 		RingDegree: int(ringQ.N),
 		SigCount:   len(rows) - rho,
-		X0Len:      2,
+		X0Len:      x0Len,
 		IntGenISISPreSign: &IntGenISISPreSignRowLayout{
 			MStart:          0,
 			MCount:          len(wit.M),
@@ -252,10 +256,10 @@ func validateIntGenISISPreSignInputs(ringQ *ring.Ring, pub PublicInputs, wit Wit
 	if err := validateIntGenISISPolicyPolys(ringQ, pub, wit.M, wit.MAttr, wit.K); err != nil {
 		return fmt.Errorf("policy: %w", err)
 	}
-	if err := validateIntGenISISTernaryPolys(ringQ, "s", wit.S); err != nil {
+	if err := validateIntGenISISLiveBoundPolys(ringQ, pub.BoundB, "s", wit.S); err != nil {
 		return err
 	}
-	if err := validateIntGenISISTernaryPolys(ringQ, "e", wit.E); err != nil {
+	if err := validateIntGenISISLiveBoundPolys(ringQ, pub.BoundB, "e", wit.E); err != nil {
 		return err
 	}
 	return nil
@@ -406,17 +410,18 @@ func buildIntGenISISPreSignConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 		}
 	}
 	boundRows := intGenISISViewRowIndices(l.BoundViewStart, l.BoundViewCount)
-	boundPolys, boundCoeffs, err := intGenISISTernaryMembershipRows(ringQ, rowsNTT, boundRows)
+	boundPolys, boundCoeffs, err := intGenISISLiveMembershipRows(ringQ, rowsNTT, boundRows, pub.BoundB)
 	if err != nil {
 		return ConstraintSet{}, err
 	}
 	policyDegree := intGenISISPolicyDegree(policy)
+	membershipDegree := intGenISISMembershipDegree(pub.BoundB)
 	return ConstraintSet{
 		FparInt:          fpar,
 		FparIntCoeffs:    residualCoeffs,
 		FparNorm:         boundPolys,
 		FparNormCoeffs:   boundCoeffs,
-		ParallelAlgDeg:   maxInt(maxInt(1, intGenISISTernaryMembershipDegree), policyDegree),
+		ParallelAlgDeg:   maxInt(maxInt(1, membershipDegree), policyDegree),
 		AggregatedAlgDeg: 1,
 	}, nil
 }

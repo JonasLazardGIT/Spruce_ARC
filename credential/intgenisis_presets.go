@@ -9,6 +9,7 @@ import (
 const (
 	IntGenISISPreset96Bit        = "96bit"
 	IntGenISISPreset120BitSF     = "120bitsf"
+	IntGenISISPresetFast96       = "fast96"
 	IntGenISISPresetFastLocal    = "fast-local"
 	IntGenISISPresetSW96LVCS32   = "sw96-lvcs32"
 	IntGenISISPresetSW96LVCS64   = "sw96-lvcs64"
@@ -18,6 +19,11 @@ const (
 	IntGenISISPresetSW128LVCS128 = "sw128-lvcs128"
 	IntGenISISPresetN256SW96     = "n256-sw96"
 	IntGenISISPresetN256SW128    = "n256-sw128"
+	IntGenISISPresetN1024SW90SF  = "n1024-sw90-smallfield"
+	IntGenISISPresetN1024SW96    = "n1024-sw96"
+	IntGenISISPresetN1024SW115SF = "n1024-sw115-smallfield"
+	IntGenISISPresetN1024SW120SF = "n1024-sw120-smallfield"
+	IntGenISISPresetN1024SW128   = "n1024-sw128"
 )
 
 // IntGenISISTuningPreset is the CLI-stable, package-neutral representation of
@@ -39,6 +45,7 @@ type IntGenISISTuningPreset struct {
 	SigShortnessDigits int     `json:"sig_shortness_digits,omitempty"`
 	CompressedRows     int     `json:"compressed_rows,omitempty"`
 	ReplayProjection   string  `json:"replay_projection,omitempty"`
+	TranscriptMode     string  `json:"transcript_mode,omitempty"`
 	TargetEq8Bits      float64 `json:"target_eq8_bits,omitempty"`
 	TargetTheoremBits  float64 `json:"target_theorem_bits,omitempty"`
 	SoundnessGate      string  `json:"soundness_gate,omitempty"`
@@ -104,6 +111,18 @@ func normalizeIntGenISISPresetName(name string) string {
 		return IntGenISISPreset96Bit
 	case "120", "120-bit-sf", "120_bit_sf", "120sf":
 		return IntGenISISPreset120BitSF
+	case "fast-96", "fast_96", "runtime96", "runtime-96", "runtime_96", "n256-fast96", "n256-fast-96":
+		return IntGenISISPresetFast96
+	case "n1024-96", "n1024_96", "n1024-sw-96", "n1024-ternary-sw96", "n1024-b1-sw96", "ternary1024-sw96":
+		return IntGenISISPresetN1024SW96
+	case "n1024-90", "n1024_90", "n1024-sw90", "n1024-sw-90", "n1024-ternary-sw90", "n1024-b1-sw90", "ternary1024-sw90", "n1024-sw90-sf", "n1024-90-smallfield":
+		return IntGenISISPresetN1024SW90SF
+	case "n1024-115", "n1024_115", "n1024-sw115", "n1024-sw-115", "n1024-ternary-sw115", "n1024-b1-sw115", "ternary1024-sw115", "n1024-sw115-sf", "n1024-115-smallfield":
+		return IntGenISISPresetN1024SW115SF
+	case "n1024-120", "n1024_120", "n1024-sw120", "n1024-sw-120", "n1024-ternary-sw120", "n1024-b1-sw120", "ternary1024-sw120", "n1024-sw120-sf", "n1024-120-smallfield":
+		return IntGenISISPresetN1024SW120SF
+	case "n1024-128", "n1024_128", "n1024-sw-128", "n1024-ternary-sw128", "n1024-b1-sw128", "ternary1024-sw128":
+		return IntGenISISPresetN1024SW128
 	default:
 		return key
 	}
@@ -137,7 +156,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		CheckpointSamples:  2,
 		SigShortnessRadix:  7,
 		SigShortnessDigits: 5,
-		CompressedRows:     1,
+		CompressedRows:     0,
 		TargetEq8Bits:      96,
 	}
 	show96LVCS64 := show96LVCS32
@@ -168,7 +187,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		CheckpointSamples:  2,
 		SigShortnessRadix:  11,
 		SigShortnessDigits: 4,
-		CompressedRows:     1,
+		CompressedRows:     0,
 		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
 		TargetTheoremBits:  96,
 		SoundnessGate:      "theorem9_grinding",
@@ -193,7 +212,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		CheckpointSamples:  2,
 		SigShortnessRadix:  7,
 		SigShortnessDigits: 5,
-		CompressedRows:     1,
+		CompressedRows:     0,
 		TargetEq8Bits:      128,
 	}
 	show128LVCS64 := show128LVCS32
@@ -212,7 +231,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		CheckpointSamples:  2,
 		SigShortnessRadix:  11,
 		SigShortnessDigits: 4,
-		CompressedRows:     1,
+		CompressedRows:     0,
 		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
 		TargetTheoremBits:  128,
 		SoundnessGate:      "theorem9_grinding",
@@ -245,7 +264,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		CheckpointSamples:  2,
 		SigShortnessRadix:  7,
 		SigShortnessDigits: 5,
-		CompressedRows:     1,
+		CompressedRows:     0,
 		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
 	}
 	n256Show96.TargetTheoremBits = 96
@@ -289,6 +308,35 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	n256Issuance120SF.CompressedRows = 0
 	n256Issuance120SF.ReplayProjection = ""
 
+	n256Fast96 := IntGenISISTuningPreset{
+		NCols:              32,
+		LVCSNCols:          52,
+		NLeaves:            11546,
+		Eta:                35,
+		Theta:              2,
+		Rho:                3,
+		Ell:                13,
+		EllPrime:           3,
+		PRFCompanionMode:   "direct_auth",
+		PRFGroupRounds:     2,
+		CheckpointSamples:  2,
+		SigShortnessRadix:  5,
+		SigShortnessDigits: 6,
+		CompressedRows:     0,
+		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
+	}
+	n256Fast96.TargetTheoremBits = 96
+	n256Fast96.TargetEq8Bits = 0
+	n256Fast96.SoundnessGate = "theorem9_measured"
+	n256Fast96Issuance := n256Fast96
+	n256Fast96Issuance.PRFCompanionMode = ""
+	n256Fast96Issuance.PRFGroupRounds = 0
+	n256Fast96Issuance.CheckpointSamples = 0
+	n256Fast96Issuance.SigShortnessRadix = 0
+	n256Fast96Issuance.SigShortnessDigits = 0
+	n256Fast96Issuance.CompressedRows = 0
+	n256Fast96Issuance.ReplayProjection = ""
+
 	n256Show128 := IntGenISISTuningPreset{
 		NCols:              32,
 		LVCSNCols:          32,
@@ -318,6 +366,155 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	n256Issuance128.CompressedRows = 0
 	n256Issuance128.ReplayProjection = ""
 
+	n1024Show96 := IntGenISISTuningPreset{
+		NCols:              32,
+		LVCSNCols:          96,
+		NLeaves:            262144,
+		Eta:                44,
+		Theta:              2,
+		Rho:                3,
+		Ell:                8,
+		EllPrime:           3,
+		PRFCompanionMode:   "direct_auth",
+		PRFGroupRounds:     2,
+		CheckpointSamples:  2,
+		SigShortnessRadix:  7,
+		SigShortnessDigits: 5,
+		CompressedRows:     0,
+		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
+	}
+	n1024Show96.TargetTheoremBits = 96
+	n1024Show96.TargetEq8Bits = 0
+	n1024Show96.SoundnessGate = "theorem9_seed"
+	n1024Issuance96 := n1024Show96
+	n1024Issuance96.PRFCompanionMode = ""
+	n1024Issuance96.PRFGroupRounds = 0
+	n1024Issuance96.CheckpointSamples = 0
+	n1024Issuance96.SigShortnessRadix = 0
+	n1024Issuance96.SigShortnessDigits = 0
+	n1024Issuance96.CompressedRows = 0
+	n1024Issuance96.ReplayProjection = ""
+
+	n1024Show90SF := IntGenISISTuningPreset{
+		NCols:              32,
+		LVCSNCols:          44,
+		NLeaves:            116864,
+		Eta:                37,
+		Theta:              5,
+		Rho:                1,
+		Ell:                7,
+		EllPrime:           1,
+		Kappa:              [4]int{3, 0, 0, 12},
+		PRFCompanionMode:   "direct_auth",
+		PRFGroupRounds:     2,
+		CheckpointSamples:  1,
+		SigShortnessRadix:  7,
+		SigShortnessDigits: 5,
+		CompressedRows:     1,
+		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
+		TranscriptMode:     "smallfield_2025_1085_v1",
+		TargetTheoremBits:  90,
+		SoundnessGate:      "smallwood_2025_1085_live",
+	}
+	n1024Issuance90SF := n1024Show90SF
+	n1024Issuance90SF.PRFCompanionMode = ""
+	n1024Issuance90SF.PRFGroupRounds = 0
+	n1024Issuance90SF.CheckpointSamples = 0
+	n1024Issuance90SF.SigShortnessRadix = 0
+	n1024Issuance90SF.SigShortnessDigits = 0
+	n1024Issuance90SF.CompressedRows = 0
+	n1024Issuance90SF.ReplayProjection = ""
+	n1024Issuance90SF.TranscriptMode = ""
+
+	n1024Show115SF := IntGenISISTuningPreset{
+		NCols:              32,
+		LVCSNCols:          36,
+		NLeaves:            839680,
+		Eta:                41,
+		Theta:              7,
+		Rho:                1,
+		Ell:                8,
+		EllPrime:           1,
+		PRFCompanionMode:   "direct_auth",
+		PRFGroupRounds:     2,
+		CheckpointSamples:  1,
+		SigShortnessRadix:  11,
+		SigShortnessDigits: 4,
+		CompressedRows:     1,
+		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
+		TranscriptMode:     "smallfield_2025_1085_v1",
+		TargetTheoremBits:  115,
+		SoundnessGate:      "smallwood_2025_1085_live",
+	}
+	n1024Issuance115SF := n1024Show115SF
+	n1024Issuance115SF.PRFCompanionMode = ""
+	n1024Issuance115SF.PRFGroupRounds = 0
+	n1024Issuance115SF.CheckpointSamples = 0
+	n1024Issuance115SF.SigShortnessRadix = 0
+	n1024Issuance115SF.SigShortnessDigits = 0
+	n1024Issuance115SF.CompressedRows = 0
+	n1024Issuance115SF.ReplayProjection = ""
+	n1024Issuance115SF.TranscriptMode = ""
+
+	n1024Show120SF := IntGenISISTuningPreset{
+		NCols:              32,
+		LVCSNCols:          52,
+		NLeaves:            594752,
+		Eta:                52,
+		Theta:              7,
+		Rho:                1,
+		Ell:                9,
+		EllPrime:           1,
+		PRFCompanionMode:   "direct_auth",
+		PRFGroupRounds:     2,
+		CheckpointSamples:  1,
+		SigShortnessRadix:  7,
+		SigShortnessDigits: 5,
+		CompressedRows:     0,
+		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
+		TranscriptMode:     "smallfield_2025_1085_v1",
+		TargetTheoremBits:  120,
+		SoundnessGate:      "smallwood_2025_1085_live",
+	}
+	n1024Issuance120SF := n1024Show120SF
+	n1024Issuance120SF.PRFCompanionMode = ""
+	n1024Issuance120SF.PRFGroupRounds = 0
+	n1024Issuance120SF.CheckpointSamples = 0
+	n1024Issuance120SF.SigShortnessRadix = 0
+	n1024Issuance120SF.SigShortnessDigits = 0
+	n1024Issuance120SF.CompressedRows = 0
+	n1024Issuance120SF.ReplayProjection = ""
+	n1024Issuance120SF.TranscriptMode = ""
+
+	n1024Show128 := IntGenISISTuningPreset{
+		NCols:              64,
+		LVCSNCols:          128,
+		NLeaves:            917504,
+		Eta:                40,
+		Theta:              1,
+		Rho:                7,
+		Ell:                9,
+		EllPrime:           11,
+		PRFCompanionMode:   "direct_auth",
+		PRFGroupRounds:     2,
+		CheckpointSamples:  2,
+		SigShortnessRadix:  5,
+		SigShortnessDigits: 6,
+		CompressedRows:     0,
+		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
+	}
+	n1024Show128.TargetTheoremBits = 128
+	n1024Show128.TargetEq8Bits = 0
+	n1024Show128.SoundnessGate = "theorem9_seed"
+	n1024Issuance128 := n1024Show128
+	n1024Issuance128.PRFCompanionMode = ""
+	n1024Issuance128.PRFGroupRounds = 0
+	n1024Issuance128.CheckpointSamples = 0
+	n1024Issuance128.SigShortnessRadix = 0
+	n1024Issuance128.SigShortnessDigits = 0
+	n1024Issuance128.CompressedRows = 0
+	n1024Issuance128.ReplayProjection = ""
+
 	mk := func(name, desc string, target float64, lvcs, maxLeaves int, showing IntGenISISTuningPreset) IntGenISISPreset {
 		issuance := showing
 		if issuance.NCols < 16 {
@@ -329,6 +526,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		issuance.SigShortnessRadix = 0
 		issuance.SigShortnessDigits = 0
 		issuance.CompressedRows = 0
+		issuance.TranscriptMode = ""
 		issuance.TargetEq8Bits = target
 		return IntGenISISPreset{
 			Name:          name,
@@ -361,9 +559,9 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Showing:             n256Show96,
 			Notes: []string{
 				"Promoted from measured viable-frontier candidate est_000514 after dimension-faithful transcript estimation.",
-				"Measured profile-A showing snapshot: paper_transcript_bytes=22116, dQ=222, theorem_total_bits=96.33, raw Eq. (8)=96.33.",
-				"Measured profile-A issuance snapshot: paper_transcript_bytes=13652, committed_cols=48, theorem_total_bits=98.27.",
-				"Measured combined paper transcript bytes: 35768.",
+				"B=4 remeasurement showing snapshot: paper_transcript_bytes=23444, proof_bytes=44637, dQ=222, theorem_total_bits=96.33, raw Eq. (8)=96.33.",
+				"B=4 remeasurement issuance snapshot: paper_transcript_bytes=16531, committed_cols=48, theorem_total_bits=96.33.",
+				"B=4 measured combined paper transcript bytes: 39975.",
 			},
 		},
 		IntGenISISPreset120BitSF: {
@@ -380,9 +578,9 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Showing:             n256Show120SF,
 			Notes: []string{
 				"Promoted from measured focused-sweep candidate est_1246730 as the 120-bit small-field baseline.",
-				"Measured showing snapshot: paper_transcript_bytes=25232, dQ=231, theorem_total_bits=120.01, raw Eq. (8)=120.01.",
-				"Measured issuance snapshot: paper_transcript_bytes=14822, committed_cols=36, theorem_total_bits=120.01.",
-				"Measured combined paper transcript bytes: 40054.",
+				"B=4 remeasurement showing snapshot: paper_transcript_bytes=28750, proof_bytes=68022, dQ=391, theorem_total_bits=119.98, raw Eq. (8)=119.98.",
+				"B=4 remeasurement issuance snapshot: paper_transcript_bytes=20075, committed_cols=36, theorem_total_bits=119.98.",
+				"B=4 measured combined paper transcript bytes: 48825.",
 			},
 		},
 		IntGenISISPresetFastLocal: {
@@ -395,6 +593,24 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Issuance:      fast,
 			Showing:       fast,
 			Notes:         []string{"Use only for local correctness and profiling; soundness is intentionally low."},
+		},
+		IntGenISISPresetFast96: {
+			Name:              IntGenISISPresetFast96,
+			Description:       "profile-A N=256 runtime-focused measured preset; B=4 remeasurement falls below 96 bits",
+			Profile:           ProfileIntGenISISA,
+			TargetEq8Bits:     0,
+			TargetTheoremBits: 96,
+			SoundnessGate:     n256Fast96.SoundnessGate,
+			LVCSNCols:         n256Fast96.LVCSNCols,
+			MaxNLeaves:        n256Fast96.NLeaves,
+			Issuance:          n256Fast96Issuance,
+			Showing:           n256Fast96,
+			Notes: []string{
+				"Promoted from the transcript-focused runtime96-deep search with max showing transcript bytes 25000.",
+				"B=4 remeasurement showing snapshot: paper_transcript_bytes=29039, proof_bytes=62859, dQ=427, theorem_total_bits=93.81, proving_ms≈2569, verification_ms≈798.",
+				"B=4 remeasurement issuance snapshot: paper_transcript_bytes=23157, theorem_total_bits=93.81.",
+				"Targeted low-leaf check accepted nleaves=11546 and rejected all candidates under nleaves=11545 in the narrowed 25 KiB grid.",
+			},
 		},
 		IntGenISISPresetSW96LVCS32: mk(IntGenISISPresetSW96LVCS32, "profile-B 96-bit Eq. (8) seed with lvcs_ncols=32", 96, 32, 65536, show96LVCS32),
 		IntGenISISPresetSW96LVCS64: {
@@ -411,7 +627,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Notes: []string{
 				"Promoted as the compact default after V2 projection and R11/L4 retuning.",
 				"Pass criterion is SmallWood Theorem 9 with kappa4=6; raw Eq. (8) showing bits are intentionally below 96.",
-				"Measured showing snapshot: paper_transcript_bytes=31232, dQ=482, VTargets=4420, Pdecs=8323, Q=7189, R=8229, theorem_total_bits=96.50.",
+				"B=4 remeasurement showing snapshot: paper_transcript_bytes=34006, proof_bytes=83350, dQ=482, theorem_total_bits=96.50, raw Eq. (8)=91.38.",
 			},
 		},
 		IntGenISISPresetSW96LVCS128: mk(IntGenISISPresetSW96LVCS128, "profile-B 96-bit Eq. (8) seed with lvcs_ncols=128", 96, 128, 65536, show96LVCS128),
@@ -430,7 +646,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Notes: []string{
 				"Promoted from the projected 128-bit tuning frontier after V2 projection and R11/L4 retuning.",
 				"Pass criterion is SmallWood Theorem 9 with kappa={6,0,0,11}; raw Eq. (8) showing bits are intentionally below 128.",
-				"Measured showing snapshot: paper_transcript_bytes=36938, dQ=482, VTargets=5155, Pdecs=9325, Q=8404, R=10330, theorem_total_bits=128.01.",
+				"B=4 remeasurement showing snapshot: paper_transcript_bytes=40042, proof_bytes=102015, dQ=482, theorem_total_bits=128.01, raw Eq. (8)=117.79.",
 				"A smaller 36694-byte research variant used nleaves=180000, eta=58, kappa4=16, but had substantially higher proving time.",
 			},
 		},
@@ -449,9 +665,9 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Showing:             n256Show96,
 			Notes: []string{
 				"N=256 preset promoted from measured viable-frontier candidate est_000514.",
-				"Measured showing snapshot: paper_transcript_bytes=22116, dQ=222, theorem_total_bits=96.33, raw Eq. (8)=96.33.",
-				"Measured issuance snapshot: paper_transcript_bytes=13652, committed_cols=48, theorem_total_bits=98.27.",
-				"Uses the same ring-tail-key ternary semantic layout as N=512: m in [0,N-8), key in [N-8,N).",
+				"B=4 remeasurement showing snapshot: paper_transcript_bytes=23427, proof_bytes=44623, dQ=222, theorem_total_bits=96.33, raw Eq. (8)=96.33.",
+				"B=4 remeasurement issuance snapshot: paper_transcript_bytes=16377, committed_cols=48, theorem_total_bits=96.33.",
+				"Uses the same ring-tail-key bounded-range B=4 semantic layout as N=512: m in [0,N-8), key in [N-8,N).",
 			},
 		},
 		IntGenISISPresetN256SW128: {
@@ -468,10 +684,106 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Showing:             n256Show128,
 			Notes: []string{
 				"N=256 128-bit preset promoted from measured focused-sweep candidate est_490949.",
-				"Measured showing snapshot: paper_transcript_bytes=23100, dQ=231, theorem_total_bits=131.49, raw Eq. (8)=131.49.",
-				"Measured issuance snapshot: paper_transcript_bytes=15438, committed_cols=32, theorem_total_bits=131.75.",
-				"Measured combined paper transcript bytes: 38538.",
-				"Uses the same ring-tail-key ternary semantic layout as N=512: m in [0,N-8), key in [N-8,N).",
+				"B=4 remeasurement showing snapshot: paper_transcript_bytes=26001, proof_bytes=63126, dQ=391, theorem_total_bits=125.56, raw Eq. (8)=125.56.",
+				"B=4 remeasurement issuance snapshot: paper_transcript_bytes=19673, committed_cols=32, theorem_total_bits=125.56.",
+				"B=4 measured combined paper transcript bytes: 45674.",
+				"Uses the same ring-tail-key bounded-range B=4 semantic layout as N=512: m in [0,N-8), key in [N-8,N).",
+			},
+		},
+		IntGenISISPresetN1024SW96: {
+			Name:                IntGenISISPresetN1024SW96,
+			Description:         "profile-C N=1024 ternary 96-bit sweep seed",
+			Profile:             ProfileIntGenISISC,
+			TargetEq8Bits:       0,
+			TargetTheoremBits:   96,
+			SoundnessGate:       n1024Show96.SoundnessGate,
+			LVCSNCols:           n1024Show96.LVCSNCols,
+			MaxNLeaves:          n1024Show96.NLeaves,
+			ResearchLargeDomain: true,
+			Issuance:            n1024Issuance96,
+			Showing:             n1024Show96,
+			Notes: []string{
+				"N=1024 ternary seed uses profile-C B=1 and degree-3 live membership.",
+				"Seed geometry is intentionally conservative; run sweep-intgenisis-n1024-ternary-deep before promoting a measured transcript frontier.",
+			},
+		},
+		IntGenISISPresetN1024SW90SF: {
+			Name:                IntGenISISPresetN1024SW90SF,
+			Description:         "profile-C N=1024 ternary >90-bit strict small-field transcript preset",
+			Profile:             ProfileIntGenISISC,
+			TargetEq8Bits:       0,
+			TargetTheoremBits:   90,
+			SoundnessGate:       n1024Show90SF.SoundnessGate,
+			LVCSNCols:           n1024Show90SF.LVCSNCols,
+			MaxNLeaves:          n1024Show90SF.NLeaves,
+			ResearchLargeDomain: true,
+			Issuance:            n1024Issuance90SF,
+			Showing:             n1024Show90SF,
+			Notes: []string{
+				"Promoted from the N=1024 profile-C strict small-field rho=1 ell'=1 transcript sweep as the compact >90-bit live preset.",
+				"Live snapshot: paper_transcript_bytes=28641, theorem_total_bits=90.07, rows=567, rows_block=13, eta=37, kappa={3,0,0,12}, dQ=373, DDECS=50.",
+				"Live buckets: q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=4640/4072/8383/0/1610/0/8095/1297.",
+				"M/s/e pack2 is promoted only for profile-C ternary B=1; bounded-range B>1 compression remains rejected.",
+				"Strict smallfield live mode opens DECS rows only at sampled tail points; VBar carries mask-coordinate LVCS targets.",
+				"Uses smallfield_2025_1085_v1 only for showing; issuance remains dense-compatible while sharing the security tuple.",
+			},
+		},
+		IntGenISISPresetN1024SW115SF: {
+			Name:                IntGenISISPresetN1024SW115SF,
+			Description:         "profile-C N=1024 ternary >115-bit strict small-field transcript preset",
+			Profile:             ProfileIntGenISISC,
+			TargetEq8Bits:       0,
+			TargetTheoremBits:   115,
+			SoundnessGate:       n1024Show115SF.SoundnessGate,
+			LVCSNCols:           n1024Show115SF.LVCSNCols,
+			MaxNLeaves:          n1024Show115SF.NLeaves,
+			ResearchLargeDomain: true,
+			Issuance:            n1024Issuance115SF,
+			Showing:             n1024Show115SF,
+			Notes: []string{
+				"Promoted from live measurement of the strict small-field rho=1 ell'=1 zero-grinding N=1024 sweep as the compact >115-bit preset.",
+				"Live snapshots measured paper_transcript_bytes=37724-37758, theorem_total_bits=115.00, rows=503, rows_block=14, eta=41, kappa={0,0,0,0}, dQ=460, DDECS=43.",
+				"Live buckets are stable except auth path packing: q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=8019/3692/11176/0/2146-2180/0/9933/2215.",
+				"Measured near-tie lvcs=44, eta=48, nleaves=1008640 was larger at 38157 bytes despite fewer row blocks.",
+				"Strict smallfield live mode opens DECS rows only at sampled tail points; VBar carries mask-coordinate LVCS targets.",
+				"This preset intentionally targets 115 theorem bits and must not replace n1024-sw120-smallfield.",
+			},
+		},
+		IntGenISISPresetN1024SW120SF: {
+			Name:                IntGenISISPresetN1024SW120SF,
+			Description:         "profile-C N=1024 ternary >120-bit strict small-field transcript preset",
+			Profile:             ProfileIntGenISISC,
+			TargetEq8Bits:       0,
+			TargetTheoremBits:   120,
+			SoundnessGate:       n1024Show120SF.SoundnessGate,
+			LVCSNCols:           n1024Show120SF.LVCSNCols,
+			MaxNLeaves:          n1024Show120SF.NLeaves,
+			ResearchLargeDomain: true,
+			Issuance:            n1024Issuance120SF,
+			Showing:             n1024Show120SF,
+			Notes: []string{
+				"Promoted from the N=1024 profile-C strict small-field rho=1 ell'=1 transcript sweep as the compact >120-bit preset.",
+				"Estimator snapshot: showing_bytes=37450, theorem_total_bits=120.35, dQ=311, DDECS=60, q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=5410/6763/9432/1171/691/144/11678/2049.",
+				"Strict smallfield live mode opens DECS rows only at sampled tail points; VBar carries mask-coordinate LVCS targets.",
+				"Uses smallfield_2025_1085_v1 only for showing; issuance remains dense-compatible while sharing the security tuple.",
+				"The smaller compression=1 research row is not promoted because live M/s/e compression is still rejected by the bounded-range showing surface.",
+			},
+		},
+		IntGenISISPresetN1024SW128: {
+			Name:                IntGenISISPresetN1024SW128,
+			Description:         "profile-C N=1024 ternary 128-bit sweep seed",
+			Profile:             ProfileIntGenISISC,
+			TargetEq8Bits:       0,
+			TargetTheoremBits:   128,
+			SoundnessGate:       n1024Show128.SoundnessGate,
+			LVCSNCols:           n1024Show128.LVCSNCols,
+			MaxNLeaves:          n1024Show128.NLeaves,
+			ResearchLargeDomain: true,
+			Issuance:            n1024Issuance128,
+			Showing:             n1024Show128,
+			Notes: []string{
+				"N=1024 ternary seed uses profile-C B=1 and degree-3 live membership.",
+				"Seed geometry is intentionally conservative; run sweep-intgenisis-n1024-ternary-deep before promoting a measured transcript frontier.",
 			},
 		},
 	}

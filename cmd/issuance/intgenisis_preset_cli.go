@@ -33,6 +33,7 @@ func intGenISISTuningFromPresetSpec(spec credential.IntGenISISTuningPreset) intG
 		SigShortnessDigits: spec.SigShortnessDigits,
 		CompressedRows:     spec.CompressedRows,
 		ReplayProjection:   spec.ReplayProjection,
+		TranscriptMode:     spec.TranscriptMode,
 	}
 }
 
@@ -54,6 +55,7 @@ func intGenISISTuningPresetFromTuning(t intGenISISTuning, target float64) creden
 		SigShortnessDigits: t.SigShortnessDigits,
 		CompressedRows:     t.CompressedRows,
 		ReplayProjection:   t.ReplayProjection,
+		TranscriptMode:     t.TranscriptMode,
 		TargetEq8Bits:      target,
 	}
 }
@@ -115,7 +117,7 @@ func applyPrefixedTuningFlagOverrides(t *intGenISISTuning, set map[string]bool, 
 	}
 }
 
-func applyShowingSpecificFlagOverrides(t *intGenISISTuning, set map[string]bool, companionMode PIOP.PRFCompanionMode, prfGroupRounds, checkpointSamples, shortnessRadix, shortnessDigits, compressedRows int, replayProjection string) {
+func applyShowingSpecificFlagOverrides(t *intGenISISTuning, set map[string]bool, companionMode PIOP.PRFCompanionMode, prfGroupRounds, checkpointSamples, shortnessRadix, shortnessDigits, compressedRows int, replayProjection, transcriptMode string) {
 	if set["prf-companion-mode"] {
 		t.PRFCompanionMode = companionMode
 	}
@@ -136,5 +138,8 @@ func applyShowingSpecificFlagOverrides(t *intGenISISTuning, set map[string]bool,
 	}
 	if set["showing-replay-projection"] {
 		t.ReplayProjection = replayProjection
+	}
+	if set["showing-transcript-mode"] {
+		t.TranscriptMode = transcriptMode
 	}
 }

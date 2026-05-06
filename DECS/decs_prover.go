@@ -441,7 +441,7 @@ func (op *DECSOpening) packResidues() {
 			}
 		}
 		pCols := op.R
-		if op.FormatVersion == 1 {
+		if op.FormatVersion == OpeningFormatOmitCols || op.FormatVersion == OpeningFormatColumnWidths {
 			if op.PColsEncoded > 0 {
 				pCols = op.PColsEncoded
 			} else if len(op.Pvals) > 0 {
@@ -449,7 +449,7 @@ func (op *DECSOpening) packResidues() {
 				op.PColsEncoded = pCols
 			}
 		} else {
-			op.FormatVersion = 0
+			op.FormatVersion = OpeningFormatPlain
 			op.PColsEncoded = 0
 			op.POmitCols = nil
 		}
@@ -470,9 +470,37 @@ func (op *DECSOpening) packResidues() {
 				}
 			}
 		}
+		wantColumnWidths := op.FormatVersion == OpeningFormatColumnWidths
 		width := selectBitWidth(maxMatrixValue(op.Pvals))
-		op.PvalsBits = packFlatUintMatrix(op.Pvals, pCols, width)
-		op.PvalsBitWidth = uint8(width)
+		flat := packFlatUintMatrix(op.Pvals, pCols, width)
+		flatCost := len(flat) + 1
+		var colWidths []uint8
+		var colPacked []byte
+		colCost := flatCost
+		if wantColumnWidths {
+			colWidths = columnWidthsForMatrix(op.Pvals, pCols)
+			colPacked = packColumnWidthUintMatrix(op.Pvals, pCols, colWidths)
+			colCost = len(colPacked) + len(colWidths)
+			if len(op.POmitCols) == 0 {
+				colCost++ // format byte needed to signal per-column widths.
+			}
+		}
+		if wantColumnWidths && len(colPacked) > 0 && colCost < flatCost {
+			op.PvalsBits = colPacked
+			op.PvalsBitWidth = 0
+			op.PvalsColumnWidths = colWidths
+			op.FormatVersion = OpeningFormatColumnWidths
+		} else {
+			op.PvalsBits = flat
+			op.PvalsBitWidth = uint8(width)
+			op.PvalsColumnWidths = nil
+			if op.FormatVersion == OpeningFormatColumnWidths && len(op.POmitCols) == 0 {
+				op.FormatVersion = OpeningFormatPlain
+				op.PColsEncoded = 0
+			} else if op.FormatVersion == OpeningFormatColumnWidths {
+				op.FormatVersion = OpeningFormatOmitCols
+			}
+		}
 		op.Pvals = nil
 	}
 	if len(op.Mvals) > 0 {
@@ -482,7 +510,7 @@ func (op *DECSOpening) packResidues() {
 			}
 		}
 		mCols := op.Eta
-		if op.MFormatVersion == 1 {
+		if op.MFormatVersion == OpeningFormatOmitCols || op.MFormatVersion == OpeningFormatColumnWidths {
 			if op.MColsEncoded > 0 {
 				mCols = op.MColsEncoded
 			} else if len(op.Mvals) > 0 {
@@ -490,7 +518,7 @@ func (op *DECSOpening) packResidues() {
 				op.MColsEncoded = mCols
 			}
 		} else {
-			op.MFormatVersion = 0
+			op.MFormatVersion = OpeningFormatPlain
 			op.MColsEncoded = 0
 			op.MOmitCols = nil
 		}
@@ -511,9 +539,37 @@ func (op *DECSOpening) packResidues() {
 				}
 			}
 		}
+		wantColumnWidths := op.MFormatVersion == OpeningFormatColumnWidths
 		width := selectBitWidth(maxMatrixValue(op.Mvals))
-		op.MvalsBits = packFlatUintMatrix(op.Mvals, mCols, width)
-		op.MvalsBitWidth = uint8(width)
+		flat := packFlatUintMatrix(op.Mvals, mCols, width)
+		flatCost := len(flat) + 1
+		var colWidths []uint8
+		var colPacked []byte
+		colCost := flatCost
+		if wantColumnWidths {
+			colWidths = columnWidthsForMatrix(op.Mvals, mCols)
+			colPacked = packColumnWidthUintMatrix(op.Mvals, mCols, colWidths)
+			colCost = len(colPacked) + len(colWidths)
+			if len(op.MOmitCols) == 0 {
+				colCost++
+			}
+		}
+		if wantColumnWidths && len(colPacked) > 0 && colCost < flatCost {
+			op.MvalsBits = colPacked
+			op.MvalsBitWidth = 0
+			op.MvalsColumnWidths = colWidths
+			op.MFormatVersion = OpeningFormatColumnWidths
+		} else {
+			op.MvalsBits = flat
+			op.MvalsBitWidth = uint8(width)
+			op.MvalsColumnWidths = nil
+			if op.MFormatVersion == OpeningFormatColumnWidths && len(op.MOmitCols) == 0 {
+				op.MFormatVersion = OpeningFormatPlain
+				op.MColsEncoded = 0
+			} else if op.MFormatVersion == OpeningFormatColumnWidths {
+				op.MFormatVersion = OpeningFormatOmitCols
+			}
+		}
 		op.Mvals = nil
 	}
 }

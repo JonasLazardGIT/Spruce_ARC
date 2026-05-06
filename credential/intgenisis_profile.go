@@ -3,6 +3,7 @@ package credential
 const (
 	ProfileIntGenISISB = "intgenisis_profile_b"
 	ProfileIntGenISISA = "intgenisis_profile_a"
+	ProfileIntGenISISC = "intgenisis_profile_c"
 )
 
 // IntGenISISProfile records the committed-message / MLWE-hiding protocol
@@ -31,7 +32,7 @@ func PrimaryIntGenISISProfile() IntGenISISProfile {
 		EllM:                 1,
 		KS:                   2,
 		NC:                   1,
-		B:                    8,
+		B:                    4,
 		EllMuSig:             1,
 		EllX0:                2,
 		EllX1:                1,
@@ -49,7 +50,7 @@ func CompactIntGenISISProfile() IntGenISISProfile {
 		EllM:                 1,
 		KS:                   4,
 		NC:                   1,
-		B:                    8,
+		B:                    4,
 		EllMuSig:             1,
 		EllX0:                2,
 		EllX1:                1,
@@ -59,19 +60,39 @@ func CompactIntGenISISProfile() IntGenISISProfile {
 	}
 }
 
+func Ternary1024IntGenISISProfile() IntGenISISProfile {
+	return IntGenISISProfile{
+		Name:                 ProfileIntGenISISC,
+		N:                    1024,
+		Q:                    1054721,
+		EllM:                 1,
+		KS:                   1,
+		NC:                   1,
+		B:                    1,
+		EllMuSig:             1,
+		EllX0:                1,
+		EllX1:                1,
+		SignaturePreimageLen: 2,
+		MLWEHidingBits:       194.408,
+		MSISBindingBits:      427.780,
+	}
+}
+
 func LookupIntGenISISProfile(name string) (IntGenISISProfile, bool) {
 	switch name {
 	case "", ProfileIntGenISISB:
 		return PrimaryIntGenISISProfile(), true
 	case ProfileIntGenISISA:
 		return CompactIntGenISISProfile(), true
+	case ProfileIntGenISISC:
+		return Ternary1024IntGenISISProfile(), true
 	default:
 		return IntGenISISProfile{}, false
 	}
 }
 
 func LookupIntGenISISProfileByRingDegree(n int) (IntGenISISProfile, bool) {
-	for _, profile := range []IntGenISISProfile{PrimaryIntGenISISProfile(), CompactIntGenISISProfile()} {
+	for _, profile := range []IntGenISISProfile{PrimaryIntGenISISProfile(), CompactIntGenISISProfile(), Ternary1024IntGenISISProfile()} {
 		if profile.N == n {
 			return profile, true
 		}

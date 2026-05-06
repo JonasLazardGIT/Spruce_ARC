@@ -238,6 +238,9 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("verify showing: ok=%v err=%v", ok, err)
 	}
+	if proof.QOpening == nil || proof.QRoot == ([16]byte{}) || len(proof.QRBits) == 0 {
+		t.Fatal("legacy showing proof did not carry Q DECS material")
+	}
 	projectionOpts := opts
 	projectionOpts.IntGenISISReplayProjection = IntGenISISReplayProjectionProjectUYHatV1
 	projectionDebugPub, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), projectionOpts)
@@ -394,86 +397,11 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	}
 	compressedOpts := opts
 	compressedOpts.IntGenISISMSECompression = 1
-	compressedProof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, compressedOpts)
-	if err != nil {
-		t.Fatalf("build compressed M/s/e showing: %v", err)
+	if _, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, compressedOpts); err == nil {
+		t.Fatal("B=4 showing accepted compressed M/s/e proof")
 	}
-	compressedLayout := compressedProof.RowLayout.IntGenISISShowing
-	if compressedLayout.MSECompressionLevel != 1 || compressedLayout.MSECompressionPackWidth != 2 {
-		t.Fatalf("compressed layout level=%d pack=%d want level=1 pack=2", compressedLayout.MSECompressionLevel, compressedLayout.MSECompressionPackWidth)
-	}
-	if compressedLayout.MViewStart >= 0 || compressedLayout.SViewStart >= 0 || compressedLayout.EViewStart >= 0 {
-		t.Fatalf("compressed layout retained raw M/s/e views m=%d s=%d e=%d", compressedLayout.MViewStart, compressedLayout.SViewStart, compressedLayout.EViewStart)
-	}
-	if got, want := compressedLayout.MSECarrierCount, 64; got != want {
-		t.Fatalf("compressed M/s/e carrier rows=%d want %d", got, want)
-	}
-	ok, err = VerifyIntGenISISShowing(pub, compressedProof, compressedOpts)
-	if err != nil || !ok {
-		t.Fatalf("verify compressed showing: ok=%v err=%v", ok, err)
-	}
-	ok, err = VerifyIntGenISISShowing(pub, compressedProof, opts)
-	if err == nil && ok {
-		t.Fatal("default verifier accepted compressed M/s/e proof")
-	}
-	compressedDebugPub, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), compressedOpts)
-	if err != nil {
-		t.Fatalf("bind compressed debug public extras: %v", err)
-	}
-	compressedRows, _, compressedDebugLayout, _, compressedDebugCompanion, _, _, _, _, _, compressedBuiltNCols, err := BuildCredentialRowsShowingIntGenISIS(ringQ, compressedDebugPub, WitnessInputs{CoeffNativeShowing: cn}, params.LenKey, params.LenNonce, params.RF, params.RP, compressedOpts.PRFGroupRounds, compressedOpts)
-	if err != nil {
-		t.Fatalf("compressed debug rows: %v", err)
-	}
-	compressedRowsNTT := make([]*ring.Poly, len(compressedRows))
-	for i := range compressedRows {
-		compressedRowsNTT[i] = ringQ.NewPoly()
-		ring.Copy(compressedRows[i], compressedRowsNTT[i])
-		ringQ.NTT(compressedRowsNTT[i], compressedRowsNTT[i])
-	}
-	compressedOmega, err := deriveRelationWitnessOmega(ringQ.Modulus[0], compressedOpts.NLeaves, compressedOpts.NCols, compressedOpts.LVCSNCols, compressedOpts.Ell, pub.HashRelation)
-	if err != nil {
-		t.Fatalf("compressed debug omega: %v", err)
-	}
-	compressedSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, compressedDebugPub, compressedDebugLayout, compressedRowsNTT, compressedOmega[:compressedBuiltNCols], compressedDebugCompanion)
-	if err != nil {
-		t.Fatalf("compressed constraints: %v", err)
-	}
-	assertConstraintBucketVanishesOnOmega(t, ringQ, compressedOmega[:compressedBuiltNCols], "compressed FparInt", compressedSet.FparInt, compressedSet.FparIntCoeffs)
-	if nonZero, err := bucketHasNonZeroOmegaSum(ringQ, compressedOmega[:compressedBuiltNCols], compressedSet.FaggNorm, compressedSet.FaggNormCoeffs); err != nil || nonZero {
-		t.Fatalf("compressed FaggNorm nonzero=%v err=%v", nonZero, err)
-	}
-	compressedMutated := clonePolySliceForIntGenISISTest(ringQ, compressedRows)
-	compressedMutated[compressedLayout.MCarrierStart].Coeffs[0][0] = (compressedMutated[compressedLayout.MCarrierStart].Coeffs[0][0] + 1) % ringQ.Modulus[0]
-	compressedMutatedNTT := make([]*ring.Poly, len(compressedMutated))
-	for i := range compressedMutated {
-		compressedMutatedNTT[i] = ringQ.NewPoly()
-		ring.Copy(compressedMutated[i], compressedMutatedNTT[i])
-		ringQ.NTT(compressedMutatedNTT[i], compressedMutatedNTT[i])
-	}
-	compressedBadSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, compressedDebugPub, compressedDebugLayout, compressedMutatedNTT, compressedOmega[:compressedBuiltNCols], compressedDebugCompanion)
-	if err != nil {
-		t.Fatalf("compressed tamper constraints: %v", err)
-	}
-	if nonZero, err := bucketHasNonZeroOmegaSum(ringQ, compressedOmega[:compressedBuiltNCols], compressedBadSet.FaggNorm, compressedBadSet.FaggNormCoeffs); err != nil || !nonZero {
-		t.Fatalf("tampered compressed carrier did not violate bridge: nonzero=%v err=%v", nonZero, err)
-	}
-	compressedV2Opts := compressedOpts
-	compressedV2Opts.IntGenISISReplayProjection = IntGenISISReplayProjectionProjectUYHatYViewV2
-	compressedV2Proof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, compressedV2Opts)
-	if err != nil {
-		t.Fatalf("build compressed projection v2 showing: %v", err)
-	}
-	compressedV2Layout := compressedV2Proof.RowLayout.IntGenISISShowing
-	if compressedV2Layout.YViewCount != 0 || compressedV2Layout.YHatCount != 0 || compressedV2Layout.UHatCount != 0 {
-		t.Fatalf("compressed projection v2 retained derived rows yview=%d yhat=%d uhat=%d", compressedV2Layout.YViewCount, compressedV2Layout.YHatCount, compressedV2Layout.UHatCount)
-	}
-	ok, err = VerifyIntGenISISShowing(pub, compressedV2Proof, compressedV2Opts)
-	if err != nil || !ok {
-		t.Fatalf("verify compressed projection v2 showing: ok=%v err=%v", ok, err)
-	}
-	ok, err = VerifyIntGenISISShowing(pub, compressedV2Proof, compressedOpts)
-	if err == nil && ok {
-		t.Fatal("compressed non-projected verifier accepted compressed projection v2 proof")
+	if _, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), compressedOpts); err == nil {
+		t.Fatal("B=4 public extras accepted compressed M/s/e descriptor")
 	}
 	variantOpts := opts
 	variantOpts.SigShortnessRadix = 7
@@ -504,9 +432,23 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	thetaOpts.LVCSNCols = thetaOpts.NCols
 	thetaOpts.PostSignLVCSNCols = thetaOpts.NCols
 	thetaOpts.PRFLVCSNCols = thetaOpts.NCols
+	thetaOpts.TranscriptVersion = TranscriptVersionSmallWood2025
+	thetaOpts.TranscriptProtocolMode = TranscriptProtocolSmallField2025V1
 	thetaProof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, thetaOpts)
 	if err != nil {
 		t.Fatalf("build theta>1 showing: %v", err)
+	}
+	if thetaProof.SmallField2025 == nil {
+		t.Fatal("strict theta>1 showing missing smallfield2025 metadata")
+	}
+	if !thetaProof.SmallField2025.ReductionEnabled || thetaProof.SmallField2025.Status != SmallField2025StatusLive {
+		t.Fatalf("strict theta>1 showing reduction status=%q enabled=%v", thetaProof.SmallField2025.Status, thetaProof.SmallField2025.ReductionEnabled)
+	}
+	if got, want := thetaProof.SmallField2025.QueryCount, (thetaProof.SmallField2025.WitnessLayers+1)*thetaOpts.Theta; got != want {
+		t.Fatalf("strict theta>1 showing query_count=%d want %d", got, want)
+	}
+	if thetaProof.PCSOpening == nil || thetaProof.PCSOpening.PColsEncoded != thetaProof.PCSOpening.R-thetaProof.SmallField2025.QueryCount {
+		t.Fatalf("strict theta>1 showing opening PColsEncoded=%d R=%d query_count=%d", thetaProof.PCSOpening.PColsEncoded, thetaProof.PCSOpening.R, thetaProof.SmallField2025.QueryCount)
 	}
 	if thetaProof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV1 {
 		t.Fatalf("theta>1 geometry kind=%q", thetaProof.PCSGeometry.Kind)
@@ -514,19 +456,89 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if thetaProof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRows {
 		t.Fatalf("theta>1 source=%q", thetaProof.PCSGeometry.SmallFieldSource)
 	}
-	if thetaProof.QOpening == nil || thetaProof.QOpening.R != thetaOpts.Rho*thetaOpts.Theta {
-		t.Fatalf("theta>1 Q rows mismatch")
+	if thetaProof.QRoot != ([16]byte{}) || len(thetaProof.QRBits) != 0 || thetaProof.QOpening != nil {
+		t.Fatal("strict theta>1 showing carried redundant Q DECS material")
+	}
+	if len(thetaProof.QPayloadMatrix()) != thetaOpts.Rho*thetaOpts.Theta {
+		t.Fatalf("theta>1 Q payload rows mismatch")
 	}
 	ok, err = VerifyIntGenISISShowing(pub, thetaProof, thetaOpts)
 	if err != nil || !ok {
 		t.Fatalf("verify theta>1 showing: ok=%v err=%v", ok, err)
 	}
+	badSmallFieldC := *thetaProof
+	badSmallFieldC.CoeffMatrix = copyMatrix(thetaProof.CoeffMatrix)
+	badSmallFieldC.CoeffMatrix[0][0] = (badSmallFieldC.CoeffMatrix[0][0] + 1) % ringQ.Modulus[0]
+	ok, err = VerifyIntGenISISShowing(pub, &badSmallFieldC, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("smallfield2025 showing verified with tampered coefficient matrix")
+	}
+	badSmallFieldVHead := *thetaProof
+	badSmallFieldVHead.VTargetsBits = append([]byte(nil), thetaProof.VTargetsBits...)
+	badSmallFieldVHead.VTargetsBits[len(badSmallFieldVHead.VTargetsBits)-1] ^= 1
+	ok, err = VerifyIntGenISISShowing(pub, &badSmallFieldVHead, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("smallfield2025 showing verified with tampered VHead payload")
+	}
+	badSmallFieldVBar := *thetaProof
+	badSmallFieldVBar.BarSetsBits = append([]byte(nil), thetaProof.BarSetsBits...)
+	badSmallFieldVBar.BarSetsBits[len(badSmallFieldVBar.BarSetsBits)-1] ^= 1
+	ok, err = VerifyIntGenISISShowing(pub, &badSmallFieldVBar, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("smallfield2025 showing verified with tampered VBar payload")
+	}
+	badSmallFieldOmit := *thetaProof
+	badSmallFieldMeta := *thetaProof.SmallField2025
+	badSmallFieldMeta.POmitCols = make([]int, thetaProof.SmallField2025.QueryCount)
+	badSmallFieldOmit.SmallField2025 = &badSmallFieldMeta
+	ok, err = VerifyIntGenISISShowing(pub, &badSmallFieldOmit, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("smallfield2025 showing verified with tampered POmitCols metadata")
+	}
+	badQPayload := *thetaProof
+	badQPayload.QPayload = copyMatrix(thetaProof.QPayloadMatrix())
+	badQPayload.QPayloadBits = nil
+	badQPayload.QPayload[0][0] = (badQPayload.QPayload[0][0] + 1) % ringQ.Modulus[0]
+	ok, err = VerifyIntGenISISShowing(pub, &badQPayload, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("theta>1 showing verified with tampered Q payload")
+	}
+	missingQPayload := *thetaProof
+	missingQPayload.QPayload = nil
+	missingQPayload.QPayloadBits = nil
+	ok, err = VerifyIntGenISISShowing(pub, &missingQPayload, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("theta>1 showing verified without Q payload")
+	}
 	badQRows := *thetaProof
-	badQRows.QOpening = cloneDECSOpening(thetaProof.QOpening)
-	badQRows.QOpening.R--
+	badQRows.QPayload = copyMatrix(thetaProof.QPayloadMatrix())
+	badQRows.QPayloadBits = nil
+	if len(badQRows.QPayload) > 1 {
+		badQRows.QPayload = badQRows.QPayload[:len(badQRows.QPayload)-1]
+	} else {
+		badQRows.QPayload = append(badQRows.QPayload, append([]uint64(nil), badQRows.QPayload[0]...))
+	}
 	ok, err = VerifyIntGenISISShowing(pub, &badQRows, thetaOpts)
 	if err == nil && ok {
-		t.Fatal("theta>1 showing verified with tampered Q row count")
+		t.Fatal("theta>1 showing verified with tampered Q payload row count")
+	}
+	badQDegree := *thetaProof
+	badQDegree.QPayload = copyMatrix(thetaProof.QPayloadMatrix())
+	badQDegree.QPayloadBits = nil
+	overflowCoeff := thetaProof.QDegreeBound + 1
+	for len(badQDegree.QPayload[0]) <= overflowCoeff {
+		badQDegree.QPayload[0] = append(badQDegree.QPayload[0], 0)
+	}
+	badQDegree.QPayload[0][overflowCoeff] = 1
+	ok, err = VerifyIntGenISISShowing(pub, &badQDegree, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("theta>1 showing verified with Q payload degree overflow")
+	}
+	redundantQ := *thetaProof
+	redundantQ.QRoot[0] = 1
+	ok, err = VerifyIntGenISISShowing(pub, &redundantQ, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("theta>1 showing verified with redundant strict QRoot")
 	}
 
 	tamperedProof := *proof

@@ -12,6 +12,8 @@ const (
 	IntGenISISMessageLayoutRingTailKeyV1 = "intgenisis_message_ring_tail_key_v1"
 	IntGenISISSamplerUniformRQV1         = "uniform_rq_v1"
 	IntGenISISDomainTernaryV1            = "ternary_v1"
+	IntGenISISDomainBoundedRangeV1       = "bounded_range_v1"
+	IntGenISISDomainBoundedRangeB4V1     = "bounded_range_b4_v1"
 	IntGenISISDegreeModePaperEq3V1       = "paper_eq3_v1"
 )
 
@@ -55,6 +57,10 @@ func DefaultSemanticMessageLayout(profile IntGenISISProfile, lenKey int) (Semant
 	if profile.N <= lenKey {
 		return SemanticMessageLayout{}, fmt.Errorf("ring degree %d too small for IntGenISIS semantic layout", profile.N)
 	}
+	domain := IntGenISISDomainBoundedRangeV1
+	if profile.B == 1 {
+		domain = IntGenISISDomainTernaryV1
+	}
 	keyStart := profile.N - lenKey
 	attr := make([]MessageSlot, keyStart)
 	for i := range attr {
@@ -74,9 +80,9 @@ func DefaultSemanticMessageLayout(profile IntGenISISProfile, lenKey int) (Semant
 		KeyRows:       profile.EllM,
 		Attribute:     attr,
 		Key:           key,
-		Bound:         1,
-		MSEDomain:     IntGenISISDomainTernaryV1,
-		KeyDomain:     IntGenISISDomainTernaryV1,
+		Bound:         profile.B,
+		MSEDomain:     domain,
+		KeyDomain:     domain,
 		DegreeMode:    IntGenISISDegreeModePaperEq3V1,
 	}, nil
 }
@@ -271,7 +277,7 @@ func (l SemanticMessageLayout) validate() error {
 	if l.RingDegree != profile.N || l.MessageRows != profile.EllM {
 		return fmt.Errorf("semantic layout dimensions do not match profile %q", l.Profile)
 	}
-	if l.MSEDomain != IntGenISISDomainTernaryV1 || l.KeyDomain != IntGenISISDomainTernaryV1 {
+	if !isSupportedIntGenISISSemanticDomain(l.MSEDomain) || !isSupportedIntGenISISSemanticDomain(l.KeyDomain) {
 		return fmt.Errorf("unsupported semantic domains mse=%q key=%q", l.MSEDomain, l.KeyDomain)
 	}
 	if l.DegreeMode != IntGenISISDegreeModePaperEq3V1 {
@@ -342,4 +348,13 @@ func absInt64(v int64) int64 {
 
 func isTernaryInt64(v int64) bool {
 	return v >= -1 && v <= 1
+}
+
+func isSupportedIntGenISISSemanticDomain(domain string) bool {
+	switch domain {
+	case IntGenISISDomainTernaryV1, IntGenISISDomainBoundedRangeV1, IntGenISISDomainBoundedRangeB4V1:
+		return true
+	default:
+		return false
+	}
 }
