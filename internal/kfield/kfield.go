@@ -15,9 +15,11 @@ import (
 
 // Field describes K = F_q[X]/(chi(X)) with degree theta power-basis representation.
 type Field struct {
-	Q     uint64
-	Theta int
-	Chi   []uint64
+	Q       uint64
+	Theta   int
+	Chi     []uint64
+	recip   uint64
+	fastMod bool
 }
 
 // Elem is a K element represented by its theta limbs in the power basis.
@@ -55,7 +57,12 @@ func New(q uint64, theta int, chi []uint64) (*Field, error) {
 	if !isIrreducible(q, chiNorm) {
 		return nil, fmt.Errorf("kfield: chi is reducible")
 	}
-	return &Field{Q: q, Theta: theta, Chi: chiNorm}, nil
+	f := &Field{Q: q, Theta: theta, Chi: chiNorm}
+	if q > 1 && q <= uint64(^uint32(0)) {
+		f.recip, _ = bits.Div64(1, 0, q)
+		f.fastMod = true
+	}
+	return f, nil
 }
 
 // FindIrreducible samples random monic irreducible polynomials of degree theta over F_q.
@@ -155,7 +162,7 @@ func (f *Field) mulIntoTmp(dst, tmp []uint64, a, b Elem) {
 				continue
 			}
 			idx := i + j
-			tmp[idx] = modAdd(tmp[idx], modMul(ai, bj, q), q)
+			tmp[idx] = f.addReduced(tmp[idx], f.mulReduced(ai, bj))
 		}
 	}
 	for k := len(tmp) - 1; k >= deg; k-- {
@@ -169,7 +176,7 @@ func (f *Field) mulIntoTmp(dst, tmp []uint64, a, b Elem) {
 		tmp[k] = 0
 		m := k - deg
 		for j := 0; j < deg; j++ {
-			tmp[m+j] = modSub(tmp[m+j], modMul(coeff, f.Chi[j]%q, q), q)
+			tmp[m+j] = f.subReduced(tmp[m+j], f.mulReduced(coeff, f.Chi[j]%q))
 		}
 	}
 	for i := 0; i < deg; i++ {
@@ -181,7 +188,7 @@ func (f *Field) mulIntoTmp(dst, tmp []uint64, a, b Elem) {
 func (f *Field) AddInto(dst *Elem, a, b Elem) {
 	f.ensureElem(dst)
 	for i := 0; i < f.Theta; i++ {
-		dst.Limb[i] = modAdd(a.Limb[i]%f.Q, b.Limb[i]%f.Q, f.Q)
+		dst.Limb[i] = f.addReduced(a.Limb[i]%f.Q, b.Limb[i]%f.Q)
 	}
 }
 
@@ -189,7 +196,7 @@ func (f *Field) AddInto(dst *Elem, a, b Elem) {
 func (f *Field) SubInto(dst *Elem, a, b Elem) {
 	f.ensureElem(dst)
 	for i := 0; i < f.Theta; i++ {
-		dst.Limb[i] = modSub(a.Limb[i]%f.Q, b.Limb[i]%f.Q, f.Q)
+		dst.Limb[i] = f.subReduced(a.Limb[i]%f.Q, b.Limb[i]%f.Q)
 	}
 }
 
@@ -204,7 +211,7 @@ func (f *Field) MulBaseInto(dst *Elem, src Elem, scalar uint64) {
 		return
 	}
 	for i := 0; i < f.Theta; i++ {
-		dst.Limb[i] = modMul(src.Limb[i]%f.Q, scalar, f.Q)
+		dst.Limb[i] = f.mulReduced(src.Limb[i]%f.Q, scalar)
 	}
 }
 
@@ -216,7 +223,7 @@ func (f *Field) AddMulBaseInto(acc *Elem, src Elem, scalar uint64) {
 		return
 	}
 	for i := 0; i < f.Theta; i++ {
-		acc.Limb[i] = modAdd(acc.Limb[i]%f.Q, modMul(src.Limb[i]%f.Q, scalar, f.Q), f.Q)
+		acc.Limb[i] = f.addReduced(acc.Limb[i]%f.Q, f.mulReduced(src.Limb[i]%f.Q, scalar))
 	}
 }
 
@@ -242,7 +249,7 @@ func (f *Field) AddMulInto(acc *Elem, a, b Elem) {
 		var prod [8]uint64
 		f.mulIntoTmp(prod[:deg], tmp[:2*deg], a, b)
 		for i := 0; i < deg; i++ {
-			acc.Limb[i] = modAdd(acc.Limb[i]%f.Q, prod[i], f.Q)
+			acc.Limb[i] = f.addReduced(acc.Limb[i]%f.Q, prod[i])
 		}
 		return
 	}
@@ -250,7 +257,7 @@ func (f *Field) AddMulInto(acc *Elem, a, b Elem) {
 	prod := make([]uint64, deg)
 	f.mulIntoTmp(prod, tmp, a, b)
 	for i := 0; i < deg; i++ {
-		acc.Limb[i] = modAdd(acc.Limb[i]%f.Q, prod[i], f.Q)
+		acc.Limb[i] = f.addReduced(acc.Limb[i]%f.Q, prod[i])
 	}
 }
 
@@ -263,7 +270,7 @@ func (f *Field) SubMulInto(acc *Elem, a, b Elem) {
 		var prod [8]uint64
 		f.mulIntoTmp(prod[:deg], tmp[:2*deg], a, b)
 		for i := 0; i < deg; i++ {
-			acc.Limb[i] = modSub(acc.Limb[i]%f.Q, prod[i], f.Q)
+			acc.Limb[i] = f.subReduced(acc.Limb[i]%f.Q, prod[i])
 		}
 		return
 	}
@@ -271,7 +278,7 @@ func (f *Field) SubMulInto(acc *Elem, a, b Elem) {
 	prod := make([]uint64, deg)
 	f.mulIntoTmp(prod, tmp, a, b)
 	for i := 0; i < deg; i++ {
-		acc.Limb[i] = modSub(acc.Limb[i]%f.Q, prod[i], f.Q)
+		acc.Limb[i] = f.subReduced(acc.Limb[i]%f.Q, prod[i])
 	}
 }
 
@@ -364,12 +371,44 @@ func (f *Field) EvalFPolyAtK(coeff []uint64, e Elem) Elem {
 	acc := f.Zero()
 	for i := len(coeff) - 1; i >= 0; i-- {
 		f.MulInto(&acc, acc, e)
-		acc.Limb[0] = modAdd(acc.Limb[0]%f.Q, coeff[i]%f.Q, f.Q)
+		acc.Limb[0] = f.addReduced(acc.Limb[0]%f.Q, coeff[i]%f.Q)
 		if i == 0 {
 			break
 		}
 	}
 	return acc
+}
+
+func (f *Field) addReduced(a, b uint64) uint64 {
+	if f.fastMod {
+		s := a + b
+		if s >= f.Q {
+			s -= f.Q
+		}
+		return s
+	}
+	return modAdd(a, b, f.Q)
+}
+
+func (f *Field) subReduced(a, b uint64) uint64 {
+	if a >= b {
+		return a - b
+	}
+	return a + f.Q - b
+}
+
+func (f *Field) mulReduced(a, b uint64) uint64 {
+	hi, lo := bits.Mul64(a, b)
+	if f.fastMod && hi == 0 {
+		qhat, _ := bits.Mul64(lo, f.recip)
+		rem := lo - qhat*f.Q
+		for rem >= f.Q {
+			rem -= f.Q
+		}
+		return rem
+	}
+	_, rem := bits.Div64(hi, lo, f.Q)
+	return rem
 }
 
 // randU64 reads 8 random bytes and returns them as a uint64 in little endian.
