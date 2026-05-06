@@ -3,6 +3,8 @@ package PIOP
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
 func TestMulModXN1MatchesPolyMulReduce(t *testing.T) {
@@ -75,6 +77,48 @@ func assertPaddedPolyEqual(t *testing.T, got, want []uint64, q uint64) {
 	for i := len(got); i < len(want); i++ {
 		if want[i]%q != 0 {
 			t.Fatalf("extra coeff[%d] want nonzero %d", i, want[i]%q)
+		}
+	}
+}
+
+func BenchmarkAddMulModXN1Into(b *testing.B) {
+	q := uint64(1054721)
+	rng := rand.New(rand.NewSource(17))
+	n := 1024
+	a := randomPolyCoeffs(rng, n, q)
+	c := randomPolyCoeffs(rng, n, q)
+	dst := make([]uint64, n)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for j := range dst {
+			dst[j] = 0
+		}
+		addMulModXN1Into(dst, a, c, 7, q)
+	}
+}
+
+func BenchmarkIntGenISISRowCoeffCache(b *testing.B) {
+	ringQ, err := ring.NewRing(1024, []uint64{1054721})
+	if err != nil {
+		b.Fatalf("NewRing: %v", err)
+	}
+	rows := make([]*ring.Poly, 512)
+	for i := range rows {
+		p := ringQ.NewPoly()
+		for j := 0; j < int(ringQ.N); j++ {
+			p.Coeffs[0][j] = uint64((i + j) % int(ringQ.Modulus[0]))
+		}
+		ringQ.NTT(p, p)
+		rows[i] = p
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cache, err := newIntGenISISRowCoeffCache(ringQ, rows)
+		if err != nil {
+			b.Fatalf("row coeff cache: %v", err)
+		}
+		if _, err := cache.Row(i % len(rows)); err != nil {
+			b.Fatalf("row coeff: %v", err)
 		}
 	}
 }
