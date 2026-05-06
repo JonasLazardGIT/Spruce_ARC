@@ -15,6 +15,8 @@ credential/issuance/intgenisis_audit_*/
 credential/issuance/intgenisis_audit_*.json
 credential/issuance/intgenisis_bench_*/
 credential/issuance/intgenisis_bench_*.json
+credential/issuance/intgenisis_b3_measurements/
+credential/issuance/intgenisis_b4_measurements/
 credential/issuance/intgenisis_e2e/
 credential/issuance/intgenisis_e2e_report.json
 credential/issuance/intgenisis_estimate_sweeps/
@@ -22,6 +24,9 @@ credential/issuance/intgenisis_measure_*/
 credential/issuance/intgenisis_measure_*.json
 credential/issuance/intgenisis_n256_*/
 credential/issuance/intgenisis_n256_*.json
+credential/issuance/intgenisis_n1024_ternary_deep_sweeps/
+credential/issuance/intgenisis_n1024_strict_smallfield_zero_grinding/
+credential/issuance/intgenisis_n1024_ternary_lowleaves_sweeps/
 credential/issuance/intgenisis_n512_*/
 credential/issuance/intgenisis_n512_*.json
 credential/issuance/intgenisis_preset_measured/
@@ -30,6 +35,8 @@ credential/issuance/intgenisis_projection_*/
 credential/issuance/intgenisis_projection_*.json
 credential/issuance/intgenisis_r11l4_*/
 credential/issuance/intgenisis_r11l4_*.json
+credential/issuance/intgenisis_runtime96_deep_sweeps/
+credential/issuance/intgenisis_runtime96_sweeps/
 credential/issuance/intgenisis_sweep_*/
 credential/issuance/intgenisis_sweep_*.json
 credential/issuance/intgenisis_sw96_*/
@@ -50,3 +57,16 @@ credential/issuance/summary.json
 
 # Parameter-search outputs are generated; keep scripts tracked, not result runs.
 parameter_search/results/
+
+# Python cache output.
+__pycache__/
+*.py[cod]
+
+# LaTeX build output.
+*.aux
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
