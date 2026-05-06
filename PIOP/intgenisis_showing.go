@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -1580,78 +1581,104 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	}); err != nil {
 		return nil, nil, err
 	}
-	derivedYHatLaneCoeff := func(block, lane int) ([]uint64, error) {
-		if len(ySourceCoeffs) != 3 {
-			return nil, fmt.Errorf("projected Y source terms=%d want 3", len(ySourceCoeffs))
-		}
-		t := block*ncols + lane
-		left := make([]uint64, n)
-		cmVal := plan.cmAtOmega[block][lane]
-		addScaledInto(left, yTrans[0][0][t], cmVal, q)
-		for i := 0; i < l.SCount; i++ {
-			asVal := plan.asAtOmega[i][block][lane]
-			addScaledInto(left, yTrans[1][i][t], asVal, q)
-		}
-		addScaledInto(left, yTrans[2][0][t], 1, q)
-		return trimPoly(left, q), nil
-	}
-	fagg := make([]*ring.Poly, 0, l.ViewRowsPerPoly*ncols)
-	coeffs := make([][]uint64, 0, l.ViewRowsPerPoly*ncols)
+	totalOutputs := l.ViewRowsPerPoly * ncols
+	outCoeff := make([][]uint64, totalOutputs)
 	if err := stage("showing.constraints.projected.emit", func() error {
-		for block := 0; block < l.ViewRowsPerPoly; block++ {
-			muCoeff, err := rowCache.Row(l.MuSigHatStart + block)
+		workers := minInt(runtime.GOMAXPROCS(0), l.ViewRowsPerPoly)
+		if workers <= 1 {
+			return emitProjectedSignatureCoeffRange(rowCache, l, plan, basis, uTrans, yTrans, yViewTrans, outCoeff, q, 0, l.ViewRowsPerPoly)
+		}
+		var wg sync.WaitGroup
+		var errOnce sync.Once
+		var firstErr error
+		setErr := func(err error) {
 			if err != nil {
-				return err
-			}
-			x0Coeff := make([][]uint64, l.X0Count)
-			for i := 0; i < l.X0Count; i++ {
-				x0Coeff[i], err = rowCache.Row(l.X0HatStart + i*l.ViewRowsPerPoly + block)
-				if err != nil {
-					return err
-				}
-			}
-			zCoeff, err := rowCache.Row(l.ZHatStart + block)
-			if err != nil {
-				return err
-			}
-			rhs := make([]uint64, n)
-			addScaledInto(rhs, plan.bBlockCoeff[0][block], 1, q)
-			addMulModXN1Into(rhs, plan.bBlockCoeff[1][block], muCoeff, 1, q)
-			for i := 0; i < l.X0Count; i++ {
-				addMulModXN1Into(rhs, plan.bBlockCoeff[2+i][block], x0Coeff[i], 1, q)
-			}
-			addScaledInto(rhs, zCoeff, 1, q)
-			for lane := 0; lane < ncols; lane++ {
-				t := block*ncols + lane
-				res := make([]uint64, n)
-				for i := 0; i < l.UCount; i++ {
-					aVal := plan.aAtOmega[i][block][lane]
-					addScaledInto(res, uTrans[i][t], aVal, q)
-				}
-				laneRHS := make([]uint64, n)
-				mulModXN1(laneRHS, basis.LagrangeBasis[lane], rhs, q)
-				subInto(res, laneRHS, q)
-				var yLaneCoeff []uint64
-				if intGenISISProjectionDerivesYView(l) {
-					var yerr error
-					yLaneCoeff, yerr = derivedYHatLaneCoeff(block, lane)
-					if yerr != nil {
-						return yerr
-					}
-				} else {
-					yLaneCoeff = yViewTrans[0][t]
-				}
-				subInto(res, yLaneCoeff, q)
-				res = trimPoly(res, q)
-				coeffs = append(coeffs, res)
-				fagg = append(fagg, nttPolyFromFormalCoeffsIfFits(ringQ, res))
+				errOnce.Do(func() {
+					firstErr = err
+				})
 			}
 		}
-		return nil
+		for worker := 0; worker < workers; worker++ {
+			startBlock := worker * l.ViewRowsPerPoly / workers
+			endBlock := (worker + 1) * l.ViewRowsPerPoly / workers
+			if startBlock >= endBlock {
+				continue
+			}
+			wg.Add(1)
+			go func(startBlock, endBlock int) {
+				defer wg.Done()
+				setErr(emitProjectedSignatureCoeffRange(rowCache, l, plan, basis, uTrans, yTrans, yViewTrans, outCoeff, q, startBlock, endBlock))
+			}(startBlock, endBlock)
+		}
+		wg.Wait()
+		return firstErr
 	}); err != nil {
 		return nil, nil, err
 	}
+	fagg := make([]*ring.Poly, 0, totalOutputs)
+	coeffs := make([][]uint64, 0, totalOutputs)
+	for t := 0; t < totalOutputs; t++ {
+		coeffs = append(coeffs, outCoeff[t])
+		fagg = append(fagg, nttPolyFromFormalCoeffsIfFits(ringQ, outCoeff[t]))
+	}
 	return fagg, coeffs, nil
+}
+
+func emitProjectedSignatureCoeffRange(rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, plan *intGenISISProjectedSignaturePlan, basis *transformBridgeBasisCache, uTrans [][][]uint64, yTrans [][][][]uint64, yViewTrans [][][]uint64, outCoeff [][]uint64, q uint64, startBlock, endBlock int) error {
+	n := plan.n
+	ncols := plan.ncols
+	for block := startBlock; block < endBlock; block++ {
+		muCoeff, err := rowCache.Row(l.MuSigHatStart + block)
+		if err != nil {
+			return err
+		}
+		x0Coeff := make([][]uint64, l.X0Count)
+		for i := 0; i < l.X0Count; i++ {
+			x0Coeff[i], err = rowCache.Row(l.X0HatStart + i*l.ViewRowsPerPoly + block)
+			if err != nil {
+				return err
+			}
+		}
+		zCoeff, err := rowCache.Row(l.ZHatStart + block)
+		if err != nil {
+			return err
+		}
+		rhs := make([]uint64, n)
+		addScaledInto(rhs, plan.bBlockCoeff[0][block], 1, q)
+		addMulModXN1Into(rhs, plan.bBlockCoeff[1][block], muCoeff, 1, q)
+		for i := 0; i < l.X0Count; i++ {
+			addMulModXN1Into(rhs, plan.bBlockCoeff[2+i][block], x0Coeff[i], 1, q)
+		}
+		addScaledInto(rhs, zCoeff, 1, q)
+		for lane := 0; lane < ncols; lane++ {
+			t := block*ncols + lane
+			res := make([]uint64, n)
+			for i := 0; i < l.UCount; i++ {
+				aVal := plan.aAtOmega[i][block][lane]
+				addScaledInto(res, uTrans[i][t], aVal, q)
+			}
+			laneRHS := make([]uint64, n)
+			mulModXN1(laneRHS, basis.LagrangeBasis[lane], rhs, q)
+			subInto(res, laneRHS, q)
+			if intGenISISProjectionDerivesYView(l) {
+				if len(yTrans) != 3 {
+					return fmt.Errorf("projected Y source terms=%d want 3", len(yTrans))
+				}
+				addScaledInto(res, yTrans[0][0][t], q-plan.cmAtOmega[block][lane], q)
+				for i := 0; i < l.SCount; i++ {
+					addScaledInto(res, yTrans[1][i][t], q-plan.asAtOmega[i][block][lane], q)
+				}
+				subInto(res, yTrans[2][0][t], q)
+			} else {
+				if len(yViewTrans) == 0 || len(yViewTrans[0]) <= t {
+					return fmt.Errorf("projected Y view transform t=%d out of range", t)
+				}
+				subInto(res, yViewTrans[0][t], q)
+			}
+			outCoeff[t] = append([]uint64(nil), trimPoly(res, q)...)
+		}
+	}
+	return nil
 }
 
 func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout, phase *PhaseRecorder) (ConstraintSet, error) {
