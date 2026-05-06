@@ -40,6 +40,27 @@ func TestAddMulModXN1IntoMatchesPolyMulReduce(t *testing.T) {
 	}
 }
 
+func TestAddMulModXN1Power2IntoMatchesPolyMulReduce(t *testing.T) {
+	q := uint64(1054721)
+	rng := rand.New(rand.NewSource(19))
+	sizes := []int{1, 2, 4, 8, 16, 32, 64}
+	for _, n := range sizes {
+		for iter := 0; iter < 100; iter++ {
+			scale := uint64(rng.Int63n(int64(3 * q)))
+			a := randomPolyCoeffs(rng, 1+rng.Intn(n), q)
+			b := randomPolyCoeffs(rng, 1+rng.Intn(n), q)
+			base := randomPolyCoeffs(rng, n, q)
+			got := append([]uint64(nil), base...)
+			addMulModXN1Power2Into(got, a, b, scale, q)
+
+			want := append([]uint64(nil), base...)
+			term := scalePoly(reducePolyModXN1(polyMul(a, b, q), n, q), scale, q)
+			addScaledInto(want, term, 1, q)
+			assertPaddedPolyEqual(t, got, want, q)
+		}
+	}
+}
+
 func TestAddScaledAndSubInto(t *testing.T) {
 	q := uint64(1054721)
 	rng := rand.New(rand.NewSource(13))
@@ -94,6 +115,22 @@ func BenchmarkAddMulModXN1Into(b *testing.B) {
 			dst[j] = 0
 		}
 		addMulModXN1Into(dst, a, c, 7, q)
+	}
+}
+
+func BenchmarkAddMulModXN1Power2Into(b *testing.B) {
+	q := uint64(1054721)
+	rng := rand.New(rand.NewSource(23))
+	n := 1024
+	a := randomPolyCoeffs(rng, n, q)
+	c := randomPolyCoeffs(rng, n, q)
+	dst := make([]uint64, n)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for j := range dst {
+			dst[j] = 0
+		}
+		addMulModXN1Power2Into(dst, a, c, 7, q)
 	}
 }
 

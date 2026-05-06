@@ -1140,6 +1140,10 @@ func mulModXN1(dst, a, b []uint64, q uint64) {
 	addMulModXN1Into(dst, a, b, 1, q)
 }
 
+func intIsPowerOfTwo(v int) bool {
+	return v > 0 && (v&(v-1)) == 0
+}
+
 func addMulModXN1Into(dst, a, b []uint64, scale, q uint64) {
 	n := len(dst)
 	if n == 0 || len(a) == 0 || len(b) == 0 {
@@ -1149,6 +1153,10 @@ func addMulModXN1Into(dst, a, b []uint64, scale, q uint64) {
 		scale %= q
 	}
 	if scale == 0 {
+		return
+	}
+	if len(a) <= n && len(b) <= n && intIsPowerOfTwo(n) {
+		addMulModXN1Power2Into(dst, a, b, scale, q)
 		return
 	}
 	for i, av := range a {
@@ -1174,6 +1182,52 @@ func addMulModXN1Into(dst, a, b []uint64, scale, q uint64) {
 			} else {
 				dst[idx] = modAddReduced(dst[idx], term, q)
 			}
+		}
+	}
+}
+
+func addMulModXN1Power2Into(dst, a, b []uint64, scale, q uint64) {
+	n := len(dst)
+	if scale >= q {
+		scale %= q
+	}
+	if n == 0 || scale == 0 {
+		return
+	}
+	for i, av := range a {
+		if av >= q {
+			av %= q
+		}
+		if av == 0 {
+			continue
+		}
+		av = modMulReduced(av, scale, q)
+		if av == 0 {
+			continue
+		}
+		positive := n - i
+		if positive > len(b) {
+			positive = len(b)
+		}
+		for j := 0; j < positive; j++ {
+			bv := b[j]
+			if bv >= q {
+				bv %= q
+			}
+			if bv == 0 {
+				continue
+			}
+			dst[i+j] = modAddReduced(dst[i+j], modMulReduced(av, bv, q), q)
+		}
+		for j := positive; j < len(b); j++ {
+			bv := b[j]
+			if bv >= q {
+				bv %= q
+			}
+			if bv == 0 {
+				continue
+			}
+			dst[i+j-n] = modSubReduced(dst[i+j-n], modMulReduced(av, bv, q), q)
 		}
 	}
 }
