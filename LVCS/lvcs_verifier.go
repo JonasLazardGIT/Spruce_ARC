@@ -60,6 +60,12 @@ type SmallField2025EvalInput struct {
 	Metadata SmallField2025EvalMetadata
 }
 
+type smallField2025ReconstructionPlan struct {
+	omitCols []int
+	keepCols []int
+	aInv     [][]uint64
+}
+
 func NewVerifierWithParamsAndPoints(ringQ *ring.Ring, r int, params decs.Params, ncols int, points []uint64) *VerifierState {
 	if len(points) == 0 {
 		panic("lvcs: explicit points are required")
@@ -109,107 +115,108 @@ func (v *VerifierState) EvalStep2(
 
 func (v *VerifierState) EvalStep2SmallField2025(in SmallField2025EvalInput) bool {
 	debug := os.Getenv("LVCS_DEBUG_EVALSTEP2") == "1"
-	if !v.validateSmallField2025EvalInput(in, debug) {
+	plan, ok := v.validateSmallField2025EvalInput(in, debug)
+	if !ok {
 		return false
 	}
-	return v.evalStep2SmallField2025Core(in, debug)
+	return v.evalStep2SmallField2025Core(in, plan, debug)
 }
 
-func (v *VerifierState) validateSmallField2025EvalInput(in SmallField2025EvalInput, debug bool) bool {
+func (v *VerifierState) validateSmallField2025EvalInput(in SmallField2025EvalInput, debug bool) (*smallField2025ReconstructionPlan, bool) {
 	meta := in.Metadata
 	if meta.Version != 1 || meta.Mode != SmallField2025ModeV1 || meta.HeadDomainMode != SmallField2025HeadDomainV1 {
 		if debug {
 			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] invalid smallfield2025 metadata version=%d mode=%q head=%q\n", meta.Version, meta.Mode, meta.HeadDomainMode)
 		}
-		return false
+		return nil, false
 	}
 	if !meta.ReductionEnabled || meta.Theta <= 1 {
 		if debug {
 			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 reduction disabled or theta invalid enabled=%v theta=%d\n", meta.ReductionEnabled, meta.Theta)
 		}
-		return false
+		return nil, false
 	}
 	if meta.WitnessLayers <= 0 || meta.QueryCount != (meta.WitnessLayers+1)*meta.Theta {
 		if debug {
 			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 query count=%d witness_layers=%d theta=%d\n", meta.QueryCount, meta.WitnessLayers, meta.Theta)
 		}
-		return false
+		return nil, false
 	}
 	if in.Opening == nil {
-		return false
+		return nil, false
 	}
 	m := len(in.C)
 	if m == 0 || len(in.VHead) != m || len(in.VBar) != m {
 		if debug {
 			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 query dims C=%d vhead=%d vbar=%d\n", len(in.C), len(in.VHead), len(in.VBar))
 		}
-		return false
+		return nil, false
 	}
 	if meta.QueryCount != m || meta.VHeadRows != len(in.VHead) || meta.VBarRows != len(in.VBar) {
-		return false
+		return nil, false
 	}
 	if meta.NRows != v.r || meta.NCols != v.ncols {
-		return false
+		return nil, false
 	}
 	if meta.VHeadCols != v.ncols {
-		return false
+		return nil, false
 	}
 	if len(in.VBar[0]) == 0 || meta.MaskRows != len(in.VBar[0]) || meta.VBarCols != len(in.VBar[0]) {
-		return false
+		return nil, false
 	}
 	if meta.VHeadCols <= 0 || meta.VBarCols <= 0 {
-		return false
+		return nil, false
 	}
 	for k := 0; k < m; k++ {
 		if len(in.C[k]) != v.r || len(in.VHead[k]) != meta.VHeadCols || len(in.VBar[k]) != meta.VBarCols {
-			return false
+			return nil, false
 		}
 	}
 	if len(in.Tail) != meta.MaskRows {
-		return false
+		return nil, false
 	}
 	if in.Opening.R != v.r || in.Opening.MaskCount != 0 || in.Opening.EntryCount() != len(in.Tail) {
-		return false
+		return nil, false
 	}
 	if in.Opening.FormatVersion != decs.OpeningFormatOmitCols && in.Opening.FormatVersion != decs.OpeningFormatColumnWidths {
 		if debug {
 			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 requires omitted P columns, format=%d\n", in.Opening.FormatVersion)
 		}
-		return false
+		return nil, false
 	}
-	pivots, fullRank := pivotColumnsFullRank(in.C, in.Opening.R, v.RingQ.Modulus[0])
-	if !fullRank || len(pivots) != m {
+	plan, ok := buildSmallField2025ReconstructionPlan(in.C, in.Opening.R, v.RingQ.Modulus[0])
+	if !ok || len(plan.omitCols) != m {
 		if debug {
-			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 rank/omit mismatch pivots=%v query_count=%d fullRank=%v\n", pivots, m, fullRank)
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 rank/omit mismatch query_count=%d ok=%v\n", m, ok)
 		}
-		return false
+		return nil, false
 	}
-	if len(in.Opening.POmitCols) > 0 && !equalIntSlicesExact(in.Opening.POmitCols, pivots) {
-		return false
+	if len(in.Opening.POmitCols) > 0 && !equalIntSlicesExact(in.Opening.POmitCols, plan.omitCols) {
+		return nil, false
 	}
-	if len(meta.POmitCols) > 0 && !equalIntSlicesExact(meta.POmitCols, pivots) {
-		return false
+	if len(meta.POmitCols) > 0 && !equalIntSlicesExact(meta.POmitCols, plan.omitCols) {
+		return nil, false
 	}
-	if in.Opening.PColsEncoded != v.r-len(pivots) {
-		return false
+	if in.Opening.PColsEncoded != v.r-len(plan.omitCols) {
+		return nil, false
 	}
 	allMOmit := consecutiveInts(in.Opening.Eta)
 	if in.Opening.Eta != v.params.Eta {
-		return false
+		return nil, false
 	}
 	if in.Opening.MFormatVersion != decs.OpeningFormatOmitCols && in.Opening.MFormatVersion != decs.OpeningFormatColumnWidths {
-		return false
+		return nil, false
 	}
 	if in.Opening.MColsEncoded != 0 {
-		return false
+		return nil, false
 	}
 	if len(in.Opening.MOmitCols) > 0 && !equalIntSlicesExact(in.Opening.MOmitCols, allMOmit) {
-		return false
+		return nil, false
 	}
 	if len(meta.MOmitCols) > 0 && !equalIntSlicesExact(meta.MOmitCols, allMOmit) {
-		return false
+		return nil, false
 	}
-	return true
+	return plan, true
 }
 
 func consecutiveInts(n int) []int {
@@ -241,7 +248,7 @@ func ensureDeterministicSmallFieldMOmit(open *decs.DECSOpening) bool {
 	return equalIntSlicesExact(open.MOmitCols, allMOmit)
 }
 
-func (v *VerifierState) evalStep2SmallField2025Core(in SmallField2025EvalInput, debug bool) bool {
+func (v *VerifierState) evalStep2SmallField2025Core(in SmallField2025EvalInput, plan *smallField2025ReconstructionPlan, debug bool) bool {
 	m := len(in.C)
 	ell := in.Metadata.MaskRows
 	ncols := v.ncols
@@ -278,17 +285,22 @@ func (v *VerifierState) evalStep2SmallField2025Core(in SmallField2025EvalInput, 
 		}
 		return false
 	}
-	Qcoefs := make([][]uint64, m)
-	for k := 0; k < m; k++ {
-		Qcoefs[k], err = interpolateRowCoeffsWithPlan(in.VHead[k], in.VBar[k], interpPlan)
-		if err != nil {
-			if debug {
-				fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 interpolate row %d: %v\n", k, err)
-			}
-			return false
-		}
+	tailXs := make([]uint64, len(in.Tail))
+	for i, idx := range in.Tail {
+		tailXs[i] = v.points[idx] % mod
 	}
-	if !prepareTailOnlyOpeningForSmallField2025(in.Opening, in.C, in.Tail, v.points, Qcoefs, v.Gamma, v.RFormal, mod) {
+	weights, err := evalWeightsWithPlan(interpPlan, tailXs)
+	if err != nil {
+		if debug {
+			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 eval weights error: %v\n", err)
+		}
+		return false
+	}
+	qAtTail := evalSmallField2025TargetsAtTail(in.VHead, in.VBar, weights, mod)
+	if len(qAtTail) != m {
+		return false
+	}
+	if !prepareTailOnlyOpeningForSmallField2025(in.Opening, in.C, in.Tail, v.points, qAtTail, plan, v.Gamma, v.RFormal, mod) {
 		if debug {
 			fmt.Println("[LVCS_DEBUG_EVALSTEP2] prepareTailOnlyOpeningForSmallField2025 rejected")
 		}
@@ -329,9 +341,12 @@ func (v *VerifierState) evalStep2SmallField2025Core(in SmallField2025EvalInput, 
 		if len(in.Opening.Pvals[t]) != v.r {
 			return false
 		}
-		x := v.points[idx] % mod
+		tailPos := indexOfInt(in.Tail, idx)
+		if tailPos < 0 {
+			return false
+		}
 		for k := 0; k < m; k++ {
-			lhs := evalPolyCoeffs(Qcoefs[k], x, mod)
+			lhs := qAtTail[k][tailPos]
 			rhs := uint64(0)
 			for j := 0; j < v.r; j++ {
 				rhs = MulAddMod64(rhs, in.C[k][j], in.Opening.Pvals[t][j], mod)
@@ -346,6 +361,70 @@ func (v *VerifierState) evalStep2SmallField2025Core(in SmallField2025EvalInput, 
 	}
 
 	return true
+}
+
+func buildSmallField2025ReconstructionPlan(C [][]uint64, r int, mod uint64) (*smallField2025ReconstructionPlan, bool) {
+	if len(C) == 0 || r <= 0 {
+		return nil, false
+	}
+	omitCols, fullRank := pivotColumnsFullRank(C, r, mod)
+	if !fullRank || len(omitCols) == 0 || len(omitCols) != len(C) {
+		return nil, false
+	}
+	keepCols := complementCols(r, omitCols)
+	a := make([][]uint64, len(C))
+	for i := range C {
+		if len(C[i]) < r {
+			return nil, false
+		}
+		a[i] = make([]uint64, len(omitCols))
+		for j, col := range omitCols {
+			a[i][j] = C[i][col] % mod
+		}
+	}
+	aInv, ok := invertMatrixMod(a, mod)
+	if !ok {
+		return nil, false
+	}
+	return &smallField2025ReconstructionPlan{
+		omitCols: omitCols,
+		keepCols: keepCols,
+		aInv:     aInv,
+	}, true
+}
+
+func evalSmallField2025TargetsAtTail(vHead, vBar [][]uint64, weights [][]uint64, mod uint64) [][]uint64 {
+	m := len(vHead)
+	if m == 0 || len(vBar) != m {
+		return nil
+	}
+	ncols := len(vHead[0])
+	ell := len(vBar[0])
+	domainLen := ncols + ell
+	for k := 0; k < m; k++ {
+		if len(vHead[k]) != ncols || len(vBar[k]) != ell {
+			return nil
+		}
+	}
+	out := make([][]uint64, m)
+	for k := 0; k < m; k++ {
+		row := make([]uint64, len(weights))
+		for t, w := range weights {
+			if len(w) != domainLen {
+				return nil
+			}
+			sum := uint64(0)
+			for i := 0; i < ncols; i++ {
+				sum = MulAddMod64(sum, w[i], vHead[k][i], mod)
+			}
+			for i := 0; i < ell; i++ {
+				sum = MulAddMod64(sum, w[ncols+i], vBar[k][i], mod)
+			}
+			row[t] = sum
+		}
+		out[k] = row
+	}
+	return out
 }
 
 func (v *VerifierState) evalStep2Core(
@@ -732,7 +811,8 @@ func prepareTailOnlyOpeningForSmallField2025(
 	C [][]uint64,
 	tail []int,
 	points []uint64,
-	qcoefs [][]uint64,
+	qAtTail [][]uint64,
+	plan *smallField2025ReconstructionPlan,
 	gamma [][]uint64,
 	rFormal [][]uint64,
 	mod uint64,
@@ -750,41 +830,36 @@ func prepareTailOnlyOpeningForSmallField2025(
 	if open.FormatVersion != decs.OpeningFormatOmitCols && open.FormatVersion != decs.OpeningFormatColumnWidths {
 		return false
 	}
-	omitCols, fullRank := pivotColumnsFullRank(C, open.R, mod)
-	if !fullRank || len(omitCols) == 0 || len(omitCols) != len(C) {
+	if plan == nil || len(plan.omitCols) == 0 || len(plan.omitCols) != len(C) || len(plan.aInv) != len(C) {
 		return false
 	}
-	if len(open.POmitCols) > 0 && !equalIntSlicesExact(omitCols, open.POmitCols) {
+	if len(open.POmitCols) > 0 && !equalIntSlicesExact(plan.omitCols, open.POmitCols) {
 		return false
 	}
-	keepCols := complementCols(open.R, omitCols)
-	if open.PColsEncoded != len(keepCols) {
+	if open.PColsEncoded != len(plan.keepCols) {
 		return false
 	}
 	encodedRows, ok := materializeEncodedPvals(open, n, open.PColsEncoded)
 	if !ok {
 		return false
 	}
-	a := make([][]uint64, len(C))
-	for i := range C {
-		a[i] = make([]uint64, len(omitCols))
-		for j, col := range omitCols {
-			a[i][j] = C[i][col] % mod
-		}
-	}
-	aInv, ok := invertMatrixMod(a, mod)
-	if !ok {
+	if len(qAtTail) != len(C) {
 		return false
 	}
-	tailSet := make(map[int]struct{}, len(tail))
-	for _, idx := range tail {
+	for k := range qAtTail {
+		if len(qAtTail[k]) != len(tail) {
+			return false
+		}
+	}
+	tailPos := make(map[int]int, len(tail))
+	for pos, idx := range tail {
 		if idx < 0 || idx >= len(points) {
 			return false
 		}
-		if _, dup := tailSet[idx]; dup {
+		if _, dup := tailPos[idx]; dup {
 			return false
 		}
-		tailSet[idx] = struct{}{}
+		tailPos[idx] = pos
 	}
 	openSeen := make(map[int]struct{}, n)
 	fullRows := make([][]uint64, n)
@@ -793,34 +868,34 @@ func prepareTailOnlyOpeningForSmallField2025(
 		if idx < 0 || idx >= len(points) {
 			return false
 		}
-		if _, ok := tailSet[idx]; !ok {
+		pos, ok := tailPos[idx]
+		if !ok {
 			return false
 		}
 		if _, dup := openSeen[idx]; dup {
 			return false
 		}
 		openSeen[idx] = struct{}{}
-		x := points[idx] % mod
 		rhs := make([]uint64, len(C))
 		for k := 0; k < len(C); k++ {
-			rhs[k] = evalPolyCoeffs(qcoefs[k], x, mod)
+			rhs[k] = qAtTail[k][pos] % mod
 			known := uint64(0)
-			for j, col := range keepCols {
+			for j, col := range plan.keepCols {
 				known = MulAddMod64(known, C[k][col], encodedRows[t][j], mod)
 			}
 			rhs[k] = subMod64(rhs[k], known, mod)
 		}
-		missing := mulMatVecMod(aInv, rhs, mod)
+		missing := mulMatVecMod(plan.aInv, rhs, mod)
 		row := make([]uint64, open.R)
-		for j, col := range keepCols {
+		for j, col := range plan.keepCols {
 			row[col] = encodedRows[t][j] % mod
 		}
-		for j, col := range omitCols {
+		for j, col := range plan.omitCols {
 			row[col] = missing[j] % mod
 		}
 		fullRows[t] = row
 	}
-	if len(openSeen) != len(tailSet) {
+	if len(openSeen) != len(tailPos) {
 		return false
 	}
 	open.Pvals = fullRows
@@ -1018,6 +1093,15 @@ func equalIntSlicesExact(a, b []int) bool {
 		}
 	}
 	return true
+}
+
+func indexOfInt(vals []int, target int) int {
+	for i, v := range vals {
+		if v == target {
+			return i
+		}
+	}
+	return -1
 }
 
 func complementCols(total int, omit []int) []int {

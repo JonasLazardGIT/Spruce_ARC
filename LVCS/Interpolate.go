@@ -155,6 +155,22 @@ func interpolateRowCoeffsWithPlan(
 	return Pcoefs, nil
 }
 
+func evalWeightsWithPlan(plan *interpolationPlan, xs []uint64) ([][]uint64, error) {
+	if plan == nil {
+		return nil, errors.New("evalWeights: nil interpolation plan")
+	}
+	weights := make([][]uint64, len(xs))
+	for t, x := range xs {
+		x %= plan.mod
+		row := make([]uint64, len(plan.basis))
+		for i := range plan.basis {
+			row[i] = evalPolyCoeffs(plan.basis[i], x, plan.mod)
+		}
+		weights[t] = row
+	}
+	return weights, nil
+}
+
 func interpolateRowExplicitCoeffs(
 	row []uint64,
 	mask []uint64,
