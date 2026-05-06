@@ -1517,13 +1517,61 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		out := make([][][]uint64, len(sourceCoeffs))
 		for comp := range sourceCoeffs {
 			out[comp] = make([][]uint64, l.ViewRowsPerPoly*ncols)
-			for t := range out[comp] {
-				coeff, err := buildSourceTransform(sourceCoeffs[comp], t)
-				if err != nil {
+		}
+		total := len(sourceCoeffs) * l.ViewRowsPerPoly * ncols
+		if total == 0 {
+			return out, nil
+		}
+		emitOne := func(idx int) error {
+			outputsPerComp := l.ViewRowsPerPoly * ncols
+			comp := idx / outputsPerComp
+			t := idx % outputsPerComp
+			coeff, err := buildSourceTransform(sourceCoeffs[comp], t)
+			if err != nil {
+				return err
+			}
+			out[comp][t] = coeff
+			return nil
+		}
+		workers := minInt(runtime.GOMAXPROCS(0), total)
+		if workers <= 1 {
+			for idx := 0; idx < total; idx++ {
+				if err := emitOne(idx); err != nil {
 					return nil, err
 				}
-				out[comp][t] = coeff
 			}
+			return out, nil
+		}
+		var wg sync.WaitGroup
+		var errOnce sync.Once
+		var firstErr error
+		setErr := func(err error) {
+			if err != nil {
+				errOnce.Do(func() {
+					firstErr = err
+				})
+			}
+		}
+		for worker := 0; worker < workers; worker++ {
+			start := worker * total / workers
+			end := (worker + 1) * total / workers
+			if start >= end {
+				continue
+			}
+			wg.Add(1)
+			go func(start, end int) {
+				defer wg.Done()
+				for idx := start; idx < end; idx++ {
+					if err := emitOne(idx); err != nil {
+						setErr(err)
+						return
+					}
+				}
+			}(start, end)
+		}
+		wg.Wait()
+		if firstErr != nil {
+			return nil, firstErr
 		}
 		return out, nil
 	}
