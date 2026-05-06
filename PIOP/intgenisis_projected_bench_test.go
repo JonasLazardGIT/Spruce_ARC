@@ -86,3 +86,30 @@ func BenchmarkIntGenISISProjectedSignatureFormalCoeffsSmallfieldSW90Shape(b *tes
 		}
 	}
 }
+
+func BenchmarkIntGenISISLinearHForMultiplierSW90Shape(b *testing.B) {
+	ringQ, err := ring.NewRing(1024, []uint64{1054721})
+	if err != nil {
+		b.Fatalf("load ring: %v", err)
+	}
+	q := ringQ.Modulus[0]
+	ncols := 64
+	rowsPerPoly := int(ringQ.N) / ncols
+	omega, err := deriveRelationWitnessOmega(q, 4096, ncols, 64, 16, credential.HashRelationBBTran)
+	if err != nil {
+		b.Fatalf("omega: %v", err)
+	}
+	omega = omega[:ncols]
+	multCoeff := make([]uint64, int(ringQ.N))
+	for i := range multCoeff {
+		multCoeff[i] = uint64((17*i + 23) % int(q))
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := intGenISISLinearHForMultiplier(ringQ, omega, multCoeff, rowsPerPoly, "bench"); err != nil {
+			b.Fatalf("linear H: %v", err)
+		}
+	}
+}

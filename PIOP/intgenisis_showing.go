@@ -1059,17 +1059,49 @@ func intGenISISLinearHForMultiplier(ringQ *ring.Ring, omega []uint64, multCoeff 
 	}
 	q := ringQ.Modulus[0]
 	out := make([][][]uint64, n)
-	for outIdx := 0; outIdx < n; outIdx++ {
-		out[outIdx] = make([][]uint64, rowsPerPoly)
-		for srcBlock := 0; srcBlock < rowsPerPoly; srcBlock++ {
-			head := make([]uint64, ncols)
-			for lane := 0; lane < ncols; lane++ {
-				srcIdx := srcBlock*ncols + lane
-				head[lane] = intGenISISNegacyclicWeight(multCoeff, outIdx, srcIdx, n, q)
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 2 || n < 32 {
+		head := make([]uint64, ncols)
+		for outIdx := 0; outIdx < n; outIdx++ {
+			out[outIdx] = make([][]uint64, rowsPerPoly)
+			for srcBlock := 0; srcBlock < rowsPerPoly; srcBlock++ {
+				for lane := 0; lane < ncols; lane++ {
+					srcIdx := srcBlock*ncols + lane
+					head[lane] = intGenISISNegacyclicWeight(multCoeff, outIdx, srcIdx, n, q)
+				}
+				out[outIdx][srcBlock] = trimPoly(Interpolate(omega, head, q), q)
 			}
-			out[outIdx][srcBlock] = trimPoly(Interpolate(omega, head, q), q)
 		}
+		return out, nil
 	}
+	if workers > n {
+		workers = n
+	}
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	chunk := (n + workers - 1) / workers
+	for worker := 0; worker < workers; worker++ {
+		start := worker * chunk
+		end := start + chunk
+		if end > n {
+			end = n
+		}
+		go func(start, end int) {
+			defer wg.Done()
+			head := make([]uint64, ncols)
+			for outIdx := start; outIdx < end; outIdx++ {
+				out[outIdx] = make([][]uint64, rowsPerPoly)
+				for srcBlock := 0; srcBlock < rowsPerPoly; srcBlock++ {
+					for lane := 0; lane < ncols; lane++ {
+						srcIdx := srcBlock*ncols + lane
+						head[lane] = intGenISISNegacyclicWeight(multCoeff, outIdx, srcIdx, n, q)
+					}
+					out[outIdx][srcBlock] = trimPoly(Interpolate(omega, head, q), q)
+				}
+			}
+		}(start, end)
+	}
+	wg.Wait()
 	return out, nil
 }
 
