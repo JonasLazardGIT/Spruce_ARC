@@ -77,8 +77,8 @@ func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T)
 	if opts.SigShortnessRadix != 11 || opts.SigShortnessL != 4 {
 		t.Fatalf("opts shortness=%d/%d", opts.SigShortnessRadix, opts.SigShortnessL)
 	}
-	if opts.IntGenISISMSECompression != 1 {
-		t.Fatalf("opts compression=%d", opts.IntGenISISMSECompression)
+	if opts.IntGenISISMSECompression != tuning.CompressedRows {
+		t.Fatalf("opts compression=%d want %d", opts.IntGenISISMSECompression, tuning.CompressedRows)
 	}
 	if opts.IntGenISISReplayProjection != "project_u_y_hat_and_y_view_v2" {
 		t.Fatalf("opts replay projection=%q", opts.IntGenISISReplayProjection)
