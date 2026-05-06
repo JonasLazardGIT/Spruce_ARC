@@ -59,7 +59,6 @@ type formalEvalPlan struct {
 	nnz         int
 	rowDeg      []int
 	coeffs      []uint64
-	coeffs32    []uint32
 	dotSafe     bool
 	sparseTerms []formalEvalTerm
 }
@@ -110,10 +109,6 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 	dotSafe := formalEvalDotSafe(maxDeg, q)
 	useSparse := dotSafe && nnz*4 < denseSlots
 	coeffs := make([]uint64, (maxDeg+1)*rowCount)
-	var coeffs32 []uint32
-	if dotSafe && q <= uint64(^uint32(0)) {
-		coeffs32 = make([]uint32, (maxDeg+1)*rowCount)
-	}
 	var sparseTerms []formalEvalTerm
 	if useSparse {
 		sparseTerms = make([]formalEvalTerm, 0, nnz)
@@ -131,11 +126,7 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 			if c == 0 {
 				continue
 			}
-			idx := d*rowCount + j
-			coeffs[idx] = c
-			if coeffs32 != nil {
-				coeffs32[idx] = uint32(c)
-			}
+			coeffs[d*rowCount+j] = c
 			if useSparse {
 				sparseTerms = append(sparseTerms, formalEvalTerm{degree: d, row: j, coeff: c})
 			}
@@ -147,7 +138,6 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 		nnz:         nnz,
 		rowDeg:      rowDeg,
 		coeffs:      coeffs,
-		coeffs32:    coeffs32,
 		dotSafe:     dotSafe,
 		sparseTerms: sparseTerms,
 	}
@@ -229,21 +219,6 @@ func (p formalEvalPlan) evalIntoPowers(dst []uint64, red modReducer64, powers []
 	if len(p.sparseTerms) > 0 {
 		for _, term := range p.sparseTerms {
 			dst[term.row] += term.coeff * powers[term.degree]
-		}
-	} else if len(p.coeffs32) > 0 {
-		for d := 0; d <= p.maxDeg; d++ {
-			pow := powers[d]
-			base := d * p.rowCount
-			j := 0
-			for ; j+4 <= p.rowCount; j += 4 {
-				dst[j] += uint64(p.coeffs32[base+j]) * pow
-				dst[j+1] += uint64(p.coeffs32[base+j+1]) * pow
-				dst[j+2] += uint64(p.coeffs32[base+j+2]) * pow
-				dst[j+3] += uint64(p.coeffs32[base+j+3]) * pow
-			}
-			for ; j < p.rowCount; j++ {
-				dst[j] += uint64(p.coeffs32[base+j]) * pow
-			}
 		}
 	} else {
 		for d := 0; d <= p.maxDeg; d++ {
