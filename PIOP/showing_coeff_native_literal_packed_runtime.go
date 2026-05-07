@@ -372,6 +372,7 @@ func buildReplayHeadsFromSourceHeads(ringQ *ring.Ring, srcHeads [][]uint64, omeg
 	}
 	q := ringQ.Modulus[0]
 	out := make([][]uint64, replayBlockCount)
+	useAtOmega := len(basis.TransformHAtOmega) >= replayBlockCount*ncols
 	for block := 0; block < replayBlockCount; block++ {
 		head := make([]uint64, ncols)
 		for j := 0; j < ncols; j++ {
@@ -383,9 +384,16 @@ func buildReplayHeadsFromSourceHeads(ringQ *ring.Ring, srcHeads [][]uint64, omeg
 					continue
 				}
 				inner := uint64(0)
-				for k := 0; k < ncols; k++ {
-					weight := EvalPoly(basis.TransformH[t], omega[k]%q, q) % q
-					inner = modAdd(inner, modMul(weight, srcHeads[srcBlock][k]%q, q), q)
+				if useAtOmega && len(basis.TransformHAtOmega[t]) >= ncols {
+					weights := basis.TransformHAtOmega[t]
+					for k := 0; k < ncols; k++ {
+						inner = modAdd(inner, modMul(weights[k]%q, srcHeads[srcBlock][k]%q, q), q)
+					}
+				} else {
+					for k := 0; k < ncols; k++ {
+						weight := EvalPoly(basis.TransformH[t], omega[k]%q, q) % q
+						inner = modAdd(inner, modMul(weight, srcHeads[srcBlock][k]%q, q), q)
+					}
 				}
 				acc = modAdd(acc, modMul(blockScale, inner, q), q)
 			}

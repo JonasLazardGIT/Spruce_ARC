@@ -15,10 +15,11 @@ import (
 // transformBridgeBasisCache holds the public linear-map data used by both the
 // showing and pre-sign transform-bridge replay paths.
 type transformBridgeBasisCache struct {
-	LagrangeBasis  [][]uint64
-	TransformH     [][]uint64
-	TransformHEval [][]uint64
-	BlockFactors   [][]uint64
+	LagrangeBasis     [][]uint64
+	TransformH        [][]uint64
+	TransformHEval    [][]uint64
+	TransformHAtOmega [][]uint64
+	BlockFactors      [][]uint64
 }
 
 type transformBridgeBasisGlobalEntry struct {
@@ -83,6 +84,18 @@ func storeTransformBridgeBasisGlobalCache(key [32]byte, value *transformBridgeBa
 	transformBridgeBasisGlobalCache.next = (idx + 1) % len(transformBridgeBasisGlobalCache.entries)
 }
 
+func buildTransformHAtOmega(transformH [][]uint64, omega []uint64, q uint64) [][]uint64 {
+	out := make([][]uint64, len(transformH))
+	for i := range transformH {
+		row := make([]uint64, len(omega))
+		for j, x := range omega {
+			row[j] = EvalPoly(transformH[i], x%q, q) % q
+		}
+		out[i] = row
+	}
+	return out
+}
+
 // newTransformBridgeBasisCache derives the fixed public basis used by the
 // transform bridges:
 // - the Lagrange basis on Ω,
@@ -123,10 +136,11 @@ func newTransformBridgeBasisCache(ringQ *ring.Ring, omega []uint64, outputCount 
 		transformHEval = transformHEval[:ncols]
 	}
 	out := &transformBridgeBasisCache{
-		LagrangeBasis:  lagrangeBasis,
-		TransformH:     transformH,
-		TransformHEval: transformHEval,
-		BlockFactors:   blockFactors,
+		LagrangeBasis:     lagrangeBasis,
+		TransformH:        transformH,
+		TransformHEval:    transformHEval,
+		TransformHAtOmega: buildTransformHAtOmega(transformH, omega, ringQ.Modulus[0]),
+		BlockFactors:      blockFactors,
 	}
 	storeTransformBridgeBasisGlobalCache(key, out)
 	return out, nil
@@ -166,10 +180,11 @@ func newRowTransformBridgeBasisCache(ringQ *ring.Ring, omega []uint64, outputCou
 		blockFactors[t] = []uint64{1}
 	}
 	return &transformBridgeBasisCache{
-		LagrangeBasis:  lagrangeBasis,
-		TransformH:     transformH,
-		TransformHEval: transformHEval,
-		BlockFactors:   blockFactors,
+		LagrangeBasis:     lagrangeBasis,
+		TransformH:        transformH,
+		TransformHEval:    transformHEval,
+		TransformHAtOmega: buildTransformHAtOmega(transformH, omega, ringQ.Modulus[0]),
+		BlockFactors:      blockFactors,
 	}, nil
 }
 
