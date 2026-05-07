@@ -386,7 +386,7 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 				binary.LittleEndian.PutUint16(buf[off:], uint16(i))
 				off += 2
 				nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
-				leafHashes[i] = hashLeafWith(shake, buf)
+				hashLeafIntoWith(shake, buf, &leafHashes[i])
 			}
 		} else {
 			if workers > N {
@@ -432,7 +432,7 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 						binary.LittleEndian.PutUint16(buf[off:], uint16(i))
 						off += 2
 						nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
-						leafHashes[i] = hashLeafWith(shake, buf)
+						hashLeafIntoWith(shake, buf, &leafHashes[i])
 					}
 				}()
 			}
@@ -461,7 +461,8 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 		if workers < 2 || N < 128 {
 			h := nilShake()
 			for i := 0; i < N; i++ {
-				leafHashes[i] = hashLeafWith(h, buildLeaf(i))
+				leaf := buildLeaf(i)
+				hashLeafIntoWith(h, leaf, &leafHashes[i])
 			}
 		} else {
 			if workers > N {
@@ -480,7 +481,8 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 					defer wg.Done()
 					h := nilShake()
 					for i := start; i < end; i++ {
-						leafHashes[i] = hashLeafWith(h, buildLeaf(i))
+						leaf := buildLeaf(i)
+						hashLeafIntoWith(h, leaf, &leafHashes[i])
 					}
 				}()
 			}

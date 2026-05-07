@@ -10,6 +10,11 @@ const (
 	nodePrefix byte = 0x01
 )
 
+var (
+	leafPrefixBytes = [1]byte{leafPrefix}
+	nodePrefixBytes = [1]byte{nodePrefix}
+)
+
 // MerkleTree is a full binary Merkle tree of 16-byte hashes (SHAKE-256 truncated).
 type MerkleTree struct {
 	layers [][][16]byte
@@ -21,7 +26,7 @@ func BuildMerkleTree(leaves [][]byte) *MerkleTree {
 	leafHashes := make([][16]byte, n)
 	h := sha3.NewShake256()
 	for i := 0; i < n; i++ {
-		leafHashes[i] = hashLeafWith(h, leaves[i])
+		hashLeafIntoWith(h, leaves[i], &leafHashes[i])
 	}
 	return BuildMerkleTreeFromLeafHashes(leafHashes)
 }
@@ -45,7 +50,7 @@ func BuildMerkleTreeFromLeafHashes(leaves [][16]byte) *MerkleTree {
 		prev := layers[len(layers)-1]
 		next := make([][16]byte, sz/2)
 		for i := 0; i < sz; i += 2 {
-			next[i/2] = hashNodeWith(h, prev[i], prev[i+1])
+			hashNodeIntoWith(h, &prev[i], &prev[i+1], &next[i/2])
 		}
 		layers = append(layers, next)
 	}
@@ -77,21 +82,29 @@ func VerifyPath(leaf []byte, path [][]byte, root [16]byte, idx int) bool {
 
 func hashLeafWith(h sha3.ShakeHash, leaf []byte) [16]byte {
 	var out [16]byte
+	hashLeafIntoWith(h, leaf, &out)
+	return out
+}
+
+func hashLeafIntoWith(h sha3.ShakeHash, leaf []byte, out *[16]byte) {
 	h.Reset()
-	_, _ = h.Write([]byte{leafPrefix})
+	_, _ = h.Write(leafPrefixBytes[:])
 	_, _ = h.Write(leaf)
 	_, _ = h.Read(out[:])
-	return out
 }
 
 func hashNodeWith(h sha3.ShakeHash, left, right [16]byte) [16]byte {
 	var out [16]byte
+	hashNodeIntoWith(h, &left, &right, &out)
+	return out
+}
+
+func hashNodeIntoWith(h sha3.ShakeHash, left, right *[16]byte, out *[16]byte) {
 	h.Reset()
-	_, _ = h.Write([]byte{nodePrefix})
+	_, _ = h.Write(nodePrefixBytes[:])
 	_, _ = h.Write(left[:])
 	_, _ = h.Write(right[:])
 	_, _ = h.Read(out[:])
-	return out
 }
 
 func shake16(data []byte) [16]byte {
