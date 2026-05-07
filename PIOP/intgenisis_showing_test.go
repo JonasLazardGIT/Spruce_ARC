@@ -434,6 +434,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	thetaOpts.PRFLVCSNCols = thetaOpts.NCols
 	thetaOpts.TranscriptVersion = TranscriptVersionSmallWood2025
 	thetaOpts.TranscriptProtocolMode = TranscriptProtocolSmallField2025V1
+	assertIntGenISISShowingPreparedConstraintsMatchRebuild(t, ringQ, pub, cn, params, thetaOpts)
 	thetaProof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, thetaOpts)
 	if err != nil {
 		t.Fatalf("build theta>1 showing: %v", err)
@@ -596,6 +597,109 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	ok, err = VerifyIntGenISISShowing(tampered, proof, opts)
 	if err == nil && ok {
 		t.Fatal("showing verifier accepted tampered target public data")
+	}
+}
+
+func assertIntGenISISShowingPreparedConstraintsMatchRebuild(t *testing.T, ringQ *ring.Ring, pub PublicInputs, cn *CoeffNativeShowingWitness, params *prf.Params, opts SimOpts) {
+	t.Helper()
+	debugPub, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), opts)
+	if err != nil {
+		t.Fatalf("bind strict showing public extras: %v", err)
+	}
+	rows, rowInputs, layout, _, companion, _, _, _, witnessCount, _, builtNCols, err := BuildCredentialRowsShowingIntGenISIS(
+		ringQ,
+		debugPub,
+		WitnessInputs{CoeffNativeShowing: cn},
+		params.LenKey,
+		params.LenNonce,
+		params.RF,
+		params.RP,
+		opts.PRFGroupRounds,
+		opts,
+	)
+	if err != nil {
+		t.Fatalf("strict showing rows: %v", err)
+	}
+	omega, err := deriveRelationWitnessOmega(ringQ.Modulus[0], opts.NLeaves, opts.NCols, opts.LVCSNCols, opts.Ell, pub.HashRelation)
+	if err != nil {
+		t.Fatalf("strict showing omega: %v", err)
+	}
+	if len(omega) < builtNCols {
+		t.Fatalf("strict showing omega len=%d built ncols=%d", len(omega), builtNCols)
+	}
+	omegaWitness := omega[:builtNCols]
+	preparedRowsNTT := nttRowsForIntGenISISTest(ringQ, rows)
+	preparedSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, layout, preparedRowsNTT, omegaWitness, companion, nil)
+	if err != nil {
+		t.Fatalf("strict showing prepared constraints: %v", err)
+	}
+	rebuiltRows := rows
+	if opts.Theta > 1 {
+		logical, lerr := normalizePreparedCredentialLogicalRows(ringQ, debugPub, rows, rowInputs, layout, witnessCount, omegaWitness, builtNCols)
+		if lerr != nil {
+			t.Fatalf("strict showing logical rows: %v", lerr)
+		}
+		rebuiltRows = logical.Rows
+	}
+	rebuiltRowsNTT := nttRowsForIntGenISISTest(ringQ, rebuiltRows)
+	rebuiltSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, layout, rebuiltRowsNTT, omegaWitness, companion, nil)
+	if err != nil {
+		t.Fatalf("strict showing rebuilt constraints: %v", err)
+	}
+	assertConstraintSetsEqualForIntGenISISTest(t, ringQ, preparedSet, rebuiltSet)
+}
+
+func nttRowsForIntGenISISTest(ringQ *ring.Ring, rows []*ring.Poly) []*ring.Poly {
+	out := make([]*ring.Poly, len(rows))
+	for i := range rows {
+		if rows[i] == nil {
+			continue
+		}
+		out[i] = ringQ.NewPoly()
+		ring.Copy(rows[i], out[i])
+		ringQ.NTT(out[i], out[i])
+	}
+	return out
+}
+
+func assertConstraintSetsEqualForIntGenISISTest(t *testing.T, ringQ *ring.Ring, got, want ConstraintSet) {
+	t.Helper()
+	if got.ParallelAlgDeg != want.ParallelAlgDeg || got.AggregatedAlgDeg != want.AggregatedAlgDeg {
+		t.Fatalf("constraint degrees got=(%d,%d) want=(%d,%d)", got.ParallelAlgDeg, got.AggregatedAlgDeg, want.ParallelAlgDeg, want.AggregatedAlgDeg)
+	}
+	assertConstraintBucketEqualForIntGenISISTest(t, ringQ, "FparInt", got.FparInt, want.FparInt, got.FparIntCoeffs, want.FparIntCoeffs)
+	assertConstraintBucketEqualForIntGenISISTest(t, ringQ, "FparNorm", got.FparNorm, want.FparNorm, got.FparNormCoeffs, want.FparNormCoeffs)
+	assertConstraintBucketEqualForIntGenISISTest(t, ringQ, "FaggInt", got.FaggInt, want.FaggInt, got.FaggIntCoeffs, want.FaggIntCoeffs)
+	assertConstraintBucketEqualForIntGenISISTest(t, ringQ, "FaggNorm", got.FaggNorm, want.FaggNorm, got.FaggNormCoeffs, want.FaggNormCoeffs)
+}
+
+func assertConstraintBucketEqualForIntGenISISTest(t *testing.T, ringQ *ring.Ring, name string, gotPolys, wantPolys []*ring.Poly, gotCoeffs, wantCoeffs [][]uint64) {
+	t.Helper()
+	if len(gotPolys) != len(wantPolys) || len(gotCoeffs) != len(wantCoeffs) {
+		t.Fatalf("%s lengths got polys/coeffs=%d/%d want=%d/%d", name, len(gotPolys), len(gotCoeffs), len(wantPolys), len(wantCoeffs))
+	}
+	for i := range gotPolys {
+		switch {
+		case gotPolys[i] == nil && wantPolys[i] == nil:
+		case gotPolys[i] == nil || wantPolys[i] == nil:
+			t.Fatalf("%s[%d] nil mismatch got=%v want=%v", name, i, gotPolys[i] == nil, wantPolys[i] == nil)
+		default:
+			for j := range gotPolys[i].Coeffs[0] {
+				if gotPolys[i].Coeffs[0][j]%ringQ.Modulus[0] != wantPolys[i].Coeffs[0][j]%ringQ.Modulus[0] {
+					t.Fatalf("%s[%d] ntt coeff[%d] got=%d want=%d", name, i, j, gotPolys[i].Coeffs[0][j]%ringQ.Modulus[0], wantPolys[i].Coeffs[0][j]%ringQ.Modulus[0])
+				}
+			}
+		}
+	}
+	for i := range gotCoeffs {
+		if len(gotCoeffs[i]) != len(wantCoeffs[i]) {
+			t.Fatalf("%s coeff[%d] len got=%d want=%d", name, i, len(gotCoeffs[i]), len(wantCoeffs[i]))
+		}
+		for j := range gotCoeffs[i] {
+			if gotCoeffs[i][j]%ringQ.Modulus[0] != wantCoeffs[i][j]%ringQ.Modulus[0] {
+				t.Fatalf("%s coeff[%d][%d] got=%d want=%d", name, i, j, gotCoeffs[i][j]%ringQ.Modulus[0], wantCoeffs[i][j]%ringQ.Modulus[0])
+			}
+		}
 	}
 }
 
