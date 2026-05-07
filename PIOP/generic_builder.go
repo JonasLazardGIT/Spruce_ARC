@@ -39,6 +39,14 @@ func BuildWithConstraints(pub PublicInputs, wit WitnessInputs, set ConstraintSet
 	return buildWithConstraintsPrepared(pub, wit, set, opts, personalization, nil)
 }
 
+func rowLayoutCanReusePreparedConstraintSet(layout RowLayout, opts SimOpts) bool {
+	if rowLayoutHasCoeffNativeSig(layout) {
+		return true
+	}
+	l := layout.IntGenISISShowing
+	return opts.Theta > 1 && l != nil && l.CoreRowCount == 0
+}
+
 func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set ConstraintSet, opts SimOpts, personalization string, prepared *preparedCredentialBuild) (*Proof, error) {
 	opts.applyDefaults()
 	if personalization == "" {
@@ -466,7 +474,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		// Rebuild constraints to match paper-defined F_j(P,Theta). In θ>1 mode the
 		// committed oracle rows are transposed into the §5.4 layer layout, so
 		// replay constraint rebuilding must use the witness polynomials.
-		skipConstraintRebuild := prepared != nil && prepared.skipConstraintRebuild && rowLayoutHasCoeffNativeSig(rowLayout)
+		skipConstraintRebuild := prepared != nil && prepared.skipConstraintRebuild && rowLayoutCanReusePreparedConstraintSet(rowLayout, opts)
 		constraintRows := pk.RowPolys
 		if opts.Theta > 1 {
 			constraintRows = make([]*ring.Poly, len(witnessPolys))

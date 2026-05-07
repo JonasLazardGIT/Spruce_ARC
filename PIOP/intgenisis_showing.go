@@ -2266,7 +2266,7 @@ func BuildIntGenISISShowingCombined(pub PublicInputs, wit WitnessInputs, opts Si
 			witnessNCols:          builtNCols,
 			omega:                 omega,
 			omegaWitness:          append([]uint64(nil), omega[:builtNCols]...),
-			skipConstraintRebuild: false,
+			skipConstraintRebuild: true,
 		}
 		opts.Credential = true
 		proof, err := buildWithConstraintsPrepared(pub, wit, set, opts, FSModeCredential, prepared)
