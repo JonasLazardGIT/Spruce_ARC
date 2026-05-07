@@ -25,6 +25,19 @@ const intGenISISUShortnessDigits = 4
 const intGenISISUShortnessDigitBound = 5
 const intGenISISUShortnessCapacity = 7320
 
+type intGenISISRowMaterial struct {
+	Poly *ring.Poly
+	Head []uint64
+}
+
+func intGenISISRowMaterialPolys(rows []intGenISISRowMaterial) []*ring.Poly {
+	out := make([]*ring.Poly, len(rows))
+	for i := range rows {
+		out[i] = rows[i].Poly
+	}
+	return out
+}
+
 type intGenISISUShortnessDescriptor struct {
 	Version        string `json:"version"`
 	Radix          int    `json:"radix"`
@@ -462,6 +475,18 @@ func intGenISISKeySourceCarrierSlots(mCarrierStart, keyLen, ncols, ringDegree, p
 }
 
 func intGenISISHatRowsFromCoeffViews(ringQ *ring.Ring, omega []uint64, coeffRows []*ring.Poly, rowsPerPoly int, makeRowFromHead func([]uint64) *ring.Poly, name string) ([]*ring.Poly, error) {
+	mats := make([]intGenISISRowMaterial, len(coeffRows))
+	for i, row := range coeffRows {
+		mats[i] = intGenISISRowMaterial{Poly: row}
+	}
+	hatMats, err := intGenISISHatRowMaterialsFromCoeffViews(ringQ, omega, mats, rowsPerPoly, nil, makeRowFromHead, name)
+	if err != nil {
+		return nil, err
+	}
+	return intGenISISRowMaterialPolys(hatMats), nil
+}
+
+func intGenISISHatRowMaterialsFromCoeffViews(ringQ *ring.Ring, omega []uint64, coeffRows []intGenISISRowMaterial, rowsPerPoly int, interp *omegaInterpolationPlan, makeRowFromHead func([]uint64) *ring.Poly, name string) ([]intGenISISRowMaterial, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -475,18 +500,44 @@ func intGenISISHatRowsFromCoeffViews(ringQ *ring.Ring, omega []uint64, coeffRows
 		return nil, fmt.Errorf("%s coefficient view rows=%d not divisible by rows-per-poly=%d", name, len(coeffRows), rowsPerPoly)
 	}
 	if makeRowFromHead == nil {
-		return nil, fmt.Errorf("nil row constructor for %s hats", name)
+		if interp == nil {
+			var err error
+			interp, err = newOmegaInterpolationPlan(omega, ringQ.Modulus[0])
+			if err != nil {
+				return nil, err
+			}
+		}
+		makeRowFromHead = func(head []uint64) *ring.Poly {
+			return interp.coeffPolyFromHead(ringQ, head)
+		}
 	}
-	out := make([]*ring.Poly, 0, len(coeffRows))
+	out := make([]intGenISISRowMaterial, 0, len(coeffRows))
 	components := len(coeffRows) / rowsPerPoly
 	for comp := 0; comp < components; comp++ {
 		start := comp * rowsPerPoly
-		heads, err := buildReplayHeadsFromSourceRows(ringQ, coeffRows[start:start+rowsPerPoly], omega, rowsPerPoly, fmt.Sprintf("%s[%d]", name, comp))
+		sourceHeads := make([][]uint64, rowsPerPoly)
+		for i := 0; i < rowsPerPoly; i++ {
+			row := coeffRows[start+i]
+			if len(row.Head) == len(omega) {
+				sourceHeads[i] = row.Head
+				continue
+			}
+			if row.Poly == nil {
+				return nil, fmt.Errorf("%s[%d] source row %d missing material", name, comp, i)
+			}
+			head, herr := rowHeadOnOmega(ringQ, omega, row.Poly, len(omega))
+			if herr != nil {
+				return nil, fmt.Errorf("source head %s[%d][%d]: %w", name, comp, i, herr)
+			}
+			sourceHeads[i] = head
+		}
+		heads, err := buildReplayHeadsFromSourceHeads(ringQ, sourceHeads, omega, rowsPerPoly, fmt.Sprintf("%s[%d]", name, comp))
 		if err != nil {
 			return nil, err
 		}
 		for block := 0; block < rowsPerPoly; block++ {
-			out = append(out, makeRowFromHead(heads[block]))
+			head := heads[block]
+			out = append(out, intGenISISRowMaterial{Poly: makeRowFromHead(head), Head: head})
 		}
 	}
 	return out, nil
@@ -735,7 +786,7 @@ func intGenISISDominantDegreeSource(items []struct {
 	return bestName
 }
 
-func intGenISISCoeffViewRows(ringQ *ring.Ring, omega []uint64, rows []*ring.Poly, ncols int) ([]*ring.Poly, error) {
+func intGenISISCoeffViewRowMaterials(ringQ *ring.Ring, omega []uint64, rows []*ring.Poly, ncols int, interp *omegaInterpolationPlan) ([]intGenISISRowMaterial, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -745,8 +796,15 @@ func intGenISISCoeffViewRows(ringQ *ring.Ring, omega []uint64, rows []*ring.Poly
 	if ncols <= 0 || int(ringQ.N)%ncols != 0 {
 		return nil, fmt.Errorf("invalid coefficient view ncols=%d for ring_degree=%d", ncols, ringQ.N)
 	}
+	if interp == nil {
+		var err error
+		interp, err = newOmegaInterpolationPlan(omega[:ncols], ringQ.Modulus[0])
+		if err != nil {
+			return nil, err
+		}
+	}
 	q := ringQ.Modulus[0]
-	out := make([]*ring.Poly, 0, len(rows)*int(ringQ.N)/ncols)
+	out := make([]intGenISISRowMaterial, 0, len(rows)*int(ringQ.N)/ncols)
 	for rowIdx, row := range rows {
 		if row == nil || len(row.Coeffs) == 0 || len(row.Coeffs[0]) != int(ringQ.N) {
 			return nil, fmt.Errorf("invalid coefficient view source row %d", rowIdx)
@@ -756,16 +814,22 @@ func intGenISISCoeffViewRows(ringQ *ring.Ring, omega []uint64, rows []*ring.Poly
 			for i := 0; i < ncols; i++ {
 				head[i] = row.Coeffs[0][start+i] % q
 			}
-			pNTT := BuildThetaPrime(ringQ, head, omega[:ncols])
-			coeff := ringQ.NewPoly()
-			ringQ.InvNTT(pNTT, coeff)
-			out = append(out, coeff)
+			coeff := interp.coeffPolyFromHead(ringQ, head)
+			out = append(out, intGenISISRowMaterial{Poly: coeff, Head: head})
 		}
 	}
 	return out, nil
 }
 
-func intGenISISUShortnessDigitRows(ringQ *ring.Ring, omega []uint64, uRows []*ring.Poly, ncols int, spec LinfSpec) ([]*ring.Poly, error) {
+func intGenISISCoeffViewRows(ringQ *ring.Ring, omega []uint64, rows []*ring.Poly, ncols int) ([]*ring.Poly, error) {
+	mats, err := intGenISISCoeffViewRowMaterials(ringQ, omega, rows, ncols, nil)
+	if err != nil {
+		return nil, err
+	}
+	return intGenISISRowMaterialPolys(mats), nil
+}
+
+func intGenISISUShortnessDigitRowMaterials(ringQ *ring.Ring, omega []uint64, uRows []*ring.Poly, ncols int, spec LinfSpec, interp *omegaInterpolationPlan) ([]intGenISISRowMaterial, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -781,8 +845,15 @@ func intGenISISUShortnessDigitRows(ringQ *ring.Ring, omega []uint64, uRows []*ri
 	if ncols <= 0 || int(ringQ.N)%ncols != 0 {
 		return nil, fmt.Errorf("invalid coefficient view ncols=%d for ring_degree=%d", ncols, ringQ.N)
 	}
+	if interp == nil {
+		var err error
+		interp, err = newOmegaInterpolationPlan(omega[:ncols], ringQ.Modulus[0])
+		if err != nil {
+			return nil, err
+		}
+	}
 	q := ringQ.Modulus[0]
-	out := make([]*ring.Poly, 0, len(uRows)*(int(ringQ.N)/ncols)*spec.L)
+	out := make([]intGenISISRowMaterial, 0, len(uRows)*(int(ringQ.N)/ncols)*spec.L)
 	for rowIdx, row := range uRows {
 		if row == nil || len(row.Coeffs) == 0 || len(row.Coeffs[0]) != int(ringQ.N) {
 			return nil, fmt.Errorf("invalid u shortness source row %d", rowIdx)
@@ -803,14 +874,21 @@ func intGenISISUShortnessDigitRows(ringQ *ring.Ring, omega []uint64, uRows []*ri
 				}
 			}
 			for lane := 0; lane < spec.L; lane++ {
-				pNTT := BuildThetaPrime(ringQ, heads[lane], omega[:ncols])
-				coeff := ringQ.NewPoly()
-				ringQ.InvNTT(pNTT, coeff)
-				out = append(out, coeff)
+				head := append([]uint64(nil), heads[lane]...)
+				coeff := interp.coeffPolyFromHead(ringQ, head)
+				out = append(out, intGenISISRowMaterial{Poly: coeff, Head: head})
 			}
 		}
 	}
 	return out, nil
+}
+
+func intGenISISUShortnessDigitRows(ringQ *ring.Ring, omega []uint64, uRows []*ring.Poly, ncols int, spec LinfSpec) ([]*ring.Poly, error) {
+	mats, err := intGenISISUShortnessDigitRowMaterials(ringQ, omega, uRows, ncols, spec, nil)
+	if err != nil {
+		return nil, err
+	}
+	return intGenISISRowMaterialPolys(mats), nil
 }
 
 func intGenISISViewRowIndices(start, count int) []int {

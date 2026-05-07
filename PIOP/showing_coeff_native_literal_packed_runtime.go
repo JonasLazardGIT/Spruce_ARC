@@ -336,10 +336,6 @@ func buildReplayHeadsFromSourceRows(ringQ *ring.Ring, sourceRows []*ring.Poly, o
 		return nil, fmt.Errorf("invalid replay block count=%d", replayBlockCount)
 	}
 	ncols := len(omega)
-	basis, err := newTransformBridgeBasisCache(ringQ, omega, replayBlockCount*ncols, len(sourceRows))
-	if err != nil {
-		return nil, fmt.Errorf("transform basis for %s: %w", name, err)
-	}
 	srcHeads := make([][]uint64, len(sourceRows))
 	for i := range sourceRows {
 		head, herr := rowHeadOnOmega(ringQ, omega, sourceRows[i], ncols)
@@ -347,6 +343,32 @@ func buildReplayHeadsFromSourceRows(ringQ *ring.Ring, sourceRows []*ring.Poly, o
 			return nil, fmt.Errorf("source head %s[%d]: %w", name, i, herr)
 		}
 		srcHeads[i] = head
+	}
+	return buildReplayHeadsFromSourceHeads(ringQ, srcHeads, omega, replayBlockCount, name)
+}
+
+func buildReplayHeadsFromSourceHeads(ringQ *ring.Ring, srcHeads [][]uint64, omega []uint64, replayBlockCount int, name string) ([][]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if len(srcHeads) == 0 {
+		return nil, fmt.Errorf("missing source heads for %s", name)
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega for %s", name)
+	}
+	if replayBlockCount <= 0 {
+		return nil, fmt.Errorf("invalid replay block count=%d", replayBlockCount)
+	}
+	ncols := len(omega)
+	for i := range srcHeads {
+		if len(srcHeads[i]) != ncols {
+			return nil, fmt.Errorf("source head %s[%d] len=%d want %d", name, i, len(srcHeads[i]), ncols)
+		}
+	}
+	basis, err := newTransformBridgeBasisCache(ringQ, omega, replayBlockCount*ncols, len(srcHeads))
+	if err != nil {
+		return nil, fmt.Errorf("transform basis for %s: %w", name, err)
 	}
 	q := ringQ.Modulus[0]
 	out := make([][]uint64, replayBlockCount)

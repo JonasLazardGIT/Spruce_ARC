@@ -1490,6 +1490,69 @@ func Interpolate(xs, ys []uint64, q uint64) []uint64 {
 	return trimPoly(res, q)
 }
 
+type omegaInterpolationPlan struct {
+	q     uint64
+	basis [][]uint64
+}
+
+func newOmegaInterpolationPlan(omega []uint64, q uint64) (*omegaInterpolationPlan, error) {
+	plan, err := buildInterpolationPlan(omega, q)
+	if err != nil {
+		return nil, err
+	}
+	basis := make([][]uint64, len(plan.basis))
+	for i := range plan.basis {
+		basis[i] = append([]uint64(nil), plan.basis[i]...)
+	}
+	return &omegaInterpolationPlan{q: q, basis: basis}, nil
+}
+
+func (p *omegaInterpolationPlan) interpolateInto(dst, values []uint64) {
+	if p == nil {
+		panic("omegaInterpolationPlan: nil plan")
+	}
+	if len(values) != len(p.basis) {
+		panic("omegaInterpolationPlan: value length mismatch")
+	}
+	if len(dst) < len(p.basis) {
+		panic("omegaInterpolationPlan: destination too short")
+	}
+	for i := 0; i < len(p.basis); i++ {
+		dst[i] = 0
+	}
+	q := p.q
+	for i, v := range values {
+		if v >= q {
+			v %= q
+		}
+		if v == 0 {
+			continue
+		}
+		basis := p.basis[i]
+		for j, c := range basis {
+			if c == 0 {
+				continue
+			}
+			dst[j] = modAddReduced(dst[j], modMulReduced(c, v, q), q)
+		}
+	}
+	for i := len(p.basis); i < len(dst); i++ {
+		dst[i] = 0
+	}
+}
+
+func (p *omegaInterpolationPlan) coeffPolyFromHead(ringQ *ring.Ring, head []uint64) *ring.Poly {
+	out := ringQ.NewPoly()
+	p.interpolateInto(out.Coeffs[0], head)
+	return out
+}
+
+func (p *omegaInterpolationPlan) nttPolyFromHead(ringQ *ring.Ring, head []uint64) *ring.Poly {
+	out := p.coeffPolyFromHead(ringQ, head)
+	ringQ.NTT(out, out)
+	return out
+}
+
 func buildValueRow(r *ring.Ring, vals, omega []uint64, ell int) *ring.Poly {
 	p, _, _, err := BuildRowPolynomial(r, vals, omega, ell)
 	if err != nil {

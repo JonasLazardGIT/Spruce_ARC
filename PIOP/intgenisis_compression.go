@@ -142,6 +142,22 @@ func intGenISISCompressedCarrierCount(sourceRows, packWidth int) int {
 }
 
 func intGenISISBuildTernaryCarrierRows(ringQ *ring.Ring, omega []uint64, sourceRows []*ring.Poly, packWidth int, makeRowFromHead func([]uint64) *ring.Poly, name string) ([]*ring.Poly, error) {
+	sourceMaterials := make([]intGenISISRowMaterial, len(sourceRows))
+	for i, row := range sourceRows {
+		head, err := rowHeadOnOmega(ringQ, omega, row, len(omega))
+		if err != nil {
+			return nil, fmt.Errorf("%s source row %d head: %w", name, i, err)
+		}
+		sourceMaterials[i] = intGenISISRowMaterial{Poly: row, Head: head}
+	}
+	mats, err := intGenISISBuildTernaryCarrierRowMaterials(ringQ, omega, sourceMaterials, packWidth, nil, makeRowFromHead, name)
+	if err != nil {
+		return nil, err
+	}
+	return intGenISISRowMaterialPolys(mats), nil
+}
+
+func intGenISISBuildTernaryCarrierRowMaterials(ringQ *ring.Ring, omega []uint64, sourceRows []intGenISISRowMaterial, packWidth int, interp *omegaInterpolationPlan, makeRowFromHead func([]uint64) *ring.Poly, name string) ([]intGenISISRowMaterial, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -152,18 +168,34 @@ func intGenISISBuildTernaryCarrierRows(ringQ *ring.Ring, omega []uint64, sourceR
 		return nil, fmt.Errorf("%s carrier pack width=%d is not compressed", name, packWidth)
 	}
 	if makeRowFromHead == nil {
-		return nil, fmt.Errorf("nil row constructor for %s carriers", name)
+		if interp == nil {
+			var err error
+			interp, err = newOmegaInterpolationPlan(omega, ringQ.Modulus[0])
+			if err != nil {
+				return nil, err
+			}
+		}
+		makeRowFromHead = func(head []uint64) *ring.Poly {
+			return interp.coeffPolyFromHead(ringQ, head)
+		}
 	}
 	carrierCount := intGenISISCompressedCarrierCount(len(sourceRows), packWidth)
-	out := make([]*ring.Poly, 0, carrierCount)
+	out := make([]intGenISISRowMaterial, 0, carrierCount)
 	q := ringQ.Modulus[0]
 	sourceHeads := make([][]uint64, len(sourceRows))
-	for i, row := range sourceRows {
-		head, err := rowHeadOnOmega(ringQ, omega, row, len(omega))
-		if err != nil {
-			return nil, fmt.Errorf("%s source row %d head: %w", name, i, err)
+	for i := range sourceRows {
+		if len(sourceRows[i].Head) != len(omega) {
+			if sourceRows[i].Poly == nil {
+				return nil, fmt.Errorf("%s source row %d missing head", name, i)
+			}
+			head, err := rowHeadOnOmega(ringQ, omega, sourceRows[i].Poly, len(omega))
+			if err != nil {
+				return nil, fmt.Errorf("%s source row %d head: %w", name, i, err)
+			}
+			sourceHeads[i] = head
+			continue
 		}
-		sourceHeads[i] = head
+		sourceHeads[i] = sourceRows[i].Head
 	}
 	for carrier := 0; carrier < carrierCount; carrier++ {
 		head := make([]uint64, len(omega))
@@ -187,7 +219,7 @@ func intGenISISBuildTernaryCarrierRows(ringQ *ring.Ring, omega []uint64, sourceR
 			}
 			head[col] = code % q
 		}
-		out = append(out, makeRowFromHead(head))
+		out = append(out, intGenISISRowMaterial{Poly: makeRowFromHead(head), Head: head})
 	}
 	return out, nil
 }

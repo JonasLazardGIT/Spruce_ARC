@@ -222,6 +222,10 @@ func BuildCredentialRowsShowingIntGenISIS(
 		}
 	}
 	q := ringQ.Modulus[0]
+	rowInterp, err := newOmegaInterpolationPlan(omegaWitness[:ncols], q)
+	if err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("row omega interpolation plan: %w", err)
+	}
 	shortSpec, err := intGenISISUShortnessSpecForOpts(q, sigBound, opts)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
@@ -241,10 +245,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 		return lvcs.RowInput{Head: head, Poly: cp}, nil
 	}
 	makeRowFromHead := func(head []uint64) *ring.Poly {
-		pNTT := BuildThetaPrime(ringQ, head, omegaWitness)
-		coeff := ringQ.NewPoly()
-		ringQ.InvNTT(pNTT, coeff)
-		return coeff
+		return rowInterp.coeffPolyFromHead(ringQ, head)
 	}
 
 	viewRowsPerPoly := int(ringQ.N) / ncols
@@ -260,12 +261,25 @@ func BuildCredentialRowsShowingIntGenISIS(
 	x1Start := -1
 	zStart := -1
 	rowInputs = make([]lvcs.RowInput, 0)
-	appendRowsWithInputs := func(label string, polys []*ring.Poly) error {
+	appendRowMaterialsWithInputs := func(label string, materials []intGenISISRowMaterial) error {
 		rowInputsStart := time.Now()
-		for _, p := range polys {
+		for _, material := range materials {
 			idx := len(rows)
-			rows = append(rows, p)
-			in, ierr := makeRowInput(p)
+			if material.Poly == nil {
+				return fmt.Errorf("%s row %d has nil polynomial", label, idx)
+			}
+			rows = append(rows, material.Poly)
+			if len(material.Head) == ncols {
+				head := append([]uint64(nil), material.Head...)
+				for i := range head {
+					head[i] %= q
+				}
+				cp := ringQ.NewPoly()
+				ring.Copy(material.Poly, cp)
+				rowInputs = append(rowInputs, lvcs.RowInput{Head: head, Poly: cp})
+				continue
+			}
+			in, ierr := makeRowInput(material.Poly)
 			if ierr != nil {
 				return fmt.Errorf("%s row %d input: %w", label, idx, ierr)
 			}
@@ -276,35 +290,35 @@ func BuildCredentialRowsShowingIntGenISIS(
 	}
 	uViewStart := len(rows)
 	coeffViewsStart := time.Now()
-	uViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, cn.Sig, ncols)
+	uViewRows, err := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, cn.Sig, ncols, rowInterp)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("u coefficient views: %w", err)
 	}
-	if err := appendRowsWithInputs("u coefficient view", uViewRows); err != nil {
+	if err := appendRowMaterialsWithInputs("u coefficient view", uViewRows); err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
 	recordRowPhase("showing.rows.coeff_views", coeffViewsStart)
 	uShortnessStart := len(rows)
 	shortnessStart := time.Now()
-	uShortnessRows, err := intGenISISUShortnessDigitRows(ringQ, omegaWitness, cn.Sig, ncols, shortSpec)
+	uShortnessRows, err := intGenISISUShortnessDigitRowMaterials(ringQ, omegaWitness, cn.Sig, ncols, shortSpec, rowInterp)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("u shortness digit rows: %w", err)
 	}
-	if err := appendRowsWithInputs("u shortness digit", uShortnessRows); err != nil {
+	if err := appendRowMaterialsWithInputs("u shortness digit", uShortnessRows); err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
 	recordRowPhase("showing.rows.shortness_digits", shortnessStart)
 	boundViewStart := len(rows)
 	coeffViewsStart = time.Now()
-	mViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, []*ring.Poly{cn.M}, ncols)
+	mViewRows, err := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, []*ring.Poly{cn.M}, ncols, rowInterp)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("M coefficient views: %w", err)
 	}
-	sViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, cn.S, ncols)
+	sViewRows, err := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, cn.S, ncols, rowInterp)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("s coefficient views: %w", err)
 	}
-	eViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, cn.E, ncols)
+	eViewRows, err := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, cn.E, ncols, rowInterp)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("e coefficient views: %w", err)
 	}
@@ -321,50 +335,50 @@ func BuildCredentialRowsShowingIntGenISIS(
 	if mseCompressionDesc.Level > 0 {
 		carriersStart := time.Now()
 		mCarrierStart = len(rows)
-		mCarrierRows, cerr := intGenISISBuildTernaryCarrierRows(ringQ, omegaWitness, mViewRows, mseCompressionDesc.PackWidth, makeRowFromHead, "M")
+		mCarrierRows, cerr := intGenISISBuildTernaryCarrierRowMaterials(ringQ, omegaWitness, mViewRows, mseCompressionDesc.PackWidth, rowInterp, makeRowFromHead, "M")
 		if cerr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, cerr
 		}
-		if err := appendRowsWithInputs("M compressed carrier", mCarrierRows); err != nil {
+		if err := appendRowMaterialsWithInputs("M compressed carrier", mCarrierRows); err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 		mCarrierCount = len(mCarrierRows)
 		sCarrierStart = len(rows)
-		sCarrierRows, cerr := intGenISISBuildTernaryCarrierRows(ringQ, omegaWitness, sViewRows, mseCompressionDesc.PackWidth, makeRowFromHead, "s")
+		sCarrierRows, cerr := intGenISISBuildTernaryCarrierRowMaterials(ringQ, omegaWitness, sViewRows, mseCompressionDesc.PackWidth, rowInterp, makeRowFromHead, "s")
 		if cerr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, cerr
 		}
-		if err := appendRowsWithInputs("s compressed carrier", sCarrierRows); err != nil {
+		if err := appendRowMaterialsWithInputs("s compressed carrier", sCarrierRows); err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 		sCarrierCount = len(sCarrierRows)
 		eCarrierStart = len(rows)
-		eCarrierRows, cerr := intGenISISBuildTernaryCarrierRows(ringQ, omegaWitness, eViewRows, mseCompressionDesc.PackWidth, makeRowFromHead, "e")
+		eCarrierRows, cerr := intGenISISBuildTernaryCarrierRowMaterials(ringQ, omegaWitness, eViewRows, mseCompressionDesc.PackWidth, rowInterp, makeRowFromHead, "e")
 		if cerr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, cerr
 		}
-		if err := appendRowsWithInputs("e compressed carrier", eCarrierRows); err != nil {
+		if err := appendRowMaterialsWithInputs("e compressed carrier", eCarrierRows); err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 		eCarrierCount = len(eCarrierRows)
 		recordRowPhase("showing.rows.carriers", carriersStart)
 	} else {
 		mViewStart = len(rows)
-		if err := appendRowsWithInputs("M coefficient view", mViewRows); err != nil {
+		if err := appendRowMaterialsWithInputs("M coefficient view", mViewRows); err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 		sViewStart = len(rows)
-		if err := appendRowsWithInputs("s coefficient view", sViewRows); err != nil {
+		if err := appendRowMaterialsWithInputs("s coefficient view", sViewRows); err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 		eViewStart = len(rows)
-		if err := appendRowsWithInputs("e coefficient view", eViewRows); err != nil {
+		if err := appendRowMaterialsWithInputs("e coefficient view", eViewRows); err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 	}
 	boundViewCount := len(rows) - boundViewStart
 	yViewStart := -1
-	yViewRows := []*ring.Poly(nil)
+	yViewRows := []intGenISISRowMaterial(nil)
 	if replayProjection != IntGenISISReplayProjectionProjectUYHatYViewV2 {
 		yCoeff, yerr := intGenISISCommitmentLinearYCoeff(ringQ, pub, cn)
 		if yerr != nil {
@@ -372,23 +386,23 @@ func BuildCredentialRowsShowingIntGenISIS(
 		}
 		yViewStart = len(rows)
 		coeffViewsStart = time.Now()
-		yViewRows, err = intGenISISCoeffViewRows(ringQ, omegaWitness, []*ring.Poly{yCoeff}, ncols)
+		yViewRows, err = intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, []*ring.Poly{yCoeff}, ncols, rowInterp)
 		if err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("Y coefficient views: %w", err)
 		}
 		recordRowPhase("showing.rows.coeff_views", coeffViewsStart)
-		if err := appendRowsWithInputs("Y coefficient view", yViewRows); err != nil {
+		if err := appendRowMaterialsWithInputs("Y coefficient view", yViewRows); err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 	}
-	buildAndAppendHats := func(label string, coeffRows []*ring.Poly) (int, int, error) {
+	buildAndAppendHats := func(label string, coeffRows []intGenISISRowMaterial) (int, int, error) {
 		start := len(rows)
 		hatStart := time.Now()
-		hatRows, herr := intGenISISHatRowsFromCoeffViews(ringQ, omegaWitness, coeffRows, viewRowsPerPoly, makeRowFromHead, label)
+		hatRows, herr := intGenISISHatRowMaterialsFromCoeffViews(ringQ, omegaWitness, coeffRows, viewRowsPerPoly, rowInterp, makeRowFromHead, label)
 		if herr != nil {
 			return 0, 0, herr
 		}
-		if err := appendRowsWithInputs(label+" hat", hatRows); err != nil {
+		if err := appendRowMaterialsWithInputs(label+" hat", hatRows); err != nil {
 			return 0, 0, err
 		}
 		recordRowPhase("showing.rows.hats", hatStart)
@@ -397,7 +411,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	}
 	buildAndAppendDirectHats := func(label string, polys []*ring.Poly) (int, int, error) {
 		coeffViewsStart := time.Now()
-		coeffRows, cerr := intGenISISCoeffViewRows(ringQ, omegaWitness, polys, ncols)
+		coeffRows, cerr := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, polys, ncols, rowInterp)
 		if cerr != nil {
 			return 0, 0, cerr
 		}
