@@ -3,6 +3,8 @@ package decs
 import (
 	"testing"
 
+	"golang.org/x/crypto/sha3"
+
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
@@ -80,4 +82,49 @@ func BenchmarkDECSCommitInitFormalSW90Shape(b *testing.B) {
 
 func BenchmarkDECSCommitInitFormalSW115Shape(b *testing.B) {
 	benchmarkFormalCommitInitShape(b, 503, 43, 41, 11176)
+}
+
+func benchmarkDECSLeafHashShape(b *testing.B, rowCount, eta int) {
+	leafBytes := 4*(rowCount+eta) + 2 + 16
+	leaf := make([]byte, leafBytes)
+	for i := range leaf {
+		leaf[i] = byte(17 + i)
+	}
+	h := sha3.NewShake256()
+	b.SetBytes(int64(leafBytes))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = hashLeafWith(h, leaf)
+	}
+}
+
+func BenchmarkDECSLeafHashSW90Shape(b *testing.B) {
+	benchmarkDECSLeafHashShape(b, 567, 36)
+}
+
+func BenchmarkDECSLeafHashSW115Shape(b *testing.B) {
+	benchmarkDECSLeafHashShape(b, 503, 41)
+}
+
+func benchmarkDECSMerkleFromLeafHashesShape(b *testing.B, nLeaves int) {
+	leaves := make([][16]byte, nLeaves)
+	for i := range leaves {
+		for j := range leaves[i] {
+			leaves[i][j] = byte(i + 3*j)
+		}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = BuildMerkleTreeFromLeafHashes(leaves)
+	}
+}
+
+func BenchmarkDECSMerkleFromLeafHashesSW90Shape(b *testing.B) {
+	benchmarkDECSMerkleFromLeafHashesShape(b, 8383)
+}
+
+func BenchmarkDECSMerkleFromLeafHashesSW115Shape(b *testing.B) {
+	benchmarkDECSMerkleFromLeafHashesShape(b, 11176)
 }

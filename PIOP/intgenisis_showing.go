@@ -134,6 +134,12 @@ func BuildCredentialRowsShowingIntGenISIS(
 	if ringQ == nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("nil ring")
 	}
+	recordRowPhase := func(label string, start time.Time) {
+		if opts.PhaseRecorder != nil {
+			opts.PhaseRecorder.RecordDuration(label, time.Since(start))
+		}
+	}
+	validateStart := time.Now()
 	if !pub.IntGenISIS {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("IntGenISIS showing rows require IntGenISIS public inputs")
 	}
@@ -224,6 +230,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
+	recordRowPhase("showing.rows.validate", validateStart)
 	makeRowInput := func(p *ring.Poly) (lvcs.RowInput, error) {
 		head, herr := rowHeadOnOmega(ringQ, omegaWitness, p, ncols)
 		if herr != nil {
@@ -254,6 +261,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	zStart := -1
 	rowInputs = make([]lvcs.RowInput, 0)
 	appendRowsWithInputs := func(label string, polys []*ring.Poly) error {
+		rowInputsStart := time.Now()
 		for _, p := range polys {
 			idx := len(rows)
 			rows = append(rows, p)
@@ -263,9 +271,11 @@ func BuildCredentialRowsShowingIntGenISIS(
 			}
 			rowInputs = append(rowInputs, in)
 		}
+		recordRowPhase("showing.rows.row_inputs", rowInputsStart)
 		return nil
 	}
 	uViewStart := len(rows)
+	coeffViewsStart := time.Now()
 	uViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, cn.Sig, ncols)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("u coefficient views: %w", err)
@@ -273,7 +283,9 @@ func BuildCredentialRowsShowingIntGenISIS(
 	if err := appendRowsWithInputs("u coefficient view", uViewRows); err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
+	recordRowPhase("showing.rows.coeff_views", coeffViewsStart)
 	uShortnessStart := len(rows)
+	shortnessStart := time.Now()
 	uShortnessRows, err := intGenISISUShortnessDigitRows(ringQ, omegaWitness, cn.Sig, ncols, shortSpec)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("u shortness digit rows: %w", err)
@@ -281,7 +293,9 @@ func BuildCredentialRowsShowingIntGenISIS(
 	if err := appendRowsWithInputs("u shortness digit", uShortnessRows); err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
+	recordRowPhase("showing.rows.shortness_digits", shortnessStart)
 	boundViewStart := len(rows)
+	coeffViewsStart = time.Now()
 	mViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, []*ring.Poly{cn.M}, ncols)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("M coefficient views: %w", err)
@@ -294,6 +308,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("e coefficient views: %w", err)
 	}
+	recordRowPhase("showing.rows.coeff_views", coeffViewsStart)
 	mViewStart := -1
 	sViewStart := -1
 	eViewStart := -1
@@ -304,6 +319,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	sCarrierCount := 0
 	eCarrierCount := 0
 	if mseCompressionDesc.Level > 0 {
+		carriersStart := time.Now()
 		mCarrierStart = len(rows)
 		mCarrierRows, cerr := intGenISISBuildTernaryCarrierRows(ringQ, omegaWitness, mViewRows, mseCompressionDesc.PackWidth, makeRowFromHead, "M")
 		if cerr != nil {
@@ -331,6 +347,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 		eCarrierCount = len(eCarrierRows)
+		recordRowPhase("showing.rows.carriers", carriersStart)
 	} else {
 		mViewStart = len(rows)
 		if err := appendRowsWithInputs("M coefficient view", mViewRows); err != nil {
@@ -354,16 +371,19 @@ func BuildCredentialRowsShowingIntGenISIS(
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("commitment-linear Y: %w", yerr)
 		}
 		yViewStart = len(rows)
+		coeffViewsStart = time.Now()
 		yViewRows, err = intGenISISCoeffViewRows(ringQ, omegaWitness, []*ring.Poly{yCoeff}, ncols)
 		if err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("Y coefficient views: %w", err)
 		}
+		recordRowPhase("showing.rows.coeff_views", coeffViewsStart)
 		if err := appendRowsWithInputs("Y coefficient view", yViewRows); err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 	}
 	buildAndAppendHats := func(label string, coeffRows []*ring.Poly) (int, int, error) {
 		start := len(rows)
+		hatStart := time.Now()
 		hatRows, herr := intGenISISHatRowsFromCoeffViews(ringQ, omegaWitness, coeffRows, viewRowsPerPoly, makeRowFromHead, label)
 		if herr != nil {
 			return 0, 0, herr
@@ -371,13 +391,17 @@ func BuildCredentialRowsShowingIntGenISIS(
 		if err := appendRowsWithInputs(label+" hat", hatRows); err != nil {
 			return 0, 0, err
 		}
+		recordRowPhase("showing.rows.hats", hatStart)
+		recordRowPhase("showing.rows.hats."+label, hatStart)
 		return start, len(hatRows), nil
 	}
 	buildAndAppendDirectHats := func(label string, polys []*ring.Poly) (int, int, error) {
+		coeffViewsStart := time.Now()
 		coeffRows, cerr := intGenISISCoeffViewRows(ringQ, omegaWitness, polys, ncols)
 		if cerr != nil {
 			return 0, 0, cerr
 		}
+		recordRowPhase("showing.rows.coeff_views", coeffViewsStart)
 		return buildAndAppendHats(label, coeffRows)
 	}
 	uHatStart, uHatCount := -1, 0
@@ -411,6 +435,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 
 	companionMode := normalizePRFCompanionMode(opts.PRFCompanionMode)
 	if companionMode != "" {
+		prfCompanionStart := time.Now()
 		if prfGroupRounds <= 0 {
 			prfGroupRounds = 1
 		}
@@ -507,6 +532,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 				rowInputs = append(rowInputs, in)
 			}
 		}
+		recordRowPhase("showing.rows.prf_companion", prfCompanionStart)
 	}
 
 	layout = RowLayout{
