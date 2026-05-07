@@ -1440,13 +1440,16 @@ type intGenISISProjectedSignaturePlan struct {
 	omega  []uint64
 	basis  *transformBridgeBasisCache
 
-	aBlockCoeff  [][][]uint64
-	aAtOmega     [][][]uint64
-	bBlockCoeff  [][][]uint64
-	cmBlockCoeff [][]uint64
-	cmAtOmega    [][]uint64
-	asBlockCoeff [][][]uint64
-	asAtOmega    [][][]uint64
+	aBlockCoeff      [][][]uint64
+	aAtOmega         [][][]uint64
+	bBlockCoeff      [][][]uint64
+	bBlockCoeffNTT   [][]*ring.Poly
+	cmBlockCoeff     [][]uint64
+	cmAtOmega        [][]uint64
+	asBlockCoeff     [][][]uint64
+	asAtOmega        [][][]uint64
+	transformHNTT    []*ring.Poly
+	lagrangeBasisNTT []*ring.Poly
 }
 
 func newIntGenISISProjectedSignaturePlan(ringQ *ring.Ring, pub PublicInputs, l *IntGenISISShowingRowLayout, basis *transformBridgeBasisCache, omega []uint64) (*intGenISISProjectedSignaturePlan, error) {
@@ -1464,18 +1467,35 @@ func newIntGenISISProjectedSignaturePlan(ringQ *ring.Ring, pub PublicInputs, l *
 		return nil, fmt.Errorf("IntGenISIS projected signature rows/poly*ncols=%d want ringN=%d", blocks*ncols, n)
 	}
 	out := &intGenISISProjectedSignaturePlan{
-		n:            n,
-		ncols:        ncols,
-		blocks:       blocks,
-		omega:        omega,
-		basis:        basis,
-		aBlockCoeff:  make([][][]uint64, l.UCount),
-		aAtOmega:     make([][][]uint64, l.UCount),
-		bBlockCoeff:  make([][][]uint64, len(pub.B)),
-		cmBlockCoeff: nil,
-		cmAtOmega:    nil,
-		asBlockCoeff: nil,
-		asAtOmega:    nil,
+		n:                n,
+		ncols:            ncols,
+		blocks:           blocks,
+		omega:            omega,
+		basis:            basis,
+		aBlockCoeff:      make([][][]uint64, l.UCount),
+		aAtOmega:         make([][][]uint64, l.UCount),
+		bBlockCoeff:      make([][][]uint64, len(pub.B)),
+		bBlockCoeffNTT:   make([][]*ring.Poly, len(pub.B)),
+		cmBlockCoeff:     nil,
+		cmAtOmega:        nil,
+		asBlockCoeff:     nil,
+		asAtOmega:        nil,
+		transformHNTT:    make([]*ring.Poly, len(basis.TransformH)),
+		lagrangeBasisNTT: make([]*ring.Poly, len(basis.LagrangeBasis)),
+	}
+	for t := range basis.TransformH {
+		p, ok := nttPolyFromModXN1Coeffs(ringQ, basis.TransformH[t])
+		if !ok {
+			return nil, fmt.Errorf("projected signature transform H[%d] exceeds ring dimension", t)
+		}
+		out.transformHNTT[t] = p
+	}
+	for lane := range basis.LagrangeBasis {
+		p, ok := nttPolyFromModXN1Coeffs(ringQ, basis.LagrangeBasis[lane])
+		if !ok {
+			return nil, fmt.Errorf("projected signature lagrange basis[%d] exceeds ring dimension", lane)
+		}
+		out.lagrangeBasisNTT[lane] = p
 	}
 	for i := 0; i < l.UCount; i++ {
 		out.aBlockCoeff[i] = make([][]uint64, blocks)
@@ -1491,12 +1511,18 @@ func newIntGenISISProjectedSignaturePlan(ringQ *ring.Ring, pub PublicInputs, l *
 	}
 	for j := range pub.B {
 		out.bBlockCoeff[j] = make([][]uint64, blocks)
+		out.bBlockCoeffNTT[j] = make([]*ring.Poly, blocks)
 		for block := 0; block < blocks; block++ {
 			coeff, err := intGenISISThetaBlockCoeff(ringQ, pub.B[j], omega, block, blocks, fmt.Sprintf("B[%d]", j))
 			if err != nil {
 				return nil, err
 			}
 			out.bBlockCoeff[j][block] = coeff
+			p, ok := nttPolyFromModXN1Coeffs(ringQ, coeff)
+			if !ok {
+				return nil, fmt.Errorf("projected signature B[%d] block %d exceeds ring dimension", j, block)
+			}
+			out.bBlockCoeffNTT[j][block] = p
 		}
 	}
 	if intGenISISProjectionDerivesYView(l) {
@@ -1571,7 +1597,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	if err != nil {
 		return nil, nil, err
 	}
-	buildSourceTransform := func(sourceCoeffs [][]uint64, t int) ([]uint64, error) {
+	buildSourceTransform := func(sourceCoeffs [][]uint64, t int, scratch *negacyclicProductScratch) ([]uint64, error) {
 		if t < 0 || t >= len(basis.TransformH) || t >= len(basis.BlockFactors) {
 			return nil, fmt.Errorf("projected signature transform lane t=%d out of range", t)
 		}
@@ -1581,7 +1607,9 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		left := make([]uint64, n)
 		for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
 			scale := basis.BlockFactors[t][srcBlock] % q
-			addMulModXN1Into(left, basis.TransformH[t], sourceCoeffs[srcBlock], scale, q)
+			if !addMulModXN1PrecomputedNTTInto(ringQ, left, plan.transformHNTT[t], sourceCoeffs[srcBlock], scale, scratch) {
+				addMulModXN1Into(left, basis.TransformH[t], sourceCoeffs[srcBlock], scale, q)
+			}
 		}
 		return trimPoly(left, q), nil
 	}
@@ -1594,11 +1622,11 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		if total == 0 {
 			return out, nil
 		}
-		emitOne := func(idx int) error {
+		emitOne := func(idx int, scratch *negacyclicProductScratch) error {
 			outputsPerComp := l.ViewRowsPerPoly * ncols
 			comp := idx / outputsPerComp
 			t := idx % outputsPerComp
-			coeff, err := buildSourceTransform(sourceCoeffs[comp], t)
+			coeff, err := buildSourceTransform(sourceCoeffs[comp], t, scratch)
 			if err != nil {
 				return err
 			}
@@ -1607,8 +1635,9 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		}
 		workers := minInt(runtime.GOMAXPROCS(0), total)
 		if workers <= 1 {
+			scratch := newNegacyclicProductScratch(ringQ)
 			for idx := 0; idx < total; idx++ {
-				if err := emitOne(idx); err != nil {
+				if err := emitOne(idx, scratch); err != nil {
 					return nil, err
 				}
 			}
@@ -1633,8 +1662,9 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 			wg.Add(1)
 			go func(start, end int) {
 				defer wg.Done()
+				scratch := newNegacyclicProductScratch(ringQ)
 				for idx := start; idx < end; idx++ {
-					if err := emitOne(idx); err != nil {
+					if err := emitOne(idx, scratch); err != nil {
 						setErr(err)
 						return
 					}
@@ -1706,7 +1736,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	if err := stage("showing.constraints.projected.emit", func() error {
 		workers := minInt(runtime.GOMAXPROCS(0), l.ViewRowsPerPoly)
 		if workers <= 1 {
-			return emitProjectedSignatureCoeffRange(rowCache, l, plan, basis, uTrans, yTrans, yViewTrans, outCoeff, q, 0, l.ViewRowsPerPoly)
+			return emitProjectedSignatureCoeffRange(ringQ, rowCache, l, plan, basis, uTrans, yTrans, yViewTrans, outCoeff, q, 0, l.ViewRowsPerPoly)
 		}
 		var wg sync.WaitGroup
 		var errOnce sync.Once
@@ -1727,7 +1757,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 			wg.Add(1)
 			go func(startBlock, endBlock int) {
 				defer wg.Done()
-				setErr(emitProjectedSignatureCoeffRange(rowCache, l, plan, basis, uTrans, yTrans, yViewTrans, outCoeff, q, startBlock, endBlock))
+				setErr(emitProjectedSignatureCoeffRange(ringQ, rowCache, l, plan, basis, uTrans, yTrans, yViewTrans, outCoeff, q, startBlock, endBlock))
 			}(startBlock, endBlock)
 		}
 		wg.Wait()
@@ -1744,9 +1774,10 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	return fagg, coeffs, nil
 }
 
-func emitProjectedSignatureCoeffRange(rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, plan *intGenISISProjectedSignaturePlan, basis *transformBridgeBasisCache, uTrans [][][]uint64, yTrans [][][][]uint64, yViewTrans [][][]uint64, outCoeff [][]uint64, q uint64, startBlock, endBlock int) error {
+func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, plan *intGenISISProjectedSignaturePlan, basis *transformBridgeBasisCache, uTrans [][][]uint64, yTrans [][][][]uint64, yViewTrans [][][]uint64, outCoeff [][]uint64, q uint64, startBlock, endBlock int) error {
 	n := plan.n
 	ncols := plan.ncols
+	scratch := newNegacyclicProductScratch(ringQ)
 	for block := startBlock; block < endBlock; block++ {
 		muCoeff, err := rowCache.Row(l.MuSigHatStart + block)
 		if err != nil {
@@ -1765,9 +1796,13 @@ func emitProjectedSignatureCoeffRange(rowCache *intGenISISRowCoeffCache, l *IntG
 		}
 		rhs := make([]uint64, n)
 		addScaledInto(rhs, plan.bBlockCoeff[0][block], 1, q)
-		addMulModXN1Into(rhs, plan.bBlockCoeff[1][block], muCoeff, 1, q)
+		if !addMulModXN1PrecomputedNTTInto(ringQ, rhs, plan.bBlockCoeffNTT[1][block], muCoeff, 1, scratch) {
+			addMulModXN1Into(rhs, plan.bBlockCoeff[1][block], muCoeff, 1, q)
+		}
 		for i := 0; i < l.X0Count; i++ {
-			addMulModXN1Into(rhs, plan.bBlockCoeff[2+i][block], x0Coeff[i], 1, q)
+			if !addMulModXN1PrecomputedNTTInto(ringQ, rhs, plan.bBlockCoeffNTT[2+i][block], x0Coeff[i], 1, scratch) {
+				addMulModXN1Into(rhs, plan.bBlockCoeff[2+i][block], x0Coeff[i], 1, q)
+			}
 		}
 		addScaledInto(rhs, zCoeff, 1, q)
 		for lane := 0; lane < ncols; lane++ {
@@ -1778,7 +1813,9 @@ func emitProjectedSignatureCoeffRange(rowCache *intGenISISRowCoeffCache, l *IntG
 				addScaledInto(res, uTrans[i][t], aVal, q)
 			}
 			laneRHS := make([]uint64, n)
-			mulModXN1(laneRHS, basis.LagrangeBasis[lane], rhs, q)
+			if !addMulModXN1PrecomputedNTTInto(ringQ, laneRHS, plan.lagrangeBasisNTT[lane], rhs, 1, scratch) {
+				mulModXN1(laneRHS, basis.LagrangeBasis[lane], rhs, q)
+			}
 			subInto(res, laneRHS, q)
 			if intGenISISProjectionDerivesYView(l) {
 				if len(yTrans) != 3 {

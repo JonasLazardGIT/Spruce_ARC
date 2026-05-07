@@ -1232,6 +1232,120 @@ func addMulModXN1Power2Into(dst, a, b []uint64, scale, q uint64) {
 	}
 }
 
+type negacyclicProductScratch struct {
+	a   *ring.Poly
+	b   *ring.Poly
+	out *ring.Poly
+}
+
+func newNegacyclicProductScratch(ringQ *ring.Ring) *negacyclicProductScratch {
+	if ringQ == nil {
+		return nil
+	}
+	return &negacyclicProductScratch{
+		a:   ringQ.NewPoly(),
+		b:   ringQ.NewPoly(),
+		out: ringQ.NewPoly(),
+	}
+}
+
+func resetRingPolyCoeffs(p *ring.Poly) {
+	if p == nil || len(p.Coeffs) == 0 {
+		return
+	}
+	for level := range p.Coeffs {
+		row := p.Coeffs[level]
+		for i := range row {
+			row[i] = 0
+		}
+	}
+}
+
+func nttPolyFromModXN1Coeffs(ringQ *ring.Ring, coeffs []uint64) (*ring.Poly, bool) {
+	if ringQ == nil || len(coeffs) > int(ringQ.N) {
+		return nil, false
+	}
+	q := ringQ.Modulus[0]
+	out := ringQ.NewPoly()
+	for i, v := range coeffs {
+		if v >= q {
+			v %= q
+		}
+		out.Coeffs[0][i] = v
+	}
+	ringQ.NTT(out, out)
+	return out, true
+}
+
+func shouldUseNTTNegacyclicProduct(ringQ *ring.Ring, dst, a, b []uint64) bool {
+	if ringQ == nil || len(dst) != int(ringQ.N) || len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	if len(a) > int(ringQ.N) || len(b) > int(ringQ.N) {
+		return false
+	}
+	n := len(dst)
+	return n >= 512 && len(a)*len(b) >= 32768
+}
+
+func addMulModXN1NTTInto(ringQ *ring.Ring, dst, a, b []uint64, scale uint64, scratch *negacyclicProductScratch) bool {
+	if scratch == nil || !shouldUseNTTNegacyclicProduct(ringQ, dst, a, b) {
+		return false
+	}
+	q := ringQ.Modulus[0]
+	if scale >= q {
+		scale %= q
+	}
+	if scale == 0 {
+		return true
+	}
+	resetRingPolyCoeffs(scratch.a)
+	resetRingPolyCoeffs(scratch.b)
+	for i, v := range a {
+		if v >= q {
+			v %= q
+		}
+		scratch.a.Coeffs[0][i] = v
+	}
+	for i, v := range b {
+		if v >= q {
+			v %= q
+		}
+		scratch.b.Coeffs[0][i] = v
+	}
+	ringQ.NTT(scratch.a, scratch.a)
+	ringQ.NTT(scratch.b, scratch.b)
+	ringQ.MulCoeffs(scratch.a, scratch.b, scratch.out)
+	ringQ.InvNTT(scratch.out, scratch.out)
+	addScaledInto(dst, scratch.out.Coeffs[0], scale, q)
+	return true
+}
+
+func addMulModXN1PrecomputedNTTInto(ringQ *ring.Ring, dst []uint64, aNTT *ring.Poly, b []uint64, scale uint64, scratch *negacyclicProductScratch) bool {
+	if scratch == nil || aNTT == nil || !shouldUseNTTNegacyclicProduct(ringQ, dst, aNTT.Coeffs[0], b) {
+		return false
+	}
+	q := ringQ.Modulus[0]
+	if scale >= q {
+		scale %= q
+	}
+	if scale == 0 {
+		return true
+	}
+	resetRingPolyCoeffs(scratch.b)
+	for i, v := range b {
+		if v >= q {
+			v %= q
+		}
+		scratch.b.Coeffs[0][i] = v
+	}
+	ringQ.NTT(scratch.b, scratch.b)
+	ringQ.MulCoeffs(aNTT, scratch.b, scratch.out)
+	ringQ.InvNTT(scratch.out, scratch.out)
+	addScaledInto(dst, scratch.out.Coeffs[0], scale, q)
+	return true
+}
+
 func addScaledInto(dst, src []uint64, scale, q uint64) {
 	if scale >= q {
 		scale %= q
