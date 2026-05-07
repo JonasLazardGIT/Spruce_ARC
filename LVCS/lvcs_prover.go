@@ -24,6 +24,10 @@ type RowInput struct {
 	// When set, it takes precedence over Poly and is valid in explicit-domain mode
 	// even when degree exceeds ringQ.N-1.
 	PolyCoeffs []uint64
+	// TrustedHead skips recomputing Ω values for direct-polynomial rows. It is
+	// only an internal prover-side optimization hint; callers that do not set it
+	// keep the full consistency check.
+	TrustedHead bool
 }
 
 // LayoutSegment tracks a contiguous row slice within the global oracle.
@@ -163,15 +167,27 @@ func CommitInitWithParamsAndPoints(
 					return
 				}
 			}
-			headVals := make([]uint64, ncols)
-			tailVals := make([]uint64, ell)
-			for i := 0; i < ncols; i++ {
-				headVals[i] = evalPolyCoeffs(coeffs, points[i]%q0, q0)
+			var headVals []uint64
+			if in.TrustedHead && len(in.Head) > 0 {
+				if len(in.Head) != ncols {
+					err = fmt.Errorf("CommitInitWithParams: inconsistent trusted head length for row %d (got %d want %d)", j, len(in.Head), ncols)
+					return
+				}
+				headVals = append([]uint64(nil), in.Head...)
+				for i := range headVals {
+					headVals[i] %= q0
+				}
+			} else {
+				headVals = make([]uint64, ncols)
+				for i := 0; i < ncols; i++ {
+					headVals[i] = evalPolyCoeffs(coeffs, points[i]%q0, q0)
+				}
 			}
+			tailVals := make([]uint64, ell)
 			for i := 0; i < ell; i++ {
 				tailVals[i] = evalPolyCoeffs(coeffs, points[ncols+i]%q0, q0)
 			}
-			if len(in.Head) > 0 {
+			if len(in.Head) > 0 && !in.TrustedHead {
 				if len(in.Head) != ncols {
 					err = fmt.Errorf("CommitInitWithParams: inconsistent head length for row %d (got %d want %d)", j, len(in.Head), ncols)
 					return

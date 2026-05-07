@@ -373,9 +373,11 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 					if opts.Credential && pub.IntGenISIS {
 						rowInputs[i].Poly = rows[i]
 						rowInputs[i].PolyCoeffs = trimCoeffsCopy(rows[i].Coeffs[0], q)
+						rowInputs[i].TrustedHead = true
 					} else if opts.Credential && !pub.IntGenISIS {
 						rowInputs[i].Poly = rows[i]
 						rowInputs[i].PolyCoeffs = trimCoeffsCopy(rows[i].Coeffs[0], q)
+						rowInputs[i].TrustedHead = true
 					}
 				}
 			} else {
@@ -395,7 +397,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				for j, w := range omega {
 					head[j] = EvalPoly(coeffs, w%q, q)
 				}
-				rowInputs[maskRowOffset+i] = lvcs.RowInput{Head: head, Poly: maskPolyCoeffs[i], PolyCoeffs: coeffs}
+				rowInputs[maskRowOffset+i] = lvcs.RowInput{Head: head, Poly: maskPolyCoeffs[i], PolyCoeffs: coeffs, TrustedHead: true}
 			}
 			pcsGeometry = makeLegacyPCSGeometry(witnessNCols, sfNCols, opts.Theta, opts.Ell, len(witnessPolys), witnessCount, maskRowOffset, maskRowCount)
 		}

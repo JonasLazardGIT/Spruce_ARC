@@ -242,7 +242,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 		}
 		cp := ringQ.NewPoly()
 		ring.Copy(p, cp)
-		return lvcs.RowInput{Head: head, Poly: cp}, nil
+		return lvcs.RowInput{Head: head, Poly: cp, TrustedHead: true}, nil
 	}
 	makeRowFromHead := func(head []uint64) *ring.Poly {
 		return rowInterp.coeffPolyFromHead(ringQ, head)
@@ -276,7 +276,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 				}
 				cp := ringQ.NewPoly()
 				ring.Copy(material.Poly, cp)
-				rowInputs = append(rowInputs, lvcs.RowInput{Head: head, Poly: cp})
+				rowInputs = append(rowInputs, lvcs.RowInput{Head: head, Poly: cp, TrustedHead: true})
 				continue
 			}
 			in, ierr := makeRowInput(material.Poly)
