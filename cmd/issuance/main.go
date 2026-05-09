@@ -178,7 +178,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	showingShortnessRadix := fs.Int("showing-sig-shortness-radix", 0, "showing IntGenISIS u-shortness radix override")
 	showingShortnessDigits := fs.Int("showing-sig-shortness-digits", 0, "showing IntGenISIS u-shortness digit-count override")
 	showingCompressedRows := fs.Int("showing-compressed-rows", 0, "showing IntGenISIS M/s/e compression level: 0 none; bounded-range presets reject levels >0")
-	showingReplayProjection := fs.String("showing-replay-projection", PIOP.IntGenISISReplayProjectionNone, "showing IntGenISIS replay projection mode: none, project_u_y_hat_v1, or project_u_y_hat_and_y_view_v2")
+	showingReplayProjection := fs.String("showing-replay-projection", PIOP.IntGenISISReplayProjectionNone, "showing IntGenISIS replay projection mode: none, project_u_y_hat_v1, project_u_y_hat_and_y_view_v2, project_u_digits_and_y_view_v3, experimental project_u_digits_y_source_linear_v4, or experimental project_u_digits_y_w_residual_v5")
 	showingTranscriptMode := fs.String("showing-transcript-mode", "", "showing transcript mode: baseline, column_widths_v1, or smallfield_2025_1085_v1; strict smallfield presets set this automatically")
 	companionMode := fs.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "PRF companion mode: output_audit, direct_auth, or aux_instance")
 	prfGroupRounds := fs.Int("prf-group-rounds", 2, "grouped PRF rounds for the showing companion witness")

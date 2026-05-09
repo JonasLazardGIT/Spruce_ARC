@@ -170,6 +170,7 @@ type sweepEstimateGeometry struct {
 	HatRows               int
 	CoefficientViewRows   int
 	UCoefficientViewRows  int
+	UDigitOnly            bool
 	SemanticViewRows      int
 	CommitmentViewRows    int
 	YCoefficientViewRows  int
@@ -1523,6 +1524,7 @@ func estimateIntGenISISMetrics(profile credential.IntGenISISProfile, tuning intG
 		PRFRows:                       geom.PRFRows,
 		CoefficientViewRows:           geom.CoefficientViewRows,
 		UCoefficientViewRows:          geom.UCoefficientViewRows,
+		UDigitOnly:                    geom.UDigitOnly,
 		SemanticViewRows:              geom.SemanticViewRows,
 		CommitmentViewRows:            geom.CommitmentViewRows,
 		YCoefficientViewRows:          geom.YCoefficientViewRows,
@@ -1646,7 +1648,12 @@ func estimateIntGenISISGeometry(profile credential.IntGenISISProfile, tuning int
 		if mode == "" {
 			mode = PIOP.IntGenISISReplayProjectionNone
 		}
+		digitOnlyU := mode == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || mode == PIOP.IntGenISISReplayProjectionProjectUDigitsYSourceLinearV4 || mode == PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+		wResidual := mode == PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
 		uRows := profile.SignaturePreimageLen * blocks
+		if digitOnlyU {
+			uRows = 0
+		}
 		shortRows := profile.SignaturePreimageLen * blocks * shortDigits
 		mRows := profile.EllM * blocks
 		sRows := profile.KS * blocks
@@ -1660,16 +1667,19 @@ func estimateIntGenISISGeometry(profile credential.IntGenISISProfile, tuning int
 			mseRows = ceilDivMain(mRows, packWidth) + ceilDivMain(sRows, packWidth) + ceilDivMain(eRows, packWidth)
 		}
 		yViewRows := blocks
-		if mode == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 {
+		if mode == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 || digitOnlyU {
 			yViewRows = 0
 		}
 		uHatRows := profile.SignaturePreimageLen * blocks
 		yHatRows := blocks
-		if mode == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || mode == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 {
+		if mode == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || mode == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 || digitOnlyU {
 			uHatRows = 0
 			yHatRows = 0
 		}
 		issuerHatRows := (profile.EllMuSig + profile.EllX0 + profile.EllX1 + 1) * blocks
+		if wResidual {
+			issuerHatRows = (1 + profile.EllX1 + 1) * blocks
+		}
 		prfRows, prfKeyBridge, err := estimatePRFGeometry(tuning)
 		if err != nil {
 			return sweepEstimateGeometry{}, err
@@ -1691,17 +1701,21 @@ func estimateIntGenISISGeometry(profile credential.IntGenISISProfile, tuning int
 		geom.MSECompressionPack = packWidth
 		geom.MSECompressionDegree = compressionDegree
 		geom.ShortnessRows = shortRows
-		geom.ShortnessConstraints = uRows * (1 + shortDigits)
+		geom.ShortnessConstraints = shortRows
+		if !digitOnlyU {
+			geom.ShortnessConstraints += profile.SignaturePreimageLen * blocks
+		}
 		geom.HatRows = uHatRows + yHatRows + issuerHatRows
 		geom.YHatRows = yHatRows
 		geom.CoefficientViewRows = uRows + mseRows + yViewRows
 		geom.UCoefficientViewRows = uRows
+		geom.UDigitOnly = digitOnlyU
 		geom.SemanticViewRows = mRows
 		geom.CommitmentViewRows = sRows + eRows
 		geom.YCoefficientViewRows = yViewRows
 		geom.Range = mseRows
 		geom.PRFKeyBridge = prfKeyBridge
-		if mode == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || mode == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 {
+		if mode == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || mode == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 || digitOnlyU {
 			geom.ProjectedSignature = blocks * ncols
 			geom.FparInt = blocks
 		} else {

@@ -501,7 +501,8 @@ type SimOpts struct {
 	// the uncompressed rows; bounded-range B>1 profiles reject level k>0.
 	IntGenISISMSECompression int
 	// IntGenISISReplayProjection selects the IntGenISIS showing replay
-	// projection mode. Empty and "none" keep the explicit hat-row relation.
+	// projection mode. Empty and "none" keep the explicit hat-row relation;
+	// experimental source-linear modes are sound-gated by layout validation.
 	IntGenISISReplayProjection string
 	// UnsafeSigLookupShadowR121L2 enables an explicitly unsound measurement
 	// mode for the R121/L2 fixed-table lookup idea. "free" omits interval

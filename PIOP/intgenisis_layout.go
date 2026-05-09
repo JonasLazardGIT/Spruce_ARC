@@ -96,6 +96,7 @@ func (l *IntGenISISPreSignRowLayout) ThetaRows() int {
 type IntGenISISShowingRowLayout struct {
 	LayoutVersion              string `json:"layout_version,omitempty"`
 	ReplayProjection           string `json:"replay_projection,omitempty"`
+	LinearHatSourceMode        string `json:"linear_hat_source_mode,omitempty"`
 	UStart                     int    `json:"u_start"`
 	UCount                     int    `json:"u_count"`
 	MStart                     int    `json:"m_start"`
@@ -164,6 +165,8 @@ type IntGenISISShowingRowLayout struct {
 	MuSigHatCount              int    `json:"mu_sig_hat_count,omitempty"`
 	X0HatStart                 int    `json:"x0_hat_start,omitempty"`
 	X0HatCount                 int    `json:"x0_hat_count,omitempty"`
+	WHatStart                  int    `json:"w_hat_start,omitempty"`
+	WHatCount                  int    `json:"w_hat_count,omitempty"`
 	X1HatStart                 int    `json:"x1_hat_start,omitempty"`
 	X1HatCount                 int    `json:"x1_hat_count,omitempty"`
 	ZHatStart                  int    `json:"z_hat_start,omitempty"`
@@ -224,6 +227,7 @@ func (l *IntGenISISShowingRowLayout) WitnessRows() int {
 		{l.YHatStart, l.YHatCount},
 		{l.MuSigHatStart, l.MuSigHatCount},
 		{l.X0HatStart, l.X0HatCount},
+		{l.WHatStart, l.WHatCount},
 		{l.X1HatStart, l.X1HatCount},
 		{l.ZHatStart, l.ZHatCount},
 	} {

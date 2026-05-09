@@ -902,10 +902,11 @@ func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics
 		}
 		log.Printf("[issuance-cli] IntGenISIS %s phase_timings %s", label, b.String())
 	}
-	log.Printf("[issuance-cli] IntGenISIS %s audit views total=%d u=%d semantic=%d commitment=%d y=%d issuer=%d constraints fpar_int=%d range=%d shortness=%d y_linear=%d bridge_total=%d bridge_u=%d bridge_commitment=%d bridge_issuer=%d prf_key=%d",
+	log.Printf("[issuance-cli] IntGenISIS %s audit views total=%d u=%d u_digit_only=%v semantic=%d commitment=%d y=%d issuer=%d constraints fpar_int=%d range=%d shortness=%d y_linear=%d bridge_total=%d bridge_u=%d bridge_commitment=%d bridge_issuer=%d prf_key=%d",
 		label,
 		m.CoefficientViewRows,
 		m.UCoefficientViewRows,
+		m.UDigitOnly,
 		m.SemanticViewRows,
 		m.CommitmentViewRows,
 		m.YCoefficientViewRows,

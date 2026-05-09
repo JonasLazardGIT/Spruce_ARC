@@ -263,7 +263,7 @@ func main() {
 	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth remains research-only; aux_instance enables the research-only split PRF proof)")
 	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
 	intGenISISCompressedRows := flag.Int("intgenisis-compressed-rows", 0, "IntGenISIS M/s/e compression level: 0 none, 1 pack2, 2 pack3, 3 pack4")
-	intGenISISReplayProjection := flag.String("intgenisis-replay-projection", PIOP.IntGenISISReplayProjectionNone, "IntGenISIS replay projection mode: none, project_u_y_hat_v1, or project_u_y_hat_and_y_view_v2")
+	intGenISISReplayProjection := flag.String("intgenisis-replay-projection", PIOP.IntGenISISReplayProjectionNone, "IntGenISIS replay projection mode: none, project_u_y_hat_v1, project_u_y_hat_and_y_view_v2, project_u_digits_and_y_view_v3, experimental project_u_digits_y_source_linear_v4, or experimental project_u_digits_y_w_residual_v5")
 	statePathFlag := flag.String("state-path", "", "credential state path for showing; defaults to the selected maintained profile artifact")
 	intGenISISPublicParamsPath := flag.String("public-params", "", "IntGenISIS public params path for standalone presentation verification")
 	intGenISISVerifierKeyPath := flag.String("verifier-key", "", "IntGenISIS verifier key path for standalone presentation verification")

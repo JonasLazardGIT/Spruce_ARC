@@ -48,6 +48,7 @@ type benchmarkIntGenISISMetrics struct {
 	PRFRows                       int                `json:"prf_rows"`
 	CoefficientViewRows           int                `json:"coefficient_view_rows"`
 	UCoefficientViewRows          int                `json:"u_coefficient_view_rows,omitempty"`
+	UDigitOnly                    bool               `json:"u_digit_only,omitempty"`
 	SemanticViewRows              int                `json:"semantic_view_rows,omitempty"`
 	CommitmentViewRows            int                `json:"commitment_view_rows,omitempty"`
 	YCoefficientViewRows          int                `json:"y_coefficient_view_rows,omitempty"`
@@ -609,15 +610,26 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		metrics.MSECompressionDegree = l.MSECompressionDecodeDegree
 		metrics.RangeConstraints = l.BoundViewCount
 		metrics.ShortnessRows = l.UShortnessGroupCount * l.UShortnessRowsPerGroup
-		metrics.ShortnessConstraints = l.UShortnessSourceViewRows * (1 + l.UShortnessRowsPerGroup)
+		metrics.UDigitOnly = l.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || l.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYSourceLinearV4 || l.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+		metrics.ShortnessConstraints = l.UShortnessGroupCount * l.UShortnessRowsPerGroup
+		if !metrics.UDigitOnly {
+			metrics.ShortnessConstraints += l.UShortnessGroupCount
+		}
 		metrics.YHatRows = l.YHatCount
-		metrics.HatRows = l.UHatCount + l.MHatCount + l.SHatCount + l.EHatCount + l.YHatCount + l.MuSigHatCount + l.X0HatCount + l.X1HatCount + l.ZHatCount
+		metrics.HatRows = l.UHatCount + l.MHatCount + l.SHatCount + l.EHatCount + l.YHatCount + l.MuSigHatCount + l.X0HatCount + l.WHatCount + l.X1HatCount + l.ZHatCount
 		metrics.ReplayProjection = l.ReplayProjection
 		if metrics.ReplayProjection == "" && l.LayoutVersion == "intgenisis_showing_project_u_y_hat_v1" {
 			metrics.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUYHatV1
 		} else if metrics.ReplayProjection == "" && l.LayoutVersion == "intgenisis_showing_project_u_y_hat_y_view_v2" {
 			metrics.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2
+		} else if metrics.ReplayProjection == "" && l.LayoutVersion == "intgenisis_showing_project_u_digits_y_view_v3" {
+			metrics.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3
+		} else if metrics.ReplayProjection == "" && l.LayoutVersion == "intgenisis_showing_project_u_digits_y_source_linear_v4" {
+			metrics.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUDigitsYSourceLinearV4
+		} else if metrics.ReplayProjection == "" && l.LayoutVersion == "intgenisis_showing_project_u_digits_y_w_residual_v5" {
+			metrics.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
 		}
+		metrics.UDigitOnly = metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYSourceLinearV4 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
 		if l.ViewRowsPerPoly > 0 {
 			ncols := proof.RowLayout.RingDegree / l.ViewRowsPerPoly
 			bridgeRows := func(viewStart, hatCount int) int {
@@ -630,7 +642,7 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 			metrics.CommitmentBridgeConstraints = bridgeRows(l.YViewStart, l.YHatCount)
 			metrics.YLinearConstraints = l.YViewCount * ncols
 			metrics.IssuerBridgeConstraints = bridgeRows(l.MuSigViewStart, l.MuSigHatCount) + bridgeRows(l.X0ViewStart, l.X0HatCount) + bridgeRows(l.X1ViewStart, l.X1HatCount) + bridgeRows(l.ZViewStart, l.ZHatCount)
-			if metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 {
+			if metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYSourceLinearV4 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5 {
 				metrics.ProjectedSignatureConstraints = l.ViewRowsPerPoly * ncols
 			}
 			metrics.SourceBridgeConstraints = metrics.UBridgeConstraints + metrics.CommitmentBridgeConstraints + metrics.YLinearConstraints + metrics.ProjectedSignatureConstraints + metrics.IssuerBridgeConstraints
@@ -639,7 +651,7 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		if l.MViewStart >= 0 && l.MAttrViewStart >= 0 && l.KViewStart >= 0 {
 			semanticConstraints = l.ViewRowsPerPoly
 		}
-		if metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 {
+		if metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatV1 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUYHatYViewV2 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYSourceLinearV4 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5 {
 			metrics.FparIntConstraints = l.ViewRowsPerPoly + semanticConstraints
 		} else {
 			metrics.FparIntConstraints = 2*l.ViewRowsPerPoly + semanticConstraints

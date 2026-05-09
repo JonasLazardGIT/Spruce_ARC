@@ -105,17 +105,20 @@ func TestIntGenISISPresetRegistryResolvesSecureNames(t *testing.T) {
 						t.Fatalf("n1024-sw96 preset soundness tuple=%+v", p.Showing)
 					}
 				} else if name == IntGenISISPresetN1024SW90SF {
-					if p.TargetTheoremBits != 90 || p.SoundnessGate != "smallwood_2025_1085_live" {
+					if p.TargetTheoremBits != 96 || p.SoundnessGate != "smallwood_2025_1085_live" {
 						t.Fatalf("n1024-sw90-smallfield preset theorem target/gate=(%v,%q)", p.TargetTheoremBits, p.SoundnessGate)
 					}
-					if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 44 || p.Showing.NLeaves != 116864 || p.Showing.Eta != 37 {
+					if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 43 || p.Showing.NLeaves != 230208 || p.Showing.Eta != 40 {
 						t.Fatalf("n1024-sw90-smallfield preset showing tuple=%+v", p.Showing)
 					}
 					if p.Showing.Theta != 5 || p.Showing.Rho != 1 || p.Showing.Ell != 7 || p.Showing.EllPrime != 1 {
 						t.Fatalf("n1024-sw90-smallfield preset soundness tuple=%+v", p.Showing)
 					}
-					if p.Showing.Kappa != [4]int{3, 0, 0, 12} || p.Showing.SigShortnessRadix != 7 || p.Showing.SigShortnessDigits != 5 || p.Showing.CompressedRows != 1 {
+					if p.Showing.Kappa != [4]int{0, 0, 6, 11} || p.Showing.SigShortnessRadix != 7 || p.Showing.SigShortnessDigits != 5 || p.Showing.CompressedRows != 1 {
 						t.Fatalf("n1024-sw90-smallfield shortness/compression tuple=%+v", p.Showing)
+					}
+					if p.Showing.ReplayProjection != "project_u_digits_y_w_residual_v5" {
+						t.Fatalf("n1024-sw90-smallfield replay projection=%q", p.Showing.ReplayProjection)
 					}
 					if p.Showing.TranscriptMode != "smallfield_2025_1085_v1" || p.Issuance.TranscriptMode != "" {
 						t.Fatalf("n1024-sw90-smallfield transcript modes: issuance=%q showing=%q", p.Issuance.TranscriptMode, p.Showing.TranscriptMode)
@@ -124,11 +127,17 @@ func TestIntGenISISPresetRegistryResolvesSecureNames(t *testing.T) {
 					if p.TargetTheoremBits != 115 || p.SoundnessGate != "smallwood_2025_1085_live" {
 						t.Fatalf("n1024-sw115-smallfield preset theorem target/gate=(%v,%q)", p.TargetTheoremBits, p.SoundnessGate)
 					}
-					if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 36 || p.Showing.NLeaves != 839680 || p.Showing.Eta != 41 {
+					if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 42 || p.Showing.NLeaves != 354816 || p.Showing.Eta != 43 {
 						t.Fatalf("n1024-sw115-smallfield preset showing tuple=%+v", p.Showing)
 					}
-					if p.Showing.Theta != 7 || p.Showing.Rho != 1 || p.Showing.Ell != 8 || p.Showing.EllPrime != 1 {
+					if p.Showing.Theta != 7 || p.Showing.Rho != 1 || p.Showing.Ell != 9 || p.Showing.EllPrime != 1 {
 						t.Fatalf("n1024-sw115-smallfield preset soundness tuple=%+v", p.Showing)
+					}
+					if p.Issuance.NCols != 32 || p.Issuance.LVCSNCols != 36 || p.Issuance.NLeaves != 839680 || p.Issuance.Eta != 41 {
+						t.Fatalf("n1024-sw115-smallfield preset issuance tuple=%+v", p.Issuance)
+					}
+					if p.Issuance.Theta != 7 || p.Issuance.Rho != 1 || p.Issuance.Ell != 8 || p.Issuance.EllPrime != 1 {
+						t.Fatalf("n1024-sw115-smallfield preset issuance soundness tuple=%+v", p.Issuance)
 					}
 					if p.Showing.Kappa != ([4]int{}) || p.Showing.SigShortnessRadix != 11 || p.Showing.SigShortnessDigits != 4 || p.Showing.CompressedRows != 1 {
 						t.Fatalf("n1024-sw115-smallfield shortness/compression tuple=%+v", p.Showing)
@@ -153,14 +162,23 @@ func TestIntGenISISPresetRegistryResolvesSecureNames(t *testing.T) {
 						t.Fatalf("n1024-sw120-smallfield transcript modes: issuance=%q showing=%q", p.Issuance.TranscriptMode, p.Showing.TranscriptMode)
 					}
 				} else if name == IntGenISISPresetN1024SW128 {
-					if p.TargetTheoremBits != 128 || p.SoundnessGate != "theorem9_seed" {
+					if p.TargetTheoremBits != 128 || p.SoundnessGate != "smallwood_2025_1085_collision256_candidate" {
 						t.Fatalf("n1024-sw128 preset theorem target/gate=(%v,%q)", p.TargetTheoremBits, p.SoundnessGate)
 					}
-					if p.Showing.NCols != 64 || p.Showing.LVCSNCols != 128 || p.Showing.NLeaves != 917504 || p.Showing.Eta != 40 {
+					if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 44 || p.Showing.NLeaves != 524288 || p.Showing.Eta != 46 {
 						t.Fatalf("n1024-sw128 preset showing tuple=%+v", p.Showing)
 					}
-					if p.Showing.Theta != 1 || p.Showing.Rho != 7 || p.Showing.Ell != 9 || p.Showing.EllPrime != 11 {
+					if p.Showing.Theta != 7 || p.Showing.Rho != 1 || p.Showing.Ell != 9 || p.Showing.EllPrime != 1 {
 						t.Fatalf("n1024-sw128 preset soundness tuple=%+v", p.Showing)
+					}
+					if p.Showing.Kappa != [4]int{0, 0, 0, 8} || p.Showing.SigShortnessRadix != 11 || p.Showing.SigShortnessDigits != 4 || p.Showing.CompressedRows != 1 {
+						t.Fatalf("n1024-sw128 shortness/compression tuple=%+v", p.Showing)
+					}
+					if p.Showing.ReplayProjection != "project_u_digits_and_y_view_v3" {
+						t.Fatalf("n1024-sw128 replay projection=%q", p.Showing.ReplayProjection)
+					}
+					if p.Showing.TranscriptMode != "smallfield_2025_1085_v1" || p.Issuance.TranscriptMode != "" {
+						t.Fatalf("n1024-sw128 transcript modes: issuance=%q showing=%q", p.Issuance.TranscriptMode, p.Showing.TranscriptMode)
 					}
 				} else if name == IntGenISISPresetSW96LVCS64 || name == IntGenISISPresetSW128LVCS64 {
 					wantTheorem := 96.0
@@ -181,10 +199,10 @@ func TestIntGenISISPresetRegistryResolvesSecureNames(t *testing.T) {
 				} else if p.TargetEq8Bits != 96 && p.TargetEq8Bits != 128 {
 					t.Fatalf("target bits=%v", p.TargetEq8Bits)
 				}
-				if p.LVCSNCols != 32 && p.LVCSNCols != 36 && p.LVCSNCols != 42 && p.LVCSNCols != 44 && p.LVCSNCols != 46 && p.LVCSNCols != 48 && p.LVCSNCols != 52 && p.LVCSNCols != 56 && p.LVCSNCols != 64 && p.LVCSNCols != 70 && p.LVCSNCols != 96 && p.LVCSNCols != 128 {
+				if p.LVCSNCols != 32 && p.LVCSNCols != 36 && p.LVCSNCols != 42 && p.LVCSNCols != 43 && p.LVCSNCols != 44 && p.LVCSNCols != 46 && p.LVCSNCols != 48 && p.LVCSNCols != 52 && p.LVCSNCols != 56 && p.LVCSNCols != 64 && p.LVCSNCols != 70 && p.LVCSNCols != 96 && p.LVCSNCols != 128 {
 					t.Fatalf("lvcs_ncols=%d", p.LVCSNCols)
 				}
-				if name != IntGenISISPresetSW96LVCS64 && name != IntGenISISPresetSW128LVCS64 && (p.Issuance.LVCSNCols != p.LVCSNCols || p.Showing.LVCSNCols != p.LVCSNCols) {
+				if name != IntGenISISPresetSW96LVCS64 && name != IntGenISISPresetSW128LVCS64 && name != IntGenISISPresetN1024SW115SF && (p.Issuance.LVCSNCols != p.LVCSNCols || p.Showing.LVCSNCols != p.LVCSNCols) {
 					t.Fatalf("preset %s not fixed-lvcs: issuance=%d showing=%d track=%d", name, p.Issuance.LVCSNCols, p.Showing.LVCSNCols, p.LVCSNCols)
 				}
 				if p.Showing.PRFCompanionMode == "" || p.Showing.CheckpointSamples <= 0 {

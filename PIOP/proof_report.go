@@ -72,6 +72,10 @@ type TranscriptOptimizationReport struct {
 	SigShortnessRadix               int    `json:"sig_shortness_radix"`
 	SigShortnessDigits              int    `json:"sig_shortness_digits"`
 	SigShortnessDegree              int    `json:"sig_shortness_degree"`
+	UDigitOnly                      bool   `json:"u_digit_only,omitempty"`
+	LinearHatSourceMode             string `json:"linear_hat_source_mode,omitempty"`
+	OmittedLinearHatRows            int    `json:"omitted_linear_hat_rows,omitempty"`
+	ShortnessMembershipBackend      string `json:"shortness_membership_backend,omitempty"`
 	SigLookupShadowMode             string `json:"sig_lookup_shadow_mode"`
 	SigLookupCells                  int    `json:"sig_lookup_cells"`
 	SigLookupTableSize              int    `json:"sig_lookup_table_size"`
@@ -487,6 +491,7 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 		out.SigShortnessDigits = L
 		out.SigShortnessDegree = degree
 	}
+	out.ShortnessMembershipBackend = string(intGenISISShortnessMembershipBackendForOpts(opts))
 	if out.PCols == 0 && packing.PCSOpening.Pvals.EncodedCols > 0 {
 		out.PCols = packing.PCSOpening.Pvals.EncodedCols
 		out.OmitP = packing.PCSOpening.Pvals.OmittedCols
@@ -494,6 +499,22 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	}
 	if proof == nil {
 		return out
+	}
+	if proof.RowLayout.IntGenISISShowing != nil {
+		l := proof.RowLayout.IntGenISISShowing
+		out.UDigitOnly = intGenISISProjectionUsesDigitOnlyU(l)
+		out.LinearHatSourceMode = intGenISISLinearHatSourceMode(l)
+		if intGenISISProjectionUsesSourceLinearHats(l) {
+			out.OmittedLinearHatRows = l.MuSigCount*l.ViewRowsPerPoly + l.X0Count*l.ViewRowsPerPoly + l.X1Count*l.ViewRowsPerPoly - (l.MuSigHatCount + l.X0HatCount + l.X1HatCount)
+			if out.OmittedLinearHatRows < 0 {
+				out.OmittedLinearHatRows = 0
+			}
+		} else if intGenISISProjectionUsesBBTranWResidual(l) {
+			out.OmittedLinearHatRows = l.MuSigCount*l.ViewRowsPerPoly + l.X0Count*l.ViewRowsPerPoly - l.WHatCount
+			if out.OmittedLinearHatRows < 0 {
+				out.OmittedLinearHatRows = 0
+			}
+		}
 	}
 	out.TranscriptSecurityStatus = "baseline_live"
 	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 {

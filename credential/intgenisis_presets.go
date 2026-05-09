@@ -397,23 +397,23 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 
 	n1024Show90SF := IntGenISISTuningPreset{
 		NCols:              32,
-		LVCSNCols:          44,
-		NLeaves:            116864,
-		Eta:                37,
+		LVCSNCols:          43,
+		NLeaves:            230208,
+		Eta:                40,
 		Theta:              5,
 		Rho:                1,
 		Ell:                7,
 		EllPrime:           1,
-		Kappa:              [4]int{3, 0, 0, 12},
+		Kappa:              [4]int{0, 0, 6, 11},
 		PRFCompanionMode:   "direct_auth",
 		PRFGroupRounds:     2,
 		CheckpointSamples:  1,
 		SigShortnessRadix:  7,
 		SigShortnessDigits: 5,
 		CompressedRows:     1,
-		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
+		ReplayProjection:   "project_u_digits_y_w_residual_v5",
 		TranscriptMode:     "smallfield_2025_1085_v1",
-		TargetTheoremBits:  90,
+		TargetTheoremBits:  96,
 		SoundnessGate:      "smallwood_2025_1085_live",
 	}
 	n1024Issuance90SF := n1024Show90SF
@@ -428,12 +428,12 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 
 	n1024Show115SF := IntGenISISTuningPreset{
 		NCols:              32,
-		LVCSNCols:          36,
-		NLeaves:            839680,
-		Eta:                41,
+		LVCSNCols:          42,
+		NLeaves:            354816,
+		Eta:                43,
 		Theta:              7,
 		Rho:                1,
-		Ell:                8,
+		Ell:                9,
 		EllPrime:           1,
 		PRFCompanionMode:   "direct_auth",
 		PRFGroupRounds:     2,
@@ -446,15 +446,18 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		TargetTheoremBits:  115,
 		SoundnessGate:      "smallwood_2025_1085_live",
 	}
-	n1024Issuance115SF := n1024Show115SF
-	n1024Issuance115SF.PRFCompanionMode = ""
-	n1024Issuance115SF.PRFGroupRounds = 0
-	n1024Issuance115SF.CheckpointSamples = 0
-	n1024Issuance115SF.SigShortnessRadix = 0
-	n1024Issuance115SF.SigShortnessDigits = 0
-	n1024Issuance115SF.CompressedRows = 0
-	n1024Issuance115SF.ReplayProjection = ""
-	n1024Issuance115SF.TranscriptMode = ""
+	n1024Issuance115SF := IntGenISISTuningPreset{
+		NCols:             32,
+		LVCSNCols:         36,
+		NLeaves:           839680,
+		Eta:               41,
+		Theta:             7,
+		Rho:               1,
+		Ell:               8,
+		EllPrime:          1,
+		TargetTheoremBits: 115,
+		SoundnessGate:     "smallwood_2025_1085_live",
+	}
 
 	n1024Show120SF := IntGenISISTuningPreset{
 		NCols:              32,
@@ -487,25 +490,27 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	n1024Issuance120SF.TranscriptMode = ""
 
 	n1024Show128 := IntGenISISTuningPreset{
-		NCols:              64,
-		LVCSNCols:          128,
-		NLeaves:            917504,
-		Eta:                40,
-		Theta:              1,
-		Rho:                7,
+		NCols:              32,
+		LVCSNCols:          44,
+		NLeaves:            524288,
+		Eta:                46,
+		Theta:              7,
+		Rho:                1,
 		Ell:                9,
-		EllPrime:           11,
+		EllPrime:           1,
+		Kappa:              [4]int{0, 0, 0, 8},
 		PRFCompanionMode:   "direct_auth",
 		PRFGroupRounds:     2,
-		CheckpointSamples:  2,
-		SigShortnessRadix:  5,
-		SigShortnessDigits: 6,
-		CompressedRows:     0,
-		ReplayProjection:   "project_u_y_hat_and_y_view_v2",
+		CheckpointSamples:  1,
+		SigShortnessRadix:  11,
+		SigShortnessDigits: 4,
+		CompressedRows:     1,
+		ReplayProjection:   "project_u_digits_and_y_view_v3",
+		TranscriptMode:     "smallfield_2025_1085_v1",
 	}
 	n1024Show128.TargetTheoremBits = 128
 	n1024Show128.TargetEq8Bits = 0
-	n1024Show128.SoundnessGate = "theorem9_seed"
+	n1024Show128.SoundnessGate = "smallwood_2025_1085_collision256_candidate"
 	n1024Issuance128 := n1024Show128
 	n1024Issuance128.PRFCompanionMode = ""
 	n1024Issuance128.PRFGroupRounds = 0
@@ -514,6 +519,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	n1024Issuance128.SigShortnessDigits = 0
 	n1024Issuance128.CompressedRows = 0
 	n1024Issuance128.ReplayProjection = ""
+	n1024Issuance128.TranscriptMode = ""
 
 	mk := func(name, desc string, target float64, lvcs, maxLeaves int, showing IntGenISISTuningPreset) IntGenISISPreset {
 		issuance := showing
@@ -709,10 +715,10 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		},
 		IntGenISISPresetN1024SW90SF: {
 			Name:                IntGenISISPresetN1024SW90SF,
-			Description:         "profile-C N=1024 ternary >90-bit strict small-field transcript preset",
+			Description:         "profile-C N=1024 ternary >96-bit strict small-field transcript preset",
 			Profile:             ProfileIntGenISISC,
 			TargetEq8Bits:       0,
-			TargetTheoremBits:   90,
+			TargetTheoremBits:   96,
 			SoundnessGate:       n1024Show90SF.SoundnessGate,
 			LVCSNCols:           n1024Show90SF.LVCSNCols,
 			MaxNLeaves:          n1024Show90SF.NLeaves,
@@ -720,9 +726,10 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Issuance:            n1024Issuance90SF,
 			Showing:             n1024Show90SF,
 			Notes: []string{
-				"Promoted from the N=1024 profile-C strict small-field rho=1 ell'=1 transcript sweep as the compact >90-bit live preset.",
-				"Live snapshot: paper_transcript_bytes=28641, theorem_total_bits=90.07, rows=567, rows_block=13, eta=37, kappa={3,0,0,12}, dQ=373, DDECS=50.",
-				"Live buckets: q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=4640/4072/8383/0/1610/0/8095/1297.",
+				"Promoted from the N=1024 profile-C strict small-field rho=1 ell'=1 transcript sweep as the compact >96-bit live preset while retaining the sw90 preset alias.",
+				"W-residual showing is promoted as the default projection: project_u_digits_y_w_residual_v5 keeps digit-only U and replaces committed mu_sig/x0 hats by one committed W residual.",
+				"Live snapshot: paper_transcript_bytes=26419, theorem_total_bits=96.15, rows=471, rows_block=11, eta=40, kappa={0,0,6,11}, dQ=373, DDECS=49.",
+				"Live buckets: q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=4640/4302/7207/0/1830/0/6783/1113.",
 				"M/s/e pack2 is promoted only for profile-C ternary B=1; bounded-range B>1 compression remains rejected.",
 				"Strict smallfield live mode opens DECS rows only at sampled tail points; VBar carries mask-coordinate LVCS targets.",
 				"Uses smallfield_2025_1085_v1 only for showing; issuance remains dense-compatible while sharing the security tuple.",
@@ -741,10 +748,11 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Issuance:            n1024Issuance115SF,
 			Showing:             n1024Show115SF,
 			Notes: []string{
-				"Promoted from live measurement of the strict small-field rho=1 ell'=1 zero-grinding N=1024 sweep as the compact >115-bit preset.",
-				"Live snapshots measured paper_transcript_bytes=37724-37758, theorem_total_bits=115.00, rows=503, rows_block=14, eta=41, kappa={0,0,0,0}, dQ=460, DDECS=43.",
-				"Live buckets are stable except auth path packing: q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=8019/3692/11176/0/2146-2180/0/9933/2215.",
-				"Measured near-tie lvcs=44, eta=48, nleaves=1008640 was larger at 38157 bytes despite fewer row blocks.",
+				"Promoted from the zero-grinding strict small-field rho=1 ell'=1 architecture sweep as the balanced-fast >115-bit showing preset.",
+				"Live showing snapshot: paper_transcript_bytes=38693, theorem_total_bits=116.24, prove_ms=3844.77, verify_ms=445.99, rows=503, rows_block=12, eta=43, kappa={0,0,0,0}, dQ=471, DDECS=50.",
+				"Live showing buckets: q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=8211/4517/10896/0/2322/0/10043/2160.",
+				"Previous compact zero-grinding point lvcs=36, eta=41, ell=8, nleaves=839680 was about 37842 bytes but substantially slower; this preset trades roughly +851 bytes for much lower showing time and leaf count.",
+				"Issuance remains on the prior validated 115-bit baseline tuple; the balanced-fast retune applies to showing only.",
 				"Strict smallfield live mode opens DECS rows only at sampled tail points; VBar carries mask-coordinate LVCS targets.",
 				"This preset intentionally targets 115 theorem bits and must not replace n1024-sw120-smallfield.",
 			},
@@ -771,7 +779,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		},
 		IntGenISISPresetN1024SW128: {
 			Name:                IntGenISISPresetN1024SW128,
-			Description:         "profile-C N=1024 ternary 128-bit sweep seed",
+			Description:         "profile-C N=1024 strict smallfield compact 128-bit candidate",
 			Profile:             ProfileIntGenISISC,
 			TargetEq8Bits:       0,
 			TargetTheoremBits:   128,
@@ -782,8 +790,10 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Issuance:            n1024Issuance128,
 			Showing:             n1024Show128,
 			Notes: []string{
-				"N=1024 ternary seed uses profile-C B=1 and degree-3 live membership.",
-				"Seed geometry is intentionally conservative; run sweep-intgenisis-n1024-ternary-deep before promoting a measured transcript frontier.",
+				"Promoted from the strict smallfield N=1024 profile-C route sweep as the compact moderate-grinding candidate.",
+				"Strict smallfield live shape: rho=1, ell'=1, smallfield_2025_1085_v1, digit-only U projection, R11/L4, M/s/e compression level 1.",
+				"Live showing snapshot: paper_transcript_bytes=35991, prove_ms≈4625, verify_ms≈540, theorem_total_bits≈125.47 under the current 16-byte DECS collision cap.",
+				"With 256-bit collision-space accounting, the same round terms give about 128.33 theorem bits; do not claim full 128-bit live theorem security until collision accounting/protocol material is updated.",
 			},
 		},
 	}

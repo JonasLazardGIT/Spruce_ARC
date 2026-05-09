@@ -1150,6 +1150,17 @@ func TestSweepIntGenISISEstimateResearchModesExposeAccounting(t *testing.T) {
 			shortMetrics.ParallelAlgDegree, shortMetrics.AggregatedAlgDegree, shortMetrics.DominantDegreeSource)
 	}
 
+	digitOnly := base
+	digitOnly.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3
+	digitMetrics, err := estimateIntGenISISMetrics(profile, digitOnly, "showing")
+	if err != nil {
+		t.Fatalf("digit-only U estimate: %v", err)
+	}
+	if !digitMetrics.UDigitOnly || digitMetrics.UCoefficientViewRows != 0 || digitMetrics.ShortnessConstraints != digitMetrics.ShortnessRows {
+		t.Fatalf("digit-only U rows/constraints flag=%v u_rows=%d shortness_constraints=%d shortness_rows=%d",
+			digitMetrics.UDigitOnly, digitMetrics.UCoefficientViewRows, digitMetrics.ShortnessConstraints, digitMetrics.ShortnessRows)
+	}
+
 	mseLookup := base
 	mseLookup.CompressedRows = 1
 	mseLookup.TranscriptMode = sweepTranscriptModeMSELookupPack2

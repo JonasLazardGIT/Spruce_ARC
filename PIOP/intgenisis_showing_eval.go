@@ -52,6 +52,11 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	if len(pub.B) != 3+l.X0Count {
 		return nil, fmt.Errorf("B length=%d want %d", len(pub.B), 3+l.X0Count)
 	}
+	if intGenISISProjectionUsesBBTranWResidual(l) {
+		if err := validateIntGenISISBBTranLinearMapFullImage(ringQ, pub.B, l.X0Count); err != nil {
+			return nil, fmt.Errorf("IntGenISIS W-residual projection: %w", err)
+		}
+	}
 	if len(pub.CM) != l.ECount || len(pub.CM[0]) != l.MCount {
 		return nil, fmt.Errorf("C_M dimensions mismatch")
 	}
@@ -148,6 +153,9 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	var boundRows []int
 	var boundPolys [][]uint64
 	if intGenISISUseDirectSignatureRange(sigBound) {
+		if intGenISISProjectionUsesDigitOnlyU(l) {
+			return nil, fmt.Errorf("IntGenISIS digit-only U does not support direct signature range constraints")
+		}
 		shortRows := intGenISISViewRowIndices(l.UViewStart, l.UCount*l.ViewRowsPerPoly)
 		boundRows = append(boundRows, shortRows...)
 		shortSpec := NewRangeMembershipSpec(ringQ.Modulus[0], int(sigBound)).Coeffs
@@ -268,6 +276,35 @@ func (cfg *intGenISISShowingReplayConfig) evalProjectedTransformLaneF(x uint64, 
 	return left, nil
 }
 
+func (cfg *intGenISISShowingReplayConfig) evalProjectedUDigitTransformLaneF(x uint64, getRow func(int) (uint64, error), comp, block, lane int) (uint64, error) {
+	if cfg == nil || cfg.BridgeBasis == nil {
+		return 0, fmt.Errorf("missing IntGenISIS projected U digit transform basis")
+	}
+	q := cfg.Ring.Modulus[0]
+	l := cfg.Layout
+	ncols := len(cfg.BridgeBasis.LagrangeBasis)
+	t := block*ncols + lane
+	if t < 0 || t >= len(cfg.BridgeBasis.TransformH) || t >= len(cfg.BridgeBasis.BlockFactors) {
+		return 0, fmt.Errorf("projected U digit transform lane t=%d out of range", t)
+	}
+	h := EvalPoly(cfg.BridgeBasis.TransformH[t], x, q) % q
+	left := uint64(0)
+	for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
+		group := comp*l.ViewRowsPerPoly + srcBlock
+		source := uint64(0)
+		for digit := 0; digit < l.UShortnessRowsPerGroup; digit++ {
+			row, err := getRow(l.UShortnessStart + group*l.UShortnessRowsPerGroup + digit)
+			if err != nil {
+				return 0, err
+			}
+			source = modAdd(source, modMul(cfg.Shortness.RPows[digit]%q, row, q), q)
+		}
+		scale := cfg.BridgeBasis.BlockFactors[t][srcBlock] % q
+		left = modAdd(left, modMul(scale, modMul(h, source, q), q), q)
+	}
+	return left, nil
+}
+
 func (cfg *intGenISISShowingReplayConfig) evalYLinearSourceF(term intGenISISYLinearTermCache, comp, srcBlock int, getRow func(int) (uint64, error)) (uint64, error) {
 	if cfg == nil || cfg.Ring == nil {
 		return 0, fmt.Errorf("nil IntGenISIS showing replay config")
@@ -341,6 +378,41 @@ func (cfg *intGenISISShowingReplayConfig) evalProjectedYHatLaneF(x uint64, getRo
 	return modAdd(left, eLane, q), nil
 }
 
+func (cfg *intGenISISShowingReplayConfig) evalLinearHatF(_ uint64, getRow func(int) (uint64, error), kind intGenISISLinearHatKind, component, block int) (uint64, error) {
+	if cfg == nil {
+		return 0, fmt.Errorf("nil IntGenISIS showing replay config")
+	}
+	switch mode := intGenISISLinearHatSourceMode(&cfg.Layout); mode {
+	case intGenISISLinearHatSourceMaterialized:
+		row, err := intGenISISLinearHatMaterializedRow(&cfg.Layout, kind, component, block)
+		if err != nil {
+			return 0, err
+		}
+		return getRow(row)
+	case intGenISISLinearHatSourceView:
+		return 0, fmt.Errorf("IntGenISIS source-linear %s provider %q is not implemented", kind, mode)
+	default:
+		return 0, fmt.Errorf("unsupported IntGenISIS linear hat source mode %q", mode)
+	}
+}
+
+func (cfg *intGenISISShowingReplayConfig) evalWResidualF(getRow func(int) (uint64, error), block int) (uint64, error) {
+	if cfg == nil {
+		return 0, fmt.Errorf("nil IntGenISIS showing replay config")
+	}
+	l := &cfg.Layout
+	if !intGenISISProjectionUsesBBTranWResidual(l) {
+		return 0, fmt.Errorf("IntGenISIS layout does not use W residual")
+	}
+	if block < 0 || block >= l.ViewRowsPerPoly {
+		return 0, fmt.Errorf("IntGenISIS W residual block=%d outside rows/poly=%d", block, l.ViewRowsPerPoly)
+	}
+	if l.WHatStart < 0 || l.WHatCount != l.ViewRowsPerPoly {
+		return 0, fmt.Errorf("IntGenISIS W residual rows unavailable start=%d count=%d", l.WHatStart, l.WHatCount)
+	}
+	return getRow(l.WHatStart + block)
+}
+
 func (cfg *intGenISISShowingReplayConfig) evalProjectedSignatureF(x uint64, getRow func(int) (uint64, error)) ([]uint64, error) {
 	if cfg == nil || cfg.BridgeBasis == nil {
 		return nil, fmt.Errorf("missing IntGenISIS projected signature metadata")
@@ -356,31 +428,42 @@ func (cfg *intGenISISShowingReplayConfig) evalProjectedSignatureF(x uint64, getR
 	}
 	out := make([]uint64, 0, l.ViewRowsPerPoly*ncols)
 	for block := 0; block < l.ViewRowsPerPoly; block++ {
-		muSig, err := getRow(l.MuSigHatStart + block)
-		if err != nil {
-			return nil, err
-		}
-		x0Vals := make([]uint64, l.X0Count)
-		for i := 0; i < l.X0Count; i++ {
-			x0Vals[i], err = getRow(l.X0HatStart + i*l.ViewRowsPerPoly + block)
-			if err != nil {
-				return nil, err
-			}
-		}
 		z, err := getRow(l.ZHatStart + block)
 		if err != nil {
 			return nil, err
 		}
 		rhs := evalTheta(cfg.BCoeff[0][block])
-		rhs = modAdd(rhs, modMul(evalTheta(cfg.BCoeff[1][block]), muSig, q), q)
-		for i := 0; i < l.X0Count; i++ {
-			rhs = modAdd(rhs, modMul(evalTheta(cfg.BCoeff[2+i][block]), x0Vals[i], q), q)
+		if intGenISISProjectionUsesBBTranWResidual(&l) {
+			w, err := cfg.evalWResidualF(getRow, block)
+			if err != nil {
+				return nil, err
+			}
+			rhs = modAdd(rhs, w, q)
+		} else {
+			muSig, err := cfg.evalLinearHatF(x, getRow, intGenISISLinearHatMuSig, 0, block)
+			if err != nil {
+				return nil, err
+			}
+			rhs = modAdd(rhs, modMul(evalTheta(cfg.BCoeff[1][block]), muSig, q), q)
+			for i := 0; i < l.X0Count; i++ {
+				x0, err := cfg.evalLinearHatF(x, getRow, intGenISISLinearHatX0, i, block)
+				if err != nil {
+					return nil, err
+				}
+				rhs = modAdd(rhs, modMul(evalTheta(cfg.BCoeff[2+i][block]), x0, q), q)
+			}
 		}
 		rhs = modAdd(rhs, z, q)
 		for lane := 0; lane < ncols; lane++ {
 			res := uint64(0)
 			for i := 0; i < l.UCount; i++ {
-				uLane, err := cfg.evalProjectedTransformLaneF(x, getRow, l.UViewStart, i, block, lane)
+				var uLane uint64
+				var err error
+				if intGenISISProjectionUsesDigitOnlyU(&l) {
+					uLane, err = cfg.evalProjectedUDigitTransformLaneF(x, getRow, i, block, lane)
+				} else {
+					uLane, err = cfg.evalProjectedTransformLaneF(x, getRow, l.UViewStart, i, block, lane)
+				}
 				if err != nil {
 					return nil, err
 				}
@@ -503,6 +586,41 @@ func (cfg *intGenISISShowingReplayConfig) evalProjectedYHatLaneK(K *kf.Field, e 
 	return K.Add(left, eLane), nil
 }
 
+func (cfg *intGenISISShowingReplayConfig) evalLinearHatK(K *kf.Field, _ kf.Elem, getRow func(int) (kf.Elem, error), kind intGenISISLinearHatKind, component, block int) (kf.Elem, error) {
+	if cfg == nil {
+		return K.Zero(), fmt.Errorf("nil IntGenISIS showing replay config")
+	}
+	switch mode := intGenISISLinearHatSourceMode(&cfg.Layout); mode {
+	case intGenISISLinearHatSourceMaterialized:
+		row, err := intGenISISLinearHatMaterializedRow(&cfg.Layout, kind, component, block)
+		if err != nil {
+			return K.Zero(), err
+		}
+		return getRow(row)
+	case intGenISISLinearHatSourceView:
+		return K.Zero(), fmt.Errorf("IntGenISIS source-linear %s provider %q is not implemented", kind, mode)
+	default:
+		return K.Zero(), fmt.Errorf("unsupported IntGenISIS linear hat source mode %q", mode)
+	}
+}
+
+func (cfg *intGenISISShowingReplayConfig) evalWResidualK(K *kf.Field, getRow func(int) (kf.Elem, error), block int) (kf.Elem, error) {
+	if cfg == nil {
+		return K.Zero(), fmt.Errorf("nil IntGenISIS showing replay config")
+	}
+	l := &cfg.Layout
+	if !intGenISISProjectionUsesBBTranWResidual(l) {
+		return K.Zero(), fmt.Errorf("IntGenISIS layout does not use W residual")
+	}
+	if block < 0 || block >= l.ViewRowsPerPoly {
+		return K.Zero(), fmt.Errorf("IntGenISIS W residual block=%d outside rows/poly=%d", block, l.ViewRowsPerPoly)
+	}
+	if l.WHatStart < 0 || l.WHatCount != l.ViewRowsPerPoly {
+		return K.Zero(), fmt.Errorf("IntGenISIS W residual rows unavailable start=%d count=%d", l.WHatStart, l.WHatCount)
+	}
+	return getRow(l.WHatStart + block)
+}
+
 func (cfg *intGenISISShowingReplayConfig) evalProjectedSignatureK(K *kf.Field, e kf.Elem, getRow func(int) (kf.Elem, error)) ([]kf.Elem, error) {
 	if cfg == nil || cfg.BridgeBasis == nil {
 		return nil, fmt.Errorf("missing IntGenISIS projected signature metadata")
@@ -538,6 +656,28 @@ func (cfg *intGenISISShowingReplayConfig) evalProjectedSignatureK(K *kf.Field, e
 		}
 		return out, nil
 	}
+	loadUSources := func() ([][]kf.Elem, error) {
+		if !intGenISISProjectionUsesDigitOnlyU(&l) {
+			return loadSources(l.UViewStart, l.UCount)
+		}
+		out := make([][]kf.Elem, l.UCount)
+		for comp := 0; comp < l.UCount; comp++ {
+			out[comp] = make([]kf.Elem, l.ViewRowsPerPoly)
+			for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
+				group := comp*l.ViewRowsPerPoly + srcBlock
+				sum := K.Zero()
+				for digit := 0; digit < l.UShortnessRowsPerGroup; digit++ {
+					row, err := getRow(l.UShortnessStart + group*l.UShortnessRowsPerGroup + digit)
+					if err != nil {
+						return nil, err
+					}
+					K.AddMulBaseInto(&sum, row, cfg.Shortness.RPows[digit]%cfg.Ring.Modulus[0])
+				}
+				out[comp][srcBlock] = sum
+			}
+		}
+		return out, nil
+	}
 	loadYLinearSources := func(term intGenISISYLinearTermCache, components int) ([][]kf.Elem, error) {
 		out := make([][]kf.Elem, components)
 		for comp := 0; comp < components; comp++ {
@@ -552,7 +692,7 @@ func (cfg *intGenISISShowingReplayConfig) evalProjectedSignatureK(K *kf.Field, e
 		}
 		return out, nil
 	}
-	uSources, err := loadSources(l.UViewStart, l.UCount)
+	uSources, err := loadUSources()
 	if err != nil {
 		return nil, err
 	}
@@ -594,25 +734,30 @@ func (cfg *intGenISISShowingReplayConfig) evalProjectedSignatureK(K *kf.Field, e
 	}
 	out := make([]kf.Elem, 0, total)
 	for block := 0; block < l.ViewRowsPerPoly; block++ {
-		muSig, err := getRow(l.MuSigHatStart + block)
-		if err != nil {
-			return nil, err
-		}
-		x0Vals := make([]kf.Elem, l.X0Count)
-		for i := 0; i < l.X0Count; i++ {
-			x0Vals[i], err = getRow(l.X0HatStart + i*l.ViewRowsPerPoly + block)
-			if err != nil {
-				return nil, err
-			}
-		}
 		z, err := getRow(l.ZHatStart + block)
 		if err != nil {
 			return nil, err
 		}
 		rhs := evalTheta(cfg.BCoeff[0][block])
-		K.AddMulInto(&rhs, evalTheta(cfg.BCoeff[1][block]), muSig)
-		for i := 0; i < l.X0Count; i++ {
-			K.AddMulInto(&rhs, evalTheta(cfg.BCoeff[2+i][block]), x0Vals[i])
+		if intGenISISProjectionUsesBBTranWResidual(&l) {
+			w, err := cfg.evalWResidualK(K, getRow, block)
+			if err != nil {
+				return nil, err
+			}
+			K.AddInto(&rhs, rhs, w)
+		} else {
+			muSig, err := cfg.evalLinearHatK(K, e, getRow, intGenISISLinearHatMuSig, 0, block)
+			if err != nil {
+				return nil, err
+			}
+			K.AddMulInto(&rhs, evalTheta(cfg.BCoeff[1][block]), muSig)
+			for i := 0; i < l.X0Count; i++ {
+				x0, err := cfg.evalLinearHatK(K, e, getRow, intGenISISLinearHatX0, i, block)
+				if err != nil {
+					return nil, err
+				}
+				K.AddMulInto(&rhs, evalTheta(cfg.BCoeff[2+i][block]), x0)
+			}
 		}
 		K.AddInto(&rhs, rhs, z)
 		for lane := 0; lane < ncols; lane++ {
@@ -766,7 +911,7 @@ func (cfg *intGenISISShowingReplayConfig) CoreEvaluator() ConstraintEvaluator {
 		l := cfg.Layout
 		projectedUY := intGenISISProjectionUsesProjectedUYHat(&l)
 		derivedYView := intGenISISProjectionDerivesYView(&l)
-		fpar := make([]uint64, 0, 2*l.ViewRowsPerPoly+len(cfg.KeySlots)+len(cfg.BoundRows)+l.UShortnessSourceViewRows*(1+cfg.Shortness.L))
+		fpar := make([]uint64, 0, 2*l.ViewRowsPerPoly+len(cfg.KeySlots)+len(cfg.BoundRows)+l.UShortnessGroupCount*(1+cfg.Shortness.L))
 		for block := 0; block < l.ViewRowsPerPoly; block++ {
 			var z uint64
 			var err error
@@ -780,17 +925,25 @@ func (cfg *intGenISISShowingReplayConfig) CoreEvaluator() ConstraintEvaluator {
 					sig = modAdd(sig, modMul(evalTheta(cfg.ACoeff[0][i][block]), row, q), q)
 				}
 				sig = modSub(sig, evalTheta(cfg.BCoeff[0][block]), q)
-				muSig, err := getRow(l.MuSigHatStart + block)
-				if err != nil {
-					return nil, nil, err
-				}
-				sig = modSub(sig, modMul(evalTheta(cfg.BCoeff[1][block]), muSig, q), q)
-				for i := 0; i < l.X0Count; i++ {
-					x0, err := getRow(l.X0HatStart + i*l.ViewRowsPerPoly + block)
+				if intGenISISProjectionUsesBBTranWResidual(&l) {
+					w, err := cfg.evalWResidualF(getRow, block)
 					if err != nil {
 						return nil, nil, err
 					}
-					sig = modSub(sig, modMul(evalTheta(cfg.BCoeff[2+i][block]), x0, q), q)
+					sig = modSub(sig, w, q)
+				} else {
+					muSig, err := cfg.evalLinearHatF(x, getRow, intGenISISLinearHatMuSig, 0, block)
+					if err != nil {
+						return nil, nil, err
+					}
+					sig = modSub(sig, modMul(evalTheta(cfg.BCoeff[1][block]), muSig, q), q)
+					for i := 0; i < l.X0Count; i++ {
+						x0, err := cfg.evalLinearHatF(x, getRow, intGenISISLinearHatX0, i, block)
+						if err != nil {
+							return nil, nil, err
+						}
+						sig = modSub(sig, modMul(evalTheta(cfg.BCoeff[2+i][block]), x0, q), q)
+					}
 				}
 				z, err = getRow(l.ZHatStart + block)
 				if err != nil {
@@ -809,7 +962,7 @@ func (cfg *intGenISISShowingReplayConfig) CoreEvaluator() ConstraintEvaluator {
 				return nil, nil, err
 			}
 
-			x1, err := getRow(l.X1HatStart + block)
+			x1, err := cfg.evalLinearHatF(x, getRow, intGenISISLinearHatX1, 0, block)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -829,11 +982,7 @@ func (cfg *intGenISISShowingReplayConfig) CoreEvaluator() ConstraintEvaluator {
 			}
 			fpar = append(fpar, intGenISISEvalMembership(q, cfg.BoundPolys[i], row))
 		}
-		for group := 0; group < l.UShortnessSourceViewRows; group++ {
-			source, err := getRow(l.UShortnessSourceViewStart + group)
-			if err != nil {
-				return nil, nil, err
-			}
+		for group := 0; group < l.UShortnessGroupCount; group++ {
 			recon := uint64(0)
 			digits := make([]uint64, cfg.Shortness.L)
 			for lane := 0; lane < cfg.Shortness.L; lane++ {
@@ -844,7 +993,13 @@ func (cfg *intGenISISShowingReplayConfig) CoreEvaluator() ConstraintEvaluator {
 				digits[lane] = digit
 				recon = modAdd(recon, modMul(cfg.Shortness.RPows[lane]%q, digit, q), q)
 			}
-			fpar = append(fpar, modSub(source, recon, q))
+			if !intGenISISProjectionUsesDigitOnlyU(&l) {
+				source, err := getRow(l.UShortnessSourceViewStart + group)
+				if err != nil {
+					return nil, nil, err
+				}
+				fpar = append(fpar, modSub(source, recon, q))
+			}
 			for lane := 0; lane < cfg.Shortness.L; lane++ {
 				fpar = append(fpar, intGenISISEvalMembership(q, cfg.Shortness.PDi[lane], digits[lane]))
 			}
@@ -962,7 +1117,7 @@ func (cfg *intGenISISShowingReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 		l := cfg.Layout
 		projectedUY := intGenISISProjectionUsesProjectedUYHat(&l)
 		derivedYView := intGenISISProjectionDerivesYView(&l)
-		fpar := make([]kf.Elem, 0, 2*l.ViewRowsPerPoly+len(cfg.KeySlots)+len(cfg.BoundRows)+l.UShortnessSourceViewRows*(1+cfg.Shortness.L))
+		fpar := make([]kf.Elem, 0, 2*l.ViewRowsPerPoly+len(cfg.KeySlots)+len(cfg.BoundRows)+l.UShortnessGroupCount*(1+cfg.Shortness.L))
 		for block := 0; block < l.ViewRowsPerPoly; block++ {
 			var z kf.Elem
 			var err error
@@ -976,17 +1131,25 @@ func (cfg *intGenISISShowingReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 					sig = K.Add(sig, K.Mul(evalTheta(cfg.ACoeff[0][i][block]), row))
 				}
 				sig = K.Sub(sig, evalTheta(cfg.BCoeff[0][block]))
-				muSig, err := getRow(l.MuSigHatStart + block)
-				if err != nil {
-					return nil, nil, err
-				}
-				sig = K.Sub(sig, K.Mul(evalTheta(cfg.BCoeff[1][block]), muSig))
-				for i := 0; i < l.X0Count; i++ {
-					x0, err := getRow(l.X0HatStart + i*l.ViewRowsPerPoly + block)
+				if intGenISISProjectionUsesBBTranWResidual(&l) {
+					w, err := cfg.evalWResidualK(K, getRow, block)
 					if err != nil {
 						return nil, nil, err
 					}
-					sig = K.Sub(sig, K.Mul(evalTheta(cfg.BCoeff[2+i][block]), x0))
+					sig = K.Sub(sig, w)
+				} else {
+					muSig, err := cfg.evalLinearHatK(K, e, getRow, intGenISISLinearHatMuSig, 0, block)
+					if err != nil {
+						return nil, nil, err
+					}
+					sig = K.Sub(sig, K.Mul(evalTheta(cfg.BCoeff[1][block]), muSig))
+					for i := 0; i < l.X0Count; i++ {
+						x0, err := cfg.evalLinearHatK(K, e, getRow, intGenISISLinearHatX0, i, block)
+						if err != nil {
+							return nil, nil, err
+						}
+						sig = K.Sub(sig, K.Mul(evalTheta(cfg.BCoeff[2+i][block]), x0))
+					}
 				}
 				z, err = getRow(l.ZHatStart + block)
 				if err != nil {
@@ -1005,7 +1168,7 @@ func (cfg *intGenISISShowingReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 				return nil, nil, err
 			}
 
-			x1, err := getRow(l.X1HatStart + block)
+			x1, err := cfg.evalLinearHatK(K, e, getRow, intGenISISLinearHatX1, 0, block)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -1025,11 +1188,7 @@ func (cfg *intGenISISShowingReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 			}
 			fpar = append(fpar, intGenISISEvalKPolyAtElem(K, cfg.BoundPolys[i], row))
 		}
-		for group := 0; group < l.UShortnessSourceViewRows; group++ {
-			source, err := getRow(l.UShortnessSourceViewStart + group)
-			if err != nil {
-				return nil, nil, err
-			}
+		for group := 0; group < l.UShortnessGroupCount; group++ {
 			recon := K.Zero()
 			digits := make([]kf.Elem, cfg.Shortness.L)
 			for lane := 0; lane < cfg.Shortness.L; lane++ {
@@ -1040,7 +1199,13 @@ func (cfg *intGenISISShowingReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 				digits[lane] = digit
 				recon = K.Add(recon, K.Mul(K.EmbedF(cfg.Shortness.RPows[lane]%cfg.Ring.Modulus[0]), digit))
 			}
-			fpar = append(fpar, K.Sub(source, recon))
+			if !intGenISISProjectionUsesDigitOnlyU(&l) {
+				source, err := getRow(l.UShortnessSourceViewStart + group)
+				if err != nil {
+					return nil, nil, err
+				}
+				fpar = append(fpar, K.Sub(source, recon))
+			}
 			for lane := 0; lane < cfg.Shortness.L; lane++ {
 				fpar = append(fpar, intGenISISEvalKPolyAtElem(K, cfg.Shortness.PDi[lane], digits[lane]))
 			}
