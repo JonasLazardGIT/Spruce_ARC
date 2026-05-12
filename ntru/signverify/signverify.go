@@ -118,6 +118,10 @@ func SignTargetWithPaths(tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts, 
 	return signWithTCoeffsAndPaths(tCoeffs, maxTrials, opts, meta, paths)
 }
 
+func SignTargetNoPersistWithPaths(tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts, paths SignPaths) (*keys.Signature, error) {
+	return SignTargetWithPaths(tCoeffs, maxTrials, opts, paths)
+}
+
 func loadParamsFromPath(path string) (*ntrurio.SystemParams, error) {
 	if path == "" {
 		return loadParams()
