@@ -157,7 +157,7 @@ func SignWithPaths(message []byte, maxTrials int, opts ntru.SamplerOpts, paths S
 	// target t
 	bFile := paths.BFile
 	if bFile == "" {
-		bFile = "Parameters/Bmatrix.json"
+		bFile = "Parameters/Bmatrix.intgenisis_profile_b.json"
 	}
 	tCoeffs, err := ntru.ComputeTargetFromSeeds(sys, bFile, "", mSeed, x0Seed, x1Seed)
 	if err != nil {
@@ -208,6 +208,20 @@ func signWithTCoeffsAndPaths(tCoeffs []int64, maxTrials int, opts ntru.SamplerOp
 	sk, err := keys.LoadPrivateFile(skPath)
 	if err != nil {
 		return nil, err
+	}
+	sys, err := loadParamsFromPath(paths.ParamsPath)
+	if err != nil {
+		return nil, err
+	}
+	if pk.N != sys.N {
+		return nil, fmt.Errorf("NTRU key degree %d incompatible with params degree %d", pk.N, sys.N)
+	}
+	keyQ := new(big.Int)
+	if _, ok := keyQ.SetString(pk.Q, 16); !ok {
+		return nil, errors.New("invalid NTRU public key Q")
+	}
+	if keyQ.Uint64() != sys.Q {
+		return nil, fmt.Errorf("NTRU key modulus %s incompatible with params q=%d", pk.Q, sys.Q)
 	}
 	return signWithLoadedKeys(pk, sk, tCoeffs, maxTrials, opts, meta, paths.SignaturePath)
 }

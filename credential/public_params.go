@@ -11,7 +11,7 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-const DefaultPublicParamsPath = "Parameters/credential_public.json"
+const DefaultPublicParamsPath = "Parameters/credential_public.intgenisis_profile_b.json"
 const PublicParamsVersion = 5
 const MuLayoutFullCapacityHalvesV1 = "full_capacity_halves_v1"
 
@@ -20,6 +20,7 @@ const MuLayoutFullCapacityHalvesV1 = "full_capacity_halves_v1"
 type PublicParams struct {
 	Version              int                    `json:"version,omitempty"`
 	Profile              string                 `json:"profile,omitempty"`
+	Modulus              uint64                 `json:"q,omitempty"`
 	HashRelation         string                 `json:"hash_relation"`
 	Ac                   commitment.CoeffMatrix `json:"Ac"`
 	CM                   commitment.CoeffMatrix `json:"C_M,omitempty"`
@@ -116,6 +117,9 @@ func (pp *PublicParams) normalizeLegacy() {
 			if pp.RingDegree == 0 {
 				pp.RingDegree = profile.N
 			}
+			if pp.Modulus == 0 {
+				pp.Modulus = profile.Q
+			}
 			if pp.CommitmentBound == 0 {
 				pp.CommitmentBound = profile.B
 			}
@@ -206,6 +210,17 @@ func (pp *PublicParams) Validate() error {
 	}
 	if pp.BoundB <= 0 {
 		return fmt.Errorf("invalid BoundB=%d", pp.BoundB)
+	}
+	if pp.Modulus != 0 {
+		if err := validateCoeffMatrixModulus("Ac", pp.Ac, pp.Modulus); err != nil {
+			return err
+		}
+		if err := validateCoeffMatrixModulus("C_M", pp.CM, pp.Modulus); err != nil {
+			return err
+		}
+		if err := validateCoeffMatrixModulus("A_s", pp.AS, pp.Modulus); err != nil {
+			return err
+		}
 	}
 	if pp.UsesIntGenISIS() {
 		return pp.validateIntGenISIS()
@@ -308,6 +323,22 @@ func validateCoeffMatrixDims(name string, mat commitment.CoeffMatrix, rows, cols
 	return nil
 }
 
+func validateCoeffMatrixModulus(name string, mat commitment.CoeffMatrix, q uint64) error {
+	if q == 0 {
+		return nil
+	}
+	for i := range mat {
+		for j := range mat[i] {
+			for k, coeff := range mat[i][j] {
+				if coeff >= q {
+					return fmt.Errorf("%s[%d][%d][%d]=%d outside modulus q=%d", name, i, j, k, coeff, q)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func LoadPublicParams(path string) (PublicParams, error) {
 	var out PublicParams
 	data, err := os.ReadFile(path)
@@ -349,6 +380,9 @@ func (pp PublicParams) ToIssuanceParams(ringQ *ring.Ring) (*Params, error) {
 	}
 	if err := (&pp).Validate(); err != nil {
 		return nil, err
+	}
+	if pp.Modulus != 0 && pp.Modulus != ringQ.Modulus[0] {
+		return nil, fmt.Errorf("public params q=%d incompatible with selected ring q=%d", pp.Modulus, ringQ.Modulus[0])
 	}
 	var ac commitment.Matrix
 	var err error

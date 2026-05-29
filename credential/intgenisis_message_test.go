@@ -3,7 +3,7 @@ package credential
 import "testing"
 
 func TestSemanticMessageRingTailKeyRoundTrip(t *testing.T) {
-	for _, profile := range []IntGenISISProfile{CompactIntGenISISProfile(), PrimaryIntGenISISProfile()} {
+	for _, profile := range []IntGenISISProfile{PrimaryIntGenISISProfile(), Ternary1024IntGenISISProfile()} {
 		t.Run(profile.Name, func(t *testing.T) {
 			layout, err := DefaultSemanticMessageLayout(profile, 8)
 			if err != nil {
@@ -12,7 +12,7 @@ func TestSemanticMessageRingTailKeyRoundTrip(t *testing.T) {
 			if layout.Name != IntGenISISMessageLayoutRingTailKeyV1 || layout.Version != 4 {
 				t.Fatalf("layout version/name=%d/%q", layout.Version, layout.Name)
 			}
-			if layout.MSEDomain != IntGenISISDomainBoundedRangeV1 || layout.KeyDomain != IntGenISISDomainBoundedRangeV1 || layout.Bound != 4 {
+			if layout.MSEDomain != layoutDomainForProfile(profile) || layout.KeyDomain != layoutDomainForProfile(profile) || layout.Bound != profile.B {
 				t.Fatalf("layout domain/bound mse=%q key=%q bound=%d", layout.MSEDomain, layout.KeyDomain, layout.Bound)
 			}
 			if len(layout.Attribute) != profile.N-8 || len(layout.Key) != 8 {
@@ -23,9 +23,12 @@ func TestSemanticMessageRingTailKeyRoundTrip(t *testing.T) {
 			}
 			attrs := ZeroSemanticAttributes(layout)
 			for i := 0; i < len(layout.Attribute); i++ {
-				attrs[0][layout.Attribute[i].Coeff] = int64((i % 9) - 4)
+				attrs[0][layout.Attribute[i].Coeff] = sampleValueForBound(profile.B, i)
 			}
-			key := []int64{4, -4, 3, -3, 2, -2, 1, -1}
+			key := make([]int64, 8)
+			for i := range key {
+				key[i] = sampleValueForBound(profile.B, i+len(layout.Attribute))
+			}
 			msg, err := EncodeSemanticMessage(layout, attrs, key)
 			if err != nil {
 				t.Fatalf("encode: %v", err)
@@ -53,6 +56,20 @@ func TestSemanticMessageRingTailKeyRoundTrip(t *testing.T) {
 	}
 }
 
+func layoutDomainForProfile(profile IntGenISISProfile) string {
+	if profile.B == 1 {
+		return IntGenISISDomainTernaryV1
+	}
+	return IntGenISISDomainBoundedRangeV1
+}
+
+func sampleValueForBound(bound int64, i int) int64 {
+	if bound == 1 {
+		return int64((i % 3) - 1)
+	}
+	return int64((i % int(2*bound+1)) - int(bound))
+}
+
 func TestSemanticMessageTernary1024Defaults(t *testing.T) {
 	profile := Ternary1024IntGenISISProfile()
 	layout, err := DefaultSemanticMessageLayout(profile, 8)
@@ -75,16 +92,16 @@ func TestSemanticMessageTernary1024Defaults(t *testing.T) {
 }
 
 func TestSemanticMessageProfileDigestsDiffer(t *testing.T) {
-	a, err := DefaultSemanticMessageLayout(CompactIntGenISISProfile(), 8)
-	if err != nil {
-		t.Fatalf("profile A layout: %v", err)
-	}
-	b, err := DefaultSemanticMessageLayout(PrimaryIntGenISISProfile(), 8)
+	a, err := DefaultSemanticMessageLayout(PrimaryIntGenISISProfile(), 8)
 	if err != nil {
 		t.Fatalf("profile B layout: %v", err)
 	}
+	b, err := DefaultSemanticMessageLayout(Ternary1024IntGenISISProfile(), 8)
+	if err != nil {
+		t.Fatalf("profile C layout: %v", err)
+	}
 	if string(a.Digest()) == string(b.Digest()) {
-		t.Fatal("profile A and B semantic layout digests match")
+		t.Fatal("profile B and C semantic layout digests match")
 	}
 }
 

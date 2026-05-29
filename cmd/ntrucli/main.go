@@ -77,7 +77,7 @@ func runGen() {
 	if _, _, err := generateKeypairAnnulusWithRetry(par, kg, 4); err != nil {
 		log.Fatalf("gen: %v", err)
 	}
-	fmt.Println("B matrix written to ./Parameters/Bmatrix.json")
+	fmt.Println("B matrix written to ./Parameters/Bmatrix.intgenisis_profile_b.json")
 	fmt.Println("keys written to ./ntru_keys")
 }
 
@@ -105,7 +105,7 @@ func regenerateBMatrix(pp *ntrurio.SystemParams) error {
 	if err := os.MkdirAll("Parameters", 0o755); err != nil {
 		return err
 	}
-	return ntrurio.SaveBMatrixCoeffs(filepath.Join("Parameters", "Bmatrix.json"), coeffs)
+	return ntrurio.SaveBMatrixCoeffs(filepath.Join("Parameters", "Bmatrix.intgenisis_profile_b.json"), coeffs)
 }
 
 func generateKeypairAnnulusWithRetry(par ntru.Params, kg ntru.KeygenOpts, attempts int) (*keys.PublicKey, *keys.PrivateKey, error) {
@@ -180,7 +180,7 @@ func runCalibrateBeta(args []string) {
 	samples := fs.Int("samples", 64, "number of deterministic targets to sign")
 	maxTrials := fs.Int("max-trials", 2048, "signer max trials per target")
 	paramsPath := fs.String("params", "Parameters/Parameters.json", "params JSON path")
-	bFile := fs.String("bfile", "Parameters/Bmatrix.json", "B-matrix JSON path")
+	bFile := fs.String("bfile", "Parameters/Bmatrix.intgenisis_profile_b.json", "B-matrix JSON path")
 	publicPath := fs.String("public", "ntru_keys/public.json", "public key path")
 	privatePath := fs.String("private", "ntru_keys/private.json", "private key path")
 	updateParams := fs.Bool("update-params", false, "write measured beta/bound back into params JSON")

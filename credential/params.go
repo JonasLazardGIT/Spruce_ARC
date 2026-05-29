@@ -61,8 +61,8 @@ func LoadDefaultRing() (*ring.Ring, error) {
 	return LoadRingWithDegree(0)
 }
 
-// LoadRingWithDegree loads the repository modulus and default degree, then
-// applies an explicit research degree override when requested.
+// LoadRingWithDegree loads the repository modulus and one of the maintained
+// IntGenISIS ring degrees.
 func LoadRingWithDegree(ringDegree int) (*ring.Ring, error) {
 	par, err := io.LoadParams("Parameters/Parameters.json", true)
 	if err != nil {
@@ -75,10 +75,8 @@ func LoadRingWithDegree(ringDegree int) (*ring.Ring, error) {
 		n = 1024
 	case 512:
 		n = 512
-	case 256:
-		n = 256
 	default:
-		return nil, fmt.Errorf("unsupported research ring degree %d (supported: %d, 1024, 512, 256)", ringDegree, par.N)
+		return nil, fmt.Errorf("unsupported ring degree %d (supported: %d, 1024, 512)", ringDegree, par.N)
 	}
 	return ring.NewRing(n, []uint64{par.Q})
 }

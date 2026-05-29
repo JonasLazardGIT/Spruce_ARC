@@ -93,7 +93,7 @@ func CalibrateMeasuredBeta(paths SignPaths, samples, maxTrials int, opts ntru.Sa
 	}
 	bFile := paths.BFile
 	if bFile == "" {
-		bFile = "Parameters/Bmatrix.json"
+		bFile = "Parameters/Bmatrix.intgenisis_profile_b.json"
 	}
 	pkPath := paths.PublicKeyPath
 	if pkPath == "" {

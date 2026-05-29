@@ -28,9 +28,14 @@ func TestCalibrateMeasuredBetaDeterministic(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
 	paths := SignPaths{
 		ParamsPath:    "Parameters/Parameters.json",
-		BFile:         "Parameters/Bmatrix.json",
+		BFile:         "Parameters/Bmatrix.intgenisis_profile_b.json",
 		PublicKeyPath: "ntru_keys/public.json",
 		PrivatePath:   "ntru_keys/private.json",
+	}
+	for _, path := range []string{paths.ParamsPath, paths.BFile, paths.PublicKeyPath, paths.PrivatePath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Skipf("skipping calibration without generated signing artifact %s: %v", path, err)
+		}
 	}
 	gotA, err := CalibrateMeasuredBeta(paths, 4, 256, defaultOpts)
 	if err != nil {

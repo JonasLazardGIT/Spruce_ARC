@@ -45,12 +45,8 @@ const (
 )
 
 const (
-	defaultShowingProfile          = "showing_n512_x0len70_100"
-	showingProfileIntGenISISB      = "showing_intgenisis_profile_b"
-	showingProfileN512X0Len70_100  = "showing_n512_x0len70_100"
-	showingProfileN512X0Len70_128  = "showing_n512_x0len70_128"
-	showingProfileN1024X0Len70_100 = "showing_n1024_x0len70_100"
-	maintainedShowingX0Len         = 70
+	defaultShowingProfile     = showingProfileIntGenISISB
+	showingProfileIntGenISISB = "showing_intgenisis_profile_b"
 )
 
 type maintainedShowingProfileSpec struct {
@@ -68,50 +64,7 @@ type maintainedShowingProfileSpec struct {
 	Kappa           [4]int
 }
 
-var maintainedShowingProfiles = []maintainedShowingProfileSpec{
-	{
-		Name:            showingProfileN512X0Len70_100,
-		RingDegree:      512,
-		X0Len:           maintainedShowingX0Len,
-		SoundnessTarget: 100,
-		StatePath:       filepath.Join("credential", "keys", "credential_state.n512_x0len70.json"),
-		LVCSNCols:       70,
-		NLeaves:         6400,
-		Eta:             39,
-		Theta:           3,
-		Rho:             2,
-		EllPrime:        2,
-		Kappa:           [4]int{10, 0, 0, 6},
-	},
-	{
-		Name:            showingProfileN512X0Len70_128,
-		RingDegree:      512,
-		X0Len:           maintainedShowingX0Len,
-		SoundnessTarget: 128,
-		StatePath:       filepath.Join("credential", "keys", "credential_state.n512_x0len70.json"),
-		LVCSNCols:       70,
-		NLeaves:         13120,
-		Eta:             44,
-		Theta:           2,
-		Rho:             3,
-		EllPrime:        4,
-		Kappa:           [4]int{10, 10, 10, 10},
-	},
-	{
-		Name:            showingProfileN1024X0Len70_100,
-		RingDegree:      1024,
-		X0Len:           maintainedShowingX0Len,
-		SoundnessTarget: 100,
-		StatePath:       filepath.Join("credential", "keys", "credential_state.n1024_x0len70.json"),
-		LVCSNCols:       84,
-		NLeaves:         5760,
-		Eta:             41,
-		Theta:           3,
-		Rho:             2,
-		EllPrime:        2,
-		Kappa:           [4]int{10, 0, 0, 6},
-	},
-}
+var maintainedShowingProfiles []maintainedShowingProfileSpec
 
 type cliRenderer struct {
 	out          io.Writer
@@ -145,7 +98,7 @@ func stdoutSupportsColor() bool {
 }
 
 func showingProfileNames() []string {
-	names := make([]string, 0, len(maintainedShowingProfiles))
+	names := []string{showingProfileIntGenISISB}
 	for _, profile := range maintainedShowingProfiles {
 		names = append(names, profile.Name)
 	}
@@ -241,26 +194,25 @@ func main() {
 
 	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
 	showingProfile := flag.String("showing-profile", defaultShowingProfile, fmt.Sprintf("maintained showing profile (%s); no flag uses %s", strings.Join(showingProfileNames(), ", "), defaultShowingProfile))
-	intGenISISPreset := flag.String("preset", "", "named IntGenISIS preset (for example 96bit, 120bitsf, fast-local, sw96-lvcs64, sw128-lvcs64, n256-sw96, n256-sw128)")
-	intGenISIS96Bit := flag.Bool("96bit", false, "use the general IntGenISIS 96-bit preset")
-	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override for transcript research")
-	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override for transcript research")
-	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override for soundness research")
-	etaOverride := flag.Int("eta", 0, "optional eta override for soundness research")
-	thetaOverride := flag.Int("theta", 0, "optional theta override for soundness research")
-	rhoOverride := flag.Int("rho", 0, "optional rho override for soundness research")
-	ellOverride := flag.Int("ell", 0, "optional ell override for soundness research")
-	ellPrimeOverride := flag.Int("ell-prime", 0, "optional ell-prime override for soundness research")
-	kappa1Override := flag.Int("kappa1", -1, "optional round-1 grinding override for soundness research (large values are infeasible)")
-	kappa2Override := flag.Int("kappa2", -1, "optional round-2 grinding override for soundness research")
-	kappa3Override := flag.Int("kappa3", -1, "optional round-3 grinding override for soundness research")
-	kappa4Override := flag.Int("kappa4", -1, "optional round-4 grinding override for soundness research")
+	intGenISISPreset := flag.String("preset", "", "named IntGenISIS preset: n512-compact96, n1024-compact96, or n1024-compact125")
+	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override")
+	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override")
+	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override")
+	etaOverride := flag.Int("eta", 0, "optional eta override")
+	thetaOverride := flag.Int("theta", 0, "optional theta override")
+	rhoOverride := flag.Int("rho", 0, "optional rho override")
+	ellOverride := flag.Int("ell", 0, "optional ell override")
+	ellPrimeOverride := flag.Int("ell-prime", 0, "optional ell-prime override")
+	kappa1Override := flag.Int("kappa1", -1, "optional round-1 grinding override")
+	kappa2Override := flag.Int("kappa2", -1, "optional round-2 grinding override")
+	kappa3Override := flag.Int("kappa3", -1, "optional round-3 grinding override")
+	kappa4Override := flag.Int("kappa4", -1, "optional round-4 grinding override")
 	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (named profiles include r11_l4_production and r24_l3_compact)")
-	sigShortnessRadix := flag.Int("sig-shortness-radix", 0, "optional raw signature shortness radix override for transcript research")
-	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override for transcript research")
+	sigShortnessRadix := flag.Int("sig-shortness-radix", 0, "optional raw signature shortness radix override")
+	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override")
 	packedSigChainGroupSize := flag.Int("packed-sig-chain-group-size", 0, "reserved packed signature shortness group-size override; optimized inline-target profile requires 1")
-	sigShortnessNCols := flag.Int("sig-shortness-ncols", 0, "reserved signature-shortness width override for future single-root packing research")
-	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode (output_audit default; direct_auth remains research-only; aux_instance enables the research-only split PRF proof)")
+	sigShortnessNCols := flag.Int("sig-shortness-ncols", 0, "reserved signature-shortness width override for future single-root packing")
+	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode: output_audit, direct_auth, or aux_instance")
 	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
 	intGenISISCompressedRows := flag.Int("intgenisis-compressed-rows", 0, "IntGenISIS M/s/e compression level: 0 none, 1 pack2, 2 pack3, 3 pack4")
 	intGenISISReplayProjection := flag.String("intgenisis-replay-projection", PIOP.IntGenISISReplayProjectionNone, "IntGenISIS replay projection mode: none, project_u_y_hat_v1, project_u_y_hat_and_y_view_v2, project_u_digits_and_y_view_v3, experimental project_u_digits_y_source_linear_v4, or experimental project_u_digits_y_w_residual_v5")
@@ -277,14 +229,21 @@ func main() {
 		setFlags[f.Name] = true
 	})
 
-	selectedIntGenISISPreset, err := credential.ResolveIntGenISISPresetSelector(*intGenISISPreset, *intGenISIS96Bit)
+	selectedIntGenISISPreset, err := credential.ResolveIntGenISISPresetSelector(*intGenISISPreset, false)
 	if err != nil {
 		cli.fatalf("[showing-cli] ", "%v", err)
 	}
 	*intGenISISPreset = selectedIntGenISISPreset
-	if strings.TrimSpace(*intGenISISPreset) != "" && !setFlags["showing-profile"] {
-		*showingProfile = showingProfileIntGenISISB
+	if strings.TrimSpace(*intGenISISPreset) == "" {
+		cli.fatalf("[showing-cli] ", "missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
 	}
+	if setFlags["showing-profile"] && strings.TrimSpace(*showingProfile) != showingProfileIntGenISISB {
+		cli.fatalf("[showing-cli] ", "-showing-profile=%q was removed; use -preset with one of: %s", *showingProfile, strings.Join(credential.IntGenISISPresetNames(), ", "))
+	}
+	if err := rejectPublicShowingTuningOverrides(setFlags); err != nil {
+		cli.fatalf("[showing-cli] ", "%v", err)
+	}
+	*showingProfile = showingProfileIntGenISISB
 	activeProfileName := strings.TrimSpace(*showingProfile)
 	if activeProfileName == "" {
 		activeProfileName = defaultShowingProfile
@@ -587,7 +546,7 @@ func main() {
 	})
 	cli.printf(categoryStatus, "[showing-cli] ", "production showing profile (preset=%s replay=%s ring_degree=%d ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d nleaves=%d kappa={%d,%d,%d,%d} prf_group_rounds=%d prf_mode=%s prf_samples=%d sig_profile=%s sig_R=%d sig_L=%d sig_rows=%d sig_deg=%d)",
 		resolvedShowingPreset, opts.ShowingReplayMode, ringQ.N, opts.Ell, opts.Eta, opts.EllPrime, opts.Rho, opts.Theta, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], opts.PRFGroupRounds, opts.PRFCompanionMode, opts.PRFCheckpointSamples, resolvedSigProfile, sigBase, sigL, sigRowsPer, sigDegree)
-	researchOverridesActive := manualShowingResearchOverrideActive(setFlags)
+	manualOverridesActive := manualShowingResearchOverrideActive(setFlags)
 	if opts.NCols != baselineOpts.NCols ||
 		effectivePostLVCS != baselineOpts.PostSignLVCSNCols ||
 		effectivePRFLVCS != baselineOpts.PRFLVCSNCols ||
@@ -608,10 +567,10 @@ func main() {
 		opts.UnsafeSigLookupShadowR121L2 != baselineOpts.UnsafeSigLookupShadowR121L2 ||
 		resolvedShowingPreset != baselineOpts.ShowingPreset ||
 		*sigShortnessProfile != "" || *sigShortnessRadix > 0 || *sigShortnessDigits > 0 {
-		researchOverridesActive = true
+		manualOverridesActive = true
 	}
-	if researchOverridesActive {
-		cli.printf(categoryWarning, "[showing-cli] ", "warning: transcript/soundness research overrides active (preset=%s replay=%s ring_degree=%d ncols=%d lvcs_ncols=%d nleaves=%d eta=%d theta=%d rho=%d ell'=%d kappa={%d,%d,%d,%d} sig_profile=%s sig_R=%d sig_L=%d)",
+	if manualOverridesActive {
+		cli.printf(categoryWarning, "[showing-cli] ", "warning: transcript/soundness overrides active (preset=%s replay=%s ring_degree=%d ncols=%d lvcs_ncols=%d nleaves=%d eta=%d theta=%d rho=%d ell'=%d kappa={%d,%d,%d,%d} sig_profile=%s sig_R=%d sig_L=%d)",
 			resolvedShowingPreset, opts.ShowingReplayMode, ringQ.N, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Eta, opts.Theta, opts.Rho, opts.EllPrime, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], resolvedSigProfile, sigBase, sigL)
 	}
 	for i, kappa := range opts.Kappa {
@@ -633,9 +592,9 @@ func main() {
 	}
 	switch opts.PRFCompanionMode {
 	case PIOP.PRFCompanionModeDirectAuth:
-		cli.printf(categoryWarning, "[showing-cli] ", "warning: direct_auth is research-only; the live proof still keeps the PRF bridge inside Q until a new bridge object lands")
+		// direct_auth is the maintained compact preset companion mode.
 	case PIOP.PRFCompanionModeAuxInstance:
-		cli.printf(categoryWarning, "[showing-cli] ", "warning: aux_instance is research-only; it moves the PRF bridge into a separate same-root auxiliary proof for transcript experiments")
+		cli.printf(categoryWarning, "[showing-cli] ", "warning: aux_instance is outside the maintained compact preset surface")
 	case "current":
 		cli.fatalf("[showing-cli] ", "prf companion mode %q is no longer supported", opts.PRFCompanionMode)
 	}
@@ -750,6 +709,39 @@ func main() {
 			cli.fatalf("[showing-cli] ", "showing profile %s missed target: theorem bits %.2f < %.0f", activeProfile.Name, rep.Soundness.TotalBits, activeProfile.SoundnessTarget)
 		}
 	}
+}
+
+func rejectPublicShowingTuningOverrides(setFlags map[string]bool) error {
+	for _, name := range []string{
+		"coeff-model",
+		"ncols",
+		"lvcs-ncols",
+		"nleaves",
+		"eta",
+		"theta",
+		"rho",
+		"ell",
+		"ell-prime",
+		"kappa1",
+		"kappa2",
+		"kappa3",
+		"kappa4",
+		"sig-shortness-profile",
+		"sig-shortness-radix",
+		"sig-shortness-digits",
+		"packed-sig-chain-group-size",
+		"sig-shortness-ncols",
+		"prf-companion-mode",
+		"prf-checkpoint-samples",
+		"intgenisis-compressed-rows",
+		"intgenisis-replay-projection",
+		"unsafe-shadow-sig-lookup-r121-l2",
+	} {
+		if setFlags[name] {
+			return fmt.Errorf("-%s is not a public showing option; choose one of the maintained -preset values", name)
+		}
+	}
+	return nil
 }
 
 func effectiveKappaFromFlags(k1, k2, k3, k4 int) [4]int {

@@ -1,143 +1,55 @@
 # credential
 
-`credential/` defines the persisted holder state and public-parameter layer used
-by the live issuance and showing flows.
+`credential/` defines the persisted public parameters, holder state, preset
+registry, and verifier keys used by the maintained committed-message
+IntGenISIS flow.
 
-It is the bridge between:
+## Maintained Profiles
 
-- operator commands
-- versioned runtime artifacts
-- the proving code in `PIOP/`
+The live profiles are:
 
-## What The Public Parameter File Stores
+- `intgenisis_profile_b`: `N=512`, `B=4`, used by `n512-compact96`
+- `intgenisis_profile_c`: `N=1024`, `B=1`, used by the degree-1024 presets
 
-The canonical file is `Parameters/credential_public.json`.
+The public preset registry contains exactly:
 
-Current emitted format:
+```text
+n512-compact96
+n1024-compact96
+n1024-compact125
+```
 
-- `version = 4`
+## Public Parameters
 
-Live fields:
+IntGenISIS public parameters store:
 
-- `hash_relation = bb_tran`
-- `Ac`
+- `Profile`
+- `Modulus`
+- `HashRelation = bb_tran`
 - `BPath`
-- `BoundB`
-- `X0Len`
-- `X0CoeffBound`
-- `TargetDim`
-- `TargetHidingLambda`
+- `BoundB` / `CommitmentBound`
+- `C_M`, `A_s`
+- `ell_M`, `k_s`, `n_c`
+- `ell_mu_sig`, `ell_x0`, `ell_x1`
 - `ring_degree`
-- `X0Distribution`
-- `LenMu`
-- `MuLayout`
-- `LenR0H`
-- `LenR1H`
-- `LenRBar`
 
-Meaning:
+The current protocol does not use the old challenge-style `r0/r1` issuance
+artifact path. The issuer signs:
 
-- `BoundB` governs the low-alphabet scalar side:
-  - the signed `mu = m || k` payload row
-  - `r1`
-  - `rbar`
-- `X0CoeffBound` governs the vector `x0` side:
-  - `r0h`
-  - `ri0`
-  - `r0`
-- `LenR0H` must match `X0Len`
-- `TargetDim` is currently emitted as `1`
+```text
+T = c + h_tran(mu_sig, x0, x1)
+```
 
-The loader still accepts older semantic and legacy length names when reading
-historical public params, but the emitted and documented surface is `version 4`
-with `LenMu = 1` and `MuLayout = full_capacity_halves_v1`.
+where `c = C_M*M + A_s*s + e`.
 
-## What The Credential State Stores
+## State
 
-The canonical holder state is `credential/keys/credential_state.json`.
-
-Current emitted format:
-
-- `version = 4`
-
-Live state fields:
-
-- semantic witness rows:
-  - `mu`
-  - `r0`
-  - `r1`
-  - `z`
-- x0 metadata:
-  - `x0_len`
-  - `x0_coeff_bound`
-  - `target_dim`
-  - `target_hiding_lambda`
-- signature witness rows:
-  - `sig_s1`
-  - `sig_s2`
-- ring metadata:
-  - `ring_degree`
-- runtime anchors:
-  - `packed_ncols`
-  - `credential_public_path`
-  - `hash_relation`
-  - `b_path`
-  - `prf_params_path`
-- issuance audit artifacts:
-  - `com`
-  - `ri0`
-  - `ri1`
-- embedded public material:
-  - `b`
-  - `ntru_public`
-
-The final credential state does not store `T`. `T` remains an issuance-time
-artifact carried by `presign_submission.json` and `issue_response.json`.
-
-## Versioning And Compatibility
-
-Current behavior:
-
-- public params are emitted as `version = 4`
-- credential state is emitted as `version = 4`
-- older `m`/`k` and sparse-tail `mu` credential states are rejected and must be
-  regenerated
-
-Issuance artifacts under `credential/issuance/` are now stricter than state:
-
-- current emitted format is `version = 2`, but the holder witness payload is
-  `mu`; legacy `m`/`k` fields are parse-only and not emitted
-- older issuance artifacts should be regenerated
-
-## Main Entry Points
-
-- `LoadDefaultRing`
-- `LoadPublicParams`
-- `SavePublicParams`
-- `LoadState`
-- `SaveState`
-
-`cmd/issuance` writes these files. `cmd/showing` reads them back to build the
-post-sign proof.
-
-## Current Invariants
-
-- the live relation is `bb_tran`
-- the stored witness is semantic, not aligned or commitment-derived
-- the default/public `mu` is one full-capacity coefficient-bounded ring element
-  over `N=1024` with layout `full_capacity_halves_v1`; coefficients `0..511`
-  are the message half, PRF-key coefficients live at `512..519`, and all
-  coefficients are bounded by `BoundB`
-- the opt-in `N=512` research fork stores `ring_degree=512` and uses the same
-  layout over 512 coefficients, with the PRF-key window at `256..263`; it
-  requires separately generated `research_n512` public params, B matrix, NTRU
-  params/key material, state, and signature artifacts
-- `r0` is vector-valued with `len(r0) = X0Len`
-- the state must not contain issuer trapdoor material
-- the state is runtime data, not the paper specification
+The IntGenISIS holder state stores the committed message witness, issuer hash
+data, NTRU signature rows, public NTRU key material, and runtime anchors needed
+to build a showing proof. It must not contain issuer trapdoor material.
 
 ## Read Next
 
 - [../docs/protocol.md](../docs/protocol.md)
-- [../docs/shared_randomness_migration.md](../docs/shared_randomness_migration.md)
-- [../cmd/README.md](../cmd/README.md)
+- [../docs/intgenisis_protocol_h_tran.md](../docs/intgenisis_protocol_h_tran.md)
+- [../docs/degree1024_maintained_presets.md](../docs/degree1024_maintained_presets.md)

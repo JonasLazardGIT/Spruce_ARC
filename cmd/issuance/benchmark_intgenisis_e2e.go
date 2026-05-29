@@ -107,6 +107,7 @@ type benchmarkIntGenISISE2EReport struct {
 	Version        int                             `json:"version"`
 	Generated      string                          `json:"generated_at"`
 	Profile        string                          `json:"profile"`
+	Modulus        uint64                          `json:"q,omitempty"`
 	ProfileBound   int64                           `json:"profile_bound,omitempty"`
 	ArtifactDir    string                          `json:"artifact_dir"`
 	MaxNLeaves     int                             `json:"max_nleaves,omitempty"`
@@ -135,7 +136,7 @@ func defaultIntGenISISTuning() intGenISISTuning {
 	}
 }
 
-func intGenISISTuningFromLegacyConfig(cfg benchmarkIntGenISISE2EConfig) intGenISISTuning {
+func intGenISISTuningFromDefaultConfig(cfg benchmarkIntGenISISE2EConfig) intGenISISTuning {
 	t := defaultIntGenISISTuning()
 	if cfg.NCols > 0 {
 		t.NCols = cfg.NCols
@@ -254,7 +255,7 @@ func validateIntGenISISLeafCap(label string, t intGenISISTuning, maxNLeaves int)
 		return nil
 	}
 	if t.NLeaves > maxNLeaves {
-		return fmt.Errorf("%s nleaves=%d exceeds max-nleaves=%d; increase ell, lower lvcs-ncols, or pass -max-nleaves 0 for an uncapped research run", label, t.NLeaves, maxNLeaves)
+		return fmt.Errorf("%s nleaves=%d exceeds max-nleaves=%d; increase ell, lower lvcs-ncols, or pass -max-nleaves 0 for an uncapped local run", label, t.NLeaves, maxNLeaves)
 	}
 	return nil
 }
@@ -374,9 +375,9 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	if cfg.PRFParamsPath == "" {
 		cfg.PRFParamsPath = defaultPRFParamsPath
 	}
-	legacy := intGenISISTuningFromLegacyConfig(cfg)
-	cfg.Issuance = normalizeIntGenISISTuning(cfg.Issuance, legacy, false)
-	cfg.Showing = normalizeIntGenISISTuning(cfg.Showing, legacy, true)
+	defaults := intGenISISTuningFromDefaultConfig(cfg)
+	cfg.Issuance = normalizeIntGenISISTuning(cfg.Issuance, defaults, false)
+	cfg.Showing = normalizeIntGenISISTuning(cfg.Showing, defaults, true)
 	cfg.MaxNLeaves = normalizeIntGenISISMaxNLeaves(cfg.MaxNLeaves)
 	if err := validateIntGenISISLeafCap("issuance", cfg.Issuance, cfg.MaxNLeaves); err != nil {
 		return benchmarkIntGenISISE2EReport{}, err
@@ -488,6 +489,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		Version:      benchmarkIntGenISISE2EVersion,
 		Generated:    time.Now().UTC().Format(time.RFC3339),
 		Profile:      profile.Name,
+		Modulus:      profile.Q,
 		ProfileBound: profile.B,
 		ArtifactDir:  artifactDir,
 		MaxNLeaves:   cfg.MaxNLeaves,
@@ -503,7 +505,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		Notes: []string{
 			fmt.Sprintf("semantic layout uses B=%d bounded-range m in coefficients [0,N-8) and B=%d bounded-range PRF key k in coefficients [N-8,N)", profile.B, profile.B),
 			fmt.Sprintf("live IntGenISIS M,s,e membership uses the public B=%d range and dQ/masks use the corresponding range-membership degree accounting", profile.B),
-			"max_nleaves caps the explicit DECS/LVCS evaluation domain; pass -max-nleaves 0 only for uncapped research sweeps",
+			"max_nleaves caps the explicit DECS/LVCS evaluation domain; pass -max-nleaves 0 only for uncapped local runs",
 			"showing shortness proves the configured signed-radix representable bound; the public signature beta is builder-validated and Fiat-Shamir-bound",
 		},
 	}
@@ -798,7 +800,7 @@ func benchmarkIntGenISISE2ESignatureBoundExtras(bound int64) map[string]interfac
 }
 
 func benchmarkIntGenISISE2EPrintReport(report benchmarkIntGenISISE2EReport) {
-	log.Printf("[issuance-cli] IntGenISIS e2e artifact_dir=%s profile=%s", report.ArtifactDir, report.Profile)
+	log.Printf("[issuance-cli] IntGenISIS e2e artifact_dir=%s profile=%s q=%d", report.ArtifactDir, report.Profile, report.Modulus)
 	benchmarkIntGenISISE2EPrintPhase("issuance", report.Issuance)
 	benchmarkIntGenISISE2EPrintPhase("showing", report.Showing)
 	log.Printf("[issuance-cli] IntGenISIS e2e replay_rejected=%v", report.ReplayRejected)

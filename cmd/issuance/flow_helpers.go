@@ -27,15 +27,6 @@ import (
 	"github.com/tuneinsight/lattigo/v4/utils"
 )
 
-type holderWitnessSpec struct {
-	Mu   [][]int64 `json:"mu,omitempty"`
-	M    [][]int64 `json:"m,omitempty"`
-	K    [][]int64 `json:"k,omitempty"`
-	R0H  [][]int64 `json:"r0h,omitempty"`
-	R1H  [][]int64 `json:"r1h,omitempty"`
-	RBar [][]int64 `json:"rbar,omitempty"`
-}
-
 type intGenISISHolderWitnessSpec struct {
 	M     [][]int64 `json:"M"`
 	MAttr [][]int64 `json:"m,omitempty"`
@@ -57,16 +48,15 @@ type smallWoodTuningSpec struct {
 }
 
 type holderSecretFile struct {
-	Version              int                  `json:"version"`
-	CredentialPublicPath string               `json:"credential_public_path"`
-	PRFParamsPath        string               `json:"prf_params_path"`
-	PackedNCols          int                  `json:"packed_ncols"`
-	LVCSNCols            int                  `json:"lvcs_ncols,omitempty"`
-	NLeaves              int                  `json:"nleaves,omitempty"`
-	SmallWood            *smallWoodTuningSpec `json:"smallwood,omitempty"`
-	Omega                []uint64             `json:"omega"`
-	holderWitnessSpec
-	IntGenISIS *intGenISISHolderWitnessSpec `json:"intgenisis,omitempty"`
+	Version              int                          `json:"version"`
+	CredentialPublicPath string                       `json:"credential_public_path"`
+	PRFParamsPath        string                       `json:"prf_params_path"`
+	PackedNCols          int                          `json:"packed_ncols"`
+	LVCSNCols            int                          `json:"lvcs_ncols,omitempty"`
+	NLeaves              int                          `json:"nleaves,omitempty"`
+	SmallWood            *smallWoodTuningSpec         `json:"smallwood,omitempty"`
+	Omega                []uint64                     `json:"omega"`
+	IntGenISIS           *intGenISISHolderWitnessSpec `json:"intgenisis,omitempty"`
 }
 
 type commitRequestFile struct {
@@ -80,39 +70,22 @@ type commitRequestFile struct {
 	Com                  [][]int64            `json:"com"`
 }
 
-type issueChallengeFile struct {
-	Version              int       `json:"version"`
-	CredentialPublicPath string    `json:"credential_public_path"`
-	Omega                []uint64  `json:"omega"`
-	RI0                  [][]int64 `json:"ri0"`
-	RI1                  [][]int64 `json:"ri1"`
-}
-
 type preSignSubmissionFile struct {
 	Version              int         `json:"version"`
 	CredentialPublicPath string      `json:"credential_public_path"`
-	T                    []int64     `json:"t"`
 	Proof                *PIOP.Proof `json:"proof"`
 }
 
 type issueResponseFile struct {
-	Version              int             `json:"version"`
-	CredentialPublicPath string          `json:"credential_public_path"`
-	T                    []int64         `json:"t,omitempty"`
-	MuSig                [][]int64       `json:"mu_sig,omitempty"`
-	X0                   [][]int64       `json:"x0,omitempty"`
-	X1                   [][]int64       `json:"x1,omitempty"`
-	SigS1                []int64         `json:"sig_s1"`
-	SigS2                []int64         `json:"sig_s2"`
-	NTRUPublic           [][]int64       `json:"ntru_public,omitempty"`
-	Signature            *keys.Signature `json:"signature,omitempty"`
-}
-
-type credentialFinalizeInput struct {
-	secret    holderSecretFile
-	request   commitRequestFile
-	challenge issueChallengeFile
-	response  issueResponseFile
+	Version              int       `json:"version"`
+	CredentialPublicPath string    `json:"credential_public_path"`
+	T                    []int64   `json:"t,omitempty"`
+	MuSig                [][]int64 `json:"mu_sig,omitempty"`
+	X0                   [][]int64 `json:"x0,omitempty"`
+	X1                   [][]int64 `json:"x1,omitempty"`
+	SigS1                []int64   `json:"sig_s1"`
+	SigS2                []int64   `json:"sig_s2"`
+	NTRUPublic           [][]int64 `json:"ntru_public,omitempty"`
 }
 
 type issuanceRuntime struct {
@@ -149,40 +122,6 @@ func ntruSigningPaths(paramsPath, publicPath, privatePath, signaturePath string)
 }
 
 const issuanceArtifactVersion = 2
-
-type x0Profile struct {
-	Name         string
-	X0Len        int
-	X0CoeffBound int64
-}
-
-func resolveX0Profile(name string, x0Len int, x0Bound int64) (x0Profile, error) {
-	profile := x0Profile{Name: name}
-	switch name {
-	case "", "lhl_default":
-		profile.Name = "lhl_default"
-		profile.X0Len = 6
-		profile.X0CoeffBound = 5
-	case "lhl_alt":
-		profile.X0Len = 5
-		profile.X0CoeffBound = 8
-	case "legacy_scalar":
-		profile.X0Len = 1
-		profile.X0CoeffBound = 1
-	default:
-		return x0Profile{}, fmt.Errorf("unsupported x0 profile %q", name)
-	}
-	if x0Len > 0 {
-		profile.X0Len = x0Len
-	}
-	if x0Bound > 0 {
-		profile.X0CoeffBound = x0Bound
-	}
-	if profile.X0Len <= 0 || profile.X0CoeffBound <= 0 {
-		return x0Profile{}, fmt.Errorf("invalid x0 profile len=%d bound=%d", profile.X0Len, profile.X0CoeffBound)
-	}
-	return profile, nil
-}
 
 func persistedIssuanceRuntimeOverrides(ncols, lvcsNCols, nLeaves int, omega []uint64) issuanceRuntimeOverrides {
 	return persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves, omega, nil)
@@ -283,6 +222,9 @@ func setupIntGenISISPublicForProfile(outPath string, force bool, profile credent
 	if err != nil {
 		return fmt.Errorf("load ring: %w", err)
 	}
+	if profile.Q != 0 && ringQ.Modulus[0] != profile.Q {
+		return fmt.Errorf("profile %s q=%d incompatible with loaded ring q=%d", profile.Name, profile.Q, ringQ.Modulus[0])
+	}
 	if bPath == "" {
 		bPath = filepath.Join(filepath.Dir(outPath), fmt.Sprintf("Bmatrix.%s.json", profile.Name))
 	}
@@ -324,6 +266,7 @@ func setupIntGenISISPublicForProfile(outPath string, force bool, profile credent
 	params := credential.PublicParams{
 		Version:              credential.PublicParamsVersion,
 		Profile:              profile.Name,
+		Modulus:              ringQ.Modulus[0],
 		HashRelation:         credential.HashRelationBBTran,
 		BPath:                bPath,
 		BoundB:               profile.B,
@@ -356,122 +299,32 @@ func setupIntGenISISPublicForProfile(outPath string, force bool, profile credent
 	return nil
 }
 
-func setupDemoPublic(outPath string, force bool, bPath, hashRelation, x0ProfileName string, x0Len int, x0Bound int64, ringDegree int) error {
-	ringQ, err := credential.LoadRingWithDegree(ringDegree)
-	if err != nil {
-		return fmt.Errorf("load ring: %w", err)
-	}
-	profile, err := resolveX0Profile(x0ProfileName, x0Len, x0Bound)
-	if err != nil {
-		return err
-	}
-	hashRelation = credential.NormalizeHashRelation(hashRelation)
-	if hashRelation == "" {
-		hashRelation = credential.HashRelationBBTran
-	}
-	if bPath == "" {
-		switch hashRelation {
-		case credential.HashRelationBBTran:
-			bPath = filepath.Join(filepath.Dir(outPath), fmt.Sprintf("Bmatrix_bb_tran_x0len%d.json", profile.X0Len))
-		default:
-			bPath = filepath.Join("Parameters", "Bmatrix.json")
-		}
-	}
-	if !force {
-		if _, err := os.Stat(outPath); err == nil {
-			return fmt.Errorf("refusing to overwrite existing %s without -force", outPath)
-		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("stat %s: %w", outPath, err)
-		}
-	}
-	if hashRelation == credential.HashRelationBBTran {
-		prng, err := utils.NewPRNG()
-		if err != nil {
-			return fmt.Errorf("new prng: %w", err)
-		}
-		B, err := vsishash.GenerateBWithX0Len(ringQ, prng, profile.X0Len)
-		if err != nil {
-			return fmt.Errorf("generate B: %w", err)
-		}
-		coeffs := make([][]uint64, len(B))
-		for i := range B {
-			coeffs[i] = append([]uint64(nil), B[i].Coeffs[0]...)
-		}
-		if err := os.MkdirAll(filepath.Dir(bPath), 0o755); err != nil {
-			return fmt.Errorf("mkdir B dir: %w", err)
-		}
-		if err := ntrurio.SaveBMatrixCoeffs(bPath, coeffs); err != nil {
-			return fmt.Errorf("save B matrix: %w", err)
-		}
-	}
-	commitCols := 1 + profile.X0Len + 1 + 1
-	ac, err := commitment.GenerateUniformCoeffMatrix(ringQ, commitCols, commitCols)
-	if err != nil {
-		return fmt.Errorf("generate Ac: %w", err)
-	}
-	params := credential.PublicParams{
-		Version:            credential.PublicParamsVersion,
-		Ac:                 ac,
-		HashRelation:       hashRelation,
-		BPath:              bPath,
-		BoundB:             1,
-		X0Len:              profile.X0Len,
-		X0CoeffBound:       profile.X0CoeffBound,
-		TargetDim:          credential.DefaultTargetDim,
-		TargetHidingLambda: credential.DefaultTargetHidingLambda,
-		RingDegree:         int(ringQ.N),
-		X0Distribution:     credential.X0DistributionUniformInterval,
-		LenMu:              1,
-		MuLayout:           credential.MuLayoutFullCapacityHalvesV1,
-		LenR0H:             profile.X0Len,
-		LenR1H:             1,
-		LenRBar:            1,
-	}
-	if err := credential.SavePublicParams(outPath, params); err != nil {
-		return err
-	}
-	issuanceParams, err := params.ToIssuanceParams(ringQ)
-	if err != nil {
-		return err
-	}
-	lhl, err := credential.BuildLHLReport(issuanceParams)
-	if err != nil {
-		return err
-	}
-	log.Printf("[issuance-cli] wrote credential public params to %s", outPath)
-	log.Printf("[issuance-cli] x0 profile=%s len=%d bound=%d lhl_slack_bits=%.2f satisfies=%v", profile.Name, profile.X0Len, profile.X0CoeffBound, lhl.SlackBits, lhl.SatisfiesLHL)
-	return nil
-}
-
 func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, force bool, keygenTrials, attempts int, betaOverride uint64) error {
 	ringQ, err := credential.LoadRingWithDegree(ringDegree)
 	if err != nil {
 		return fmt.Errorf("load ring: %w", err)
 	}
 	selectedN := int(ringQ.N)
+	if selectedN != 1024 && selectedN != 512 {
+		return fmt.Errorf("unsupported NTRU ring_degree=%d; maintained degrees are 1024 and 512", selectedN)
+	}
 	if paramsOut == "" {
 		if selectedN == 512 {
-			paramsOut = filepath.Join("Parameters", "Parameters.research_n512.json")
-		} else if selectedN == 256 {
-			paramsOut = filepath.Join("Parameters", "Parameters.research_n256.json")
+			paramsOut = filepath.Join("Parameters", "Parameters.n512.json")
 		} else {
 			paramsOut = defaultNTRUParamsPath
 		}
 	}
 	if publicOut == "" {
 		if selectedN == 512 {
-			publicOut = filepath.Join("ntru_keys", "public.research_n512.json")
-		} else if selectedN == 256 {
-			publicOut = filepath.Join("ntru_keys", "public.research_n256.json")
+			publicOut = filepath.Join("ntru_keys", "public.n512.json")
 		} else {
 			publicOut = defaultNTRUPublicKeyPath
 		}
 	}
 	if privateOut == "" {
 		if selectedN == 512 {
-			privateOut = filepath.Join("ntru_keys", "private.research_n512.json")
-		} else if selectedN == 256 {
-			privateOut = filepath.Join("ntru_keys", "private.research_n256.json")
+			privateOut = filepath.Join("ntru_keys", "private.n512.json")
 		} else {
 			privateOut = defaultNTRUPrivateKeyPath
 		}
@@ -500,6 +353,9 @@ func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, forc
 		Q:    ringQ.Modulus[0],
 		Beta: base.Beta,
 	}
+	if selectedN == 512 && betaOverride == 0 {
+		params.Beta = credential.IntGenISISN512SignatureBeta
+	}
 	if betaOverride > 0 {
 		if betaOverride > base.Beta {
 			return fmt.Errorf("ntru beta override=%d exceeds base beta=%d", betaOverride, base.Beta)
@@ -518,9 +374,6 @@ func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, forc
 		Prec:      512,
 		MaxTrials: keygenTrials,
 		Alpha:     1.20,
-	}
-	if selectedN == 512 {
-		log.Printf("[issuance-cli] UNSAFE RESEARCH MODE: generating NTRU key material for ring_degree=512")
 	}
 	if _, _, err := generateIssuanceNTRUKeypairWithRetry(par, kg, attempts, publicOut, privateOut); err != nil {
 		if wroteFreshParams {
@@ -557,64 +410,15 @@ func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expe
 	if err != nil {
 		return err
 	}
-	if rt.public.UsesIntGenISIS() {
-		return holderCommitIntGenISIS(rt, publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath, seed)
+	if !rt.public.UsesIntGenISIS() {
+		return fmt.Errorf("holder-commit supports only IntGenISIS public params")
 	}
-	rng := newLocalRNG(seed)
-	var inputs issuance.Inputs
-	if expertInputPath != "" {
-		spec := holderWitnessSpec{}
-		if err := readJSONFile(expertInputPath, &spec); err != nil {
-			return fmt.Errorf("read expert input: %w", err)
-		}
-		inputs, err = inputsFromWitnessSpec(rt.ringQ, rt.public, spec, rt.opts.NCols)
-		if err != nil {
-			return fmt.Errorf("expert witness: %w", err)
-		}
-	} else {
-		inputs, err = sampleHolderInputs(rt.ringQ, rt.public, rt.omega, rng)
-		if err != nil {
-			return fmt.Errorf("sample holder inputs: %w", err)
-		}
-	}
-	com, err := issuance.PrepareCommit(rt.params, inputs, rt.omega)
-	if err != nil {
-		return fmt.Errorf("prepare commit: %w", err)
-	}
-	secret := holderSecretFile{
-		Version:              issuanceArtifactVersion,
-		CredentialPublicPath: publicPath,
-		PRFParamsPath:        prfPath,
-		PackedNCols:          rt.opts.NCols,
-		LVCSNCols:            rt.opts.LVCSNCols,
-		NLeaves:              rt.opts.NLeaves,
-		SmallWood:            smallWoodTuningSpecFromOpts(rt.opts),
-		Omega:                append([]uint64(nil), rt.omega...),
-		holderWitnessSpec:    witnessSpecFromInputs(rt.ringQ, inputs),
-	}
-	request := commitRequestFile{
-		Version:              issuanceArtifactVersion,
-		CredentialPublicPath: publicPath,
-		PackedNCols:          rt.opts.NCols,
-		LVCSNCols:            rt.opts.LVCSNCols,
-		NLeaves:              rt.opts.NLeaves,
-		SmallWood:            smallWoodTuningSpecFromOpts(rt.opts),
-		Omega:                append([]uint64(nil), rt.omega...),
-		Com:                  polyVecToInt64(rt.ringQ, com, true),
-	}
-	if err := writeJSONFile(holderSecretPath, secret, 0o600); err != nil {
-		return fmt.Errorf("write holder secret: %w", err)
-	}
-	if err := writeJSONFile(commitRequestPath, request, 0o644); err != nil {
-		return fmt.Errorf("write commit request: %w", err)
-	}
-	log.Printf("[issuance-cli] holder commit wrote %s and %s", holderSecretPath, commitRequestPath)
-	return nil
+	return holderCommitIntGenISIS(rt, publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath, seed)
 }
 
 func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath string, seed int64) error {
 	if expertInputPath != "" {
-		return fmt.Errorf("IntGenISIS holder-commit does not accept legacy expert-input artifacts")
+		return fmt.Errorf("IntGenISIS holder-commit does not accept expert-input artifacts")
 	}
 	profile, ok := credential.LookupIntGenISISProfile(rt.public.Profile)
 	if !ok {
@@ -698,43 +502,6 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 	return nil
 }
 
-func issuerChallenge(commitRequestPath, challengePath string, seed int64) error {
-	var req commitRequestFile
-	if err := readJSONFile(commitRequestPath, &req); err != nil {
-		return fmt.Errorf("read commit request: %w", err)
-	}
-	if req.Version != issuanceArtifactVersion {
-		return fmt.Errorf("unsupported commit request version %d", req.Version)
-	}
-	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, defaultPRFParamsPath, issuanceRuntimeOverrides{})
-	if err != nil {
-		return err
-	}
-	if rt.public.UsesIntGenISIS() {
-		return fmt.Errorf("issuer-challenge is legacy-only; IntGenISIS issuance has no issuer challenge step")
-	}
-	if len(req.Omega) == 0 {
-		return fmt.Errorf("commit request missing omega")
-	}
-	rng := newLocalRNG(seed)
-	ch, err := issuance.SampleChallengeVector(rt.ringQ, req.Omega, rt.params.X0Len, rt.params.X0CoeffBound, rt.public.BoundB, rng)
-	if err != nil {
-		return fmt.Errorf("sample challenge: %w", err)
-	}
-	out := issueChallengeFile{
-		Version:              issuanceArtifactVersion,
-		CredentialPublicPath: req.CredentialPublicPath,
-		Omega:                append([]uint64(nil), req.Omega...),
-		RI0:                  polyVecToInt64(rt.ringQ, ch.RI0, true),
-		RI1:                  polyVecToInt64(rt.ringQ, ch.RI1, true),
-	}
-	if err := writeJSONFile(challengePath, out, 0o644); err != nil {
-		return fmt.Errorf("write challenge: %w", err)
-	}
-	log.Printf("[issuance-cli] issuer challenge wrote %s", challengePath)
-	return nil
-}
-
 func holderProve(holderSecretPath, challengePath, submissionPath string) error {
 	var secret holderSecretFile
 	if err := readJSONFile(holderSecretPath, &secret); err != nil {
@@ -747,51 +514,11 @@ func holderProve(holderSecretPath, challengePath, submissionPath string) error {
 	if err != nil {
 		return err
 	}
-	if rt.public.UsesIntGenISIS() {
-		return holderProveIntGenISIS(rt, secret, submissionPath)
+	if !rt.public.UsesIntGenISIS() {
+		return fmt.Errorf("holder-prove supports only IntGenISIS public params")
 	}
-	var challenge issueChallengeFile
-	if err := readJSONFile(challengePath, &challenge); err != nil {
-		return fmt.Errorf("read challenge: %w", err)
-	}
-	if challenge.Version != issuanceArtifactVersion {
-		return fmt.Errorf("unsupported challenge version %d", challenge.Version)
-	}
-	if len(secret.Omega) == 0 {
-		return fmt.Errorf("holder secret missing omega")
-	}
-	inputs, err := inputsFromWitnessSpec(rt.ringQ, rt.public, secret.holderWitnessSpec, secret.PackedNCols)
-	if err != nil {
-		return err
-	}
-	ch, err := challengeFromFile(rt.ringQ, challenge)
-	if err != nil {
-		return err
-	}
-	com, err := issuance.PrepareCommit(rt.params, inputs, secret.Omega)
-	if err != nil {
-		return fmt.Errorf("prepare commit: %w", err)
-	}
-	st, err := issuance.ApplyChallenge(rt.params, inputs, ch, secret.Omega)
-	if err != nil {
-		return fmt.Errorf("apply challenge: %w", err)
-	}
-	st.Com = com
-	proof, err := issuance.ProvePreSign(rt.params, ch, com, inputs, st, rt.opts)
-	if err != nil {
-		return fmt.Errorf("prove pre-sign: %w", err)
-	}
-	out := preSignSubmissionFile{
-		Version:              issuanceArtifactVersion,
-		CredentialPublicPath: secret.CredentialPublicPath,
-		T:                    append([]int64(nil), st.T...),
-		Proof:                proof,
-	}
-	if err := writeJSONFile(submissionPath, out, 0o644); err != nil {
-		return fmt.Errorf("write submission: %w", err)
-	}
-	log.Printf("[issuance-cli] holder prove wrote %s", submissionPath)
-	return nil
+	_ = challengePath
+	return holderProveIntGenISIS(rt, secret, submissionPath)
 }
 
 func holderProveIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, submissionPath string) error {
@@ -858,74 +585,11 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 	if err != nil {
 		return err
 	}
-	if rt.public.UsesIntGenISIS() {
-		return issuerVerifySignIntGenISIS(rt, req, submission, responsePath, maxTrials, ntruPaths, verifierKeyOut)
+	if !rt.public.UsesIntGenISIS() {
+		return fmt.Errorf("issuer-verify-sign supports only IntGenISIS public params")
 	}
-	var challenge issueChallengeFile
-	if err := readJSONFile(challengePath, &challenge); err != nil {
-		return fmt.Errorf("read challenge: %w", err)
-	}
-	if challenge.Version != issuanceArtifactVersion {
-		return fmt.Errorf("unsupported challenge version %d", challenge.Version)
-	}
-	if err := validateInt64RowsExact("commit_request.com", req.Com, int(rt.ringQ.N)); err != nil {
-		return err
-	}
-	if len(submission.T) != int(rt.ringQ.N) {
-		return fmt.Errorf("presign submission target coefficient length=%d want ring_degree=%d", len(submission.T), rt.ringQ.N)
-	}
-	com := polyVecFromInt64(rt.ringQ, req.Com, true)
-	ch, err := challengeFromFile(rt.ringQ, challenge)
-	if err != nil {
-		return err
-	}
-	B, err := loadBAsNTT(rt.ringQ, rt.public.BPath)
-	if err != nil {
-		return err
-	}
-	verifyState := &issuance.State{
-		T: submission.T,
-		B: B,
-	}
-	ok, err := issuance.VerifyPreSign(rt.params, ch, com, verifyState, submission.Proof, rt.opts)
-	if err != nil {
-		return fmt.Errorf("verify pre-sign: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("verify pre-sign returned ok=false")
-	}
-	if err := validateNTRUSigningArtifacts(ntruPaths, len(submission.T)); err != nil {
-		return err
-	}
-	sig, err := issuance.SignTargetAndSaveWithPaths(submission.T, maxTrials, ntru.SamplerOpts{}, ntruPaths)
-	if err != nil {
-		return fmt.Errorf("sign target: %w", err)
-	}
-	if err := signverify.VerifyWithParamsPath(sig, ntruPaths.ParamsPath); err != nil {
-		return fmt.Errorf("verify signed target bundle: %w", err)
-	}
-	pubPath := ntruPaths.PublicKeyPath
-	if pubPath == "" {
-		pubPath = defaultNTRUPublicKeyPath
-	}
-	pub, err := keys.LoadPublicFile(pubPath)
-	if err != nil {
-		return fmt.Errorf("load public key: %w", err)
-	}
-	resp := issueResponseFile{
-		Version:              issuanceArtifactVersion,
-		CredentialPublicPath: req.CredentialPublicPath,
-		T:                    append([]int64(nil), submission.T...),
-		SigS1:                append([]int64(nil), sig.Signature.S1...),
-		SigS2:                append([]int64(nil), sig.Signature.S2...),
-		NTRUPublic:           [][]int64{append([]int64(nil), pub.HCoeffs...)},
-		Signature:            sig,
-	}
-	if err := writeJSONFile(responsePath, resp, 0o644); err != nil {
-		return fmt.Errorf("write issuer response: %w", err)
-	}
-	log.Printf("[issuance-cli] issuer verify/sign wrote %s", responsePath)
-	return nil
+	_ = challengePath
+	return issuerVerifySignIntGenISIS(rt, req, submission, responsePath, maxTrials, ntruPaths, verifierKeyOut)
 }
 
 func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, submission preSignSubmissionFile, responsePath string, maxTrials int, ntruPaths signverify.SignPaths, verifierKeyOut string) error {
@@ -1034,51 +698,11 @@ func holderFinalize(holderSecretPath, commitRequestPath, challengePath, response
 	if err != nil {
 		return err
 	}
-	if rtProbe.public.UsesIntGenISIS() {
-		return holderFinalizeIntGenISIS(rtProbe, secretProbe, commitRequestPath, responsePath, statePath, signaturePath, ntruParamsPath)
+	if !rtProbe.public.UsesIntGenISIS() {
+		return fmt.Errorf("holder-finalize supports only IntGenISIS public params")
 	}
-	in, rt, inputs, derivedState, err := loadFinalizeInput(holderSecretPath, commitRequestPath, challengePath, responsePath)
-	if err != nil {
-		return err
-	}
-	if in.response.Signature != nil {
-		if err := signverify.VerifyWithParamsPath(in.response.Signature, ntruParamsPath); err != nil {
-			return fmt.Errorf("verify issue response signature: %w", err)
-		}
-		if !int64SliceEqual(in.response.Signature.Hash.TCoeffs, in.response.T) {
-			return fmt.Errorf("issue response signature target does not match response T")
-		}
-	}
-	if !int64SliceEqual(derivedState.T, in.response.T) {
-		return fmt.Errorf("holder-derived T does not match issuer response T")
-	}
-	com, err := issuance.PrepareCommit(rt.params, inputs, in.secret.Omega)
-	if err != nil {
-		return fmt.Errorf("prepare commit during finalize: %w", err)
-	}
-	if !polyRowsEqual(polyVecToInt64(rt.ringQ, com, true), in.request.Com) {
-		return fmt.Errorf("holder-derived commitment does not match commit request")
-	}
-	state, err := buildCredentialState(rt, in, inputs, derivedState, com)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
-		return fmt.Errorf("mkdir state dir: %w", err)
-	}
-	if err := credential.SaveState(statePath, rt.ringQ, state); err != nil {
-		return fmt.Errorf("save credential state: %w", err)
-	}
-	if in.response.Signature != nil {
-		if err := keys.SaveSignatureFile(signaturePath, in.response.Signature); err != nil {
-			return fmt.Errorf("save credential signature: %w", err)
-		}
-	}
-	log.Printf("[issuance-cli] holder finalize wrote %s", statePath)
-	if in.response.Signature != nil {
-		log.Printf("[issuance-cli] holder finalize wrote %s", signaturePath)
-	}
-	return nil
+	_ = challengePath
+	return holderFinalizeIntGenISIS(rtProbe, secretProbe, commitRequestPath, responsePath, statePath, signaturePath, ntruParamsPath)
 }
 
 func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, commitRequestPath, responsePath, statePath, signaturePath, ntruParamsPath string) error {
@@ -1175,12 +799,6 @@ func verifyIntGenISISSignatureResponse(ringQ *ring.Ring, resp issueResponseFile,
 	if ringQ == nil {
 		return fmt.Errorf("nil ring")
 	}
-	if len(resp.T) != 0 {
-		return fmt.Errorf("IntGenISIS issuer response must not serialize target T")
-	}
-	if resp.Signature != nil {
-		return fmt.Errorf("IntGenISIS issuer response must not serialize full signature bundle")
-	}
 	if len(resp.NTRUPublic) != 1 || len(resp.NTRUPublic[0]) != int(ringQ.N) {
 		return fmt.Errorf("issuer response missing NTRU public row of length %d", ringQ.N)
 	}
@@ -1215,13 +833,8 @@ func verifyIntGenISISSignatureResponse(ringQ *ring.Ring, resp issueResponseFile,
 func demoLocal(publicPath, prfPath, artifactDir, statePath, signaturePath string, seed int64, maxTrials int, overrides issuanceRuntimeOverrides, ntruPaths signverify.SignPaths) error {
 	holderSecretPath := filepath.Join(artifactDir, "holder_secret.json")
 	commitRequestPath := filepath.Join(artifactDir, "commit_request.json")
-	challengePath := filepath.Join(artifactDir, "issue_challenge.json")
 	submissionPath := filepath.Join(artifactDir, "presign_submission.json")
 	responsePath := filepath.Join(artifactDir, "issue_response.json")
-	challengeSeed := seed
-	if seed != 0 {
-		challengeSeed = seed + 1
-	}
 	if err := holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, "", seed, overrides); err != nil {
 		return err
 	}
@@ -1229,25 +842,16 @@ func demoLocal(publicPath, prfPath, artifactDir, statePath, signaturePath string
 	if err != nil {
 		return err
 	}
-	if public.UsesIntGenISIS() {
-		if err := holderProve(holderSecretPath, challengePath, submissionPath); err != nil {
-			return err
-		}
-		if err := issuerVerifySign(commitRequestPath, challengePath, submissionPath, responsePath, maxTrials, ntruPaths, ""); err != nil {
-			return err
-		}
-		return holderFinalize(holderSecretPath, commitRequestPath, challengePath, responsePath, statePath, signaturePath, ntruPaths.ParamsPath)
+	if !public.UsesIntGenISIS() {
+		return fmt.Errorf("demo-local supports only IntGenISIS public params")
 	}
-	if err := issuerChallenge(commitRequestPath, challengePath, challengeSeed); err != nil {
+	if err := holderProve(holderSecretPath, "", submissionPath); err != nil {
 		return err
 	}
-	if err := holderProve(holderSecretPath, challengePath, submissionPath); err != nil {
+	if err := issuerVerifySign(commitRequestPath, "", submissionPath, responsePath, maxTrials, ntruPaths, ""); err != nil {
 		return err
 	}
-	if err := issuerVerifySign(commitRequestPath, challengePath, submissionPath, responsePath, maxTrials, ntruPaths, ""); err != nil {
-		return err
-	}
-	return holderFinalize(holderSecretPath, commitRequestPath, challengePath, responsePath, statePath, signaturePath, ntruPaths.ParamsPath)
+	return holderFinalize(holderSecretPath, commitRequestPath, "", responsePath, statePath, signaturePath, ntruPaths.ParamsPath)
 }
 
 func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOverrides) (*issuanceRuntime, error) {
@@ -1481,180 +1085,6 @@ func newLocalRNG(seed int64) *rand.Rand {
 	return rand.New(rand.NewSource(seed))
 }
 
-func sampleHolderInputs(r *ring.Ring, public credential.PublicParams, omega []uint64, rng *rand.Rand) (issuance.Inputs, error) {
-	if rng == nil {
-		return issuance.Inputs{}, fmt.Errorf("nil rng")
-	}
-	alphabet := []int64{-1, 0, 1}
-	mu := sampleFullMuCoeff(r, alphabet, rng)
-	r0Alphabet := make([]int64, 0, 2*public.X0CoeffBound+1)
-	for v := -public.X0CoeffBound; v <= public.X0CoeffBound; v++ {
-		r0Alphabet = append(r0Alphabet, v)
-	}
-	r0h := make([]*ring.Poly, public.X0Len)
-	for i := range r0h {
-		r0h[i] = sampleCoeffHead(r, r0Alphabet, omega, rng)
-	}
-	r1h := sampleCoeffHead(r, alphabet, omega, rng)
-	rbar := sampleCoeffHead(r, alphabet, omega, rng)
-	return issuance.Inputs{
-		Mu:   []*ring.Poly{mu},
-		R0H:  r0h,
-		R1H:  []*ring.Poly{r1h},
-		RBar: []*ring.Poly{rbar},
-	}, nil
-}
-
-func inputsFromWitnessSpec(r *ring.Ring, public credential.PublicParams, spec holderWitnessSpec, packedNCols int) (issuance.Inputs, error) {
-	if len(spec.Mu) == 0 && len(spec.M) > 0 && len(spec.K) > 0 {
-		m := polysFromInt64(r, spec.M)
-		k := polysFromInt64(r, spec.K)
-		mu := r.NewPoly()
-		ring.Copy(m[0], mu)
-		r.Add(mu, k[0], mu)
-		spec.Mu = polyVecToInt64(r, []*ring.Poly{mu}, false)
-	}
-	if len(spec.Mu) != public.LenMu || len(spec.R0H) != public.LenR0H || len(spec.R1H) != public.LenR1H || len(spec.RBar) != public.LenRBar {
-		return issuance.Inputs{}, fmt.Errorf("expert witness row-count mismatch")
-	}
-	_ = packedNCols
-	if err := credential.ValidateFullMuPayload(spec.Mu, int(r.N), public.BoundB); err != nil {
-		return issuance.Inputs{}, fmt.Errorf("invalid mu payload: %w", err)
-	}
-	if err := validateInt64RowsExact("r0h", spec.R0H, int(r.N)); err != nil {
-		return issuance.Inputs{}, err
-	}
-	if err := validateInt64RowsExact("r1h", spec.R1H, int(r.N)); err != nil {
-		return issuance.Inputs{}, err
-	}
-	if err := validateInt64RowsExact("rbar", spec.RBar, int(r.N)); err != nil {
-		return issuance.Inputs{}, err
-	}
-	return issuance.Inputs{
-		Mu:   polysFromInt64(r, spec.Mu),
-		R0H:  polysFromInt64(r, spec.R0H),
-		R1H:  polysFromInt64(r, spec.R1H),
-		RBar: polysFromInt64(r, spec.RBar),
-	}, nil
-}
-
-func witnessSpecFromInputs(r *ring.Ring, in issuance.Inputs) holderWitnessSpec {
-	return holderWitnessSpec{
-		Mu:   polyVecToInt64(r, in.Mu, false),
-		R0H:  polyVecToInt64(r, in.R0H, false),
-		R1H:  polyVecToInt64(r, in.R1H, false),
-		RBar: polyVecToInt64(r, in.RBar, false),
-	}
-}
-
-func challengeFromFile(r *ring.Ring, in issueChallengeFile) (issuance.Challenge, error) {
-	if len(in.RI0) == 0 || len(in.RI1) == 0 {
-		return issuance.Challenge{}, fmt.Errorf("challenge file missing RI rows")
-	}
-	if err := validateInt64RowsExact("ri0", in.RI0, int(r.N)); err != nil {
-		return issuance.Challenge{}, err
-	}
-	if err := validateInt64RowsExact("ri1", in.RI1, int(r.N)); err != nil {
-		return issuance.Challenge{}, err
-	}
-	return issuance.Challenge{
-		RI0: polyVecFromInt64(r, in.RI0, true),
-		RI1: polyVecFromInt64(r, in.RI1, true),
-	}, nil
-}
-
-func buildCredentialState(rt *issuanceRuntime, in credentialFinalizeInput, inputs issuance.Inputs, st *issuance.State, com commitment.Vector) (credential.State, error) {
-	if rt == nil || st == nil {
-		return credential.State{}, fmt.Errorf("nil finalize runtime/state")
-	}
-	out := credential.State{
-		Version:              credential.StateVersion,
-		Mu:                   polyVecToInt64(rt.ringQ, inputs.Mu, false),
-		MuLayout:             credential.MuLayoutFullCapacityHalvesV1,
-		R0:                   polyVecToInt64(rt.ringQ, st.R0, false),
-		R1:                   polyVecToInt64(rt.ringQ, st.R1, false),
-		Z:                    polyVecToInt64(rt.ringQ, st.Z, false),
-		X0Len:                rt.params.X0Len,
-		X0CoeffBound:         rt.params.X0CoeffBound,
-		TargetDim:            rt.params.TargetDim,
-		TargetHidingLambda:   rt.params.TargetHidingLambda,
-		RingDegree:           int(rt.ringQ.N),
-		SigS1:                append([]int64(nil), in.response.SigS1...),
-		SigS2:                append([]int64(nil), in.response.SigS2...),
-		PackedNCols:          in.secret.PackedNCols,
-		Com:                  polyVecToInt64(rt.ringQ, com, true),
-		RI0:                  append([][]int64(nil), in.challenge.RI0...),
-		RI1:                  append([][]int64(nil), in.challenge.RI1...),
-		CredentialPublicPath: in.secret.CredentialPublicPath,
-		HashRelation:         rt.public.HashRelation,
-		BPath:                rt.public.BPath,
-		B:                    polyVecToInt64(rt.ringQ, st.B, true),
-		PRFParamsPath:        in.secret.PRFParamsPath,
-		NTRUPublic:           cloneRows(in.response.NTRUPublic),
-	}
-	return out, nil
-}
-
-func loadFinalizeInput(holderSecretPath, commitRequestPath, challengePath, responsePath string) (credentialFinalizeInput, *issuanceRuntime, issuance.Inputs, *issuance.State, error) {
-	var in credentialFinalizeInput
-	if err := readJSONFile(holderSecretPath, &in.secret); err != nil {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("read holder secret: %w", err)
-	}
-	if in.secret.Version != issuanceArtifactVersion {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("unsupported holder secret version %d", in.secret.Version)
-	}
-	if err := readJSONFile(commitRequestPath, &in.request); err != nil {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("read commit request: %w", err)
-	}
-	if in.request.Version != issuanceArtifactVersion {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("unsupported commit request version %d", in.request.Version)
-	}
-	if err := readJSONFile(challengePath, &in.challenge); err != nil {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("read challenge: %w", err)
-	}
-	if in.challenge.Version != issuanceArtifactVersion {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("unsupported challenge version %d", in.challenge.Version)
-	}
-	if err := readJSONFile(responsePath, &in.response); err != nil {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("read response: %w", err)
-	}
-	if in.response.Version != issuanceArtifactVersion {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("unsupported response version %d", in.response.Version)
-	}
-	rt, err := loadIssuanceRuntime(in.secret.CredentialPublicPath, in.secret.PRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(in.secret.PackedNCols, in.secret.LVCSNCols, in.secret.NLeaves, in.secret.Omega, in.secret.SmallWood))
-	if err != nil {
-		return in, nil, issuance.Inputs{}, nil, err
-	}
-	if err := validateInt64RowsExact("commit_request.com", in.request.Com, int(rt.ringQ.N)); err != nil {
-		return in, nil, issuance.Inputs{}, nil, err
-	}
-	if len(in.response.T) != int(rt.ringQ.N) {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("issue response target coefficient length=%d want ring_degree=%d", len(in.response.T), rt.ringQ.N)
-	}
-	if len(in.response.SigS1) != int(rt.ringQ.N) {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("issue response sig_s1 coefficient length=%d want ring_degree=%d", len(in.response.SigS1), rt.ringQ.N)
-	}
-	if len(in.response.SigS2) != int(rt.ringQ.N) {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("issue response sig_s2 coefficient length=%d want ring_degree=%d", len(in.response.SigS2), rt.ringQ.N)
-	}
-	if err := validateInt64RowsExact("issue_response.ntru_public", in.response.NTRUPublic, int(rt.ringQ.N)); err != nil {
-		return in, nil, issuance.Inputs{}, nil, err
-	}
-	inputs, err := inputsFromWitnessSpec(rt.ringQ, rt.public, in.secret.holderWitnessSpec, in.secret.PackedNCols)
-	if err != nil {
-		return in, nil, issuance.Inputs{}, nil, err
-	}
-	ch, err := challengeFromFile(rt.ringQ, in.challenge)
-	if err != nil {
-		return in, nil, issuance.Inputs{}, nil, err
-	}
-	st, err := issuance.ApplyChallenge(rt.params, inputs, ch, in.secret.Omega)
-	if err != nil {
-		return in, nil, issuance.Inputs{}, nil, fmt.Errorf("apply challenge during finalize: %w", err)
-	}
-	return in, rt, inputs, st, nil
-}
-
 func loadBAsNTT(r *ring.Ring, path string) ([]*ring.Poly, error) {
 	coeffs, err := ntrurio.LoadBMatrixCoeffs(path)
 	if err != nil {
@@ -1756,112 +1186,6 @@ func polysFromInt64(r *ring.Ring, rows [][]int64) []*ring.Poly {
 	out := make([]*ring.Poly, len(rows))
 	for i := range rows {
 		out[i] = polyFromInt64(r, rows[i])
-	}
-	return out
-}
-
-func cloneRows(rows [][]int64) [][]int64 {
-	out := make([][]int64, len(rows))
-	for i := range rows {
-		out[i] = append([]int64(nil), rows[i]...)
-	}
-	return out
-}
-
-func samplePackedHalfCoeffHeadNonZero(r *ring.Ring, alphabet []int64, omega []uint64, rng *rand.Rand, keepLower bool) *ring.Poly {
-	for attempt := 0; attempt < 128; attempt++ {
-		p := samplePackedHalfCoeffHead(r, alphabet, omega, rng, keepLower)
-		if maxAbsSlice(polyToInt64Local(p, r)) > 0 {
-			return p
-		}
-	}
-	panic("failed to sample nonzero packed-half polynomial")
-}
-
-func sampleFullMuCoeff(r *ring.Ring, alphabet []int64, rng *rand.Rand) *ring.Poly {
-	q := int64(r.Modulus[0])
-	for attempt := 0; attempt < 128; attempt++ {
-		p := r.NewPoly()
-		nonzero := false
-		for i := 0; i < r.N; i++ {
-			v := alphabet[rng.Intn(len(alphabet))]
-			if v != 0 {
-				nonzero = true
-			}
-			if v < 0 {
-				p.Coeffs[0][i] = uint64(v + q)
-			} else {
-				p.Coeffs[0][i] = uint64(v)
-			}
-		}
-		if nonzero {
-			return p
-		}
-	}
-	panic("failed to sample nonzero sparse mu polynomial")
-}
-
-func sampleHeadValues(alphabet []int64, ncols int, q int64, rng *rand.Rand) []uint64 {
-	head := make([]uint64, ncols)
-	for i := 0; i < ncols; i++ {
-		v := alphabet[rng.Intn(len(alphabet))]
-		if v < 0 {
-			head[i] = uint64(v + q)
-		} else {
-			head[i] = uint64(v)
-		}
-	}
-	return head
-}
-
-func interpolateHeadToCoeffPoly(r *ring.Ring, omega []uint64, head []uint64) *ring.Poly {
-	p := r.NewPoly()
-	if len(head) == 0 {
-		return p
-	}
-	copy(p.Coeffs[0], PIOP.Interpolate(omega[:len(head)], head, r.Modulus[0]))
-	return p
-}
-
-func sampleCoeffHead(r *ring.Ring, alphabet []int64, omega []uint64, rng *rand.Rand) *ring.Poly {
-	q := int64(r.Modulus[0])
-	ncols := len(omega)
-	if ncols <= 0 || ncols > r.N {
-		ncols = r.N
-	}
-	head := sampleHeadValues(alphabet, ncols, q, rng)
-	return interpolateHeadToCoeffPoly(r, omega, head)
-}
-
-func samplePackedHalfCoeffHead(r *ring.Ring, alphabet []int64, omega []uint64, rng *rand.Rand, keepLower bool) *ring.Poly {
-	ncols := len(omega)
-	if ncols <= 0 || ncols > r.N {
-		ncols = r.N
-	}
-	q := int64(r.Modulus[0])
-	head := sampleHeadValues(alphabet, ncols, q, rng)
-	half := ncols / 2
-	if keepLower {
-		for i := half; i < ncols; i++ {
-			head[i] = 0
-		}
-	} else {
-		for i := 0; i < half; i++ {
-			head[i] = 0
-		}
-	}
-	return interpolateHeadToCoeffPoly(r, omega, head)
-}
-
-func maxAbsSlice(vals []int64) int64 {
-	var out int64
-	for _, v := range vals {
-		if v < 0 {
-			v = -v
-		}
-		if v > out {
-			out = v
-		}
 	}
 	return out
 }

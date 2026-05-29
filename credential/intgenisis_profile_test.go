@@ -13,13 +13,15 @@ func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 	if profile.B != 4 {
 		t.Fatalf("profile B bound=%d want 4", profile.B)
 	}
-	compact := CompactIntGenISISProfile()
-	if compact.B != 4 {
-		t.Fatalf("profile A bound=%d want 4", compact.B)
+	if profile.Q != IntGenISISSharedModulusQ {
+		t.Fatalf("profile B q=%d want %d", profile.Q, IntGenISISSharedModulusQ)
 	}
 	ternary1024 := Ternary1024IntGenISISProfile()
 	if ternary1024.N != 1024 || ternary1024.B != 1 || ternary1024.KS != 1 || ternary1024.EllX0 != 1 {
 		t.Fatalf("profile C tuple N/B/KS/ell_x0=%d/%d/%d/%d want 1024/1/1/1", ternary1024.N, ternary1024.B, ternary1024.KS, ternary1024.EllX0)
+	}
+	if ternary1024.Q != IntGenISISSharedModulusQ {
+		t.Fatalf("profile C q=%d want %d", ternary1024.Q, IntGenISISSharedModulusQ)
 	}
 	if got, ok := LookupIntGenISISProfileByRingDegree(1024); !ok || got.Name != ProfileIntGenISISC {
 		t.Fatalf("ring-degree lookup 1024=(%q,%v), want %q", got.Name, ok, ProfileIntGenISISC)

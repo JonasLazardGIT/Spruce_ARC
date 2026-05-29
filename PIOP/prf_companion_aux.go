@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	// This file is research-only support for the non-default PRF companion
-	// aux-instance path. The baseline theorem-clean full proof still uses
-	// output_audit and does not invoke this module.
+	// This file supports the non-maintained PRF companion aux-instance path.
+	// Maintained IntGenISIS presets use direct_auth and do not invoke this
+	// module.
 	prfAuxMainRootExtraKey     = "prf_aux_main_root"
 	prfAuxCoordDigestExtraKey  = "prf_aux_coord_digest"
 	prfAuxBridgeDigestExtraKey = "prf_aux_bridge_digest"

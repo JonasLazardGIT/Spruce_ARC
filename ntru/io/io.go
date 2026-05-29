@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/bits"
 	"os"
 	"path/filepath"
 )
@@ -32,6 +33,7 @@ func SaveParams(path string, p SystemParams) error {
 	payload := map[string]any{
 		"n":     p.N,
 		"q":     p.Q,
+		"k":     bits.Len64(p.Q - 1),
 		"beta":  p.Beta,
 		"bound": p.Beta,
 	}

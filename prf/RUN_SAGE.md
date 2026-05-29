@@ -6,7 +6,7 @@ JSON blob consumed by the Go PRF package.
 
 ## Shipped Profile
 
-- Field modulus `q`: `1_054_721 = 0x101801`
+- Field modulus `q`: `1_017_857 = 0xf8801`
 - S-box exponent `d`: `3`
 - Width `t = lenkey + lennonce = 20`
 - `lenkey = 8`
@@ -14,14 +14,14 @@ JSON blob consumed by the Go PRF package.
 - `lentag = 7`
 
 The paper rule is: choose the smallest `d >= 3` such that `gcd(d, q-1) = 1`.
-For `q = 1_054_721`, that gives the cubic PRF because `gcd(3, q-1) = 1`.
+For `q = 1_017_857`, that gives the cubic PRF because `gcd(3, q-1) = 1`.
 
 ## Round Sweep
 
 To confirm the round counts for the shipped profile:
 
 ```bash
-sage prf/sweep_rounds.sage 21 0x101801 3 128 20 20 7
+sage prf/sweep_rounds.sage 20 0xf8801 3 128 20 20 7
 ```
 
 At the current target this yields:
@@ -34,7 +34,7 @@ At the current target this yields:
 From the repository root run:
 
 ```bash
-sage prf/generate_params.sage 1 0 21 20 3 128 0x101801 8 12 7
+sage prf/generate_params.sage 1 0 20 20 3 128 0xf8801 8 12 7
 ```
 
 This writes `prf/prf_params.json`.
@@ -44,7 +44,7 @@ This writes `prf/prf_params.json`.
 If you only need parameters quickly, skip the expensive checks:
 
 ```bash
-sage prf/generate_params.sage 1 0 21 20 3 128 0x101801 8 12 7 nochecks
+sage prf/generate_params.sage 1 0 20 20 3 128 0xf8801 8 12 7 nochecks
 ```
 
 ## CLI Arguments
@@ -57,11 +57,11 @@ sage prf/generate_params.sage <field> <s_box> <field_bits> <num_cells> <alpha> <
 
 - `field = 1` for `GF(p)`
 - `s_box = 0` for `x^alpha`
-- `field_bits = 21` for `q = 0x101801`
+- `field_bits = 20` for `q = 0xf8801`
 - `num_cells = t`
 - `alpha = d`
 - `security_level = 128`
-- `modulus_hex = 0x101801`
+- `modulus_hex = 0xf8801`
 - optional `lenkey lennonce lentag` must satisfy `lenkey + lennonce = t`
 - `fixed` forces paper/example rounds instead of the swept rounds
 - `nochecks` disables the expensive MDS trail checks

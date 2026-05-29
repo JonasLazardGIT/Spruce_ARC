@@ -19,15 +19,15 @@ func TestIntGenISISRowInventoryProfileB(t *testing.T) {
 	}
 }
 
-func TestIntGenISISRowInventoryProfileA(t *testing.T) {
-	inv, err := BuildIntGenISISRowInventory(credential.ProfileIntGenISISA, 16)
+func TestIntGenISISRowInventoryProfileC(t *testing.T) {
+	inv, err := BuildIntGenISISRowInventory(credential.ProfileIntGenISISC, 16)
 	if err != nil {
 		t.Fatalf("inventory: %v", err)
 	}
-	if inv.PreSignRingPolys != 8 || inv.PreSignRows != 128 {
-		t.Fatalf("presign inventory=%d polys/%d rows, want 8/128", inv.PreSignRingPolys, inv.PreSignRows)
+	if inv.PreSignRingPolys != 5 || inv.PreSignRows != 320 {
+		t.Fatalf("presign inventory=%d polys/%d rows, want 5/320", inv.PreSignRingPolys, inv.PreSignRows)
 	}
-	if inv.ShowingRingPolys != 15 || inv.ShowingNonPRFRows != 240 {
-		t.Fatalf("showing inventory=%d polys/%d rows, want 15/240", inv.ShowingRingPolys, inv.ShowingNonPRFRows)
+	if inv.ShowingRingPolys != 11 || inv.ShowingNonPRFRows != 704 {
+		t.Fatalf("showing inventory=%d polys/%d rows, want 11/704", inv.ShowingRingPolys, inv.ShowingNonPRFRows)
 	}
 }

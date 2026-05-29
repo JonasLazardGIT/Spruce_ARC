@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,56 +24,47 @@ func TestFormatPaperTranscriptSummaryUsesPaperWording(t *testing.T) {
 	}
 }
 
-func TestDefaultShowingProfileIsN512X0Len70_100(t *testing.T) {
-	profile, ok := lookupShowingProfile(defaultShowingProfile)
-	if !ok {
-		t.Fatalf("default showing profile %q is not registered", defaultShowingProfile)
+func TestDefaultShowingProfileIsIntGenISISOnly(t *testing.T) {
+	if defaultShowingProfile != showingProfileIntGenISISB {
+		t.Fatalf("default showing profile=%q want %q", defaultShowingProfile, showingProfileIntGenISISB)
 	}
-	if profile.Name != showingProfileN512X0Len70_100 {
-		t.Fatalf("default showing profile=%q want %q", profile.Name, showingProfileN512X0Len70_100)
-	}
-	if profile.RingDegree != 512 || profile.X0Len != 70 || profile.SoundnessTarget != 100 {
-		t.Fatalf("default profile tuple ring=%d x0=%d target=%.0f", profile.RingDegree, profile.X0Len, profile.SoundnessTarget)
-	}
-	if profile.StatePath != filepath.Join("credential", "keys", "credential_state.n512_x0len70.json") {
-		t.Fatalf("default profile state path=%q", profile.StatePath)
+	if _, ok := lookupShowingProfile(defaultShowingProfile); ok {
+		t.Fatalf("IntGenISIS showing profile should not resolve through the deleted x0len70 registry")
 	}
 }
 
-func TestMaintainedShowingProfilesAreExactlyX0Len70(t *testing.T) {
+func TestMaintainedShowingProfilesContainOnlyIntGenISISSurface(t *testing.T) {
 	names := showingProfileNames()
-	if len(names) != 3 {
-		t.Fatalf("maintained showing profile count=%d names=%v", len(names), names)
+	if len(names) != 1 || names[0] != showingProfileIntGenISISB {
+		t.Fatalf("maintained showing profile names=%v", names)
 	}
-	for _, name := range names {
-		profile, ok := lookupShowingProfile(name)
-		if !ok {
-			t.Fatalf("profile %q not registered", name)
-		}
-		if profile.X0Len != 70 {
-			t.Fatalf("profile %s x0_len=%d want 70", profile.Name, profile.X0Len)
-		}
-		if profile.RingDegree != 512 && profile.RingDegree != 1024 {
-			t.Fatalf("profile %s ring_degree=%d", profile.Name, profile.RingDegree)
+	for _, removed := range []string{"showing_n512_x0len70_100", "showing_n512_x0len70_128", "showing_n1024_x0len70_100"} {
+		if _, ok := lookupShowingProfile(removed); ok {
+			t.Fatalf("removed showing profile %q registered", removed)
 		}
 	}
-	legacy := strings.Join([]string{"soundness", "balanced"}, "_")
-	if _, ok := lookupShowingProfile(legacy); ok {
-		t.Fatalf("legacy preset %q registered as maintained profile", legacy)
+}
+
+func TestPublicShowingRejectsTuningOverrides(t *testing.T) {
+	if err := rejectPublicShowingTuningOverrides(map[string]bool{"ncols": true}); err == nil {
+		t.Fatal("accepted public ncols override")
+	}
+	if err := rejectPublicShowingTuningOverrides(map[string]bool{"preset": true, "state-path": true}); err != nil {
+		t.Fatalf("rejected non-tuning flags: %v", err)
 	}
 }
 
 func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T) {
-	preset, ok := credential.LookupIntGenISISPreset(credential.IntGenISISPresetSW128LVCS64)
+	preset, ok := credential.LookupIntGenISISPreset(credential.IntGenISISPresetN1024Compact125)
 	if !ok {
-		t.Fatal("missing sw128-lvcs64 preset")
+		t.Fatal("missing n1024-compact125 preset")
 	}
 	tuning := preset.Showing
-	opts := intGenISISShowingOpts(512, tuning.NCols, tuning.LVCSNCols, tuning.NLeaves, tuning.Eta, tuning.Theta, tuning.Rho, tuning.Ell, tuning.EllPrime, tuning.Kappa, PIOP.PRFCompanionMode(tuning.PRFCompanionMode), tuning.CheckpointSamples, tuning.CompressedRows, tuning.SigShortnessRadix, tuning.SigShortnessDigits, tuning.ReplayProjection)
+	opts := intGenISISShowingOpts(1024, tuning.NCols, tuning.LVCSNCols, tuning.NLeaves, tuning.Eta, tuning.Theta, tuning.Rho, tuning.Ell, tuning.EllPrime, tuning.Kappa, PIOP.PRFCompanionMode(tuning.PRFCompanionMode), tuning.CheckpointSamples, tuning.CompressedRows, tuning.SigShortnessRadix, tuning.SigShortnessDigits, tuning.ReplayProjection)
 	if opts.NCols != tuning.NCols || opts.LVCSNCols != tuning.LVCSNCols || opts.NLeaves != tuning.NLeaves {
 		t.Fatalf("opts did not carry preset geometry: %+v preset=%+v", opts, tuning)
 	}
-	if opts.PRFCompanionMode != PIOP.PRFCompanionModeDirectAuth || opts.PRFCheckpointSamples != 2 {
+	if opts.PRFCompanionMode != PIOP.PRFCompanionModeDirectAuth || opts.PRFCheckpointSamples != tuning.CheckpointSamples {
 		t.Fatalf("opts PRF mode/samples=%s/%d", opts.PRFCompanionMode, opts.PRFCheckpointSamples)
 	}
 	if opts.SigShortnessRadix != 11 || opts.SigShortnessL != 4 {
@@ -80,17 +73,20 @@ func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T)
 	if opts.IntGenISISMSECompression != tuning.CompressedRows {
 		t.Fatalf("opts compression=%d want %d", opts.IntGenISISMSECompression, tuning.CompressedRows)
 	}
-	if opts.IntGenISISReplayProjection != "project_u_y_hat_and_y_view_v2" {
+	if opts.IntGenISISReplayProjection != "project_u_digits_y_w_residual_v5" {
 		t.Fatalf("opts replay projection=%q", opts.IntGenISISReplayProjection)
 	}
 }
 
-func TestResearchRingDegree512RejectsDefaultN1024Artifacts(t *testing.T) {
+func TestRingDegree512RejectsDefaultN1024Artifacts(t *testing.T) {
 	root := showingTestRepoRoot(t)
 	chdirForShowingTest(t, root)
 	statePath := filepath.Join("credential", "keys", "credential_state.json")
 	state, err := credential.LoadState(statePath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			t.Skip("generated credential state fixture is not tracked")
+		}
 		t.Fatalf("load state: %v", err)
 	}
 	publicParams, err := loadCredentialPublicParamsFromState(state)
@@ -99,7 +95,7 @@ func TestResearchRingDegree512RejectsDefaultN1024Artifacts(t *testing.T) {
 	}
 	err = validateArtifactRingDegree(512, statePath, state, publicParams)
 	if err == nil {
-		t.Fatal("default N=1024 artifacts accepted under research ring_degree=512")
+		t.Fatal("default N=1024 artifacts accepted under ring_degree=512")
 	}
 	if !strings.Contains(err.Error(), "fresh N=512 artifacts") {
 		t.Fatalf("degree mismatch error did not explain fresh artifacts requirement: %v", err)

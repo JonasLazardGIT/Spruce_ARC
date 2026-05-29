@@ -19,7 +19,7 @@ const intGenISISTernaryMembershipDegree = 3
 const intGenISISDefaultBound = 4
 const intGenISISDegreeModePaperEq3V1 = credential.IntGenISISDegreeModePaperEq3V1
 const intGenISISUShortnessVersion = "intgenisis_u_shortness_r11_l4_v1"
-const intGenISISUShortnessMode = "radix_capacity_slack_builder_exact_beta"
+const intGenISISUShortnessMode = "radix_beta_aware_top_digit_cap_v1"
 const intGenISISUShortnessRadix = 11
 const intGenISISUShortnessDigits = 4
 const intGenISISUShortnessDigitBound = 5
@@ -44,6 +44,7 @@ type intGenISISUShortnessDescriptor struct {
 	Digits         int    `json:"digits"`
 	DigitMin       int    `json:"digit_min"`
 	DigitMax       int    `json:"digit_max"`
+	DigitCaps      []int  `json:"digit_caps,omitempty"`
 	Capacity       int64  `json:"capacity"`
 	SignatureBound int64  `json:"signature_bound"`
 	Mode           string `json:"mode"`
@@ -236,16 +237,67 @@ func intGenISISUShortnessDescriptorForBoundAndOpts(sigBound int64, opts SimOpts)
 	if sigBound > shape.Capacity {
 		return intGenISISUShortnessDescriptor{}, fmt.Errorf("IntGenISIS signature bound %d exceeds R%d/L%d capacity %d", sigBound, shape.Radix, shape.Digits, shape.Capacity)
 	}
+	caps, capacity, err := intGenISISUShortnessCapsForBound(shape, sigBound)
+	if err != nil {
+		return intGenISISUShortnessDescriptor{}, err
+	}
 	return intGenISISUShortnessDescriptor{
 		Version:        shape.Version,
 		Radix:          shape.Radix,
 		Digits:         shape.Digits,
 		DigitMin:       -shape.DigitBound,
 		DigitMax:       shape.DigitBound,
-		Capacity:       shape.Capacity,
+		DigitCaps:      caps,
+		Capacity:       capacity,
 		SignatureBound: sigBound,
 		Mode:           intGenISISUShortnessMode,
 	}, nil
+}
+
+func intGenISISUShortnessCapsForBound(shape intGenISISUShortnessShape, sigBound int64) ([]int, int64, error) {
+	if sigBound <= 0 {
+		return nil, 0, fmt.Errorf("invalid IntGenISIS signature bound %d", sigBound)
+	}
+	if shape.Radix <= 1 || shape.Digits <= 0 || shape.DigitBound <= 0 {
+		return nil, 0, fmt.Errorf("invalid IntGenISIS shortness shape R=%d L=%d digit_bound=%d", shape.Radix, shape.Digits, shape.DigitBound)
+	}
+	if sigBound > shape.Capacity {
+		return nil, 0, fmt.Errorf("IntGenISIS signature bound %d exceeds R%d/L%d capacity %d", sigBound, shape.Radix, shape.Digits, shape.Capacity)
+	}
+	if shape.Digits == 1 {
+		return nil, shape.Capacity, nil
+	}
+	radix := int64(shape.Radix)
+	digitBound := int64(shape.DigitBound)
+	lowerCapacity := int64(0)
+	weight := int64(1)
+	for i := 0; i < shape.Digits-1; i++ {
+		if lowerCapacity > (1<<62)-digitBound*weight {
+			return nil, 0, fmt.Errorf("IntGenISIS shortness lower capacity overflow")
+		}
+		lowerCapacity += digitBound * weight
+		if i+1 < shape.Digits {
+			if weight > (1<<62)/radix {
+				return nil, 0, fmt.Errorf("IntGenISIS shortness weight overflow")
+			}
+			weight *= radix
+		}
+	}
+	topWeight := weight
+	neededTopCap := int64(1)
+	if sigBound > lowerCapacity {
+		neededTopCap = (sigBound - lowerCapacity + topWeight - 1) / topWeight
+		if neededTopCap < 1 {
+			neededTopCap = 1
+		}
+	}
+	if neededTopCap >= digitBound {
+		return nil, shape.Capacity, nil
+	}
+	caps := make([]int, shape.Digits)
+	caps[shape.Digits-1] = int(neededTopCap)
+	capacity := lowerCapacity + neededTopCap*topWeight
+	return caps, capacity, nil
 }
 
 func intGenISISUShortnessDescriptorBytes(sigBound int64) ([]byte, error) {
@@ -274,7 +326,7 @@ func intGenISISUShortnessSpecForOpts(q uint64, sigBound int64, opts SimOpts) (sp
 			err = fmt.Errorf("build IntGenISIS R%d/L%d shortness spec: %v", desc.Radix, desc.Digits, r)
 		}
 	}()
-	spec = NewSignedLinfChainSpecRadix(q, uint64(desc.Radix), desc.Digits, 1, uint64(sigBound), nil)
+	spec = NewSignedLinfChainSpecRadix(q, uint64(desc.Radix), desc.Digits, 1, uint64(sigBound), desc.DigitCaps)
 	if len(spec.RPows) != desc.Digits || len(spec.PDi) != desc.Digits {
 		return LinfSpec{}, fmt.Errorf("unexpected IntGenISIS shortness spec dimensions powers=%d memberships=%d", len(spec.RPows), len(spec.PDi))
 	}

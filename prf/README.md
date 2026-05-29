@@ -33,7 +33,7 @@ credential secret.
 ## Current Invariants
 
 - the PRF uses the same modulus as the rest of the protocol
-- the shipped migration target uses the cubic S-box (`d = 3`) over `q = 1054721`
+- the shipped migration target uses the cubic S-box (`d = 3`) over `q = 1017857`
 - the showing proof uses grouped nonlinear checkpoints
 - the shipped command surface assumes `PRFGroupRounds = 2`
 - the shipped baseline is reduced replay with `PRFCompanionMode=output_audit`

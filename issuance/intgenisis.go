@@ -231,3 +231,17 @@ func clonePolyVec(ringQ *ring.Ring, in []*ring.Poly) []*ring.Poly {
 	}
 	return out
 }
+
+func coeffPolyToInt64(ringQ *ring.Ring, p *ring.Poly) []int64 {
+	out := make([]int64, ringQ.N)
+	q := int64(ringQ.Modulus[0])
+	half := q / 2
+	for i, c := range p.Coeffs[0] {
+		v := int64(c)
+		if v > half {
+			v -= q
+		}
+		out[i] = v
+	}
+	return out
+}

@@ -7,8 +7,8 @@ from sage.combinat.subset import powerset
 
 if len(sys.argv) < 8:
     # Default to the shipped cubic profile on the shared protocol field.
-    # q = 1_054_721 = 0x101801, t = 20, alpha = 3, security = 128.
-    sys.argv = [sys.argv[0], "1", "0", "21", "20", "3", "128", "0x101801", "8", "12", "7"]
+    # q = 1_017_857 = 0xf8801, t = 20, alpha = 3, security = 128.
+    sys.argv = [sys.argv[0], "1", "0", "20", "20", "3", "128", "0xf8801", "8", "12", "7"]
 
 # GF(p), n = 255, t = 3, alpha=5: sage generate_params_poseidon.sage 1 0 255 3 5 128 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
 # GF(p), n = 255, t = 5, alpha=5: sage generate_params_poseidon.sage 1 0 255 5 5 128 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001

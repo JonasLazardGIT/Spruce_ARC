@@ -1,6 +1,7 @@
 package PIOP
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -302,6 +303,9 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 
 	state, err := credential.LoadState(filepath.Join(root, "credential", "keys", "credential_state.json"))
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			t.Skip("generated credential state fixture is not tracked")
+		}
 		t.Fatalf("load state: %v", err)
 	}
 	publicPath := state.CredentialPublicPath

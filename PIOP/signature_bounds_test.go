@@ -31,6 +31,46 @@ func signatureBoundsChdirRepoRoot(t *testing.T) {
 	})
 }
 
+func TestIntGenISISUShortnessTopDigitCapForN512Beta(t *testing.T) {
+	const q = uint64(1017857)
+	spec, err := intGenISISUShortnessSpecForOpts(q, 6002, SimOpts{
+		SigShortnessRadix: 7,
+		SigShortnessL:     5,
+	})
+	if err != nil {
+		t.Fatalf("shortness spec: %v", err)
+	}
+	if spec.MaxAbs != 6002 {
+		t.Fatalf("maxAbs=%d want 6002", spec.MaxAbs)
+	}
+	if len(spec.DigitHi) != 5 || spec.DigitHi[4] != 2 || spec.DigitLo[4] != -2 {
+		t.Fatalf("top digit range=%v/%v want cap 2", spec.DigitLo, spec.DigitHi)
+	}
+	if _, err := decomposeLinfDigitsSigned(6002, spec); err != nil {
+		t.Fatalf("decompose 6002: %v", err)
+	}
+	if _, err := decomposeLinfDigitsSigned(-6002, spec); err != nil {
+		t.Fatalf("decompose -6002: %v", err)
+	}
+	if _, err := decomposeLinfDigitsSigned(6003, spec); err == nil {
+		t.Fatalf("decompose 6003 unexpectedly succeeded")
+	}
+}
+
+func TestIntGenISISUShortnessDefaultCapacityWhenTopCapCannotFit(t *testing.T) {
+	const q = uint64(1017857)
+	spec, err := intGenISISUShortnessSpecForOpts(q, 6142, SimOpts{
+		SigShortnessRadix: 7,
+		SigShortnessL:     5,
+	})
+	if err != nil {
+		t.Fatalf("shortness spec: %v", err)
+	}
+	if spec.MaxAbs != 8403 {
+		t.Fatalf("maxAbs=%d want full R7/L5 capacity 8403", spec.MaxAbs)
+	}
+}
+
 func TestSignatureShortnessProfileMetrics(t *testing.T) {
 	signatureBoundsChdirRepoRoot(t)
 	beta, err := productionSignatureCoeffLinfBeta()

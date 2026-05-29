@@ -2,8 +2,10 @@ package credential
 
 const (
 	ProfileIntGenISISB = "intgenisis_profile_b"
-	ProfileIntGenISISA = "intgenisis_profile_a"
 	ProfileIntGenISISC = "intgenisis_profile_c"
+
+	IntGenISISSharedModulusQ    = 1017857
+	IntGenISISN512SignatureBeta = 6002
 )
 
 // IntGenISISProfile records the committed-message / MLWE-hiding protocol
@@ -28,7 +30,7 @@ func PrimaryIntGenISISProfile() IntGenISISProfile {
 	return IntGenISISProfile{
 		Name:                 ProfileIntGenISISB,
 		N:                    512,
-		Q:                    1054721,
+		Q:                    IntGenISISSharedModulusQ,
 		EllM:                 1,
 		KS:                   2,
 		NC:                   1,
@@ -42,29 +44,11 @@ func PrimaryIntGenISISProfile() IntGenISISProfile {
 	}
 }
 
-func CompactIntGenISISProfile() IntGenISISProfile {
-	return IntGenISISProfile{
-		Name:                 ProfileIntGenISISA,
-		N:                    256,
-		Q:                    1054721,
-		EllM:                 1,
-		KS:                   4,
-		NC:                   1,
-		B:                    4,
-		EllMuSig:             1,
-		EllX0:                2,
-		EllX1:                1,
-		SignaturePreimageLen: 2,
-		MLWEHidingBits:       194.4,
-		MSISBindingBits:      180.164,
-	}
-}
-
 func Ternary1024IntGenISISProfile() IntGenISISProfile {
 	return IntGenISISProfile{
 		Name:                 ProfileIntGenISISC,
 		N:                    1024,
-		Q:                    1054721,
+		Q:                    IntGenISISSharedModulusQ,
 		EllM:                 1,
 		KS:                   1,
 		NC:                   1,
@@ -82,8 +66,6 @@ func LookupIntGenISISProfile(name string) (IntGenISISProfile, bool) {
 	switch name {
 	case "", ProfileIntGenISISB:
 		return PrimaryIntGenISISProfile(), true
-	case ProfileIntGenISISA:
-		return CompactIntGenISISProfile(), true
 	case ProfileIntGenISISC:
 		return Ternary1024IntGenISISProfile(), true
 	default:
@@ -92,7 +74,7 @@ func LookupIntGenISISProfile(name string) (IntGenISISProfile, bool) {
 }
 
 func LookupIntGenISISProfileByRingDegree(n int) (IntGenISISProfile, bool) {
-	for _, profile := range []IntGenISISProfile{PrimaryIntGenISISProfile(), CompactIntGenISISProfile(), Ternary1024IntGenISISProfile()} {
+	for _, profile := range []IntGenISISProfile{PrimaryIntGenISISProfile(), Ternary1024IntGenISISProfile()} {
 		if profile.N == n {
 			return profile, true
 		}

@@ -3,6 +3,8 @@ package PIOP
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	swDomain "vSIS-Signature/internal/domain"
 	ntrurio "vSIS-Signature/ntru/io"
@@ -19,9 +21,29 @@ const (
 	DomainModeExplicit DomainMode = iota
 )
 
-// Shipping mode is repo-root only, so retained flows resolve tracked assets
-// directly from the repository root.
+// Retained flows refer to tracked assets by repo-root-relative paths. Tests may
+// execute from package directories, so resolve searches upward when needed.
 func resolve(rel string) string {
+	if filepath.IsAbs(rel) {
+		return rel
+	}
+	if _, err := os.Stat(rel); err == nil {
+		return rel
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return rel
+	}
+	for dir := wd; dir != ""; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, rel)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
 	return rel
 }
 
@@ -76,7 +98,7 @@ const (
 	stableBBTranWitnessEll     = 18
 )
 
-func resolveResearchRingDegree(requested int, defaultN int) (int, error) {
+func resolveSimRingDegree(requested int, defaultN int) (int, error) {
 	if defaultN <= 0 {
 		return 0, fmt.Errorf("invalid default ring degree %d", defaultN)
 	}
@@ -89,10 +111,8 @@ func resolveResearchRingDegree(requested int, defaultN int) (int, error) {
 		return 1024, nil
 	case 512:
 		return 512, nil
-	case 256:
-		return 256, nil
 	default:
-		return 0, fmt.Errorf("unsupported research ring degree %d (supported: %d, 1024, 512, 256)", requested, defaultN)
+		return 0, fmt.Errorf("unsupported ring degree %d (supported: %d, 1024, 512)", requested, defaultN)
 	}
 }
 
@@ -101,7 +121,7 @@ func loadParamsRingForOpts(opts SimOpts) (*ring.Ring, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load params: %w", err)
 	}
-	n, err := resolveResearchRingDegree(opts.RingDegree, par.N)
+	n, err := resolveSimRingDegree(opts.RingDegree, par.N)
 	if err != nil {
 		return nil, err
 	}

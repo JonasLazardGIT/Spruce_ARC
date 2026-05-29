@@ -57,8 +57,8 @@ func TestShippedCubicPRFDeterministicTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load params: %v", err)
 	}
-	if p.Q != 1054721 {
-		t.Fatalf("q=%d want 1054721", p.Q)
+	if p.Q != 1017857 {
+		t.Fatalf("q=%d want 1017857", p.Q)
 	}
 	if p.D != 3 {
 		t.Fatalf("d=%d want 3", p.D)
@@ -75,7 +75,7 @@ func TestShippedCubicPRFDeterministicTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tag: %v", err)
 	}
-	want := []Elem{707839, 233902, 921093, 744925, 647362, 935104, 130251}
+	want := []Elem{823264, 381021, 558018, 755845, 325805, 634673, 214609}
 	if len(tag) != len(want) {
 		t.Fatalf("tag length=%d want %d", len(tag), len(want))
 	}
