@@ -1,6 +1,0 @@
-N,q,log2_q,fully_split,mode,alpha,s_trap,ntru_attack,ntru_log2_rop,ntru_log2_red,ntru_log2_mem,ntru_d,ntru_bkz_beta,accepted,rejection_reason
-512,1054721,20.008,true,rough,1.15,6540.51327113,,,,,,,no,below target
-512,1054721,20.008,true,rough,1.17,6654.26132802,,,,,,,no,below target
-512,1054721,20.008,true,rough,1.23,6995.50549869,,,,,,,no,below target
-512,1054721,20.008,true,rough,1.48,8417.3562098,,,,,,,no,below target
-512,1054721,20.008,true,rough,2.04,11602.3018027,,,,,,,no,below target

@@ -8,9 +8,11 @@ out/repo_cleanup_sift_*.tmp
 # Local protocol working docs
 local_docs/
 
-# Generated IntGenISIS benchmark/sweep/audit artifacts.
-# Keep source fixtures such as credential/issuance/intgenisis/ tracked; these
-# patterns cover transient benchmark directories and JSON reports only.
+# Generated private material and local runtime states.
+credential/keys/*.json
+ntru_keys/*.json
+
+# Generated IntGenISIS benchmark/audit artifacts.
 credential/issuance/intgenisis_audit_*/
 credential/issuance/intgenisis_audit_*.json
 credential/issuance/intgenisis_bench_*/
@@ -19,34 +21,24 @@ credential/issuance/intgenisis_b3_measurements/
 credential/issuance/intgenisis_b4_measurements/
 credential/issuance/intgenisis_e2e/
 credential/issuance/intgenisis_e2e_report.json
-credential/issuance/intgenisis_estimate_sweeps/
 credential/issuance/intgenisis_measure_*/
 credential/issuance/intgenisis_measure_*.json
-credential/issuance/intgenisis_n256_*/
-credential/issuance/intgenisis_n256_*.json
 credential/issuance/intgenisis_n1024_ternary_deep_sweeps/
 credential/issuance/intgenisis_n1024_strict_smallfield_zero_grinding/
 credential/issuance/intgenisis_n1024_ternary_lowleaves_sweeps/
 credential/issuance/intgenisis_n512_*/
 credential/issuance/intgenisis_n512_*.json
 credential/issuance/intgenisis_preset_measured/
-credential/issuance/intgenisis_preset_sweep*.json
 credential/issuance/intgenisis_projection_*/
 credential/issuance/intgenisis_projection_*.json
 credential/issuance/intgenisis_r11l4_*/
 credential/issuance/intgenisis_r11l4_*.json
 credential/issuance/intgenisis_runtime96_deep_sweeps/
 credential/issuance/intgenisis_runtime96_sweeps/
-credential/issuance/intgenisis_sweep_*/
-credential/issuance/intgenisis_sweep_*.json
-credential/issuance/intgenisis_sw96_*/
-credential/issuance/intgenisis_sw96_*.json
-credential/issuance/intgenisis_sw128_*/
-credential/issuance/intgenisis_sw128_*.json
 credential/issuance/intgenisis_selected_presets*.json
 !credential/issuance/intgenisis_selected_presets_measured.json
 
-# Generated estimate-sweep internals when copied outside their run directory.
+# Generated benchmark internals when copied outside their run directory.
 credential/issuance/accepted_candidates*.jsonl
 credential/issuance/frontier_*.csv
 credential/issuance/frontier_*.json
@@ -55,8 +47,9 @@ credential/issuance/progress.json
 credential/issuance/rejected_counts.json
 credential/issuance/summary.json
 
-# Parameter-search outputs are generated; keep scripts tracked, not result runs.
-parameter_search/results/
+# Search outputs are generated.
+parameter_search/
+paper_section*_alignment_report.md
 
 # Python cache output.
 __pycache__/

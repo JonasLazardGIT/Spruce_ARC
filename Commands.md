@@ -1,45 +1,47 @@
 # Commands
 
-## Showing
-
-Live commands:
+## Issuance
 
 ```bash
-go run ./cmd/showing
-go run ./cmd/showing -showing-profile showing_n512_x0len70_100
-go run ./cmd/showing -showing-profile showing_n512_x0len70_128
-go run ./cmd/showing -showing-profile showing_n1024_x0len70_100
+go run ./cmd/issuance setup-intgenisis-public
+go run ./cmd/issuance setup-ntru-keys
+go run ./cmd/issuance holder-commit
+go run ./cmd/issuance holder-prove
+go run ./cmd/issuance issuer-verify-sign
+go run ./cmd/issuance holder-finalize
 ```
 
-The no-flag command resolves to `showing_n512_x0len70_100`. All maintained
-profiles use `x0_len=70` and the optimized relation
-`aggregate_inline_target_replay_compact_research`.
+The maintained issuance flow is the committed-message IntGenISIS protocol:
+the holder sends `c = C_M*M + A_s*s + e`, proves this commitment is well
+formed, and the issuer signs `T = c + h_tran(mu_sig, x0, x1)`.
 
-The three maintained tuples are documented in
-[docs/current_showing_defaults.md](docs/current_showing_defaults.md). The
-showing reports include `ring_degree`, `x0_len`, theorem bits, transcript
-buckets, replay selector geometry, and the optimized paper transcript byte
-count.
+## Showing
 
-## Artifact Regeneration
+```bash
+go run ./cmd/showing -preset n512-compact96
+go run ./cmd/showing -preset n1024-compact96
+go run ./cmd/showing -preset n1024-compact125
+```
 
-Canonical showing artifacts are committed for:
+The showing command requires one of the maintained IntGenISIS presets. Removed
+x0len70 showing profiles are invalid.
 
-- `N=512, x0_len=70`
-- `N=1024, x0_len=70`
+## Benchmarks And Gates
 
-Use `cmd/issuance` with explicit output paths when regenerating artifacts. The
-issuer and showing verifier validate that public params, B metadata, NTRU
-material, credential state, and signatures match the selected ring degree and
-`x0_len`.
+```bash
+go run ./cmd/issuance benchmark-intgenisis-e2e \
+  -preset n512-compact96 \
+  -artifact-dir "$(mktemp -d)" \
+  -force
+```
+
+```bash
+go run ./cmd/issuance gate-degree1024-maintained-presets \
+  -artifact-root "$(mktemp -d)"
+```
 
 ## Tests
 
 ```bash
-go test ./ntru/io ./credential ./cmd/issuance ./cmd/showing ./PIOP
+go test ./...
 ```
-
-## Pruned Presets
-
-Removed research labels are invalid and are not mapped to the optimized
-profile. Profile names are the public showing selector.

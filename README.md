@@ -1,46 +1,49 @@
 # SPRUCE
 
-This repository contains the ARC-SPRUCE showing prototype and local demo
-commands. The live showing surface is intentionally narrow.
+This repository contains the maintained ARC-SPRUCE IntGenISIS prototype. The
+public surface is intentionally narrow: committed-message issuance, IntGenISIS
+showing, and the three promoted compact presets.
 
-## Live Showing Commands
+## Maintained Presets
 
-```bash
-go run ./cmd/showing
-go run ./cmd/showing -showing-profile showing_n512_x0len70_100
-go run ./cmd/showing -showing-profile showing_n512_x0len70_128
-go run ./cmd/showing -showing-profile showing_n1024_x0len70_100
+```text
+n512-compact96
+n1024-compact96
+n1024-compact125
 ```
 
-The no-flag command resolves to `showing_n512_x0len70_100`. All three maintained
-profiles use `x0_len=70` and the optimized inline-target replay-compact
-relation `aggregate_inline_target_replay_compact_research`.
+`n512-compact96` is the compact 96-bit engineering preset. The maintained
+high-security preset is `n1024-compact125`; it is a live 125+ preset, not a
+128-bit claim.
 
-The optimized relation uses proof payload version `18`, mode
-`sig_shortness_inline_target_replay_compact_hiding`, private `R11,L4`
-signature digit rows, and one 16-column main row oracle. It keeps the direct
-`bb_tran` relation, removes `TargetMR0Hat`, keeps `RHat1` and `ZHat`, and has no
-public `mu`, message, key, `r0`, `r1`, `Z`, or signature digits.
+## Commands
 
-The maintained profile table and current measurements are in
-[docs/current_showing_defaults.md](docs/current_showing_defaults.md).
+```bash
+go run ./cmd/issuance setup-intgenisis-public
+go run ./cmd/issuance setup-ntru-keys
+go run ./cmd/issuance holder-commit
+go run ./cmd/issuance holder-prove
+go run ./cmd/issuance issuer-verify-sign
+go run ./cmd/issuance holder-finalize
+go run ./cmd/issuance benchmark-intgenisis-e2e -preset n1024-compact125
+go run ./cmd/issuance gate-degree1024-maintained-presets
+go run ./cmd/showing -preset n1024-compact125
+```
 
-## Artifacts
-
-Canonical x0_len=70 artifacts are committed for ring degrees 512 and 1024.
-The showing CLI validates public params, B matrix metadata, credential state,
-proof layout, ring degree, and x0 length before verification. Artifacts are not
-silently reused across ring degrees or x0 layouts.
+The showing CLI now requires a maintained IntGenISIS preset. Old x0len70
+showing profiles, challenge-style issuance commands, and sweep selectors are
+not public interfaces.
 
 ## Useful Checks
 
 ```bash
-go test ./ntru/io ./credential ./cmd/issuance ./cmd/showing ./PIOP
-go run ./cmd/showing
-go run ./cmd/showing -showing-profile showing_n512_x0len70_128
-go run ./cmd/showing -showing-profile showing_n1024_x0len70_100
+go test ./...
+go run ./cmd/issuance benchmark-intgenisis-e2e -preset n512-compact96 -artifact-dir "$(mktemp -d)" -force
+go run ./cmd/issuance gate-degree1024-maintained-presets -artifact-root "$(mktemp -d)"
 ```
 
-See [Commands.md](Commands.md), [cmd/README.md](cmd/README.md),
-[PIOP/README.md](PIOP/README.md), and [docs/protocol.md](docs/protocol.md) for
-the current protocol and command notes.
+See [docs/protocol.md](docs/protocol.md),
+[docs/intgenisis_protocol_h_tran.md](docs/intgenisis_protocol_h_tran.md),
+[docs/modulus_choice.md](docs/modulus_choice.md), and
+[docs/degree1024_maintained_presets.md](docs/degree1024_maintained_presets.md)
+for the canonical protocol and parameter notes.
