@@ -24,9 +24,11 @@ type IntGenISISProfile struct {
 	SignaturePreimageLen int
 	MLWEHidingBits       float64
 	MSISBindingBits      float64
+	CommitmentSecurity   IntGenISISCommitmentSecurity
 }
 
 func PrimaryIntGenISISProfile() IntGenISISProfile {
+	security := primaryIntGenISISCommitmentSecurity()
 	return IntGenISISProfile{
 		Name:                 ProfileIntGenISISB,
 		N:                    512,
@@ -39,12 +41,14 @@ func PrimaryIntGenISISProfile() IntGenISISProfile {
 		EllX0:                2,
 		EllX1:                1,
 		SignaturePreimageLen: 2,
-		MLWEHidingBits:       194.408,
-		MSISBindingBits:      427.780,
+		MLWEHidingBits:       security.MLWEHidingBits,
+		MSISBindingBits:      security.MSISBindingBits,
+		CommitmentSecurity:   security,
 	}
 }
 
 func Ternary1024IntGenISISProfile() IntGenISISProfile {
+	security := ternary1024IntGenISISCommitmentSecurity()
 	return IntGenISISProfile{
 		Name:                 ProfileIntGenISISC,
 		N:                    1024,
@@ -57,8 +61,9 @@ func Ternary1024IntGenISISProfile() IntGenISISProfile {
 		EllX0:                1,
 		EllX1:                1,
 		SignaturePreimageLen: 2,
-		MLWEHidingBits:       194.408,
-		MSISBindingBits:      427.780,
+		MLWEHidingBits:       security.MLWEHidingBits,
+		MSISBindingBits:      security.MSISBindingBits,
+		CommitmentSecurity:   security,
 	}
 }
 

@@ -283,6 +283,7 @@ func setupIntGenISISPublicForProfile(outPath string, force bool, profile credent
 		SignaturePreimageLen: profile.SignaturePreimageLen,
 		MLWEHidingBits:       profile.MLWEHidingBits,
 		MSISBindingBits:      profile.MSISBindingBits,
+		CommitmentSecurity:   profile.CommitmentSecurity.ClonePtr(),
 		TargetDim:            profile.NC,
 		X0Len:                profile.EllX0,
 	}

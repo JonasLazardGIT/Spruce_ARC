@@ -18,38 +18,39 @@ const MuLayoutFullCapacityHalvesV1 = "full_capacity_halves_v1"
 // PublicParams captures the stable credential-side public parameters used by
 // issuance and showing.
 type PublicParams struct {
-	Version              int                    `json:"version,omitempty"`
-	Profile              string                 `json:"profile,omitempty"`
-	Modulus              uint64                 `json:"q,omitempty"`
-	HashRelation         string                 `json:"hash_relation"`
-	Ac                   commitment.CoeffMatrix `json:"Ac"`
-	CM                   commitment.CoeffMatrix `json:"C_M,omitempty"`
-	AS                   commitment.CoeffMatrix `json:"A_s,omitempty"`
-	BPath                string                 `json:"BPath"`
-	BoundB               int64                  `json:"BoundB"`
-	CommitmentBound      int64                  `json:"B,omitempty"`
-	EllM                 int                    `json:"ell_M,omitempty"`
-	KS                   int                    `json:"k_s,omitempty"`
-	NC                   int                    `json:"n_c,omitempty"`
-	EllMuSig             int                    `json:"ell_mu_sig,omitempty"`
-	EllX0                int                    `json:"ell_x0,omitempty"`
-	EllX1                int                    `json:"ell_x1,omitempty"`
-	SignaturePreimageLen int                    `json:"signature_preimage_len,omitempty"`
-	MLWEHidingBits       float64                `json:"mlwe_hiding_bits,omitempty"`
-	MSISBindingBits      float64                `json:"msis_binding_bits,omitempty"`
-	X0Len                int                    `json:"X0Len,omitempty"`
-	X0CoeffBound         int64                  `json:"X0CoeffBound,omitempty"`
-	TargetDim            int                    `json:"TargetDim,omitempty"`
-	TargetHidingLambda   int                    `json:"TargetHidingLambda,omitempty"`
-	RingDegree           int                    `json:"ring_degree,omitempty"`
-	X0Distribution       string                 `json:"X0Distribution,omitempty"`
-	LenMu                int                    `json:"LenMu,omitempty"`
-	MuLayout             string                 `json:"MuLayout,omitempty"`
-	LenM                 int                    `json:"LenM,omitempty"`
-	LenK                 int                    `json:"LenK,omitempty"`
-	LenR0H               int                    `json:"LenR0H,omitempty"`
-	LenR1H               int                    `json:"LenR1H,omitempty"`
-	LenRBar              int                    `json:"LenRBar,omitempty"`
+	Version              int                           `json:"version,omitempty"`
+	Profile              string                        `json:"profile,omitempty"`
+	Modulus              uint64                        `json:"q,omitempty"`
+	HashRelation         string                        `json:"hash_relation"`
+	Ac                   commitment.CoeffMatrix        `json:"Ac"`
+	CM                   commitment.CoeffMatrix        `json:"C_M,omitempty"`
+	AS                   commitment.CoeffMatrix        `json:"A_s,omitempty"`
+	BPath                string                        `json:"BPath"`
+	BoundB               int64                         `json:"BoundB"`
+	CommitmentBound      int64                         `json:"B,omitempty"`
+	EllM                 int                           `json:"ell_M,omitempty"`
+	KS                   int                           `json:"k_s,omitempty"`
+	NC                   int                           `json:"n_c,omitempty"`
+	EllMuSig             int                           `json:"ell_mu_sig,omitempty"`
+	EllX0                int                           `json:"ell_x0,omitempty"`
+	EllX1                int                           `json:"ell_x1,omitempty"`
+	SignaturePreimageLen int                           `json:"signature_preimage_len,omitempty"`
+	MLWEHidingBits       float64                       `json:"mlwe_hiding_bits,omitempty"`
+	MSISBindingBits      float64                       `json:"msis_binding_bits,omitempty"`
+	CommitmentSecurity   *IntGenISISCommitmentSecurity `json:"commitment_security,omitempty"`
+	X0Len                int                           `json:"X0Len,omitempty"`
+	X0CoeffBound         int64                         `json:"X0CoeffBound,omitempty"`
+	TargetDim            int                           `json:"TargetDim,omitempty"`
+	TargetHidingLambda   int                           `json:"TargetHidingLambda,omitempty"`
+	RingDegree           int                           `json:"ring_degree,omitempty"`
+	X0Distribution       string                        `json:"X0Distribution,omitempty"`
+	LenMu                int                           `json:"LenMu,omitempty"`
+	MuLayout             string                        `json:"MuLayout,omitempty"`
+	LenM                 int                           `json:"LenM,omitempty"`
+	LenK                 int                           `json:"LenK,omitempty"`
+	LenR0H               int                           `json:"LenR0H,omitempty"`
+	LenR1H               int                           `json:"LenR1H,omitempty"`
+	LenRBar              int                           `json:"LenRBar,omitempty"`
 
 	LegacyLenM1  int `json:"LenM1,omitempty"`
 	LegacyLenM2  int `json:"LenM2,omitempty"`
@@ -147,12 +148,9 @@ func (pp *PublicParams) normalizeLegacy() {
 			if pp.SignaturePreimageLen == 0 {
 				pp.SignaturePreimageLen = profile.SignaturePreimageLen
 			}
-			if pp.MLWEHidingBits == 0 {
-				pp.MLWEHidingBits = profile.MLWEHidingBits
-			}
-			if pp.MSISBindingBits == 0 {
-				pp.MSISBindingBits = profile.MSISBindingBits
-			}
+			pp.MLWEHidingBits = profile.MLWEHidingBits
+			pp.MSISBindingBits = profile.MSISBindingBits
+			pp.CommitmentSecurity = profile.CommitmentSecurity.ClonePtr()
 			if pp.TargetDim == 0 {
 				pp.TargetDim = profile.NC
 			}
