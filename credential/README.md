@@ -52,4 +52,5 @@ to build a showing proof. It must not contain issuer trapdoor material.
 
 - [../docs/protocol.md](../docs/protocol.md)
 - [../docs/intgenisis_protocol_h_tran.md](../docs/intgenisis_protocol_h_tran.md)
+- [../docs/intgenisis_lattice_security.md](../docs/intgenisis_lattice_security.md)
 - [../docs/degree1024_maintained_presets.md](../docs/degree1024_maintained_presets.md)

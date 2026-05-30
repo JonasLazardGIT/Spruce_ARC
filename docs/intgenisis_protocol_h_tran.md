@@ -40,10 +40,9 @@ The current IntGenISIS profiles use the shared modulus:
 q = 1,017,857
 ```
 
-and profile-dependent ring dimensions:
+and maintained profile-dependent dimensions:
 
 ```text
-profile A: N=256,  ell_x0=2, B=4
 profile B: N=512,  ell_x0=2, B=4
 profile C: N=1024, ell_x0=1, B=1
 ```
@@ -66,6 +65,97 @@ len(B) = 3 + ell_x0
 In code this shape is enforced by `SampleSignatureHashData` and
 `ComputeIntGenISISTarget` in
 [`issuance/intgenisis.go`](../issuance/intgenisis.go).
+
+## Maintained Profile Parameters
+
+The live profile registry contains only profile B and profile C. Profile B is
+the compact 96-bit engineering profile; profile C is the degree-1024 profile
+used by both the compact 96-bit and maintained 125+ presets.
+
+| Profile | Used By | N | q | ell_M | k_s | n_c | B | ell_mu_sig | ell_x0 | ell_x1 | Signature preimage |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `intgenisis_profile_b` | `n512-compact96` | 512 | 1,017,857 | 1 | 2 | 1 | 4 | 1 | 2 | 1 | 2 |
+| `intgenisis_profile_c` | `n1024-compact96`, `n1024-compact125` | 1024 | 1,017,857 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 2 |
+
+The commitment part has matrix shape:
+
+```text
+C_M in R_q^{n_c x ell_M}
+A_s in R_q^{n_c x k_s}
+M   in R_q^{ell_M}
+s   in R_q^{k_s}
+e,c in R_q^{n_c}
+```
+
+So all maintained profiles commit to one target row (`n_c=1`) and one packed
+semantic message row (`ell_M=1`). Profile B spends two randomness rows
+(`k_s=2`) and allows coefficients in `[-4,4]`. Profile C uses one randomness
+row and ternary coefficients in `[-1,1]`; the larger ring dimension supplies
+the security margin while keeping the target and rational-hash shape narrow.
+
+The implementation records the following commitment-security estimates for the
+Ajtai/MLWE commitment `c = C_M*M + A_s*s + e`:
+
+| Profile | MLWE hiding bits | Hiding attack | MSIS binding bits | Statistical hiding | Statistical binding slack |
+| --- | ---: | --- | ---: | --- | ---: |
+| `intgenisis_profile_b` | 203.816 | `usvp` | 586.336 | no | 1,846.913 bits |
+| `intgenisis_profile_c` | 131.113 | `dual_hybrid` | infinite in rough estimator | no | 13,303.111 bits |
+
+These are not statistical-hiding commitments. The hiding claim is
+computational MLWE hiding. The statistical-hiding slack is negative for both
+profiles because bounded `s,e` do not provide enough entropy to statistically
+cover the full `R_q^{n_c}` codomain plus the 128-bit margin. Binding is tracked
+through the MSIS model on `[C_M | A_s | I]`; profile C's tighter ternary bound
+and larger `N` make the rough estimator return no finite short-kernel attack at
+the configured bound.
+
+## Maintained 96-bit and 125-bit Presets
+
+The public preset registry contains:
+
+```text
+n512-compact96
+n1024-compact96
+n1024-compact125
+```
+
+The preset knobs split into two groups:
+
+- Issuance knobs prove the commitment opening and semantic constraints before
+  the issuer signs. Issuance intentionally keeps the dense-compatible transcript
+  path: no PRF companion rows, no signature-shortness rows, no compressed rows,
+  and no replay projection.
+- Showing knobs prove the final credential relation, including the hidden
+  NTRU preimage, rational-hash witnesses, commitment contribution, and PRF tag.
+  Showing therefore adds shortness rows, PRF companion rows, replay projection,
+  and the small-field 2025-1085 transcript mode.
+
+| Preset | Profile | Target | LVCS cols | Leaves | eta | theta | rho | ell/ell' | kappa | Showing shortness | Compression | Projection |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | --- |
+| `n512-compact96` | B | 96 | 36 | 262,144 | 36 | 5 | 1 | 7/1 | `{0,0,6,8}` | R7/L5 | 0 | `project_u_digits_and_y_view_v3` |
+| `n1024-compact96` | C | 96 | 43 | 230,208 | 40 | 5 | 1 | 7/1 | `{0,0,6,11}` | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
+| `n1024-compact125` | C | 125+ | 46 | 608,192 | 48 | 7 | 1 | 9/1 | `{0,0,0,5}` | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
+
+The main effects of these knobs are:
+
+- `LVCS cols` controls the column width of the vector commitment layer. Larger
+  values increase committed-column capacity and can reduce proof-shaping
+  pressure, but they raise commitment work.
+- `Leaves` is the explicit-domain size used by the PACS/SmallWood transcript.
+  The 125+ preset spends many more leaves to keep theorem accounting above the
+  target with low per-round grinding.
+- `eta`, `theta`, `rho`, `ell`, `ell'`, and `kappa` are the SmallWood theorem
+  and repetition parameters. They determine how rows are bucketed into rounds
+  and how the live theorem bits are computed.
+- `Showing shortness` decomposes the NTRU preimage digits so the showing proof
+  can prove the signature is short without revealing the preimage. `R7/L5`
+  means radix 7 with 5 digits; `R11/L4` uses a wider radix and fewer digits.
+- `Compression=1` packs some profile-C showing rows so degree-1024 proofs stay
+  below the maintained byte gates. Issuance keeps compression off.
+- `Projection` is the replay constraint shape. The degree-1024 presets use the
+  residual projection because the proof must connect the NTRU preimage,
+  commitment contribution, and rational-hash target without revealing any of
+  those internal values.
 
 ## Public Setup
 
@@ -422,4 +512,3 @@ x1 is accepted only when B3-x1 is invertible
 holder receives mu_sig, x0, x1 and recomputes Z and T
 showing proof keeps them hidden from the verifier
 ```
-

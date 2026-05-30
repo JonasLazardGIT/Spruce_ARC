@@ -56,3 +56,8 @@ go run ./cmd/showing -preset n1024-compact125
 
 Removed public labels and challenge-style issuance commands are invalid rather
 than aliases.
+
+## Security Notes
+
+The lattice-estimator checks for profile B and profile C are recorded in
+[`intgenisis_lattice_security.md`](intgenisis_lattice_security.md).
