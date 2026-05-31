@@ -37,6 +37,75 @@ const (
 	intGenISISLinearHatSourceView         = "source_view"
 )
 
+// IntGenISISShowingPreparedContext stores public, transcript-independent
+// state that can be reused across multiple showing proofs for the same public
+// parameters and options. It is an optimization artifact only; verifiers never
+// need it.
+type IntGenISISShowingPreparedContext struct {
+	mu sync.Mutex
+
+	pub          PublicInputs
+	opts         SimOpts
+	ringQ        *ring.Ring
+	omega        []uint64
+	domainPoints []uint64
+	pcsNCols     int
+	prfParams    *prf.Params
+	groupRounds  int
+
+	yLinearKey   [32]byte
+	yLinearCache *intGenISISYLinearMapCache
+
+	projectedBasisOutputCount  int
+	projectedBasisSourceBlocks int
+	projectedBasis             *transformBridgeBasisCache
+}
+
+func (ctx *IntGenISISShowingPreparedContext) loadYLinearCache(key [32]byte) *intGenISISYLinearMapCache {
+	if ctx == nil {
+		return nil
+	}
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	if ctx.yLinearCache != nil && ctx.yLinearKey == key {
+		return ctx.yLinearCache
+	}
+	return nil
+}
+
+func (ctx *IntGenISISShowingPreparedContext) storeYLinearCache(key [32]byte, cache *intGenISISYLinearMapCache) {
+	if ctx == nil || cache == nil {
+		return
+	}
+	ctx.mu.Lock()
+	ctx.yLinearKey = key
+	ctx.yLinearCache = cache
+	ctx.mu.Unlock()
+}
+
+func (ctx *IntGenISISShowingPreparedContext) loadProjectedBasis(outputCount, sourceBlocks int) *transformBridgeBasisCache {
+	if ctx == nil {
+		return nil
+	}
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	if ctx.projectedBasis != nil && ctx.projectedBasisOutputCount == outputCount && ctx.projectedBasisSourceBlocks == sourceBlocks {
+		return ctx.projectedBasis
+	}
+	return nil
+}
+
+func (ctx *IntGenISISShowingPreparedContext) storeProjectedBasis(outputCount, sourceBlocks int, basis *transformBridgeBasisCache) {
+	if ctx == nil || basis == nil {
+		return
+	}
+	ctx.mu.Lock()
+	ctx.projectedBasisOutputCount = outputCount
+	ctx.projectedBasisSourceBlocks = sourceBlocks
+	ctx.projectedBasis = basis
+	ctx.mu.Unlock()
+}
+
 func intGenISISShortnessMembershipBackendForOpts(_ SimOpts) intGenISISShortnessMembershipBackend {
 	return intGenISISShortnessMembershipPolynomial
 }
@@ -2293,6 +2362,10 @@ func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowC
 }
 
 func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout, phase *PhaseRecorder) (ConstraintSet, error) {
+	return buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ, pub, layout, rowsNTT, omega, prfCompanionLayout, phase, nil)
+}
+
+func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout, phase *PhaseRecorder, prepared *IntGenISISShowingPreparedContext) (ConstraintSet, error) {
 	constraintsStart := time.Now()
 	if phase != nil {
 		defer func() {
@@ -2347,12 +2420,23 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 		}
 	}
 	var yLinearCache *intGenISISYLinearMapCache
-	if err := stage("showing.constraints.y_linear_plan", func() error {
-		var yerr error
-		yLinearCache, yerr = newIntGenISISYLinearMapCache(ringQ, pub, l, omega)
-		return yerr
-	}); err != nil {
-		return ConstraintSet{}, err
+	yLinearKey, yLinearCacheable := intGenISISYLinearCacheKey(ringQ, pub, l, omega)
+	if yLinearCacheable {
+		yLinearCache = prepared.loadYLinearCache(yLinearKey)
+	}
+	if yLinearCache == nil {
+		if err := stage("showing.constraints.y_linear_plan", func() error {
+			var yerr error
+			yLinearCache, yerr = newIntGenISISYLinearMapCache(ringQ, pub, l, omega)
+			return yerr
+		}); err != nil {
+			return ConstraintSet{}, err
+		}
+		if yLinearCacheable {
+			prepared.storeYLinearCache(yLinearKey, yLinearCache)
+		}
+	} else if phase != nil {
+		phase.RecordDuration("showing.constraints.y_linear_plan.cached", 0)
 	}
 	var rowCache *intGenISISRowCoeffCache
 	if err := stage("showing.constraints.projected.row_coeff_cache", func() error {
@@ -2556,9 +2640,16 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 		var projectedPolys []*ring.Poly
 		var projectedCoeffs [][]uint64
 		if err := stage("showing.constraints.projected_signature", func() error {
-			basis, berr := newTransformBridgeBasisCache(ringQ, omega, l.ViewRowsPerPoly*len(omega), l.ViewRowsPerPoly)
-			if berr != nil {
-				return fmt.Errorf("IntGenISIS projected signature bridge basis: %w", berr)
+			outputCount := l.ViewRowsPerPoly * len(omega)
+			sourceBlocks := l.ViewRowsPerPoly
+			basis := prepared.loadProjectedBasis(outputCount, sourceBlocks)
+			if basis == nil {
+				var berr error
+				basis, berr = newTransformBridgeBasisCache(ringQ, omega, outputCount, sourceBlocks)
+				if berr != nil {
+					return fmt.Errorf("IntGenISIS projected signature bridge basis: %w", berr)
+				}
+				prepared.storeProjectedBasis(outputCount, sourceBlocks, basis)
 			}
 			var perr error
 			projectedPolys, projectedCoeffs, perr = intGenISISProjectedSignatureFormalCoeffs(ringQ, pub, rowsNTT, rowCache, l, basis, omega, yLinearCache, compressionSpec, phase)
@@ -2632,7 +2723,10 @@ func rejectIntGenISISUnsafeSigLookup(opts SimOpts) error {
 	return nil
 }
 
-func BuildIntGenISISShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*Proof, error) {
+// PrepareIntGenISISShowingContext precomputes public/domain state for repeated
+// IntGenISIS showing proofs. The returned context does not contain witness
+// material and does not affect proof verification.
+func PrepareIntGenISISShowingContext(pub PublicInputs, opts SimOpts) (*IntGenISISShowingPreparedContext, error) {
 	opts.applyDefaults()
 	if err := rejectIntGenISISUnsafeSigLookup(opts); err != nil {
 		return nil, err
@@ -2643,62 +2737,122 @@ func BuildIntGenISISShowingCombined(pub PublicInputs, wit WitnessInputs, opts Si
 	if !opts.Credential || !opts.CoeffPacking {
 		return nil, fmt.Errorf("IntGenISIS showing requires credential coeff-packing mode")
 	}
-	if wit.CoeffNativeShowing == nil {
-		return nil, fmt.Errorf("IntGenISIS showing requires coeff-native witness")
-	}
 	pub.IntGenISIS = true
 	opts.EnablePackedPRFWitnessRows = true
 	opts.EnablePRFCompanion = true
 	if normalizePRFCompanionMode(opts.PRFCompanionMode) == "" {
 		opts.PRFCompanionMode = PRFCompanionModeOutputAudit
 	}
+	ringQ, omega, pcsNCols, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
+	if err != nil {
+		return nil, fmt.Errorf("load params: %w", err)
+	}
+	pub, err = bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), opts)
+	if err != nil {
+		return nil, err
+	}
+	witnessNCols := opts.NCols
+	if witnessNCols <= 0 {
+		witnessNCols = pcsNCols
+	}
+	var domainPoints []uint64
+	if opts.DomainMode == DomainModeExplicit {
+		nLeaves := opts.NLeaves
+		if nLeaves <= 0 {
+			nLeaves = int(ringQ.N)
+		}
+		if pcsNCols < witnessNCols {
+			pcsNCols = witnessNCols
+		}
+		var derr error
+		omega, domainPoints, derr = deriveExplicitDomainForRelation(ringQ.Modulus[0], nLeaves, witnessNCols, pcsNCols, opts.Ell, pub.HashRelation)
+		if derr != nil {
+			return nil, fmt.Errorf("explicit domain: %w", derr)
+		}
+	}
+	params, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+	if err != nil {
+		return nil, fmt.Errorf("load prf params: %w", err)
+	}
+	groupRounds := opts.PRFGroupRounds
+	if groupRounds <= 0 {
+		groupRounds = 1
+	}
+	storedOpts := opts
+	storedOpts.PhaseRecorder = nil
+	return &IntGenISISShowingPreparedContext{
+		pub:          pub,
+		opts:         storedOpts,
+		ringQ:        ringQ,
+		omega:        append([]uint64(nil), omega...),
+		domainPoints: append([]uint64(nil), domainPoints...),
+		pcsNCols:     pcsNCols,
+		prfParams:    params,
+		groupRounds:  groupRounds,
+	}, nil
+}
+
+func BuildIntGenISISShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*Proof, error) {
+	prepared, err := PrepareIntGenISISShowingContext(pub, opts)
+	if err != nil {
+		return nil, err
+	}
+	return BuildIntGenISISShowingCombinedPrepared(pub, wit, opts, prepared)
+}
+
+// BuildIntGenISISShowingCombinedPrepared builds an IntGenISIS showing proof
+// using a reusable public prepared context.
+func BuildIntGenISISShowingCombinedPrepared(pub PublicInputs, wit WitnessInputs, opts SimOpts, prepared *IntGenISISShowingPreparedContext) (*Proof, error) {
+	proof, _, err := buildIntGenISISShowingCombinedPreparedWithState(pub, wit, opts, prepared)
+	return proof, err
+}
+
+func buildIntGenISISShowingCombinedPreparedWithState(pub PublicInputs, wit WitnessInputs, opts SimOpts, ctx *IntGenISISShowingPreparedContext) (*Proof, *preparedCredentialBuild, error) {
+	opts.applyDefaults()
+	if ctx == nil {
+		var err error
+		ctx, err = PrepareIntGenISISShowingContext(pub, opts)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if wit.CoeffNativeShowing == nil {
+		return nil, nil, fmt.Errorf("IntGenISIS showing requires coeff-native witness")
+	}
+	pub = ctx.pub
+	phaseRecorder := opts.PhaseRecorder
+	opts = ctx.opts
+	if phaseRecorder != nil {
+		opts.PhaseRecorder = phaseRecorder
+	}
+	ringQ := ctx.ringQ
+	if ringQ == nil {
+		return nil, nil, fmt.Errorf("prepared IntGenISIS showing context has nil ring")
+	}
+	if len(ctx.omega) == 0 {
+		return nil, nil, fmt.Errorf("prepared IntGenISIS showing context has empty omega")
+	}
 	for attempt := 0; attempt < 4; attempt++ {
-		ringQ, omega, pcsNCols, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
-		if err != nil {
-			return nil, fmt.Errorf("load params: %w", err)
-		}
-		pub, err = bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), opts)
-		if err != nil {
-			return nil, err
-		}
+		omega := append([]uint64(nil), ctx.omega...)
+		pcsNCols := ctx.pcsNCols
 		witnessNCols := opts.NCols
 		if witnessNCols <= 0 {
 			witnessNCols = pcsNCols
 		}
-		if opts.DomainMode == DomainModeExplicit {
-			nLeaves := opts.NLeaves
-			if nLeaves <= 0 {
-				nLeaves = int(ringQ.N)
-			}
-			if pcsNCols < witnessNCols {
-				pcsNCols = witnessNCols
-			}
-			derivedOmega, _, derr := deriveExplicitDomainForRelation(ringQ.Modulus[0], nLeaves, witnessNCols, pcsNCols, opts.Ell, pub.HashRelation)
-			if derr != nil {
-				return nil, fmt.Errorf("explicit domain: %w", derr)
-			}
-			omega = derivedOmega
-		}
-		params, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
-		if err != nil {
-			return nil, fmt.Errorf("load prf params: %w", err)
-		}
-		groupRounds := opts.PRFGroupRounds
-		if groupRounds <= 0 {
-			groupRounds = 1
+		if pcsNCols < witnessNCols {
+			return nil, nil, fmt.Errorf("prepared IntGenISIS showing context lvcs ncols=%d < witness ncols=%d", pcsNCols, witnessNCols)
 		}
 		rowsStart := time.Now()
-		rows, rowInputs, layout, prfLayout, prfCompanionLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, builtNCols, err := BuildCredentialRowsShowingIntGenISIS(ringQ, pub, wit, params.LenKey, params.LenNonce, params.RF, params.RP, groupRounds, opts)
+		rows, rowInputs, layout, prfLayout, prfCompanionLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, builtNCols, err := BuildCredentialRowsShowingIntGenISIS(ringQ, pub, wit, ctx.prfParams.LenKey, ctx.prfParams.LenNonce, ctx.prfParams.RF, ctx.prfParams.RP, ctx.groupRounds, opts)
 		if opts.PhaseRecorder != nil {
 			opts.PhaseRecorder.RecordDuration("showing.rows", time.Since(rowsStart))
 		}
 		if err != nil {
-			return nil, fmt.Errorf("build IntGenISIS showing rows: %w", err)
+			return nil, nil, fmt.Errorf("build IntGenISIS showing rows: %w", err)
 		}
 		requiredPCSNCols := requiredExplicitPCSNColsForRows(ringQ, rowInputs, opts.Ell)
 		if requiredPCSNCols > pcsNCols {
-			opts = bumpExplicitPCSNCols(opts, requiredPCSNCols)
-			continue
+			return nil, nil, fmt.Errorf("prepared explicit PCS width %d is too small for committed row degree; need at least %d", pcsNCols, requiredPCSNCols)
 		}
 		rowsNTTStart := time.Now()
 		rowsNTT := make([]*ring.Poly, len(rows))
@@ -2710,9 +2864,9 @@ func BuildIntGenISISShowingCombined(pub PublicInputs, wit WitnessInputs, opts Si
 		if opts.PhaseRecorder != nil {
 			opts.PhaseRecorder.RecordDuration("showing.rows_ntt", time.Since(rowsNTTStart))
 		}
-		postSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, pub, layout, rowsNTT, omega[:builtNCols], prfCompanionLayout, opts.PhaseRecorder)
+		postSet, err := buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ, pub, layout, rowsNTT, omega[:builtNCols], prfCompanionLayout, opts.PhaseRecorder, ctx)
 		if err != nil {
-			return nil, fmt.Errorf("build IntGenISIS showing constraints: %w", err)
+			return nil, nil, fmt.Errorf("build IntGenISIS showing constraints: %w", err)
 		}
 		set := ConstraintSet{
 			FparInt:            postSet.FparInt,
@@ -2728,7 +2882,7 @@ func BuildIntGenISISShowingCombined(pub PublicInputs, wit WitnessInputs, opts Si
 			PRFLayout:          prfLayout,
 			PRFCompanionLayout: prfCompanionLayout,
 		}
-		prepared := &preparedCredentialBuild{
+		credentialBuild := &preparedCredentialBuild{
 			rows:                  rows,
 			rowInputs:             rowInputs,
 			rowLayout:             layout,
@@ -2739,16 +2893,17 @@ func BuildIntGenISISShowingCombined(pub PublicInputs, wit WitnessInputs, opts Si
 			witnessNCols:          builtNCols,
 			omega:                 omega,
 			omegaWitness:          append([]uint64(nil), omega[:builtNCols]...),
+			domainPoints:          append([]uint64(nil), ctx.domainPoints...),
 			skipConstraintRebuild: true,
 		}
 		opts.Credential = true
-		proof, err := buildWithConstraintsPrepared(pub, wit, set, opts, FSModeCredential, prepared)
+		proof, err := buildWithConstraintsPrepared(pub, wit, set, opts, FSModeCredential, credentialBuild)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return proof, nil
+		return proof, credentialBuild, nil
 	}
-	return nil, fmt.Errorf("could not stabilize explicit PCS width for IntGenISIS showing rows")
+	return nil, nil, fmt.Errorf("could not stabilize explicit PCS width for IntGenISIS showing rows")
 }
 
 func VerifyIntGenISISShowing(pub PublicInputs, proof *Proof, opts SimOpts) (bool, error) {

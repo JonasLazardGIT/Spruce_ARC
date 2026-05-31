@@ -474,9 +474,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if len(args.independentMasks) != args.rho {
 			return fmt.Errorf("expected %d committed base-field masks, got %d", args.rho, len(args.independentMasks))
 		}
-		out.M = clonePolys(args.independentMasks)
+		out.M = args.independentMasks
 		if len(args.independentMaskCoeffs) > 0 {
-			out.MCoeffs = copyMatrix(args.independentMaskCoeffs)
+			out.MCoeffs = args.independentMaskCoeffs
 		} else {
 			out.MCoeffs = make([][]uint64, len(out.M))
 			for i := range out.M {
@@ -492,7 +492,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		for i := range out.M {
 			switch {
 			case i < len(out.MCoeffs) && len(out.MCoeffs[i]) > 0:
-				maskCoeffs[i] = append([]uint64(nil), out.MCoeffs[i]...)
+				maskCoeffs[i] = out.MCoeffs[i]
 			case out.M[i] != nil:
 				coeff := ringQ.NewPoly()
 				ringQ.InvNTT(out.M[i], coeff)
@@ -501,9 +501,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				return fmt.Errorf("missing mask coefficients for row %d", i)
 			}
 		}
-		proof.MaskCoeffDebug = copyMatrix(maskCoeffs)
-		proof.FparCoeffDebug = copyMatrix(args.FparAllCoeffs)
-		proof.FaggCoeffDebug = copyMatrix(args.FaggAllCoeffs)
+		proof.MaskCoeffDebug = maskCoeffs
+		proof.FparCoeffDebug = args.FparAllCoeffs
+		proof.FaggCoeffDebug = args.FaggAllCoeffs
 
 		var qCoeffs [][]uint64
 		if proof.Theta > 1 {
@@ -586,7 +586,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		}
 		out.QCoeffs = qCoeffs
 		proof.setQPayload(qCoeffs)
-		proof.QCoeffDebug = copyMatrix(qCoeffs)
+		proof.QCoeffDebug = qCoeffs
 		if deg := maxDegreeFromCoeffRows(qCoeffs); deg > qDecsParams.Degree {
 			qDecsParams.Degree = deg
 		}

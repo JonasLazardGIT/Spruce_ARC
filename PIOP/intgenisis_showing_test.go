@@ -242,6 +242,18 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("verify showing: ok=%v err=%v", ok, err)
 	}
+	preparedCtx, err := PrepareIntGenISISShowingContext(pub, opts)
+	if err != nil {
+		t.Fatalf("prepare showing context: %v", err)
+	}
+	preparedProof, err := BuildIntGenISISShowingCombinedPrepared(pub, WitnessInputs{CoeffNativeShowing: cn}, opts, preparedCtx)
+	if err != nil {
+		t.Fatalf("build prepared showing: %v", err)
+	}
+	ok, err = VerifyIntGenISISShowing(pub, preparedProof, opts)
+	if err != nil || !ok {
+		t.Fatalf("verify prepared showing: ok=%v err=%v", ok, err)
+	}
 	if proof.QOpening == nil || proof.QRoot == ([16]byte{}) || len(proof.QRBits) == 0 {
 		t.Fatal("legacy showing proof did not carry Q DECS material")
 	}

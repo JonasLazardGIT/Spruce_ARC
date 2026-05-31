@@ -319,7 +319,7 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	}
 }
 
-func chdirForPIOPIntGenISISTest(t *testing.T) {
+func chdirForPIOPIntGenISISTest(t testing.TB) {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

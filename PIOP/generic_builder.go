@@ -427,6 +427,13 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		}
 		if prepared != nil {
 			prepared.builtPK = pk
+			prepared.rowInputs = rowInputs
+			prepared.rowLayout = rowLayout
+			prepared.decsParams = decsParams
+			prepared.maskRowOffset = maskRowOffset
+			prepared.maskRowCount = maskRowCount
+			prepared.witnessCount = witnessCount
+			prepared.domainPoints = domainPoints
 		}
 		pcsGeometry.OracleLayout = oracleLayout
 		sigShortnessRowsNTT := pk.RowPolys

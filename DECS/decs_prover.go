@@ -276,9 +276,6 @@ func (p formalEvalPlan) evalIntoPowers(dst []uint64, red modReducer64, powers []
 	if p.rowCount == 0 {
 		return
 	}
-	for j := 0; j < p.rowCount; j++ {
-		dst[j] = 0
-	}
 	if len(p.rowOffsets) == p.rowCount+1 {
 		for j := 0; j < p.rowCount; j++ {
 			acc := uint64(0)
@@ -290,12 +287,19 @@ func (p formalEvalPlan) evalIntoPowers(dst []uint64, red modReducer64, powers []
 		}
 		return
 	}
+	denseSlots := (p.maxDeg + 1) * p.rowCount
+	if p.nnz == denseSlots && len(p.coeffs) > 0 && p.maxDeg <= 64 {
+		p.evalDenseLowDegreeUint64Into(dst, red, powers)
+		return
+	}
+	for j := 0; j < p.rowCount; j++ {
+		dst[j] = 0
+	}
 	if len(p.sparseTerms) > 0 {
 		for _, term := range p.sparseTerms {
 			dst[term.row] += term.coeff * powers[term.degree]
 		}
 	} else {
-		denseSlots := (p.maxDeg + 1) * p.rowCount
 		if p.nnz == denseSlots {
 			if len(p.coeffs32) > 0 {
 				for d := 0; d <= p.maxDeg; d++ {
@@ -344,6 +348,37 @@ func (p formalEvalPlan) evalIntoPowers(dst []uint64, red modReducer64, powers []
 		}
 	}
 	for j := 0; j < p.rowCount; j++ {
+		dst[j] = red.reduceUint64(dst[j])
+	}
+}
+
+func (p formalEvalPlan) evalDenseLowDegreeUint64Into(dst []uint64, red modReducer64, powers []uint64) {
+	rowCount := p.rowCount
+	copy(dst[:rowCount], p.coeffs[:rowCount])
+	for d := 1; d <= p.maxDeg; d++ {
+		pow := powers[d]
+		row := p.coeffs[d*rowCount : (d+1)*rowCount]
+		j := 0
+		limit := rowCount - rowCount%4
+		for ; j < limit; j += 4 {
+			dst[j] += row[j] * pow
+			dst[j+1] += row[j+1] * pow
+			dst[j+2] += row[j+2] * pow
+			dst[j+3] += row[j+3] * pow
+		}
+		for ; j < rowCount; j++ {
+			dst[j] += row[j] * pow
+		}
+	}
+	j := 0
+	limit := rowCount - rowCount%4
+	for ; j < limit; j += 4 {
+		dst[j] = red.reduceUint64(dst[j])
+		dst[j+1] = red.reduceUint64(dst[j+1])
+		dst[j+2] = red.reduceUint64(dst[j+2])
+		dst[j+3] = red.reduceUint64(dst[j+3])
+	}
+	for ; j < rowCount; j++ {
 		dst[j] = red.reduceUint64(dst[j])
 	}
 }
@@ -473,6 +508,26 @@ func NewProverWithParamsAndPointsFormalChecked(ringQ *ring.Ring, coeffs [][]uint
 	}, nil
 }
 
+// SetFormalCommitmentRandomnessForTesting fixes formal masks and the nonce
+// seed for tests and benchmarks that need reproducible CommitInit roots.
+func (pr *Prover) SetFormalCommitmentRandomnessForTesting(mFormal [][]uint64, nonceSeed []byte) error {
+	if pr == nil {
+		return fmt.Errorf("decs: nil prover")
+	}
+	if pr.PFormal == nil {
+		return fmt.Errorf("decs: formal commitment randomness requires formal prover")
+	}
+	if len(mFormal) != pr.params.Eta {
+		return fmt.Errorf("decs: formal mask polynomial count mismatch: got=%d want=%d", len(mFormal), pr.params.Eta)
+	}
+	if len(nonceSeed) != pr.params.NonceBytes {
+		return fmt.Errorf("decs: nonce seed length mismatch: got=%d want=%d", len(nonceSeed), pr.params.NonceBytes)
+	}
+	pr.MFormal = normalizeFormalRows(mFormal, pr.ringQ.Modulus[0])
+	pr.nonceSeed = append([]byte(nil), nonceSeed...)
+	return nil
+}
+
 // CommitPhaseRecorder records opt-in commit phase timings. It is used by
 // benchmark/reporting callers only and is not part of the transcript.
 type CommitPhaseRecorder interface {
@@ -482,8 +537,9 @@ type CommitPhaseRecorder interface {
 // CommitOptions carries non-transcript-affecting CommitInit controls.
 // The zero value preserves the normal legacy-compatible proving path.
 type CommitOptions struct {
-	PhaseRecorder CommitPhaseRecorder
-	WorkerCount   int
+	PhaseRecorder   CommitPhaseRecorder
+	WorkerCount     int
+	RecordSubphases bool
 }
 
 type commitInitOptions struct {
@@ -540,6 +596,7 @@ func (pr *Prover) CommitInitWithOptions(opts CommitOptions) ([16]byte, error) {
 		phaseRecorder:         opts.PhaseRecorder,
 		workerCount:           opts.WorkerCount,
 		forceScalarFormalEval: true,
+		recordSubphases:       opts.RecordSubphases,
 	})
 }
 
