@@ -2,6 +2,8 @@ package PIOP
 
 import (
 	"fmt"
+	"runtime"
+	"sync"
 
 	"vSIS-Signature/internal/fpoly"
 
@@ -109,15 +111,56 @@ func buildFparRangeMembershipComposeFormalCoeffs(
 
 	Fpar = make([]*ring.Poly, len(rows))
 	coeffs = make([][]uint64, len(rows))
-	for i := range rows {
+	compute := func(i int) error {
 		rowFormal, ferr := toFormal(rows[i])
 		if ferr != nil {
-			return nil, nil, fmt.Errorf("row %d: %w", i, ferr)
+			return fmt.Errorf("row %d: %w", i, ferr)
 		}
 		composed := memberPoly.Compose(rowFormal)
 		coeffCopy := append([]uint64(nil), composed.Coeffs...)
 		coeffs[i] = coeffCopy
 		Fpar[i] = toNTTIfFits(coeffCopy)
+		return nil
+	}
+	workers := minInt(runtime.GOMAXPROCS(0), len(rows))
+	if workers <= 1 || len(rows) < 16 {
+		for i := range rows {
+			if err := compute(i); err != nil {
+				return nil, nil, err
+			}
+		}
+		return Fpar, coeffs, nil
+	}
+	var wg sync.WaitGroup
+	var errOnce sync.Once
+	var firstErr error
+	setErr := func(err error) {
+		if err != nil {
+			errOnce.Do(func() {
+				firstErr = err
+			})
+		}
+	}
+	for worker := 0; worker < workers; worker++ {
+		start := worker * len(rows) / workers
+		end := (worker + 1) * len(rows) / workers
+		if start >= end {
+			continue
+		}
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			for i := start; i < end; i++ {
+				if err := compute(i); err != nil {
+					setErr(err)
+					return
+				}
+			}
+		}(start, end)
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return nil, nil, firstErr
 	}
 	return Fpar, coeffs, nil
 }

@@ -146,7 +146,13 @@ func addScaledFPolyToKPoly(r *ring.Ring, K *kf.Field, dst *KPoly, gK KScalar, F 
 	if theta == 0 {
 		return
 	}
-	gReduced := make([]uint64, theta)
+	var gStack [16]uint64
+	var gReduced []uint64
+	if theta <= len(gStack) {
+		gReduced = gStack[:theta]
+	} else {
+		gReduced = make([]uint64, theta)
+	}
 	for j := 0; j < theta; j++ {
 		g := gK[j]
 		if g >= q {
@@ -198,7 +204,13 @@ func addShiftedScaledFCoeffsToKPoly(K *kf.Field, dst *KPoly, gK KScalar, shift i
 	if theta == 0 {
 		return
 	}
-	gReduced := make([]uint64, theta)
+	var gStack [16]uint64
+	var gReduced []uint64
+	if theta <= len(gStack) {
+		gReduced = gStack[:theta]
+	} else {
+		gReduced = make([]uint64, theta)
+	}
 	for j := 0; j < theta; j++ {
 		g := gK[j]
 		if g >= q {
@@ -251,7 +263,13 @@ func addShiftedScaledFPolyToKPoly(r *ring.Ring, K *kf.Field, dst *KPoly, gK KSca
 	if theta == 0 {
 		return
 	}
-	gReduced := make([]uint64, theta)
+	var gStack [16]uint64
+	var gReduced []uint64
+	if theta <= len(gStack) {
+		gReduced = gStack[:theta]
+	} else {
+		gReduced = make([]uint64, theta)
+	}
 	for j := 0; j < theta; j++ {
 		g := gK[j]
 		if g >= q {

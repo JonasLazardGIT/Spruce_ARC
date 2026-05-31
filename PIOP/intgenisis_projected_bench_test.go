@@ -29,13 +29,17 @@ func BenchmarkIntGenISISProjectedSignatureFormalCoeffsSmallfieldSW90Shape(b *tes
 		SCount:          2,
 		ECount:          1,
 		X0Count:         2,
+		MuSigCount:      1,
 		UViewStart:      0,
 		MViewStart:      2 * blocks,
 		SViewStart:      3 * blocks,
 		EViewStart:      5 * blocks,
 		MuSigHatStart:   6 * blocks,
+		MuSigHatCount:   blocks,
 		X0HatStart:      7 * blocks,
+		X0HatCount:      2 * blocks,
 		ZHatStart:       9 * blocks,
+		ZHatCount:       blocks,
 	}
 	rowCount := 10 * blocks
 	rowsNTT := make([]*ring.Poly, rowCount)

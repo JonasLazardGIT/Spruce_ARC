@@ -719,7 +719,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				if zeroTail || conflict {
 					continue
 				}
-				coeffBlock := buildKPointCoeffMatrix(ringQ, args.smallFieldK, omegaWitness, args.rows, candidate, args.smallFieldOmegaS1, args.smallFieldMuInv, args.pcsGeometry.ReplayWitnessRows, args.maskRowOffset, args.maskRowCount)
+				var coeffBlock [][]uint64
 				if strictSmallField2025 {
 					plan, planErr := buildSmallField2025CoeffPlan(ringQ, args.smallFieldK, omegaWitness, args.rows, candidate, args.smallFieldOmegaS1, args.smallFieldMuInv, args.pcsGeometry.ReplayWitnessRows, args.maskRowOffset, args.maskRowCount)
 					if planErr != nil {
@@ -727,6 +727,8 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 					}
 					coeffBlock = plan.C
 					strictPlan = plan
+				} else {
+					coeffBlock = buildKPointCoeffMatrix(ringQ, args.smallFieldK, omegaWitness, args.rows, candidate, args.smallFieldOmegaS1, args.smallFieldMuInv, args.pcsGeometry.ReplayWitnessRows, args.maskRowOffset, args.maskRowCount)
 				}
 				coeffMatrix = append(coeffMatrix, coeffBlock...)
 				for i := range coeffBlock {

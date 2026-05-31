@@ -3,7 +3,9 @@ package PIOP
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"sync"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
@@ -373,7 +375,7 @@ func buildReplayHeadsFromSourceHeads(ringQ *ring.Ring, srcHeads [][]uint64, omeg
 	q := ringQ.Modulus[0]
 	out := make([][]uint64, replayBlockCount)
 	useAtOmega := len(basis.TransformHAtOmega) >= replayBlockCount*ncols
-	for block := 0; block < replayBlockCount; block++ {
+	computeBlock := func(block int) {
 		head := make([]uint64, ncols)
 		for j := 0; j < ncols; j++ {
 			t := block*ncols + j
@@ -401,6 +403,29 @@ func buildReplayHeadsFromSourceHeads(ringQ *ring.Ring, srcHeads [][]uint64, omeg
 		}
 		out[block] = head
 	}
+	workers := minInt(runtime.GOMAXPROCS(0), replayBlockCount)
+	if workers <= 1 || replayBlockCount < 4 {
+		for block := 0; block < replayBlockCount; block++ {
+			computeBlock(block)
+		}
+		return out, nil
+	}
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		start := worker * replayBlockCount / workers
+		end := (worker + 1) * replayBlockCount / workers
+		if start >= end {
+			continue
+		}
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			for block := start; block < end; block++ {
+				computeBlock(block)
+			}
+		}(start, end)
+	}
+	wg.Wait()
 	return out, nil
 }
 

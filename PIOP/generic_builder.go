@@ -436,19 +436,6 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			prepared.domainPoints = domainPoints
 		}
 		pcsGeometry.OracleLayout = oracleLayout
-		sigShortnessRowsNTT := pk.RowPolys
-		if opts.Theta > 1 {
-			sigShortnessRowsNTT = make([]*ring.Poly, len(witnessPolys))
-			for i := range witnessPolys {
-				if witnessPolys[i] == nil {
-					continue
-				}
-				p := ringQ.NewPoly()
-				ring.Copy(witnessPolys[i], p)
-				ringQ.NTT(p, p)
-				sigShortnessRowsNTT[i] = p
-			}
-		}
 		if rowLayoutHasCoeffNativeSig(rowLayout) && rowLayoutCoeffNativeUsesLiteralPacked(rowLayout) && wit.CoeffNativeShowing != nil {
 			if sigShortnessInlinedTargetHidingEnabledForOpts(opts) {
 				sigShortness, err = buildSigShortnessProofV7Metadata(ringQ, rowLayout, opts)
@@ -486,20 +473,20 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		// committed oracle rows are transposed into the §5.4 layer layout, so
 		// replay constraint rebuilding must use the witness polynomials.
 		skipConstraintRebuild := prepared != nil && prepared.skipConstraintRebuild && rowLayoutCanReusePreparedConstraintSet(rowLayout, opts)
-		constraintRows := pk.RowPolys
-		if opts.Theta > 1 {
-			constraintRows = make([]*ring.Poly, len(witnessPolys))
-			for i := range witnessPolys {
-				if witnessPolys[i] == nil {
-					continue
-				}
-				p := ringQ.NewPoly()
-				ring.Copy(witnessPolys[i], p)
-				ringQ.NTT(p, p)
-				constraintRows[i] = p
-			}
-		}
 		if !skipConstraintRebuild {
+			constraintRows := pk.RowPolys
+			if opts.Theta > 1 {
+				constraintRows = make([]*ring.Poly, len(witnessPolys))
+				for i := range witnessPolys {
+					if witnessPolys[i] == nil {
+						continue
+					}
+					p := ringQ.NewPoly()
+					ring.Copy(witnessPolys[i], p)
+					ringQ.NTT(p, p)
+					constraintRows[i] = p
+				}
+			}
 			if opts.Credential && len(constraintRows) > 0 {
 				rebuiltEmpty := len(set.FparInt)+len(set.FparNorm)+len(set.FaggInt)+len(set.FaggNorm) == 0
 				if pub.IntGenISIS && len(pub.Com) > 0 && len(pub.CM) > 0 && len(pub.AS) > 0 && len(pub.A) == 0 {

@@ -1003,15 +1003,11 @@ func intGenISISBBTranLinearResidualWCoeff(ringQ *ring.Ring, pub PublicInputs, cn
 }
 
 func intGenISISThetaBlockCoeff(ringQ *ring.Ring, p *ring.Poly, omega []uint64, block, blocks int, name string) ([]uint64, error) {
-	theta, err := thetaPolyFromNTTBlock(ringQ, p, omega, block, blocks)
+	coeff, err := thetaCoeffFromNTTBlock(ringQ, p, omega, block, blocks)
 	if err != nil {
 		return nil, fmt.Errorf("theta block %s[%d]: %w", name, block, err)
 	}
-	coeff, err := coeffFromNTTPoly(ringQ, theta)
-	if err != nil {
-		return nil, fmt.Errorf("theta block %s[%d] coeffs: %w", name, block, err)
-	}
-	return trimPoly(coeff, ringQ.Modulus[0]), nil
+	return coeff, nil
 }
 
 func intGenISISLinearHatSourceMode(l *IntGenISISShowingRowLayout) string {

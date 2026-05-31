@@ -130,6 +130,38 @@ func thetaPolyFromNTTBlock(ringQ *ring.Ring, pNTT *ring.Poly, omega []uint64, bl
 	return out, nil
 }
 
+// thetaCoeffFromNTTBlock interpolates the block-th public Θ polynomial and
+// returns its coefficient representation directly.
+func thetaCoeffFromNTTBlock(ringQ *ring.Ring, pNTT *ring.Poly, omega []uint64, block, blocks int) ([]uint64, error) {
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if pNTT == nil {
+		return nil, nil
+	}
+	if len(omega) == 0 {
+		return nil, fmt.Errorf("empty omega")
+	}
+	if blocks <= 0 {
+		return nil, fmt.Errorf("invalid blocks=%d", blocks)
+	}
+	if block < 0 || block >= blocks {
+		return nil, fmt.Errorf("invalid block index %d (blocks=%d)", block, blocks)
+	}
+	ncols := len(omega)
+	start := block * ncols
+	end := start + ncols
+	if len(pNTT.Coeffs) == 0 || len(pNTT.Coeffs[0]) < end {
+		return nil, fmt.Errorf("public poly too short for block slice [%d,%d)", start, end)
+	}
+	q := ringQ.Modulus[0]
+	head := append([]uint64(nil), pNTT.Coeffs[0][start:end]...)
+	for i := range head {
+		head[i] %= q
+	}
+	return trimPoly(Interpolate(omega, head, q), q), nil
+}
+
 // thetaCoeffFromNTT interpolates a public Θ polynomial and returns its coefficients.
 func thetaCoeffFromNTT(ringQ *ring.Ring, pNTT *ring.Poly, omega []uint64) ([]uint64, error) {
 	if ringQ == nil {

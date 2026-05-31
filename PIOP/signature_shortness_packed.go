@@ -2,6 +2,8 @@ package PIOP
 
 import (
 	"fmt"
+	"runtime"
+	"sync"
 
 	"vSIS-Signature/internal/fpoly"
 
@@ -124,22 +126,66 @@ func buildPackedDigitMembershipFormalCoeffs(
 		}
 		return fpoly.New(q, trimPoly(coeff, q)), nil
 	}
-	outPolys := make([]*ring.Poly, 0, len(packedRows)*spec.L)
-	outCoeffs := make([][]uint64, 0, len(packedRows)*spec.L)
+	total := len(packedRows) * spec.L
+	outPolys := make([]*ring.Poly, total)
+	outCoeffs := make([][]uint64, total)
 	for g := range packedRows {
 		if len(packedRows[g]) != spec.L {
 			return nil, nil, fmt.Errorf("packed shortness rows/group=%d want %d", len(packedRows[g]), spec.L)
 		}
-		for lane := 0; lane < spec.L; lane++ {
-			rowFormal, err := toFormal(packedRows[g][lane])
-			if err != nil {
-				return nil, nil, fmt.Errorf("packed digit membership coeffs: %w", err)
-			}
-			pi := fpoly.New(q, spec.PDi[lane]).Compose(rowFormal)
-			coeff := trimPoly(append([]uint64(nil), pi.Coeffs...), q)
-			outCoeffs = append(outCoeffs, coeff)
-			outPolys = append(outPolys, nttPolyFromFormalCoeffsIfFits(ringQ, coeff))
+	}
+	compute := func(idx int) error {
+		g := idx / spec.L
+		lane := idx % spec.L
+		rowFormal, err := toFormal(packedRows[g][lane])
+		if err != nil {
+			return fmt.Errorf("packed digit membership coeffs: %w", err)
 		}
+		pi := fpoly.New(q, spec.PDi[lane]).Compose(rowFormal)
+		coeff := trimPoly(append([]uint64(nil), pi.Coeffs...), q)
+		outCoeffs[idx] = coeff
+		outPolys[idx] = nttPolyFromFormalCoeffsIfFits(ringQ, coeff)
+		return nil
+	}
+	workers := minInt(runtime.GOMAXPROCS(0), total)
+	if workers <= 1 || total < 16 {
+		for idx := 0; idx < total; idx++ {
+			if err := compute(idx); err != nil {
+				return nil, nil, err
+			}
+		}
+		return outPolys, outCoeffs, nil
+	}
+	var wg sync.WaitGroup
+	var errOnce sync.Once
+	var firstErr error
+	setErr := func(err error) {
+		if err != nil {
+			errOnce.Do(func() {
+				firstErr = err
+			})
+		}
+	}
+	for worker := 0; worker < workers; worker++ {
+		start := worker * total / workers
+		end := (worker + 1) * total / workers
+		if start >= end {
+			continue
+		}
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			for idx := start; idx < end; idx++ {
+				if err := compute(idx); err != nil {
+					setErr(err)
+					return
+				}
+			}
+		}(start, end)
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return nil, nil, firstErr
 	}
 	return outPolys, outCoeffs, nil
 }
