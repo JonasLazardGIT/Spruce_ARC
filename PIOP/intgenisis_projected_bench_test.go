@@ -104,11 +104,15 @@ func BenchmarkIntGenISISLinearHForMultiplierSW90Shape(b *testing.B) {
 	for i := range multCoeff {
 		multCoeff[i] = uint64((17*i + 23) % int(q))
 	}
+	lagrange, err := buildLagrangeBasisCoeffs(omega, q)
+	if err != nil {
+		b.Fatalf("lagrange: %v", err)
+	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := intGenISISLinearHForMultiplier(ringQ, omega, multCoeff, rowsPerPoly, "bench"); err != nil {
+		if _, err := intGenISISLinearHForMultiplier(ringQ, omega, lagrange, multCoeff, rowsPerPoly, "bench"); err != nil {
 			b.Fatalf("linear H: %v", err)
 		}
 	}

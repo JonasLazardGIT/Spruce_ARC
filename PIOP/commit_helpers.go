@@ -120,7 +120,7 @@ func bumpExplicitPCSNCols(opts SimOpts, required int) SimOpts {
 
 // commitRows wraps LVCS.CommitInitWithParamsAndPoints and assigns the witness
 // and mask layout for a retained proof slice.
-func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs.Params, witnessCount, maskOffset, maskCount int, points []uint64) (root [16]byte, pk *lvcs.ProverKey, oracleLayout lvcs.OracleLayout, err error) {
+func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs.Params, witnessCount, maskOffset, maskCount int, points []uint64, phase decs.CommitPhaseRecorder) (root [16]byte, pk *lvcs.ProverKey, oracleLayout lvcs.OracleLayout, err error) {
 	if ringQ == nil {
 		err = fmt.Errorf("nil ring")
 		return
@@ -129,7 +129,9 @@ func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs
 		err = fmt.Errorf("no rows to commit")
 		return
 	}
-	root, pk, err = lvcs.CommitInitWithParamsAndPoints(ringQ, rows, ell, decsParams, points)
+	root, pk, err = lvcs.CommitInitWithParamsAndPointsWithOptions(ringQ, rows, ell, decsParams, points, lvcs.CommitOptions{
+		PhaseRecorder: phase,
+	})
 	if err != nil {
 		return
 	}

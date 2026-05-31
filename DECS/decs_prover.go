@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 	"github.com/tuneinsight/lattigo/v4/utils"
@@ -14,6 +16,10 @@ import (
 )
 
 const nonceDeriveLabel = "decs-nonce"
+
+// q32 dense storage is kept behind a local switch because the maintained q20
+// profiles benchmark faster with uint64 coefficient rows on current hardware.
+const enableFormalEvalUint32 = false
 
 func DeriveNonce(seed []byte, idx int, nonceBytes int) []byte {
 	return deriveNonce(seed, idx, nonceBytes)
@@ -59,6 +65,9 @@ type formalEvalPlan struct {
 	nnz         int
 	rowDeg      []int
 	coeffs      []uint64
+	coeffs32    []uint32
+	rowOffsets  []int
+	rowCoeffs   []uint64
 	dotSafe     bool
 	sparseTerms []formalEvalTerm
 }
@@ -106,9 +115,28 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 		maxDeg = 0
 	}
 	denseSlots := (maxDeg + 1) * rowCount
+	rowSlots := 0
+	for _, deg := range rowDeg {
+		if deg >= 0 {
+			rowSlots += deg + 1
+		}
+	}
 	dotSafe := formalEvalDotSafe(maxDeg, q)
 	useSparse := dotSafe && nnz*4 < denseSlots
-	coeffs := make([]uint64, (maxDeg+1)*rowCount)
+	useUint32 := enableFormalEvalUint32 && dotSafe && q <= uint64(^uint32(0))
+	useRowMajor := dotSafe && !useSparse && !useUint32 && rowSlots*4 < denseSlots*3
+	var coeffs []uint64
+	var coeffs32 []uint32
+	var rowOffsets []int
+	var rowCoeffs []uint64
+	if useRowMajor {
+		rowOffsets = make([]int, rowCount+1)
+		rowCoeffs = make([]uint64, 0, rowSlots)
+	} else if useUint32 {
+		coeffs32 = make([]uint32, (maxDeg+1)*rowCount)
+	} else {
+		coeffs = make([]uint64, (maxDeg+1)*rowCount)
+	}
 	var sparseTerms []formalEvalTerm
 	if useSparse {
 		sparseTerms = make([]formalEvalTerm, 0, nnz)
@@ -116,6 +144,21 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 	for j, row := range rows {
 		limit := rowDeg[j]
 		if limit < 0 {
+			if useRowMajor {
+				rowOffsets[j+1] = len(rowCoeffs)
+			}
+			continue
+		}
+		if useRowMajor {
+			rowOffsets[j] = len(rowCoeffs)
+			for d := 0; d <= limit; d++ {
+				c := row[d]
+				if c >= q {
+					c %= q
+				}
+				rowCoeffs = append(rowCoeffs, c)
+			}
+			rowOffsets[j+1] = len(rowCoeffs)
 			continue
 		}
 		for d := 0; d <= limit; d++ {
@@ -126,7 +169,11 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 			if c == 0 {
 				continue
 			}
-			coeffs[d*rowCount+j] = c
+			if useUint32 {
+				coeffs32[d*rowCount+j] = uint32(c)
+			} else {
+				coeffs[d*rowCount+j] = c
+			}
 			if useSparse {
 				sparseTerms = append(sparseTerms, formalEvalTerm{degree: d, row: j, coeff: c})
 			}
@@ -138,6 +185,9 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 		nnz:         nnz,
 		rowDeg:      rowDeg,
 		coeffs:      coeffs,
+		coeffs32:    coeffs32,
+		rowOffsets:  rowOffsets,
+		rowCoeffs:   rowCoeffs,
 		dotSafe:     dotSafe,
 		sparseTerms: sparseTerms,
 	}
@@ -199,6 +249,19 @@ func (p formalEvalPlan) evalIntoHorner(dst []uint64, x uint64, red modReducer64)
 		return
 	}
 	q := red.mod
+	if len(p.coeffs32) > 0 {
+		top := p.coeffs32[p.maxDeg*p.rowCount : (p.maxDeg+1)*p.rowCount]
+		for j, c := range top {
+			dst[j] = uint64(c)
+		}
+		for d := p.maxDeg - 1; d >= 0; d-- {
+			row := p.coeffs32[d*p.rowCount : (d+1)*p.rowCount]
+			for j := 0; j < p.rowCount; j++ {
+				dst[j] = addMod64Reduced(red.mulReduced(dst[j], x), uint64(row[j]), q)
+			}
+		}
+		return
+	}
 	top := p.coeffs[p.maxDeg*p.rowCount : (p.maxDeg+1)*p.rowCount]
 	copy(dst[:p.rowCount], top)
 	for d := p.maxDeg - 1; d >= 0; d-- {
@@ -216,27 +279,149 @@ func (p formalEvalPlan) evalIntoPowers(dst []uint64, red modReducer64, powers []
 	for j := 0; j < p.rowCount; j++ {
 		dst[j] = 0
 	}
+	if len(p.rowOffsets) == p.rowCount+1 {
+		for j := 0; j < p.rowCount; j++ {
+			acc := uint64(0)
+			row := p.rowCoeffs[p.rowOffsets[j]:p.rowOffsets[j+1]]
+			for d, c := range row {
+				acc += c * powers[d]
+			}
+			dst[j] = red.reduceUint64(acc)
+		}
+		return
+	}
 	if len(p.sparseTerms) > 0 {
 		for _, term := range p.sparseTerms {
 			dst[term.row] += term.coeff * powers[term.degree]
 		}
 	} else {
+		denseSlots := (p.maxDeg + 1) * p.rowCount
+		if p.nnz == denseSlots {
+			if len(p.coeffs32) > 0 {
+				for d := 0; d <= p.maxDeg; d++ {
+					pow := powers[d]
+					row := p.coeffs32[d*p.rowCount : (d+1)*p.rowCount]
+					for j := 0; j < p.rowCount; j++ {
+						dst[j] += uint64(row[j]) * pow
+					}
+				}
+			} else {
+				for d := 0; d <= p.maxDeg; d++ {
+					pow := powers[d]
+					row := p.coeffs[d*p.rowCount : (d+1)*p.rowCount]
+					for j := 0; j < p.rowCount; j++ {
+						dst[j] += row[j] * pow
+					}
+				}
+			}
+			for j := 0; j < p.rowCount; j++ {
+				dst[j] = red.reduceUint64(dst[j])
+			}
+			return
+		}
 		for d := 0; d <= p.maxDeg; d++ {
 			pow := powers[d]
 			if pow == 0 {
 				continue
 			}
-			row := p.coeffs[d*p.rowCount : (d+1)*p.rowCount]
-			for j, c := range row {
-				if c == 0 {
-					continue
+			if len(p.coeffs32) > 0 {
+				row := p.coeffs32[d*p.rowCount : (d+1)*p.rowCount]
+				for j, c := range row {
+					if c == 0 {
+						continue
+					}
+					dst[j] += uint64(c) * pow
 				}
-				dst[j] += c * pow
+			} else {
+				row := p.coeffs[d*p.rowCount : (d+1)*p.rowCount]
+				for j, c := range row {
+					if c == 0 {
+						continue
+					}
+					dst[j] += c * pow
+				}
 			}
 		}
 	}
 	for j := 0; j < p.rowCount; j++ {
 		dst[j] = red.reduceUint64(dst[j])
+	}
+}
+
+func (p formalEvalPlan) evalTileIntoPrepared(dst []uint64, points []uint64, red modReducer64, powers []uint64) {
+	tileLen := len(points)
+	if tileLen == 0 || p.rowCount == 0 {
+		return
+	}
+	if !p.usesPowerEval() || len(powers) < tileLen*(p.maxDeg+1) {
+		for t, x := range points {
+			p.evalIntoPrepared(dst[t*p.rowCount:(t+1)*p.rowCount], x, red, nil)
+		}
+		return
+	}
+	powerCount := p.maxDeg + 1
+	for t, x := range points {
+		computeFormalEvalPowers(powers[t*powerCount:(t+1)*powerCount], x, red)
+	}
+	for i := range dst[:tileLen*p.rowCount] {
+		dst[i] = 0
+	}
+	if len(p.rowOffsets) == p.rowCount+1 {
+		for t := 0; t < tileLen; t++ {
+			tPowers := powers[t*powerCount : (t+1)*powerCount]
+			tDst := dst[t*p.rowCount : (t+1)*p.rowCount]
+			for j := 0; j < p.rowCount; j++ {
+				acc := uint64(0)
+				row := p.rowCoeffs[p.rowOffsets[j]:p.rowOffsets[j+1]]
+				for d, c := range row {
+					acc += c * tPowers[d]
+				}
+				tDst[j] = red.reduceUint64(acc)
+			}
+		}
+		return
+	}
+	if len(p.sparseTerms) > 0 {
+		for _, term := range p.sparseTerms {
+			coeff := term.coeff
+			for t := 0; t < tileLen; t++ {
+				dst[t*p.rowCount+term.row] += coeff * powers[t*powerCount+term.degree]
+			}
+		}
+	} else if len(p.coeffs32) > 0 {
+		for d := 0; d <= p.maxDeg; d++ {
+			row := p.coeffs32[d*p.rowCount : (d+1)*p.rowCount]
+			for j, c32 := range row {
+				if c32 == 0 {
+					continue
+				}
+				c := uint64(c32)
+				for t := 0; t < tileLen; t++ {
+					pow := powers[t*powerCount+d]
+					if pow != 0 {
+						dst[t*p.rowCount+j] += c * pow
+					}
+				}
+			}
+		}
+	} else {
+		for d := 0; d <= p.maxDeg; d++ {
+			row := p.coeffs[d*p.rowCount : (d+1)*p.rowCount]
+			for j, c := range row {
+				if c == 0 {
+					continue
+				}
+				for t := 0; t < tileLen; t++ {
+					pow := powers[t*powerCount+d]
+					if pow != 0 {
+						dst[t*p.rowCount+j] += c * pow
+					}
+				}
+			}
+		}
+	}
+	for i := range dst[:tileLen*p.rowCount] {
+		dst[i] = red.reduceUint64(dst[i])
 	}
 }
 
@@ -288,13 +473,90 @@ func NewProverWithParamsAndPointsFormalChecked(ringQ *ring.Ring, coeffs [][]uint
 	}, nil
 }
 
+// CommitPhaseRecorder records opt-in commit phase timings. It is used by
+// benchmark/reporting callers only and is not part of the transcript.
+type CommitPhaseRecorder interface {
+	RecordDuration(label string, d time.Duration)
+}
+
+// CommitOptions carries non-transcript-affecting CommitInit controls.
+// The zero value preserves the normal legacy-compatible proving path.
+type CommitOptions struct {
+	PhaseRecorder CommitPhaseRecorder
+	WorkerCount   int
+}
+
+type commitInitOptions struct {
+	phaseRecorder         CommitPhaseRecorder
+	workerCount           int
+	tileSize              int
+	forceScalarFormalEval bool
+	recordSubphases       bool
+}
+
+type commitInitPhaseTimings struct {
+	maskSamplingNs   int64
+	formalEvalNs     int64
+	leafEncodingNs   int64
+	nonceDeriveNs    int64
+	leafHashNs       int64
+	merkleNs         int64
+	legacyEvalHashNs int64
+	recordSubphases  bool
+}
+
+func (t *commitInitPhaseTimings) add(ptr *int64, d time.Duration) {
+	if t != nil {
+		atomic.AddInt64(ptr, int64(d))
+	}
+}
+
+func (t *commitInitPhaseTimings) record(rec CommitPhaseRecorder) {
+	if rec == nil || t == nil {
+		return
+	}
+	rec.RecordDuration("decs.mask_sampling", time.Duration(atomic.LoadInt64(&t.maskSamplingNs)))
+	rec.RecordDuration("decs.eval_hash", time.Duration(atomic.LoadInt64(&t.legacyEvalHashNs)))
+	rec.RecordDuration("decs.merkle", time.Duration(atomic.LoadInt64(&t.merkleNs)))
+	if !t.recordSubphases {
+		return
+	}
+	rec.RecordDuration("decs.formal_evaluation_cpu", time.Duration(atomic.LoadInt64(&t.formalEvalNs)))
+	rec.RecordDuration("decs.leaf_encoding_cpu", time.Duration(atomic.LoadInt64(&t.leafEncodingNs)))
+	rec.RecordDuration("decs.nonce_derivation_cpu", time.Duration(atomic.LoadInt64(&t.nonceDeriveNs)))
+	rec.RecordDuration("decs.leaf_hashing_cpu", time.Duration(atomic.LoadInt64(&t.leafHashNs)))
+}
+
 // CommitInit does DECS.Commit step 1: sample M, nonces; build Merkle tree; NTT(P,M).
 func (pr *Prover) CommitInit() ([16]byte, error) {
+	return pr.commitInitWithOptions(commitInitOptions{forceScalarFormalEval: true})
+}
+
+// CommitInitWithOptions is CommitInit with benchmark-only controls. It keeps
+// the legacy leaf encoding and tree format so roots and proof bytes are
+// unchanged relative to CommitInit for fixed masks/nonces.
+func (pr *Prover) CommitInitWithOptions(opts CommitOptions) ([16]byte, error) {
+	return pr.commitInitWithOptions(commitInitOptions{
+		phaseRecorder:         opts.PhaseRecorder,
+		workerCount:           opts.WorkerCount,
+		forceScalarFormalEval: true,
+	})
+}
+
+func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error) {
 	r := pr.rowCount()
 	N := pr.nLeaves
 	q := pr.ringQ.Modulus[0]
+	var timings *commitInitPhaseTimings
+	if opts.phaseRecorder != nil {
+		timings = &commitInitPhaseTimings{recordSubphases: opts.recordSubphases}
+	}
 
 	// sampler
+	maskStart := time.Time{}
+	if timings != nil {
+		maskStart = time.Now()
+	}
 	if pr.PFormal != nil {
 		if pr.MFormal == nil {
 			pr.MFormal = make([][]uint64, pr.params.Eta)
@@ -332,10 +594,17 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 			return [16]byte{}, fmt.Errorf("decs: mask polynomial count mismatch: got=%d want=%d", len(pr.M), pr.params.Eta)
 		}
 	}
+	if timings != nil {
+		timings.maskSamplingNs = int64(time.Since(maskStart))
+	}
 
 	// 1b) explicit-domain path computes evaluations on demand
 
 	// 1c) build leaf hashes
+	evalHashStart := time.Time{}
+	if timings != nil {
+		evalHashStart = time.Now()
+	}
 	leafHashes := make([][16]byte, N)
 	if len(pr.nonceSeed) == 0 {
 		pr.nonceSeed = make([]byte, pr.params.NonceBytes)
@@ -347,96 +616,10 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 	}
 	leafBytes := 4*(r+pr.params.Eta) + 2 + pr.params.NonceBytes
 	if pr.PFormal != nil {
-		red := newModReducer64(q)
-		pPlan := newFormalEvalPlan(pr.PFormal, q)
-		mPlan := newFormalEvalPlan(pr.MFormal, q)
-		usePowerEval := pPlan.usesPowerEval() || mPlan.usesPowerEval()
-		powerCount := pPlan.maxDeg + 1
-		if mPlan.maxDeg+1 > powerCount {
-			powerCount = mPlan.maxDeg + 1
-		}
-		workers := runtime.GOMAXPROCS(0)
-		if workers < 2 || N < 128 {
-			buf := make([]byte, leafBytes)
-			pScratch := make([]uint64, r)
-			mScratch := make([]uint64, pr.params.Eta)
-			var powerScratch []uint64
-			if usePowerEval {
-				powerScratch = make([]uint64, powerCount)
-			}
-			nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
-			shake := nilShake()
-			for i := 0; i < N; i++ {
-				buf = buf[:leafBytes]
-				x := pr.points[i] % q
-				if usePowerEval {
-					computeFormalEvalPowers(powerScratch, x, red)
-				}
-				pPlan.evalIntoPrepared(pScratch, x, red, powerScratch)
-				mPlan.evalIntoPrepared(mScratch, x, red, powerScratch)
-				off := 0
-				for j := 0; j < r; j++ {
-					binary.LittleEndian.PutUint32(buf[off:], uint32(pScratch[j]))
-					off += 4
-				}
-				for k := 0; k < pr.params.Eta; k++ {
-					binary.LittleEndian.PutUint32(buf[off:], uint32(mScratch[k]))
-					off += 4
-				}
-				binary.LittleEndian.PutUint16(buf[off:], uint16(i))
-				off += 2
-				nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
-				hashLeafIntoWith(shake, buf, &leafHashes[i])
-			}
+		if opts.forceScalarFormalEval {
+			pr.commitInitFormalScalarLeafHashes(leafHashes, leafBytes, timings)
 		} else {
-			if workers > N {
-				workers = N
-			}
-			var wg sync.WaitGroup
-			wg.Add(workers)
-			chunk := (N + workers - 1) / workers
-			for worker := 0; worker < workers; worker++ {
-				start := worker * chunk
-				end := start + chunk
-				if end > N {
-					end = N
-				}
-				go func() {
-					defer wg.Done()
-					buf := make([]byte, leafBytes)
-					pScratch := make([]uint64, r)
-					mScratch := make([]uint64, pr.params.Eta)
-					var powerScratch []uint64
-					if usePowerEval {
-						powerScratch = make([]uint64, powerCount)
-					}
-					nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
-					shake := nilShake()
-					for i := start; i < end; i++ {
-						buf = buf[:leafBytes]
-						x := pr.points[i] % q
-						if usePowerEval {
-							computeFormalEvalPowers(powerScratch, x, red)
-						}
-						pPlan.evalIntoPrepared(pScratch, x, red, powerScratch)
-						mPlan.evalIntoPrepared(mScratch, x, red, powerScratch)
-						off := 0
-						for j := 0; j < r; j++ {
-							binary.LittleEndian.PutUint32(buf[off:], uint32(pScratch[j]))
-							off += 4
-						}
-						for k := 0; k < pr.params.Eta; k++ {
-							binary.LittleEndian.PutUint32(buf[off:], uint32(mScratch[k]))
-							off += 4
-						}
-						binary.LittleEndian.PutUint16(buf[off:], uint16(i))
-						off += 2
-						nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
-						hashLeafIntoWith(shake, buf, &leafHashes[i])
-					}
-				}()
-			}
-			wg.Wait()
+			pr.commitInitFormalOptimizedLeafHashes(leafHashes, leafBytes, opts, timings)
 		}
 	} else {
 		buildLeaf := func(i int) []byte {
@@ -489,12 +672,358 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 			wg.Wait()
 		}
 	}
+	if timings != nil {
+		timings.legacyEvalHashNs = int64(time.Since(evalHashStart))
+	}
 
 	// 1d) Merkle tree
+	merkleStart := time.Time{}
+	if timings != nil {
+		merkleStart = time.Now()
+	}
 	pr.mt = BuildMerkleTreeFromLeafHashes(leafHashes)
 	pr.root = pr.mt.Root()
+	if timings != nil {
+		timings.merkleNs = int64(time.Since(merkleStart))
+		timings.record(opts.phaseRecorder)
+	}
 
 	return pr.root, nil
+}
+
+func (pr *Prover) commitInitFormalScalarLeafHashes(leafHashes [][16]byte, leafBytes int, timings *commitInitPhaseTimings) {
+	r := pr.rowCount()
+	N := pr.nLeaves
+	q := pr.ringQ.Modulus[0]
+	red := newModReducer64(q)
+	pPlan := newFormalEvalPlan(pr.PFormal, q)
+	mPlan := newFormalEvalPlan(pr.MFormal, q)
+	usePowerEval := pPlan.usesPowerEval() || mPlan.usesPowerEval()
+	powerCount := pPlan.maxDeg + 1
+	if mPlan.maxDeg+1 > powerCount {
+		powerCount = mPlan.maxDeg + 1
+	}
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 2 || N < 128 {
+		pr.commitInitFormalScalarRange(0, N, leafHashes, leafBytes, r, red, pPlan, mPlan, usePowerEval, powerCount, timings)
+		return
+	}
+	if workers > N {
+		workers = N
+	}
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	chunk := (N + workers - 1) / workers
+	for worker := 0; worker < workers; worker++ {
+		start := worker * chunk
+		end := start + chunk
+		if end > N {
+			end = N
+		}
+		go func(start, end int) {
+			defer wg.Done()
+			pr.commitInitFormalScalarRange(start, end, leafHashes, leafBytes, r, red, pPlan, mPlan, usePowerEval, powerCount, timings)
+		}(start, end)
+	}
+	wg.Wait()
+}
+
+func (pr *Prover) commitInitFormalScalarRange(start, end int, leafHashes [][16]byte, leafBytes, r int, red modReducer64, pPlan, mPlan formalEvalPlan, usePowerEval bool, powerCount int, timings *commitInitPhaseTimings) {
+	buf := make([]byte, leafBytes)
+	pScratch := make([]uint64, r)
+	mScratch := make([]uint64, pr.params.Eta)
+	var powerScratch []uint64
+	if usePowerEval {
+		powerScratch = make([]uint64, powerCount)
+	}
+	nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
+	shake := nilShake()
+	record := timings != nil && timings.recordSubphases
+	var evalNs, encodeNs, nonceNs, hashNs int64
+	for i := start; i < end; i++ {
+		buf = buf[:leafBytes]
+		x := pr.points[i] % red.mod
+		evalStart := time.Time{}
+		if record {
+			evalStart = time.Now()
+		}
+		if usePowerEval {
+			computeFormalEvalPowers(powerScratch, x, red)
+		}
+		pPlan.evalIntoPrepared(pScratch, x, red, powerScratch)
+		mPlan.evalIntoPrepared(mScratch, x, red, powerScratch)
+		if record {
+			evalNs += int64(time.Since(evalStart))
+		}
+		encodeStart := time.Time{}
+		if record {
+			encodeStart = time.Now()
+		}
+		off := 0
+		for j := 0; j < r; j++ {
+			binary.LittleEndian.PutUint32(buf[off:], uint32(pScratch[j]))
+			off += 4
+		}
+		for k := 0; k < pr.params.Eta; k++ {
+			binary.LittleEndian.PutUint32(buf[off:], uint32(mScratch[k]))
+			off += 4
+		}
+		binary.LittleEndian.PutUint16(buf[off:], uint16(i))
+		off += 2
+		if record {
+			encodeNs += int64(time.Since(encodeStart))
+		}
+		nonceStart := time.Time{}
+		if record {
+			nonceStart = time.Now()
+		}
+		nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
+		if record {
+			nonceNs += int64(time.Since(nonceStart))
+		}
+		hashStart := time.Time{}
+		if record {
+			hashStart = time.Now()
+		}
+		hashLeafIntoWith(shake, buf, &leafHashes[i])
+		if record {
+			hashNs += int64(time.Since(hashStart))
+		}
+	}
+	if record {
+		atomic.AddInt64(&timings.formalEvalNs, evalNs)
+		atomic.AddInt64(&timings.leafEncodingNs, encodeNs)
+		atomic.AddInt64(&timings.nonceDeriveNs, nonceNs)
+		atomic.AddInt64(&timings.leafHashNs, hashNs)
+	}
+}
+
+func (pr *Prover) commitInitFormalTiledLeafHashes(leafHashes [][16]byte, leafBytes int, opts commitInitOptions, timings *commitInitPhaseTimings) {
+	r := pr.rowCount()
+	N := pr.nLeaves
+	q := pr.ringQ.Modulus[0]
+	red := newModReducer64(q)
+	combinedRows := make([][]uint64, 0, r+pr.params.Eta)
+	combinedRows = append(combinedRows, pr.PFormal...)
+	combinedRows = append(combinedRows, pr.MFormal...)
+	plan := newFormalEvalPlan(combinedRows, q)
+	if !plan.usesPowerEval() {
+		pr.commitInitFormalScalarLeafHashes(leafHashes, leafBytes, timings)
+		return
+	}
+	tileSize := opts.tileSize
+	if tileSize <= 0 {
+		tileSize = 8
+	}
+	if tileSize > 32 {
+		tileSize = 32
+	}
+	workers := opts.workerCount
+	if workers <= 0 {
+		workers = runtime.GOMAXPROCS(0)
+	}
+	if workers < 2 || N < 128 {
+		pr.commitInitFormalTiledRange(0, N, tileSize, leafHashes, leafBytes, r, red, plan, timings)
+		return
+	}
+	if workers > N {
+		workers = N
+	}
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	chunk := (N + workers - 1) / workers
+	for worker := 0; worker < workers; worker++ {
+		start := worker * chunk
+		end := start + chunk
+		if end > N {
+			end = N
+		}
+		go func(start, end int) {
+			defer wg.Done()
+			pr.commitInitFormalTiledRange(start, end, tileSize, leafHashes, leafBytes, r, red, plan, timings)
+		}(start, end)
+	}
+	wg.Wait()
+}
+
+func (pr *Prover) commitInitFormalOptimizedLeafHashes(leafHashes [][16]byte, leafBytes int, opts commitInitOptions, timings *commitInitPhaseTimings) {
+	if opts.tileSize > 1 {
+		pr.commitInitFormalTiledLeafHashes(leafHashes, leafBytes, opts, timings)
+		return
+	}
+	r := pr.rowCount()
+	N := pr.nLeaves
+	q := pr.ringQ.Modulus[0]
+	red := newModReducer64(q)
+	combinedRows := make([][]uint64, 0, r+pr.params.Eta)
+	combinedRows = append(combinedRows, pr.PFormal...)
+	combinedRows = append(combinedRows, pr.MFormal...)
+	plan := newFormalEvalPlan(combinedRows, q)
+	if !plan.usesPowerEval() {
+		pr.commitInitFormalScalarLeafHashes(leafHashes, leafBytes, timings)
+		return
+	}
+	workers := opts.workerCount
+	if workers <= 0 {
+		workers = runtime.GOMAXPROCS(0)
+	}
+	if workers < 2 || N < 128 {
+		pr.commitInitFormalOptimizedRange(0, N, leafHashes, leafBytes, r, red, plan, timings)
+		return
+	}
+	if workers > N {
+		workers = N
+	}
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	chunk := (N + workers - 1) / workers
+	for worker := 0; worker < workers; worker++ {
+		start := worker * chunk
+		end := start + chunk
+		if end > N {
+			end = N
+		}
+		go func(start, end int) {
+			defer wg.Done()
+			pr.commitInitFormalOptimizedRange(start, end, leafHashes, leafBytes, r, red, plan, timings)
+		}(start, end)
+	}
+	wg.Wait()
+}
+
+func (pr *Prover) commitInitFormalOptimizedRange(start, end int, leafHashes [][16]byte, leafBytes, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
+	buf := make([]byte, leafBytes)
+	values := make([]uint64, plan.rowCount)
+	powers := make([]uint64, plan.maxDeg+1)
+	nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
+	shake := nilShake()
+	record := timings != nil && timings.recordSubphases
+	var evalNs, encodeNs, nonceNs, hashNs int64
+	for i := start; i < end; i++ {
+		buf = buf[:leafBytes]
+		x := pr.points[i] % red.mod
+		evalStart := time.Time{}
+		if record {
+			evalStart = time.Now()
+		}
+		computeFormalEvalPowers(powers, x, red)
+		plan.evalIntoPrepared(values, x, red, powers)
+		if record {
+			evalNs += int64(time.Since(evalStart))
+		}
+		encodeStart := time.Time{}
+		if record {
+			encodeStart = time.Now()
+		}
+		off := 0
+		for j := 0; j < r; j++ {
+			binary.LittleEndian.PutUint32(buf[off:], uint32(values[j]))
+			off += 4
+		}
+		for k := 0; k < pr.params.Eta; k++ {
+			binary.LittleEndian.PutUint32(buf[off:], uint32(values[r+k]))
+			off += 4
+		}
+		binary.LittleEndian.PutUint16(buf[off:], uint16(i))
+		off += 2
+		if record {
+			encodeNs += int64(time.Since(encodeStart))
+		}
+		nonceStart := time.Time{}
+		if record {
+			nonceStart = time.Now()
+		}
+		nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
+		if record {
+			nonceNs += int64(time.Since(nonceStart))
+		}
+		hashStart := time.Time{}
+		if record {
+			hashStart = time.Now()
+		}
+		hashLeafIntoWith(shake, buf, &leafHashes[i])
+		if record {
+			hashNs += int64(time.Since(hashStart))
+		}
+	}
+	if record {
+		atomic.AddInt64(&timings.formalEvalNs, evalNs)
+		atomic.AddInt64(&timings.leafEncodingNs, encodeNs)
+		atomic.AddInt64(&timings.nonceDeriveNs, nonceNs)
+		atomic.AddInt64(&timings.leafHashNs, hashNs)
+	}
+}
+
+func (pr *Prover) commitInitFormalTiledRange(start, end, tileSize int, leafHashes [][16]byte, leafBytes, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
+	rowCount := plan.rowCount
+	buf := make([]byte, leafBytes)
+	values := make([]uint64, tileSize*rowCount)
+	powers := make([]uint64, tileSize*(plan.maxDeg+1))
+	nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
+	shake := nilShake()
+	record := timings != nil && timings.recordSubphases
+	var evalNs, encodeNs, nonceNs, hashNs int64
+	for tileStart := start; tileStart < end; tileStart += tileSize {
+		tileEnd := tileStart + tileSize
+		if tileEnd > end {
+			tileEnd = end
+		}
+		tileLen := tileEnd - tileStart
+		points := pr.points[tileStart:tileEnd]
+		evalStart := time.Time{}
+		if record {
+			evalStart = time.Now()
+		}
+		plan.evalTileIntoPrepared(values[:tileLen*rowCount], points, red, powers[:tileLen*(plan.maxDeg+1)])
+		if record {
+			evalNs += int64(time.Since(evalStart))
+		}
+		for t := 0; t < tileLen; t++ {
+			i := tileStart + t
+			rowVals := values[t*rowCount : (t+1)*rowCount]
+			buf = buf[:leafBytes]
+			encodeStart := time.Time{}
+			if record {
+				encodeStart = time.Now()
+			}
+			off := 0
+			for j := 0; j < r; j++ {
+				binary.LittleEndian.PutUint32(buf[off:], uint32(rowVals[j]))
+				off += 4
+			}
+			for k := 0; k < pr.params.Eta; k++ {
+				binary.LittleEndian.PutUint32(buf[off:], uint32(rowVals[r+k]))
+				off += 4
+			}
+			binary.LittleEndian.PutUint16(buf[off:], uint16(i))
+			off += 2
+			if record {
+				encodeNs += int64(time.Since(encodeStart))
+			}
+			nonceStart := time.Time{}
+			if record {
+				nonceStart = time.Now()
+			}
+			nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
+			if record {
+				nonceNs += int64(time.Since(nonceStart))
+			}
+			hashStart := time.Time{}
+			if record {
+				hashStart = time.Now()
+			}
+			hashLeafIntoWith(shake, buf, &leafHashes[i])
+			if record {
+				hashNs += int64(time.Since(hashStart))
+			}
+		}
+	}
+	if record {
+		atomic.AddInt64(&timings.formalEvalNs, evalNs)
+		atomic.AddInt64(&timings.leafEncodingNs, encodeNs)
+		atomic.AddInt64(&timings.nonceDeriveNs, nonceNs)
+		atomic.AddInt64(&timings.leafHashNs, hashNs)
+	}
 }
 
 func nilShake() sha3.ShakeHash {

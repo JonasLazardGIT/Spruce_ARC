@@ -2,6 +2,7 @@ package decs
 
 import (
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/sha3"
 
@@ -82,6 +83,111 @@ func BenchmarkDECSCommitInitFormalSW90Shape(b *testing.B) {
 
 func BenchmarkDECSCommitInitFormalSW115Shape(b *testing.B) {
 	benchmarkFormalCommitInitShape(b, 503, 43, 41, 11176)
+}
+
+type benchPhaseRecorder struct {
+	durations map[string]time.Duration
+}
+
+func newBenchPhaseRecorder() *benchPhaseRecorder {
+	return &benchPhaseRecorder{durations: make(map[string]time.Duration)}
+}
+
+func (r *benchPhaseRecorder) RecordDuration(label string, d time.Duration) {
+	r.durations[label] += d
+}
+
+func (r *benchPhaseRecorder) report(b *testing.B, n int) {
+	if r == nil || n <= 0 {
+		return
+	}
+	for _, label := range []string{
+		"decs.mask_sampling",
+		"decs.eval_hash",
+		"decs.merkle",
+		"decs.formal_evaluation_cpu",
+		"decs.leaf_encoding_cpu",
+		"decs.nonce_derivation_cpu",
+		"decs.leaf_hashing_cpu",
+	} {
+		if d := r.durations[label]; d > 0 {
+			b.ReportMetric(float64(d.Nanoseconds())/float64(n)/1e6, label+"_ms/op")
+		}
+	}
+}
+
+func benchmarkMaintainedFormalCommitInitShape(b *testing.B, rowCount, degree, eta, nLeaves int, phases bool) {
+	benchmarkMaintainedFormalCommitInitShapeWithOptions(b, rowCount, degree, eta, nLeaves, phases, commitInitOptions{forceScalarFormalEval: true})
+}
+
+func benchmarkMaintainedFormalCommitInitShapeWithOptions(b *testing.B, rowCount, degree, eta, nLeaves int, phases bool, opts commitInitOptions) {
+	ringQ, err := ring.NewRing(1024, []uint64{1017857})
+	if err != nil {
+		b.Fatalf("NewRing: %v", err)
+	}
+	q := ringQ.Modulus[0]
+	points := decsBenchPoints(nLeaves, q)
+	pr, err := NewProverWithParamsAndPointsFormalChecked(
+		ringQ,
+		formalRowsForCommitTest(rowCount, degree, q),
+		Params{Degree: degree, Eta: eta, NonceBytes: 16},
+		points,
+	)
+	if err != nil {
+		b.Fatalf("NewProverWithParamsAndPointsFormalChecked: %v", err)
+	}
+	pr.MFormal = maskRowsForCommitTest(eta, degree, q)
+	pr.nonceSeed = make([]byte, pr.params.NonceBytes)
+	for i := range pr.nonceSeed {
+		pr.nonceSeed[i] = byte(31 + i)
+	}
+	var recorder *benchPhaseRecorder
+	if phases {
+		recorder = newBenchPhaseRecorder()
+		opts.phaseRecorder = recorder
+		opts.workerCount = 1
+		opts.recordSubphases = true
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := pr.commitInitWithOptions(opts); err != nil {
+			b.Fatalf("CommitInit: %v", err)
+		}
+	}
+	b.StopTimer()
+	if phases {
+		recorder.report(b, b.N)
+	}
+}
+
+func BenchmarkDECSCommitInitFormalN1024Compact96Showing(b *testing.B) {
+	benchmarkMaintainedFormalCommitInitShape(b, 471, 373, 40, 230208, false)
+}
+
+func BenchmarkDECSCommitInitFormalN1024Compact96ShowingScalarLegacy(b *testing.B) {
+	benchmarkMaintainedFormalCommitInitShapeWithOptions(b, 471, 373, 40, 230208, false, commitInitOptions{forceScalarFormalEval: true})
+}
+
+func BenchmarkDECSCommitInitFormalN1024Compact96ShowingCombined(b *testing.B) {
+	benchmarkMaintainedFormalCommitInitShapeWithOptions(b, 471, 373, 40, 230208, false, commitInitOptions{})
+}
+
+func BenchmarkDECSCommitInitFormalN1024Compact96ShowingTiled8(b *testing.B) {
+	benchmarkMaintainedFormalCommitInitShapeWithOptions(b, 471, 373, 40, 230208, false, commitInitOptions{tileSize: 8})
+}
+
+func BenchmarkDECSCommitInitFormalN1024Compact96ShowingPhases(b *testing.B) {
+	benchmarkMaintainedFormalCommitInitShape(b, 471, 373, 40, 230208, true)
+}
+
+func BenchmarkDECSCommitInitFormalN1024Compact125Showing(b *testing.B) {
+	benchmarkMaintainedFormalCommitInitShape(b, 407, 471, 48, 608192, false)
+}
+
+func BenchmarkDECSCommitInitFormalN1024Compact125ShowingPhases(b *testing.B) {
+	benchmarkMaintainedFormalCommitInitShape(b, 407, 471, 48, 608192, true)
 }
 
 func benchmarkDECSLeafHashShape(b *testing.B, rowCount, eta int) {

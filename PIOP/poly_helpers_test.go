@@ -115,6 +115,76 @@ func TestAddMulModXN1PrecomputedNTTIntoMatchesPower2(t *testing.T) {
 	}
 }
 
+func TestAddMulModXN1PrecomputedBothNTTIntoMatchesPower2(t *testing.T) {
+	q := uint64(1054721)
+	ringQ, err := ring.NewRing(1024, []uint64{q})
+	if err != nil {
+		t.Fatalf("NewRing: %v", err)
+	}
+	rng := rand.New(rand.NewSource(32))
+	for iter := 0; iter < 50; iter++ {
+		scale := uint64(rng.Int63n(int64(3 * q)))
+		a := randomPolyCoeffs(rng, 32+rng.Intn(224), q)
+		b := randomPolyCoeffs(rng, 256+rng.Intn(769), q)
+		aNTT, ok := nttPolyFromModXN1Coeffs(ringQ, a)
+		if !ok {
+			t.Fatalf("precompute a NTT failed")
+		}
+		bNTT := ringQ.NewPoly()
+		if !coeffsToNTTPolyInto(ringQ, bNTT, b) {
+			t.Fatalf("precompute b NTT failed")
+		}
+		base := randomPolyCoeffs(rng, int(ringQ.N), q)
+
+		got := append([]uint64(nil), base...)
+		if !addMulModXN1PrecomputedBothNTTInto(ringQ, got, aNTT, bNTT, scale, newNegacyclicProductScratch(ringQ)) {
+			t.Fatalf("both-NTT helper declined product a=%d b=%d", len(a), len(b))
+		}
+
+		want := append([]uint64(nil), base...)
+		addMulModXN1Power2Into(want, a, b, scale, q)
+		assertPaddedPolyEqual(t, got, want, q)
+	}
+}
+
+func TestAddMulNTTIntoAccumulatorMatchesPower2(t *testing.T) {
+	q := uint64(1054721)
+	ringQ, err := ring.NewRing(1024, []uint64{q})
+	if err != nil {
+		t.Fatalf("NewRing: %v", err)
+	}
+	rng := rand.New(rand.NewSource(33))
+	for iter := 0; iter < 50; iter++ {
+		terms := 2 + rng.Intn(6)
+		base := randomPolyCoeffs(rng, int(ringQ.N), q)
+		got := append([]uint64(nil), base...)
+		want := append([]uint64(nil), base...)
+		scratch := newNegacyclicProductScratch(ringQ)
+		resetRingPolyCoeffs(scratch.acc)
+		for term := 0; term < terms; term++ {
+			scale := uint64(rng.Int63n(int64(3 * q)))
+			a := randomPolyCoeffs(rng, 32+rng.Intn(224), q)
+			b := randomPolyCoeffs(rng, 256+rng.Intn(769), q)
+			aNTT, ok := nttPolyFromModXN1Coeffs(ringQ, a)
+			if !ok {
+				t.Fatalf("precompute a NTT failed")
+			}
+			bNTT := ringQ.NewPoly()
+			if !coeffsToNTTPolyInto(ringQ, bNTT, b) {
+				t.Fatalf("precompute b NTT failed")
+			}
+			if !addMulNTTIntoAccumulator(ringQ, scratch.acc, aNTT, bNTT, scale, scratch) {
+				t.Fatalf("accumulator declined product a=%d b=%d", len(a), len(b))
+			}
+			addMulModXN1Power2Into(want, a, b, scale, q)
+		}
+		if !flushNTTAccumulatorInto(ringQ, got, scratch.acc, scratch) {
+			t.Fatalf("accumulator flush failed")
+		}
+		assertPaddedPolyEqual(t, got, want, q)
+	}
+}
+
 func TestAddScaledAndSubInto(t *testing.T) {
 	q := uint64(1054721)
 	rng := rand.New(rand.NewSource(13))

@@ -107,6 +107,9 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	if got, want := proof.MaskDegreeBound, computeDQFromConstraintDegrees(9, 1, opts.NCols, opts.Ell); got != want || proof.QDegreeBound != want {
 		t.Fatalf("paper-conservative degree mismatch mask=%d q=%d want %d", got, proof.QDegreeBound, want)
 	}
+	if proof.RowDegreeBound <= 0 || proof.RowDegreeBound > proof.MaskDegreeBound {
+		t.Fatalf("row degree bound=%d should be positive and no larger than paper-conservative mask degree=%d", proof.RowDegreeBound, proof.MaskDegreeBound)
+	}
 	pubWithExtras, err := bindIntGenISISPublicExtras(pub, profile.N)
 	if err != nil {
 		t.Fatalf("bind extras: %v", err)

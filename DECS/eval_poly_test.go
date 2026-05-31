@@ -78,3 +78,49 @@ func TestFormalEvalPlanMatchesEvalPoly(t *testing.T) {
 		}
 	}
 }
+
+func TestFormalEvalTileMatchesScalar(t *testing.T) {
+	q := uint64(1054721)
+	red := newModReducer64(q)
+	rng := rand.New(rand.NewSource(47))
+	for iter := 0; iter < 80; iter++ {
+		rowCount := 1 + rng.Intn(48)
+		degree := rng.Intn(80)
+		rows := make([][]uint64, rowCount)
+		for j := range rows {
+			rows[j] = make([]uint64, degree+1)
+			for d := range rows[j] {
+				if iter%3 == 0 && rng.Intn(4) != 0 {
+					continue
+				}
+				rows[j][d] = uint64(rng.Int63n(int64(2 * q)))
+			}
+		}
+		plan := newFormalEvalPlan(rows, q)
+		if !plan.usesPowerEval() {
+			t.Fatalf("test modulus should use power evaluation")
+		}
+		if enableFormalEvalUint32 && len(plan.coeffs32) == 0 {
+			t.Fatalf("q32 coefficient storage was not selected")
+		}
+		tileLen := 1 + rng.Intn(16)
+		points := make([]uint64, tileLen)
+		for i := range points {
+			points[i] = uint64(rng.Int63n(int64(q)))
+		}
+		got := make([]uint64, tileLen*rowCount)
+		powers := make([]uint64, tileLen*(plan.maxDeg+1))
+		plan.evalTileIntoPrepared(got, points, red, powers)
+		want := make([]uint64, rowCount)
+		scalarPowers := make([]uint64, plan.maxDeg+1)
+		for tIdx, x := range points {
+			computeFormalEvalPowers(scalarPowers, x, red)
+			plan.evalIntoPrepared(want, x, red, scalarPowers)
+			for row := 0; row < rowCount; row++ {
+				if got[tIdx*rowCount+row] != want[row] {
+					t.Fatalf("iter=%d tile=%d row=%d got=%d want=%d", iter, tIdx, row, got[tIdx*rowCount+row], want[row])
+				}
+			}
+		}
+	}
+}

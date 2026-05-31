@@ -235,6 +235,9 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if got, want := proof.MaskDegreeBound, computeDQFromConstraintDegrees(11, 2, opts.NCols, opts.Ell); got != want || proof.QDegreeBound != want {
 		t.Fatalf("paper-conservative showing degree mismatch mask=%d q=%d want %d", got, proof.QDegreeBound, want)
 	}
+	if proof.RowDegreeBound <= 0 || proof.RowDegreeBound > proof.MaskDegreeBound {
+		t.Fatalf("row degree bound=%d should be positive and no larger than paper-conservative mask degree=%d", proof.RowDegreeBound, proof.MaskDegreeBound)
+	}
 	ok, err := VerifyIntGenISISShowing(pub, proof, opts)
 	if err != nil || !ok {
 		t.Fatalf("verify showing: ok=%v err=%v", ok, err)

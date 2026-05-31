@@ -444,7 +444,7 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 		ring.Copy(rows[i], rowsNTT[i])
 		ringQ.NTT(rowsNTT[i], rowsNTT[i])
 	}
-	rootHash, _, _, err := commitRows(ringQ, rowInputs, opts.Ell, decsParams, witnessCount, maskRowOffset, maskRowCount, domainPoints)
+	rootHash, _, _, err := commitRows(ringQ, rowInputs, opts.Ell, decsParams, witnessCount, maskRowOffset, maskRowCount, domainPoints, nil)
 	if err != nil {
 		t.Fatalf("commit rows: %v", err)
 	}

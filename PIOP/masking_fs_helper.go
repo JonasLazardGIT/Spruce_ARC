@@ -606,7 +606,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if qErr != nil {
 			return fmt.Errorf("build q prover: %w", qErr)
 		}
-		qRoot, qErr := qProver.CommitInit()
+		qRoot, qErr := qProver.CommitInitWithOptions(decs.CommitOptions{
+			PhaseRecorder: o.PhaseRecorder,
+		})
 		if qErr != nil {
 			return fmt.Errorf("commit Q: %w", qErr)
 		}

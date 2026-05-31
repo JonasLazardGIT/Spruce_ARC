@@ -409,12 +409,16 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			}
 			pcsGeometry = makeLegacyPCSGeometry(witnessNCols, sfNCols, opts.Theta, opts.Ell, len(witnessPolys), witnessCount, maskRowOffset, maskRowCount)
 		}
-		if rowDeg := rowOracleDegreeFloor(ringQ, rowInputs, opts.Ell); rowDeg > decsParams.Degree {
+		// The LVCS/DECS row commitment only needs the actual committed-row
+		// degree. Keep MaskDegreeBound/QDegreeBound paper-conservative for
+		// SmallWood accounting, but do not sample high-degree row masks when
+		// the committed oracle rows are lower degree.
+		if rowDeg := rowOracleDegreeFloor(ringQ, rowInputs, opts.Ell); rowDeg >= 0 {
 			decsParams.Degree = rowDeg
 		}
 		// Commit rows to get root/pk/layout using possibly updated rowInputs/layout.
 		commitStart := time.Now()
-		root, pk, oracleLayout, err = commitRows(ringQ, rowInputs, opts.Ell, decsParams, witnessCount, maskRowOffset, maskRowCount, domainPoints)
+		root, pk, oracleLayout, err = commitRows(ringQ, rowInputs, opts.Ell, decsParams, witnessCount, maskRowOffset, maskRowCount, domainPoints, opts.PhaseRecorder)
 		if opts.PhaseRecorder != nil {
 			opts.PhaseRecorder.RecordDuration("showing.lvcs_commit_total", time.Since(commitStart))
 		}

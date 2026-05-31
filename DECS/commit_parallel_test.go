@@ -123,3 +123,47 @@ func TestCommitInitDeterministicAcrossParallelism(t *testing.T) {
 		t.Fatalf("opening mismatch between serial and parallel commit init")
 	}
 }
+
+func TestCommitInitTiledMatchesScalarLegacyRoot(t *testing.T) {
+	prScalar := makeDeterministicFormalProver(t)
+	rootScalar, err := prScalar.commitInitWithOptions(commitInitOptions{
+		forceScalarFormalEval: true,
+		workerCount:           1,
+	})
+	if err != nil {
+		t.Fatalf("scalar commit init: %v", err)
+	}
+	openScalar := prScalar.EvalOpen([]int{0, 5, 123, 255})
+
+	prOptimized := makeDeterministicFormalProver(t)
+	rootOptimized, err := prOptimized.commitInitWithOptions(commitInitOptions{
+		workerCount: 3,
+	})
+	if err != nil {
+		t.Fatalf("optimized commit init: %v", err)
+	}
+	openOptimized := prOptimized.EvalOpen([]int{0, 5, 123, 255})
+
+	prTiled := makeDeterministicFormalProver(t)
+	rootTiled, err := prTiled.commitInitWithOptions(commitInitOptions{
+		workerCount: 3,
+		tileSize:    7,
+	})
+	if err != nil {
+		t.Fatalf("tiled commit init: %v", err)
+	}
+	openTiled := prTiled.EvalOpen([]int{0, 5, 123, 255})
+
+	if rootScalar != rootTiled {
+		t.Fatalf("root mismatch: scalar=%x tiled=%x", rootScalar, rootTiled)
+	}
+	if rootScalar != rootOptimized {
+		t.Fatalf("root mismatch: scalar=%x optimized=%x", rootScalar, rootOptimized)
+	}
+	if !reflect.DeepEqual(openScalar, openTiled) {
+		t.Fatalf("opening mismatch between scalar and tiled commit init")
+	}
+	if !reflect.DeepEqual(openScalar, openOptimized) {
+		t.Fatalf("opening mismatch between scalar and optimized commit init")
+	}
+}

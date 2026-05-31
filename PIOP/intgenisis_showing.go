@@ -1342,7 +1342,7 @@ func intGenISISNegacyclicWeight(multCoeff []uint64, outIdx, srcIdx, n int, q uin
 	return q - v
 }
 
-func intGenISISLinearHForMultiplier(ringQ *ring.Ring, omega []uint64, multCoeff []uint64, rowsPerPoly int, name string) ([][][]uint64, error) {
+func intGenISISLinearHForMultiplier(ringQ *ring.Ring, omega []uint64, lagrange [][]uint64, multCoeff []uint64, rowsPerPoly int, name string) ([][][]uint64, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -1354,8 +1354,21 @@ func intGenISISLinearHForMultiplier(ringQ *ring.Ring, omega []uint64, multCoeff 
 	if rowsPerPoly*ncols != n {
 		return nil, fmt.Errorf("%s linear map rowsPerPoly*ncols=%d want ringN=%d", name, rowsPerPoly*ncols, n)
 	}
+	if len(lagrange) != ncols {
+		return nil, fmt.Errorf("%s lagrange basis=%d want ncols=%d", name, len(lagrange), ncols)
+	}
 	q := ringQ.Modulus[0]
 	out := make([][][]uint64, n)
+	interpHead := func(head []uint64) []uint64 {
+		acc := make([]uint64, ncols)
+		for lane, weight := range head {
+			if weight == 0 {
+				continue
+			}
+			addScaledInto(acc, lagrange[lane], weight, q)
+		}
+		return trimPoly(acc, q)
+	}
 	workers := runtime.GOMAXPROCS(0)
 	if workers < 2 || n < 32 {
 		head := make([]uint64, ncols)
@@ -1366,7 +1379,7 @@ func intGenISISLinearHForMultiplier(ringQ *ring.Ring, omega []uint64, multCoeff 
 					srcIdx := srcBlock*ncols + lane
 					head[lane] = intGenISISNegacyclicWeight(multCoeff, outIdx, srcIdx, n, q)
 				}
-				out[outIdx][srcBlock] = trimPoly(Interpolate(omega, head, q), q)
+				out[outIdx][srcBlock] = interpHead(head)
 			}
 		}
 		return out, nil
@@ -1393,7 +1406,7 @@ func intGenISISLinearHForMultiplier(ringQ *ring.Ring, omega []uint64, multCoeff 
 						srcIdx := srcBlock*ncols + lane
 						head[lane] = intGenISISNegacyclicWeight(multCoeff, outIdx, srcIdx, n, q)
 					}
-					out[outIdx][srcBlock] = trimPoly(Interpolate(omega, head, q), q)
+					out[outIdx][srcBlock] = interpHead(head)
 				}
 			}
 		}(start, end)
@@ -1513,7 +1526,7 @@ func newIntGenISISYLinearMapCache(ringQ *ring.Ring, pub PublicInputs, l *IntGenI
 			if err != nil {
 				return intGenISISYLinearTermCache{}, err
 			}
-			h[comp], err = intGenISISLinearHForMultiplier(ringQ, omega, coeff, l.ViewRowsPerPoly, fmt.Sprintf("%s[%d]", name, comp))
+			h[comp], err = intGenISISLinearHForMultiplier(ringQ, omega, lagrange, coeff, l.ViewRowsPerPoly, fmt.Sprintf("%s[%d]", name, comp))
 			if err != nil {
 				return intGenISISYLinearTermCache{}, err
 			}
@@ -1955,7 +1968,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	if err != nil {
 		return nil, nil, err
 	}
-	buildSourceTransform := func(sourceCoeffs [][]uint64, t int, scratch *negacyclicProductScratch) ([]uint64, error) {
+	buildSourceTransformFallback := func(sourceCoeffs [][]uint64, t int, scratch *negacyclicProductScratch) ([]uint64, error) {
 		if t < 0 || t >= len(basis.TransformH) || t >= len(basis.BlockFactors) {
 			return nil, fmt.Errorf("projected signature transform lane t=%d out of range", t)
 		}
@@ -1971,10 +1984,47 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		}
 		return trimPoly(left, q), nil
 	}
+	buildSourceTransformNTT := func(sourceNTT []*ring.Poly, sourceCoeffs [][]uint64, t int, scratch *negacyclicProductScratch) ([]uint64, error) {
+		if t < 0 || t >= len(plan.transformHNTT) || t >= len(basis.BlockFactors) {
+			return nil, fmt.Errorf("projected signature transform lane t=%d out of range", t)
+		}
+		if len(sourceNTT) != l.ViewRowsPerPoly || len(sourceCoeffs) != l.ViewRowsPerPoly {
+			return nil, fmt.Errorf("projected signature source blocks ntt=%d coeff=%d want %d", len(sourceNTT), len(sourceCoeffs), l.ViewRowsPerPoly)
+		}
+		if scratch == nil || scratch.acc == nil {
+			return buildSourceTransformFallback(sourceCoeffs, t, scratch)
+		}
+		resetRingPolyCoeffs(scratch.acc)
+		for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
+			scale := basis.BlockFactors[t][srcBlock] % q
+			if !addMulNTTIntoAccumulator(ringQ, scratch.acc, plan.transformHNTT[t], sourceNTT[srcBlock], scale, scratch) {
+				return buildSourceTransformFallback(sourceCoeffs, t, scratch)
+			}
+		}
+		left := make([]uint64, n)
+		if !flushNTTAccumulatorInto(ringQ, left, scratch.acc, scratch) {
+			return buildSourceTransformFallback(sourceCoeffs, t, scratch)
+		}
+		return trimPoly(left, q), nil
+	}
 	buildFlatTransforms := func(sourceCoeffs [][][]uint64) ([][][]uint64, error) {
 		out := make([][][]uint64, len(sourceCoeffs))
 		for comp := range sourceCoeffs {
 			out[comp] = make([][]uint64, l.ViewRowsPerPoly*ncols)
+		}
+		sourceNTT := make([][]*ring.Poly, len(sourceCoeffs))
+		for comp := range sourceCoeffs {
+			if len(sourceCoeffs[comp]) != l.ViewRowsPerPoly {
+				return nil, fmt.Errorf("projected signature source component %d blocks=%d want %d", comp, len(sourceCoeffs[comp]), l.ViewRowsPerPoly)
+			}
+			sourceNTT[comp] = make([]*ring.Poly, l.ViewRowsPerPoly)
+			for block := 0; block < l.ViewRowsPerPoly; block++ {
+				p := ringQ.NewPoly()
+				if !coeffsToNTTPolyInto(ringQ, p, sourceCoeffs[comp][block]) {
+					return nil, fmt.Errorf("projected signature source component %d block %d exceeds ring dimension", comp, block)
+				}
+				sourceNTT[comp][block] = p
+			}
 		}
 		total := len(sourceCoeffs) * l.ViewRowsPerPoly * ncols
 		if total == 0 {
@@ -1984,7 +2034,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 			outputsPerComp := l.ViewRowsPerPoly * ncols
 			comp := idx / outputsPerComp
 			t := idx % outputsPerComp
-			coeff, err := buildSourceTransform(sourceCoeffs[comp], t, scratch)
+			coeff, err := buildSourceTransformNTT(sourceNTT[comp], sourceCoeffs[comp], t, scratch)
 			if err != nil {
 				return err
 			}
@@ -2170,24 +2220,45 @@ func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowC
 			}
 			addScaledInto(rhs, wCoeff, 1, q)
 		} else {
+			bSources := make([][]uint64, 1+l.X0Count)
 			muCoeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatMuSig, 0, block)
 			if err != nil {
 				return err
 			}
-			if !addMulModXN1PrecomputedNTTInto(ringQ, rhs, plan.bBlockCoeffNTT[1][block], muCoeff, 1, scratch) {
-				addMulModXN1Into(rhs, plan.bBlockCoeff[1][block], muCoeff, 1, q)
-			}
+			bSources[0] = muCoeff
 			for i := 0; i < l.X0Count; i++ {
 				x0Coeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatX0, i, block)
 				if err != nil {
 					return err
 				}
-				if !addMulModXN1PrecomputedNTTInto(ringQ, rhs, plan.bBlockCoeffNTT[2+i][block], x0Coeff, 1, scratch) {
-					addMulModXN1Into(rhs, plan.bBlockCoeff[2+i][block], x0Coeff, 1, q)
+				bSources[1+i] = x0Coeff
+			}
+			accOK := scratch != nil && scratch.acc != nil && scratch.b != nil
+			if accOK {
+				resetRingPolyCoeffs(scratch.acc)
+				for i, coeff := range bSources {
+					publicIdx := 1 + i
+					if !coeffsToNTTPolyInto(ringQ, scratch.b, coeff) ||
+						!addMulNTTIntoAccumulator(ringQ, scratch.acc, plan.bBlockCoeffNTT[publicIdx][block], scratch.b, 1, scratch) {
+						accOK = false
+						break
+					}
+				}
+				if accOK {
+					accOK = flushNTTAccumulatorInto(ringQ, rhs, scratch.acc, scratch)
+				}
+			}
+			if !accOK {
+				for i, coeff := range bSources {
+					publicIdx := 1 + i
+					if !addMulModXN1PrecomputedNTTInto(ringQ, rhs, plan.bBlockCoeffNTT[publicIdx][block], coeff, 1, scratch) {
+						addMulModXN1Into(rhs, plan.bBlockCoeff[publicIdx][block], coeff, 1, q)
+					}
 				}
 			}
 		}
 		addScaledInto(rhs, zCoeff, 1, q)
+		rhsNTTReady := scratch != nil && scratch.a != nil && coeffsToNTTPolyInto(ringQ, scratch.a, rhs)
 		for lane := 0; lane < ncols; lane++ {
 			t := block*ncols + lane
 			res := make([]uint64, n)
@@ -2196,7 +2267,7 @@ func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowC
 				addScaledInto(res, uTrans[i][t], aVal, q)
 			}
 			laneRHS := make([]uint64, n)
-			if !addMulModXN1PrecomputedNTTInto(ringQ, laneRHS, plan.lagrangeBasisNTT[lane], rhs, 1, scratch) {
+			if !rhsNTTReady || !addMulModXN1PrecomputedBothNTTInto(ringQ, laneRHS, plan.lagrangeBasisNTT[lane], scratch.a, 1, scratch) {
 				mulModXN1(laneRHS, basis.LagrangeBasis[lane], rhs, q)
 			}
 			subInto(res, laneRHS, q)

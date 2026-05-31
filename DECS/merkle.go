@@ -2,6 +2,9 @@ package decs
 
 import (
 	"bytes"
+	"runtime"
+	"sync"
+
 	"golang.org/x/crypto/sha3"
 )
 
@@ -14,6 +17,8 @@ var (
 	leafPrefixBytes = [1]byte{leafPrefix}
 	nodePrefixBytes = [1]byte{nodePrefix}
 )
+
+const merkleParallelLevelThreshold = 4096
 
 // MerkleTree is a full binary Merkle tree of 16-byte hashes (SHAKE-256 truncated).
 type MerkleTree struct {
@@ -49,8 +54,31 @@ func BuildMerkleTreeFromLeafHashes(leaves [][16]byte) *MerkleTree {
 	for sz := size; sz > 1; sz >>= 1 {
 		prev := layers[len(layers)-1]
 		next := make([][16]byte, sz/2)
-		for i := 0; i < sz; i += 2 {
-			hashNodeIntoWith(h, &prev[i], &prev[i+1], &next[i/2])
+		pairs := sz / 2
+		workers := runtime.GOMAXPROCS(0)
+		if pairs < merkleParallelLevelThreshold || workers < 2 {
+			for i := 0; i < sz; i += 2 {
+				hashNodeIntoWith(h, &prev[i], &prev[i+1], &next[i/2])
+			}
+		} else {
+			if workers > pairs {
+				workers = pairs
+			}
+			var wg sync.WaitGroup
+			wg.Add(workers)
+			for worker := 0; worker < workers; worker++ {
+				start := worker * pairs / workers
+				end := (worker + 1) * pairs / workers
+				go func(start, end int) {
+					defer wg.Done()
+					hw := sha3.NewShake256()
+					for pair := start; pair < end; pair++ {
+						i := pair * 2
+						hashNodeIntoWith(hw, &prev[i], &prev[i+1], &next[pair])
+					}
+				}(start, end)
+			}
+			wg.Wait()
 		}
 		layers = append(layers, next)
 	}

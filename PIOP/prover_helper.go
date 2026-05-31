@@ -1236,6 +1236,7 @@ type negacyclicProductScratch struct {
 	a   *ring.Poly
 	b   *ring.Poly
 	out *ring.Poly
+	acc *ring.Poly
 }
 
 func newNegacyclicProductScratch(ringQ *ring.Ring) *negacyclicProductScratch {
@@ -1246,6 +1247,7 @@ func newNegacyclicProductScratch(ringQ *ring.Ring) *negacyclicProductScratch {
 		a:   ringQ.NewPoly(),
 		b:   ringQ.NewPoly(),
 		out: ringQ.NewPoly(),
+		acc: ringQ.NewPoly(),
 	}
 }
 
@@ -1343,6 +1345,79 @@ func addMulModXN1PrecomputedNTTInto(ringQ *ring.Ring, dst []uint64, aNTT *ring.P
 	ringQ.MulCoeffs(aNTT, scratch.b, scratch.out)
 	ringQ.InvNTT(scratch.out, scratch.out)
 	addScaledInto(dst, scratch.out.Coeffs[0], scale, q)
+	return true
+}
+
+func addMulModXN1PrecomputedBothNTTInto(ringQ *ring.Ring, dst []uint64, aNTT, bNTT *ring.Poly, scale uint64, scratch *negacyclicProductScratch) bool {
+	if ringQ == nil || scratch == nil || aNTT == nil || bNTT == nil || len(dst) != int(ringQ.N) {
+		return false
+	}
+	if len(aNTT.Coeffs) == 0 || len(bNTT.Coeffs) == 0 || len(aNTT.Coeffs[0]) != int(ringQ.N) || len(bNTT.Coeffs[0]) != int(ringQ.N) {
+		return false
+	}
+	q := ringQ.Modulus[0]
+	if scale >= q {
+		scale %= q
+	}
+	if scale == 0 {
+		return true
+	}
+	ringQ.MulCoeffs(aNTT, bNTT, scratch.out)
+	if scale != 1 {
+		ringQ.MulScalar(scratch.out, scale, scratch.out)
+	}
+	ringQ.InvNTT(scratch.out, scratch.out)
+	addScaledInto(dst, scratch.out.Coeffs[0], 1, q)
+	return true
+}
+
+func coeffsToNTTPolyInto(ringQ *ring.Ring, dst *ring.Poly, coeffs []uint64) bool {
+	if ringQ == nil || dst == nil || len(coeffs) > int(ringQ.N) {
+		return false
+	}
+	q := ringQ.Modulus[0]
+	resetRingPolyCoeffs(dst)
+	for i, v := range coeffs {
+		if v >= q {
+			v %= q
+		}
+		dst.Coeffs[0][i] = v
+	}
+	ringQ.NTT(dst, dst)
+	return true
+}
+
+func addMulNTTIntoAccumulator(ringQ *ring.Ring, acc, aNTT, bNTT *ring.Poly, scale uint64, scratch *negacyclicProductScratch) bool {
+	if ringQ == nil || scratch == nil || acc == nil || aNTT == nil || bNTT == nil {
+		return false
+	}
+	if len(acc.Coeffs) == 0 || len(aNTT.Coeffs) == 0 || len(bNTT.Coeffs) == 0 {
+		return false
+	}
+	if len(acc.Coeffs[0]) != int(ringQ.N) || len(aNTT.Coeffs[0]) != int(ringQ.N) || len(bNTT.Coeffs[0]) != int(ringQ.N) {
+		return false
+	}
+	q := ringQ.Modulus[0]
+	if scale >= q {
+		scale %= q
+	}
+	if scale == 0 {
+		return true
+	}
+	ringQ.MulCoeffs(aNTT, bNTT, scratch.out)
+	if scale != 1 {
+		ringQ.MulScalar(scratch.out, scale, scratch.out)
+	}
+	ringQ.Add(acc, scratch.out, acc)
+	return true
+}
+
+func flushNTTAccumulatorInto(ringQ *ring.Ring, dst []uint64, acc *ring.Poly, scratch *negacyclicProductScratch) bool {
+	if ringQ == nil || scratch == nil || acc == nil || len(dst) != int(ringQ.N) {
+		return false
+	}
+	ringQ.InvNTT(acc, scratch.out)
+	addScaledInto(dst, scratch.out.Coeffs[0], 1, ringQ.Modulus[0])
 	return true
 }
 

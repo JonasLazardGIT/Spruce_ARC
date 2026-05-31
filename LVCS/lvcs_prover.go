@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"time"
 
 	decs "vSIS-Signature/DECS"
 
@@ -81,6 +82,13 @@ type ProverKey struct {
 	NLeaves int
 }
 
+// CommitOptions carries benchmark-only commit controls. The zero value keeps
+// the existing transcript and proof bytes.
+type CommitOptions struct {
+	PhaseRecorder   decs.CommitPhaseRecorder
+	DecsWorkerCount int
+}
+
 // CommitInitWithParamsAndPoints commits rows against an explicit DECS domain E:
 //   - points defines the DECS evaluation domain E (E[i] = points[i])
 //   - Ω and Ω′ are interpreted as the prefixes:
@@ -92,6 +100,23 @@ func CommitInitWithParamsAndPoints(
 	ell int,
 	params decs.Params,
 	points []uint64,
+) (
+	root [16]byte,
+	prover *ProverKey,
+	err error,
+) {
+	return CommitInitWithParamsAndPointsWithOptions(ringQ, rows, ell, params, points, CommitOptions{})
+}
+
+// CommitInitWithParamsAndPointsWithOptions is CommitInitWithParamsAndPoints
+// with benchmark-only controls.
+func CommitInitWithParamsAndPointsWithOptions(
+	ringQ *ring.Ring,
+	rows []RowInput,
+	ell int,
+	params decs.Params,
+	points []uint64,
+	opts CommitOptions,
 ) (
 	root [16]byte,
 	prover *ProverKey,
@@ -249,6 +274,10 @@ func CommitInitWithParamsAndPoints(
 	}
 
 	// 1b) interpolate each (r_j, mask_j) into P_j(X)
+	interpStart := time.Time{}
+	if opts.PhaseRecorder != nil {
+		interpStart = time.Now()
+	}
 	for j, row := range normalised {
 		if rowCoeffPolys[j] != nil {
 			continue
@@ -262,6 +291,9 @@ func CommitInitWithParamsAndPoints(
 			return
 		}
 	}
+	if opts.PhaseRecorder != nil {
+		opts.PhaseRecorder.RecordDuration("lvcs.row_interpolation", time.Since(interpStart))
+	}
 
 	// 2) DECS.CommitInit  (keeps P_j in coeff-form; we keep a *copy*
 	//    in NTT domain for the PACS layer → RowPolys)
@@ -270,12 +302,19 @@ func CommitInitWithParamsAndPoints(
 	if err != nil {
 		return
 	}
-	if root, err = dprover.CommitInit(); err != nil {
+	if root, err = dprover.CommitInitWithOptions(decs.CommitOptions{
+		PhaseRecorder: opts.PhaseRecorder,
+		WorkerCount:   opts.DecsWorkerCount,
+	}); err != nil {
 		return
 	}
 	Gamma := decs.DeriveGamma(root, params.Eta, nrows, q0)
 
 	// lift P_j to NTT for later reuse when representable in ringQ.
+	rowNTTStart := time.Time{}
+	if opts.PhaseRecorder != nil {
+		rowNTTStart = time.Now()
+	}
 	rowsNTT := make([]*ring.Poly, nrows)
 	for j := range rowCoeffPolys {
 		if len(rowCoeffPolys[j]) == 0 || len(rowCoeffPolys[j]) > int(ringQ.N) {
@@ -304,6 +343,9 @@ func CommitInitWithParamsAndPoints(
 			masksNTT[i] = ringQ.NewPoly()
 			ringQ.NTT(dprover.M[i], masksNTT[i])
 		}
+	}
+	if opts.PhaseRecorder != nil {
+		opts.PhaseRecorder.RecordDuration("lvcs.row_ntt", time.Since(rowNTTStart))
 	}
 	prover = &ProverKey{
 		RingQ:         ringQ,
