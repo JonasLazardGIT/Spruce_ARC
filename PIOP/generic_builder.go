@@ -824,6 +824,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			K = k
 		}
 		// Build post-sign evaluator when A is present.
+		var faggOverrideIdxs []int
 		if len(pub.A) > 0 {
 			if pub.IntGenISIS {
 				cfgShow, cerr := newIntGenISISShowingReplayConfig(ringQ, pub, proof.RowLayout, omegaWitness, domainPoints, set.PRFCompanionLayout)
@@ -842,6 +843,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				if cfgShow.Layout.WitnessRows() > rowCount {
 					rowCount = cfgShow.Layout.WitnessRows()
 				}
+				faggOverrideIdxs = cfgShow.PRFDirectFullFaggOverrideIdxs()
 				haveCred = true
 			} else {
 				if !rowLayoutHasCoeffNativeSig(proof.RowLayout) {
@@ -1064,18 +1066,26 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		if len(replayFaggCoeffs) == 0 && len(proof.FaggCoeffDebug) > 0 {
 			replayFaggCoeffs = copyMatrix(proof.FaggCoeffDebug)
 		}
+		if len(faggOverrideIdxs) > 0 && len(replayFaggCoeffs) > 0 {
+			for _, idx := range faggOverrideIdxs {
+				if idx < 0 || idx >= len(replayFaggCoeffs) {
+					return false, fmt.Errorf("PRF direct-full Fagg override index %d outside aggregate family count %d", idx, len(replayFaggCoeffs))
+				}
+			}
+		}
 		replay := &ConstraintReplay{
-			Eval:       eval,
-			EvalK:      evalK,
-			RowCount:   rowCount,
-			BoundRows:  boundRows,
-			CarryRows:  carryRows,
-			BoundB:     boundB,
-			CarryBound: carryBound,
-			Fpar:       append(append([]*ring.Poly{}, set.FparInt...), set.FparNorm...),
-			Fagg:       append(append([]*ring.Poly{}, set.FaggInt...), set.FaggNorm...),
-			FparCoeffs: replayFparCoeffs,
-			FaggCoeffs: replayFaggCoeffs,
+			Eval:             eval,
+			EvalK:            evalK,
+			RowCount:         rowCount,
+			BoundRows:        boundRows,
+			CarryRows:        carryRows,
+			BoundB:           boundB,
+			CarryBound:       carryBound,
+			Fpar:             append(append([]*ring.Poly{}, set.FparInt...), set.FparNorm...),
+			Fagg:             append(append([]*ring.Poly{}, set.FaggInt...), set.FaggNorm...),
+			FparCoeffs:       replayFparCoeffs,
+			FaggCoeffs:       replayFaggCoeffs,
+			FaggOverrideIdxs: faggOverrideIdxs,
 		}
 		if proof.HashRelation == credential.HashRelationBBTran {
 			if len(pub.Ac) > 0 && len(pub.A) == 0 {
@@ -1127,6 +1137,10 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				// The aux-instance verifier re-authenticates the scalar PRF companion
 				// openings against the same-root subset opening, so the legacy
 				// self-consistency-only check is intentionally skipped here.
+			} else if normalizePRFCompanionMode(proof.PRFCompanion.Mode) == PRFCompanionModeDirectFull {
+				// The direct_full mode proves the full PRF relation in the main
+				// SmallWood constraints and intentionally carries no sampled
+				// scalar opening payload.
 			} else if cerr := verifyPRFCompanionOpenings(set.PRFCompanionLayout, proof, params, pub.Tag, pub.Nonce); cerr != nil {
 				return false, cerr
 			}

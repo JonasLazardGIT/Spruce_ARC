@@ -254,6 +254,115 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("verify prepared showing: ok=%v err=%v", ok, err)
 	}
+	fullOpts := opts
+	fullOpts.PRFCompanionMode = PRFCompanionModeDirectFull
+	fullDebugPub, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), fullOpts)
+	if err != nil {
+		t.Fatalf("bind direct_full debug public extras: %v", err)
+	}
+	fullRows, _, fullDebugLayout, _, fullDebugCompanion, _, _, _, _, _, fullBuiltNCols, err := BuildCredentialRowsShowingIntGenISIS(ringQ, fullDebugPub, WitnessInputs{CoeffNativeShowing: cn}, params.LenKey, params.LenNonce, params.RF, params.RP, fullOpts.PRFGroupRounds, fullOpts)
+	if err != nil {
+		t.Fatalf("direct_full debug rows: %v", err)
+	}
+	fullRowsNTT := make([]*ring.Poly, len(fullRows))
+	for i := range fullRows {
+		fullRowsNTT[i] = ringQ.NewPoly()
+		ring.Copy(fullRows[i], fullRowsNTT[i])
+		ringQ.NTT(fullRowsNTT[i], fullRowsNTT[i])
+	}
+	fullOmega, err := deriveRelationWitnessOmega(ringQ.Modulus[0], fullOpts.NLeaves, fullOpts.NCols, fullOpts.LVCSNCols, fullOpts.Ell, pub.HashRelation)
+	if err != nil {
+		t.Fatalf("direct_full omega: %v", err)
+	}
+	fullSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, fullDebugPub, fullDebugLayout, fullRowsNTT, fullOmega[:fullBuiltNCols], fullDebugCompanion, nil)
+	if err != nil {
+		t.Fatalf("direct_full constraints: %v", err)
+	}
+	assertConstraintBucketVanishesOnOmega(t, ringQ, fullOmega[:fullBuiltNCols], "direct_full FparInt", fullSet.FparInt, fullSet.FparIntCoeffs)
+	if nonZero, err := bucketHasNonZeroOmegaSum(ringQ, fullOmega[:fullBuiltNCols], fullSet.FaggNorm, fullSet.FaggNormCoeffs); err != nil || nonZero {
+		for i, coeff := range fullSet.FaggNormCoeffs {
+			sum := uint64(0)
+			for _, w := range fullOmega[:fullBuiltNCols] {
+				sum = modAdd(sum, EvalPoly(coeff, w%ringQ.Modulus[0], ringQ.Modulus[0])%ringQ.Modulus[0], ringQ.Modulus[0])
+			}
+			if sum != 0 {
+				vals := evalCoeffOnOmegaTest(coeff, fullOmega[:fullBuiltNCols], ringQ.Modulus[0])
+				bad := make([]uint64, 0, 4)
+				for _, v := range vals {
+					if v != 0 {
+						bad = append(bad, v)
+						if len(bad) == 4 {
+							break
+						}
+					}
+				}
+				t.Fatalf("direct_full FaggNorm first nonzero index=%d sum=%d coeff_len=%d bad=%v", i, sum, len(coeff), bad)
+			}
+		}
+		t.Fatalf("direct_full FaggNorm nonzero=%v err=%v", nonZero, err)
+	}
+	fullProof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, fullOpts)
+	if err != nil {
+		t.Fatalf("build direct_full showing: %v", err)
+	}
+	if fullProof.PRFCompanion == nil || fullProof.PRFCompanion.Layout == nil {
+		t.Fatal("direct_full proof missing companion layout")
+	}
+	fullLayout := fullProof.PRFCompanion.Layout
+	if fullProof.PRFCompanion.Mode != PRFCompanionModeDirectFull || fullLayout.RelationVersion != 1 {
+		t.Fatalf("direct_full mode/layout=(%s,%d)", fullProof.PRFCompanion.Mode, fullLayout.RelationVersion)
+	}
+	if got, want := fullLayout.PackedLogicalCount, params.LenKey+groupedPRFSBoxCount(params.LenKey, params.LenNonce, params.RF, params.RP, fullOpts.PRFGroupRounds)+params.T()+params.LenTag; got != want {
+		t.Fatalf("direct_full logical count=%d want %d", got, want)
+	}
+	if got, want := len(fullLayout.FinalRoundOutputSlots), params.T(); got != want {
+		t.Fatalf("direct_full final round slots=%d want %d", got, want)
+	}
+	if len(fullProof.PRFCompanion.CheckpointAudits) != 0 || prfCompanionHasOpeningPayload(fullProof.PRFCompanion) {
+		t.Fatal("direct_full proof carried legacy PRF opening payload")
+	}
+	ok, err = VerifyIntGenISISShowing(pub, fullProof, fullOpts)
+	if err != nil || !ok {
+		gotAgg := 0
+		if len(fullProof.GammaAgg) > 0 {
+			gotAgg = len(fullProof.GammaAgg[0])
+		}
+		t.Fatalf("verify direct_full showing: ok=%v err=%v proofAgg=%d debugAgg=%d fullSetAgg=%d rel=%d", ok, err, gotAgg, len(fullProof.FaggCoeffDebug), len(fullSet.FaggNorm), fullProof.PRFCompanion.Layout.RelationVersion)
+	}
+	tamperedTagPub := pub
+	tamperedTagPub.Tag = make([][]int64, len(pub.Tag))
+	for i := range pub.Tag {
+		tamperedTagPub.Tag[i] = append([]int64(nil), pub.Tag[i]...)
+	}
+	tamperedTagPub.Tag[0][0]++
+	ok, err = VerifyIntGenISISShowing(tamperedTagPub, fullProof, fullOpts)
+	if err == nil && ok {
+		t.Fatal("direct_full verifier accepted tampered public tag")
+	}
+	tamperedNoncePub := pub
+	tamperedNoncePub.Nonce = make([][]int64, len(pub.Nonce))
+	for i := range pub.Nonce {
+		tamperedNoncePub.Nonce[i] = append([]int64(nil), pub.Nonce[i]...)
+	}
+	tamperedNoncePub.Nonce[0][0]++
+	ok, err = VerifyIntGenISISShowing(tamperedNoncePub, fullProof, fullOpts)
+	if err == nil && ok {
+		t.Fatal("direct_full verifier accepted tampered public nonce")
+	}
+	legacyAsFull := *proof
+	if proof.PRFCompanion != nil {
+		companion := *proof.PRFCompanion
+		companion.Mode = PRFCompanionModeDirectFull
+		companion.Layout = clonePRFCompanionLayout(proof.PRFCompanion.Layout)
+		if companion.Layout != nil {
+			companion.Layout.RelationVersion = 1
+		}
+		legacyAsFull.PRFCompanion = &companion
+	}
+	ok, err = VerifyIntGenISISShowing(pub, &legacyAsFull, fullOpts)
+	if err == nil && ok {
+		t.Fatal("legacy direct_auth proof was accepted as direct_full")
+	}
 	if proof.QOpening == nil || proof.QRoot == ([16]byte{}) || len(proof.QRBits) == 0 {
 		t.Fatal("legacy showing proof did not carry Q DECS material")
 	}

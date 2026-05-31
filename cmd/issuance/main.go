@@ -113,6 +113,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	issuanceRho := fs.Int("issuance-rho", 0, "issuance rho override")
 	issuanceEll := fs.Int("issuance-ell", 0, "issuance ell override")
 	issuanceEllPrime := fs.Int("issuance-ell-prime", 0, "issuance ell-prime override")
+	issuanceTranscriptMode := fs.String("issuance-transcript-mode", "", "issuance transcript mode: baseline or smallfield_2025_1085_v1; maintained presets set this automatically")
 	showingNCols := fs.Int("showing-ncols", 0, "showing witness packing width override")
 	showingLVCSNCols := fs.Int("showing-lvcs-ncols", 0, "showing LVCS width override")
 	showingNLeaves := fs.Int("showing-nleaves", 0, "showing explicit-domain leaf count override")
@@ -126,7 +127,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	showingCompressedRows := fs.Int("showing-compressed-rows", 0, "showing IntGenISIS M/s/e compression level: 0 none; bounded-range presets reject levels >0")
 	showingReplayProjection := fs.String("showing-replay-projection", PIOP.IntGenISISReplayProjectionNone, "showing IntGenISIS replay projection mode: none, project_u_y_hat_v1, project_u_y_hat_and_y_view_v2, project_u_digits_and_y_view_v3, experimental project_u_digits_y_source_linear_v4, or experimental project_u_digits_y_w_residual_v5")
 	showingTranscriptMode := fs.String("showing-transcript-mode", "", "showing transcript mode: baseline, column_widths_v1, or smallfield_2025_1085_v1; strict smallfield presets set this automatically")
-	companionMode := fs.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "PRF companion mode: output_audit, direct_auth, or aux_instance")
+	companionMode := fs.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "PRF companion mode: output_audit, direct_auth, direct_full, or aux_instance")
 	prfGroupRounds := fs.Int("prf-group-rounds", 2, "grouped PRF rounds for the showing companion witness")
 	checkpointSamples := fs.Int("prf-checkpoint-samples", 8, "PRF companion checkpoint samples")
 	keygenTrials := fs.Int("keygen-trials", 10000, "maximum annulus keygen trials")
@@ -157,15 +158,16 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		CheckpointSamples: *checkpointSamples,
 	}
 	issuance := intGenISISTuning{
-		NCols:     *issuanceNCols,
-		LVCSNCols: *issuanceLVCSNCols,
-		NLeaves:   *issuanceNLeaves,
-		Eta:       *issuanceEta,
-		Theta:     *issuanceTheta,
-		Rho:       *issuanceRho,
-		Ell:       *issuanceEll,
-		EllPrime:  *issuanceEllPrime,
-		Kappa:     baseKappa,
+		NCols:          *issuanceNCols,
+		LVCSNCols:      *issuanceLVCSNCols,
+		NLeaves:        *issuanceNLeaves,
+		Eta:            *issuanceEta,
+		Theta:          *issuanceTheta,
+		Rho:            *issuanceRho,
+		Ell:            *issuanceEll,
+		EllPrime:       *issuanceEllPrime,
+		Kappa:          baseKappa,
+		TranscriptMode: *issuanceTranscriptMode,
 	}
 	showing := intGenISISTuning{
 		NCols:              *showingNCols,
@@ -207,6 +209,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		applyCommonTuningFlagOverrides(&showing, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, baseKappa)
 		applyPrefixedTuningFlagOverrides(&issuance, setFlags, "issuance-", *issuanceNCols, *issuanceLVCSNCols, *issuanceNLeaves, *issuanceEta, *issuanceTheta, *issuanceRho, *issuanceEll, *issuanceEllPrime)
 		applyPrefixedTuningFlagOverrides(&showing, setFlags, "showing-", *showingNCols, *showingLVCSNCols, *showingNLeaves, *showingEta, *showingTheta, *showingRho, *showingEll, *showingEllPrime)
+		applyIssuanceSpecificFlagOverrides(&issuance, setFlags, *issuanceTranscriptMode)
 		applyShowingSpecificFlagOverrides(&showing, setFlags, PIOP.PRFCompanionMode(*companionMode), *prfGroupRounds, *checkpointSamples, *showingShortnessRadix, *showingShortnessDigits, *showingCompressedRows, *showingReplayProjection, *showingTranscriptMode)
 	}
 	cfg := benchmarkIntGenISISE2EConfig{
@@ -295,6 +298,7 @@ func runHolderCommit(args []string) error {
 	kappa2 := fs.Int("kappa2", 0, "optional theorem aggregation kappa round 2")
 	kappa3 := fs.Int("kappa3", 0, "optional theorem aggregation kappa round 3")
 	kappa4 := fs.Int("kappa4", 0, "optional theorem aggregation kappa round 4")
+	issuanceTranscriptMode := fs.String("issuance-transcript-mode", "", "issuance transcript mode: baseline or smallfield_2025_1085_v1")
 	ringDegree := fs.Int("ring-degree", 0, "ring degree override for issuance (supported: 1024 or 512; 0 follows public params)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -307,6 +311,7 @@ func runHolderCommit(args []string) error {
 	kappa := [4]int{*kappa1, *kappa2, *kappa3, *kappa4}
 	ncolsVal, lvcsVal, nLeavesVal := *ncols, *lvcsNCols, *nLeaves
 	etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal := *eta, *theta, *rho, *ell, *ellPrime
+	transcriptModeVal := *issuanceTranscriptMode
 	if selectedPresetName != "" {
 		preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
 		if err != nil {
@@ -317,21 +322,24 @@ func runHolderCommit(args []string) error {
 		}
 		t := intGenISISTuningFromPresetSpec(preset.Issuance)
 		applyCommonTuningFlagOverrides(&t, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, kappa)
+		applyIssuanceSpecificFlagOverrides(&t, setFlags, *issuanceTranscriptMode)
 		ncolsVal, lvcsVal, nLeavesVal = t.NCols, t.LVCSNCols, t.NLeaves
 		etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal = t.Eta, t.Theta, t.Rho, t.Ell, t.EllPrime
 		kappa = t.Kappa
+		transcriptModeVal = t.TranscriptMode
 	}
 	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, *expertInputPath, *seed, issuanceRuntimeOverrides{
-		NCols:      ncolsVal,
-		LVCSNCols:  lvcsVal,
-		NLeaves:    nLeavesVal,
-		Ell:        ellVal,
-		EllPrime:   ellPrimeVal,
-		Eta:        etaVal,
-		Theta:      thetaVal,
-		Rho:        rhoVal,
-		Kappa:      kappa,
-		RingDegree: *ringDegree,
+		NCols:          ncolsVal,
+		LVCSNCols:      lvcsVal,
+		NLeaves:        nLeavesVal,
+		Ell:            ellVal,
+		EllPrime:       ellPrimeVal,
+		Eta:            etaVal,
+		Theta:          thetaVal,
+		Rho:            rhoVal,
+		Kappa:          kappa,
+		TranscriptMode: transcriptModeVal,
+		RingDegree:     *ringDegree,
 	})
 }
 
@@ -402,6 +410,7 @@ func runDemoLocal(args []string) error {
 	kappa2 := fs.Int("kappa2", 0, "optional theorem aggregation kappa round 2")
 	kappa3 := fs.Int("kappa3", 0, "optional theorem aggregation kappa round 3")
 	kappa4 := fs.Int("kappa4", 0, "optional theorem aggregation kappa round 4")
+	issuanceTranscriptMode := fs.String("issuance-transcript-mode", "", "issuance transcript mode: baseline or smallfield_2025_1085_v1")
 	ringDegree := fs.Int("ring-degree", 0, "ring degree override for issuance (supported: 1024 or 512; 0 follows public params)")
 	ntruParamsPath := fs.String("ntru-params", defaultNTRUParamsPath, "NTRU params path used for signature beta bound")
 	ntruPublicPath := fs.String("ntru-public-key", defaultNTRUPublicKeyPath, "NTRU public key path")
@@ -418,6 +427,7 @@ func runDemoLocal(args []string) error {
 	kappa := [4]int{*kappa1, *kappa2, *kappa3, *kappa4}
 	ncolsVal, lvcsVal, nLeavesVal := *ncols, *lvcsNCols, *nLeaves
 	etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal := *eta, *theta, *rho, *ell, *ellPrime
+	transcriptModeVal := *issuanceTranscriptMode
 	if selectedPresetName != "" {
 		preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
 		if err != nil {
@@ -428,20 +438,23 @@ func runDemoLocal(args []string) error {
 		}
 		t := intGenISISTuningFromPresetSpec(preset.Issuance)
 		applyCommonTuningFlagOverrides(&t, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, kappa)
+		applyIssuanceSpecificFlagOverrides(&t, setFlags, *issuanceTranscriptMode)
 		ncolsVal, lvcsVal, nLeavesVal = t.NCols, t.LVCSNCols, t.NLeaves
 		etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal = t.Eta, t.Theta, t.Rho, t.Ell, t.EllPrime
 		kappa = t.Kappa
+		transcriptModeVal = t.TranscriptMode
 	}
 	return demoLocal(*publicPath, *prfPath, *artifactDir, *statePath, *signaturePath, *seed, *maxTrials, issuanceRuntimeOverrides{
-		NCols:      ncolsVal,
-		LVCSNCols:  lvcsVal,
-		NLeaves:    nLeavesVal,
-		Ell:        ellVal,
-		EllPrime:   ellPrimeVal,
-		Eta:        etaVal,
-		Theta:      thetaVal,
-		Rho:        rhoVal,
-		Kappa:      kappa,
-		RingDegree: *ringDegree,
+		NCols:          ncolsVal,
+		LVCSNCols:      lvcsVal,
+		NLeaves:        nLeavesVal,
+		Ell:            ellVal,
+		EllPrime:       ellPrimeVal,
+		Eta:            etaVal,
+		Theta:          thetaVal,
+		Rho:            rhoVal,
+		Kappa:          kappa,
+		TranscriptMode: transcriptModeVal,
+		RingDegree:     *ringDegree,
 	}, ntruSigningPaths(*ntruParamsPath, *ntruPublicPath, *ntruPrivatePath, *ntruSignaturePath))
 }

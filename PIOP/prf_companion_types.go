@@ -28,26 +28,30 @@ type CoeffSlot struct {
 }
 
 type PRFCompanionLayout struct {
-	StartRow             int
-	PackWidth            int
-	KeySource            KeySource
-	KeySlots             []CoeffSlot
-	KeySourceSlots       []CoeffSlot
-	KeySourceDecodeLanes []int
-	CheckpointSlots      []CoeffSlot
-	FinalTagSlots        []CoeffSlot
-	HelperFamilies       []string
-	ReplayRows           int
-	PackedRows           int
-	PackedLogicalCount   int
-	HelperRowCount       int
-	DataRows             int
-	HelperRows           int
-	KeyCount             int
-	CheckpointCount      int
-	TagCount             int
-	RowSemantics         []RowSemantics
-	BridgeStripe         *PRFBridgeStripeLayout
+	StartRow              int
+	PackWidth             int
+	GroupRounds           int
+	KeySource             KeySource
+	KeySlots              []CoeffSlot
+	KeySourceSlots        []CoeffSlot
+	KeySourceDecodeLanes  []int
+	CheckpointSlots       []CoeffSlot
+	FinalRoundOutputSlots []CoeffSlot
+	FinalTagSlots         []CoeffSlot
+	HelperFamilies        []string
+	ReplayRows            int
+	PackedRows            int
+	PackedLogicalCount    int
+	HelperRowCount        int
+	DataRows              int
+	HelperRows            int
+	KeyCount              int
+	CheckpointCount       int
+	FinalRoundOutputCount int
+	TagCount              int
+	RelationVersion       uint8
+	RowSemantics          []RowSemantics
+	BridgeStripe          *PRFBridgeStripeLayout
 }
 
 type PRFCompanionOpening struct {
@@ -219,6 +223,7 @@ func clonePRFCompanionLayout(src *PRFCompanionLayout) *PRFCompanionLayout {
 		out.KeySourceDecodeLanes = append([]int(nil), src.KeySourceDecodeLanes...)
 	}
 	out.CheckpointSlots = cloneCoeffSlots(src.CheckpointSlots)
+	out.FinalRoundOutputSlots = cloneCoeffSlots(src.FinalRoundOutputSlots)
 	out.FinalTagSlots = cloneCoeffSlots(src.FinalTagSlots)
 	if len(src.HelperFamilies) > 0 {
 		out.HelperFamilies = append([]string(nil), src.HelperFamilies...)
@@ -382,6 +387,9 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 	if layout.PackWidth <= 0 {
 		return fmt.Errorf("invalid companion pack width %d", layout.PackWidth)
 	}
+	if layout.GroupRounds < 0 {
+		return fmt.Errorf("invalid companion group rounds %d", layout.GroupRounds)
+	}
 	if layout.PackedRows <= 0 {
 		return fmt.Errorf("invalid companion packed rows %d", layout.PackedRows)
 	}
@@ -439,12 +447,17 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 			return err
 		}
 	}
+	for _, slot := range layout.FinalRoundOutputSlots {
+		if err := checkSlot("final_round_output", slot); err != nil {
+			return err
+		}
+	}
 	for _, slot := range layout.FinalTagSlots {
 		if err := checkSlot("final_tag", slot); err != nil {
 			return err
 		}
 	}
-	wantLogical := len(layout.KeySlots) + len(layout.CheckpointSlots) + len(layout.FinalTagSlots)
+	wantLogical := len(layout.KeySlots) + len(layout.CheckpointSlots) + len(layout.FinalRoundOutputSlots) + len(layout.FinalTagSlots)
 	if layout.PackedLogicalCount != wantLogical {
 		return fmt.Errorf("companion packed logical count=%d want %d", layout.PackedLogicalCount, wantLogical)
 	}
@@ -462,6 +475,21 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 	}
 	if layout.CheckpointCount != len(layout.CheckpointSlots) {
 		return fmt.Errorf("companion checkpoint count=%d want %d", layout.CheckpointCount, len(layout.CheckpointSlots))
+	}
+	if layout.FinalRoundOutputCount != len(layout.FinalRoundOutputSlots) {
+		return fmt.Errorf("companion final round output count=%d want %d", layout.FinalRoundOutputCount, len(layout.FinalRoundOutputSlots))
+	}
+	switch layout.RelationVersion {
+	case 0:
+		if layout.FinalRoundOutputCount != 0 || len(layout.FinalRoundOutputSlots) != 0 {
+			return fmt.Errorf("legacy companion relation carries final-round output slots")
+		}
+	case 1:
+		if layout.FinalRoundOutputCount <= 0 {
+			return fmt.Errorf("direct_full companion relation requires final-round output slots")
+		}
+	default:
+		return fmt.Errorf("unsupported companion relation version %d", layout.RelationVersion)
 	}
 	if layout.BridgeStripe != nil {
 		if layout.BridgeStripe.Version <= 0 {
@@ -541,6 +569,14 @@ func prfCompanionLayoutDigest(layout *PRFCompanionLayout) []byte {
 		writeInt(slot.Row)
 		writeInt(slot.Coeff)
 	}
+	if layout.RelationVersion != 0 {
+		writeInt(layout.GroupRounds)
+		writeInt(len(layout.FinalRoundOutputSlots))
+		for _, slot := range layout.FinalRoundOutputSlots {
+			writeInt(slot.Row)
+			writeInt(slot.Coeff)
+		}
+	}
 	writeInt(len(layout.FinalTagSlots))
 	for _, slot := range layout.FinalTagSlots {
 		writeInt(slot.Row)
@@ -550,6 +586,10 @@ func prfCompanionLayoutDigest(layout *PRFCompanionLayout) []byte {
 	writeInt(layout.HelperRows)
 	writeInt(layout.KeyCount)
 	writeInt(layout.CheckpointCount)
+	if layout.RelationVersion != 0 {
+		writeInt(layout.FinalRoundOutputCount)
+		writeUint8(layout.RelationVersion)
+	}
 	writeInt(layout.TagCount)
 	writeInt(len(layout.HelperFamilies))
 	for _, fam := range layout.HelperFamilies {

@@ -27,6 +27,10 @@ type prfCompanionFixture struct {
 }
 
 func buildPRFCompanionFixture(t *testing.T) prfCompanionFixture {
+	return buildPRFCompanionFixtureWithMode(t, PRFCompanionModeOutputAudit)
+}
+
+func buildPRFCompanionFixtureWithMode(t *testing.T, mode PRFCompanionMode) prfCompanionFixture {
 	t.Helper()
 	base := buildTransformBridgeFixture(t)
 	params, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
@@ -36,7 +40,7 @@ func buildPRFCompanionFixture(t *testing.T) prfCompanionFixture {
 	opts := base.opts
 	opts.EnablePackedPRFWitnessRows = true
 	opts.EnablePRFCompanion = true
-	opts.PRFCompanionMode = PRFCompanionModeOutputAudit
+	opts.PRFCompanionMode = mode
 	opts.PRFCheckpointSamples = 8
 	rows, rowInputs, layout, prfLayout, companion, _, _, _, witnessCount, _, _, err := BuildCredentialRowsShowing(
 		base.ringQ,
@@ -159,6 +163,49 @@ func TestPRFCompanionLayoutEmission(t *testing.T) {
 		if sem != CoeffPackedRow {
 			t.Fatalf("row semantics[%d]=%d want coeff-packed", i, sem)
 		}
+	}
+}
+
+func TestPRFCompanionDirectFullLayoutEmission(t *testing.T) {
+	fx := buildPRFCompanionFixtureWithMode(t, PRFCompanionModeDirectFull)
+	if fx.companion == nil {
+		t.Fatal("missing companion layout")
+	}
+	if err := ValidatePRFCompanionLayout(fx.companion, fx.witnessCount); err != nil {
+		t.Fatalf("validate direct_full companion layout: %v", err)
+	}
+	if fx.companion.RelationVersion != 1 {
+		t.Fatalf("relation version=%d want 1", fx.companion.RelationVersion)
+	}
+	if got, want := len(fx.companion.KeySlots), fx.params.LenKey; got != want {
+		t.Fatalf("key slots=%d want %d", got, want)
+	}
+	wantCheckpoints := groupedPRFSBoxCount(fx.params.LenKey, fx.params.LenNonce, fx.params.RF, fx.params.RP, fx.opts.PRFGroupRounds)
+	if got := len(fx.companion.CheckpointSlots); got != wantCheckpoints {
+		t.Fatalf("checkpoint slots=%d want %d", got, wantCheckpoints)
+	}
+	if got, want := len(fx.companion.FinalRoundOutputSlots), fx.params.T(); got != want {
+		t.Fatalf("final round slots=%d want %d", got, want)
+	}
+	if got, want := fx.companion.FinalRoundOutputCount, fx.params.T(); got != want {
+		t.Fatalf("final round count=%d want %d", got, want)
+	}
+	if got, want := len(fx.companion.FinalTagSlots), fx.params.LenTag; got != want {
+		t.Fatalf("final tag slots=%d want %d", got, want)
+	}
+	wantLogical := fx.params.LenKey + wantCheckpoints + fx.params.T() + fx.params.LenTag
+	if fx.companion.PackedLogicalCount != wantLogical {
+		t.Fatalf("direct_full logical count=%d want %d", fx.companion.PackedLogicalCount, wantLogical)
+	}
+	if wantLogical != 194 {
+		t.Fatalf("current PRF direct_full logical count drifted: got %d want 194", wantLogical)
+	}
+	bad := clonePRFCompanionLayout(fx.companion)
+	bad.FinalRoundOutputSlots = nil
+	bad.FinalRoundOutputCount = 0
+	bad.PackedLogicalCount -= fx.params.T()
+	if err := ValidatePRFCompanionLayout(bad, fx.witnessCount); err == nil {
+		t.Fatal("direct_full layout without final-round slots validated")
 	}
 }
 

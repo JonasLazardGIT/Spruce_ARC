@@ -42,6 +42,7 @@ type EvalKInput struct {
 	FparCoeffs       [][]uint64
 	FaggCoeffs       [][]uint64
 	FparOverrideIdxs []int
+	FaggOverrideIdxs []int
 	BoundRows        []int
 	CarryRows        []int
 	BoundB           int64
@@ -59,6 +60,8 @@ type EvalTailInput struct {
 	Ring             *ring.Ring
 	FparCoeffs       [][]uint64
 	FparOverrideIdxs []int
+	FaggCoeffs       [][]uint64
+	FaggOverrideIdxs []int
 	// DomainPoints is the explicit DECS evaluation domain.
 	// When nil, EvaluateConstraintsOnTailOpen treats indices as ring slot indices.
 	DomainPoints  []uint64
@@ -84,6 +87,7 @@ type ConstraintReplay struct {
 	FparCoeffs       [][]uint64
 	FaggCoeffs       [][]uint64
 	FparOverrideIdxs []int
+	FaggOverrideIdxs []int
 }
 
 func composeEvaluators(a, b ConstraintEvaluator) ConstraintEvaluator {
@@ -279,6 +283,21 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 				case in.Ring != nil && idx < len(in.Fpar) && in.Fpar[idx] != nil:
 					in.Ring.InvNTT(in.Fpar[idx], tmp)
 					fpar[idx] = in.K.EvalFPolyAtK(tmp.Coeffs[0], e)
+				}
+			}
+		}
+		if len(in.FaggOverrideIdxs) > 0 {
+			tmp := in.Ring.NewPoly()
+			for _, idx := range in.FaggOverrideIdxs {
+				if idx < 0 || idx >= len(fagg) {
+					continue
+				}
+				switch {
+				case idx < len(in.FaggCoeffs) && len(in.FaggCoeffs[idx]) > 0:
+					fagg[idx] = in.K.EvalFPolyAtK(in.FaggCoeffs[idx], e)
+				case in.Ring != nil && idx < len(in.Fagg) && in.Fagg[idx] != nil:
+					in.Ring.InvNTT(in.Fagg[idx], tmp)
+					fagg[idx] = in.K.EvalFPolyAtK(tmp.Coeffs[0], e)
 				}
 			}
 		}
@@ -545,6 +564,14 @@ func EvaluateConstraintsOnTailOpen(eval ConstraintEvaluator, in EvalTailInput) (
 					continue
 				}
 				fpar[familyIdx] = EvalPoly(in.FparCoeffs[familyIdx], x, q) % q
+			}
+		}
+		if len(in.FaggOverrideIdxs) > 0 && len(in.FaggCoeffs) > 0 {
+			for _, familyIdx := range in.FaggOverrideIdxs {
+				if familyIdx < 0 || familyIdx >= len(fagg) || familyIdx >= len(in.FaggCoeffs) {
+					continue
+				}
+				fagg[familyIdx] = EvalPoly(in.FaggCoeffs[familyIdx], x, q) % q
 			}
 		}
 		for i := 0; i < rho; i++ {

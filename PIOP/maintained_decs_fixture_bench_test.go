@@ -296,9 +296,11 @@ func buildMaintainedShowingDECSFixture(b *testing.B, presetName string) maintain
 	}
 }
 
-func benchmarkMaintainedShowingDECSFixture(b *testing.B, presetName string) {
+func benchmarkMaintainedShowingDECSFixture(b *testing.B, presetName string, opts decs.CommitOptions) {
 	fixture := buildMaintainedShowingDECSFixture(b, presetName)
 	recorder := newMaintainedDECSBenchRecorder()
+	opts.PhaseRecorder = recorder
+	opts.RecordSubphases = true
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -309,7 +311,7 @@ func benchmarkMaintainedShowingDECSFixture(b *testing.B, presetName string) {
 		if err := pr.SetFormalCommitmentRandomnessForTesting(fixture.mFormal, fixture.nonceSeed); err != nil {
 			b.Fatalf("set commitment randomness: %v", err)
 		}
-		if _, err := pr.CommitInitWithOptions(decs.CommitOptions{PhaseRecorder: recorder, RecordSubphases: true}); err != nil {
+		if _, err := pr.CommitInitWithOptions(opts); err != nil {
 			b.Fatalf("CommitInit: %v", err)
 		}
 	}
@@ -326,9 +328,39 @@ func benchmarkMaintainedShowingDECSFixture(b *testing.B, presetName string) {
 }
 
 func BenchmarkDECSMaintainedShowingRowsN1024Compact96(b *testing.B) {
-	benchmarkMaintainedShowingDECSFixture(b, credential.IntGenISISPresetN1024Compact96)
+	b.Run("scalar", func(b *testing.B) {
+		benchmarkMaintainedShowingDECSFixture(b, credential.IntGenISISPresetN1024Compact96, decs.CommitOptions{
+			FormalEvalMode: decs.FormalEvalLegacyScalar,
+		})
+	})
+	b.Run("combined", func(b *testing.B) {
+		benchmarkMaintainedShowingDECSFixture(b, credential.IntGenISISPresetN1024Compact96, decs.CommitOptions{
+			FormalEvalMode: decs.FormalEvalCombined,
+		})
+	})
+	b.Run("tiled8", func(b *testing.B) {
+		benchmarkMaintainedShowingDECSFixture(b, credential.IntGenISISPresetN1024Compact96, decs.CommitOptions{
+			FormalEvalMode:     decs.FormalEvalTiled,
+			FormalEvalTileSize: 8,
+		})
+	})
 }
 
 func BenchmarkDECSMaintainedShowingRowsN1024Compact125(b *testing.B) {
-	benchmarkMaintainedShowingDECSFixture(b, credential.IntGenISISPresetN1024Compact125)
+	b.Run("scalar", func(b *testing.B) {
+		benchmarkMaintainedShowingDECSFixture(b, credential.IntGenISISPresetN1024Compact125, decs.CommitOptions{
+			FormalEvalMode: decs.FormalEvalLegacyScalar,
+		})
+	})
+	b.Run("combined", func(b *testing.B) {
+		benchmarkMaintainedShowingDECSFixture(b, credential.IntGenISISPresetN1024Compact125, decs.CommitOptions{
+			FormalEvalMode: decs.FormalEvalCombined,
+		})
+	})
+	b.Run("tiled8", func(b *testing.B) {
+		benchmarkMaintainedShowingDECSFixture(b, credential.IntGenISISPresetN1024Compact125, decs.CommitOptions{
+			FormalEvalMode:     decs.FormalEvalTiled,
+			FormalEvalTileSize: 8,
+		})
+	})
 }

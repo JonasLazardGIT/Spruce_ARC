@@ -64,7 +64,7 @@ func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T)
 	if opts.NCols != tuning.NCols || opts.LVCSNCols != tuning.LVCSNCols || opts.NLeaves != tuning.NLeaves {
 		t.Fatalf("opts did not carry preset geometry: %+v preset=%+v", opts, tuning)
 	}
-	if opts.PRFCompanionMode != PIOP.PRFCompanionModeDirectAuth || opts.PRFCheckpointSamples != tuning.CheckpointSamples {
+	if opts.PRFCompanionMode != PIOP.PRFCompanionModeDirectFull || opts.PRFCheckpointSamples != tuning.CheckpointSamples {
 		t.Fatalf("opts PRF mode/samples=%s/%d", opts.PRFCompanionMode, opts.PRFCheckpointSamples)
 	}
 	if opts.SigShortnessRadix != 11 || opts.SigShortnessL != 4 {

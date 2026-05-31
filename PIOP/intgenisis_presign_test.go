@@ -129,25 +129,44 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	thetaOpts.Rho = 1
 	thetaOpts.EllPrime = 1
 	thetaOpts.TranscriptVersion = TranscriptVersionSmallWood2025
+	thetaOpts.TranscriptProtocolMode = TranscriptProtocolSmallField2025V1
 	thetaProof, err := BuildIntGenISISPreSign(ringQ, pub, wit, thetaOpts)
 	if err != nil {
-		t.Fatalf("build theta>1 proof: %v", err)
+		t.Fatalf("build strict smallfield proof: %v", err)
+	}
+	if thetaProof.TranscriptVersion != TranscriptVersionSmallWood2025 || thetaProof.TranscriptProtocolMode != TranscriptProtocolSmallField2025V1 {
+		t.Fatalf("strict transcript tuple=(%q,%q)", thetaProof.TranscriptVersion, thetaProof.TranscriptProtocolMode)
+	}
+	if thetaProof.SmallField2025 == nil || thetaProof.SmallField2025.Status != SmallField2025StatusLive {
+		t.Fatalf("strict smallfield proof missing live metadata: %+v", thetaProof.SmallField2025)
 	}
 	if thetaProof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV1 {
-		t.Fatalf("theta>1 geometry kind=%q", thetaProof.PCSGeometry.Kind)
+		t.Fatalf("strict smallfield geometry kind=%q", thetaProof.PCSGeometry.Kind)
 	}
 	if thetaProof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRows {
-		t.Fatalf("theta>1 source=%q", thetaProof.PCSGeometry.SmallFieldSource)
+		t.Fatalf("strict smallfield source=%q", thetaProof.PCSGeometry.SmallFieldSource)
 	}
 	if thetaProof.QRoot != ([16]byte{}) || len(thetaProof.QRBits) != 0 || thetaProof.QOpening != nil {
-		t.Fatal("strict theta>1 proof carried redundant Q DECS material")
+		t.Fatal("strict smallfield proof carried redundant Q DECS material")
 	}
 	if len(thetaProof.QPayloadMatrix()) != thetaOpts.Rho*thetaOpts.Theta {
-		t.Fatalf("theta>1 Q payload rows mismatch")
+		t.Fatalf("strict smallfield Q payload rows mismatch")
 	}
 	ok, err = VerifyIntGenISISPreSign(pub, thetaProof, thetaOpts)
 	if err != nil || !ok {
-		t.Fatalf("verify theta>1 proof: ok=%v err=%v", ok, err)
+		t.Fatalf("verify strict smallfield proof: ok=%v err=%v", ok, err)
+	}
+	missingR := *thetaProof
+	missingR.R = nil
+	ok, err = VerifyIntGenISISPreSign(pub, &missingR, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("strict smallfield proof verified without R polynomials")
+	}
+	missingSmallField := *thetaProof
+	missingSmallField.SmallField2025 = nil
+	ok, err = VerifyIntGenISISPreSign(pub, &missingSmallField, thetaOpts)
+	if err == nil && ok {
+		t.Fatal("strict smallfield proof verified without SmallField2025 metadata")
 	}
 	badQPayload := *thetaProof
 	badQPayload.QPayload = copyMatrix(thetaProof.QPayloadMatrix())
@@ -155,14 +174,14 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	badQPayload.QPayload[0][0] = (badQPayload.QPayload[0][0] + 1) % ringQ.Modulus[0]
 	ok, err = VerifyIntGenISISPreSign(pub, &badQPayload, thetaOpts)
 	if err == nil && ok {
-		t.Fatal("theta>1 proof verified with tampered Q payload")
+		t.Fatal("strict smallfield proof verified with tampered Q payload")
 	}
 	missingQPayload := *thetaProof
 	missingQPayload.QPayload = nil
 	missingQPayload.QPayloadBits = nil
 	ok, err = VerifyIntGenISISPreSign(pub, &missingQPayload, thetaOpts)
 	if err == nil && ok {
-		t.Fatal("theta>1 proof verified without Q payload")
+		t.Fatal("strict smallfield proof verified without Q payload")
 	}
 	badQRows := *thetaProof
 	badQRows.QPayload = copyMatrix(thetaProof.QPayloadMatrix())
@@ -174,7 +193,7 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	}
 	ok, err = VerifyIntGenISISPreSign(pub, &badQRows, thetaOpts)
 	if err == nil && ok {
-		t.Fatal("theta>1 proof verified with tampered Q payload row count")
+		t.Fatal("strict smallfield proof verified with tampered Q payload row count")
 	}
 	badQDegree := *thetaProof
 	badQDegree.QPayload = copyMatrix(thetaProof.QPayloadMatrix())
@@ -186,13 +205,13 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	badQDegree.QPayload[0][overflowCoeff] = 1
 	ok, err = VerifyIntGenISISPreSign(pub, &badQDegree, thetaOpts)
 	if err == nil && ok {
-		t.Fatal("theta>1 proof verified with Q payload degree overflow")
+		t.Fatal("strict smallfield proof verified with Q payload degree overflow")
 	}
 	redundantQ := *thetaProof
 	redundantQ.QRoot[0] = 1
 	ok, err = VerifyIntGenISISPreSign(pub, &redundantQ, thetaOpts)
 	if err == nil && ok {
-		t.Fatal("theta>1 proof verified with redundant strict QRoot")
+		t.Fatal("strict smallfield proof verified with redundant QRoot")
 	}
 	wideOpts := opts
 	wideOpts.NLeaves = 1600

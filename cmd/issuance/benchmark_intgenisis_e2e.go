@@ -238,7 +238,9 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		t.SigShortnessRadix = 0
 		t.SigShortnessDigits = 0
 		t.ReplayProjection = ""
-		t.TranscriptMode = ""
+		if t.TranscriptMode == "" {
+			t.TranscriptMode = fallback.TranscriptMode
+		}
 	}
 	return t
 }
@@ -262,16 +264,17 @@ func validateIntGenISISLeafCap(label string, t intGenISISTuning, maxNLeaves int)
 
 func intGenISISTuningToIssuanceOverrides(t intGenISISTuning, ringDegree int) issuanceRuntimeOverrides {
 	return issuanceRuntimeOverrides{
-		NCols:      t.NCols,
-		LVCSNCols:  t.LVCSNCols,
-		NLeaves:    t.NLeaves,
-		Ell:        t.Ell,
-		EllPrime:   t.EllPrime,
-		Eta:        t.Eta,
-		Theta:      t.Theta,
-		Rho:        t.Rho,
-		Kappa:      t.Kappa,
-		RingDegree: ringDegree,
+		NCols:          t.NCols,
+		LVCSNCols:      t.LVCSNCols,
+		NLeaves:        t.NLeaves,
+		Ell:            t.Ell,
+		EllPrime:       t.EllPrime,
+		Eta:            t.Eta,
+		Theta:          t.Theta,
+		Rho:            t.Rho,
+		Kappa:          t.Kappa,
+		TranscriptMode: t.TranscriptMode,
+		RingDegree:     ringDegree,
 	}
 }
 
@@ -385,11 +388,14 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	if err := validateIntGenISISLeafCap("showing", cfg.Showing, cfg.MaxNLeaves); err != nil {
 		return benchmarkIntGenISISE2EReport{}, err
 	}
+	if _, _, err := intGenISISLiveTranscriptConfig(cfg.Issuance.TranscriptMode); err != nil {
+		return benchmarkIntGenISISE2EReport{}, err
+	}
 	if _, _, err := intGenISISLiveTranscriptConfig(cfg.Showing.TranscriptMode); err != nil {
 		return benchmarkIntGenISISE2EReport{}, err
 	}
 	switch cfg.Showing.PRFCompanionMode {
-	case PIOP.PRFCompanionModeOutputAudit, PIOP.PRFCompanionModeDirectAuth, PIOP.PRFCompanionModeAuxInstance:
+	case PIOP.PRFCompanionModeOutputAudit, PIOP.PRFCompanionModeDirectAuth, PIOP.PRFCompanionModeDirectFull, PIOP.PRFCompanionModeAuxInstance:
 	default:
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("unsupported prf companion mode %q", cfg.Showing.PRFCompanionMode)
 	}

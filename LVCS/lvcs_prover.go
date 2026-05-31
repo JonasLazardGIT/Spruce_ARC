@@ -85,8 +85,9 @@ type ProverKey struct {
 // CommitOptions carries benchmark-only commit controls. The zero value keeps
 // the existing transcript and proof bytes.
 type CommitOptions struct {
-	PhaseRecorder   decs.CommitPhaseRecorder
-	DecsWorkerCount int
+	PhaseRecorder      decs.CommitPhaseRecorder
+	DecsWorkerCount    int
+	DecsFormalEvalMode decs.FormalEvalMode
 }
 
 // CommitInitWithParamsAndPoints commits rows against an explicit DECS domain E:
@@ -303,8 +304,9 @@ func CommitInitWithParamsAndPointsWithOptions(
 		return
 	}
 	if root, err = dprover.CommitInitWithOptions(decs.CommitOptions{
-		PhaseRecorder: opts.PhaseRecorder,
-		WorkerCount:   opts.DecsWorkerCount,
+		PhaseRecorder:  opts.PhaseRecorder,
+		WorkerCount:    opts.DecsWorkerCount,
+		FormalEvalMode: opts.DecsFormalEvalMode,
 	}); err != nil {
 		return
 	}

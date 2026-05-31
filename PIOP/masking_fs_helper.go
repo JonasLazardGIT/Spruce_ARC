@@ -824,6 +824,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if proof.PRFCompanion == nil || args.prfCompanionLayout == nil {
 			return nil
 		}
+		if normalizePRFCompanionMode(proof.PRFCompanion.Mode) == PRFCompanionModeDirectFull {
+			return nil
+		}
 		params, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
 		if err != nil {
 			return fmt.Errorf("load prf params: %w", err)

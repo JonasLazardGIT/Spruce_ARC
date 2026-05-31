@@ -143,3 +143,9 @@ func applyShowingSpecificFlagOverrides(t *intGenISISTuning, set map[string]bool,
 		t.TranscriptMode = transcriptMode
 	}
 }
+
+func applyIssuanceSpecificFlagOverrides(t *intGenISISTuning, set map[string]bool, transcriptMode string) {
+	if set["issuance-transcript-mode"] {
+		t.TranscriptMode = transcriptMode
+	}
+}

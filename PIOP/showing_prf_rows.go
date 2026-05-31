@@ -9,11 +9,19 @@ import (
 )
 
 type packedCompanionWitness struct {
-	Rows                []*ring.Poly
-	KeySlots            []CoeffSlot
-	CheckpointSlots     []CoeffSlot
-	FinalTagSlots       []CoeffSlot
-	TotalLogicalScalars int
+	Rows                  []*ring.Poly
+	KeySlots              []CoeffSlot
+	CheckpointSlots       []CoeffSlot
+	FinalRoundOutputSlots []CoeffSlot
+	FinalTagSlots         []CoeffSlot
+	TotalLogicalScalars   int
+}
+
+func prfCompanionRelationVersion(mode PRFCompanionMode) uint8 {
+	if normalizePRFCompanionMode(mode) == PRFCompanionModeDirectFull {
+		return 1
+	}
+	return 0
 }
 
 func packPRFCompanionWitnessRows(
@@ -39,10 +47,12 @@ func packPRFCompanionWitnessRows(
 		return nil, fmt.Errorf("nil packed PRF row builder")
 	}
 	out := &packedCompanionWitness{
-		KeySlots:        make([]CoeffSlot, 0, len(key)),
-		CheckpointSlots: make([]CoeffSlot, 0, len(grouped.CheckpointOutputs)),
-		FinalTagSlots:   make([]CoeffSlot, 0, len(grouped.FinalTagState)),
+		KeySlots:              make([]CoeffSlot, 0, len(key)),
+		CheckpointSlots:       make([]CoeffSlot, 0, len(grouped.CheckpointOutputs)),
+		FinalRoundOutputSlots: make([]CoeffSlot, 0, len(grouped.FinalRoundOutputs)),
+		FinalTagSlots:         make([]CoeffSlot, 0, len(grouped.FinalTagState)),
 	}
+	includeFinalRoundOutputs := normalizePRFCompanionMode(mode) == PRFCompanionModeDirectFull
 	head := make([]uint64, ncols)
 	used := 0
 	keyStart := 0
@@ -80,6 +90,11 @@ func packPRFCompanionWitnessRows(
 		for _, v := range grouped.CheckpointOutputs {
 			out.CheckpointSlots = append(out.CheckpointSlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
 		}
+		if includeFinalRoundOutputs {
+			for _, v := range grouped.FinalRoundOutputs {
+				out.FinalRoundOutputSlots = append(out.FinalRoundOutputSlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
+			}
+		}
 		for _, v := range grouped.FinalTagState {
 			out.FinalTagSlots = append(out.FinalTagSlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
 		}
@@ -96,6 +111,11 @@ func packPRFCompanionWitnessRows(
 	flush()
 	for _, v := range grouped.CheckpointOutputs {
 		out.CheckpointSlots = append(out.CheckpointSlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
+	}
+	if includeFinalRoundOutputs {
+		for _, v := range grouped.FinalRoundOutputs {
+			out.FinalRoundOutputSlots = append(out.FinalRoundOutputSlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
+		}
 	}
 	for _, v := range grouped.FinalTagState {
 		out.FinalTagSlots = append(out.FinalTagSlots, appendScalar(uint64(v)%ringQ.Modulus[0]))

@@ -130,7 +130,8 @@ func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs
 		return
 	}
 	root, pk, err = lvcs.CommitInitWithParamsAndPointsWithOptions(ringQ, rows, ell, decsParams, points, lvcs.CommitOptions{
-		PhaseRecorder: phase,
+		PhaseRecorder:      phase,
+		DecsFormalEvalMode: decs.FormalEvalCombined,
 	})
 	if err != nil {
 		return

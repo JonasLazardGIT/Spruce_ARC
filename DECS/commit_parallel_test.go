@@ -136,8 +136,9 @@ func TestCommitInitTiledMatchesScalarLegacyRoot(t *testing.T) {
 	openScalar := prScalar.EvalOpen([]int{0, 5, 123, 255})
 
 	prOptimized := makeDeterministicFormalProver(t)
-	rootOptimized, err := prOptimized.commitInitWithOptions(commitInitOptions{
-		workerCount: 3,
+	rootOptimized, err := prOptimized.CommitInitWithOptions(CommitOptions{
+		FormalEvalMode: FormalEvalCombined,
+		WorkerCount:    3,
 	})
 	if err != nil {
 		t.Fatalf("optimized commit init: %v", err)
@@ -145,9 +146,10 @@ func TestCommitInitTiledMatchesScalarLegacyRoot(t *testing.T) {
 	openOptimized := prOptimized.EvalOpen([]int{0, 5, 123, 255})
 
 	prTiled := makeDeterministicFormalProver(t)
-	rootTiled, err := prTiled.commitInitWithOptions(commitInitOptions{
-		workerCount: 3,
-		tileSize:    7,
+	rootTiled, err := prTiled.CommitInitWithOptions(CommitOptions{
+		FormalEvalMode:     FormalEvalTiled,
+		FormalEvalTileSize: 7,
+		WorkerCount:        3,
 	})
 	if err != nil {
 		t.Fatalf("tiled commit init: %v", err)

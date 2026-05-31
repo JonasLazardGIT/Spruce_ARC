@@ -143,6 +143,43 @@ func TestSetupNTRUKeysRejectsRemovedResearchDegree(t *testing.T) {
 	}
 }
 
+func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
+	preset, ok := credential.LookupIntGenISISPreset(credential.IntGenISISPresetN1024Compact125)
+	if !ok {
+		t.Fatal("n1024-compact125 preset missing")
+	}
+	issuance := intGenISISTuningFromPresetSpec(preset.Issuance)
+	showing := intGenISISTuningFromPresetSpec(preset.Showing)
+	normalized := normalizeIntGenISISTuning(issuance, showing, false)
+	if normalized.TranscriptMode != sweepTranscriptModeSmallField2025 {
+		t.Fatalf("normalized issuance transcript mode=%q", normalized.TranscriptMode)
+	}
+	overrides := intGenISISTuningToIssuanceOverrides(normalized, credential.Ternary1024IntGenISISProfile().N)
+	if overrides.TranscriptMode != sweepTranscriptModeSmallField2025 {
+		t.Fatalf("issuance override transcript mode=%q", overrides.TranscriptMode)
+	}
+	opts := applyIssuanceRuntimeOverrides(PIOP.SimOpts{}, overrides)
+	if opts.TranscriptVersion != PIOP.TranscriptVersionSmallWood2025 || opts.TranscriptProtocolMode != PIOP.TranscriptProtocolSmallField2025V1 {
+		t.Fatalf("issuance opts transcript tuple=(%q,%q)", opts.TranscriptVersion, opts.TranscriptProtocolMode)
+	}
+	spec := smallWoodTuningSpecFromOpts(opts)
+	if spec.TranscriptMode != sweepTranscriptModeSmallField2025 {
+		t.Fatalf("persisted SmallWood transcript mode=%q", spec.TranscriptMode)
+	}
+	roundTrip := persistedIssuanceRuntimeOverridesWithSmallWood(spec.NCols, spec.LVCSNCols, spec.NLeaves, nil, spec)
+	if roundTrip.TranscriptMode != sweepTranscriptModeSmallField2025 {
+		t.Fatalf("round-trip override transcript mode=%q", roundTrip.TranscriptMode)
+	}
+
+	applyIssuanceSpecificFlagOverrides(&issuance, map[string]bool{"issuance-transcript-mode": true}, sweepTranscriptModeBaseline)
+	baseline := normalizeIntGenISISTuning(issuance, showing, false)
+	baselineOverrides := intGenISISTuningToIssuanceOverrides(baseline, credential.Ternary1024IntGenISISProfile().N)
+	baselineOpts := applyIssuanceRuntimeOverrides(PIOP.SimOpts{}, baselineOverrides)
+	if baselineOpts.TranscriptVersion != "" || baselineOpts.TranscriptProtocolMode != "" {
+		t.Fatalf("baseline issuance opts transcript tuple=(%q,%q)", baselineOpts.TranscriptVersion, baselineOpts.TranscriptProtocolMode)
+	}
+}
+
 func TestDeriveOmegaForIssuanceOptsUsesRelationAwareWitnessOmega(t *testing.T) {
 	root := issuanceTestRepoRoot(t)
 	chdirForIssuanceTest(t, root)

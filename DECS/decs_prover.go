@@ -537,10 +537,26 @@ type CommitPhaseRecorder interface {
 // CommitOptions carries non-transcript-affecting CommitInit controls.
 // The zero value preserves the normal legacy-compatible proving path.
 type CommitOptions struct {
-	PhaseRecorder   CommitPhaseRecorder
-	WorkerCount     int
-	RecordSubphases bool
+	PhaseRecorder      CommitPhaseRecorder
+	WorkerCount        int
+	RecordSubphases    bool
+	FormalEvalMode     FormalEvalMode
+	FormalEvalTileSize int
 }
+
+// FormalEvalMode selects the internal formal-row evaluator used by CommitInit.
+// All modes keep the legacy leaf bytes and Merkle tree format; they are
+// expected to produce identical roots when masks and nonces are fixed.
+type FormalEvalMode uint8
+
+const (
+	// FormalEvalLegacyScalar preserves the existing per-leaf scalar evaluator.
+	FormalEvalLegacyScalar FormalEvalMode = iota
+	// FormalEvalCombined scans the combined P||M formal plan once per leaf.
+	FormalEvalCombined
+	// FormalEvalTiled scans the combined P||M formal plan across small leaf tiles.
+	FormalEvalTiled
+)
 
 type commitInitOptions struct {
 	phaseRecorder         CommitPhaseRecorder
@@ -592,12 +608,26 @@ func (pr *Prover) CommitInit() ([16]byte, error) {
 // the legacy leaf encoding and tree format so roots and proof bytes are
 // unchanged relative to CommitInit for fixed masks/nonces.
 func (pr *Prover) CommitInitWithOptions(opts CommitOptions) ([16]byte, error) {
-	return pr.commitInitWithOptions(commitInitOptions{
+	internal := commitInitOptions{
 		phaseRecorder:         opts.PhaseRecorder,
 		workerCount:           opts.WorkerCount,
 		forceScalarFormalEval: true,
 		recordSubphases:       opts.RecordSubphases,
-	})
+	}
+	switch opts.FormalEvalMode {
+	case FormalEvalLegacyScalar:
+	case FormalEvalCombined:
+		internal.forceScalarFormalEval = false
+	case FormalEvalTiled:
+		internal.forceScalarFormalEval = false
+		internal.tileSize = opts.FormalEvalTileSize
+		if internal.tileSize <= 0 {
+			internal.tileSize = 8
+		}
+	default:
+		return [16]byte{}, fmt.Errorf("decs: unknown formal eval mode %d", opts.FormalEvalMode)
+	}
+	return pr.commitInitWithOptions(internal)
 }
 
 func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error) {

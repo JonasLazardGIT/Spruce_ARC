@@ -97,6 +97,7 @@ func TestPaperTranscriptReportIncludesRingDegree(t *testing.T) {
 func TestStrictSmallWoodProofSizeExcludesLegacyQDECS(t *testing.T) {
 	proof := &Proof{
 		TranscriptVersion: TranscriptVersionSmallWood2025,
+		R:                 [][]uint64{{1, 2, 3}, {4, 5, 6}},
 		QRoot:             [16]byte{1},
 		QRBits:            []byte{1, 2, 3},
 		QPayloadBits:      []byte{4, 5},
@@ -114,6 +115,9 @@ func TestStrictSmallWoodProofSizeExcludesLegacyQDECS(t *testing.T) {
 	}
 	if parts["QPayload"] != len(proof.QPayloadBits) {
 		t.Fatalf("strict proof QPayload bytes=%d want %d", parts["QPayload"], len(proof.QPayloadBits))
+	}
+	if parts["R"] != sizePackedUintMatrix(proof.R) {
+		t.Fatalf("strict proof R bytes=%d want %d", parts["R"], sizePackedUintMatrix(proof.R))
 	}
 	audit, err := BuildProofPackingAudit(proof, 12289)
 	if err != nil {

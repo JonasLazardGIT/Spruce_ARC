@@ -338,6 +338,7 @@ type PRFCompanionMode string
 const (
 	PRFCompanionModeOutputAudit PRFCompanionMode = "output_audit"
 	PRFCompanionModeDirectAuth  PRFCompanionMode = "direct_auth"
+	PRFCompanionModeDirectFull  PRFCompanionMode = "direct_full"
 	PRFCompanionModeAuxInstance PRFCompanionMode = "aux_instance"
 )
 
@@ -358,7 +359,7 @@ const (
 
 func normalizePRFCompanionMode(mode PRFCompanionMode) PRFCompanionMode {
 	switch mode {
-	case PRFCompanionModeOutputAudit, PRFCompanionModeDirectAuth, PRFCompanionModeAuxInstance:
+	case PRFCompanionModeOutputAudit, PRFCompanionModeDirectAuth, PRFCompanionModeDirectFull, PRFCompanionModeAuxInstance:
 		return mode
 	case "":
 		return ""
@@ -2319,6 +2320,11 @@ func sizeUint64Matrix(mat [][]uint64) int {
 	return sum
 }
 
+func sizePackedUintMatrix(mat [][]uint64) int {
+	bits, _, _, _ := decs.PackUintMatrix(mat)
+	return len(bits)
+}
+
 func varintSize(x int) int {
 	if x < 0 {
 		x = -x
@@ -2448,6 +2454,7 @@ func estimateProofSize(proof *Proof) int {
 	sum += len(proof.Chi) * 8
 	sum += len(proof.Zeta) * 8
 	sum += len(proof.Tail) * 4
+	sum += sizePackedUintMatrix(proof.R)
 	sum += len(proof.QPayloadBits)
 	if !proofUsesPaperQPayloadOnly(proof) {
 		sum += 16 // QRoot
@@ -2496,6 +2503,7 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 	sizes["Chi"] = len(proof.Chi) * 8
 	sizes["Zeta"] = len(proof.Zeta) * 8
 	sizes["TailIndices"] = len(proof.Tail) * 4
+	sizes["R"] = sizePackedUintMatrix(proof.R)
 	sizes["QRoot"] = 0
 	sizes["QR"] = 0
 	if !proofUsesPaperQPayloadOnly(proof) {

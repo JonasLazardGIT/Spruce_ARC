@@ -36,15 +36,16 @@ type intGenISISHolderWitnessSpec struct {
 }
 
 type smallWoodTuningSpec struct {
-	NCols     int    `json:"ncols,omitempty"`
-	LVCSNCols int    `json:"lvcs_ncols,omitempty"`
-	NLeaves   int    `json:"nleaves,omitempty"`
-	Ell       int    `json:"ell,omitempty"`
-	EllPrime  int    `json:"ell_prime,omitempty"`
-	Eta       int    `json:"eta,omitempty"`
-	Theta     int    `json:"theta,omitempty"`
-	Rho       int    `json:"rho,omitempty"`
-	Kappa     [4]int `json:"kappa,omitempty"`
+	NCols          int    `json:"ncols,omitempty"`
+	LVCSNCols      int    `json:"lvcs_ncols,omitempty"`
+	NLeaves        int    `json:"nleaves,omitempty"`
+	Ell            int    `json:"ell,omitempty"`
+	EllPrime       int    `json:"ell_prime,omitempty"`
+	Eta            int    `json:"eta,omitempty"`
+	Theta          int    `json:"theta,omitempty"`
+	Rho            int    `json:"rho,omitempty"`
+	Kappa          [4]int `json:"kappa,omitempty"`
+	TranscriptMode string `json:"transcript_mode,omitempty"`
 }
 
 type holderSecretFile struct {
@@ -100,16 +101,17 @@ type issuanceRuntime struct {
 }
 
 type issuanceRuntimeOverrides struct {
-	NCols      int
-	LVCSNCols  int
-	NLeaves    int
-	Ell        int
-	EllPrime   int
-	Eta        int
-	Theta      int
-	Rho        int
-	Kappa      [4]int
-	RingDegree int
+	NCols          int
+	LVCSNCols      int
+	NLeaves        int
+	Ell            int
+	EllPrime       int
+	Eta            int
+	Theta          int
+	Rho            int
+	Kappa          [4]int
+	TranscriptMode string
+	RingDegree     int
 }
 
 func ntruSigningPaths(paramsPath, publicPath, privatePath, signaturePath string) signverify.SignPaths {
@@ -152,21 +154,27 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 		out.Theta = spec.Theta
 		out.Rho = spec.Rho
 		out.Kappa = spec.Kappa
+		out.TranscriptMode = spec.TranscriptMode
 	}
 	return out
 }
 
 func smallWoodTuningSpecFromOpts(opts PIOP.SimOpts) *smallWoodTuningSpec {
+	transcriptMode := ""
+	if opts.TranscriptProtocolMode == PIOP.TranscriptProtocolSmallField2025V1 {
+		transcriptMode = sweepTranscriptModeSmallField2025
+	}
 	return &smallWoodTuningSpec{
-		NCols:     opts.NCols,
-		LVCSNCols: opts.LVCSNCols,
-		NLeaves:   opts.NLeaves,
-		Ell:       opts.Ell,
-		EllPrime:  opts.EllPrime,
-		Eta:       opts.Eta,
-		Theta:     opts.Theta,
-		Rho:       opts.Rho,
-		Kappa:     opts.Kappa,
+		NCols:          opts.NCols,
+		LVCSNCols:      opts.LVCSNCols,
+		NLeaves:        opts.NLeaves,
+		Ell:            opts.Ell,
+		EllPrime:       opts.EllPrime,
+		Eta:            opts.Eta,
+		Theta:          opts.Theta,
+		Rho:            opts.Rho,
+		Kappa:          opts.Kappa,
+		TranscriptMode: transcriptMode,
 	}
 }
 
@@ -201,6 +209,11 @@ func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeO
 	}
 	if overrides.Kappa != ([4]int{}) {
 		opts.Kappa = overrides.Kappa
+	}
+	if overrides.TranscriptMode != "" {
+		opts.TranscriptCodec = intGenISISLiveTranscriptCodecOrDefault(overrides.TranscriptMode)
+		opts.TranscriptProtocolMode = intGenISISLiveTranscriptProtocolOrDefault(overrides.TranscriptMode)
+		opts.TranscriptVersion = intGenISISLiveTranscriptVersionOrDefault(overrides.TranscriptMode)
 	}
 	return opts
 }
@@ -884,6 +897,9 @@ func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOv
 	}
 	opts := defaultIssuanceOpts(prfParams)
 	opts.RingDegree = int(ringQ.N)
+	if _, _, err := intGenISISLiveTranscriptConfig(overrides.TranscriptMode); err != nil {
+		return nil, err
+	}
 	opts = applyIssuanceRuntimeOverrides(opts, overrides)
 	opts = defaultIssuanceOptsResolved(prfParams, opts)
 	omega, err := deriveOmegaForIssuanceOpts(ringQ, public.HashRelation, opts)

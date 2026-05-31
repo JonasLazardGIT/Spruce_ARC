@@ -212,8 +212,8 @@ func main() {
 	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override")
 	packedSigChainGroupSize := flag.Int("packed-sig-chain-group-size", 0, "reserved packed signature shortness group-size override; optimized inline-target profile requires 1")
 	sigShortnessNCols := flag.Int("sig-shortness-ncols", 0, "reserved signature-shortness width override for future single-root packing")
-	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode: output_audit, direct_auth, or aux_instance")
-	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth")
+	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode: output_audit, direct_auth, direct_full, or aux_instance")
+	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth; direct_full proves the full relation without sampled openings")
 	intGenISISCompressedRows := flag.Int("intgenisis-compressed-rows", 0, "IntGenISIS M/s/e compression level: 0 none, 1 pack2, 2 pack3, 3 pack4")
 	intGenISISReplayProjection := flag.String("intgenisis-replay-projection", PIOP.IntGenISISReplayProjectionNone, "IntGenISIS replay projection mode: none, project_u_y_hat_v1, project_u_y_hat_and_y_view_v2, project_u_digits_and_y_view_v3, experimental project_u_digits_y_source_linear_v4, or experimental project_u_digits_y_w_residual_v5")
 	statePathFlag := flag.String("state-path", "", "credential state path for showing; defaults to the selected maintained profile artifact")
@@ -592,7 +592,9 @@ func main() {
 	}
 	switch opts.PRFCompanionMode {
 	case PIOP.PRFCompanionModeDirectAuth:
-		// direct_auth is the maintained compact preset companion mode.
+		// direct_auth remains supported for legacy compact companion proofs.
+	case PIOP.PRFCompanionModeDirectFull:
+		// direct_full is the maintained compact preset companion mode.
 	case PIOP.PRFCompanionModeAuxInstance:
 		cli.printf(categoryWarning, "[showing-cli] ", "warning: aux_instance is outside the maintained compact preset surface")
 	case "current":

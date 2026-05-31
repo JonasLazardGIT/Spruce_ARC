@@ -109,6 +109,13 @@ func prfCompanionFinalTagRowIndices(layout *PRFCompanionLayout) []int {
 	return uniqueRowsFromCoeffSlots(layout.FinalTagSlots)
 }
 
+func prfCompanionFinalRoundOutputRowIndices(layout *PRFCompanionLayout) []int {
+	if layout == nil {
+		return nil
+	}
+	return uniqueRowsFromCoeffSlots(layout.FinalRoundOutputSlots)
+}
+
 func prfCompanionHelperRowIndices(layout *PRFCompanionLayout) []int {
 	if layout == nil || layout.HelperRows <= 0 {
 		return nil
@@ -124,6 +131,7 @@ func prfCompanionHelperRowIndices(layout *PRFCompanionLayout) []int {
 func prfCompanionDirectAuthRowIndices(layout *PRFCompanionLayout) []int {
 	rows := make([]int, 0)
 	rows = append(rows, prfCompanionCheckpointRowIndices(layout)...)
+	rows = append(rows, prfCompanionFinalRoundOutputRowIndices(layout)...)
 	rows = append(rows, prfCompanionFinalTagRowIndices(layout)...)
 	rows = append(rows, prfCompanionHelperRowIndices(layout)...)
 	return sortedUniqueInts(rows)

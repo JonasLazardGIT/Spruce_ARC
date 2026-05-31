@@ -26,6 +26,8 @@ type intGenISISShowingReplayConfig struct {
 	KeySlots             []CoeffSlot
 	KeySource            []CoeffSlot
 	KeySourceDecodeLanes []int
+	PRFDirectFullStart   int
+	PRFDirectFullCount   int
 	Lagrange             [][]uint64
 	BridgeBasis          *transformBridgeBasisCache
 	YLinear              *intGenISISYLinearMapCache
@@ -180,6 +182,10 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	if prfCompanionLayout != nil && len(prfCompanionLayout.KeySourceDecodeLanes) > 0 {
 		keySourceDecodeLanes = append([]int(nil), prfCompanionLayout.KeySourceDecodeLanes...)
 	}
+	prfDirectFullCount := 0
+	if prfCompanionLayout != nil && prfCompanionLayout.RelationVersion == 1 {
+		prfDirectFullCount = len(prfCompanionLayout.CheckpointSlots) + len(prfCompanionLayout.FinalRoundOutputSlots) + 2*len(prfCompanionLayout.FinalTagSlots)
+	}
 	compressionSpec := intGenISISMSECompressionSpec{}
 	if l.MSECompressionLevel > 0 {
 		compressionSpec, err = newIntGenISISMSECompressionSpecForBound(ringQ.Modulus[0], l.MSECompressionLevel, pub.BoundB)
@@ -204,6 +210,13 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	if err != nil {
 		return nil, err
 	}
+	prfDirectFullStart := 0
+	if prfDirectFullCount > 0 {
+		prfDirectFullStart = len(keySlots)
+		if !intGenISISProjectionDerivesYView(l) {
+			prfDirectFullStart += l.ViewRowsPerPoly * len(yLinear.Lagrange)
+		}
+	}
 	return &intGenISISShowingReplayConfig{
 		Ring:                 ringQ,
 		Layout:               *l,
@@ -222,11 +235,24 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		KeySlots:             keySlots,
 		KeySource:            keySource,
 		KeySourceDecodeLanes: keySourceDecodeLanes,
+		PRFDirectFullStart:   prfDirectFullStart,
+		PRFDirectFullCount:   prfDirectFullCount,
 		Lagrange:             lagrange,
 		BridgeBasis:          bridgeBasis,
 		YLinear:              yLinear,
 		MSECompression:       compressionSpec,
 	}, nil
+}
+
+func (cfg *intGenISISShowingReplayConfig) PRFDirectFullFaggOverrideIdxs() []int {
+	if cfg == nil || cfg.PRFDirectFullCount <= 0 {
+		return nil
+	}
+	out := make([]int, cfg.PRFDirectFullCount)
+	for i := range out {
+		out[i] = cfg.PRFDirectFullStart + i
+	}
+	return out
 }
 
 func (cfg *intGenISISShowingReplayConfig) bridgeSpecs() []struct {
@@ -1042,6 +1068,9 @@ func (cfg *intGenISISShowingReplayConfig) CoreEvaluator() ConstraintEvaluator {
 			}
 			fagg = append(fagg, yVals...)
 		}
+		for i := 0; i < cfg.PRFDirectFullCount; i++ {
+			fagg = append(fagg, 0)
+		}
 		if projectedUY {
 			projectedVals, err := cfg.evalProjectedSignatureF(x, getRow)
 			if err != nil {
@@ -1247,6 +1276,9 @@ func (cfg *intGenISISShowingReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 				return nil, nil, err
 			}
 			fagg = append(fagg, yVals...)
+		}
+		for i := 0; i < cfg.PRFDirectFullCount; i++ {
+			fagg = append(fagg, K.Zero())
 		}
 		if projectedUY {
 			projectedVals, err := cfg.evalProjectedSignatureK(K, e, getRow)

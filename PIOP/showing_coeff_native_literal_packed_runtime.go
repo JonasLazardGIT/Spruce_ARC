@@ -918,6 +918,7 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 		}
 		dataSlotRows := append([]CoeffSlot(nil), packed.KeySlots...)
 		dataSlotRows = append(dataSlotRows, packed.CheckpointSlots...)
+		dataSlotRows = append(dataSlotRows, packed.FinalRoundOutputSlots...)
 		dataRows := len(uniqueRowsFromCoeffSlots(dataSlotRows))
 		helperRows := maxInt(len(packed.Rows)-dataRows, 0)
 		helperFamilies := []string{"final_tag_state"}
@@ -925,24 +926,28 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			helperFamilies = nil
 		}
 		prfCompanionLayout = &PRFCompanionLayout{
-			StartRow:           companionStart,
-			PackWidth:          ncols,
-			KeySource:          KeySourceIndependentWitness,
-			KeySlots:           packed.KeySlots,
-			KeySourceSlots:     nil,
-			CheckpointSlots:    packed.CheckpointSlots,
-			FinalTagSlots:      packed.FinalTagSlots,
-			HelperFamilies:     helperFamilies,
-			ReplayRows:         len(packed.Rows),
-			PackedRows:         len(packed.Rows),
-			PackedLogicalCount: packed.TotalLogicalScalars,
-			HelperRowCount:     helperRows,
-			DataRows:           dataRows,
-			HelperRows:         helperRows,
-			KeyCount:           len(packed.KeySlots),
-			CheckpointCount:    len(packed.CheckpointSlots),
-			TagCount:           len(pub.Tag),
-			RowSemantics:       rowSemantics,
+			StartRow:              companionStart,
+			PackWidth:             ncols,
+			GroupRounds:           prfGroupRounds,
+			KeySource:             KeySourceIndependentWitness,
+			KeySlots:              packed.KeySlots,
+			KeySourceSlots:        nil,
+			CheckpointSlots:       packed.CheckpointSlots,
+			FinalRoundOutputSlots: packed.FinalRoundOutputSlots,
+			FinalTagSlots:         packed.FinalTagSlots,
+			HelperFamilies:        helperFamilies,
+			ReplayRows:            len(packed.Rows),
+			PackedRows:            len(packed.Rows),
+			PackedLogicalCount:    packed.TotalLogicalScalars,
+			HelperRowCount:        helperRows,
+			DataRows:              dataRows,
+			HelperRows:            helperRows,
+			KeyCount:              len(packed.KeySlots),
+			CheckpointCount:       len(packed.CheckpointSlots),
+			FinalRoundOutputCount: len(packed.FinalRoundOutputSlots),
+			TagCount:              len(pub.Tag),
+			RelationVersion:       prfCompanionRelationVersion(companionMode),
+			RowSemantics:          rowSemantics,
 		}
 		if companionMode == PRFCompanionModeAuxInstance {
 			pcsNCols := resolvePCSNCols(opts, ncols)
@@ -1616,6 +1621,9 @@ func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, 
 	}
 	if domainMode != DomainModeExplicit {
 		return ConstraintSet{}, fmt.Errorf("literal packed aggregated mode requires explicit domain mode")
+	}
+	if prfCompanionLayout != nil && prfCompanionLayout.RelationVersion == 1 {
+		return ConstraintSet{}, fmt.Errorf("direct_full PRF companion is only implemented for IntGenISIS showing constraints")
 	}
 	var baseSet ConstraintSet
 	if rowLayoutCoeffNativeUsesTransformBridge(layout) {

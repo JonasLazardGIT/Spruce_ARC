@@ -15,7 +15,7 @@ import (
 
 const (
 	// This file supports the non-maintained PRF companion aux-instance path.
-	// Maintained IntGenISIS presets use direct_auth and do not invoke this
+	// Maintained IntGenISIS presets use direct_full and do not invoke this
 	// module.
 	prfAuxMainRootExtraKey     = "prf_aux_main_root"
 	prfAuxCoordDigestExtraKey  = "prf_aux_coord_digest"
@@ -175,6 +175,7 @@ func rebasePRFCompanionLayout(layout *PRFCompanionLayout) *PRFCompanionLayout {
 	adjust(out.KeySlots)
 	adjust(out.KeySourceSlots)
 	adjust(out.CheckpointSlots)
+	adjust(out.FinalRoundOutputSlots)
 	adjust(out.FinalTagSlots)
 	return out
 }

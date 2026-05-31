@@ -644,6 +644,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 		}
 		dataSlots := append([]CoeffSlot(nil), packed.KeySlots...)
 		dataSlots = append(dataSlots, packed.CheckpointSlots...)
+		dataSlots = append(dataSlots, packed.FinalRoundOutputSlots...)
 		dataRows := len(uniqueRowsFromCoeffSlots(dataSlots))
 		helperRows := maxInt(len(packed.Rows)-dataRows, 0)
 		keySourceSlots := []CoeffSlot(nil)
@@ -661,25 +662,29 @@ func BuildCredentialRowsShowingIntGenISIS(
 			}
 		}
 		prfCompanionLayout = &PRFCompanionLayout{
-			StartRow:             companionStart,
-			PackWidth:            ncols,
-			KeySource:            KeySourceIndependentWitness,
-			KeySlots:             packed.KeySlots,
-			KeySourceSlots:       keySourceSlots,
-			KeySourceDecodeLanes: keySourceDecodeLanes,
-			CheckpointSlots:      packed.CheckpointSlots,
-			FinalTagSlots:        packed.FinalTagSlots,
-			HelperFamilies:       []string{"final_tag_state"},
-			ReplayRows:           len(packed.Rows),
-			PackedRows:           len(packed.Rows),
-			PackedLogicalCount:   packed.TotalLogicalScalars,
-			HelperRowCount:       helperRows,
-			DataRows:             dataRows,
-			HelperRows:           helperRows,
-			KeyCount:             len(packed.KeySlots),
-			CheckpointCount:      len(packed.CheckpointSlots),
-			TagCount:             len(pub.Tag),
-			RowSemantics:         rowSemantics,
+			StartRow:              companionStart,
+			PackWidth:             ncols,
+			GroupRounds:           prfGroupRounds,
+			KeySource:             KeySourceIndependentWitness,
+			KeySlots:              packed.KeySlots,
+			KeySourceSlots:        keySourceSlots,
+			KeySourceDecodeLanes:  keySourceDecodeLanes,
+			CheckpointSlots:       packed.CheckpointSlots,
+			FinalRoundOutputSlots: packed.FinalRoundOutputSlots,
+			FinalTagSlots:         packed.FinalTagSlots,
+			HelperFamilies:        []string{"final_tag_state"},
+			ReplayRows:            len(packed.Rows),
+			PackedRows:            len(packed.Rows),
+			PackedLogicalCount:    packed.TotalLogicalScalars,
+			HelperRowCount:        helperRows,
+			DataRows:              dataRows,
+			HelperRows:            helperRows,
+			KeyCount:              len(packed.KeySlots),
+			CheckpointCount:       len(packed.CheckpointSlots),
+			FinalRoundOutputCount: len(packed.FinalRoundOutputSlots),
+			TagCount:              len(pub.Tag),
+			RelationVersion:       prfCompanionRelationVersion(companionMode),
+			RowSemantics:          rowSemantics,
 		}
 		if companionMode == PRFCompanionModeAuxInstance {
 			var aerr error
@@ -2624,6 +2629,7 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 
 	bridgePolys := append([]*ring.Poly{}, keyBindPolys...)
 	bridgeCoeffs := append([][]uint64{}, keyBindCoeffs...)
+	prfDirectFullDegree := 0
 	if !derivedYView {
 		yPolys, yCoeffs, err := intGenISISYLinearConstraintFormalCoeffs(ringQ, rowsNTT, rowCache, l, yLinearCache, compressionSpec)
 		if err != nil {
@@ -2631,6 +2637,38 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 		}
 		bridgePolys = append(bridgePolys, yPolys...)
 		bridgeCoeffs = append(bridgeCoeffs, yCoeffs...)
+	}
+	if prfCompanionLayout != nil && prfCompanionLayout.RelationVersion == 1 {
+		var prfFullPolys []*ring.Poly
+		var prfFullCoeffs [][]uint64
+		if err := stage("showing.constraints.prf_direct_full", func() error {
+			params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+			if perr != nil {
+				return fmt.Errorf("load prf params: %w", perr)
+			}
+			var degree int
+			var ferr error
+			prfFullPolys, prfFullCoeffs, degree, ferr = buildPRFCompanionDirectFullFormalCoeffs(
+				ringQ,
+				params,
+				rowsNTT,
+				rowCache,
+				prfCompanionLayout,
+				pub.Tag,
+				pub.Nonce,
+				omega,
+				prfCompanionLayout.GroupRounds,
+			)
+			if ferr != nil {
+				return ferr
+			}
+			prfDirectFullDegree = degree
+			return nil
+		}); err != nil {
+			return ConstraintSet{}, err
+		}
+		bridgePolys = append(bridgePolys, prfFullPolys...)
+		bridgeCoeffs = append(bridgeCoeffs, prfFullCoeffs...)
 	}
 	if projectedUY {
 		var projectedPolys []*ring.Poly
@@ -2705,7 +2743,7 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 		FaggNorm:         bridgePolys,
 		FaggNormCoeffs:   bridgeCoeffs,
 		ParallelAlgDeg:   maxInt(maxInt(2, intGenISISMembershipDegree(pub.BoundB)), maxInt(shortDegree, compressionSpec.Descriptor.MembershipDeg)),
-		AggregatedAlgDeg: maxInt(2, compressionSpec.Descriptor.DecodeDegree),
+		AggregatedAlgDeg: maxInt(maxInt(2, compressionSpec.Descriptor.DecodeDegree), prfDirectFullDegree),
 	}, nil
 }
 

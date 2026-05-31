@@ -98,7 +98,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		Ell:                7,
 		EllPrime:           1,
 		Kappa:              [4]int{0, 0, 6, 8},
-		PRFCompanionMode:   "direct_auth",
+		PRFCompanionMode:   "direct_full",
 		PRFGroupRounds:     2,
 		CheckpointSamples:  1,
 		SigShortnessRadix:  7,
@@ -120,7 +120,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		Ell:                7,
 		EllPrime:           1,
 		Kappa:              [4]int{0, 0, 6, 11},
-		PRFCompanionMode:   "direct_auth",
+		PRFCompanionMode:   "direct_full",
 		PRFGroupRounds:     2,
 		CheckpointSamples:  1,
 		SigShortnessRadix:  7,
@@ -143,7 +143,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		Ell:                9,
 		EllPrime:           1,
 		Kappa:              [4]int{0, 0, 0, 5},
-		PRFCompanionMode:   "direct_auth",
+		PRFCompanionMode:   "direct_full",
 		PRFGroupRounds:     2,
 		CheckpointSamples:  1,
 		SigShortnessRadix:  11,
@@ -185,7 +185,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Showing:           n1024Show96,
 			Notes: []string{
 				"Maintained degree-1024 compact 96-bit preset.",
-				"Uses smallfield_2025_1085_v1 only for showing; issuance remains dense-compatible while sharing the security tuple.",
+				"Uses smallfield_2025_1085_v1 for issuance and showing while sharing the security tuple.",
 			},
 		},
 		IntGenISISPresetN1024Compact125: {
@@ -215,6 +215,5 @@ func intGenISISIssuanceTuning(showing IntGenISISTuningPreset) IntGenISISTuningPr
 	issuance.SigShortnessDigits = 0
 	issuance.CompressedRows = 0
 	issuance.ReplayProjection = ""
-	issuance.TranscriptMode = ""
 	return issuance
 }
