@@ -200,21 +200,6 @@ func (f *Field) SubInto(dst *Elem, a, b Elem) {
 	}
 }
 
-// MulBaseInto sets dst = scalar * src for a base-field scalar.
-func (f *Field) MulBaseInto(dst *Elem, src Elem, scalar uint64) {
-	f.ensureElem(dst)
-	scalar %= f.Q
-	if scalar == 0 {
-		for i := 0; i < f.Theta; i++ {
-			dst.Limb[i] = 0
-		}
-		return
-	}
-	for i := 0; i < f.Theta; i++ {
-		dst.Limb[i] = f.mulReduced(src.Limb[i]%f.Q, scalar)
-	}
-}
-
 // AddMulBaseInto accumulates scalar * src into acc for a base-field scalar.
 func (f *Field) AddMulBaseInto(acc *Elem, src Elem, scalar uint64) {
 	f.ensureElem(acc)

@@ -1,0 +1,40 @@
+.git/
+.gocache/
+.private/
+.vscode/
+
+# Local outputs and generated runtime state.
+artifacts/
+out/
+local_docs/
+credential/keys/
+credential/issuance/
+ntru_keys/
+PIOP/ntru_keys/
+ntru/signverify/ntru_keys/
+
+# Research-only or generated trees kept out of the artifact image.
+lattice-estimator-main/
+parameter_search/
+tools/
+_markdown_test/
+
+# Sage generation scripts are not needed in the Docker artifact.
+prf/*.sage
+prf/RUN_SAGE.md
+
+# External papers are cited by ID, not copied into the artifact image.
+docs/*.pdf
+
+# Build/cache output.
+showing
+__pycache__/
+*.pyc
+*.pyo
+*.aux
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz

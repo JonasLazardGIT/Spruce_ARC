@@ -38,60 +38,6 @@ func chdirForShowingTest(t *testing.T, dir string) {
 	})
 }
 
-func maxAbsFromRows(rows [][]int64) int64 {
-	var max int64
-	for _, row := range rows {
-		for _, v := range row {
-			if v < 0 {
-				v = -v
-			}
-			if v > max {
-				max = v
-			}
-		}
-	}
-	return max
-}
-
-func maxAbsFromHeadRows(r *ring.Ring, rows [][]int64, omega []uint64, ncols int) int64 {
-	if r == nil {
-		return 0
-	}
-	q := int64(r.Modulus[0])
-	if ncols <= 0 || ncols > r.N {
-		ncols = r.N
-	}
-	if len(omega) == 0 {
-		return 0
-	}
-	if ncols > len(omega) {
-		ncols = len(omega)
-	}
-	var max int64
-	for _, row := range rows {
-		coeffs := make([]uint64, len(row))
-		for i := 0; i < len(row); i++ {
-			v := row[i] % q
-			if v < 0 {
-				v += q
-			}
-			coeffs[i] = uint64(v)
-		}
-		for i := 0; i < ncols; i++ {
-			v := int64(PIOP.EvalPoly(coeffs, omega[i]%uint64(q), uint64(q)))
-			if v > q/2 {
-				v -= q
-			}
-			if v < 0 {
-				v = -v
-			}
-			if v > max {
-				max = v
-			}
-		}
-	}
-	return max
-}
 func buildShowingProofForTestConfigWithOverrideKnobs(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, showingPreset string, sigShortnessProfile string, sigShortnessRadix int, sigShortnessDigits int, ncols int, lvcsNCols int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
 	return buildShowingProofForTestConfigWithOverrideKnobsAndMutator(t, model, packedPRF, companion, companionMode, checkpointSamples, showingPreset, sigShortnessProfile, sigShortnessRadix, sigShortnessDigits, ncols, lvcsNCols, nil)
@@ -319,27 +265,7 @@ func buildShowingProofForShippedPresetDefault(t *testing.T, showingPreset string
 	)
 }
 
-func buildShowingProofForTestConfigWithShortness(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessProfile string, sigShortnessRadix int, sigShortnessDigits int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
-	t.Helper()
-	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, sigShortnessProfile, sigShortnessRadix, sigShortnessDigits)
-}
-
-func buildShowingProofForTestConfigWithShortnessProfile(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessProfile string) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
-	t.Helper()
-	return buildShowingProofForTestConfigWithShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, sigShortnessProfile, 0, 0)
-}
-
-func buildShowingProofForTestConfigWithProductionBalanceShortnessProfile(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessProfile string) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
-	t.Helper()
-	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, sigShortnessProfile, 0, 0)
-}
-
 func buildShowingProofForTestConfig(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
-	t.Helper()
-	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, "", 0, 0)
-}
-
-func buildShowingProofForProductionBalanceConfig(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
 	return buildShowingProofForTestConfigWithPresetAndShortness(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, "", 0, 0)
 }
@@ -352,17 +278,6 @@ func buildShowingProofForTestWithFlags(t *testing.T, model string, packedPRF boo
 func buildShowingProofForTestConfigWithLVCSAndShortnessProfile(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessProfile string, lvcsNCols int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
 	t.Helper()
 	return buildShowingProofForTestConfigWithOverrideKnobs(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, sigShortnessProfile, 0, 0, 16, lvcsNCols)
-}
-
-func buildShowingProofForTestConfigWithLVCSAndRawShortness(t *testing.T, model string, packedPRF bool, companion bool, companionMode PIOP.PRFCompanionMode, checkpointSamples int, sigShortnessRadix int, sigShortnessDigits int, lvcsNCols int) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring, PIOP.PublicInputs) {
-	t.Helper()
-	return buildShowingProofForTestConfigWithOverrideKnobs(t, model, packedPRF, companion, companionMode, checkpointSamples, PIOP.ShowingPresetInlineTargetReplayCompactResearch, "", sigShortnessRadix, sigShortnessDigits, 16, lvcsNCols)
-}
-
-func buildShowingProofForTest(t *testing.T, model string) (*PIOP.Proof, PIOP.ProofReport, PIOP.WitnessInputs, PIOP.SimOpts, *ring.Ring) {
-	t.Helper()
-	proof, rep, wit, opts, ringQ, _ := buildShowingProofForTestWithFlags(t, model, false, false)
-	return proof, rep, wit, opts, ringQ
 }
 
 func TestShowingAggregateV18ReplayCompactResearchPreset(t *testing.T) {

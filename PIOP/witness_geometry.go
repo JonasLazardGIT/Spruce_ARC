@@ -2,13 +2,6 @@ package PIOP
 
 import "math"
 
-func maxGeometryInt(a, b int) int {
-	if a >= b {
-		return a
-	}
-	return b
-}
-
 // CommittedWitnessBreakdown reports the committed witness-row allocation under
 // the current one-root PCS/LVCS layout.
 type CommittedWitnessBreakdown struct {
@@ -82,24 +75,6 @@ func replayPRFRowCount(layout *PRFLayout, companion *PRFCompanionLayout, mode PR
 		return layout.WitnessRows
 	}
 	return layout.LenKey + len(layout.SBoxSlots)
-}
-
-func inferNonSigBoundRowsPerForWitnessGeometry(layout RowLayout) int {
-	if layout.NonSigBoundRowsPer > 0 {
-		return layout.NonSigBoundRowsPer
-	}
-	if layout.MsgChainBase < 0 || layout.RndChainBase < 0 {
-		return 0
-	}
-	delta := layout.RndChainBase - layout.MsgChainBase
-	if delta <= 0 || delta%2 != 0 {
-		return 0
-	}
-	rowsPer := delta / 2
-	if rowsPer <= 0 {
-		return 0
-	}
-	return rowsPer
 }
 
 // LogicalWitnessBreakdownFromLayout reports the replay-facing logical witness

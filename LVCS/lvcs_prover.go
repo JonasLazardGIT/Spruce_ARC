@@ -90,27 +90,12 @@ type CommitOptions struct {
 	DecsFormalEvalMode decs.FormalEvalMode
 }
 
-// CommitInitWithParamsAndPoints commits rows against an explicit DECS domain E:
+// CommitInitWithParamsAndPointsWithOptions commits rows against an explicit
+// DECS domain E with benchmark-only controls:
 //   - points defines the DECS evaluation domain E (E[i] = points[i])
 //   - Ω and Ω′ are interpreted as the prefixes:
 //     Ω  = points[0:ncols]
 //     Ω′ = points[ncols : ncols+ell]
-func CommitInitWithParamsAndPoints(
-	ringQ *ring.Ring,
-	rows []RowInput,
-	ell int,
-	params decs.Params,
-	points []uint64,
-) (
-	root [16]byte,
-	prover *ProverKey,
-	err error,
-) {
-	return CommitInitWithParamsAndPointsWithOptions(ringQ, rows, ell, params, points, CommitOptions{})
-}
-
-// CommitInitWithParamsAndPointsWithOptions is CommitInitWithParamsAndPoints
-// with benchmark-only controls.
 func CommitInitWithParamsAndPointsWithOptions(
 	ringQ *ring.Ring,
 	rows []RowInput,

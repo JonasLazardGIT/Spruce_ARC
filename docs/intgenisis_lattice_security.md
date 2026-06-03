@@ -2,22 +2,20 @@
 
 Run date: 2026-05-29
 
-This note records the lattice-estimator checks for the maintained IntGenISIS
-profiles:
+This note records archived lattice-estimator checks for the maintained
+IntGenISIS profiles:
 
 ```text
 intgenisis_profile_b  N=512   used by n512-compact96
 intgenisis_profile_c  N=1024  used by n1024-compact96 and n1024-compact125
 ```
 
-The reproducible command is:
-
-```bash
-python3 tools/intgenisis_lattice_security_estimator.py --pretty
-```
-
-The estimator source is `malb/lattice-estimator` at commit
-`14c2c10e6f2f7a39072130627b2cec5495704701`, using rough estimates.
+These numbers were produced before artifact pruning with
+`malb/lattice-estimator` at commit
+`14c2c10e6f2f7a39072130627b2cec5495704701`, using rough estimates. The Docker
+artifact does not ship the Python estimator wrapper or lattice-estimator source;
+this note is retained as comparison-only security context for the maintained Go
+presets.
 
 ## Profile Inputs
 

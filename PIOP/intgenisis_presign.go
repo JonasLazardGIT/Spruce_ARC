@@ -425,11 +425,3 @@ func buildIntGenISISPreSignConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 		AggregatedAlgDeg: 1,
 	}, nil
 }
-
-func zeroFormalRows(n int) [][]uint64 {
-	out := make([][]uint64, n)
-	for i := range out {
-		out[i] = []uint64{0}
-	}
-	return out
-}

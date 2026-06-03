@@ -59,6 +59,7 @@ func TestRemovedIssuanceCommandsAreRejected(t *testing.T) {
 		"benchmark-intgenisis",
 		"sweep-intgenisis",
 		"sweep-intgenisis-estimate",
+		"demo-local",
 	} {
 		t.Run(command, func(t *testing.T) {
 			err := run([]string{command})

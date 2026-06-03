@@ -113,20 +113,6 @@ func compressFieldElems(vals []uint64, tau uint64, q uint64) uint64 {
 	return acc
 }
 
-func extractCompanionSlots(rows [][]uint64, slots []CoeffSlot) ([]uint64, error) {
-	out := make([]uint64, len(slots))
-	for i, slot := range slots {
-		if slot.Row < 0 || slot.Row >= len(rows) {
-			return nil, fmt.Errorf("slot row=%d out of range for rows=%d", slot.Row, len(rows))
-		}
-		if slot.Coeff < 0 || slot.Coeff >= len(rows[slot.Row]) {
-			return nil, fmt.Errorf("slot coeff=%d out of range for row %d width=%d", slot.Coeff, slot.Row, len(rows[slot.Row]))
-		}
-		out[i] = rows[slot.Row][slot.Coeff]
-	}
-	return out, nil
-}
-
 func rowHeadOnOmega(ringQ *ring.Ring, omegaWitness []uint64, row *ring.Poly, width int) ([]uint64, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")

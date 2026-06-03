@@ -25,17 +25,6 @@ type MerkleTree struct {
 	layers [][][16]byte
 }
 
-// BuildMerkleTree builds a balanced tree from leaves.
-func BuildMerkleTree(leaves [][]byte) *MerkleTree {
-	n := len(leaves)
-	leafHashes := make([][16]byte, n)
-	h := sha3.NewShake256()
-	for i := 0; i < n; i++ {
-		hashLeafIntoWith(h, leaves[i], &leafHashes[i])
-	}
-	return BuildMerkleTreeFromLeafHashes(leafHashes)
-}
-
 func BuildMerkleTreeFromLeafHashes(leaves [][16]byte) *MerkleTree {
 	n := len(leaves)
 	size := 1

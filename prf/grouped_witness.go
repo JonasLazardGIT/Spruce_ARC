@@ -87,23 +87,6 @@ func linearFormScale(f Field, a LinearForm, scalar Elem) LinearForm {
 	return out
 }
 
-func linearFormEval(f Field, form LinearForm, key []Elem, checkpoints []Elem) (Elem, error) {
-	if len(form.KeyCoeffs) != len(key) {
-		return 0, fmt.Errorf("linear form key coeffs=%d want %d", len(form.KeyCoeffs), len(key))
-	}
-	if len(form.CheckpointCoeffs) < len(checkpoints) {
-		return 0, fmt.Errorf("linear form checkpoints=%d < witness checkpoints=%d", len(form.CheckpointCoeffs), len(checkpoints))
-	}
-	acc := form.Const
-	for i := range key {
-		acc = f.add(acc, f.mul(form.KeyCoeffs[i], key[i]))
-	}
-	for i := range checkpoints {
-		acc = f.add(acc, f.mul(form.CheckpointCoeffs[i], checkpoints[i]))
-	}
-	return acc, nil
-}
-
 func applyLinearLayer(forms []LinearForm, mds [][]uint64, f Field) []LinearForm {
 	out := make([]LinearForm, len(forms))
 	for row := range forms {

@@ -119,24 +119,6 @@ func finalizeRowDependencyMap(acc map[string]map[int]struct{}) RowDependencyMap 
 	return out
 }
 
-func inferNonSigBoundRowsPer(layout RowLayout) int {
-	if layout.NonSigBoundRowsPer > 0 {
-		return layout.NonSigBoundRowsPer
-	}
-	if layout.MsgChainBase < 0 || layout.RndChainBase < 0 {
-		return 0
-	}
-	delta := layout.RndChainBase - layout.MsgChainBase
-	if delta <= 0 || delta%2 != 0 {
-		return 0
-	}
-	rowsPer := delta / 2
-	if rowsPer <= 0 {
-		return 0
-	}
-	return rowsPer
-}
-
 // ValidateRowDependencyClosure ensures every row index consumed by a showing
 // verifier family resolves to an existing committed witness row.
 func ValidateRowDependencyClosure(layout RowLayout, prfLayout *PRFLayout, witnessRows int) error {

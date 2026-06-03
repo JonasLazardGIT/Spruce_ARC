@@ -86,17 +86,6 @@ func prfBridgeStripePaddingRows(layout *PRFCompanionLayout) int {
 	return maxInt(last-start+1-len(layout.BridgeStripe.PhysicalRows), 0)
 }
 
-func prfBridgeStripeOpenedBlocks(layout *PRFCompanionLayout, pcsNCols int) int {
-	if layout == nil || layout.BridgeStripe == nil || len(layout.BridgeStripe.PhysicalRows) == 0 || pcsNCols <= 0 {
-		return 0
-	}
-	seen := make(map[int]struct{}, len(layout.BridgeStripe.PhysicalRows))
-	for _, row := range layout.BridgeStripe.PhysicalRows {
-		seen[row/pcsNCols] = struct{}{}
-	}
-	return len(seen)
-}
-
 func buildProjectedPRFBridgeLayout(layout *PRFCompanionLayout) (*PRFCompanionLayout, error) {
 	if layout == nil {
 		return nil, nil

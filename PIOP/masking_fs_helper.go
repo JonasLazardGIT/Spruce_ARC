@@ -2,7 +2,6 @@ package PIOP
 
 import (
 	cryptoRand "crypto/rand"
-	"encoding/binary"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -15,28 +14,6 @@ import (
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
-
-// local helpers copied from run.go for eval point sampling
-func sampleEvalPoints(r *ring.Ring, m int, omega []uint64, seed []byte) []byte {
-	fsRNG := newFSRNG("EvalPoints", seed)
-	points := make([]uint64, m)
-	q := r.Modulus[0]
-	for i := 0; i < m; i++ {
-		points[i] = fsRNG.nextU64() % q
-	}
-	return encodeUint64Slice(points)
-}
-
-func decodeUint64Slice(b []byte) []uint64 {
-	if len(b)%8 != 0 {
-		return nil
-	}
-	out := make([]uint64, len(b)/8)
-	for i := 0; i < len(out); i++ {
-		out[i] = binary.LittleEndian.Uint64(b[8*i : 8*(i+1)])
-	}
-	return out
-}
 
 func packProofDECSOpening(open *decs.DECSOpening, opts SimOpts, q uint64) {
 	if open == nil {

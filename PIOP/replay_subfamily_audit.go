@@ -57,10 +57,6 @@ type replaySubfamilySpec struct {
 	notes       string
 }
 
-func rowLayoutReducedReplayUsesDerivedSourceProducts(layout RowLayout) bool {
-	return rowLayoutCoeffNativeUsesTransformBridge(layout) && !rowLayoutUsesCommittedTSourceBridge(layout)
-}
-
 func sortedUniqueInts(rows []int) []int {
 	if len(rows) == 0 {
 		return nil

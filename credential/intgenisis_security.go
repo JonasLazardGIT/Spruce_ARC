@@ -3,7 +3,7 @@ package credential
 import "math"
 
 const (
-	IntGenISISCommitmentEstimatorSource = "tools/intgenisis_commitment_estimator.py"
+	IntGenISISCommitmentEstimatorSource = "docs/intgenisis_lattice_security.md"
 	IntGenISISCommitmentEstimatorName   = "malb/lattice-estimator"
 	IntGenISISCommitmentEstimatorCommit = "14c2c10e6f2f7a39072130627b2cec5495704701"
 	IntGenISISCommitmentEstimatorMode   = "rough"

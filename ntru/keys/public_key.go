@@ -12,11 +12,6 @@ type PublicKey struct {
 	HCoeffs []int64 `json:"h_coeffs"`
 }
 
-// SavePublic writes the public key to ./ntru_keys/public.json.
-func SavePublic(pk *PublicKey) error {
-	return SavePublicFile(filepath.Join("ntru_keys", "public.json"), pk)
-}
-
 // LoadPublic reads the public key from ./ntru_keys/public.json.
 func LoadPublic() (*PublicKey, error) {
 	return LoadPublicFile(filepath.Join("ntru_keys", "public.json"))

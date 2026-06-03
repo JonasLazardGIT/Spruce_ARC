@@ -1,9 +1,5 @@
 package keys
 
-import (
-	"path/filepath"
-)
-
 // PrivateKey represents an NTRU private key persisted to JSON.
 type PrivateKey struct {
 	Version string  `json:"version"`
@@ -21,16 +17,6 @@ type PrivateKey struct {
 		SeedHex    string `json:"seed,omitempty"`
 		TrialsUsed int    `json:"trials_used"`
 	} `json:"policy,omitempty"`
-}
-
-// SavePrivate writes the private key to ./ntru_keys/private.json.
-func SavePrivate(sk *PrivateKey) error {
-	return SavePrivateFile(filepath.Join("ntru_keys", "private.json"), sk)
-}
-
-// LoadPrivate reads the private key from ./ntru_keys/private.json.
-func LoadPrivate() (*PrivateKey, error) {
-	return LoadPrivateFile(filepath.Join("ntru_keys", "private.json"))
 }
 
 func SavePrivateFile(path string, sk *PrivateKey) error {

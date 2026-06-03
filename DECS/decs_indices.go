@@ -147,10 +147,6 @@ func packIndexBitsWidth(values []int, width int) []byte {
 	return out
 }
 
-func unpackIndexAt(bits []byte, pos int) (int, bool) {
-	return unpackIndexAtWidth(bits, pos, indexBitsPerValue)
-}
-
 func unpackIndexAtWidth(bits []byte, pos int, width int) (int, bool) {
 	if pos < 0 {
 		return 0, false

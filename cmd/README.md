@@ -12,7 +12,6 @@ go run ./cmd/issuance holder-commit
 go run ./cmd/issuance holder-prove
 go run ./cmd/issuance issuer-verify-sign
 go run ./cmd/issuance holder-finalize
-go run ./cmd/issuance demo-local
 go run ./cmd/issuance benchmark-intgenisis-e2e -preset n512-compact96
 go run ./cmd/issuance gate-degree1024-maintained-presets
 ```

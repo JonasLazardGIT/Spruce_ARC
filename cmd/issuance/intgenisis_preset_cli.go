@@ -41,30 +41,6 @@ func intGenISISTuningFromPresetSpec(spec credential.IntGenISISTuningPreset) intG
 	}
 }
 
-func intGenISISTuningPresetFromTuning(t intGenISISTuning, target float64) credential.IntGenISISTuningPreset {
-	return credential.IntGenISISTuningPreset{
-		NCols:               t.NCols,
-		LVCSNCols:           t.LVCSNCols,
-		NLeaves:             t.NLeaves,
-		Eta:                 t.Eta,
-		Theta:               t.Theta,
-		Rho:                 t.Rho,
-		Ell:                 t.Ell,
-		EllPrime:            t.EllPrime,
-		Kappa:               t.Kappa,
-		PRFCompanionMode:    string(t.PRFCompanionMode),
-		PRFGroupRounds:      t.PRFGroupRounds,
-		CheckpointSamples:   t.CheckpointSamples,
-		SigShortnessRadix:   t.SigShortnessRadix,
-		SigShortnessDigits:  t.SigShortnessDigits,
-		CompressedRows:      t.CompressedRows,
-		ReplayProjection:    t.ReplayProjection,
-		TranscriptMode:      t.TranscriptMode,
-		FixedTranscriptSize: t.FixedTranscriptSize,
-		TargetEq8Bits:       target,
-	}
-}
-
 func applyCommonTuningFlagOverrides(t *intGenISISTuning, set map[string]bool, ncols, lvcsNCols, nLeaves, eta, theta, rho, ell, ellPrime int, kappa [4]int) {
 	if set["ncols"] {
 		t.NCols = ncols

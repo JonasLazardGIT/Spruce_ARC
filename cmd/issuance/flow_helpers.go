@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"vSIS-Signature/PIOP"
@@ -126,10 +125,6 @@ func ntruSigningPaths(paramsPath, publicPath, privatePath, signaturePath string)
 }
 
 const issuanceArtifactVersion = 2
-
-func persistedIssuanceRuntimeOverrides(ncols, lvcsNCols, nLeaves int, omega []uint64) issuanceRuntimeOverrides {
-	return persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves, omega, nil)
-}
 
 func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves int, omega []uint64, spec *smallWoodTuningSpec) issuanceRuntimeOverrides {
 	if ncols <= 0 && len(omega) > 0 {
@@ -849,30 +844,6 @@ func verifyIntGenISISSignatureResponse(ringQ *ring.Ring, resp issueResponseFile,
 	return nil
 }
 
-func demoLocal(publicPath, prfPath, artifactDir, statePath, signaturePath string, seed int64, maxTrials int, overrides issuanceRuntimeOverrides, ntruPaths signverify.SignPaths) error {
-	holderSecretPath := filepath.Join(artifactDir, "holder_secret.json")
-	commitRequestPath := filepath.Join(artifactDir, "commit_request.json")
-	submissionPath := filepath.Join(artifactDir, "presign_submission.json")
-	responsePath := filepath.Join(artifactDir, "issue_response.json")
-	if err := holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, "", seed, overrides); err != nil {
-		return err
-	}
-	public, err := credential.LoadPublicParams(publicPath)
-	if err != nil {
-		return err
-	}
-	if !public.UsesIntGenISIS() {
-		return fmt.Errorf("demo-local supports only IntGenISIS public params")
-	}
-	if err := holderProve(holderSecretPath, "", submissionPath); err != nil {
-		return err
-	}
-	if err := issuerVerifySign(commitRequestPath, "", submissionPath, responsePath, maxTrials, ntruPaths, ""); err != nil {
-		return err
-	}
-	return holderFinalize(holderSecretPath, commitRequestPath, "", responsePath, statePath, signaturePath, ntruPaths.ParamsPath)
-}
-
 func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOverrides) (*issuanceRuntime, error) {
 	public, err := credential.LoadPublicParams(publicPath)
 	if err != nil {
@@ -1241,41 +1212,4 @@ func displayBits(bits float64) float64 {
 		return 0
 	}
 	return bits
-}
-
-func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, ringQ *ring.Ring, proveDur, verifyDur time.Duration) {
-	rep, err := PIOP.BuildProofReport(proof, opts, ringQ)
-	if err != nil {
-		log.Printf("%sreport: %v", prefix, err)
-		return
-	}
-	fmt.Printf("%sProof size≈%.2f KB (%.0f bytes)\n", prefix, rep.ProofKB, float64(rep.ProofBytes))
-	fmt.Printf("%sProver time≈%s\n", prefix, proveDur)
-	fmt.Printf("%sVerifier time≈%s\n", prefix, verifyDur)
-	fmt.Printf("%sSoundness Eq.(8): eps1=%.2f eps2=%.2f eps3=%.2f eps4=%.2f eq8_total=%.2f\n",
-		prefix,
-		rep.Soundness.Bits[0], rep.Soundness.Bits[1], rep.Soundness.Bits[2], rep.Soundness.Bits[3],
-		displayBits(rep.Soundness.Eq8TotalBits))
-}
-
-func printTranscriptBreakdown(prefix string, proof *PIOP.Proof) {
-	if proof == nil {
-		return
-	}
-	rep := PIOP.MeasureProofSize(proof)
-	if rep.Total == 0 {
-		log.Printf("%sproof size breakdown unavailable (total=0)", prefix)
-		return
-	}
-	keys := make([]string, 0, len(rep.Parts))
-	for k := range rep.Parts {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool { return rep.Parts[keys[i]] > rep.Parts[keys[j]] })
-	log.Printf("%sTranscript size breakdown (bytes, percent of total=%d):", prefix, rep.Total)
-	for _, k := range keys {
-		v := rep.Parts[k]
-		pct := 100.0 * float64(v) / float64(rep.Total)
-		log.Printf("%s  %-14s %8d  (%5.1f%%)", prefix, k, v, pct)
-	}
 }

@@ -27,7 +27,7 @@ const (
 )
 
 func usage() {
-	fmt.Println(`usage: issuance <setup-intgenisis-public|setup-ntru-keys|holder-commit|holder-prove|issuer-verify-sign|holder-finalize|demo-local|benchmark-intgenisis-e2e|gate-degree1024-maintained-presets> [options]
+	fmt.Println(`usage: issuance <setup-intgenisis-public|setup-ntru-keys|holder-commit|holder-prove|issuer-verify-sign|holder-finalize|benchmark-intgenisis-e2e|gate-degree1024-maintained-presets> [options]
 
 Subcommands:
   setup-intgenisis-public Generate IntGenISIS MLWE-hiding credential public parameters
@@ -36,7 +36,6 @@ Subcommands:
   holder-prove       Build the IntGenISIS pre-sign proof from holder secret
   issuer-verify-sign Verify the pre-sign proof and sign the public target T
   holder-finalize    Verify and persist the final credential state
-  demo-local         Run the full role-separated issuance flow in one process
   benchmark-intgenisis-e2e Run IntGenISIS issuance + showing and print paper transcript sizes
   gate-degree1024-maintained-presets Run live gates for promoted degree-1024 maintained presets`)
 }
@@ -66,8 +65,6 @@ func run(args []string) error {
 		return runIssuerVerifySign(args[1:])
 	case "holder-finalize":
 		return runHolderFinalize(args[1:])
-	case "demo-local":
-		return runDemoLocal(args[1:])
 	case "benchmark-intgenisis-e2e":
 		return runBenchmarkIntGenISISE2E(args[1:])
 	case "gate-degree1024-maintained-presets":
@@ -427,112 +424,4 @@ func runHolderFinalize(args []string) error {
 		return err
 	}
 	return holderFinalize(*holderSecretPath, *commitRequestPath, "", *responsePath, *statePath, *signaturePath, *ntruParamsPath)
-}
-
-func runDemoLocal(args []string) error {
-	fs := flag.NewFlagSet("demo-local", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	publicPath := fs.String("public-params", credentialPublicPathDefault(), "credential public params path")
-	prfPath := fs.String("prf-params", defaultPRFParamsPath, "PRF params path")
-	artifactDir := fs.String("artifact-dir", defaultArtifactDir, "directory for intermediate issuance artifacts")
-	statePath := fs.String("state-out", defaultCredentialStatePath, "final credential state path")
-	signaturePath := fs.String("signature-out", defaultCredentialSignaturePath, "final signature artifact path")
-	presetName := fs.String("preset", "", "named IntGenISIS issuance preset: n512-compact96, n1024-compact96, or n1024-compact125")
-	seed := fs.Int64("seed", 0, "optional deterministic sampling seed")
-	maxTrials := fs.Int("max-trials", 2048, "maximum NTRU signer trials")
-	ncols := fs.Int("ncols", 0, "optional witness packing width override")
-	lvcsNCols := fs.Int("lvcs-ncols", 0, "optional LVCS width override")
-	nLeaves := fs.Int("nleaves", 0, "optional explicit-domain size override")
-	eta := fs.Int("eta", 0, "optional eta override")
-	theta := fs.Int("theta", 0, "optional theta override")
-	rho := fs.Int("rho", 0, "optional rho override")
-	ell := fs.Int("ell", 0, "optional ell override")
-	ellPrime := fs.Int("ell-prime", 0, "optional ell-prime override")
-	kappa1 := fs.Int("kappa1", 0, "optional theorem aggregation kappa round 1")
-	kappa2 := fs.Int("kappa2", 0, "optional theorem aggregation kappa round 2")
-	kappa3 := fs.Int("kappa3", 0, "optional theorem aggregation kappa round 3")
-	kappa4 := fs.Int("kappa4", 0, "optional theorem aggregation kappa round 4")
-	issuanceTranscriptMode := fs.String("issuance-transcript-mode", "", "issuance transcript mode: baseline or smallfield_2025_1085_v1")
-	fixedTranscriptSize := fs.String("fixed-transcript-size", "auto", "issuance fixed-size transcript mode: auto, on, or off")
-	issuanceFixedTranscriptSize := fs.String("issuance-fixed-transcript-size", "auto", "issuance fixed-size transcript mode: auto, on, or off")
-	ringDegree := fs.Int("ring-degree", 0, "ring degree override for issuance (supported: 1024 or 512; 0 follows public params)")
-	ntruParamsPath := fs.String("ntru-params", defaultNTRUParamsPath, "NTRU params path used for signature beta bound")
-	ntruPublicPath := fs.String("ntru-public-key", defaultNTRUPublicKeyPath, "NTRU public key path")
-	ntruPrivatePath := fs.String("ntru-private-key", defaultNTRUPrivateKeyPath, "NTRU private key path")
-	ntruSignaturePath := fs.String("ntru-signature-out", "", "optional issuer-side NTRU signature artifact path")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	setFlags := visitedFlagNames(fs)
-	selectedPresetName, err := credential.ResolveIntGenISISPresetSelector(*presetName, false)
-	if err != nil {
-		return err
-	}
-	kappa := [4]int{*kappa1, *kappa2, *kappa3, *kappa4}
-	ncolsVal, lvcsVal, nLeavesVal := *ncols, *lvcsNCols, *nLeaves
-	etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal := *eta, *theta, *rho, *ell, *ellPrime
-	transcriptModeVal := *issuanceTranscriptMode
-	if selectedPresetName != "" {
-		preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
-		if err != nil {
-			return err
-		}
-		if !setFlags["public-params"] && preset.Profile != credential.ProfileIntGenISISB {
-			*publicPath = filepath.Join("Parameters", fmt.Sprintf("credential_public.%s.json", preset.Profile))
-		}
-		t := intGenISISTuningFromPresetSpec(preset.Issuance)
-		applyCommonTuningFlagOverrides(&t, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, kappa)
-		applyIssuanceSpecificFlagOverrides(&t, setFlags, *issuanceTranscriptMode)
-		if setFlags["fixed-transcript-size"] {
-			if err := applyTranscriptSizeFlag(&t, *fixedTranscriptSize); err != nil {
-				return err
-			}
-		}
-		if setFlags["issuance-fixed-transcript-size"] {
-			if err := applyTranscriptSizeFlag(&t, *issuanceFixedTranscriptSize); err != nil {
-				return err
-			}
-		}
-		ncolsVal, lvcsVal, nLeavesVal = t.NCols, t.LVCSNCols, t.NLeaves
-		etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal = t.Eta, t.Theta, t.Rho, t.Ell, t.EllPrime
-		kappa = t.Kappa
-		transcriptModeVal = t.TranscriptMode
-	}
-	fixedTranscriptSizeVal := false
-	if selectedPresetName != "" {
-		preset, _ := credential.LookupIntGenISISPreset(selectedPresetName)
-		fixedTranscriptSizeVal = preset.Issuance.FixedTranscriptSize
-	}
-	if setFlags["fixed-transcript-size"] {
-		value, ok, err := parseTranscriptSizeFlag(*fixedTranscriptSize)
-		if err != nil {
-			return err
-		}
-		if ok {
-			fixedTranscriptSizeVal = value
-		}
-	}
-	if setFlags["issuance-fixed-transcript-size"] {
-		value, ok, err := parseTranscriptSizeFlag(*issuanceFixedTranscriptSize)
-		if err != nil {
-			return err
-		}
-		if ok {
-			fixedTranscriptSizeVal = value
-		}
-	}
-	return demoLocal(*publicPath, *prfPath, *artifactDir, *statePath, *signaturePath, *seed, *maxTrials, issuanceRuntimeOverrides{
-		NCols:               ncolsVal,
-		LVCSNCols:           lvcsVal,
-		NLeaves:             nLeavesVal,
-		Ell:                 ellVal,
-		EllPrime:            ellPrimeVal,
-		Eta:                 etaVal,
-		Theta:               thetaVal,
-		Rho:                 rhoVal,
-		Kappa:               kappa,
-		TranscriptMode:      transcriptModeVal,
-		FixedTranscriptSize: fixedTranscriptSizeVal,
-		RingDegree:          *ringDegree,
-	}, ntruSigningPaths(*ntruParamsPath, *ntruPublicPath, *ntruPrivatePath, *ntruSignaturePath))
 }

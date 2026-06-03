@@ -7,8 +7,6 @@ import (
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/prf"
-
-	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
 const (
@@ -346,16 +344,4 @@ func intGenISISBenchmarkLanesFromElems(vals []prf.Elem, ncols int) [][]int64 {
 		out[i] = intGenISISBenchmarkConstLane(ncols, int64(v))
 	}
 	return out
-}
-
-func intGenISISBenchmarkCoeffConst(ringQ *ring.Ring, v uint64) *ring.Poly {
-	p := ringQ.NewPoly()
-	p.Coeffs[0][0] = v % ringQ.Modulus[0]
-	return p
-}
-
-func intGenISISBenchmarkPublicConstNTT(ringQ *ring.Ring, v uint64) *ring.Poly {
-	p := intGenISISBenchmarkCoeffConst(ringQ, v)
-	ringQ.NTT(p, p)
-	return p
 }

@@ -588,17 +588,6 @@ func smallField2025PayloadDigest(proof *Proof, meta *SmallField2025LVCSProof) []
 	return h.Sum(nil)
 }
 
-func writeIntSliceDigest(h interface{ Write([]byte) (int, error) }, vals []int) {
-	var lenBuf [8]byte
-	binary.LittleEndian.PutUint64(lenBuf[:], uint64(len(vals)))
-	h.Write(lenBuf[:])
-	for _, v := range vals {
-		var buf [8]byte
-		binary.LittleEndian.PutUint64(buf[:], uint64(v))
-		h.Write(buf[:])
-	}
-}
-
 func boolToUint64(v bool) uint64 {
 	if v {
 		return 1

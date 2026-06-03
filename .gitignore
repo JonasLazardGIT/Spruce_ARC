@@ -9,6 +9,13 @@ out/repo_cleanup_sift_*.tmp
 local_docs/
 
 # Generated private material and local runtime states.
+.gocache/
+.private/
+.vscode/
+artifacts/
+credential/issuance/
+PIOP/ntru_keys/
+ntru/signverify/ntru_keys/
 credential/keys/*.json
 ntru_keys/*.json
 
@@ -36,7 +43,6 @@ credential/issuance/intgenisis_r11l4_*.json
 credential/issuance/intgenisis_runtime96_deep_sweeps/
 credential/issuance/intgenisis_runtime96_sweeps/
 credential/issuance/intgenisis_selected_presets*.json
-!credential/issuance/intgenisis_selected_presets_measured.json
 
 # Generated benchmark internals when copied outside their run directory.
 credential/issuance/accepted_candidates*.jsonl
@@ -49,6 +55,10 @@ credential/issuance/summary.json
 
 # Search outputs are generated.
 parameter_search/
+lattice-estimator-main/
+tools/
+_markdown_test/
+docs/*.pdf
 paper_section*_alignment_report.md
 
 # Python cache output.

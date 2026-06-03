@@ -356,24 +356,6 @@ func prfCompanionPackedRowIndices(layout *PRFCompanionLayout) []int {
 	return out
 }
 
-func companionRowsFromWitnessRows(rows [][]uint64, layout *PRFCompanionLayout) ([][]uint64, error) {
-	if layout == nil {
-		return nil, nil
-	}
-	if layout.PackedRows <= 0 {
-		return nil, fmt.Errorf("invalid companion packed rows=%d", layout.PackedRows)
-	}
-	if layout.StartRow < 0 || layout.StartRow+layout.PackedRows > len(rows) {
-		return nil, fmt.Errorf("companion row window [%d,%d) out of range for rows=%d", layout.StartRow, layout.StartRow+layout.PackedRows, len(rows))
-	}
-	out := make([][]uint64, layout.PackedRows)
-	for i := 0; i < layout.PackedRows; i++ {
-		head := append([]uint64(nil), rows[layout.StartRow+i]...)
-		out[i] = head
-	}
-	return out, nil
-}
-
 func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) error {
 	if layout == nil {
 		return nil
@@ -619,14 +601,6 @@ func prfCompanionLayoutDigest(layout *PRFCompanionLayout) []byte {
 	}
 	sum := sha256.Sum256(buf.Bytes())
 	return append([]byte(nil), sum[:]...)
-}
-
-func prfCompanionSourceRowSet(rows []int) map[int]struct{} {
-	out := make(map[int]struct{}, len(rows))
-	for _, row := range rows {
-		out[row] = struct{}{}
-	}
-	return out
 }
 
 func prfCompanionBridgeStripeSourceRows(layout *PRFCompanionLayout) []int {

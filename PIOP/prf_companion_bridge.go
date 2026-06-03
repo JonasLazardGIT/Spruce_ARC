@@ -126,56 +126,6 @@ func packedHeadsFromRowsOnOmega(ringQ *ring.Ring, omegaWitness []uint64, rows []
 	return heads, coeffs, nil
 }
 
-func subsetOpeningRowsForIndices(base *decs.DECSOpening, indices []int) (*decs.DECSOpening, error) {
-	if base == nil {
-		return nil, fmt.Errorf("nil base opening")
-	}
-	posByIdx := make(map[int]int, base.EntryCount())
-	for i := 0; i < base.EntryCount(); i++ {
-		posByIdx[base.IndexAt(i)] = i
-	}
-	sub := cloneDECSOpening(base)
-	sub.Indices = make([]int, len(indices))
-	sub.Pvals = make([][]uint64, len(indices))
-	if len(base.Mvals) > 0 {
-		sub.Mvals = make([][]uint64, len(indices))
-	} else {
-		sub.Mvals = nil
-	}
-	if len(base.Nonces) > 0 {
-		sub.Nonces = make([][]byte, len(indices))
-	} else {
-		sub.Nonces = nil
-	}
-	if len(base.PathIndex) > 0 {
-		sub.PathIndex = make([][]int, len(indices))
-	} else {
-		sub.PathIndex = nil
-	}
-	sub.TailCount = len(indices)
-	sub.IndexBits = nil
-	sub.MaskBase = 0
-	sub.MaskCount = 0
-	for i, idx := range indices {
-		pos, ok := posByIdx[idx]
-		if !ok {
-			return nil, fmt.Errorf("opening missing index %d", idx)
-		}
-		sub.Indices[i] = idx
-		sub.Pvals[i] = append([]uint64(nil), base.Pvals[pos]...)
-		if len(base.Mvals) > pos {
-			sub.Mvals[i] = append([]uint64(nil), base.Mvals[pos]...)
-		}
-		if len(base.Nonces) > pos {
-			sub.Nonces[i] = append([]byte(nil), base.Nonces[pos]...)
-		}
-		if len(base.PathIndex) > pos {
-			sub.PathIndex[i] = append([]int(nil), base.PathIndex[pos]...)
-		}
-	}
-	return sub, nil
-}
-
 func preparePRFCompanionBridgeOpening(
 	ringQ *ring.Ring,
 	proof *Proof,

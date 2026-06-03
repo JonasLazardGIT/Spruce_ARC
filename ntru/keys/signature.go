@@ -59,19 +59,6 @@ func SaveSignatureFile(path string, sig *Signature) error {
 	return writeJSON(path, sig)
 }
 
-// Load reads signature from ./ntru_keys/signature.json.
-func Load() (*Signature, error) {
-	return LoadSignatureFile(filepath.Join("ntru_keys", "signature.json"))
-}
-
-func LoadSignatureFile(path string) (*Signature, error) {
-	var sig Signature
-	if err := readJSON(path, &sig); err != nil {
-		return nil, err
-	}
-	return &sig, nil
-}
-
 // DecodeSeed converts base64 seed string to bytes.
 func DecodeSeed(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)

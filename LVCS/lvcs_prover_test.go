@@ -23,11 +23,11 @@ func TestCommitInitTrustedHeadSkipsOnlyDirectPolynomialHeadCheck(t *testing.T) {
 		head[i] = evalPolyCoeffs(coeffs, points[i], q)
 	}
 	params := decs.Params{Degree: len(coeffs) - 1, Eta: 1, NonceBytes: 16}
-	if _, pk, err := CommitInitWithParamsAndPoints(ringQ, []RowInput{{
+	if _, pk, err := CommitInitWithParamsAndPointsWithOptions(ringQ, []RowInput{{
 		Head:        head,
 		PolyCoeffs:  append([]uint64(nil), coeffs...),
 		TrustedHead: true,
-	}}, ell, params, points); err != nil {
+	}}, ell, params, points, CommitOptions{}); err != nil {
 		t.Fatalf("trusted direct polynomial commit: %v", err)
 	} else if len(pk.Rows) != 1 || len(pk.Rows[0].Head) != len(head) {
 		t.Fatalf("unexpected committed row head shape")
@@ -35,10 +35,10 @@ func TestCommitInitTrustedHeadSkipsOnlyDirectPolynomialHeadCheck(t *testing.T) {
 
 	badHead := append([]uint64(nil), head...)
 	badHead[0] = (badHead[0] + 1) % q
-	if _, _, err := CommitInitWithParamsAndPoints(ringQ, []RowInput{{
+	if _, _, err := CommitInitWithParamsAndPointsWithOptions(ringQ, []RowInput{{
 		Head:       badHead,
 		PolyCoeffs: append([]uint64(nil), coeffs...),
-	}}, ell, params, points); err == nil {
+	}}, ell, params, points, CommitOptions{}); err == nil {
 		t.Fatalf("unchecked direct polynomial commit accepted mismatched head")
 	}
 }

@@ -46,39 +46,6 @@ func MatrixFromCoeff(ringQ *ring.Ring, coeffs CoeffMatrix) (Matrix, error) {
 	return out, nil
 }
 
-// MatrixToCoeff converts an NTT-domain matrix into coefficient form.
-func MatrixToCoeff(ringQ *ring.Ring, mat Matrix) (CoeffMatrix, error) {
-	if ringQ == nil {
-		return nil, fmt.Errorf("nil ring")
-	}
-	if len(mat) == 0 {
-		return nil, fmt.Errorf("empty matrix")
-	}
-	rows := len(mat)
-	cols := len(mat[0])
-	if cols == 0 {
-		return nil, fmt.Errorf("empty matrix row")
-	}
-	out := make(CoeffMatrix, rows)
-	for i := 0; i < rows; i++ {
-		if len(mat[i]) != cols {
-			return nil, fmt.Errorf("ragged matrix at row %d", i)
-		}
-		out[i] = make([][]uint64, cols)
-		for j := 0; j < cols; j++ {
-			if mat[i][j] == nil {
-				return nil, fmt.Errorf("nil poly at row %d col %d", i, j)
-			}
-			cp := ringQ.NewPoly()
-			ring.Copy(mat[i][j], cp)
-			ringQ.InvNTT(cp, cp)
-			out[i][j] = make([]uint64, ringQ.N)
-			copy(out[i][j], cp.Coeffs[0])
-		}
-	}
-	return out, nil
-}
-
 // GenerateUniformCoeffMatrix samples a full rectangular coefficient-domain
 // matrix with entries uniform mod q.
 func GenerateUniformCoeffMatrix(ringQ *ring.Ring, rows, cols int) (CoeffMatrix, error) {

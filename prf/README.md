@@ -36,24 +36,26 @@ credential secret.
 - the shipped migration target uses the cubic S-box (`d = 3`) over `q = 1017857`
 - the showing proof uses grouped nonlinear checkpoints
 - the shipped command surface assumes `PRFGroupRounds = 2`
-- the shipped baseline is reduced replay with `PRFCompanionMode=output_audit`
+- the maintained compact presets use `PRFCompanionMode=direct_full`
 - the retained showing path binds those checkpoints through the PRF companion
-  bridge, not a legacy standalone PRF replay layout
+  relation, not a legacy standalone PRF replay layout
 - the PRF key comes from the stored signed message field `k`, not from any
   deprecated aligned-commitment witness slot
+- Sage parameter generation scripts are not part of the artifact; the checked-in
+  `prf_params.json` is the source parameter file used by Go tests and commands
 
 ## Current protocol role
 
 The live showing statement proves:
 
 - `tag = F(k, nonce)`
-- `A u = B0 + B1 * (m || k) + sum_j B2[j] * r0[j] + Z`
-- `(B3 - r1) ⊙ Z = 1`
+- `A u = B0 + B1 * (m || k) + sum_j B2[j] * x0[j] + Z`
+- `(B3 - x1) ⊙ Z = 1`
 
 So the PRF package participates in the same witness relation as:
 
 - the hidden signed key `k`
-- the vector `x0` side `r0`
+- the vector `x0`
 - the inverse witness `Z`
 
 It is not a detached rate-limiting add-on.

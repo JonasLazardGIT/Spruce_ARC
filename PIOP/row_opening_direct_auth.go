@@ -178,19 +178,6 @@ func recoverLowDegreeRowsFromMaskSubset(
 	return out, nil
 }
 
-func coeffRowFromHeadOnOmega(ringQ *ring.Ring, head, omega []uint64, name string) ([]uint64, error) {
-	if ringQ == nil {
-		return nil, fmt.Errorf("nil ring")
-	}
-	if len(head) != len(omega) {
-		return nil, fmt.Errorf("%s head width=%d want omega width=%d", name, len(head), len(omega))
-	}
-	pNTT := BuildThetaPrime(ringQ, head, omega)
-	coeff := ringQ.NewPoly()
-	ringQ.InvNTT(pNTT, coeff)
-	return trimPoly(append([]uint64(nil), coeff.Coeffs[0]...), ringQ.Modulus[0]), nil
-}
-
 func prepareMaskSubsetWitnessView(
 	ringQ *ring.Ring,
 	proof *Proof,
