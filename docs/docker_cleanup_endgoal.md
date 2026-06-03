@@ -110,7 +110,6 @@ Optional Docker commands:
 
 ```bash
 docker run --rm -v "$(pwd)/artifacts:/artifacts" spruce-artifact bench n1024-compact125
-docker run --rm -v "$(pwd)/artifacts:/artifacts" spruce-artifact all
 ```
 
 Commands that should not appear in public quickstarts:
@@ -516,19 +515,16 @@ Dockerfile should:
 Recommended shape:
 
 ```dockerfile
-FROM golang:1.23-bookworm AS build
+FROM golang:1.23.2-bookworm
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+RUN test ! -d tools && test ! -d lattice-estimator-main
 RUN go test ./...
-RUN go build -o /out/issuance ./cmd/issuance
-RUN go build -o /out/showing ./cmd/showing
-
-FROM golang:1.23-bookworm
-WORKDIR /src
-COPY --from=build /src /src
-COPY --from=build /out /usr/local/bin
+RUN go build -o /usr/local/bin/issuance ./cmd/issuance
+RUN go build -o /usr/local/bin/showing ./cmd/showing
+ENV GOPROXY=off
 ENTRYPOINT ["./scripts/artifact-entrypoint.sh"]
 CMD ["help"]
 ```
@@ -883,18 +879,15 @@ help
 test
 bench <preset>
 gate
-all
-shell
 ```
 
 Script requirements:
 
-- `set -euo pipefail`;
-- write artifacts to `/artifacts` if it exists;
-- use temp dirs otherwise;
-- print command being run;
+- POSIX `sh` with `set -eu`;
+- write artifacts under `/artifacts` by default;
 - fail on unknown preset;
-- fail if fixed-size byte counts drift across repeated runs in gate mode.
+- fail on unknown command;
+- no broad research commands.
 
 Exit criteria:
 

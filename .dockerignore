@@ -19,8 +19,8 @@ _markdown_test/
 
 # Security-provenance sources are kept in the repository but not in Docker.
 # Docker artifact scripts should depend only on Go, not Sage/Python tooling.
-tools/
-lattice-estimator-main/
+tools
+lattice-estimator-main
 prf/*.sage
 prf/RUN_SAGE.md
 
