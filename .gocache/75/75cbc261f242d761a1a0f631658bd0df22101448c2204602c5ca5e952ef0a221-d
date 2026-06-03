@@ -1,0 +1,10 @@
+./decs_frontier.go
+./decs_indices.go
+./decs_nonce.go
+./decs_pathbits.go
+./decs_prover.go
+./decs_types.go
+./decs_verifier.go
+./eval_poly.go
+./merkle.go
+./packing.go
