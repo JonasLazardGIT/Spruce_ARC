@@ -13,8 +13,13 @@ intgenisis_profile_c  N=1024  used by n1024-compact96 and n1024-compact125
 The reproducible command is:
 
 ```bash
-python3 tools/intgenisis_lattice_security_estimator.py --pretty
+python3 tools/intgenisis_lattice_security_estimator.py \
+  --estimator-path /path/to/lattice-estimator \
+  --pretty
 ```
+
+The estimator checkout is optional research support and is not part of the Go
+artifact or Docker context.
 
 The estimator source is `malb/lattice-estimator` at commit
 `14c2c10e6f2f7a39072130627b2cec5495704701`, using rough estimates.

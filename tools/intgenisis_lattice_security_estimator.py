@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -72,8 +73,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--estimator-path",
-        default="lattice-estimator-main",
-        help="path containing the estimator Python package",
+        default=os.environ.get("LATTICE_ESTIMATOR_PATH", ""),
+        help="path containing the estimator Python package; defaults to LATTICE_ESTIMATOR_PATH",
     )
     parser.add_argument("--pretty", action="store_true", help="pretty-print JSON")
     return parser.parse_args()
@@ -161,6 +162,9 @@ def ntru_default_linf_bound(profile: dict) -> float:
 
 def main() -> int:
     args = parse_args()
+    if not args.estimator_path:
+        print("missing --estimator-path or LATTICE_ESTIMATOR_PATH", file=sys.stderr)
+        return 2
     estimator_path = Path(args.estimator_path).resolve()
     sys.path.insert(0, str(estimator_path))
 

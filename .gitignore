@@ -8,6 +8,10 @@ out/repo_cleanup_sift_*.tmp
 # Local protocol working docs
 local_docs/
 
+# Local build caches and generated binaries.
+.gocache/
+/showing
+
 # Generated private material and local runtime states.
 credential/keys/*.json
 ntru_keys/*.json
@@ -36,7 +40,6 @@ credential/issuance/intgenisis_r11l4_*.json
 credential/issuance/intgenisis_runtime96_deep_sweeps/
 credential/issuance/intgenisis_runtime96_sweeps/
 credential/issuance/intgenisis_selected_presets*.json
-!credential/issuance/intgenisis_selected_presets_measured.json
 
 # Generated benchmark internals when copied outside their run directory.
 credential/issuance/accepted_candidates*.jsonl
@@ -56,6 +59,7 @@ __pycache__/
 *.py[cod]
 
 # LaTeX build output.
+_markdown_test/
 *.aux
 *.blg
 *.fdb_latexmk
@@ -63,3 +67,13 @@ __pycache__/
 *.log
 *.out
 *.synctex.gz
+
+# Generated PRF parameter-generation scratch files.
+poseidon_params_*.txt
+
+# Local/reference-only documentation drops.
+docs/.directory
+docs/*.pdf
+
+# Optional external estimator checkout; not part of the Go artifact.
+lattice-estimator-main/
