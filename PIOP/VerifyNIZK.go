@@ -1905,16 +1905,22 @@ func buildSubsetOpening(base *decs.DECSOpening, indices []int, rowCount, eta int
 		MaskCount:  maskCount,
 		Indices:    make([]int, tailCount),
 		Pvals:      make([][]uint64, len(indices)),
-		Nodes:      append([][]byte(nil), base.Nodes...),
 		R:          rowCount,
 		Eta:        eta,
 		NonceSeed:  append([]byte(nil), base.NonceSeed...),
 		NonceBytes: nonceBytes,
 	}
+	rowMajorBase := base.PathDepth > 0 && len(base.PathIndex) == 0 && len(base.PathBits) == 0 && len(base.Nodes) == base.EntryCount()*base.PathDepth
+	if rowMajorBase {
+		sub.PathDepth = base.PathDepth
+		sub.Nodes = make([][]byte, 0, len(indices)*base.PathDepth)
+	} else {
+		sub.Nodes = append([][]byte(nil), base.Nodes...)
+	}
 	if len(base.Nonces) > 0 {
 		sub.Nonces = make([][]byte, len(indices))
 	}
-	if len(base.PathIndex) > 0 {
+	if len(base.PathIndex) > 0 && !rowMajorBase {
 		sub.PathIndex = make([][]int, len(indices))
 	}
 	if eta > 0 {
@@ -1946,7 +1952,15 @@ func buildSubsetOpening(base *decs.DECSOpening, indices []int, rowCount, eta int
 				}
 			}
 		}
-		if len(base.PathIndex) > 0 {
+		if rowMajorBase {
+			path, err := extractPathNodes(base, pos)
+			if err != nil {
+				return nil, err
+			}
+			for _, node := range path {
+				sub.Nodes = append(sub.Nodes, append([]byte(nil), node...))
+			}
+		} else if len(base.PathIndex) > 0 {
 			sub.PathIndex[i] = append([]int(nil), base.PathIndex[pos]...)
 		}
 		if len(base.Nonces) > pos && len(base.Nonces[pos]) > 0 {
@@ -2096,6 +2110,17 @@ func extractPathNodes(open *decs.DECSOpening, t int) ([][]byte, error) {
 	if err := decs.EnsureMerkleDecoded(open); err != nil {
 		return nil, err
 	}
+	if open.PathDepth > 0 && len(open.PathIndex) == 0 && len(open.PathBits) == 0 && len(open.Nodes) == open.EntryCount()*open.PathDepth {
+		if t < 0 || t >= open.EntryCount() {
+			return nil, errors.New("row-major path row out of range")
+		}
+		start := t * open.PathDepth
+		path := make([][]byte, open.PathDepth)
+		for lvl := range path {
+			path[lvl] = open.Nodes[start+lvl]
+		}
+		return path, nil
+	}
 	if len(open.PathIndex) == 0 || t < 0 || t >= len(open.PathIndex) {
 		return nil, errors.New("missing path indices")
 	}
@@ -2114,6 +2139,7 @@ func expandPackedOpening(op *decs.DECSOpening) *decs.DECSOpening {
 		return nil
 	}
 	clone := cloneDECSOpening(op)
+	rowMajor := clone.PathDepth > 0 && len(clone.PathIndex) == 0 && len(clone.PathBits) == 0 && len(clone.Nodes) == clone.EntryCount()*clone.PathDepth
 	fullIndices := clone.AllIndices()
 	if len(fullIndices) > 0 {
 		clone.Indices = append([]int(nil), fullIndices...)
@@ -2125,9 +2151,12 @@ func expandPackedOpening(op *decs.DECSOpening) *decs.DECSOpening {
 	clone.MaskBase = 0
 	clone.MaskCount = 0
 	clone.IndexBits = nil
-	clone.PathBits = nil
-	clone.PathBitWidth = 0
-	clone.PathDepth = 0
+	clone.IndexBitWidth = 0
+	if !rowMajor {
+		clone.PathBits = nil
+		clone.PathBitWidth = 0
+		clone.PathDepth = 0
+	}
 	pCols := clone.R
 	if clone.PColsEncoded > 0 {
 		pCols = clone.PColsEncoded

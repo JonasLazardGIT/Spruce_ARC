@@ -36,16 +36,17 @@ type intGenISISHolderWitnessSpec struct {
 }
 
 type smallWoodTuningSpec struct {
-	NCols          int    `json:"ncols,omitempty"`
-	LVCSNCols      int    `json:"lvcs_ncols,omitempty"`
-	NLeaves        int    `json:"nleaves,omitempty"`
-	Ell            int    `json:"ell,omitempty"`
-	EllPrime       int    `json:"ell_prime,omitempty"`
-	Eta            int    `json:"eta,omitempty"`
-	Theta          int    `json:"theta,omitempty"`
-	Rho            int    `json:"rho,omitempty"`
-	Kappa          [4]int `json:"kappa,omitempty"`
-	TranscriptMode string `json:"transcript_mode,omitempty"`
+	NCols               int    `json:"ncols,omitempty"`
+	LVCSNCols           int    `json:"lvcs_ncols,omitempty"`
+	NLeaves             int    `json:"nleaves,omitempty"`
+	Ell                 int    `json:"ell,omitempty"`
+	EllPrime            int    `json:"ell_prime,omitempty"`
+	Eta                 int    `json:"eta,omitempty"`
+	Theta               int    `json:"theta,omitempty"`
+	Rho                 int    `json:"rho,omitempty"`
+	Kappa               [4]int `json:"kappa,omitempty"`
+	TranscriptMode      string `json:"transcript_mode,omitempty"`
+	FixedTranscriptSize bool   `json:"fixed_transcript_size,omitempty"`
 }
 
 type holderSecretFile struct {
@@ -101,17 +102,18 @@ type issuanceRuntime struct {
 }
 
 type issuanceRuntimeOverrides struct {
-	NCols          int
-	LVCSNCols      int
-	NLeaves        int
-	Ell            int
-	EllPrime       int
-	Eta            int
-	Theta          int
-	Rho            int
-	Kappa          [4]int
-	TranscriptMode string
-	RingDegree     int
+	NCols               int
+	LVCSNCols           int
+	NLeaves             int
+	Ell                 int
+	EllPrime            int
+	Eta                 int
+	Theta               int
+	Rho                 int
+	Kappa               [4]int
+	TranscriptMode      string
+	FixedTranscriptSize bool
+	RingDegree          int
 }
 
 func ntruSigningPaths(paramsPath, publicPath, privatePath, signaturePath string) signverify.SignPaths {
@@ -155,6 +157,7 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 		out.Rho = spec.Rho
 		out.Kappa = spec.Kappa
 		out.TranscriptMode = spec.TranscriptMode
+		out.FixedTranscriptSize = spec.FixedTranscriptSize
 	}
 	return out
 }
@@ -165,16 +168,17 @@ func smallWoodTuningSpecFromOpts(opts PIOP.SimOpts) *smallWoodTuningSpec {
 		transcriptMode = sweepTranscriptModeSmallField2025
 	}
 	return &smallWoodTuningSpec{
-		NCols:          opts.NCols,
-		LVCSNCols:      opts.LVCSNCols,
-		NLeaves:        opts.NLeaves,
-		Ell:            opts.Ell,
-		EllPrime:       opts.EllPrime,
-		Eta:            opts.Eta,
-		Theta:          opts.Theta,
-		Rho:            opts.Rho,
-		Kappa:          opts.Kappa,
-		TranscriptMode: transcriptMode,
+		NCols:               opts.NCols,
+		LVCSNCols:           opts.LVCSNCols,
+		NLeaves:             opts.NLeaves,
+		Ell:                 opts.Ell,
+		EllPrime:            opts.EllPrime,
+		Eta:                 opts.Eta,
+		Theta:               opts.Theta,
+		Rho:                 opts.Rho,
+		Kappa:               opts.Kappa,
+		TranscriptMode:      transcriptMode,
+		FixedTranscriptSize: opts.FixedTranscriptSize,
 	}
 }
 
@@ -215,6 +219,7 @@ func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeO
 		opts.TranscriptProtocolMode = intGenISISLiveTranscriptProtocolOrDefault(overrides.TranscriptMode)
 		opts.TranscriptVersion = intGenISISLiveTranscriptVersionOrDefault(overrides.TranscriptMode)
 	}
+	opts.FixedTranscriptSize = overrides.FixedTranscriptSize
 	return opts
 }
 

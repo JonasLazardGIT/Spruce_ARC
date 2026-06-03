@@ -101,6 +101,8 @@ type benchmarkIntGenISISMetrics struct {
 	PaperShapeVBarBytes           int                `json:"paper_shape_vbar_bytes,omitempty"`
 	PaperShapeOpeningOmitEntries  int                `json:"paper_shape_opening_omit_entries,omitempty"`
 	PaperShapeCanonical           bool               `json:"paper_shape_canonical,omitempty"`
+	FixedTranscriptSize           bool               `json:"fixed_transcript_size"`
+	TranscriptSizeMode            string             `json:"transcript_size_mode"`
 	TranscriptSecurityStatus      string             `json:"transcript_security_status,omitempty"`
 	MeasurementStatus             string             `json:"measurement_status"`
 }
@@ -153,6 +155,8 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		ProofReportBuckets:       intGenISISProofSizeBucketCount(proof),
 		PDecsBitWidth:            report.TranscriptFocus.PDecsBitWidth,
 		VTargetsBitWidth:         report.TranscriptFocus.VTargetsBitWidth,
+		FixedTranscriptSize:      opts.FixedTranscriptSize || proof.FixedTranscriptSize,
+		TranscriptSizeMode:       transcriptSizeModeLabel(opts.FixedTranscriptSize || proof.FixedTranscriptSize),
 		TranscriptSecurityStatus: report.TranscriptFocus.TranscriptSecurityStatus,
 		MeasurementStatus:        status,
 	}
@@ -289,6 +293,13 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		metrics.ProofReportBuckets = report.TranscriptFocus.RowOpeningEntries
 	}
 	return metrics
+}
+
+func transcriptSizeModeLabel(fixed bool) string {
+	if fixed {
+		return "fixed"
+	}
+	return "compact"
 }
 
 func intGenISISProofSizeBucketCount(proof *PIOP.Proof) int {

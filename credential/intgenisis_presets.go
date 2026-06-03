@@ -15,26 +15,27 @@ const (
 // IntGenISISTuningPreset is the CLI-stable, package-neutral representation of
 // the SmallWood knobs used by maintained IntGenISIS issuance and showing presets.
 type IntGenISISTuningPreset struct {
-	NCols              int     `json:"ncols"`
-	LVCSNCols          int     `json:"lvcs_ncols"`
-	NLeaves            int     `json:"nleaves"`
-	Eta                int     `json:"eta"`
-	Theta              int     `json:"theta"`
-	Rho                int     `json:"rho"`
-	Ell                int     `json:"ell"`
-	EllPrime           int     `json:"ell_prime"`
-	Kappa              [4]int  `json:"kappa"`
-	PRFCompanionMode   string  `json:"prf_companion_mode,omitempty"`
-	PRFGroupRounds     int     `json:"prf_group_rounds,omitempty"`
-	CheckpointSamples  int     `json:"prf_checkpoint_samples,omitempty"`
-	SigShortnessRadix  int     `json:"sig_shortness_radix,omitempty"`
-	SigShortnessDigits int     `json:"sig_shortness_digits,omitempty"`
-	CompressedRows     int     `json:"compressed_rows,omitempty"`
-	ReplayProjection   string  `json:"replay_projection,omitempty"`
-	TranscriptMode     string  `json:"transcript_mode,omitempty"`
-	TargetEq8Bits      float64 `json:"target_eq8_bits,omitempty"`
-	TargetTheoremBits  float64 `json:"target_theorem_bits,omitempty"`
-	SoundnessGate      string  `json:"soundness_gate,omitempty"`
+	NCols               int     `json:"ncols"`
+	LVCSNCols           int     `json:"lvcs_ncols"`
+	NLeaves             int     `json:"nleaves"`
+	Eta                 int     `json:"eta"`
+	Theta               int     `json:"theta"`
+	Rho                 int     `json:"rho"`
+	Ell                 int     `json:"ell"`
+	EllPrime            int     `json:"ell_prime"`
+	Kappa               [4]int  `json:"kappa"`
+	PRFCompanionMode    string  `json:"prf_companion_mode,omitempty"`
+	PRFGroupRounds      int     `json:"prf_group_rounds,omitempty"`
+	CheckpointSamples   int     `json:"prf_checkpoint_samples,omitempty"`
+	SigShortnessRadix   int     `json:"sig_shortness_radix,omitempty"`
+	SigShortnessDigits  int     `json:"sig_shortness_digits,omitempty"`
+	CompressedRows      int     `json:"compressed_rows,omitempty"`
+	ReplayProjection    string  `json:"replay_projection,omitempty"`
+	TranscriptMode      string  `json:"transcript_mode,omitempty"`
+	FixedTranscriptSize bool    `json:"fixed_transcript_size,omitempty"`
+	TargetEq8Bits       float64 `json:"target_eq8_bits,omitempty"`
+	TargetTheoremBits   float64 `json:"target_theorem_bits,omitempty"`
+	SoundnessGate       string  `json:"soundness_gate,omitempty"`
 }
 
 // IntGenISISPreset describes a maintained issuance/showing parameter set.
@@ -89,70 +90,73 @@ func normalizeIntGenISISPresetName(name string) string {
 
 func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	n512Show96 := IntGenISISTuningPreset{
-		NCols:              32,
-		LVCSNCols:          36,
-		NLeaves:            262144,
-		Eta:                36,
-		Theta:              5,
-		Rho:                1,
-		Ell:                7,
-		EllPrime:           1,
-		Kappa:              [4]int{0, 0, 6, 8},
-		PRFCompanionMode:   "direct_full",
-		PRFGroupRounds:     2,
-		CheckpointSamples:  1,
-		SigShortnessRadix:  7,
-		SigShortnessDigits: 5,
-		ReplayProjection:   "project_u_digits_and_y_view_v3",
-		TranscriptMode:     "smallfield_2025_1085_v1",
-		TargetTheoremBits:  96,
-		SoundnessGate:      "smallwood_2025_1085_live",
+		NCols:               32,
+		LVCSNCols:           36,
+		NLeaves:             262144,
+		Eta:                 36,
+		Theta:               5,
+		Rho:                 1,
+		Ell:                 7,
+		EllPrime:            1,
+		Kappa:               [4]int{0, 0, 6, 8},
+		PRFCompanionMode:    "direct_full",
+		PRFGroupRounds:      2,
+		CheckpointSamples:   1,
+		SigShortnessRadix:   7,
+		SigShortnessDigits:  5,
+		ReplayProjection:    "project_u_digits_and_y_view_v3",
+		TranscriptMode:      "smallfield_2025_1085_v1",
+		FixedTranscriptSize: true,
+		TargetTheoremBits:   96,
+		SoundnessGate:       "smallwood_2025_1085_live",
 	}
 	n512Issuance96 := intGenISISIssuanceTuning(n512Show96)
 
 	n1024Show96 := IntGenISISTuningPreset{
-		NCols:              32,
-		LVCSNCols:          43,
-		NLeaves:            230208,
-		Eta:                40,
-		Theta:              5,
-		Rho:                1,
-		Ell:                7,
-		EllPrime:           1,
-		Kappa:              [4]int{0, 0, 6, 11},
-		PRFCompanionMode:   "direct_full",
-		PRFGroupRounds:     2,
-		CheckpointSamples:  1,
-		SigShortnessRadix:  7,
-		SigShortnessDigits: 5,
-		CompressedRows:     1,
-		ReplayProjection:   "project_u_digits_y_w_residual_v5",
-		TranscriptMode:     "smallfield_2025_1085_v1",
-		TargetTheoremBits:  96,
-		SoundnessGate:      "smallwood_2025_1085_live",
+		NCols:               32,
+		LVCSNCols:           43,
+		NLeaves:             230208,
+		Eta:                 40,
+		Theta:               5,
+		Rho:                 1,
+		Ell:                 7,
+		EllPrime:            1,
+		Kappa:               [4]int{0, 0, 6, 11},
+		PRFCompanionMode:    "direct_full",
+		PRFGroupRounds:      2,
+		CheckpointSamples:   1,
+		SigShortnessRadix:   7,
+		SigShortnessDigits:  5,
+		CompressedRows:      1,
+		ReplayProjection:    "project_u_digits_y_w_residual_v5",
+		TranscriptMode:      "smallfield_2025_1085_v1",
+		FixedTranscriptSize: true,
+		TargetTheoremBits:   96,
+		SoundnessGate:       "smallwood_2025_1085_live",
 	}
 	n1024Issuance96 := intGenISISIssuanceTuning(n1024Show96)
 
 	n1024Show125 := IntGenISISTuningPreset{
-		NCols:              32,
-		LVCSNCols:          46,
-		NLeaves:            608192,
-		Eta:                48,
-		Theta:              7,
-		Rho:                1,
-		Ell:                9,
-		EllPrime:           1,
-		Kappa:              [4]int{0, 0, 0, 5},
-		PRFCompanionMode:   "direct_full",
-		PRFGroupRounds:     2,
-		CheckpointSamples:  1,
-		SigShortnessRadix:  11,
-		SigShortnessDigits: 4,
-		CompressedRows:     1,
-		ReplayProjection:   "project_u_digits_y_w_residual_v5",
-		TranscriptMode:     "smallfield_2025_1085_v1",
-		TargetTheoremBits:  125,
-		SoundnessGate:      "smallwood_2025_1085_live",
+		NCols:               32,
+		LVCSNCols:           46,
+		NLeaves:             608192,
+		Eta:                 48,
+		Theta:               7,
+		Rho:                 1,
+		Ell:                 9,
+		EllPrime:            1,
+		Kappa:               [4]int{0, 0, 0, 5},
+		PRFCompanionMode:    "direct_full",
+		PRFGroupRounds:      2,
+		CheckpointSamples:   1,
+		SigShortnessRadix:   11,
+		SigShortnessDigits:  4,
+		CompressedRows:      1,
+		ReplayProjection:    "project_u_digits_y_w_residual_v5",
+		TranscriptMode:      "smallfield_2025_1085_v1",
+		FixedTranscriptSize: true,
+		TargetTheoremBits:   125,
+		SoundnessGate:       "smallwood_2025_1085_live",
 	}
 	n1024Issuance125 := intGenISISIssuanceTuning(n1024Show125)
 

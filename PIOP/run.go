@@ -519,9 +519,12 @@ type SimOpts struct {
 	// Empty preserves the legacy implementation. The SmallWood 2025 version is
 	// introduced incrementally and requires an explicit PACS Q payload.
 	TranscriptVersion string
-	PhaseRecorder     *PhaseRecorder                                                                               `json:"-"`
-	Mutate            func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
-	Credential        bool
+	// FixedTranscriptSize selects fixed-width DECS openings for stable maintained
+	// proof-size reporting. It does not change the algebraic statement.
+	FixedTranscriptSize bool
+	PhaseRecorder       *PhaseRecorder                                                                               `json:"-"`
+	Mutate              func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
+	Credential          bool
 }
 
 func defaultSimOpts() SimOpts {
@@ -936,6 +939,7 @@ type Proof struct {
 	HashRelation           string
 	TranscriptVersion      string
 	TranscriptProtocolMode string
+	FixedTranscriptSize    bool
 	Salt                   []byte
 	Ctr                    [4]uint64
 	Digests                [4][]byte
@@ -1644,6 +1648,7 @@ func cloneDECSOpening(op *decs.DECSOpening) *decs.DECSOpening {
 		Indices:        append([]int(nil), op.Indices...),
 	}
 	clone.TailCount = op.TailCount
+	clone.IndexBitWidth = op.IndexBitWidth
 	if len(op.IndexBits) > 0 {
 		clone.IndexBits = append([]byte(nil), op.IndexBits...)
 	}
@@ -2367,6 +2372,9 @@ func sizeDECSOpening(open *decs.DECSOpening) int {
 	}
 	if len(open.IndexBits) > 0 && open.TailCount > 0 && len(open.Indices) == 0 {
 		sum += len(open.IndexBits)
+		if open.IndexBitWidth > 0 {
+			sum += 1
+		}
 		sum += varintSize(open.TailCount)
 	} else {
 		for _, idx := range open.Indices {
@@ -2412,6 +2420,8 @@ func sizeDECSOpening(open *decs.DECSOpening) int {
 	if len(open.PathBits) > 0 && open.PathDepth > 0 && open.PathBitWidth > 0 && len(open.PathIndex) == 0 {
 		sum += len(open.PathBits)
 		sum += 1 // bit width
+		sum += varintSize(open.PathDepth)
+	} else if open.PathDepth > 0 && len(open.PathIndex) == 0 && len(open.PathBits) == 0 && len(open.Nodes) == open.EntryCount()*open.PathDepth {
 		sum += varintSize(open.PathDepth)
 	} else {
 		for _, pi := range open.PathIndex {

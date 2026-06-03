@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"strings"
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
@@ -17,46 +19,49 @@ func visitedFlagNames(fs *flag.FlagSet) map[string]bool {
 
 func intGenISISTuningFromPresetSpec(spec credential.IntGenISISTuningPreset) intGenISISTuning {
 	return intGenISISTuning{
-		NCols:              spec.NCols,
-		LVCSNCols:          spec.LVCSNCols,
-		NLeaves:            spec.NLeaves,
-		Eta:                spec.Eta,
-		Theta:              spec.Theta,
-		Rho:                spec.Rho,
-		Ell:                spec.Ell,
-		EllPrime:           spec.EllPrime,
-		Kappa:              spec.Kappa,
-		PRFCompanionMode:   PIOP.PRFCompanionMode(spec.PRFCompanionMode),
-		PRFGroupRounds:     spec.PRFGroupRounds,
-		CheckpointSamples:  spec.CheckpointSamples,
-		SigShortnessRadix:  spec.SigShortnessRadix,
-		SigShortnessDigits: spec.SigShortnessDigits,
-		CompressedRows:     spec.CompressedRows,
-		ReplayProjection:   spec.ReplayProjection,
-		TranscriptMode:     spec.TranscriptMode,
+		NCols:                  spec.NCols,
+		LVCSNCols:              spec.LVCSNCols,
+		NLeaves:                spec.NLeaves,
+		Eta:                    spec.Eta,
+		Theta:                  spec.Theta,
+		Rho:                    spec.Rho,
+		Ell:                    spec.Ell,
+		EllPrime:               spec.EllPrime,
+		Kappa:                  spec.Kappa,
+		PRFCompanionMode:       PIOP.PRFCompanionMode(spec.PRFCompanionMode),
+		PRFGroupRounds:         spec.PRFGroupRounds,
+		CheckpointSamples:      spec.CheckpointSamples,
+		SigShortnessRadix:      spec.SigShortnessRadix,
+		SigShortnessDigits:     spec.SigShortnessDigits,
+		CompressedRows:         spec.CompressedRows,
+		ReplayProjection:       spec.ReplayProjection,
+		TranscriptMode:         spec.TranscriptMode,
+		FixedTranscriptSize:    spec.FixedTranscriptSize,
+		FixedTranscriptSizeSet: spec.FixedTranscriptSize,
 	}
 }
 
 func intGenISISTuningPresetFromTuning(t intGenISISTuning, target float64) credential.IntGenISISTuningPreset {
 	return credential.IntGenISISTuningPreset{
-		NCols:              t.NCols,
-		LVCSNCols:          t.LVCSNCols,
-		NLeaves:            t.NLeaves,
-		Eta:                t.Eta,
-		Theta:              t.Theta,
-		Rho:                t.Rho,
-		Ell:                t.Ell,
-		EllPrime:           t.EllPrime,
-		Kappa:              t.Kappa,
-		PRFCompanionMode:   string(t.PRFCompanionMode),
-		PRFGroupRounds:     t.PRFGroupRounds,
-		CheckpointSamples:  t.CheckpointSamples,
-		SigShortnessRadix:  t.SigShortnessRadix,
-		SigShortnessDigits: t.SigShortnessDigits,
-		CompressedRows:     t.CompressedRows,
-		ReplayProjection:   t.ReplayProjection,
-		TranscriptMode:     t.TranscriptMode,
-		TargetEq8Bits:      target,
+		NCols:               t.NCols,
+		LVCSNCols:           t.LVCSNCols,
+		NLeaves:             t.NLeaves,
+		Eta:                 t.Eta,
+		Theta:               t.Theta,
+		Rho:                 t.Rho,
+		Ell:                 t.Ell,
+		EllPrime:            t.EllPrime,
+		Kappa:               t.Kappa,
+		PRFCompanionMode:    string(t.PRFCompanionMode),
+		PRFGroupRounds:      t.PRFGroupRounds,
+		CheckpointSamples:   t.CheckpointSamples,
+		SigShortnessRadix:   t.SigShortnessRadix,
+		SigShortnessDigits:  t.SigShortnessDigits,
+		CompressedRows:      t.CompressedRows,
+		ReplayProjection:    t.ReplayProjection,
+		TranscriptMode:      t.TranscriptMode,
+		FixedTranscriptSize: t.FixedTranscriptSize,
+		TargetEq8Bits:       target,
 	}
 }
 
@@ -147,5 +152,51 @@ func applyShowingSpecificFlagOverrides(t *intGenISISTuning, set map[string]bool,
 func applyIssuanceSpecificFlagOverrides(t *intGenISISTuning, set map[string]bool, transcriptMode string) {
 	if set["issuance-transcript-mode"] {
 		t.TranscriptMode = transcriptMode
+	}
+}
+
+func applyTranscriptSizeFlag(t *intGenISISTuning, mode string) error {
+	value, ok, err := parseTranscriptSizeFlag(mode)
+	if err != nil || !ok {
+		return err
+	}
+	t.FixedTranscriptSize = value
+	t.FixedTranscriptSizeSet = true
+	return nil
+}
+
+func applyTranscriptSizeFlagOverrides(issuance, showing *intGenISISTuning, set map[string]bool, sharedMode, issuanceMode, showingMode string) error {
+	if set["fixed-transcript-size"] {
+		if err := applyTranscriptSizeFlag(issuance, sharedMode); err != nil {
+			return err
+		}
+		if err := applyTranscriptSizeFlag(showing, sharedMode); err != nil {
+			return err
+		}
+	}
+	if set["issuance-fixed-transcript-size"] {
+		if err := applyTranscriptSizeFlag(issuance, issuanceMode); err != nil {
+			return err
+		}
+	}
+	if set["showing-fixed-transcript-size"] {
+		if err := applyTranscriptSizeFlag(showing, showingMode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parseTranscriptSizeFlag(mode string) (value bool, ok bool, err error) {
+	mode = strings.TrimSpace(strings.ToLower(mode))
+	switch mode {
+	case "", "auto":
+		return false, false, nil
+	case "on", "true", "1", "fixed", "fixed_size":
+		return true, true, nil
+	case "off", "false", "0", "compact", "legacy":
+		return false, true, nil
+	default:
+		return false, false, fmt.Errorf("unknown transcript size mode %q (supported: auto, on, off)", mode)
 	}
 }

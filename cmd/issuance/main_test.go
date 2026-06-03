@@ -158,17 +158,29 @@ func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
 	if overrides.TranscriptMode != sweepTranscriptModeSmallField2025 {
 		t.Fatalf("issuance override transcript mode=%q", overrides.TranscriptMode)
 	}
+	if !overrides.FixedTranscriptSize {
+		t.Fatalf("issuance override fixed transcript size=false")
+	}
 	opts := applyIssuanceRuntimeOverrides(PIOP.SimOpts{}, overrides)
 	if opts.TranscriptVersion != PIOP.TranscriptVersionSmallWood2025 || opts.TranscriptProtocolMode != PIOP.TranscriptProtocolSmallField2025V1 {
 		t.Fatalf("issuance opts transcript tuple=(%q,%q)", opts.TranscriptVersion, opts.TranscriptProtocolMode)
+	}
+	if !opts.FixedTranscriptSize {
+		t.Fatalf("issuance opts fixed transcript size=false")
 	}
 	spec := smallWoodTuningSpecFromOpts(opts)
 	if spec.TranscriptMode != sweepTranscriptModeSmallField2025 {
 		t.Fatalf("persisted SmallWood transcript mode=%q", spec.TranscriptMode)
 	}
+	if !spec.FixedTranscriptSize {
+		t.Fatalf("persisted SmallWood fixed transcript size=false")
+	}
 	roundTrip := persistedIssuanceRuntimeOverridesWithSmallWood(spec.NCols, spec.LVCSNCols, spec.NLeaves, nil, spec)
 	if roundTrip.TranscriptMode != sweepTranscriptModeSmallField2025 {
 		t.Fatalf("round-trip override transcript mode=%q", roundTrip.TranscriptMode)
+	}
+	if !roundTrip.FixedTranscriptSize {
+		t.Fatalf("round-trip fixed transcript size=false")
 	}
 
 	applyIssuanceSpecificFlagOverrides(&issuance, map[string]bool{"issuance-transcript-mode": true}, sweepTranscriptModeBaseline)
@@ -177,6 +189,14 @@ func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
 	baselineOpts := applyIssuanceRuntimeOverrides(PIOP.SimOpts{}, baselineOverrides)
 	if baselineOpts.TranscriptVersion != "" || baselineOpts.TranscriptProtocolMode != "" {
 		t.Fatalf("baseline issuance opts transcript tuple=(%q,%q)", baselineOpts.TranscriptVersion, baselineOpts.TranscriptProtocolMode)
+	}
+
+	if err := applyTranscriptSizeFlag(&issuance, "off"); err != nil {
+		t.Fatalf("apply fixed transcript off: %v", err)
+	}
+	compact := normalizeIntGenISISTuning(issuance, showing, false)
+	if compact.FixedTranscriptSize {
+		t.Fatalf("fixed transcript off override was not preserved")
 	}
 }
 

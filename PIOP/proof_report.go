@@ -118,6 +118,8 @@ type TranscriptOptimizationReport struct {
 	PRFBridgeSupportSlots           int    `json:"prf_bridge_support_slots"`
 	PRFBridgeOpenedBlocks           int    `json:"prf_bridge_opened_blocks"`
 	PRFBridgeRowCount               int    `json:"prf_bridge_row_count"`
+	FixedTranscriptSize             bool   `json:"fixed_transcript_size"`
+	TranscriptSizeMode              string `json:"transcript_size_mode"`
 	PRFBridgePaddingRows            int    `json:"prf_bridge_padding_rows"`
 	SourceProductBridgeBytes        int    `json:"source_product_bridge_bytes"`
 	SourceProductBridgeSupportSlots int    `json:"source_product_bridge_support_slots"`
@@ -391,19 +393,25 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 
 func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport, packing ProofPackingAudit, sb SoundnessBudget, geometry WitnessGeometrySnapshot, lvcsNCols int, dQ int, opts SimOpts, q uint64) TranscriptOptimizationReport {
 	out := TranscriptOptimizationReport{
-		RingDegree:        resolvedProofRingDegree(proof, opts.RingDegree),
-		X0Len:             rowLayoutX0Len(proof.RowLayout),
-		NRows:             sb.NRows,
-		M:                 sb.M,
-		PCols:             packing.RowOpening.Pvals.EncodedCols,
-		OmitP:             packing.RowOpening.Pvals.OmittedCols,
-		RowOpeningEntries: packing.RowOpening.EntryCount,
-		PdecsBytes:        paper.Pdecs.OptimizedBytes,
-		VTargetsBytes:     paper.VTargets.OptimizedBytes,
-		BarSetsBytes:      paper.BarSets.OptimizedBytes,
-		QBytes:            paper.Q.OptimizedBytes,
-		PDecsBitWidth:     packing.RowOpening.Pvals.BitWidth,
-		VTargetsBitWidth:  packing.VTargets.BitWidth,
+		RingDegree:          resolvedProofRingDegree(proof, opts.RingDegree),
+		X0Len:               rowLayoutX0Len(proof.RowLayout),
+		NRows:               sb.NRows,
+		M:                   sb.M,
+		PCols:               packing.RowOpening.Pvals.EncodedCols,
+		OmitP:               packing.RowOpening.Pvals.OmittedCols,
+		RowOpeningEntries:   packing.RowOpening.EntryCount,
+		PdecsBytes:          paper.Pdecs.OptimizedBytes,
+		VTargetsBytes:       paper.VTargets.OptimizedBytes,
+		BarSetsBytes:        paper.BarSets.OptimizedBytes,
+		QBytes:              paper.Q.OptimizedBytes,
+		PDecsBitWidth:       packing.RowOpening.Pvals.BitWidth,
+		VTargetsBitWidth:    packing.VTargets.BitWidth,
+		FixedTranscriptSize: opts.FixedTranscriptSize || proof.FixedTranscriptSize,
+	}
+	if out.FixedTranscriptSize {
+		out.TranscriptSizeMode = "fixed"
+	} else {
+		out.TranscriptSizeMode = "compact"
 	}
 	out.LVCSNCols = lvcsNCols
 	out.MainLVCSNCols = lvcsNCols

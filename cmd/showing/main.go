@@ -216,6 +216,7 @@ func main() {
 	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth; direct_full proves the full relation without sampled openings")
 	intGenISISCompressedRows := flag.Int("intgenisis-compressed-rows", 0, "IntGenISIS M/s/e compression level: 0 none, 1 pack2, 2 pack3, 3 pack4")
 	intGenISISReplayProjection := flag.String("intgenisis-replay-projection", PIOP.IntGenISISReplayProjectionNone, "IntGenISIS replay projection mode: none, project_u_y_hat_v1, project_u_y_hat_and_y_view_v2, project_u_digits_and_y_view_v3, experimental project_u_digits_y_source_linear_v4, or experimental project_u_digits_y_w_residual_v5")
+	fixedTranscriptSize := flag.String("fixed-transcript-size", "auto", "fixed-size transcript mode: auto, on, or off")
 	statePathFlag := flag.String("state-path", "", "credential state path for showing; defaults to the selected maintained profile artifact")
 	intGenISISPublicParamsPath := flag.String("public-params", "", "IntGenISIS public params path for standalone presentation verification")
 	intGenISISVerifierKeyPath := flag.String("verifier-key", "", "IntGenISIS verifier key path for standalone presentation verification")
@@ -249,12 +250,14 @@ func main() {
 		activeProfileName = defaultShowingProfile
 	}
 	if activeProfileName == showingProfileIntGenISISB {
+		fixedTranscriptSizeValue := false
 		if strings.TrimSpace(*intGenISISPreset) != "" {
 			preset, err := credential.MustLookupIntGenISISPreset(*intGenISISPreset)
 			if err != nil {
 				cli.fatalf("[showing-cli] ", "%v", err)
 			}
 			t := preset.Showing
+			fixedTranscriptSizeValue = t.FixedTranscriptSize
 			if !setFlags["ncols"] {
 				*ncolsOverride = t.NCols
 			}
@@ -310,6 +313,15 @@ func main() {
 				*intGenISISReplayProjection = t.ReplayProjection
 			}
 		}
+		if setFlags["fixed-transcript-size"] {
+			value, ok, err := parseShowingTranscriptSizeFlag(*fixedTranscriptSize)
+			if err != nil {
+				cli.fatalf("[showing-cli] ", "%v", err)
+			}
+			if ok {
+				fixedTranscriptSizeValue = value
+			}
+		}
 		if !setFlags["state-path"] {
 			*statePathFlag = filepath.Join("credential", "keys", "credential_state.json")
 		}
@@ -332,6 +344,7 @@ func main() {
 			*sigShortnessRadix,
 			*sigShortnessDigits,
 			*intGenISISReplayProjection,
+			fixedTranscriptSizeValue,
 			*presentationOut,
 			*verifyPresentation,
 			*verifierStatePath,
@@ -756,7 +769,20 @@ func effectiveKappaFromFlags(k1, k2, k3, k4 int) [4]int {
 	return out
 }
 
-func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int, replayProjection, presentationOut, verifyPresentationPath, verifierStatePath, unsafeSigLookupShadow string) error {
+func parseShowingTranscriptSizeFlag(mode string) (value bool, ok bool, err error) {
+	switch strings.TrimSpace(strings.ToLower(mode)) {
+	case "", "auto":
+		return false, false, nil
+	case "on", "true", "1", "fixed", "fixed_size":
+		return true, true, nil
+	case "off", "false", "0", "compact", "legacy":
+		return false, true, nil
+	default:
+		return false, false, fmt.Errorf("unknown transcript size mode %q (supported: auto, on, off)", mode)
+	}
+}
+
+func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int, replayProjection string, fixedTranscriptSize bool, presentationOut, verifyPresentationPath, verifierStatePath, unsafeSigLookupShadow string) error {
 	cli.printf(categoryStatus, "[showing-cli] ", "starting IntGenISIS showing profile=%s state=%s", showingProfileIntGenISISB, statePath)
 	if unsafeSigLookupShadow != "" && PIOP.NormalizeSigLookupShadowR121L2Mode(unsafeSigLookupShadow) == PIOP.SigLookupShadowR121L2None {
 		return fmt.Errorf("unknown unsafe shadow sig lookup mode %q", unsafeSigLookupShadow)
@@ -796,7 +822,7 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 		if err != nil {
 			return fmt.Errorf("load ring: %w", err)
 		}
-		opts := intGenISISShowingOpts(publicParams.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits, replayProjection)
+		opts := intGenISISShowingOpts(publicParams.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits, replayProjection, fixedTranscriptSize)
 		return verifyIntGenISISPresentationCLI(verifyPresentationPath, verifierStatePath, verifierKey, publicParams, ringQ, opts)
 	}
 	st, err := credential.LoadIntGenISISState(statePath)
@@ -822,7 +848,7 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 	if err != nil {
 		return fmt.Errorf("load prf params: %w", err)
 	}
-	opts := intGenISISShowingOpts(st.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits, replayProjection)
+	opts := intGenISISShowingOpts(st.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits, replayProjection, fixedTranscriptSize)
 	if opts.NCols < params.LenKey {
 		return fmt.Errorf("ncols=%d is too small for IntGenISIS PRF key width %d", opts.NCols, params.LenKey)
 	}
@@ -921,7 +947,7 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 	return nil
 }
 
-func intGenISISShowingOpts(ringDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int, replayProjection string) PIOP.SimOpts {
+func intGenISISShowingOpts(ringDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int, replayProjection string, fixedTranscriptSize bool) PIOP.SimOpts {
 	ncols := 16
 	if ncolsOverride > 0 {
 		ncols = ncolsOverride
@@ -986,6 +1012,7 @@ func intGenISISShowingOpts(ringDegree, ncolsOverride, lvcsNColsOverride, nLeaves
 		IntGenISISReplayProjection: replayProjection,
 		SigShortnessRadix:          sigShortnessRadix,
 		SigShortnessL:              sigShortnessDigits,
+		FixedTranscriptSize:        fixedTranscriptSize,
 	})
 }
 

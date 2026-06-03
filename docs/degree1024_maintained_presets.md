@@ -1,6 +1,6 @@
 # Degree-1024 Maintained IntGenISIS Presets
 
-Run date: 2026-05-31
+Run date: 2026-06-03
 
 This note records the curated degree-1024 IntGenISIS preset surface. The
 primary transcript metric is `showing.paper_transcript_bytes`; this is the
@@ -12,37 +12,39 @@ not be compared against older undercounted proof bytes.
 
 | Preset | Paper name | Status | Target | Live theorem bits | Observed showing paper bytes | Gate |
 | --- | --- | --- | ---: | ---: | ---: | --- |
-| `n1024-compact96` | `N1024-96` | maintained | 96 | 96.02 | 25,678 | `<27,500`, `>=96` |
-| `n1024-compact125` | `N1024-125` | maintained low-grind frontier | 125+ | 125.17 | 34,457 | `<35,000`, `>=125` |
+| `n1024-compact96` | `N1024-96` | maintained | 96 | 96.02 | 25,882 | `<27,500`, `>=96` |
+| `n1024-compact125` | `N1024-125` | maintained low-grind fixed-size | 125+ | 125.17 | 34,853 | `<35,000`, `>=125` |
 
 The public registry intentionally contains only the compact maintained names.
 Removed selectors are invalid rather than aliases. The high preset is a 125+
 live preset, not a 128-bit claim. Maintained issuance and showing both use
-`smallfield_2025_1085_v1` by default; `-issuance-transcript-mode baseline`
-remains available only for comparison.
+`smallfield_2025_1085_v1` and fixed-size DECS authentication by default;
+`-issuance-transcript-mode baseline` and `-fixed-transcript-size off` remain
+available only for comparison.
 
 ## Fresh E2E Snapshot
 
 Measurements below come from JSON-backed `benchmark-intgenisis-e2e` runs on
-2026-05-31 with `GOMAXPROCS=16`. The benchmark exercises both issuance and
-showing. NTRU setup includes randomized annulus key-generation retries when
-they occur; the proof-system timing columns are the stable comparison target.
+2026-06-03 with `GOMAXPROCS=16`. The benchmark exercises both issuance and
+showing with maintained fixed-size transcript mode enabled. NTRU setup includes
+randomized annulus key-generation retries when they occur; the proof-system
+timing columns are the stable comparison target.
 
 | Preset | NTRU setup ms | Issuance prove ms | Issuance verify ms | Issuer verify+sign ms | Showing prove ms | Showing verify ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `n1024-compact96` | 3,047.23 | 521.04 | 152.80 | 1,041.17 | 1,419.86 | 221.76 |
-| `n1024-compact125` | 2,853.60 | 1,410.21 | 560.22 | 1,186.62 | 3,001.57 | 610.77 |
+| `n1024-compact96` | 3,336.70 | 658.58 | 206.46 | 955.25 | 1,565.55 | 315.45 |
+| `n1024-compact125` | 1,679.60 | 1,604.80 | 663.61 | 1,451.89 | 3,290.90 | 854.82 |
 
 Showing prover phase timings from the same measurements:
 
 | Preset | LVCS commit ms | `decs.eval_hash` ms | `decs.merkle` ms | Constraints ms | PRF full ms | Projected sig ms | Transform cache ms | Y-linear plan ms | Q/masks ms | Rows ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `n1024-compact96` | 561.13 | 508.72 | 18.14 | 289.37 | 24.14 | 176.54 | 116.35 | 63.95 | 163.69 | 104.90 |
-| `n1024-compact125` | 1,505.96 | 1,377.40 | 59.76 | 315.76 | 24.95 | 193.45 | 133.88 | 65.35 | 277.30 | 104.92 |
+| `n1024-compact96` | 611.69 | 543.08 | 21.89 | 320.62 | 26.93 | 188.68 | 126.36 | 80.24 | 172.68 | 111.08 |
+| `n1024-compact125` | 1,627.78 | 1,447.21 | 62.67 | 333.99 | 27.79 | 185.67 | 123.68 | 82.67 | 283.71 | 106.55 |
 
 The maintained showing path now uses `direct_full` PRF companion constraints.
 The added full-PRF constraint phase is small relative to DECS/LVCS commitment:
-about `24.14 ms` for `n1024-compact96` and `24.95 ms` for
+about `26.93 ms` for `n1024-compact96` and `27.79 ms` for
 `n1024-compact125`. `RunMaskFS.PRFCompanionOpenings` is `0.00 ms` because
 `direct_full` proves the relation inside the main SmallWood constraint system
 instead of emitting sampled scalar audit openings.
@@ -63,25 +65,27 @@ compression=1
 projection=project_u_digits_y_w_residual_v5
 transcript_mode=smallfield_2025_1085_v1
 prf=direct_full, group_rounds=2, checkpoint_samples=1
-artifact_dir=/tmp/spruce-opt-e2e-96.BwhF0u
-report=/tmp/spruce-opt-e2e-96.BwhF0u/report.json
+fixed_transcript_size=true
+artifact_dir=/tmp/spruce-fixed96-0y7xSd/artifacts-1
+report=/tmp/spruce-fixed96-0y7xSd/run-1.json
 ```
 
 Fresh live issuance snapshot:
 
 ```text
 q=1017857
-paper_transcript_bytes=14052
-proof_size_bytes=15100
-prove_ms=521.04
-verify_ms=152.80
+paper_transcript_bytes=14307
+proof_size_bytes=15355
+prove_ms=658.58
+verify_ms=206.46
 theorem_total_bits=96.46
 rows=165
 rows_block=4
 dQ=145
 DDECS=49
 committed_cols=43
-q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=1784/4291/2507/0/1780/0/2698/448
+q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=1784/4291/2507/0/2035/0/2698/448
+transcript_size_mode=fixed
 transcript_security_status=smallwood_2025_1085_live
 clamped={false,false,false,false}
 ```
@@ -90,17 +94,18 @@ Fresh live showing snapshot:
 
 ```text
 q=1017857
-paper_transcript_bytes=25678
-proof_size_bytes=28313
-prove_ms=1419.86
-verify_ms=221.76
+paper_transcript_bytes=25882
+proof_size_bytes=28517
+prove_ms=1565.55
+verify_ms=315.45
 theorem_total_bits=96.02
 rows=471
 rows_block=11
 dQ=373
 DDECS=49
 committed_cols=43
-q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=4628/4291/6864/0/1831/0/6460/1060
+q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=4628/4291/6864/0/2035/0/6460/1060
+transcript_size_mode=fixed
 transcript_security_status=smallwood_2025_1085_live
 clamped={false,false,false,false}
 ```
@@ -121,25 +126,27 @@ compression=1
 projection=project_u_digits_y_w_residual_v5
 transcript_mode=smallfield_2025_1085_v1
 prf=direct_full, group_rounds=2, checkpoint_samples=1
-artifact_dir=/tmp/spruce-opt-e2e-125.6YXSif
-report=/tmp/spruce-opt-e2e-125.6YXSif/report.json
+fixed_transcript_size=true
+artifact_dir=/tmp/spruce-fixed125-0Uf3ZB/artifacts-1
+report=/tmp/spruce-fixed125-0Uf3ZB/run-1.json
 ```
 
 Fresh live issuance snapshot:
 
 ```text
 q=1017857
-paper_transcript_bytes=19220
-proof_size_bytes=20707
-prove_ms=1410.21
-verify_ms=560.22
+paper_transcript_bytes=19751
+proof_size_bytes=21238
+prove_ms=1604.80
+verify_ms=663.61
 theorem_total_bits=125.19
 rows=165
 rows_block=4
 dQ=151
 DDECS=54
 committed_cols=46
-q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=2602/5509/3357/0/2375/0/4035/798
+q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=2602/5509/3357/0/2906/0/4035/798
+transcript_size_mode=fixed
 transcript_security_status=smallwood_2025_1085_live
 clamped={false,false,false,false}
 ```
@@ -148,17 +155,18 @@ Fresh live showing snapshot:
 
 ```text
 q=1017857
-paper_transcript_bytes=34457
-proof_size_bytes=37537
-prove_ms=3001.57
-verify_ms=610.77
+paper_transcript_bytes=34853
+proof_size_bytes=37933
+prove_ms=3290.90
+verify_ms=854.82
 theorem_total_bits=125.17
 rows=407
 rows_block=9
 dQ=471
 DDECS=54
 committed_cols=46
-q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=8190/5509/8059/0/2510/0/8060/1585
+q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=8190/5509/8059/0/2906/0/8060/1585
+transcript_size_mode=fixed
 transcript_security_status=smallwood_2025_1085_live
 clamped={false,false,false,false}
 ```
@@ -175,6 +183,10 @@ clamped={false,false,false,false}
   projection selector and theorem-bit accounting remain consistent with the
   previous maintained runs, while the PRF companion proves the full
   `tag = PRF(k, nonce)` relation instead of the sampled output-audit predicate.
+- Maintained presets now use fixed-size DECS authentication by default. Three
+  repeated runs produced identical issuance/showing `paper_transcript_bytes`,
+  `proof_size_bytes`, and `auth_bytes` for both degree-1024 presets. The compact
+  frontier format remains available with `-fixed-transcript-size off`.
 
 ## Live Gate
 
@@ -214,16 +226,18 @@ GOMAXPROCS=16 go test ./PIOP -run '^$' \
 ```bash
 GOMAXPROCS=16 go run ./cmd/issuance benchmark-intgenisis-e2e \
   -preset n1024-compact96 \
-  -artifact-dir /tmp/spruce-opt-e2e-96.BwhF0u \
-  -json-out /tmp/spruce-opt-e2e-96.BwhF0u/report.json \
+  -max-nleaves 0 \
+  -artifact-dir /tmp/spruce-fixed96-0y7xSd/artifacts-1 \
+  -json-out /tmp/spruce-fixed96-0y7xSd/run-1.json \
   -force
 ```
 
 ```bash
 GOMAXPROCS=16 go run ./cmd/issuance benchmark-intgenisis-e2e \
   -preset n1024-compact125 \
-  -artifact-dir /tmp/spruce-opt-e2e-125.6YXSif \
-  -json-out /tmp/spruce-opt-e2e-125.6YXSif/report.json \
+  -max-nleaves 0 \
+  -artifact-dir /tmp/spruce-fixed125-0Uf3ZB/artifacts-1 \
+  -json-out /tmp/spruce-fixed125-0Uf3ZB/run-1.json \
   -force
 ```
 

@@ -77,7 +77,16 @@ func (v *Verifier) VerifyEvalFormal(
 		return false
 	}
 	n := open.EntryCount()
-	if len(open.Pvals) != n || len(open.Mvals) != n || len(open.PathIndex) != n {
+	if len(open.Pvals) > 0 && len(open.Pvals) != n {
+		return false
+	}
+	if len(open.Pvals) == 0 && openingPCols(open) < v.r {
+		return false
+	}
+	if len(open.Mvals) > 0 && len(open.Mvals) != n {
+		return false
+	}
+	if len(open.Mvals) == 0 && openingMCols(open) < v.params.Eta {
 		return false
 	}
 	if len(open.Nonces) > 0 && len(open.Nonces) != n {
@@ -99,7 +108,10 @@ func (v *Verifier) VerifyEvalFormal(
 		if idx < 0 || idx >= v.nLeaves {
 			return false
 		}
-		if len(open.Pvals[t]) != v.r || len(open.Mvals[t]) != v.params.Eta {
+		if len(open.Pvals) > 0 && len(open.Pvals[t]) != v.r {
+			return false
+		}
+		if len(open.Mvals) > 0 && len(open.Mvals[t]) != v.params.Eta {
 			return false
 		}
 		var nonce []byte
@@ -297,6 +309,14 @@ func pathRowIndices(open *DECSOpening, row int) ([]int, bool) {
 	}
 	if len(open.PathIndex) > row && open.PathIndex[row] != nil {
 		return open.PathIndex[row], true
+	}
+	if open.PathDepth > 0 && len(open.PathIndex) == 0 && len(open.PathBits) == 0 && len(open.Nodes) == open.EntryCount()*open.PathDepth {
+		start := row * open.PathDepth
+		out := make([]int, open.PathDepth)
+		for i := range out {
+			out[i] = start + i
+		}
+		return out, true
 	}
 	if open.PathDepth <= 0 || open.PathBitWidth == 0 || len(open.PathBits) == 0 {
 		return nil, false

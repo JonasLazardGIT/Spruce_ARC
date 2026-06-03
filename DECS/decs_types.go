@@ -21,11 +21,14 @@ type DECSOpening struct {
 
 	MaskBase  int
 	MaskCount int
-	Indices   []int      // explicit indices after the mask segment (optional)
-	TailCount int        // number of tail indices when Indices is packed
-	IndexBits []byte     // packed tail indices (13-bit per entry; optional)
-	Pvals     [][]uint64 // optional: P_j(e) for each e∈E, j∈[0..r)
-	Mvals     [][]uint64 // optional: M_k(e) for each e∈E, k∈[0..η)
+	Indices   []int  // explicit indices after the mask segment (optional)
+	TailCount int    // number of tail indices when Indices is packed
+	IndexBits []byte // packed tail indices (13-bit legacy or IndexBitWidth per entry; optional)
+	// IndexBitWidth selects the packed tail-index width. Zero means the legacy
+	// 13-bit encoding used by compact openings.
+	IndexBitWidth uint8
+	Pvals         [][]uint64 // optional: P_j(e) for each e∈E, j∈[0..r)
+	Mvals         [][]uint64 // optional: M_k(e) for each e∈E, k∈[0..η)
 	// Width 0 keeps the full residue encoding.
 	PvalsBits         []byte
 	MvalsBits         []byte

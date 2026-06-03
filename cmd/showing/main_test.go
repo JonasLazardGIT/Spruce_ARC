@@ -60,7 +60,7 @@ func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T)
 		t.Fatal("missing n1024-compact125 preset")
 	}
 	tuning := preset.Showing
-	opts := intGenISISShowingOpts(1024, tuning.NCols, tuning.LVCSNCols, tuning.NLeaves, tuning.Eta, tuning.Theta, tuning.Rho, tuning.Ell, tuning.EllPrime, tuning.Kappa, PIOP.PRFCompanionMode(tuning.PRFCompanionMode), tuning.CheckpointSamples, tuning.CompressedRows, tuning.SigShortnessRadix, tuning.SigShortnessDigits, tuning.ReplayProjection)
+	opts := intGenISISShowingOpts(1024, tuning.NCols, tuning.LVCSNCols, tuning.NLeaves, tuning.Eta, tuning.Theta, tuning.Rho, tuning.Ell, tuning.EllPrime, tuning.Kappa, PIOP.PRFCompanionMode(tuning.PRFCompanionMode), tuning.CheckpointSamples, tuning.CompressedRows, tuning.SigShortnessRadix, tuning.SigShortnessDigits, tuning.ReplayProjection, tuning.FixedTranscriptSize)
 	if opts.NCols != tuning.NCols || opts.LVCSNCols != tuning.LVCSNCols || opts.NLeaves != tuning.NLeaves {
 		t.Fatalf("opts did not carry preset geometry: %+v preset=%+v", opts, tuning)
 	}

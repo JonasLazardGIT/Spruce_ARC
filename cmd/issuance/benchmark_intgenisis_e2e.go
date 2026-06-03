@@ -53,23 +53,25 @@ type benchmarkIntGenISISE2EConfig struct {
 }
 
 type intGenISISTuning struct {
-	NCols              int                   `json:"ncols"`
-	LVCSNCols          int                   `json:"lvcs_ncols"`
-	NLeaves            int                   `json:"nleaves"`
-	Eta                int                   `json:"eta"`
-	Theta              int                   `json:"theta"`
-	Rho                int                   `json:"rho"`
-	Ell                int                   `json:"ell"`
-	EllPrime           int                   `json:"ell_prime"`
-	Kappa              [4]int                `json:"kappa"`
-	PRFCompanionMode   PIOP.PRFCompanionMode `json:"prf_companion_mode,omitempty"`
-	PRFGroupRounds     int                   `json:"prf_group_rounds,omitempty"`
-	CheckpointSamples  int                   `json:"prf_checkpoint_samples,omitempty"`
-	SigShortnessRadix  int                   `json:"sig_shortness_radix,omitempty"`
-	SigShortnessDigits int                   `json:"sig_shortness_digits,omitempty"`
-	CompressedRows     int                   `json:"compressed_rows,omitempty"`
-	ReplayProjection   string                `json:"replay_projection,omitempty"`
-	TranscriptMode     string                `json:"transcript_mode,omitempty"`
+	NCols                  int                   `json:"ncols"`
+	LVCSNCols              int                   `json:"lvcs_ncols"`
+	NLeaves                int                   `json:"nleaves"`
+	Eta                    int                   `json:"eta"`
+	Theta                  int                   `json:"theta"`
+	Rho                    int                   `json:"rho"`
+	Ell                    int                   `json:"ell"`
+	EllPrime               int                   `json:"ell_prime"`
+	Kappa                  [4]int                `json:"kappa"`
+	PRFCompanionMode       PIOP.PRFCompanionMode `json:"prf_companion_mode,omitempty"`
+	PRFGroupRounds         int                   `json:"prf_group_rounds,omitempty"`
+	CheckpointSamples      int                   `json:"prf_checkpoint_samples,omitempty"`
+	SigShortnessRadix      int                   `json:"sig_shortness_radix,omitempty"`
+	SigShortnessDigits     int                   `json:"sig_shortness_digits,omitempty"`
+	CompressedRows         int                   `json:"compressed_rows,omitempty"`
+	ReplayProjection       string                `json:"replay_projection,omitempty"`
+	TranscriptMode         string                `json:"transcript_mode,omitempty"`
+	FixedTranscriptSize    bool                  `json:"fixed_transcript_size,omitempty"`
+	FixedTranscriptSizeSet bool                  `json:"-"`
 }
 
 type benchmarkIntGenISISE2ETimings struct {
@@ -231,6 +233,10 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		if t.TranscriptMode == "" {
 			t.TranscriptMode = fallback.TranscriptMode
 		}
+		if !t.FixedTranscriptSizeSet && fallback.FixedTranscriptSize {
+			t.FixedTranscriptSize = fallback.FixedTranscriptSize
+			t.FixedTranscriptSizeSet = fallback.FixedTranscriptSizeSet
+		}
 	} else {
 		t.PRFCompanionMode = ""
 		t.PRFGroupRounds = 0
@@ -240,6 +246,10 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		t.ReplayProjection = ""
 		if t.TranscriptMode == "" {
 			t.TranscriptMode = fallback.TranscriptMode
+		}
+		if !t.FixedTranscriptSizeSet && fallback.FixedTranscriptSize {
+			t.FixedTranscriptSize = fallback.FixedTranscriptSize
+			t.FixedTranscriptSizeSet = fallback.FixedTranscriptSizeSet
 		}
 	}
 	return t
@@ -264,17 +274,18 @@ func validateIntGenISISLeafCap(label string, t intGenISISTuning, maxNLeaves int)
 
 func intGenISISTuningToIssuanceOverrides(t intGenISISTuning, ringDegree int) issuanceRuntimeOverrides {
 	return issuanceRuntimeOverrides{
-		NCols:          t.NCols,
-		LVCSNCols:      t.LVCSNCols,
-		NLeaves:        t.NLeaves,
-		Ell:            t.Ell,
-		EllPrime:       t.EllPrime,
-		Eta:            t.Eta,
-		Theta:          t.Theta,
-		Rho:            t.Rho,
-		Kappa:          t.Kappa,
-		TranscriptMode: t.TranscriptMode,
-		RingDegree:     ringDegree,
+		NCols:               t.NCols,
+		LVCSNCols:           t.LVCSNCols,
+		NLeaves:             t.NLeaves,
+		Ell:                 t.Ell,
+		EllPrime:            t.EllPrime,
+		Eta:                 t.Eta,
+		Theta:               t.Theta,
+		Rho:                 t.Rho,
+		Kappa:               t.Kappa,
+		TranscriptMode:      t.TranscriptMode,
+		FixedTranscriptSize: t.FixedTranscriptSize,
+		RingDegree:          ringDegree,
 	}
 }
 
@@ -309,6 +320,7 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 		TranscriptCodec:            intGenISISLiveTranscriptCodecOrDefault(t.TranscriptMode),
 		TranscriptProtocolMode:     intGenISISLiveTranscriptProtocolOrDefault(t.TranscriptMode),
 		TranscriptVersion:          intGenISISLiveTranscriptVersionOrDefault(t.TranscriptMode),
+		FixedTranscriptSize:        t.FixedTranscriptSize,
 	})
 }
 

@@ -211,6 +211,9 @@ func BuildOpeningPaperReport(open *decs.DECSOpening) openingPaperReport {
 	}
 	if len(open.IndexBits) > 0 && open.TailCount > 0 && len(open.Indices) == 0 {
 		authBits += float64(len(open.IndexBits) * 8)
+		if open.IndexBitWidth > 0 {
+			authBits += 8
+		}
 		authBits += float64(8 * varintSize(open.TailCount))
 	} else {
 		for _, idx := range open.Indices {
@@ -236,6 +239,8 @@ func BuildOpeningPaperReport(open *decs.DECSOpening) openingPaperReport {
 	if len(open.PathBits) > 0 && open.PathDepth > 0 && open.PathBitWidth > 0 && len(open.PathIndex) == 0 {
 		authBits += float64(len(open.PathBits) * 8)
 		authBits += 8
+		authBits += float64(8 * varintSize(open.PathDepth))
+	} else if open.PathDepth > 0 && len(open.PathIndex) == 0 && len(open.PathBits) == 0 && len(open.Nodes) == open.EntryCount()*open.PathDepth {
 		authBits += float64(8 * varintSize(open.PathDepth))
 	} else {
 		for _, pi := range open.PathIndex {

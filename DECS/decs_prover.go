@@ -1318,18 +1318,202 @@ func ringRowsToFormal(rows []*ring.Poly, q uint64) [][]uint64 {
 	return out
 }
 
+// OpeningPackOptions selects the proof payload encoding for DECS openings.
+type OpeningPackOptions struct {
+	// FixedSize disables frontier/path-index compression and emits fixed-width
+	// tail indices plus full row-major Merkle paths.
+	FixedSize bool
+	// NLeaves is used to derive the fixed index width when FixedSize is true.
+	NLeaves int
+	// FieldBitWidth fixes P/M residue streams when FixedSize is true. Zero keeps
+	// the legacy instance-minimum width.
+	FieldBitWidth uint8
+}
+
 // PackOpening compacts residues and encodes PathIndex into fixed-width bitstreams.
 func PackOpening(op *DECSOpening) {
+	PackOpeningWithOptions(op, OpeningPackOptions{})
+}
+
+// PackOpeningWithOptions compacts an opening using either the legacy compact
+// frontier mode or the maintained fixed-size mode.
+func PackOpeningWithOptions(op *DECSOpening, opts OpeningPackOptions) {
 	if op == nil {
 		return
 	}
-	op.packResidues()
-	op.packTailIndices()
-	op.packFrontier()
-	op.packPathIndexBits()
+	if opts.FixedSize {
+		width := int(opts.FieldBitWidth)
+		op.packResiduesFixed(width)
+		op.packTailIndicesFixed(bitWidthForCount(opts.NLeaves))
+		op.packRowMajorPaths()
+	} else {
+		op.packResidues()
+		op.packTailIndices()
+		op.packFrontier()
+		op.packPathIndexBits()
+	}
 	if len(op.NonceSeed) > 0 {
 		op.Nonces = nil
 	}
+}
+
+func bitWidthForCount(n int) int {
+	if n <= 1 {
+		return 1
+	}
+	return pathBitWidth(n - 1)
+}
+
+func (op *DECSOpening) packResiduesFixed(width int) {
+	if width <= 0 {
+		op.packResidues()
+		return
+	}
+	op.packPvalsFixed(width)
+	op.packMvalsFixed(width)
+}
+
+func (op *DECSOpening) packPvalsFixed(width int) {
+	if op == nil || len(op.Pvals) == 0 {
+		return
+	}
+	if op.R <= 0 {
+		op.R = len(op.Pvals[0])
+	}
+	pCols := op.R
+	if op.FormatVersion == OpeningFormatOmitCols || op.FormatVersion == OpeningFormatColumnWidths {
+		if op.PColsEncoded > 0 {
+			pCols = op.PColsEncoded
+		} else {
+			pCols = len(op.Pvals[0])
+			op.PColsEncoded = pCols
+		}
+	} else {
+		op.FormatVersion = OpeningFormatPlain
+		op.PColsEncoded = 0
+		op.POmitCols = nil
+	}
+	if pCols <= 0 {
+		pCols = len(op.Pvals[0])
+	}
+	for i := range op.Pvals {
+		if len(op.Pvals[i]) != pCols {
+			panic("decs: ragged P matrix in fixed packed opening")
+		}
+	}
+	if min := selectBitWidth(maxMatrixValue(op.Pvals)); min > width {
+		width = min
+	}
+	op.PvalsBits = packFlatUintMatrix(op.Pvals, pCols, width)
+	op.PvalsBitWidth = uint8(width)
+	op.PvalsColumnWidths = nil
+	if op.FormatVersion == OpeningFormatColumnWidths && len(op.POmitCols) == 0 {
+		op.FormatVersion = OpeningFormatPlain
+		op.PColsEncoded = 0
+	} else if op.FormatVersion == OpeningFormatColumnWidths {
+		op.FormatVersion = OpeningFormatOmitCols
+	}
+	op.Pvals = nil
+}
+
+func (op *DECSOpening) packMvalsFixed(width int) {
+	if op == nil || len(op.Mvals) == 0 {
+		return
+	}
+	if op.Eta <= 0 {
+		op.Eta = len(op.Mvals[0])
+	}
+	mCols := op.Eta
+	if op.MFormatVersion == OpeningFormatOmitCols || op.MFormatVersion == OpeningFormatColumnWidths {
+		if op.MColsEncoded > 0 {
+			mCols = op.MColsEncoded
+		} else {
+			mCols = len(op.Mvals[0])
+			op.MColsEncoded = mCols
+		}
+	} else {
+		op.MFormatVersion = OpeningFormatPlain
+		op.MColsEncoded = 0
+		op.MOmitCols = nil
+	}
+	if mCols <= 0 {
+		mCols = len(op.Mvals[0])
+	}
+	for i := range op.Mvals {
+		if len(op.Mvals[i]) != mCols {
+			panic("decs: ragged M matrix in fixed packed opening")
+		}
+	}
+	if min := selectBitWidth(maxMatrixValue(op.Mvals)); min > width {
+		width = min
+	}
+	op.MvalsBits = packFlatUintMatrix(op.Mvals, mCols, width)
+	op.MvalsBitWidth = uint8(width)
+	op.MvalsColumnWidths = nil
+	if op.MFormatVersion == OpeningFormatColumnWidths && len(op.MOmitCols) == 0 {
+		op.MFormatVersion = OpeningFormatPlain
+		op.MColsEncoded = 0
+	} else if op.MFormatVersion == OpeningFormatColumnWidths {
+		op.MFormatVersion = OpeningFormatOmitCols
+	}
+	op.Mvals = nil
+}
+
+func (op *DECSOpening) packRowMajorPaths() {
+	if op == nil || op.EntryCount() == 0 {
+		op.Nodes = nil
+		op.PathIndex = nil
+		op.PathBits = nil
+		op.PathBitWidth = 0
+		op.PathDepth = 0
+		op.FrontierRefsBits = nil
+		op.FrontierRefWidth = 0
+		op.FrontierRefCount = 0
+		op.FrontierNodes = nil
+		op.FrontierProof = nil
+		op.FrontierLR = nil
+		op.FrontierDepth = 0
+		return
+	}
+	_ = EnsureMerkleDecoded(op)
+	pathIdx := op.PathIndex
+	if len(pathIdx) == 0 && len(op.PathBits) > 0 && op.PathDepth > 0 && op.PathBitWidth > 0 {
+		if matrix, err := unpackPathMatrix(op.PathBits, op.EntryCount(), op.PathDepth, int(op.PathBitWidth)); err == nil {
+			pathIdx = matrix
+		}
+	}
+	if len(pathIdx) == 0 || len(op.Nodes) == 0 {
+		return
+	}
+	depth := len(pathIdx[0])
+	if depth <= 0 {
+		return
+	}
+	rowMajor := make([][]byte, 0, op.EntryCount()*depth)
+	for row := 0; row < op.EntryCount(); row++ {
+		if row >= len(pathIdx) || len(pathIdx[row]) != depth {
+			return
+		}
+		for lvl := 0; lvl < depth; lvl++ {
+			id := pathIdx[row][lvl]
+			if id < 0 || id >= len(op.Nodes) {
+				return
+			}
+			rowMajor = append(rowMajor, append([]byte(nil), op.Nodes[id]...))
+		}
+	}
+	op.Nodes = rowMajor
+	op.PathIndex = nil
+	op.PathBits = nil
+	op.PathBitWidth = 0
+	op.PathDepth = depth
+	op.FrontierRefsBits = nil
+	op.FrontierRefWidth = 0
+	op.FrontierRefCount = 0
+	op.FrontierNodes = nil
+	op.FrontierProof = nil
+	op.FrontierLR = nil
+	op.FrontierDepth = 0
 }
 
 // packResidues packs Pvals and Mvals into width-tagged row-major bitstreams.
@@ -1479,7 +1663,7 @@ func (op *DECSOpening) packPathIndexBits() {
 		return
 	}
 	if len(op.PathIndex) == 0 {
-		if len(op.PathBits) == 0 {
+		if len(op.PathBits) == 0 && !op.hasRowMajorPaths() {
 			op.PathBitWidth = 0
 			op.PathDepth = 0
 		}
@@ -1514,6 +1698,10 @@ func (op *DECSOpening) packPathIndexBits() {
 	op.PathBitWidth = uint8(width)
 	op.PathDepth = depth
 	op.PathIndex = nil
+}
+
+func (op *DECSOpening) hasRowMajorPaths() bool {
+	return op != nil && op.PathDepth > 0 && len(op.PathIndex) == 0 && len(op.PathBits) == 0 && len(op.Nodes) == op.EntryCount()*op.PathDepth
 }
 
 // DeriveGamma expands root→η×r matrix Γ with entries uniform in [0,q).

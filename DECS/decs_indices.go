@@ -42,6 +42,34 @@ func (op *DECSOpening) packTailIndices() {
 		return
 	}
 	op.IndexBits = packIndexBits13(op.Indices)
+	op.IndexBitWidth = 0
+	op.Indices = nil
+}
+
+func (op *DECSOpening) packTailIndicesFixed(width int) {
+	if op == nil {
+		return
+	}
+	if width <= 0 {
+		op.packTailIndices()
+		return
+	}
+	if width > 63 {
+		width = 63
+	}
+	if len(op.IndexBits) > 0 && len(op.Indices) == 0 && op.TailCount > 0 && int(op.IndexBitWidth) == width {
+		return
+	}
+	tailLen := len(op.Indices)
+	if tailLen == 0 {
+		op.IndexBits = nil
+		op.TailCount = 0
+		op.IndexBitWidth = 0
+		return
+	}
+	op.TailCount = tailLen
+	op.IndexBits = packIndexBitsWidth(op.Indices, width)
+	op.IndexBitWidth = uint8(width)
 	op.Indices = nil
 }
 
@@ -49,7 +77,7 @@ func (op *DECSOpening) tailIndexAt(pos int) int {
 	if op == nil || pos < 0 || pos >= op.TailCount || len(op.IndexBits) == 0 {
 		return -1
 	}
-	v, ok := unpackIndexAt(op.IndexBits, pos)
+	v, ok := unpackIndexAtWidth(op.IndexBits, pos, op.tailIndexBitWidth())
 	if !ok {
 		return -1
 	}
@@ -75,7 +103,7 @@ func (op *DECSOpening) decodeTailInto(dst []int) {
 		return
 	}
 	for i := 0; i < len(dst) && i < op.TailCount; i++ {
-		if val, ok := unpackIndexAt(op.IndexBits, i); ok {
+		if val, ok := unpackIndexAtWidth(op.IndexBits, i, op.tailIndexBitWidth()); ok {
 			dst[i] = val
 		} else {
 			dst[i] = 0
@@ -83,48 +111,91 @@ func (op *DECSOpening) decodeTailInto(dst []int) {
 	}
 }
 
+func (op *DECSOpening) tailIndexBitWidth() int {
+	if op != nil && op.IndexBitWidth > 0 {
+		return int(op.IndexBitWidth)
+	}
+	return indexBitsPerValue
+}
+
 func packIndexBits13(values []int) []byte {
+	return packIndexBitsWidth(values, indexBitsPerValue)
+}
+
+func packIndexBitsWidth(values []int, width int) []byte {
 	if len(values) == 0 {
 		return nil
 	}
-	totalBits := len(values) * indexBitsPerValue
+	if width <= 0 {
+		return nil
+	}
+	if width > 63 {
+		width = 63
+	}
+	mask := uint64(1<<uint(width)) - 1
+	if width == 63 {
+		mask = (uint64(1) << 63) - 1
+	}
+	totalBits := len(values) * width
 	out := make([]byte, (totalBits+7)/8)
 	bitPos := 0
 	for _, v := range values {
-		val := uint32(v & indexBitsMask)
-		bytePos := bitPos >> 3
-		shift := uint(bitPos & 7)
-		var chunk uint32 = val << shift
-		for i := 0; i < 3 && (bytePos+i) < len(out); i++ {
-			out[bytePos+i] |= byte(chunk & 0xFF)
-			chunk >>= 8
-			if shift+indexBitsPerValue <= uint(8*(i+1)) {
-				break
-			}
-		}
-		bitPos += indexBitsPerValue
+		val := uint64(v) & mask
+		packIndexUintAt(out, bitPos, width, val)
+		bitPos += width
 	}
 	return out
 }
 
 func unpackIndexAt(bits []byte, pos int) (int, bool) {
+	return unpackIndexAtWidth(bits, pos, indexBitsPerValue)
+}
+
+func unpackIndexAtWidth(bits []byte, pos int, width int) (int, bool) {
 	if pos < 0 {
 		return 0, false
 	}
-	bitPos := pos * indexBitsPerValue
+	if width <= 0 {
+		return 0, false
+	}
+	if width > 63 {
+		width = 63
+	}
+	bitPos := pos * width
 	bytePos := bitPos >> 3
 	if bytePos >= len(bits) {
 		return 0, false
 	}
 	shift := uint(bitPos & 7)
-	var chunk uint32
-	for i := 0; i < 3 && (bytePos+i) < len(bits); i++ {
-		chunk |= uint32(bits[bytePos+i]) << (8 * i)
+	var chunk uint64
+	bytesNeeded := (width + int(shift) + 7) / 8
+	for i := 0; i < bytesNeeded && (bytePos+i) < len(bits); i++ {
+		chunk |= uint64(bits[bytePos+i]) << (8 * i)
 	}
 	chunk >>= shift
-	value := int(chunk & uint32(indexBitsMask))
-	if bytePos*8+int(shift)+indexBitsPerValue > len(bits)*8 {
+	var mask uint64
+	if width >= 64 {
+		mask = ^uint64(0)
+	} else {
+		mask = (uint64(1) << uint(width)) - 1
+	}
+	value := int(chunk & mask)
+	if bytePos*8+int(shift)+width > len(bits)*8 {
 		return 0, false
 	}
 	return value, true
+}
+
+func packIndexUintAt(out []byte, bitPos, width int, val uint64) {
+	if width <= 0 {
+		return
+	}
+	bytePos := bitPos >> 3
+	shift := uint(bitPos & 7)
+	chunk := val << shift
+	bytesNeeded := (width + int(shift) + 7) / 8
+	for i := 0; i < bytesNeeded && (bytePos+i) < len(out); i++ {
+		out[bytePos+i] |= byte(chunk & 0xFF)
+		chunk >>= 8
+	}
 }

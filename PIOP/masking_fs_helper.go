@@ -10,6 +10,7 @@ import (
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
 	kf "vSIS-Signature/internal/kfield"
+	"vSIS-Signature/internal/packedwidth"
 	"vSIS-Signature/prf"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -35,6 +36,25 @@ func decodeUint64Slice(b []byte) []uint64 {
 		out[i] = binary.LittleEndian.Uint64(b[8*i : 8*(i+1)])
 	}
 	return out
+}
+
+func packProofDECSOpening(open *decs.DECSOpening, opts SimOpts, q uint64) {
+	if open == nil {
+		return
+	}
+	if !opts.FixedTranscriptSize {
+		decs.PackOpening(open)
+		return
+	}
+	width := packedwidth.ExactForMax(0)
+	if q > 0 {
+		width = packedwidth.ExactForMax(q - 1)
+	}
+	decs.PackOpeningWithOptions(open, decs.OpeningPackOptions{
+		FixedSize:     true,
+		NLeaves:       opts.NLeaves,
+		FieldBitWidth: uint8(width),
+	})
 }
 
 // evalRowsAt evaluates a slice of coefficient-form polys at given points in F_q.
@@ -237,23 +257,24 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	}
 	fs := NewFS(baseXOF, salt, FSParams{Lambda: o.Lambda, Kappa: o.Kappa, TranscriptVersion: o.TranscriptVersion})
 	proof := &Proof{
-		Root:            args.root,
-		RingDegree:      int(ringQ.N),
-		Salt:            append([]byte(nil), salt...),
-		Lambda:          o.Lambda,
-		Theta:           o.Theta,
-		Kappa:           o.Kappa,
-		RowLayout:       args.rowLayout,
-		MaskRowOffset:   args.maskRowOffset,
-		MaskRowCount:    args.maskRowCount,
-		RowDegreeBound:  args.decsParams.Degree,
-		MaskDegreeBound: args.maskDegreeBound,
-		NColsUsed:       args.witnessNCols,
-		PCSNColsUsed:    args.ncols,
-		LVCSNColsUsed:   args.ncols,
-		PCSGeometry:     args.pcsGeometry,
-		LabelsDigest:    append([]byte(nil), args.labelsDigest...),
-		SigShortness:    args.sigShortness,
+		Root:                args.root,
+		RingDegree:          int(ringQ.N),
+		Salt:                append([]byte(nil), salt...),
+		Lambda:              o.Lambda,
+		Theta:               o.Theta,
+		Kappa:               o.Kappa,
+		RowLayout:           args.rowLayout,
+		MaskRowOffset:       args.maskRowOffset,
+		MaskRowCount:        args.maskRowCount,
+		RowDegreeBound:      args.decsParams.Degree,
+		MaskDegreeBound:     args.maskDegreeBound,
+		NColsUsed:           args.witnessNCols,
+		PCSNColsUsed:        args.ncols,
+		LVCSNColsUsed:       args.ncols,
+		PCSGeometry:         args.pcsGeometry,
+		LabelsDigest:        append([]byte(nil), args.labelsDigest...),
+		SigShortness:        args.sigShortness,
+		FixedTranscriptSize: o.FixedTranscriptSize,
 	}
 	proof.TranscriptVersion = normalizeTranscriptVersion(o.TranscriptVersion)
 	proof.TranscriptProtocolMode = normalizeTranscriptProtocolMode(o.TranscriptProtocolMode)
@@ -908,6 +929,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			proof.PCSOpening = cloneDECSOpening(combinedOpen)
 			proof.PCSOpening.R = len(args.rowInputs)
 			proof.PCSOpening.Eta = args.decsParams.Eta
+			if o.FixedTranscriptSize {
+				packProofDECSOpening(proof.PCSOpening, o, args.q)
+			}
 			proof.RowOpening = proof.PCSOpening
 
 			qPrefix := args.witnessNCols + args.ell
@@ -921,7 +945,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				out.qOpeningRaw = cloneDECSOpening(qOpen)
 				proof.QOpening = cloneDECSOpening(qOpen)
 				maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
-				decs.PackOpening(proof.QOpening)
+				packProofDECSOpening(proof.QOpening, o, args.q)
 			}
 
 			out.openMask = openMask
@@ -1001,7 +1025,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if strictSmallField2025 {
 			proof.PCSOpening.MOmitCols = nil
 		}
-		decs.PackOpening(proof.PCSOpening)
+		packProofDECSOpening(proof.PCSOpening, o, args.q)
 		proof.RowOpening = proof.PCSOpening
 
 		// Open Q on Ω, Ω′, and the sampled tail indices so the verifier can
@@ -1017,7 +1041,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			out.qOpeningRaw = cloneDECSOpening(qOpen)
 			proof.QOpening = cloneDECSOpening(qOpen)
 			maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
-			decs.PackOpening(proof.QOpening)
+			packProofDECSOpening(proof.QOpening, o, args.q)
 		}
 
 		out.openMask = openMask

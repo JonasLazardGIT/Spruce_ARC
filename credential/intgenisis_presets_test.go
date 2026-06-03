@@ -26,10 +26,10 @@ func TestIntGenISISPresetRegistryIsMaintainedOnly(t *testing.T) {
 		if p.TargetTheoremBits == 0 || p.SoundnessGate != "smallwood_2025_1085_live" {
 			t.Fatalf("maintained preset %s has invalid target/gate: %+v", name, p)
 		}
-		if p.Showing.TranscriptMode != "smallfield_2025_1085_v1" || p.Showing.PRFCompanionMode != "direct_full" {
+		if p.Showing.TranscriptMode != "smallfield_2025_1085_v1" || p.Showing.PRFCompanionMode != "direct_full" || !p.Showing.FixedTranscriptSize {
 			t.Fatalf("maintained preset %s showing tuple=%+v", name, p.Showing)
 		}
-		if p.Issuance.PRFCompanionMode != "" || p.Issuance.SigShortnessRadix != 0 || p.Issuance.TranscriptMode != "smallfield_2025_1085_v1" {
+		if p.Issuance.PRFCompanionMode != "" || p.Issuance.SigShortnessRadix != 0 || p.Issuance.TranscriptMode != "smallfield_2025_1085_v1" || !p.Issuance.FixedTranscriptSize {
 			t.Fatalf("maintained preset %s issuance tuple=%+v", name, p.Issuance)
 		}
 	}

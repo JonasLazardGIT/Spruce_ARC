@@ -114,6 +114,8 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	issuanceEll := fs.Int("issuance-ell", 0, "issuance ell override")
 	issuanceEllPrime := fs.Int("issuance-ell-prime", 0, "issuance ell-prime override")
 	issuanceTranscriptMode := fs.String("issuance-transcript-mode", "", "issuance transcript mode: baseline or smallfield_2025_1085_v1; maintained presets set this automatically")
+	fixedTranscriptSize := fs.String("fixed-transcript-size", "auto", "fixed-size transcript mode for issuance and showing: auto, on, or off")
+	issuanceFixedTranscriptSize := fs.String("issuance-fixed-transcript-size", "auto", "issuance fixed-size transcript mode: auto, on, or off")
 	showingNCols := fs.Int("showing-ncols", 0, "showing witness packing width override")
 	showingLVCSNCols := fs.Int("showing-lvcs-ncols", 0, "showing LVCS width override")
 	showingNLeaves := fs.Int("showing-nleaves", 0, "showing explicit-domain leaf count override")
@@ -127,6 +129,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	showingCompressedRows := fs.Int("showing-compressed-rows", 0, "showing IntGenISIS M/s/e compression level: 0 none; bounded-range presets reject levels >0")
 	showingReplayProjection := fs.String("showing-replay-projection", PIOP.IntGenISISReplayProjectionNone, "showing IntGenISIS replay projection mode: none, project_u_y_hat_v1, project_u_y_hat_and_y_view_v2, project_u_digits_and_y_view_v3, experimental project_u_digits_y_source_linear_v4, or experimental project_u_digits_y_w_residual_v5")
 	showingTranscriptMode := fs.String("showing-transcript-mode", "", "showing transcript mode: baseline, column_widths_v1, or smallfield_2025_1085_v1; strict smallfield presets set this automatically")
+	showingFixedTranscriptSize := fs.String("showing-fixed-transcript-size", "auto", "showing fixed-size transcript mode: auto, on, or off")
 	companionMode := fs.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "PRF companion mode: output_audit, direct_auth, direct_full, or aux_instance")
 	prfGroupRounds := fs.Int("prf-group-rounds", 2, "grouped PRF rounds for the showing companion witness")
 	checkpointSamples := fs.Int("prf-checkpoint-samples", 8, "PRF companion checkpoint samples")
@@ -211,6 +214,9 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		applyPrefixedTuningFlagOverrides(&showing, setFlags, "showing-", *showingNCols, *showingLVCSNCols, *showingNLeaves, *showingEta, *showingTheta, *showingRho, *showingEll, *showingEllPrime)
 		applyIssuanceSpecificFlagOverrides(&issuance, setFlags, *issuanceTranscriptMode)
 		applyShowingSpecificFlagOverrides(&showing, setFlags, PIOP.PRFCompanionMode(*companionMode), *prfGroupRounds, *checkpointSamples, *showingShortnessRadix, *showingShortnessDigits, *showingCompressedRows, *showingReplayProjection, *showingTranscriptMode)
+	}
+	if err := applyTranscriptSizeFlagOverrides(&issuance, &showing, setFlags, *fixedTranscriptSize, *issuanceFixedTranscriptSize, *showingFixedTranscriptSize); err != nil {
+		return err
 	}
 	cfg := benchmarkIntGenISISE2EConfig{
 		ArtifactDir:       *artifactDir,
@@ -299,6 +305,8 @@ func runHolderCommit(args []string) error {
 	kappa3 := fs.Int("kappa3", 0, "optional theorem aggregation kappa round 3")
 	kappa4 := fs.Int("kappa4", 0, "optional theorem aggregation kappa round 4")
 	issuanceTranscriptMode := fs.String("issuance-transcript-mode", "", "issuance transcript mode: baseline or smallfield_2025_1085_v1")
+	fixedTranscriptSize := fs.String("fixed-transcript-size", "auto", "issuance fixed-size transcript mode: auto, on, or off")
+	issuanceFixedTranscriptSize := fs.String("issuance-fixed-transcript-size", "auto", "issuance fixed-size transcript mode: auto, on, or off")
 	ringDegree := fs.Int("ring-degree", 0, "ring degree override for issuance (supported: 1024 or 512; 0 follows public params)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -323,23 +331,57 @@ func runHolderCommit(args []string) error {
 		t := intGenISISTuningFromPresetSpec(preset.Issuance)
 		applyCommonTuningFlagOverrides(&t, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, kappa)
 		applyIssuanceSpecificFlagOverrides(&t, setFlags, *issuanceTranscriptMode)
+		if setFlags["fixed-transcript-size"] {
+			if err := applyTranscriptSizeFlag(&t, *fixedTranscriptSize); err != nil {
+				return err
+			}
+		}
+		if setFlags["issuance-fixed-transcript-size"] {
+			if err := applyTranscriptSizeFlag(&t, *issuanceFixedTranscriptSize); err != nil {
+				return err
+			}
+		}
 		ncolsVal, lvcsVal, nLeavesVal = t.NCols, t.LVCSNCols, t.NLeaves
 		etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal = t.Eta, t.Theta, t.Rho, t.Ell, t.EllPrime
 		kappa = t.Kappa
 		transcriptModeVal = t.TranscriptMode
 	}
+	fixedTranscriptSizeVal := false
+	if selectedPresetName != "" {
+		preset, _ := credential.LookupIntGenISISPreset(selectedPresetName)
+		fixedTranscriptSizeVal = preset.Issuance.FixedTranscriptSize
+	}
+	if setFlags["fixed-transcript-size"] {
+		value, ok, err := parseTranscriptSizeFlag(*fixedTranscriptSize)
+		if err != nil {
+			return err
+		}
+		if ok {
+			fixedTranscriptSizeVal = value
+		}
+	}
+	if setFlags["issuance-fixed-transcript-size"] {
+		value, ok, err := parseTranscriptSizeFlag(*issuanceFixedTranscriptSize)
+		if err != nil {
+			return err
+		}
+		if ok {
+			fixedTranscriptSizeVal = value
+		}
+	}
 	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, *expertInputPath, *seed, issuanceRuntimeOverrides{
-		NCols:          ncolsVal,
-		LVCSNCols:      lvcsVal,
-		NLeaves:        nLeavesVal,
-		Ell:            ellVal,
-		EllPrime:       ellPrimeVal,
-		Eta:            etaVal,
-		Theta:          thetaVal,
-		Rho:            rhoVal,
-		Kappa:          kappa,
-		TranscriptMode: transcriptModeVal,
-		RingDegree:     *ringDegree,
+		NCols:               ncolsVal,
+		LVCSNCols:           lvcsVal,
+		NLeaves:             nLeavesVal,
+		Ell:                 ellVal,
+		EllPrime:            ellPrimeVal,
+		Eta:                 etaVal,
+		Theta:               thetaVal,
+		Rho:                 rhoVal,
+		Kappa:               kappa,
+		TranscriptMode:      transcriptModeVal,
+		FixedTranscriptSize: fixedTranscriptSizeVal,
+		RingDegree:          *ringDegree,
 	})
 }
 
@@ -411,6 +453,8 @@ func runDemoLocal(args []string) error {
 	kappa3 := fs.Int("kappa3", 0, "optional theorem aggregation kappa round 3")
 	kappa4 := fs.Int("kappa4", 0, "optional theorem aggregation kappa round 4")
 	issuanceTranscriptMode := fs.String("issuance-transcript-mode", "", "issuance transcript mode: baseline or smallfield_2025_1085_v1")
+	fixedTranscriptSize := fs.String("fixed-transcript-size", "auto", "issuance fixed-size transcript mode: auto, on, or off")
+	issuanceFixedTranscriptSize := fs.String("issuance-fixed-transcript-size", "auto", "issuance fixed-size transcript mode: auto, on, or off")
 	ringDegree := fs.Int("ring-degree", 0, "ring degree override for issuance (supported: 1024 or 512; 0 follows public params)")
 	ntruParamsPath := fs.String("ntru-params", defaultNTRUParamsPath, "NTRU params path used for signature beta bound")
 	ntruPublicPath := fs.String("ntru-public-key", defaultNTRUPublicKeyPath, "NTRU public key path")
@@ -439,22 +483,56 @@ func runDemoLocal(args []string) error {
 		t := intGenISISTuningFromPresetSpec(preset.Issuance)
 		applyCommonTuningFlagOverrides(&t, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, kappa)
 		applyIssuanceSpecificFlagOverrides(&t, setFlags, *issuanceTranscriptMode)
+		if setFlags["fixed-transcript-size"] {
+			if err := applyTranscriptSizeFlag(&t, *fixedTranscriptSize); err != nil {
+				return err
+			}
+		}
+		if setFlags["issuance-fixed-transcript-size"] {
+			if err := applyTranscriptSizeFlag(&t, *issuanceFixedTranscriptSize); err != nil {
+				return err
+			}
+		}
 		ncolsVal, lvcsVal, nLeavesVal = t.NCols, t.LVCSNCols, t.NLeaves
 		etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal = t.Eta, t.Theta, t.Rho, t.Ell, t.EllPrime
 		kappa = t.Kappa
 		transcriptModeVal = t.TranscriptMode
 	}
+	fixedTranscriptSizeVal := false
+	if selectedPresetName != "" {
+		preset, _ := credential.LookupIntGenISISPreset(selectedPresetName)
+		fixedTranscriptSizeVal = preset.Issuance.FixedTranscriptSize
+	}
+	if setFlags["fixed-transcript-size"] {
+		value, ok, err := parseTranscriptSizeFlag(*fixedTranscriptSize)
+		if err != nil {
+			return err
+		}
+		if ok {
+			fixedTranscriptSizeVal = value
+		}
+	}
+	if setFlags["issuance-fixed-transcript-size"] {
+		value, ok, err := parseTranscriptSizeFlag(*issuanceFixedTranscriptSize)
+		if err != nil {
+			return err
+		}
+		if ok {
+			fixedTranscriptSizeVal = value
+		}
+	}
 	return demoLocal(*publicPath, *prfPath, *artifactDir, *statePath, *signaturePath, *seed, *maxTrials, issuanceRuntimeOverrides{
-		NCols:          ncolsVal,
-		LVCSNCols:      lvcsVal,
-		NLeaves:        nLeavesVal,
-		Ell:            ellVal,
-		EllPrime:       ellPrimeVal,
-		Eta:            etaVal,
-		Theta:          thetaVal,
-		Rho:            rhoVal,
-		Kappa:          kappa,
-		TranscriptMode: transcriptModeVal,
-		RingDegree:     *ringDegree,
+		NCols:               ncolsVal,
+		LVCSNCols:           lvcsVal,
+		NLeaves:             nLeavesVal,
+		Ell:                 ellVal,
+		EllPrime:            ellPrimeVal,
+		Eta:                 etaVal,
+		Theta:               thetaVal,
+		Rho:                 rhoVal,
+		Kappa:               kappa,
+		TranscriptMode:      transcriptModeVal,
+		FixedTranscriptSize: fixedTranscriptSizeVal,
+		RingDegree:          *ringDegree,
 	}, ntruSigningPaths(*ntruParamsPath, *ntruPublicPath, *ntruPrivatePath, *ntruSignaturePath))
 }
