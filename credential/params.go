@@ -64,7 +64,7 @@ func LoadDefaultRing() (*ring.Ring, error) {
 // LoadRingWithDegree loads the repository modulus and one of the maintained
 // IntGenISIS ring degrees.
 func LoadRingWithDegree(ringDegree int) (*ring.Ring, error) {
-	par, err := io.LoadParams("Parameters/Parameters.json", true)
+	par, err := io.LoadParams("internal/source_data/Parameters.json", true)
 	if err != nil {
 		return nil, err
 	}

@@ -1879,9 +1879,6 @@ func buildSubsetOpening(base *decs.DECSOpening, indices []int, rowCount, eta int
 	if base == nil {
 		return nil, errors.New("nil base opening")
 	}
-	if err := decs.EnsureMerkleDecoded(base); err != nil {
-		return nil, err
-	}
 	posByIdx := make(map[int]int, base.EntryCount())
 	for i := 0; i < base.EntryCount(); i++ {
 		idx := base.IndexAt(i)
@@ -2107,9 +2104,6 @@ func verifyDECSSubset(ringQ *ring.Ring, root [16]byte, params decs.Params, Gamma
 }
 
 func extractPathNodes(open *decs.DECSOpening, t int) ([][]byte, error) {
-	if err := decs.EnsureMerkleDecoded(open); err != nil {
-		return nil, err
-	}
 	if open.PathDepth > 0 && len(open.PathIndex) == 0 && len(open.PathBits) == 0 && len(open.Nodes) == open.EntryCount()*open.PathDepth {
 		if t < 0 || t >= open.EntryCount() {
 			return nil, errors.New("row-major path row out of range")
@@ -2188,6 +2182,5 @@ func expandPackedOpening(op *decs.DECSOpening) *decs.DECSOpening {
 	} else if len(clone.Mvals) == 0 && clone.MFormatVersion != decs.OpeningFormatPlain && mCols == 0 {
 		clone.Mvals = make([][]uint64, len(clone.Indices))
 	}
-	_ = decs.EnsureMerkleDecoded(clone)
 	return clone
 }

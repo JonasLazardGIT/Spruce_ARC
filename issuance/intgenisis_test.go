@@ -9,7 +9,7 @@ import (
 
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
-	vsishash "vSIS-Signature/vSIS-HASH"
+	vsishash "vSIS-Signature/internal/hash"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 	"github.com/tuneinsight/lattigo/v4/utils"
@@ -35,7 +35,7 @@ func testIntGenISISParams(t *testing.T) (*ring.Ring, *credential.Params) {
 		Version:              credential.PublicParamsVersion,
 		Profile:              profile.Name,
 		HashRelation:         credential.HashRelationBBTran,
-		BPath:                "Parameters/Bmatrix.intgenisis_profile_b.json",
+		BPath:                "internal/source_data/Bmatrix.intgenisis_profile_b.json",
 		BoundB:               profile.B,
 		CommitmentBound:      profile.B,
 		RingDegree:           profile.N,

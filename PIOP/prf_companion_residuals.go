@@ -56,7 +56,7 @@ type prfCompanionOpeningPayload struct {
 func prfCompanionModeDefault(mode PRFCompanionMode) PRFCompanionMode {
 	mode = normalizePRFCompanionMode(mode)
 	if mode == "" {
-		return PRFCompanionModeOutputAudit
+		return PRFCompanionModeDirectFull
 	}
 	return mode
 }

@@ -16,7 +16,6 @@ import (
 
 const (
 	CoeffNativeSigModelLiteralPackedAggregatedV3 = "literal_packed_aggregated_v3"
-	TranscriptCodecColumnWidthsV1                = "column_widths_v1"
 	TranscriptProtocolSmallField2025V1           = "smallfield_2025_1085_v1"
 	TranscriptVersionSmallWood2025               = "smallwood_2025_1085_v1"
 )
@@ -81,7 +80,7 @@ func normalizeShowingReplayMode(mode ShowingReplayMode) ShowingReplayMode {
 
 func normalizeTranscriptProtocolMode(mode string) string {
 	switch strings.TrimSpace(mode) {
-	case "", "baseline":
+	case "":
 		return ""
 	case TranscriptProtocolSmallField2025V1, "smallfield-2025-1085-v1", "smallfield_2025", "smallfield-2025":
 		return TranscriptProtocolSmallField2025V1
@@ -336,10 +335,7 @@ func sigShortnessInlinedTargetHidingEnabledForOpts(opts SimOpts) bool {
 type PRFCompanionMode string
 
 const (
-	PRFCompanionModeOutputAudit PRFCompanionMode = "output_audit"
-	PRFCompanionModeDirectAuth  PRFCompanionMode = "direct_auth"
-	PRFCompanionModeDirectFull  PRFCompanionMode = "direct_full"
-	PRFCompanionModeAuxInstance PRFCompanionMode = "aux_instance"
+	PRFCompanionModeDirectFull PRFCompanionMode = "direct_full"
 )
 
 const (
@@ -359,12 +355,10 @@ const (
 
 func normalizePRFCompanionMode(mode PRFCompanionMode) PRFCompanionMode {
 	switch mode {
-	case PRFCompanionModeOutputAudit, PRFCompanionModeDirectAuth, PRFCompanionModeDirectFull, PRFCompanionModeAuxInstance:
-		return mode
-	case "":
-		return ""
+	case "", PRFCompanionModeDirectFull:
+		return PRFCompanionModeDirectFull
 	default:
-		return PRFCompanionModeOutputAudit
+		return mode
 	}
 }
 
@@ -436,7 +430,7 @@ type SimOpts struct {
 	NLeaves  int
 	Theta    int
 	// RingDegree selects the ring dimension for opt-in research runs. Zero
-	// keeps the repository default from Parameters/Parameters.json.
+	// keeps the repository default from internal/source_data/Parameters.json.
 	RingDegree int
 	Kappa      [4]int
 	// ROQueryCaps records the assumed Random Oracle query counts (Q0..Q4) used
@@ -1702,30 +1696,12 @@ func cloneDECSOpening(op *decs.DECSOpening) *decs.DECSOpening {
 	}
 	clone.PathBitWidth = op.PathBitWidth
 	clone.PathDepth = op.PathDepth
-	if len(op.FrontierRefsBits) > 0 {
-		clone.FrontierRefsBits = append([]byte(nil), op.FrontierRefsBits...)
-	}
-	clone.FrontierRefWidth = op.FrontierRefWidth
 	if len(op.Nonces) > 0 {
 		clone.Nonces = make([][]byte, len(op.Nonces))
 		for i := range op.Nonces {
 			clone.Nonces[i] = append([]byte(nil), op.Nonces[i]...)
 		}
 	}
-	if len(op.FrontierNodes) > 0 {
-		clone.FrontierNodes = make([][]byte, len(op.FrontierNodes))
-		for i := range op.FrontierNodes {
-			clone.FrontierNodes[i] = append([]byte(nil), op.FrontierNodes[i]...)
-		}
-	}
-	if len(op.FrontierProof) > 0 {
-		clone.FrontierProof = append([]byte(nil), op.FrontierProof...)
-	}
-	if len(op.FrontierLR) > 0 {
-		clone.FrontierLR = append([]byte(nil), op.FrontierLR...)
-	}
-	clone.FrontierDepth = op.FrontierDepth
-	clone.FrontierRefCount = op.FrontierRefCount
 	return clone
 }
 
@@ -1860,18 +1836,6 @@ func maybeCompressQOpening(open *decs.DECSOpening, gammaQ [][]uint64, mod uint64
 		var keepM []int
 		keepM = eqRows
 		maybeCompressQOpeningMvals(open, keepM)
-	}
-}
-
-func maybeEnableColumnWidthOpeningCodec(open *decs.DECSOpening, codec string) {
-	if open == nil || codec != TranscriptCodecColumnWidthsV1 {
-		return
-	}
-	if len(open.Pvals) > 0 {
-		open.FormatVersion = decs.OpeningFormatColumnWidths
-	}
-	if len(open.Mvals) > 0 {
-		open.MFormatVersion = decs.OpeningFormatColumnWidths
 	}
 }
 
@@ -2403,19 +2367,6 @@ func sizeDECSOpening(open *decs.DECSOpening) int {
 	for _, node := range open.Nodes {
 		sum += len(node)
 	}
-	for _, node := range open.FrontierNodes {
-		sum += len(node)
-	}
-	if len(open.FrontierRefsBits) > 0 && open.FrontierRefWidth > 0 && open.FrontierRefCount > 0 {
-		sum += len(open.FrontierRefsBits)
-		sum += 1 // width byte
-		sum += varintSize(open.FrontierRefCount)
-	}
-	sum += len(open.FrontierProof)
-	sum += len(open.FrontierLR)
-	if open.FrontierDepth > 0 {
-		sum += 4
-	}
 	// PathIndex encoding (either packed bits or explicit ints)
 	if len(open.PathBits) > 0 && open.PathDepth > 0 && open.PathBitWidth > 0 && len(open.PathIndex) == 0 {
 		sum += len(open.PathBits)
@@ -2719,12 +2670,6 @@ func sizePRFCompanionProof(companion *PRFCompanionProof) int {
 		size += len(companion.Bridge.GeometryDigest)
 		size += len(companion.Bridge.BridgeDigest)
 	}
-	if companion.AuxInstance != nil {
-		if companion.AuxInstance.Proof != nil {
-			_, nestedTotal := proofSizeBreakdown(companion.AuxInstance.Proof)
-			size += nestedTotal
-		}
-	}
 	return size
 }
 
@@ -2776,9 +2721,6 @@ func combineOpenings(mask, tail *decs.DECSOpening) *decs.DECSOpening {
 	appendOpen := func(src *decs.DECSOpening, storeIndices bool) {
 		if src == nil {
 			return
-		}
-		if err := decs.EnsureMerkleDecoded(src); err != nil {
-			panic(err)
 		}
 		for _, b := range src.Nodes {
 			_ = addNode(b)

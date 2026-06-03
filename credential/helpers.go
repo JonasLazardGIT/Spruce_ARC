@@ -3,7 +3,7 @@ package credential
 import (
 	"fmt"
 
-	vsishash "vSIS-Signature/vSIS-HASH"
+	vsishash "vSIS-Signature/internal/hash"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )

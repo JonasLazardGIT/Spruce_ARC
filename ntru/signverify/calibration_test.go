@@ -27,8 +27,8 @@ func TestCalibrateMeasuredBetaDeterministic(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
 	paths := SignPaths{
-		ParamsPath:    "Parameters/Parameters.json",
-		BFile:         "Parameters/Bmatrix.intgenisis_profile_b.json",
+		ParamsPath:    "internal/source_data/Parameters.json",
+		BFile:         "internal/source_data/Bmatrix.intgenisis_profile_b.json",
 		PublicKeyPath: "ntru_keys/public.json",
 		PrivatePath:   "ntru_keys/private.json",
 	}

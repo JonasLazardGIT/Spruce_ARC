@@ -12,8 +12,8 @@ import (
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
+	vsishash "vSIS-Signature/internal/hash"
 	"vSIS-Signature/prf"
-	vsishash "vSIS-Signature/vSIS-HASH"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -132,7 +132,7 @@ func defaultIntGenISISTuning() intGenISISTuning {
 		Rho:               1,
 		Ell:               4,
 		EllPrime:          4,
-		PRFCompanionMode:  PIOP.PRFCompanionModeOutputAudit,
+		PRFCompanionMode:  PIOP.PRFCompanionModeDirectFull,
 		PRFGroupRounds:    2,
 		CheckpointSamples: 8,
 	}
@@ -330,14 +330,10 @@ func intGenISISLiveTranscriptConfig(mode string) (codec, protocol string, err er
 		return "", "", err
 	}
 	switch normalized {
-	case sweepTranscriptModeBaseline:
-		return "", "", nil
-	case sweepTranscriptModeColumnWidths:
-		return "", "", fmt.Errorf("transcript mode %q has codec support but is not enabled for live proofs because verifier integration is incomplete", normalized)
 	case sweepTranscriptModeSmallField2025:
 		return "", PIOP.TranscriptProtocolSmallField2025V1, nil
 	default:
-		return "", "", fmt.Errorf("transcript mode %q is estimator-only and has no live verifier implementation", normalized)
+		return "", "", fmt.Errorf("transcript mode %q has no live verifier implementation", normalized)
 	}
 }
 
@@ -407,7 +403,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		return benchmarkIntGenISISE2EReport{}, err
 	}
 	switch cfg.Showing.PRFCompanionMode {
-	case PIOP.PRFCompanionModeOutputAudit, PIOP.PRFCompanionModeDirectAuth, PIOP.PRFCompanionModeDirectFull, PIOP.PRFCompanionModeAuxInstance:
+	case PIOP.PRFCompanionModeDirectFull:
 	default:
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("unsupported prf companion mode %q", cfg.Showing.PRFCompanionMode)
 	}

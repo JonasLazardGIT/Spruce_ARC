@@ -61,7 +61,7 @@ current issuance flow.
 ## Current Invariants
 
 - the shipped path uses the current tracked parameter file in
-  `Parameters/Parameters.json`
+  `internal/source_data/Parameters.json`
 - signatures are verified against the same target construction used during
   signing
 - the target shape is the direct shared-randomness `bb_tran` target
@@ -73,4 +73,3 @@ current issuance flow.
 
 - [../docs/protocol.md](../docs/protocol.md)
 - [../docs/modulus_choice.md](../docs/modulus_choice.md)
-- [../Preimage_Sampler/README.md](../Preimage_Sampler/README.md)

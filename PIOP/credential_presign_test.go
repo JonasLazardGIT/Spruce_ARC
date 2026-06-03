@@ -10,8 +10,8 @@ import (
 
 	lvcs "vSIS-Signature/LVCS"
 	"vSIS-Signature/credential"
+	vsishash "vSIS-Signature/internal/hash"
 	ntrurio "vSIS-Signature/ntru/io"
-	vsishash "vSIS-Signature/vSIS-HASH"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )

@@ -7,7 +7,7 @@ import (
 	"os"
 	"strconv"
 
-	ps "vSIS-Signature/Preimage_Sampler"
+	ps "vSIS-Signature/ntru/internal/preimage"
 )
 
 // ntruCSolveTowerBabai solves f*G - g*F = Q with the tower solver and Babai reduction.

@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"math/cmplx"
 
-	ps "vSIS-Signature/Preimage_Sampler"
+	ps "vSIS-Signature/ntru/internal/preimage"
 )
 
 // PairNorm2 computes ||(F,G)||^2 in the embedding.

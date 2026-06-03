@@ -117,7 +117,7 @@ func resolveSimRingDegree(requested int, defaultN int) (int, error) {
 }
 
 func loadParamsRingForOpts(opts SimOpts) (*ring.Ring, error) {
-	par, err := ntrurio.LoadParams(resolve("Parameters/Parameters.json"), true /* allowMismatch */)
+	par, err := ntrurio.LoadParams(resolve("internal/source_data/Parameters.json"), true /* allowMismatch */)
 	if err != nil {
 		return nil, fmt.Errorf("load params: %w", err)
 	}

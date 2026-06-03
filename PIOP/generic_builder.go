@@ -879,18 +879,6 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 						evalK = composeKEvaluators(evalK, sigReplay.EvalK)
 					}
 				}
-				if prfStripeEval := cfgPost.PRFBridgeStripeEqualityEvaluator(); prfStripeEval != nil {
-					eval = composeEvaluators(eval, prfStripeEval)
-					if proof.Theta > 1 && K != nil {
-						prfStripeEvalK, err := cfgPost.PRFBridgeStripeEqualityKEvaluator(K)
-						if err != nil {
-							return false, err
-						}
-						if prfStripeEvalK != nil {
-							evalK = composeKEvaluators(evalK, prfStripeEvalK)
-						}
-					}
-				}
 				rowCount = literalPackedPostSignReplayRowCount(proof.RowLayout)
 				haveCred = true
 			}
@@ -1115,29 +1103,15 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		}
 		if set.PRFCompanionLayout != nil && proof.PRFCompanion != nil {
 			if !proof.PRFCompanion.BridgeInQ {
-				if proof.PRFCompanion.AuxInstance != nil {
-					params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
-					if perr != nil {
-						return false, fmt.Errorf("load prf params: %w", perr)
-					}
-					if err := verifyPRFCompanionAuxInstance(ringQ, proof, pub, opts, params); err != nil {
-						return false, err
-					}
-				} else {
-					if err := verifyPRFCompanionBridgeFromOpening(ringQ, set.PRFCompanionLayout, proof, omegaWitness, domainPoints); err != nil {
-						return false, err
-					}
+				if err := verifyPRFCompanionBridgeFromOpening(ringQ, set.PRFCompanionLayout, proof, omegaWitness, domainPoints); err != nil {
+					return false, err
 				}
 			}
 			params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
 			if perr != nil {
 				return false, fmt.Errorf("load prf params: %w", perr)
 			}
-			if proof.PRFCompanion.AuxInstance != nil && !proof.PRFCompanion.BridgeInQ {
-				// The aux-instance verifier re-authenticates the scalar PRF companion
-				// openings against the same-root subset opening, so the legacy
-				// self-consistency-only check is intentionally skipped here.
-			} else if normalizePRFCompanionMode(proof.PRFCompanion.Mode) == PRFCompanionModeDirectFull {
+			if normalizePRFCompanionMode(proof.PRFCompanion.Mode) == PRFCompanionModeDirectFull {
 				// The direct_full mode proves the full PRF relation in the main
 				// SmallWood constraints and intentionally carries no sampled
 				// scalar opening payload.

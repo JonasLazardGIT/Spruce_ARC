@@ -111,16 +111,8 @@ type TranscriptOptimizationReport struct {
 	HiddenShortnessDigits           int    `json:"hidden_shortness_digits"`
 	HiddenShortnessLVCSNCols        int    `json:"hidden_shortness_lvcs_ncols"`
 	HiddenShortnessNLeaves          int    `json:"hidden_shortness_nleaves"`
-	PRFAuxInstance                  bool   `json:"prf_aux_instance"`
-	PRFAuxProofBytes                int    `json:"prf_aux_proof_bytes"`
-	PRFAuxOpeningBytes              int    `json:"prf_aux_opening_bytes"`
-	PRFBridgeOpeningBytes           int    `json:"prf_bridge_opening_bytes"`
-	PRFBridgeSupportSlots           int    `json:"prf_bridge_support_slots"`
-	PRFBridgeOpenedBlocks           int    `json:"prf_bridge_opened_blocks"`
-	PRFBridgeRowCount               int    `json:"prf_bridge_row_count"`
 	FixedTranscriptSize             bool   `json:"fixed_transcript_size"`
 	TranscriptSizeMode              string `json:"transcript_size_mode"`
-	PRFBridgePaddingRows            int    `json:"prf_bridge_padding_rows"`
 	SourceProductBridgeBytes        int    `json:"source_product_bridge_bytes"`
 	SourceProductBridgeSupportSlots int    `json:"source_product_bridge_support_slots"`
 	SourceProductBridgeOpenedBlocks int    `json:"source_product_bridge_opened_blocks"`
@@ -259,30 +251,6 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		DQ:         dQ,
 		DDECS:      lvcsNCols + ell - 1,
 	})
-	if proof.PRFCompanion != nil && proof.PRFCompanion.AuxInstance != nil && proof.PRFCompanion.AuxInstance.Proof != nil && proof.PRFCompanion.Layout != nil {
-		auxOpts, aerr := buildPRFCompanionAuxOpts(reportOpts, proof.PRFCompanion.Layout.PackWidth, proof.HashRelation)
-		if aerr != nil {
-			return ProofReport{}, fmt.Errorf("prf aux opts: %w", aerr)
-		}
-		auxPaper, aerr := BuildPaperTranscriptReport(proof.PRFCompanion.AuxInstance.Proof, auxOpts, ringQ)
-		if aerr != nil {
-			return ProofReport{}, fmt.Errorf("prf aux paper transcript: %w", aerr)
-		}
-		paperTranscript = mergePaperTranscriptReports(paperTranscript, auxPaper)
-		openingRep := openingPaperReport{}
-		if proof.PRFCompanion.Bridge != nil {
-			openingRep = BuildOpeningPaperReport(proof.PRFCompanion.Bridge.RowsOpening)
-		}
-		paperTranscript.Pdecs.NaiveBits += openingRep.PdecsBits
-		paperTranscript.Pdecs.OptimizedBits += openingRep.PdecsBits
-		paperTranscript.Mdecs.NaiveBits += openingRep.MdecsBits
-		paperTranscript.Mdecs.OptimizedBits += openingRep.MdecsBits
-		paperTranscript.Auth.NaiveBits += openingRep.AuthBits
-		paperTranscript.Auth.OptimizedBits += openingRep.AuthBits
-		paperTranscript.Tapes.NaiveBits += openingRep.TapeBits
-		paperTranscript.Tapes.OptimizedBits += openingRep.TapeBits
-		finalizePaperTranscriptReport(&paperTranscript)
-	}
 	if proof.SourceProductBridge != nil {
 		openingRep := BuildOpeningPaperReport(proof.SourceProductBridge.RowsOpening)
 		paperTranscript.Pdecs.NaiveBits += openingRep.PdecsBits
@@ -524,7 +492,7 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 			}
 		}
 	}
-	out.TranscriptSecurityStatus = "baseline_live"
+	out.TranscriptSecurityStatus = "maintained_live"
 	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 {
 		out.TranscriptSecurityStatus = "smallwood_2025_1085_live"
 	}
@@ -555,34 +523,6 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 		out.HiddenShortnessDigits = proof.SigShortness.V6.Digits
 		out.HiddenShortnessLVCSNCols = resolveProofPCSNCols(proof.SigShortness.V6.HiddenProof, 0)
 		out.HiddenShortnessNLeaves = proof.SigShortness.V6.HiddenProof.NLeavesUsed
-	}
-	if proof.PRFCompanion != nil && proof.PRFCompanion.AuxInstance != nil {
-		out.PRFAuxInstance = true
-		if proof.PRFCompanion.Bridge != nil {
-			out.PRFAuxOpeningBytes = sizeDECSOpening(proof.PRFCompanion.Bridge.RowsOpening)
-			out.PRFBridgeOpeningBytes = out.PRFAuxOpeningBytes
-			out.PRFBridgeSupportSlots = len(proof.PRFCompanion.Bridge.SupportSlots)
-			out.PRFBridgeRowCount = len(proof.PRFCompanion.Bridge.RowIndices)
-			pcsNCols := resolveProofPCSNCols(proof, 0)
-			if pcsNCols > 0 {
-				seen := make(map[int]struct{}, len(proof.PRFCompanion.Bridge.PhysicalRows))
-				for _, row := range proof.PRFCompanion.Bridge.PhysicalRows {
-					seen[row/pcsNCols] = struct{}{}
-				}
-				out.PRFBridgeOpenedBlocks = len(seen)
-			}
-			out.PRFBridgePaddingRows = prfBridgeStripePaddingRows(proof.PRFCompanion.Layout)
-		}
-		if proof.PRFCompanion.AuxInstance.Proof != nil {
-			_, auxProofBytes := proofSizeBreakdown(proof.PRFCompanion.AuxInstance.Proof)
-			out.PRFAuxProofBytes = auxProofBytes
-			if auxLVCS := resolveProofPCSNCols(proof.PRFCompanion.AuxInstance.Proof, 0); auxLVCS > 0 {
-				out.PRFLVCSNCols = auxLVCS
-			}
-			if auxLeaves := proof.PRFCompanion.AuxInstance.Proof.NLeavesUsed; auxLeaves > 0 {
-				out.PRFNLeaves = auxLeaves
-			}
-		}
 	}
 	if proof.SourceProductBridge != nil {
 		out.SourceProductBridgeBytes = sizeSourceProductBridge(proof.SourceProductBridge)

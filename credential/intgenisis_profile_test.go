@@ -55,7 +55,7 @@ func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 		Version:              PublicParamsVersion,
 		Profile:              profile.Name,
 		HashRelation:         HashRelationBBTran,
-		BPath:                filepath.Join("Parameters", "Bmatrix.intgenisis_profile_b.json"),
+		BPath:                filepath.Join("internal", "source_data", "Bmatrix.intgenisis_profile_b.json"),
 		BoundB:               profile.B,
 		CommitmentBound:      profile.B,
 		RingDegree:           profile.N,

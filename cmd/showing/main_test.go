@@ -5,12 +5,36 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
 )
+
+func showingTestRepoRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
+func chdirForShowingTest(t *testing.T, dir string) {
+	t.Helper()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir %s: %v", dir, err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+}
 
 func TestFormatPaperTranscriptSummaryUsesPaperWording(t *testing.T) {
 	line := formatPaperTranscriptSummary(PIOP.ProofReport{
@@ -24,43 +48,13 @@ func TestFormatPaperTranscriptSummaryUsesPaperWording(t *testing.T) {
 	}
 }
 
-func TestDefaultShowingProfileIsIntGenISISOnly(t *testing.T) {
-	if defaultShowingProfile != showingProfileIntGenISISB {
-		t.Fatalf("default showing profile=%q want %q", defaultShowingProfile, showingProfileIntGenISISB)
-	}
-	if _, ok := lookupShowingProfile(defaultShowingProfile); ok {
-		t.Fatalf("IntGenISIS showing profile should not resolve through the deleted x0len70 registry")
-	}
-}
-
-func TestMaintainedShowingProfilesContainOnlyIntGenISISSurface(t *testing.T) {
-	names := showingProfileNames()
-	if len(names) != 1 || names[0] != showingProfileIntGenISISB {
-		t.Fatalf("maintained showing profile names=%v", names)
-	}
-	for _, removed := range []string{"showing_n512_x0len70_100", "showing_n512_x0len70_128", "showing_n1024_x0len70_100"} {
-		if _, ok := lookupShowingProfile(removed); ok {
-			t.Fatalf("removed showing profile %q registered", removed)
-		}
-	}
-}
-
-func TestPublicShowingRejectsTuningOverrides(t *testing.T) {
-	if err := rejectPublicShowingTuningOverrides(map[string]bool{"ncols": true}); err == nil {
-		t.Fatal("accepted public ncols override")
-	}
-	if err := rejectPublicShowingTuningOverrides(map[string]bool{"preset": true, "state-path": true}); err != nil {
-		t.Fatalf("rejected non-tuning flags: %v", err)
-	}
-}
-
 func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T) {
 	preset, ok := credential.LookupIntGenISISPreset(credential.IntGenISISPresetN1024Compact125)
 	if !ok {
 		t.Fatal("missing n1024-compact125 preset")
 	}
 	tuning := preset.Showing
-	opts := intGenISISShowingOpts(1024, tuning.NCols, tuning.LVCSNCols, tuning.NLeaves, tuning.Eta, tuning.Theta, tuning.Rho, tuning.Ell, tuning.EllPrime, tuning.Kappa, PIOP.PRFCompanionMode(tuning.PRFCompanionMode), tuning.CheckpointSamples, tuning.CompressedRows, tuning.SigShortnessRadix, tuning.SigShortnessDigits, tuning.ReplayProjection, tuning.FixedTranscriptSize)
+	opts := intGenISISShowingOpts(1024, tuning)
 	if opts.NCols != tuning.NCols || opts.LVCSNCols != tuning.LVCSNCols || opts.NLeaves != tuning.NLeaves {
 		t.Fatalf("opts did not carry preset geometry: %+v preset=%+v", opts, tuning)
 	}
@@ -75,6 +69,25 @@ func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T)
 	}
 	if opts.IntGenISISReplayProjection != "project_u_digits_y_w_residual_v5" {
 		t.Fatalf("opts replay projection=%q", opts.IntGenISISReplayProjection)
+	}
+}
+
+func TestShowingRemovedFlagsAreUnknown(t *testing.T) {
+	for _, flagName := range []string{
+		"-prf-companion-mode",
+		"-intgenisis-replay-projection",
+		"-sig-shortness-profile",
+		"-fixed-transcript-size",
+	} {
+		t.Run(flagName, func(t *testing.T) {
+			_, err := parseShowingCLIArgs([]string{"-preset", "n512-compact96", flagName, "x"})
+			if err == nil {
+				t.Fatalf("%s unexpectedly parsed", flagName)
+			}
+			if !strings.Contains(err.Error(), "flag provided but not defined") {
+				t.Fatalf("unexpected error for %s: %v", flagName, err)
+			}
+		})
 	}
 }
 
@@ -231,16 +244,10 @@ func TestFormatTranscriptOptimizationSummaryShowsFactorizedInstanceGeometry(t *t
 			PRFNLeaves:               1024,
 			HiddenShortnessLVCSNCols: 128,
 			HiddenShortnessNLeaves:   1024,
-			PRFAuxInstance:           true,
-			PRFAuxProofBytes:         4096,
-			PRFAuxOpeningBytes:       8192,
 		},
 	})
 	if !strings.Contains(line, "main=32/4096 prf=24/1024 hidden=128/1024") {
 		t.Fatalf("missing factorized instance geometry: %q", line)
-	}
-	if !strings.Contains(line, "prf_aux=on auxProof=4096 auxOpening=8192 bridgeRows=0 bridgeSlots=0 bridgeBlocks=0 bridgePad=0") {
-		t.Fatalf("missing aux-instance size summary: %q", line)
 	}
 }
 

@@ -21,7 +21,7 @@ type ReplaySubfamilyConsumption string
 const (
 	ReplaySubfamilyReplayConsumed ReplaySubfamilyConsumption = "replay_consumed"
 	ReplaySubfamilyKeyBindingOnly ReplaySubfamilyConsumption = "key_binding_only"
-	ReplaySubfamilyDirectAuthOnly ReplaySubfamilyConsumption = "direct_auth_only"
+	ReplaySubfamilyCompanionOnly  ReplaySubfamilyConsumption = "companion_only"
 	ReplaySubfamilyMixed          ReplaySubfamilyConsumption = "mixed"
 	ReplaySubfamilyShortnessOnly  ReplaySubfamilyConsumption = "shortness_only"
 	ReplaySubfamilyNotSelected    ReplaySubfamilyConsumption = "not_selected"
@@ -124,7 +124,7 @@ func prfCompanionHelperRowIndices(layout *PRFCompanionLayout) []int {
 	return rows
 }
 
-func prfCompanionDirectAuthRowIndices(layout *PRFCompanionLayout) []int {
+func prfCompanionRelationRowIndices(layout *PRFCompanionLayout) []int {
 	rows := make([]int, 0)
 	rows = append(rows, prfCompanionCheckpointRowIndices(layout)...)
 	rows = append(rows, prfCompanionFinalRoundOutputRowIndices(layout)...)
@@ -135,9 +135,6 @@ func prfCompanionDirectAuthRowIndices(layout *PRFCompanionLayout) []int {
 
 func prfCompanionReplayConsumedRows(layout *PRFCompanionLayout, mode PRFCompanionMode) []int {
 	if layout == nil {
-		return nil
-	}
-	if normalizePRFCompanionMode(mode) == PRFCompanionModeAuxInstance {
 		return nil
 	}
 	rows := layout.ReplayRows
@@ -197,7 +194,7 @@ func replaySubfamilySpecsForProof(proof *Proof) []replaySubfamilySpec {
 	mode := proofPRFCompanionMode(proof)
 	replayRows := prfCompanionReplayConsumedRows(companion, mode)
 	keyRows := prfCompanionKeyRowIndices(companion)
-	directAuthRows := prfCompanionDirectAuthRowIndices(companion)
+	companionRows := prfCompanionRelationRowIndices(companion)
 	sourceProductDerivedNow := sourceProductBridgeEnabledForProof(proof) || (layout.IdxMSigmaR1 < 0 && layout.IdxR0R1 < 0)
 	nonNegative := func(rows ...int) []int {
 		out := make([]int, 0, len(rows))
@@ -234,8 +231,8 @@ func replaySubfamilySpecsForProof(proof *Proof) []replaySubfamilySpec {
 				prfCompanionKeyRowIndices(companion),
 				replayRows,
 				keyRows,
-				directAuthRows,
-				[]string{"prf_bridge", "transform_bridge_key_binding", "prf_direct_auth_key_trunc"},
+				companionRows,
+				[]string{"prf_bridge", "transform_bridge_key_binding", "prf_companion_key_trunc"},
 				"Packed PRF key rows still feed the live bridge and transform key binding.",
 			),
 			replayPRFSubfamilySpec(
@@ -243,8 +240,8 @@ func replaySubfamilySpecsForProof(proof *Proof) []replaySubfamilySpec {
 				prfCompanionCheckpointRowIndices(companion),
 				replayRows,
 				keyRows,
-				directAuthRows,
-				[]string{"prf_bridge", "prf_direct_auth_checkpoint"},
+				companionRows,
+				[]string{"prf_bridge", "prf_companion_checkpoint"},
 				"Checkpoint rows have authenticated openings, but the live bridge still mixes over their packed rows.",
 			),
 			replayPRFSubfamilySpec(
@@ -252,8 +249,8 @@ func replaySubfamilySpecsForProof(proof *Proof) []replaySubfamilySpec {
 				prfCompanionFinalTagRowIndices(companion),
 				replayRows,
 				keyRows,
-				directAuthRows,
-				[]string{"prf_bridge", "prf_direct_auth_tag_final"},
+				companionRows,
+				[]string{"prf_bridge", "prf_companion_tag_final"},
 				"Final-tag rows are directly audited, but remain replay-consumed under the current bridge.",
 			),
 			replayPRFSubfamilySpec(
@@ -261,7 +258,7 @@ func replaySubfamilySpecsForProof(proof *Proof) []replaySubfamilySpec {
 				prfCompanionHelperRowIndices(companion),
 				replayRows,
 				keyRows,
-				directAuthRows,
+				companionRows,
 				[]string{"prf_bridge", "prf_helper_tail"},
 				"Helper rows capture packed tail occupancy; they only become removable once the bridge stops mixing them.",
 			),
@@ -284,30 +281,30 @@ func replaySubfamilySourceProductNote(derivedNow bool, name string) string {
 	return fmt.Sprintf("%s remains selected only on legacy proofs that still carry committed source-product rows.", name)
 }
 
-func replayPRFSubfamilySpec(kind ReplaySubfamilyKind, rows, replayRows, keyRows, directAuthRows []int, consumers []string, notes string) replaySubfamilySpec {
+func replayPRFSubfamilySpec(kind ReplaySubfamilyKind, rows, replayRows, keyRows, companionRows []int, consumers []string, notes string) replaySubfamilySpec {
 	return replaySubfamilySpec{
 		kind:        kind,
 		family:      ReplayFamilyPRFCompanion,
 		logicalRows: rows,
-		consumption: classifyReplaySubfamilyConsumption(rows, replayRows, keyRows, directAuthRows),
+		consumption: classifyReplaySubfamilyConsumption(rows, replayRows, keyRows, companionRows),
 		consumers:   consumers,
 		notes:       notes,
 	}
 }
 
-func classifyReplaySubfamilyConsumption(rows, replayRows, keyRows, directAuthRows []int) ReplaySubfamilyConsumption {
+func classifyReplaySubfamilyConsumption(rows, replayRows, keyRows, companionRows []int) ReplaySubfamilyConsumption {
 	replay := hasIntIntersection(rows, replayRows)
 	key := hasIntIntersection(rows, keyRows)
-	direct := hasIntIntersection(rows, directAuthRows)
+	companion := hasIntIntersection(rows, companionRows)
 	switch {
-	case replay && (key || direct):
+	case replay && (key || companion):
 		return ReplaySubfamilyMixed
 	case replay:
 		return ReplaySubfamilyReplayConsumed
 	case key:
 		return ReplaySubfamilyKeyBindingOnly
-	case direct:
-		return ReplaySubfamilyDirectAuthOnly
+	case companion:
+		return ReplaySubfamilyCompanionOnly
 	default:
 		return ReplaySubfamilyNotSelected
 	}

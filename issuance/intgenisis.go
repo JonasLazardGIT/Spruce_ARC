@@ -6,7 +6,7 @@ import (
 
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
-	vsishash "vSIS-Signature/vSIS-HASH"
+	vsishash "vSIS-Signature/internal/hash"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )

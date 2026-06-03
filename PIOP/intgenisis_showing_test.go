@@ -37,7 +37,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		DomainMode:        DomainModeExplicit,
 		NLeaves:           4096,
 		PRFGroupRounds:    2,
-		PRFCompanionMode:  PRFCompanionModeOutputAudit,
+		PRFCompanionMode:  PRFCompanionModeDirectFull,
 	})
 
 	layout, err := credential.DefaultSemanticMessageLayout(profile, params.LenKey)
@@ -224,7 +224,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	}
 	coeffViewRows := (showLayout.UCount + showLayout.MCount + showLayout.SCount + showLayout.ECount) * showLayout.ViewRowsPerPoly
 	if got, want := coeffViewRows, 192; got != want {
-		t.Fatalf("coefficient-view row baseline=%d want %d", got, want)
+		t.Fatalf("coefficient-view row count=%d want %d", got, want)
 	}
 	if showLayout.MAttrViewStart >= 0 || showLayout.KViewStart >= 0 || showLayout.MuSigViewStart >= 0 || showLayout.X0ViewStart >= 0 || showLayout.X1ViewStart >= 0 || showLayout.ZViewStart >= 0 {
 		t.Fatalf("compact/issuer rows should be omitted, got starts m=%d k=%d mu=%d x0=%d x1=%d z=%d", showLayout.MAttrViewStart, showLayout.KViewStart, showLayout.MuSigViewStart, showLayout.X0ViewStart, showLayout.X1ViewStart, showLayout.ZViewStart)
@@ -349,22 +349,8 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err == nil && ok {
 		t.Fatal("direct_full verifier accepted tampered public nonce")
 	}
-	legacyAsFull := *proof
-	if proof.PRFCompanion != nil {
-		companion := *proof.PRFCompanion
-		companion.Mode = PRFCompanionModeDirectFull
-		companion.Layout = clonePRFCompanionLayout(proof.PRFCompanion.Layout)
-		if companion.Layout != nil {
-			companion.Layout.RelationVersion = 1
-		}
-		legacyAsFull.PRFCompanion = &companion
-	}
-	ok, err = VerifyIntGenISISShowing(pub, &legacyAsFull, fullOpts)
-	if err == nil && ok {
-		t.Fatal("legacy direct_auth proof was accepted as direct_full")
-	}
 	if proof.QOpening == nil || proof.QRoot == ([16]byte{}) || len(proof.QRBits) == 0 {
-		t.Fatal("legacy showing proof did not carry Q DECS material")
+		t.Fatal("showing proof did not carry Q DECS material")
 	}
 	projectionOpts := opts
 	projectionOpts.IntGenISISReplayProjection = IntGenISISReplayProjectionProjectUYHatV1

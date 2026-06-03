@@ -41,7 +41,7 @@ func signTargetWithinBetaWithPaths(t []int64, maxTrials int, opts ntru.SamplerOp
 	}
 	paramsPath := paths.ParamsPath
 	if paramsPath == "" {
-		paramsPath = "Parameters/Parameters.json"
+		paramsPath = "internal/source_data/Parameters.json"
 	}
 	par, err := ntrurio.LoadParams(paramsPath, true)
 	if err != nil {

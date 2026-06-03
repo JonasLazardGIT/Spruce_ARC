@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
 )
 
@@ -21,7 +20,7 @@ const (
 	defaultCredentialStatePath     = "credential/keys/credential_state.json"
 	defaultCredentialSignaturePath = "credential/keys/signature.json"
 	defaultPRFParamsPath           = "prf/prf_params.json"
-	defaultNTRUParamsPath          = "Parameters/Parameters.json"
+	defaultNTRUParamsPath          = "internal/source_data/Parameters.json"
 	defaultNTRUPublicKeyPath       = "ntru_keys/public.json"
 	defaultNTRUPrivateKeyPath      = "ntru_keys/private.json"
 )
@@ -82,165 +81,37 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	fs := flag.NewFlagSet("benchmark-intgenisis-e2e", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	artifactDir := fs.String("artifact-dir", "", "artifact directory; defaults to a temporary directory")
-	profile := fs.String("profile", credential.ProfileIntGenISISB, "IntGenISIS profile name")
-	profileBound := fs.Int64("profile-bound", 0, "override IntGenISIS public BoundB/CommitmentBound for bounded-range experiments; 0 uses the profile default")
-	prfParamsPath := fs.String("prf-params", defaultPRFParamsPath, "PRF params path")
 	jsonOut := fs.String("json-out", "", "optional JSON output path")
 	presetName := fs.String("preset", "", "named IntGenISIS preset: n512-compact96, n1024-compact96, or n1024-compact125")
 	force := fs.Bool("force", false, "overwrite existing artifacts")
-	seed := fs.Int64("seed", 11, "holder commitment sampling seed")
-	ncols := fs.Int("ncols", 16, "SmallWood packing width")
-	lvcsNCols := fs.Int("lvcs-ncols", 32, "LVCS width")
-	nLeaves := fs.Int("nleaves", 4096, "explicit-domain leaf count")
-	maxNLeaves := fs.Int("max-nleaves", intGenISISDefaultMaxNLeaves, "maximum explicit-domain leaves for issuance and showing; 0 disables the cap for uncapped local runs")
-	eta := fs.Int("eta", 8, "SmallWood eta")
-	theta := fs.Int("theta", 1, "SmallWood theta")
-	rho := fs.Int("rho", 1, "SmallWood rho")
-	ell := fs.Int("ell", 4, "SmallWood ell")
-	ellPrime := fs.Int("ell-prime", 4, "SmallWood ell prime")
-	kappa1 := fs.Int("kappa1", 0, "SmallWood theorem aggregation kappa round 1")
-	kappa2 := fs.Int("kappa2", 0, "SmallWood theorem aggregation kappa round 2")
-	kappa3 := fs.Int("kappa3", 0, "SmallWood theorem aggregation kappa round 3")
-	kappa4 := fs.Int("kappa4", 0, "SmallWood theorem aggregation kappa round 4")
-	issuanceNCols := fs.Int("issuance-ncols", 0, "issuance witness packing width override")
-	issuanceLVCSNCols := fs.Int("issuance-lvcs-ncols", 0, "issuance LVCS width override")
-	issuanceNLeaves := fs.Int("issuance-nleaves", 0, "issuance explicit-domain leaf count override")
-	issuanceEta := fs.Int("issuance-eta", 0, "issuance eta override")
-	issuanceTheta := fs.Int("issuance-theta", 0, "issuance theta override")
-	issuanceRho := fs.Int("issuance-rho", 0, "issuance rho override")
-	issuanceEll := fs.Int("issuance-ell", 0, "issuance ell override")
-	issuanceEllPrime := fs.Int("issuance-ell-prime", 0, "issuance ell-prime override")
-	issuanceTranscriptMode := fs.String("issuance-transcript-mode", "", "issuance transcript mode: baseline or smallfield_2025_1085_v1; maintained presets set this automatically")
-	fixedTranscriptSize := fs.String("fixed-transcript-size", "auto", "fixed-size transcript mode for issuance and showing: auto, on, or off")
-	issuanceFixedTranscriptSize := fs.String("issuance-fixed-transcript-size", "auto", "issuance fixed-size transcript mode: auto, on, or off")
-	showingNCols := fs.Int("showing-ncols", 0, "showing witness packing width override")
-	showingLVCSNCols := fs.Int("showing-lvcs-ncols", 0, "showing LVCS width override")
-	showingNLeaves := fs.Int("showing-nleaves", 0, "showing explicit-domain leaf count override")
-	showingEta := fs.Int("showing-eta", 0, "showing eta override")
-	showingTheta := fs.Int("showing-theta", 0, "showing theta override")
-	showingRho := fs.Int("showing-rho", 0, "showing rho override")
-	showingEll := fs.Int("showing-ell", 0, "showing ell override")
-	showingEllPrime := fs.Int("showing-ell-prime", 0, "showing ell-prime override")
-	showingShortnessRadix := fs.Int("showing-sig-shortness-radix", 0, "showing IntGenISIS u-shortness radix override")
-	showingShortnessDigits := fs.Int("showing-sig-shortness-digits", 0, "showing IntGenISIS u-shortness digit-count override")
-	showingCompressedRows := fs.Int("showing-compressed-rows", 0, "showing IntGenISIS M/s/e compression level: 0 none; bounded-range presets reject levels >0")
-	showingReplayProjection := fs.String("showing-replay-projection", PIOP.IntGenISISReplayProjectionNone, "showing IntGenISIS replay projection mode: none, project_u_y_hat_v1, project_u_y_hat_and_y_view_v2, project_u_digits_and_y_view_v3, experimental project_u_digits_y_source_linear_v4, or experimental project_u_digits_y_w_residual_v5")
-	showingTranscriptMode := fs.String("showing-transcript-mode", "", "showing transcript mode: baseline, column_widths_v1, or smallfield_2025_1085_v1; strict smallfield presets set this automatically")
-	showingFixedTranscriptSize := fs.String("showing-fixed-transcript-size", "auto", "showing fixed-size transcript mode: auto, on, or off")
-	companionMode := fs.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "PRF companion mode: output_audit, direct_auth, direct_full, or aux_instance")
-	prfGroupRounds := fs.Int("prf-group-rounds", 2, "grouped PRF rounds for the showing companion witness")
-	checkpointSamples := fs.Int("prf-checkpoint-samples", 8, "PRF companion checkpoint samples")
-	keygenTrials := fs.Int("keygen-trials", 10000, "maximum annulus keygen trials")
-	keygenAttempts := fs.Int("attempts", 4, "annulus keygen attempts")
-	ntruBeta := fs.Uint64("ntru-beta", 0, "optional NTRU signature beta override; 0 keeps profile default")
-	maxTrials := fs.Int("max-trials", 2048, "maximum NTRU signer trials")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	setFlags := visitedFlagNames(fs)
 	selectedPresetName, err := credential.ResolveIntGenISISPresetSelector(*presetName, false)
 	if err != nil {
 		return err
 	}
-	baseKappa := [4]int{*kappa1, *kappa2, *kappa3, *kappa4}
-	base := intGenISISTuning{
-		NCols:             *ncols,
-		LVCSNCols:         *lvcsNCols,
-		NLeaves:           *nLeaves,
-		Eta:               *eta,
-		Theta:             *theta,
-		Rho:               *rho,
-		Ell:               *ell,
-		EllPrime:          *ellPrime,
-		Kappa:             baseKappa,
-		PRFCompanionMode:  PIOP.PRFCompanionMode(*companionMode),
-		PRFGroupRounds:    *prfGroupRounds,
-		CheckpointSamples: *checkpointSamples,
+	if selectedPresetName == "" {
+		return fmt.Errorf("missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
 	}
-	issuance := intGenISISTuning{
-		NCols:          *issuanceNCols,
-		LVCSNCols:      *issuanceLVCSNCols,
-		NLeaves:        *issuanceNLeaves,
-		Eta:            *issuanceEta,
-		Theta:          *issuanceTheta,
-		Rho:            *issuanceRho,
-		Ell:            *issuanceEll,
-		EllPrime:       *issuanceEllPrime,
-		Kappa:          baseKappa,
-		TranscriptMode: *issuanceTranscriptMode,
-	}
-	showing := intGenISISTuning{
-		NCols:              *showingNCols,
-		LVCSNCols:          *showingLVCSNCols,
-		NLeaves:            *showingNLeaves,
-		Eta:                *showingEta,
-		Theta:              *showingTheta,
-		Rho:                *showingRho,
-		Ell:                *showingEll,
-		EllPrime:           *showingEllPrime,
-		Kappa:              baseKappa,
-		PRFCompanionMode:   PIOP.PRFCompanionMode(*companionMode),
-		PRFGroupRounds:     *prfGroupRounds,
-		CheckpointSamples:  *checkpointSamples,
-		SigShortnessRadix:  *showingShortnessRadix,
-		SigShortnessDigits: *showingShortnessDigits,
-		CompressedRows:     *showingCompressedRows,
-		ReplayProjection:   *showingReplayProjection,
-		TranscriptMode:     *showingTranscriptMode,
-	}
-	if selectedPresetName != "" {
-		preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
-		if err != nil {
-			return err
-		}
-		if !setFlags["profile"] {
-			*profile = preset.Profile
-		}
-		issuance = intGenISISTuningFromPresetSpec(preset.Issuance)
-		showing = intGenISISTuningFromPresetSpec(preset.Showing)
-		base = intGenISISTuningFromPresetSpec(preset.Showing)
-		if preset.MaxNLeaves > 0 && !setFlags["max-nleaves"] {
-			*maxNLeaves = preset.MaxNLeaves
-		}
-		if preset.NTRUBeta > 0 && !setFlags["ntru-beta"] {
-			*ntruBeta = preset.NTRUBeta
-		}
-		applyCommonTuningFlagOverrides(&issuance, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, baseKappa)
-		applyCommonTuningFlagOverrides(&showing, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, baseKappa)
-		applyPrefixedTuningFlagOverrides(&issuance, setFlags, "issuance-", *issuanceNCols, *issuanceLVCSNCols, *issuanceNLeaves, *issuanceEta, *issuanceTheta, *issuanceRho, *issuanceEll, *issuanceEllPrime)
-		applyPrefixedTuningFlagOverrides(&showing, setFlags, "showing-", *showingNCols, *showingLVCSNCols, *showingNLeaves, *showingEta, *showingTheta, *showingRho, *showingEll, *showingEllPrime)
-		applyIssuanceSpecificFlagOverrides(&issuance, setFlags, *issuanceTranscriptMode)
-		applyShowingSpecificFlagOverrides(&showing, setFlags, PIOP.PRFCompanionMode(*companionMode), *prfGroupRounds, *checkpointSamples, *showingShortnessRadix, *showingShortnessDigits, *showingCompressedRows, *showingReplayProjection, *showingTranscriptMode)
-	}
-	if err := applyTranscriptSizeFlagOverrides(&issuance, &showing, setFlags, *fixedTranscriptSize, *issuanceFixedTranscriptSize, *showingFixedTranscriptSize); err != nil {
+	preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
+	if err != nil {
 		return err
 	}
 	cfg := benchmarkIntGenISISE2EConfig{
-		ArtifactDir:       *artifactDir,
-		Profile:           *profile,
-		ProfileBound:      *profileBound,
-		PRFParamsPath:     *prfParamsPath,
-		JSONOut:           *jsonOut,
-		Force:             *force,
-		Seed:              *seed,
-		Issuance:          normalizeIntGenISISTuning(issuance, base, false),
-		Showing:           normalizeIntGenISISTuning(showing, base, true),
-		NCols:             *ncols,
-		LVCSNCols:         *lvcsNCols,
-		NLeaves:           *nLeaves,
-		Eta:               *eta,
-		Theta:             *theta,
-		Rho:               *rho,
-		Ell:               *ell,
-		EllPrime:          *ellPrime,
-		PRFCompanionMode:  PIOP.PRFCompanionMode(*companionMode),
-		PRFGroupRounds:    *prfGroupRounds,
-		CheckpointSamples: *checkpointSamples,
-		KeygenTrials:      *keygenTrials,
-		KeygenAttempts:    *keygenAttempts,
-		NTRUBeta:          *ntruBeta,
-		MaxTrials:         *maxTrials,
-		MaxNLeaves:        *maxNLeaves,
+		ArtifactDir:    *artifactDir,
+		Profile:        preset.Profile,
+		PRFParamsPath:  defaultPRFParamsPath,
+		JSONOut:        *jsonOut,
+		Force:          *force,
+		Seed:           11,
+		Issuance:       intGenISISTuningFromPresetSpec(preset.Issuance),
+		Showing:        intGenISISTuningFromPresetSpec(preset.Showing),
+		KeygenTrials:   10000,
+		KeygenAttempts: 4,
+		NTRUBeta:       preset.NTRUBeta,
+		MaxTrials:      2048,
+		MaxNLeaves:     preset.MaxNLeaves,
 	}
 	_, err = benchmarkIntGenISISE2E(cfg)
 	return err
@@ -251,32 +122,54 @@ func runSetupIntGenISISPublic(args []string) error {
 	fs.SetOutput(os.Stderr)
 	outPath := fs.String("out", "", "output path for generated IntGenISIS credential public params")
 	force := fs.Bool("force", false, "overwrite an existing output path")
-	profileName := fs.String("profile", credential.ProfileIntGenISISB, "IntGenISIS profile name")
-	bPath := fs.String("b-path", "", "B-matrix path recorded in the public params")
+	presetName := fs.String("preset", "", "named IntGenISIS preset: n512-compact96, n1024-compact96, or n1024-compact125")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(*outPath) == "" {
-		*outPath = filepath.Join("Parameters", fmt.Sprintf("credential_public.%s.json", *profileName))
+	selectedPresetName, err := credential.ResolveIntGenISISPresetSelector(*presetName, false)
+	if err != nil {
+		return err
 	}
-	return setupIntGenISISPublic(*outPath, *force, *profileName, *bPath)
+	if selectedPresetName == "" {
+		return fmt.Errorf("missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
+	}
+	preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(*outPath) == "" {
+		*outPath = filepath.Join("internal", "source_data", fmt.Sprintf("credential_public.%s.json", preset.Profile))
+	}
+	return setupIntGenISISPublic(*outPath, *force, preset.Profile, "")
 }
 
 func runSetupNTRUKeys(args []string) error {
 	fs := flag.NewFlagSet("setup-ntru-keys", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	ringDegree := fs.Int("ring-degree", 0, "ring degree for generated NTRU params/keys (supported: 1024 or 512; 0 keeps default)")
+	presetName := fs.String("preset", "", "named IntGenISIS preset: n512-compact96, n1024-compact96, or n1024-compact125")
 	paramsOut := fs.String("params-out", "", "output path for generated NTRU params")
 	publicOut := fs.String("public-out", "", "output path for generated NTRU public key")
 	privateOut := fs.String("private-out", "", "output path for generated NTRU private key")
 	force := fs.Bool("force", false, "overwrite existing output paths")
-	keygenTrials := fs.Int("keygen-trials", 10000, "maximum trials for each annulus keygen attempt")
-	attempts := fs.Int("attempts", 4, "number of annulus keygen attempts before failing")
-	ntruBeta := fs.Uint64("ntru-beta", 0, "optional NTRU signature beta override; 0 keeps profile default")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return setupNTRUKeys(*ringDegree, *paramsOut, *publicOut, *privateOut, *force, *keygenTrials, *attempts, *ntruBeta)
+	selectedPresetName, err := credential.ResolveIntGenISISPresetSelector(*presetName, false)
+	if err != nil {
+		return err
+	}
+	if selectedPresetName == "" {
+		return fmt.Errorf("missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
+	}
+	preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
+	if err != nil {
+		return err
+	}
+	profile, ok := credential.LookupIntGenISISProfile(preset.Profile)
+	if !ok {
+		return fmt.Errorf("unsupported IntGenISIS profile %q", preset.Profile)
+	}
+	return setupNTRUKeys(profile.N, *paramsOut, *publicOut, *privateOut, *force, 10000, 4, preset.NTRUBeta)
 }
 
 func runHolderCommit(args []string) error {
@@ -286,100 +179,30 @@ func runHolderCommit(args []string) error {
 	prfPath := fs.String("prf-params", defaultPRFParamsPath, "PRF params path")
 	holderSecretPath := fs.String("holder-secret", defaultHolderSecretPath, "holder secret artifact path")
 	commitRequestPath := fs.String("commit-request", defaultCommitRequestPath, "commit request artifact path")
-	expertInputPath := fs.String("expert-input", "", "optional expert witness JSON path")
 	presetName := fs.String("preset", "", "named IntGenISIS issuance preset: n512-compact96, n1024-compact96, or n1024-compact125")
-	seed := fs.Int64("seed", 0, "optional deterministic sampling seed")
-	ncols := fs.Int("ncols", 0, "optional witness packing width override")
-	lvcsNCols := fs.Int("lvcs-ncols", 0, "optional LVCS width override")
-	nLeaves := fs.Int("nleaves", 0, "optional explicit-domain size override")
-	eta := fs.Int("eta", 0, "optional eta override")
-	theta := fs.Int("theta", 0, "optional theta override")
-	rho := fs.Int("rho", 0, "optional rho override")
-	ell := fs.Int("ell", 0, "optional ell override")
-	ellPrime := fs.Int("ell-prime", 0, "optional ell-prime override")
-	kappa1 := fs.Int("kappa1", 0, "optional theorem aggregation kappa round 1")
-	kappa2 := fs.Int("kappa2", 0, "optional theorem aggregation kappa round 2")
-	kappa3 := fs.Int("kappa3", 0, "optional theorem aggregation kappa round 3")
-	kappa4 := fs.Int("kappa4", 0, "optional theorem aggregation kappa round 4")
-	issuanceTranscriptMode := fs.String("issuance-transcript-mode", "", "issuance transcript mode: baseline or smallfield_2025_1085_v1")
-	fixedTranscriptSize := fs.String("fixed-transcript-size", "auto", "issuance fixed-size transcript mode: auto, on, or off")
-	issuanceFixedTranscriptSize := fs.String("issuance-fixed-transcript-size", "auto", "issuance fixed-size transcript mode: auto, on, or off")
-	ringDegree := fs.Int("ring-degree", 0, "ring degree override for issuance (supported: 1024 or 512; 0 follows public params)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	setFlags := visitedFlagNames(fs)
 	selectedPresetName, err := credential.ResolveIntGenISISPresetSelector(*presetName, false)
 	if err != nil {
 		return err
 	}
-	kappa := [4]int{*kappa1, *kappa2, *kappa3, *kappa4}
-	ncolsVal, lvcsVal, nLeavesVal := *ncols, *lvcsNCols, *nLeaves
-	etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal := *eta, *theta, *rho, *ell, *ellPrime
-	transcriptModeVal := *issuanceTranscriptMode
-	if selectedPresetName != "" {
-		preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
-		if err != nil {
-			return err
-		}
-		if !setFlags["public-params"] && preset.Profile != credential.ProfileIntGenISISB {
-			*publicPath = filepath.Join("Parameters", fmt.Sprintf("credential_public.%s.json", preset.Profile))
-		}
-		t := intGenISISTuningFromPresetSpec(preset.Issuance)
-		applyCommonTuningFlagOverrides(&t, setFlags, *ncols, *lvcsNCols, *nLeaves, *eta, *theta, *rho, *ell, *ellPrime, kappa)
-		applyIssuanceSpecificFlagOverrides(&t, setFlags, *issuanceTranscriptMode)
-		if setFlags["fixed-transcript-size"] {
-			if err := applyTranscriptSizeFlag(&t, *fixedTranscriptSize); err != nil {
-				return err
-			}
-		}
-		if setFlags["issuance-fixed-transcript-size"] {
-			if err := applyTranscriptSizeFlag(&t, *issuanceFixedTranscriptSize); err != nil {
-				return err
-			}
-		}
-		ncolsVal, lvcsVal, nLeavesVal = t.NCols, t.LVCSNCols, t.NLeaves
-		etaVal, thetaVal, rhoVal, ellVal, ellPrimeVal = t.Eta, t.Theta, t.Rho, t.Ell, t.EllPrime
-		kappa = t.Kappa
-		transcriptModeVal = t.TranscriptMode
+	if selectedPresetName == "" {
+		return fmt.Errorf("missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
 	}
-	fixedTranscriptSizeVal := false
-	if selectedPresetName != "" {
-		preset, _ := credential.LookupIntGenISISPreset(selectedPresetName)
-		fixedTranscriptSizeVal = preset.Issuance.FixedTranscriptSize
+	preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
+	if err != nil {
+		return err
 	}
-	if setFlags["fixed-transcript-size"] {
-		value, ok, err := parseTranscriptSizeFlag(*fixedTranscriptSize)
-		if err != nil {
-			return err
-		}
-		if ok {
-			fixedTranscriptSizeVal = value
-		}
+	if *publicPath == credentialPublicPathDefault() && preset.Profile != credential.ProfileIntGenISISB {
+		*publicPath = filepath.Join("internal", "source_data", fmt.Sprintf("credential_public.%s.json", preset.Profile))
 	}
-	if setFlags["issuance-fixed-transcript-size"] {
-		value, ok, err := parseTranscriptSizeFlag(*issuanceFixedTranscriptSize)
-		if err != nil {
-			return err
-		}
-		if ok {
-			fixedTranscriptSizeVal = value
-		}
+	profile, ok := credential.LookupIntGenISISProfile(preset.Profile)
+	if !ok {
+		return fmt.Errorf("unsupported IntGenISIS profile %q", preset.Profile)
 	}
-	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, *expertInputPath, *seed, issuanceRuntimeOverrides{
-		NCols:               ncolsVal,
-		LVCSNCols:           lvcsVal,
-		NLeaves:             nLeavesVal,
-		Ell:                 ellVal,
-		EllPrime:            ellPrimeVal,
-		Eta:                 etaVal,
-		Theta:               thetaVal,
-		Rho:                 rhoVal,
-		Kappa:               kappa,
-		TranscriptMode:      transcriptModeVal,
-		FixedTranscriptSize: fixedTranscriptSizeVal,
-		RingDegree:          *ringDegree,
-	})
+	tuning := intGenISISTuningFromPresetSpec(preset.Issuance)
+	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, "", 0, intGenISISTuningToIssuanceOverrides(tuning, profile.N))
 }
 
 func runHolderProve(args []string) error {

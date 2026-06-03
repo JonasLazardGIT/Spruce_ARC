@@ -1,18 +1,12 @@
 // Exact-ring implementation of the vSIS-BBS hash in the NTT domain.
-package vsishash
+package hash
 
 import (
 	"errors"
-	"testing"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 	"github.com/tuneinsight/lattigo/v4/utils"
 )
-
-// GenerateB samples B in the coefficient domain.
-func GenerateB(ringQ *ring.Ring, prng utils.PRNG) ([]*ring.Poly, error) {
-	return GenerateBWithX0Len(ringQ, prng, 1)
-}
 
 // GenerateBWithX0Len samples [B0, B1, B2[0], ..., B2[x0Len-1], B3] in the
 // coefficient domain for the live BB-tran relation.
@@ -191,32 +185,4 @@ func ComputeBBTranTargetVector(
 	}
 	ringQ.Add(t, z, t)
 	return z, t, nil
-}
-
-func TestPolyInverseNTT(t *testing.T) {
-	const N = 8
-	const q = 8380417
-
-	ringQ, _ := ring.NewRing(N, []uint64{q})
-	uni, _ := utils.NewPRNG()
-	us := ring.NewUniformSampler(uni, ringQ)
-
-	a := ringQ.NewPoly()
-	us.Read(a)
-	ringQ.NTT(a, a) // lift ← this is what polyInverseNTT expects
-
-	ainv, ok := polyInverseNTT(ringQ, a)
-	if !ok {
-		t.Fatal("poly not invertible (rare event)")
-	}
-
-	// verify Hadamard(a,ainv)==1
-	prod := ringQ.NewPoly()
-	ringQ.MulCoeffs(a, ainv, prod)
-
-	for i, c := range prod.Coeffs[0] {
-		if c != 1 {
-			t.Fatalf("slot %d : a*ainv=%d ≠ 1", i, c)
-		}
-	}
 }

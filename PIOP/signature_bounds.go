@@ -211,13 +211,13 @@ func validateChainCapsSigned(label string, maxAbs int, caps []int) error {
 
 func productionSignatureCoeffLinfBeta() (uint64, error) {
 	productionSignatureCoeffLinfBetaOnce.Do(func() {
-		par, err := ntrurio.LoadParams(resolve("Parameters/Parameters.json"), true)
+		par, err := ntrurio.LoadParams(resolve("internal/source_data/Parameters.json"), true)
 		if err != nil {
 			productionSignatureCoeffLinfBetaErr = fmt.Errorf("load params: %w", err)
 			return
 		}
 		if par.Beta == 0 {
-			productionSignatureCoeffLinfBetaErr = fmt.Errorf("missing beta in Parameters/Parameters.json")
+			productionSignatureCoeffLinfBetaErr = fmt.Errorf("missing beta in internal/source_data/Parameters.json")
 			return
 		}
 		productionSignatureCoeffLinfBetaValue = par.Beta

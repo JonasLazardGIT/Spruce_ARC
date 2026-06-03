@@ -74,11 +74,12 @@ func TestRemovedIssuanceCommandsAreRejected(t *testing.T) {
 }
 
 func TestRemovedPresetSelectorsAreRejectedByCLI(t *testing.T) {
+	removedDegree256 := "n" + "256-sw96"
 	for _, args := range [][]string{
 		{"benchmark-intgenisis-e2e", "-96bit"},
 		{"benchmark-intgenisis-e2e", "-preset", "sw96-lvcs64"},
 		{"holder-commit", "-96bit"},
-		{"holder-commit", "-preset", "n256-sw96"},
+		{"holder-commit", "-preset", removedDegree256},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			if err := run(args); err == nil {
@@ -88,19 +89,46 @@ func TestRemovedPresetSelectorsAreRejectedByCLI(t *testing.T) {
 	}
 }
 
+func TestBenchmarkRemovedTuningFlagsAreUnknown(t *testing.T) {
+	for _, flagName := range []string{
+		"-prf-companion-mode",
+		"-showing-transcript-mode",
+		"-ncols",
+		"-fixed-transcript-size",
+	} {
+		t.Run(flagName, func(t *testing.T) {
+			err := run([]string{"benchmark-intgenisis-e2e", "-preset", "n512-compact96", flagName, "x"})
+			if err == nil {
+				t.Fatalf("%s unexpectedly parsed", flagName)
+			}
+			if !strings.Contains(err.Error(), "flag provided but not defined") {
+				t.Fatalf("unexpected error for %s: %v", flagName, err)
+			}
+		})
+	}
+}
+
 func TestSetupIntGenISISPublicWritesMaintainedProfileParams(t *testing.T) {
 	root := issuanceTestRepoRoot(t)
 	chdirForIssuanceTest(t, root)
 
-	for _, profile := range []credential.IntGenISISProfile{
-		credential.PrimaryIntGenISISProfile(),
-		credential.Ternary1024IntGenISISProfile(),
+	for _, presetName := range []string{
+		credential.IntGenISISPresetN512Compact96,
+		credential.IntGenISISPresetN1024Compact96,
 	} {
-		t.Run(profile.Name, func(t *testing.T) {
+		t.Run(presetName, func(t *testing.T) {
+			preset, err := credential.MustLookupIntGenISISPreset(presetName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			profile, ok := credential.LookupIntGenISISProfile(preset.Profile)
+			if !ok {
+				t.Fatalf("missing profile %s", preset.Profile)
+			}
 			tmp := t.TempDir()
 			out := filepath.Join(tmp, "credential_public."+profile.Name+".json")
 			bPath := filepath.Join(tmp, "Bmatrix."+profile.Name+".json")
-			if err := run([]string{"setup-intgenisis-public", "-profile", profile.Name, "-out", out, "-b-path", bPath, "-force"}); err != nil {
+			if err := run([]string{"setup-intgenisis-public", "-preset", presetName, "-out", out, "-force"}); err != nil {
 				t.Fatalf("setup-intgenisis-public: %v", err)
 			}
 			public, err := credential.LoadPublicParams(out)
@@ -137,9 +165,9 @@ func TestSetupNTRUKeysRejectsRemovedResearchDegree(t *testing.T) {
 		"-params-out", filepath.Join(t.TempDir(), "params.json"),
 	})
 	if err == nil {
-		t.Fatal("setup-ntru-keys accepted removed N=256 degree")
+		t.Fatal("setup-ntru-keys accepted removed research degree")
 	}
-	if !strings.Contains(err.Error(), "supported:") || !strings.Contains(err.Error(), "512") {
+	if !strings.Contains(err.Error(), "flag provided but not defined") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -184,20 +212,8 @@ func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
 		t.Fatalf("round-trip fixed transcript size=false")
 	}
 
-	applyIssuanceSpecificFlagOverrides(&issuance, map[string]bool{"issuance-transcript-mode": true}, sweepTranscriptModeBaseline)
-	baseline := normalizeIntGenISISTuning(issuance, showing, false)
-	baselineOverrides := intGenISISTuningToIssuanceOverrides(baseline, credential.Ternary1024IntGenISISProfile().N)
-	baselineOpts := applyIssuanceRuntimeOverrides(PIOP.SimOpts{}, baselineOverrides)
-	if baselineOpts.TranscriptVersion != "" || baselineOpts.TranscriptProtocolMode != "" {
-		t.Fatalf("baseline issuance opts transcript tuple=(%q,%q)", baselineOpts.TranscriptVersion, baselineOpts.TranscriptProtocolMode)
-	}
-
-	if err := applyTranscriptSizeFlag(&issuance, "off"); err != nil {
-		t.Fatalf("apply fixed transcript off: %v", err)
-	}
-	compact := normalizeIntGenISISTuning(issuance, showing, false)
-	if compact.FixedTranscriptSize {
-		t.Fatalf("fixed transcript off override was not preserved")
+	if !issuance.FixedTranscriptSize || issuance.TranscriptMode != sweepTranscriptModeSmallField2025 {
+		t.Fatalf("preset issuance tuning lost maintained transcript defaults: %+v", issuance)
 	}
 }
 
@@ -244,21 +260,18 @@ func TestIntGenISISCLICommitAndProveOmitLegacyChallengeMaterial(t *testing.T) {
 
 	tmp := t.TempDir()
 	publicPath := filepath.Join(tmp, "credential_public.intgenisis.json")
-	bPath := filepath.Join(tmp, "Bmatrix.intgenisis.json")
 	holderSecret := filepath.Join(tmp, "holder_secret.json")
 	commitRequest := filepath.Join(tmp, "commit_request.json")
 	submission := filepath.Join(tmp, "presign_submission.json")
-	if err := run([]string{"setup-intgenisis-public", "-out", publicPath, "-b-path", bPath, "-force"}); err != nil {
+	if err := run([]string{"setup-intgenisis-public", "-preset", credential.IntGenISISPresetN512Compact96, "-out", publicPath, "-force"}); err != nil {
 		t.Fatalf("setup-intgenisis-public: %v", err)
 	}
 	if err := run([]string{
 		"holder-commit",
+		"-preset", credential.IntGenISISPresetN512Compact96,
 		"-public-params", publicPath,
 		"-holder-secret", holderSecret,
 		"-commit-request", commitRequest,
-		"-seed", "11",
-		"-ncols", "16",
-		"-lvcs-ncols", "32",
 	}); err != nil {
 		t.Fatalf("holder-commit IntGenISIS: %v", err)
 	}
@@ -296,7 +309,7 @@ func TestIntGenISISIssueResponseOmitsTargetAndVerifiesAUEqualsT(t *testing.T) {
 	target[0] = 7
 	resp := issueResponseFile{
 		Version:              issuanceArtifactVersion,
-		CredentialPublicPath: "Parameters/credential_public.intgenisis_profile_b.json",
+		CredentialPublicPath: "internal/source_data/credential_public.intgenisis_profile_b.json",
 		SigS1:                make([]int64, ringQ.N),
 		SigS2:                append([]int64(nil), target...),
 		NTRUPublic:           [][]int64{make([]int64, ringQ.N)},

@@ -32,29 +32,27 @@ type transformBridgePostSignConfig struct {
 	MuPackWidth        int
 	MuVirtualBlocks    int
 
-	ThetaAHeads                 [][][]uint64
-	ThetaBBlocks                [][][]uint64
-	PackingSelCoeff             []uint64
-	LagrangeBasis               [][]uint64
-	TransformH                  [][]uint64
-	TransformHEval              [][]uint64
-	BlockFactors                [][]uint64
-	FullMuTransformHEval        [][]uint64
-	FullMuBlockFactors          [][]uint64
-	ComponentCount              int
-	SourceBlocks                int
-	MsgDecode1                  []uint64
-	MsgDecode2                  []uint64
-	MuDecodePolys               [][]uint64
-	X0Decode1                   []uint64
-	ScalarDecode1               []uint64
-	MsgMembershipPoly           []uint64
-	X0MembershipPoly            []uint64
-	ScalarMembershipPoly        []uint64
-	KeyBindLayout               prfKeyBindingLayout
-	PRFConstRows                []int
-	PRFBridgeStripeSourceRows   []int
-	PRFBridgeStripePhysicalRows []int
+	ThetaAHeads          [][][]uint64
+	ThetaBBlocks         [][][]uint64
+	PackingSelCoeff      []uint64
+	LagrangeBasis        [][]uint64
+	TransformH           [][]uint64
+	TransformHEval       [][]uint64
+	BlockFactors         [][]uint64
+	FullMuTransformHEval [][]uint64
+	FullMuBlockFactors   [][]uint64
+	ComponentCount       int
+	SourceBlocks         int
+	MsgDecode1           []uint64
+	MsgDecode2           []uint64
+	MuDecodePolys        [][]uint64
+	X0Decode1            []uint64
+	ScalarDecode1        []uint64
+	MsgMembershipPoly    []uint64
+	X0MembershipPoly     []uint64
+	ScalarMembershipPoly []uint64
+	KeyBindLayout        prfKeyBindingLayout
+	PRFConstRows         []int
 }
 
 func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub PublicInputs, layout RowLayout, omegaWitness, domainPoints []uint64, bound int64, prfLayout *PRFLayout, prfCompanionLayout *PRFCompanionLayout, opts SimOpts) (*transformBridgePostSignConfig, error) {
@@ -258,52 +256,41 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 
 	_ = prfLayout
 	var prfConstRows []int
-	var prfBridgeStripeSourceRows []int
-	var prfBridgeStripePhysicalRows []int
-	if normalizePRFCompanionMode(opts.PRFCompanionMode) == PRFCompanionModeAuxInstance && prfCompanionLayout != nil && prfCompanionLayout.BridgeStripe != nil {
-		prfBridgeStripeSourceRows = append([]int(nil), prfCompanionLayout.BridgeStripe.SourceRows...)
-		prfBridgeStripePhysicalRows = append([]int(nil), prfCompanionLayout.BridgeStripe.PhysicalRows...)
-		if len(prfBridgeStripeSourceRows) != len(prfBridgeStripePhysicalRows) {
-			return nil, fmt.Errorf("prf bridge stripe source rows=%d want physical rows=%d", len(prfBridgeStripeSourceRows), len(prfBridgeStripePhysicalRows))
-		}
-	}
 	return &transformBridgePostSignConfig{
-		Ring:                        ringQ,
-		Layout:                      layout,
-		Omega:                       append([]uint64(nil), omegaWitness...),
-		DomainPoints:                append([]uint64(nil), domainPoints...),
-		HashRelation:                pub.HashRelation,
-		X0Len:                       x0Len,
-		DirectTargetReplay:          directTargetReplay,
-		InlineTargetReplay:          inlineTargetReplay,
-		MuMode:                      muMode,
-		FullMuMode:                  fullMuMode,
-		PackedMuMode:                packedMuMode,
-		MuPackWidth:                 muPackWidth,
-		MuVirtualBlocks:             muVirtualBlocks,
-		ThetaAHeads:                 thetaAHeads,
-		ThetaBBlocks:                thetaBBlocks,
-		PackingSelCoeff:             packingSelCoeff,
-		LagrangeBasis:               bridgeBasis.LagrangeBasis,
-		TransformH:                  bridgeBasis.TransformH,
-		TransformHEval:              bridgeBasis.TransformHEval,
-		BlockFactors:                bridgeBasis.BlockFactors,
-		FullMuTransformHEval:        fullMuTransformHEval,
-		FullMuBlockFactors:          fullMuBlockFactors,
-		ComponentCount:              componentCount,
-		SourceBlocks:                sourceBlocks,
-		MsgDecode1:                  msgDecode1,
-		MsgDecode2:                  msgDecode2,
-		MuDecodePolys:               muDecodePolys,
-		X0Decode1:                   x0Decode1,
-		ScalarDecode1:               scalarDecode1,
-		MsgMembershipPoly:           msgMembershipPoly,
-		X0MembershipPoly:            x0MembershipPoly,
-		ScalarMembershipPoly:        scalarMembershipPoly,
-		KeyBindLayout:               keyBindLayout,
-		PRFConstRows:                prfConstRows,
-		PRFBridgeStripeSourceRows:   prfBridgeStripeSourceRows,
-		PRFBridgeStripePhysicalRows: prfBridgeStripePhysicalRows,
+		Ring:                 ringQ,
+		Layout:               layout,
+		Omega:                append([]uint64(nil), omegaWitness...),
+		DomainPoints:         append([]uint64(nil), domainPoints...),
+		HashRelation:         pub.HashRelation,
+		X0Len:                x0Len,
+		DirectTargetReplay:   directTargetReplay,
+		InlineTargetReplay:   inlineTargetReplay,
+		MuMode:               muMode,
+		FullMuMode:           fullMuMode,
+		PackedMuMode:         packedMuMode,
+		MuPackWidth:          muPackWidth,
+		MuVirtualBlocks:      muVirtualBlocks,
+		ThetaAHeads:          thetaAHeads,
+		ThetaBBlocks:         thetaBBlocks,
+		PackingSelCoeff:      packingSelCoeff,
+		LagrangeBasis:        bridgeBasis.LagrangeBasis,
+		TransformH:           bridgeBasis.TransformH,
+		TransformHEval:       bridgeBasis.TransformHEval,
+		BlockFactors:         bridgeBasis.BlockFactors,
+		FullMuTransformHEval: fullMuTransformHEval,
+		FullMuBlockFactors:   fullMuBlockFactors,
+		ComponentCount:       componentCount,
+		SourceBlocks:         sourceBlocks,
+		MsgDecode1:           msgDecode1,
+		MsgDecode2:           msgDecode2,
+		MuDecodePolys:        muDecodePolys,
+		X0Decode1:            x0Decode1,
+		ScalarDecode1:        scalarDecode1,
+		MsgMembershipPoly:    msgMembershipPoly,
+		X0MembershipPoly:     x0MembershipPoly,
+		ScalarMembershipPoly: scalarMembershipPoly,
+		KeyBindLayout:        keyBindLayout,
+		PRFConstRows:         prfConstRows,
 	}, nil
 }
 
@@ -319,85 +306,6 @@ func (cfg *transformBridgePostSignConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 		return nil, fmt.Errorf("nil K field")
 	}
 	return cfg.kEvaluator(K), nil
-}
-
-func (cfg *transformBridgePostSignConfig) PRFBridgeStripeEqualityEvaluator() ConstraintEvaluator {
-	return rowEqualityConstraintEvaluator(cfg.Ring, cfg.PRFBridgeStripeSourceRows, cfg.PRFBridgeStripePhysicalRows)
-}
-
-func (cfg *transformBridgePostSignConfig) PRFBridgeStripeEqualityKEvaluator(K *kf.Field) (KConstraintEvaluator, error) {
-	if cfg == nil || cfg.Ring == nil {
-		return nil, fmt.Errorf("nil transform-bridge replay config")
-	}
-	if K == nil {
-		return nil, fmt.Errorf("nil K field")
-	}
-	return rowEqualityKConstraintEvaluator(K, cfg.PRFBridgeStripeSourceRows, cfg.PRFBridgeStripePhysicalRows), nil
-}
-
-func rowEqualityConstraintEvaluator(ringQ *ring.Ring, sourceRows, physicalRows []int) ConstraintEvaluator {
-	if ringQ == nil || len(sourceRows) == 0 || len(physicalRows) == 0 {
-		return nil
-	}
-	if len(sourceRows) != len(physicalRows) {
-		return func(uint64, []uint64) ([]uint64, []uint64, error) {
-			return nil, nil, fmt.Errorf("row equality source rows=%d want physical rows=%d", len(sourceRows), len(physicalRows))
-		}
-	}
-	q := ringQ.Modulus[0]
-	return func(_ uint64, rows []uint64) ([]uint64, []uint64, error) {
-		getRow := func(idx int) (uint64, error) {
-			if idx < 0 || idx >= len(rows) {
-				return 0, fmt.Errorf("row idx %d out of range (rows=%d)", idx, len(rows))
-			}
-			return rows[idx] % q, nil
-		}
-		fpar := make([]uint64, 0, len(sourceRows))
-		for i, sourceRow := range sourceRows {
-			sourceVal, err := getRow(sourceRow)
-			if err != nil {
-				return nil, nil, err
-			}
-			physicalVal, err := getRow(physicalRows[i])
-			if err != nil {
-				return nil, nil, err
-			}
-			fpar = append(fpar, modSub(sourceVal, physicalVal, q))
-		}
-		return fpar, nil, nil
-	}
-}
-
-func rowEqualityKConstraintEvaluator(K *kf.Field, sourceRows, physicalRows []int) KConstraintEvaluator {
-	if K == nil || len(sourceRows) == 0 || len(physicalRows) == 0 {
-		return nil
-	}
-	if len(sourceRows) != len(physicalRows) {
-		return func(kf.Elem, []kf.Elem) ([]kf.Elem, []kf.Elem, error) {
-			return nil, nil, fmt.Errorf("row equality source rows=%d want physical rows=%d", len(sourceRows), len(physicalRows))
-		}
-	}
-	return func(_ kf.Elem, rows []kf.Elem) ([]kf.Elem, []kf.Elem, error) {
-		getRow := func(idx int) (kf.Elem, error) {
-			if idx < 0 || idx >= len(rows) {
-				return K.Zero(), fmt.Errorf("row idx %d out of range (rows=%d)", idx, len(rows))
-			}
-			return rows[idx], nil
-		}
-		fpar := make([]kf.Elem, 0, len(sourceRows))
-		for i, sourceRow := range sourceRows {
-			sourceVal, err := getRow(sourceRow)
-			if err != nil {
-				return nil, nil, err
-			}
-			physicalVal, err := getRow(physicalRows[i])
-			if err != nil {
-				return nil, nil, err
-			}
-			fpar = append(fpar, K.Sub(sourceVal, physicalVal))
-		}
-		return fpar, nil, nil
-	}
 }
 
 func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {

@@ -18,9 +18,7 @@ not be compared against older undercounted proof bytes.
 The public registry intentionally contains only the compact maintained names.
 Removed selectors are invalid rather than aliases. The high preset is a 125+
 live preset, not a 128-bit claim. Maintained issuance and showing both use
-`smallfield_2025_1085_v1` and fixed-size DECS authentication by default;
-`-issuance-transcript-mode baseline` and `-fixed-transcript-size off` remain
-available only for comparison.
+`smallfield_2025_1085_v1` and fixed-size DECS authentication.
 
 ## Fresh E2E Snapshot
 
@@ -183,10 +181,9 @@ clamped={false,false,false,false}
   projection selector and theorem-bit accounting remain consistent with the
   previous maintained runs, while the PRF companion proves the full
   `tag = PRF(k, nonce)` relation instead of the sampled output-audit predicate.
-- Maintained presets now use fixed-size DECS authentication by default. Three
+- Maintained presets use fixed-size DECS authentication. Three
   repeated runs produced identical issuance/showing `paper_transcript_bytes`,
-  `proof_size_bytes`, and `auth_bytes` for both degree-1024 presets. The compact
-  frontier format remains available with `-fixed-transcript-size off`.
+  `proof_size_bytes`, and `auth_bytes` for both degree-1024 presets.
 
 ## Live Gate
 

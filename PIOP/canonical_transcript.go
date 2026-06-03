@@ -223,19 +223,6 @@ func BuildOpeningPaperReport(open *decs.DECSOpening) openingPaperReport {
 	for _, node := range open.Nodes {
 		authBits += float64(len(node) * 8)
 	}
-	for _, node := range open.FrontierNodes {
-		authBits += float64(len(node) * 8)
-	}
-	if len(open.FrontierRefsBits) > 0 && open.FrontierRefWidth > 0 && open.FrontierRefCount > 0 {
-		authBits += float64(len(open.FrontierRefsBits) * 8)
-		authBits += 8
-		authBits += float64(8 * varintSize(open.FrontierRefCount))
-	}
-	authBits += float64(len(open.FrontierProof) * 8)
-	authBits += float64(len(open.FrontierLR) * 8)
-	if open.FrontierDepth > 0 {
-		authBits += 32
-	}
 	if len(open.PathBits) > 0 && open.PathDepth > 0 && open.PathBitWidth > 0 && len(open.PathIndex) == 0 {
 		authBits += float64(len(open.PathBits) * 8)
 		authBits += 8

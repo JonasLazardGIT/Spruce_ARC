@@ -43,7 +43,7 @@ func TestPublicParamsRoundTripAndLift(t *testing.T) {
 		Ac:                 ac,
 		MuLayout:           MuLayoutFullCapacityHalvesV1,
 		HashRelation:       HashRelationBBTran,
-		BPath:              filepath.Join("Parameters", "Bmatrix.json"),
+		BPath:              filepath.Join("internal", "source_data", "Bmatrix.json"),
 		BoundB:             1,
 		X0Len:              1,
 		X0CoeffBound:       1,

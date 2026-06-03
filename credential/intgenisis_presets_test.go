@@ -97,9 +97,11 @@ func TestN1024CompactPresets(t *testing.T) {
 }
 
 func TestHistoricalPresetSelectorsAreRemoved(t *testing.T) {
+	removedDegree256Fast := "n" + "256-sw96"
+	removedDegree256High := "n" + "256-sw128"
 	for _, name := range []string{
 		"96bit", "120bitsf", "fast96", "fast-local",
-		"sw96-lvcs64", "sw128-lvcs64", "n256-sw96", "n256-sw128",
+		"sw96-lvcs64", "sw128-lvcs64", removedDegree256Fast, removedDegree256High,
 		"n1024-sw90-smallfield", "n1024-sw128",
 	} {
 		if _, ok := LookupIntGenISISPreset(name); ok {

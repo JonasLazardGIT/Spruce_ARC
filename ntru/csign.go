@@ -2,7 +2,7 @@ package ntru
 
 import (
 	"math/big"
-	ps "vSIS-Signature/Preimage_Sampler"
+	ps "vSIS-Signature/ntru/internal/preimage"
 )
 
 // recenterModQ returns centered int64 coefficients from a ModQPoly.

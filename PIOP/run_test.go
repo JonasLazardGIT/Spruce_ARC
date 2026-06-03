@@ -31,7 +31,7 @@ func TestInlineTargetReplayCompactPresetEnablesOnlyV18(t *testing.T) {
 		CoeffPacking:         true,
 		CoeffNativeSigModel:  CoeffNativeSigModelLiteralPackedAggregatedV3,
 		ShowingPreset:        ShowingPresetInlineTargetReplayCompactResearch,
-		PRFCompanionMode:     PRFCompanionModeOutputAudit,
+		PRFCompanionMode:     PRFCompanionModeDirectFull,
 		PRFCheckpointSamples: 8,
 	})
 	if !sigShortnessV18EnabledForOpts(opts) {

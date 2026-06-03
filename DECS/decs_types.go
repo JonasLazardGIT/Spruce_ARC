@@ -43,18 +43,9 @@ type DECSOpening struct {
 	PathBits          []byte  // packed path indices (row-major t×depth), optional
 	PathBitWidth      uint8   // bit width per path entry when PathBits is set
 	PathDepth         int     // path length when PathBits is set
-	FrontierRefsBits  []byte  // packed indices into FrontierNodes (union)
-	FrontierRefWidth  uint8   // bit width for FrontierRefsBits entries
-	FrontierRefCount  int     // number of references encoded in FrontierRefsBits
 	Nonces            [][]byte
 	NonceSeed         []byte
 	NonceBytes        int
-
-	// Frontier-based openings can be expanded with EnsureMerkleDecoded.
-	FrontierNodes [][]byte
-	FrontierProof []byte
-	FrontierLR    []byte
-	FrontierDepth int
 }
 
 // EntryCount returns the total number of opened indices.
@@ -112,5 +103,5 @@ type Params struct {
 	NonceBytes int // size of each nonce ρ_e in bytes
 }
 
-// DefaultParams provides the baseline DECS parameters.
+// DefaultParams provides the maintained DECS parameters.
 var DefaultParams = Params{Degree: 4095, Eta: 2, NonceBytes: 24}

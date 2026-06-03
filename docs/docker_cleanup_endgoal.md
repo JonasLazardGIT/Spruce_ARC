@@ -1124,7 +1124,7 @@ Do not:
 
 This pass removes generated/local state and obvious public-surface clutter while
 leaving proof logic, transcript logic, and security parameters unchanged.
-`Parameters/` stays for now because maintained commands and tests still load the
+`internal/source_data/` stays for now because maintained commands and tests still load the
 checked-in source parameter JSON. `Preimage_Sampler/` and `vSIS-HASH/` stay
 reachable because `ntru`, `credential`, `cmd/issuance`, and `cmd/showing` import
 them; they should remain absent from README and Docker quickstarts unless later
@@ -1149,6 +1149,30 @@ inspection-only IntGenISIS row inventory code, LVCS test wrappers, and isolated
 PIOP helper/reference paths. Remaining deadcode candidates are still referenced
 by compiled proof chains or package tests, so they should be handled only in a
 separate proof-logic-aware pruning pass.
+
+## Final Pre-Docker Cleanup Note
+
+This pass narrows the artifact surface to maintained IntGenISIS presets only.
+`cmd/showing` and `cmd/issuance benchmark-intgenisis-e2e` expose only
+preset/path/output flags; setup and holder-commit commands require `-preset`
+when creating preset-dependent artifacts. Top-level `Preimage_Sampler/`,
+`vSIS-HASH/`, and `Parameters/` were internalized to
+`ntru/internal/preimage/`, `internal/hash/`, and `internal/source_data/`.
+
+Research-only proof surfaces were removed rather than hidden: old PRF companion
+modes, aux-instance bridge-stripe code, unsafe signature lookup shadow tests,
+compact DECS frontier encoding, old command docs, and stale showing integration
+fixtures. `Commands.md` and `cmd/README.md` were deleted; README is now the
+public command surface. Validation for this pass used:
+
+```bash
+go test ./...
+git diff --check
+go list ./...
+go list -deps ./cmd/issuance ./cmd/showing
+go run ./cmd/issuance benchmark-intgenisis-e2e -preset n512-compact96 -artifact-dir "$(mktemp -d)" -force
+go run ./cmd/issuance gate-degree1024-maintained-presets -artifact-root "$(mktemp -d)"
+```
 
 ## Final Acceptance Criteria
 

@@ -1320,8 +1320,7 @@ func ringRowsToFormal(rows []*ring.Poly, q uint64) [][]uint64 {
 
 // OpeningPackOptions selects the proof payload encoding for DECS openings.
 type OpeningPackOptions struct {
-	// FixedSize disables frontier/path-index compression and emits fixed-width
-	// tail indices plus full row-major Merkle paths.
+	// FixedSize emits fixed-width tail indices plus full row-major Merkle paths.
 	FixedSize bool
 	// NLeaves is used to derive the fixed index width when FixedSize is true.
 	NLeaves int
@@ -1330,13 +1329,14 @@ type OpeningPackOptions struct {
 	FieldBitWidth uint8
 }
 
-// PackOpening compacts residues and encodes PathIndex into fixed-width bitstreams.
+// PackOpening compacts residues and tail indices, then emits row-major Merkle
+// paths.
 func PackOpening(op *DECSOpening) {
 	PackOpeningWithOptions(op, OpeningPackOptions{})
 }
 
-// PackOpeningWithOptions compacts an opening using either the legacy compact
-// frontier mode or the maintained fixed-size mode.
+// PackOpeningWithOptions compacts an opening using the maintained fixed-size
+// mode when requested, otherwise compacting residues and path indices only.
 func PackOpeningWithOptions(op *DECSOpening, opts OpeningPackOptions) {
 	if op == nil {
 		return
@@ -1349,8 +1349,7 @@ func PackOpeningWithOptions(op *DECSOpening, opts OpeningPackOptions) {
 	} else {
 		op.packResidues()
 		op.packTailIndices()
-		op.packFrontier()
-		op.packPathIndexBits()
+		op.packRowMajorPaths()
 	}
 	if len(op.NonceSeed) > 0 {
 		op.Nonces = nil
@@ -1466,16 +1465,8 @@ func (op *DECSOpening) packRowMajorPaths() {
 		op.PathBits = nil
 		op.PathBitWidth = 0
 		op.PathDepth = 0
-		op.FrontierRefsBits = nil
-		op.FrontierRefWidth = 0
-		op.FrontierRefCount = 0
-		op.FrontierNodes = nil
-		op.FrontierProof = nil
-		op.FrontierLR = nil
-		op.FrontierDepth = 0
 		return
 	}
-	_ = EnsureMerkleDecoded(op)
 	pathIdx := op.PathIndex
 	if len(pathIdx) == 0 && len(op.PathBits) > 0 && op.PathDepth > 0 && op.PathBitWidth > 0 {
 		if matrix, err := unpackPathMatrix(op.PathBits, op.EntryCount(), op.PathDepth, int(op.PathBitWidth)); err == nil {
@@ -1507,13 +1498,6 @@ func (op *DECSOpening) packRowMajorPaths() {
 	op.PathBits = nil
 	op.PathBitWidth = 0
 	op.PathDepth = depth
-	op.FrontierRefsBits = nil
-	op.FrontierRefWidth = 0
-	op.FrontierRefCount = 0
-	op.FrontierNodes = nil
-	op.FrontierProof = nil
-	op.FrontierLR = nil
-	op.FrontierDepth = 0
 }
 
 // packResidues packs Pvals and Mvals into width-tagged row-major bitstreams.

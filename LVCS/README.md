@@ -35,7 +35,7 @@ The retained row model accepts:
 - explicit-domain points are mandatory
 - prover and verifier must interpret the same oracle layout
 - LVCS is the authenticated row source for issuance and showing replay
-- on the shipped baseline, the active replay selector is reduced to carrier and
+- on the shipped maintained path, the active replay selector is reduced to carrier and
   PRF-companion families
 - the live vector-`x0` path increases logical witness structure without
   changing the fact that LVCS is the single authenticated row oracle used by

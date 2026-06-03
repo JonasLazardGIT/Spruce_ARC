@@ -73,9 +73,6 @@ func (v *Verifier) VerifyEvalFormal(
 			}
 		}
 	}
-	if err := EnsureMerkleDecoded(open); err != nil {
-		return false
-	}
 	n := open.EntryCount()
 	if len(open.Pvals) > 0 && len(open.Pvals) != n {
 		return false

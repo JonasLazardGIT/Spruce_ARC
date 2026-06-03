@@ -54,8 +54,8 @@ go run ./cmd/issuance benchmark-intgenisis-e2e -preset n1024-compact125
 go run ./cmd/showing -preset n1024-compact125
 ```
 
-Removed public labels and challenge-style issuance commands are invalid rather
-than aliases.
+Removed public labels and research issuance commands are invalid rather than
+aliases.
 
 ## Security Notes
 

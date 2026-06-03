@@ -2704,13 +2704,6 @@ func restoreExplicitMerklePaths(dst, src *decs.DECSOpening) {
 	dst.PathBits = nil
 	dst.PathBitWidth = 0
 	dst.PathDepth = 0
-	dst.FrontierNodes = nil
-	dst.FrontierProof = nil
-	dst.FrontierLR = nil
-	dst.FrontierDepth = 0
-	dst.FrontierRefsBits = nil
-	dst.FrontierRefWidth = 0
-	dst.FrontierRefCount = 0
 }
 
 func buildSigShortnessProofV2(

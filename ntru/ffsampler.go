@@ -9,7 +9,7 @@ import (
 	mrand "math/rand"
 	"os"
 
-	ps "vSIS-Signature/Preimage_Sampler"
+	ps "vSIS-Signature/ntru/internal/preimage"
 )
 
 // Sampler implements the ff-style lattice sampler for the NTRU trapdoor.

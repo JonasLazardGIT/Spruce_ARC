@@ -4,7 +4,7 @@ import (
 	"math"
 	mrand "math/rand"
 
-	ps "vSIS-Signature/Preimage_Sampler"
+	ps "vSIS-Signature/ntru/internal/preimage"
 )
 
 // CDT table ported from antrag_opt-main/antrag/samplerZ.c (TABLE_SIZE = 13)

@@ -1,4 +1,4 @@
-package Preimage_Sampler
+package preimage
 
 import (
 	"math"

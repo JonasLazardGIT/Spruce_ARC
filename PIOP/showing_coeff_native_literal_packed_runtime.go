@@ -949,14 +949,6 @@ func buildCredentialRowsShowingCoeffNativeLiteralPacked(
 			RelationVersion:       prfCompanionRelationVersion(companionMode),
 			RowSemantics:          rowSemantics,
 		}
-		if companionMode == PRFCompanionModeAuxInstance {
-			pcsNCols := resolvePCSNCols(opts, ncols)
-			var aerr error
-			rows, aerr = appendPRFBridgeStripeRows(ringQ, rows, prfCompanionLayout, pcsNCols)
-			if aerr != nil {
-				return fmt.Errorf("append prf bridge stripe rows: %w", aerr)
-			}
-		}
 		return nil
 	}
 	if useV18Shortness {
@@ -1653,17 +1645,6 @@ func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, 
 	}
 	if shortSet.AggregatedAlgDeg > baseSet.AggregatedAlgDeg {
 		baseSet.AggregatedAlgDeg = shortSet.AggregatedAlgDeg
-	}
-	if normalizePRFCompanionMode(opts.PRFCompanionMode) == PRFCompanionModeAuxInstance && prfCompanionLayout != nil && prfCompanionLayout.BridgeStripe != nil {
-		eqFamilies, eqCoeffs, err := buildPRFBridgeStripeEqualityConstraints(ringQ, rowsNTT, prfCompanionLayout)
-		if err != nil {
-			return ConstraintSet{}, fmt.Errorf("prf bridge stripe equality constraints: %w", err)
-		}
-		baseSet.FparNorm = append(baseSet.FparNorm, eqFamilies...)
-		baseSet.FparNormCoeffs = append(baseSet.FparNormCoeffs, eqCoeffs...)
-		if len(eqFamilies) > 0 && baseSet.ParallelAlgDeg < 1 {
-			baseSet.ParallelAlgDeg = 1
-		}
 	}
 	return baseSet, nil
 }

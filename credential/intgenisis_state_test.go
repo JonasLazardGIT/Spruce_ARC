@@ -37,9 +37,9 @@ func TestIntGenISISStateRoundTripOmitsOldRandomness(t *testing.T) {
 		SigS1:                row(9),
 		SigS2:                row(10),
 		RingDegree:           profile.N,
-		CredentialPublicPath: "Parameters/credential_public.intgenisis_profile_b.json",
+		CredentialPublicPath: "internal/source_data/credential_public.intgenisis_profile_b.json",
 		HashRelation:         HashRelationBBTran,
-		BPath:                "Parameters/Bmatrix.intgenisis_profile_b.json",
+		BPath:                "internal/source_data/Bmatrix.intgenisis_profile_b.json",
 		PRFParamsPath:        "prf/prf_params.json",
 	}
 	if err := SaveIntGenISISState(path, st); err != nil {

@@ -26,7 +26,7 @@ var defaultOpts = ntru.SamplerOpts{
 }
 
 func loadParams() (*ntrurio.SystemParams, error) {
-	p, err := ntrurio.LoadParams("Parameters/Parameters.json", true)
+	p, err := ntrurio.LoadParams("internal/source_data/Parameters.json", true)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +157,7 @@ func SignWithPaths(message []byte, maxTrials int, opts ntru.SamplerOpts, paths S
 	// target t
 	bFile := paths.BFile
 	if bFile == "" {
-		bFile = "Parameters/Bmatrix.intgenisis_profile_b.json"
+		bFile = "internal/source_data/Bmatrix.intgenisis_profile_b.json"
 	}
 	tCoeffs, err := ntru.ComputeTargetFromSeeds(sys, bFile, "", mSeed, x0Seed, x1Seed)
 	if err != nil {

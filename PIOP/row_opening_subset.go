@@ -8,9 +8,9 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-// Research helper for reconstructing witness rows from the main PCS opening.
-// The stable baseline verifier uses it only for retained PRF control paths and
-// study work, not as a generic extraction mechanism.
+// Helper for reconstructing selected witness rows from the main PCS opening.
+// The maintained verifier uses it only for retained PRF control paths, not as a
+// generic extraction mechanism.
 type maskSubsetRowRecovery struct {
 	Opening     *decs.DECSOpening
 	MaskBase    int
@@ -42,7 +42,7 @@ func prepareMaskSubsetRowRecovery(
 	}
 	baseOpening := resolveProofPCSOpening(proof)
 	if baseOpening == nil {
-		return nil, fmt.Errorf("missing row opening for direct-auth verification")
+		return nil, fmt.Errorf("missing row opening for subset-row verification")
 	}
 	maskBase := baseOpening.MaskBase
 	maskCount := baseOpening.MaskCount
@@ -58,10 +58,10 @@ func prepareMaskSubsetRowRecovery(
 		maskCount = len(proof.Tail)
 	}
 	if maskBase <= 0 {
-		return nil, fmt.Errorf("missing witness width for direct-auth verification")
+		return nil, fmt.Errorf("missing witness width for subset-row verification")
 	}
 	if maskCount <= 0 {
-		return nil, fmt.Errorf("missing mask count for direct-auth verification")
+		return nil, fmt.Errorf("missing mask count for subset-row verification")
 	}
 	maskIdx := make([]int, maskCount)
 	for i := 0; i < maskCount; i++ {
@@ -84,19 +84,19 @@ func prepareMaskSubsetRowRecovery(
 	}
 	coeffMatrix := proof.CoeffMatrix
 	if len(coeffMatrix) == 0 {
-		return nil, fmt.Errorf("missing coefficient matrix for direct-auth verification")
+		return nil, fmt.Errorf("missing coefficient matrix for subset-row verification")
 	}
 	barSets := proof.BarSetsMatrix()
 	if len(barSets) == 0 {
-		return nil, fmt.Errorf("missing bar sets for direct-auth verification")
+		return nil, fmt.Errorf("missing bar sets for subset-row verification")
 	}
 	vTargets := proof.VTargetsMatrix()
 	if len(vTargets) == 0 {
-		return nil, fmt.Errorf("missing vtargets for direct-auth verification")
+		return nil, fmt.Errorf("missing vtargets for subset-row verification")
 	}
 	qVals, err := interpolateReplayQRows(ringQ, vTargets, barSets, ncols)
 	if err != nil {
-		return nil, fmt.Errorf("replay Q rows for direct-auth verification: %w", err)
+		return nil, fmt.Errorf("replay Q rows for subset-row verification: %w", err)
 	}
 	opening, err := prepareRowOpeningForVerify(baseOpening, gamma, rPolys, coeffMatrix, qVals, barSets, maskIdx, proof.Tail, ncols, domainPoints, ringQ)
 	if err != nil {
@@ -105,7 +105,7 @@ func prepareMaskSubsetRowRecovery(
 	subsetIdx := append(append([]int(nil), maskIdx...), proof.Tail...)
 	opening, err = buildSubsetOpening(opening, subsetIdx, rowCount, params.Eta)
 	if err != nil {
-		return nil, fmt.Errorf("direct-auth subset opening: %w", err)
+		return nil, fmt.Errorf("subset-row subset opening: %w", err)
 	}
 	q := ringQ.Modulus[0]
 	maskPoints := make([]uint64, opening.EntryCount())
@@ -149,7 +149,7 @@ func recoverLowDegreeRowsFromMaskSubset(
 		return nil, err
 	}
 	if len(prepared.MaskPoints) == 0 {
-		return nil, fmt.Errorf("empty mask point set for direct-auth verification")
+		return nil, fmt.Errorf("empty mask point set for subset-row verification")
 	}
 	indexPos := make(map[int]int, prepared.Opening.EntryCount())
 	for pos := 0; pos < prepared.Opening.EntryCount(); pos++ {
@@ -163,10 +163,10 @@ func recoverLowDegreeRowsFromMaskSubset(
 	out := make(map[int][]uint64, len(rowIndices))
 	for _, rowIdx := range rowIndices {
 		if rowIdx < 0 {
-			return nil, fmt.Errorf("direct-auth recovery row index %d is negative", rowIdx)
+			return nil, fmt.Errorf("subset-row recovery row index %d is negative", rowIdx)
 		}
 		if rowIdx >= entryWidth {
-			return nil, fmt.Errorf("direct-auth recovery row idx %d out of range for opening width=%d", rowIdx, entryWidth)
+			return nil, fmt.Errorf("subset-row recovery row idx %d out of range for opening width=%d", rowIdx, entryWidth)
 		}
 		values := make([]uint64, len(prepared.MaskIndices))
 		for i, maskIdx := range prepared.MaskIndices {
@@ -196,28 +196,28 @@ func prepareMaskSubsetWitnessView(
 		witnessNCols = len(omegaWitness)
 	}
 	if witnessNCols <= 0 {
-		return nil, fmt.Errorf("missing witness ncols for direct-auth witness view")
+		return nil, fmt.Errorf("missing witness ncols for subset-row witness view")
 	}
 	pcsNCols := resolveProofPCSNCols(proof, 0)
 	if pcsNCols <= 0 {
-		return nil, fmt.Errorf("missing pcs ncols for direct-auth witness view")
+		return nil, fmt.Errorf("missing pcs ncols for subset-row witness view")
 	}
 	if len(domainPoints) < pcsNCols {
-		return nil, fmt.Errorf("direct-auth witness view domain width=%d < pcs ncols=%d", len(domainPoints), pcsNCols)
+		return nil, fmt.Errorf("subset-row witness view domain width=%d < pcs ncols=%d", len(domainPoints), pcsNCols)
 	}
 	theta := proof.Theta
 	if theta <= 1 {
 		theta = proof.PCSGeometry.Theta
 	}
 	if theta <= 1 {
-		return nil, fmt.Errorf("direct-auth witness view requires theta>1")
+		return nil, fmt.Errorf("subset-row witness view requires theta>1")
 	}
 	replayWitnessRows := proof.PCSGeometry.ReplayWitnessRows
 	if replayWitnessRows <= 0 {
 		replayWitnessRows = proof.MaskRowOffset
 	}
 	if replayWitnessRows <= 0 {
-		return nil, fmt.Errorf("missing replay witness row count for direct-auth witness view")
+		return nil, fmt.Errorf("missing replay witness row count for subset-row witness view")
 	}
 	rowsPerBlock := witnessNCols + theta
 	if rowsPerBlock <= 0 || replayWitnessRows%rowsPerBlock != 0 {
@@ -232,7 +232,7 @@ func prepareMaskSubsetWitnessView(
 		for omegaRow := 0; omegaRow < witnessNCols; omegaRow++ {
 			rowIdx := block*rowsPerBlock + omegaRow
 			if rowIdx < 0 || rowIdx >= replayWitnessRows {
-				return nil, fmt.Errorf("direct-auth witness row overflow for poly=%d block=%d row=%d limit=%d", witnessPolyIdx, block, rowIdx, replayWitnessRows)
+				return nil, fmt.Errorf("subset-row witness row overflow for poly=%d block=%d row=%d limit=%d", witnessPolyIdx, block, rowIdx, replayWitnessRows)
 			}
 			smallFieldRows = append(smallFieldRows, rowIdx)
 		}
@@ -254,7 +254,7 @@ func prepareMaskSubsetWitnessView(
 
 func (v *maskSubsetWitnessView) witnessHead(witnessPolyIdx int) ([]uint64, error) {
 	if v == nil {
-		return nil, fmt.Errorf("nil direct-auth witness view")
+		return nil, fmt.Errorf("nil subset-row witness view")
 	}
 	if witnessPolyIdx < 0 {
 		return nil, fmt.Errorf("invalid witness polynomial index %d", witnessPolyIdx)
@@ -262,18 +262,18 @@ func (v *maskSubsetWitnessView) witnessHead(witnessPolyIdx int) ([]uint64, error
 	block := witnessPolyIdx / v.pcsNCols
 	slot := witnessPolyIdx % v.pcsNCols
 	if slot < 0 || slot >= len(v.pcsOmega) {
-		return nil, fmt.Errorf("direct-auth witness slot %d out of range for pcs omega width=%d", slot, len(v.pcsOmega))
+		return nil, fmt.Errorf("subset-row witness slot %d out of range for pcs omega width=%d", slot, len(v.pcsOmega))
 	}
 	x := v.pcsOmega[slot] % v.q
 	head := make([]uint64, v.witnessNCols)
 	for omegaRow := 0; omegaRow < v.witnessNCols; omegaRow++ {
 		rowIdx := block*v.rowsPerBlock + omegaRow
 		if rowIdx < 0 || rowIdx >= v.replayWitnessRows {
-			return nil, fmt.Errorf("direct-auth witness row overflow for poly=%d row=%d limit=%d", witnessPolyIdx, rowIdx, v.replayWitnessRows)
+			return nil, fmt.Errorf("subset-row witness row overflow for poly=%d row=%d limit=%d", witnessPolyIdx, rowIdx, v.replayWitnessRows)
 		}
 		coeffs, ok := v.rowCoeffs[rowIdx]
 		if !ok {
-			return nil, fmt.Errorf("missing recovered direct-auth row coeffs for row %d", rowIdx)
+			return nil, fmt.Errorf("missing recovered subset-row row coeffs for row %d", rowIdx)
 		}
 		head[omegaRow] = EvalPoly(coeffs, x, v.q) % v.q
 	}

@@ -10,8 +10,6 @@ import (
 )
 
 const (
-	sweepTranscriptModeBaseline       = "baseline"
-	sweepTranscriptModeColumnWidths   = "column_widths_v1"
 	sweepTranscriptModeSmallField2025 = "smallfield_2025_1085_v1"
 )
 
@@ -107,14 +105,10 @@ type benchmarkIntGenISISMetrics struct {
 
 func normalizeSweepTranscriptMode(mode string) (string, error) {
 	switch strings.TrimSpace(strings.ToLower(mode)) {
-	case "", sweepTranscriptModeBaseline:
-		return sweepTranscriptModeBaseline, nil
-	case sweepTranscriptModeColumnWidths, "column-widths", "column_widths":
-		return sweepTranscriptModeColumnWidths, nil
-	case sweepTranscriptModeSmallField2025, "smallfield-2025-1085-v1", "smallwood-2025-1085-smallfield", "paper-smallfield":
+	case "", sweepTranscriptModeSmallField2025, "smallfield-2025-1085-v1", "smallwood-2025-1085-smallfield", "paper-smallfield":
 		return sweepTranscriptModeSmallField2025, nil
 	default:
-		return "", fmt.Errorf("unknown transcript mode %q (supported: baseline, column_widths_v1, smallfield_2025_1085_v1)", mode)
+		return "", fmt.Errorf("unknown transcript mode %q (supported: smallfield_2025_1085_v1)", mode)
 	}
 }
 

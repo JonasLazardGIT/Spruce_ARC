@@ -227,6 +227,20 @@ type PRFCompanionBridgeConfig struct {
 	BridgeChecks [][]uint64
 }
 
+func resolvePRFCompanionBridgeLayout(layout *PRFCompanionLayout, mode PRFCompanionMode) (*PRFCompanionLayout, error) {
+	if layout == nil {
+		return nil, fmt.Errorf("nil prf companion layout")
+	}
+	return layout, nil
+}
+
+func prfCompanionBridgeLayout(companion *PRFCompanionProof) (*PRFCompanionLayout, error) {
+	if companion == nil {
+		return nil, fmt.Errorf("nil prf companion proof")
+	}
+	return resolvePRFCompanionBridgeLayout(companion.Layout, companion.Mode)
+}
+
 func (cfg PRFCompanionBridgeConfig) verifyDigest(proof *PRFCompanionProof) error {
 	if proof == nil {
 		return fmt.Errorf("nil prf companion proof")

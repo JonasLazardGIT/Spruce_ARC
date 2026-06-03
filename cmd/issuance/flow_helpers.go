@@ -14,13 +14,13 @@ import (
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
+	vsishash "vSIS-Signature/internal/hash"
 	"vSIS-Signature/issuance"
 	"vSIS-Signature/ntru"
 	ntrurio "vSIS-Signature/ntru/io"
 	"vSIS-Signature/ntru/keys"
 	"vSIS-Signature/ntru/signverify"
 	"vSIS-Signature/prf"
-	vsishash "vSIS-Signature/vSIS-HASH"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 	"github.com/tuneinsight/lattigo/v4/utils"
@@ -324,7 +324,7 @@ func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, forc
 	}
 	if paramsOut == "" {
 		if selectedN == 512 {
-			paramsOut = filepath.Join("Parameters", "Parameters.n512.json")
+			paramsOut = filepath.Join("internal", "source_data", "Parameters.n512.json")
 		} else {
 			paramsOut = defaultNTRUParamsPath
 		}

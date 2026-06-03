@@ -113,6 +113,24 @@ func (v *VerifierState) EvalStep2(
 	return v.evalStep2Core(bar, E, open, C, vTargets)
 }
 
+func openingPathRowForSplit(open *decs.DECSOpening, row int) ([]int, bool) {
+	if open == nil || row < 0 || row >= open.EntryCount() {
+		return nil, false
+	}
+	if len(open.PathIndex) > row && open.PathIndex[row] != nil {
+		return append([]int(nil), open.PathIndex[row]...), true
+	}
+	if open.PathDepth > 0 && len(open.PathIndex) == 0 && len(open.PathBits) == 0 && len(open.Nodes) == open.EntryCount()*open.PathDepth {
+		start := row * open.PathDepth
+		out := make([]int, open.PathDepth)
+		for i := range out {
+			out[i] = start + i
+		}
+		return out, true
+	}
+	return nil, false
+}
+
 func (v *VerifierState) EvalStep2SmallField2025(in SmallField2025EvalInput) bool {
 	debug := os.Getenv("LVCS_DEBUG_EVALSTEP2") == "1"
 	plan, ok := v.validateSmallField2025EvalInput(in, debug)
@@ -303,12 +321,6 @@ func (v *VerifierState) evalStep2SmallField2025Core(in SmallField2025EvalInput, 
 	if !prepareTailOnlyOpeningForSmallField2025(in.Opening, in.C, in.Tail, v.points, qAtTail, plan, v.Gamma, v.RFormal, mod) {
 		if debug {
 			fmt.Println("[LVCS_DEBUG_EVALSTEP2] prepareTailOnlyOpeningForSmallField2025 rejected")
-		}
-		return false
-	}
-	if err := decs.EnsureMerkleDecoded(in.Opening); err != nil {
-		if debug {
-			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] smallfield2025 merkle decode: %v\n", err)
 		}
 		return false
 	}
@@ -545,12 +557,6 @@ func (v *VerifierState) evalStep2Core(
 		}
 		return false
 	}
-	if err := decs.EnsureMerkleDecoded(open); err != nil {
-		if debug {
-			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] merkle decode: %v\n", err)
-		}
-		return false
-	}
 	maskOpen := &decs.DECSOpening{
 		Indices:    make([]int, 0, ell),
 		Pvals:      make([][]uint64, 0, ell),
@@ -577,6 +583,10 @@ func (v *VerifierState) evalStep2Core(
 	tailSeenOpen := make(map[int]struct{}, len(E))
 	allIdx := open.AllIndices()
 	for i, idx := range allIdx {
+		pathRow, ok := openingPathRowForSplit(open, i)
+		if !ok {
+			return false
+		}
 		switch {
 		case idx >= maskStart && idx < maskEnd:
 			if _, dup := maskSeen[idx]; dup {
@@ -586,7 +596,7 @@ func (v *VerifierState) evalStep2Core(
 			maskOpen.Indices = append(maskOpen.Indices, idx)
 			maskOpen.Pvals = append(maskOpen.Pvals, open.Pvals[i])
 			maskOpen.Mvals = append(maskOpen.Mvals, open.Mvals[i])
-			maskOpen.PathIndex = append(maskOpen.PathIndex, append([]int(nil), open.PathIndex[i]...))
+			maskOpen.PathIndex = append(maskOpen.PathIndex, pathRow)
 		case idx >= maskEnd && idx < N:
 			if _, dup := tailSeenOpen[idx]; dup {
 				return false
@@ -595,7 +605,7 @@ func (v *VerifierState) evalStep2Core(
 			tailOpen.Indices = append(tailOpen.Indices, idx)
 			tailOpen.Pvals = append(tailOpen.Pvals, open.Pvals[i])
 			tailOpen.Mvals = append(tailOpen.Mvals, open.Mvals[i])
-			tailOpen.PathIndex = append(tailOpen.PathIndex, append([]int(nil), open.PathIndex[i]...))
+			tailOpen.PathIndex = append(tailOpen.PathIndex, pathRow)
 		default:
 			return false
 		}

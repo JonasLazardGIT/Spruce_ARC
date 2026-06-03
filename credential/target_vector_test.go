@@ -3,7 +3,7 @@ package credential
 import (
 	"testing"
 
-	vsishash "vSIS-Signature/vSIS-HASH"
+	vsishash "vSIS-Signature/internal/hash"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 	"github.com/tuneinsight/lattigo/v4/utils"

@@ -19,9 +19,9 @@ high-security preset is `n1024-compact125`; it is a live 125+ preset, not a
 ## Commands
 
 ```bash
-go run ./cmd/issuance setup-intgenisis-public
-go run ./cmd/issuance setup-ntru-keys
-go run ./cmd/issuance holder-commit
+go run ./cmd/issuance setup-intgenisis-public -preset n1024-compact125
+go run ./cmd/issuance setup-ntru-keys -preset n1024-compact125
+go run ./cmd/issuance holder-commit -preset n1024-compact125
 go run ./cmd/issuance holder-prove
 go run ./cmd/issuance issuer-verify-sign
 go run ./cmd/issuance holder-finalize
@@ -30,9 +30,9 @@ go run ./cmd/issuance gate-degree1024-maintained-presets
 go run ./cmd/showing -preset n1024-compact125
 ```
 
-The showing CLI now requires a maintained IntGenISIS preset. Old x0len70
-showing profiles, challenge-style issuance commands, and sweep selectors are
-not public interfaces.
+Commands that create preset-dependent material require one of the maintained
+IntGenISIS presets. Tuning flags and research selectors are not public
+interfaces.
 
 ## Useful Checks
 

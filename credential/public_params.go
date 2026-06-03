@@ -11,7 +11,7 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-const DefaultPublicParamsPath = "Parameters/credential_public.intgenisis_profile_b.json"
+const DefaultPublicParamsPath = "internal/source_data/credential_public.intgenisis_profile_b.json"
 const PublicParamsVersion = 5
 const MuLayoutFullCapacityHalvesV1 = "full_capacity_halves_v1"
 

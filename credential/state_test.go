@@ -27,9 +27,9 @@ func TestStateRoundTripWithVectorX0Metadata(t *testing.T) {
 		Com:                  [][]int64{{7, 8, 9}},
 		RI0:                  [][]int64{{1, 2, 3}, {4, 5, 6}, {0, 0, 1}, {1, 0, 0}, {2, 2, 2}, {3, 3, 3}},
 		RI1:                  [][]int64{{-1, 0, 1}},
-		CredentialPublicPath: "Parameters/credential_public.demo.json",
+		CredentialPublicPath: "internal/source_data/credential_public.demo.json",
 		HashRelation:         HashRelationBBTran,
-		BPath:                "Parameters/Bmatrix_bb_tran_x0len6.json",
+		BPath:                "internal/source_data/Bmatrix_bb_tran_x0len6.json",
 		B:                    [][]int64{{0, 0, 0}, {1, 2, 3}, {4, 5, 6}, {7, 8, 9}, {1, 1, 1}, {2, 2, 2}, {3, 3, 3}, {9, 8, 7}, {6, 5, 4}},
 		PRFParamsPath:        "prf/prf_params.json",
 		NTRUPublic:           [][]int64{{11, 12, 13}},
@@ -65,9 +65,9 @@ func TestLoadStateRejectsLegacyVersion(t *testing.T) {
 		"r0":                     [][]int64{{3}, {4}},
 		"r1":                     [][]int64{{5}},
 		"z":                      [][]int64{{6}},
-		"credential_public_path": "Parameters/credential_public.demo.json",
+		"credential_public_path": "internal/source_data/credential_public.demo.json",
 		"hash_relation":          HashRelationBBTran,
-		"b_path":                 "Parameters/Bmatrix.json",
+		"b_path":                 "internal/source_data/Bmatrix.json",
 	}
 	raw, err := json.MarshalIndent(legacy, "", "  ")
 	if err != nil {
@@ -91,9 +91,9 @@ func TestLoadStateRejectsSparseMuV3Version(t *testing.T) {
 		"r0":                     [][]int64{{3}, {4}},
 		"r1":                     [][]int64{{5}},
 		"z":                      [][]int64{{6}},
-		"credential_public_path": "Parameters/credential_public.demo.json",
+		"credential_public_path": "internal/source_data/credential_public.demo.json",
 		"hash_relation":          HashRelationBBTran,
-		"b_path":                 "Parameters/Bmatrix.json",
+		"b_path":                 "internal/source_data/Bmatrix.json",
 	}
 	raw, err := json.MarshalIndent(legacy, "", "  ")
 	if err != nil {

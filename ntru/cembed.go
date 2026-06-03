@@ -8,7 +8,7 @@ import (
 	"os"
 	"sync"
 
-	ps "vSIS-Signature/Preimage_Sampler"
+	ps "vSIS-Signature/ntru/internal/preimage"
 )
 
 // EmbedParams controls precision and optional symmetry enforcement for the embedding.

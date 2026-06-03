@@ -355,7 +355,7 @@ func buildTransformBridgeFixtureWithReplayModeAndShortness(t *testing.T, replayM
 	opts.EnablePackedPRFWitnessRows = true
 	opts.EnablePRFCompanion = true
 	if normalizePRFCompanionMode(opts.PRFCompanionMode) == "" {
-		opts.PRFCompanionMode = PRFCompanionModeOutputAudit
+		opts.PRFCompanionMode = PRFCompanionModeDirectFull
 	}
 
 	omegaLVCS, domainPoints, err := func() ([]uint64, []uint64, error) {

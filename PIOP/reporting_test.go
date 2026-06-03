@@ -374,7 +374,7 @@ func TestInlineTargetReplayCompactPresetDefaultsToCanonicalW84Tuple(t *testing.T
 		Credential:           true,
 		CoeffNativeSigModel:  CoeffNativeSigModelLiteralPackedAggregatedV3,
 		ShowingPreset:        ShowingPresetInlineTargetReplayCompactResearch,
-		PRFCompanionMode:     PRFCompanionModeOutputAudit,
+		PRFCompanionMode:     PRFCompanionModeDirectFull,
 		PRFCheckpointSamples: 8,
 	})
 	if opts.ShowingReplayMode != ShowingReplayModeFull {

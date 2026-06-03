@@ -17,10 +17,10 @@ import (
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
+	vsishash "vSIS-Signature/internal/hash"
 	ntrurio "vSIS-Signature/ntru/io"
 	"vSIS-Signature/ntru/keys"
 	"vSIS-Signature/prf"
-	vsishash "vSIS-Signature/vSIS-HASH"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -43,28 +43,6 @@ const (
 	ansiMagenta = "\033[35m"
 	ansiRed     = "\033[31m"
 )
-
-const (
-	defaultShowingProfile     = showingProfileIntGenISISB
-	showingProfileIntGenISISB = "showing_intgenisis_profile_b"
-)
-
-type maintainedShowingProfileSpec struct {
-	Name            string
-	RingDegree      int
-	X0Len           int
-	SoundnessTarget float64
-	StatePath       string
-	LVCSNCols       int
-	NLeaves         int
-	Eta             int
-	Theta           int
-	Rho             int
-	EllPrime        int
-	Kappa           [4]int
-}
-
-var maintainedShowingProfiles []maintainedShowingProfileSpec
 
 type cliRenderer struct {
 	out          io.Writer
@@ -95,55 +73,6 @@ func stdoutSupportsColor() bool {
 		return false
 	}
 	return info.Mode()&os.ModeCharDevice != 0
-}
-
-func showingProfileNames() []string {
-	names := []string{showingProfileIntGenISISB}
-	for _, profile := range maintainedShowingProfiles {
-		names = append(names, profile.Name)
-	}
-	sort.Strings(names)
-	return names
-}
-
-func lookupShowingProfile(name string) (maintainedShowingProfileSpec, bool) {
-	for _, profile := range maintainedShowingProfiles {
-		if profile.Name == name {
-			return profile, true
-		}
-	}
-	return maintainedShowingProfileSpec{}, false
-}
-
-func manualShowingResearchOverrideActive(setFlags map[string]bool) bool {
-	for _, name := range []string{
-		"ncols",
-		"lvcs-ncols",
-		"nleaves",
-		"eta",
-		"theta",
-		"rho",
-		"ell",
-		"ell-prime",
-		"kappa1",
-		"kappa2",
-		"kappa3",
-		"kappa4",
-		"sig-shortness-profile",
-		"sig-shortness-radix",
-		"sig-shortness-digits",
-		"packed-sig-chain-group-size",
-		"sig-shortness-ncols",
-		"prf-companion-mode",
-		"prf-checkpoint-samples",
-		"intgenisis-replay-projection",
-		"unsafe-shadow-sig-lookup-r121-l2",
-	} {
-		if setFlags[name] {
-			return true
-		}
-	}
-	return false
 }
 
 func styleMessage(enabled bool, category lineCategory, msg string) string {
@@ -185,611 +114,78 @@ func (r cliRenderer) fatalf(prefix, format string, args ...interface{}) {
 	os.Exit(1)
 }
 
-func main() {
-	const (
-		productionPRFGroupRounds = 2
-		productionNCols          = 16
-		productionEll            = 0
-	)
+type showingCLIConfig struct {
+	StatePath          string
+	PublicParamsPath   string
+	VerifierKeyPath    string
+	Preset             credential.IntGenISISPreset
+	PresentationOut    string
+	VerifyPresentation string
+	VerifierStatePath  string
+}
 
-	coeffModel := flag.String("coeff-model", "", "optional coeff-native post-sign model override (literal_packed_aggregated_v3)")
-	showingProfile := flag.String("showing-profile", defaultShowingProfile, fmt.Sprintf("maintained showing profile (%s); no flag uses %s", strings.Join(showingProfileNames(), ", "), defaultShowingProfile))
-	intGenISISPreset := flag.String("preset", "", "named IntGenISIS preset: n512-compact96, n1024-compact96, or n1024-compact125")
-	ncolsOverride := flag.Int("ncols", 0, "optional witness support width override")
-	lvcsNColsOverride := flag.Int("lvcs-ncols", 0, "optional shared LVCS width override")
-	nLeavesOverride := flag.Int("nleaves", 0, "optional DECS/LVCS evaluation-domain size override")
-	etaOverride := flag.Int("eta", 0, "optional eta override")
-	thetaOverride := flag.Int("theta", 0, "optional theta override")
-	rhoOverride := flag.Int("rho", 0, "optional rho override")
-	ellOverride := flag.Int("ell", 0, "optional ell override")
-	ellPrimeOverride := flag.Int("ell-prime", 0, "optional ell-prime override")
-	kappa1Override := flag.Int("kappa1", -1, "optional round-1 grinding override")
-	kappa2Override := flag.Int("kappa2", -1, "optional round-2 grinding override")
-	kappa3Override := flag.Int("kappa3", -1, "optional round-3 grinding override")
-	kappa4Override := flag.Int("kappa4", -1, "optional round-4 grinding override")
-	sigShortnessProfile := flag.String("sig-shortness-profile", "", "optional signature shortness profile override (named profiles include r11_l4_production and r24_l3_compact)")
-	sigShortnessRadix := flag.Int("sig-shortness-radix", 0, "optional raw signature shortness radix override")
-	sigShortnessDigits := flag.Int("sig-shortness-digits", 0, "optional raw signature shortness digit count override")
-	packedSigChainGroupSize := flag.Int("packed-sig-chain-group-size", 0, "reserved packed signature shortness group-size override; optimized inline-target profile requires 1")
-	sigShortnessNCols := flag.Int("sig-shortness-ncols", 0, "reserved signature-shortness width override for future single-root packing")
-	prfCompanionMode := flag.String("prf-companion-mode", string(PIOP.PRFCompanionModeOutputAudit), "prf companion mode: output_audit, direct_auth, direct_full, or aux_instance")
-	prfCheckpointSamples := flag.Int("prf-checkpoint-samples", 8, "number of transcript-selected checkpoint audits for output_audit/direct_auth; direct_full proves the full relation without sampled openings")
-	intGenISISCompressedRows := flag.Int("intgenisis-compressed-rows", 0, "IntGenISIS M/s/e compression level: 0 none, 1 pack2, 2 pack3, 3 pack4")
-	intGenISISReplayProjection := flag.String("intgenisis-replay-projection", PIOP.IntGenISISReplayProjectionNone, "IntGenISIS replay projection mode: none, project_u_y_hat_v1, project_u_y_hat_and_y_view_v2, project_u_digits_and_y_view_v3, experimental project_u_digits_y_source_linear_v4, or experimental project_u_digits_y_w_residual_v5")
-	fixedTranscriptSize := flag.String("fixed-transcript-size", "auto", "fixed-size transcript mode: auto, on, or off")
-	statePathFlag := flag.String("state-path", "", "credential state path for showing; defaults to the selected maintained profile artifact")
-	intGenISISPublicParamsPath := flag.String("public-params", "", "IntGenISIS public params path for standalone presentation verification")
-	intGenISISVerifierKeyPath := flag.String("verifier-key", "", "IntGenISIS verifier key path for standalone presentation verification")
-	presentationOut := flag.String("presentation-out", "", "IntGenISIS presentation output path")
-	verifyPresentation := flag.String("verify-presentation", "", "verify an IntGenISIS presentation artifact instead of proving")
-	verifierStatePath := flag.String("verifier-state", "", "persistent IntGenISIS verifier replay-state path")
-	unsafeSigLookupShadow := flag.String("unsafe-shadow-sig-lookup-r121-l2", "", "UNSAFE internal R121/L2 signature lookup viability mode: free or same_q")
-	flag.Parse()
-	setFlags := make(map[string]bool)
-	flag.Visit(func(f *flag.Flag) {
-		setFlags[f.Name] = true
-	})
-
+func parseShowingCLIArgs(args []string) (showingCLIConfig, error) {
+	fs := flag.NewFlagSet("showing", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	intGenISISPreset := fs.String("preset", "", "named IntGenISIS preset: n512-compact96, n1024-compact96, or n1024-compact125")
+	statePathFlag := fs.String("state-path", "", "credential state path for showing; defaults to the selected maintained profile artifact")
+	intGenISISPublicParamsPath := fs.String("public-params", "", "IntGenISIS public params path for standalone presentation verification")
+	intGenISISVerifierKeyPath := fs.String("verifier-key", "", "IntGenISIS verifier key path for standalone presentation verification")
+	presentationOut := fs.String("presentation-out", "", "IntGenISIS presentation output path")
+	verifyPresentation := fs.String("verify-presentation", "", "verify an IntGenISIS presentation artifact instead of proving")
+	verifierStatePath := fs.String("verifier-state", "", "persistent IntGenISIS verifier replay-state path")
+	if err := fs.Parse(args); err != nil {
+		return showingCLIConfig{}, err
+	}
 	selectedIntGenISISPreset, err := credential.ResolveIntGenISISPresetSelector(*intGenISISPreset, false)
 	if err != nil {
-		cli.fatalf("[showing-cli] ", "%v", err)
+		return showingCLIConfig{}, err
 	}
 	*intGenISISPreset = selectedIntGenISISPreset
 	if strings.TrimSpace(*intGenISISPreset) == "" {
-		cli.fatalf("[showing-cli] ", "missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
+		return showingCLIConfig{}, fmt.Errorf("missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
 	}
-	if setFlags["showing-profile"] && strings.TrimSpace(*showingProfile) != showingProfileIntGenISISB {
-		cli.fatalf("[showing-cli] ", "-showing-profile=%q was removed; use -preset with one of: %s", *showingProfile, strings.Join(credential.IntGenISISPresetNames(), ", "))
+	preset, err := credential.MustLookupIntGenISISPreset(*intGenISISPreset)
+	if err != nil {
+		return showingCLIConfig{}, err
 	}
-	if err := rejectPublicShowingTuningOverrides(setFlags); err != nil {
+	if *statePathFlag == "" {
+		*statePathFlag = filepath.Join("credential", "keys", "credential_state.json")
+	}
+	return showingCLIConfig{
+		StatePath:          *statePathFlag,
+		PublicParamsPath:   *intGenISISPublicParamsPath,
+		VerifierKeyPath:    *intGenISISVerifierKeyPath,
+		Preset:             preset,
+		PresentationOut:    *presentationOut,
+		VerifyPresentation: *verifyPresentation,
+		VerifierStatePath:  *verifierStatePath,
+	}, nil
+}
+
+func main() {
+	cfg, err := parseShowingCLIArgs(os.Args[1:])
+	if err != nil {
+		if err == flag.ErrHelp {
+			return
+		}
 		cli.fatalf("[showing-cli] ", "%v", err)
 	}
-	*showingProfile = showingProfileIntGenISISB
-	activeProfileName := strings.TrimSpace(*showingProfile)
-	if activeProfileName == "" {
-		activeProfileName = defaultShowingProfile
-	}
-	if activeProfileName == showingProfileIntGenISISB {
-		fixedTranscriptSizeValue := false
-		if strings.TrimSpace(*intGenISISPreset) != "" {
-			preset, err := credential.MustLookupIntGenISISPreset(*intGenISISPreset)
-			if err != nil {
-				cli.fatalf("[showing-cli] ", "%v", err)
-			}
-			t := preset.Showing
-			fixedTranscriptSizeValue = t.FixedTranscriptSize
-			if !setFlags["ncols"] {
-				*ncolsOverride = t.NCols
-			}
-			if !setFlags["lvcs-ncols"] {
-				*lvcsNColsOverride = t.LVCSNCols
-			}
-			if !setFlags["nleaves"] {
-				*nLeavesOverride = t.NLeaves
-			}
-			if !setFlags["eta"] {
-				*etaOverride = t.Eta
-			}
-			if !setFlags["theta"] {
-				*thetaOverride = t.Theta
-			}
-			if !setFlags["rho"] {
-				*rhoOverride = t.Rho
-			}
-			if !setFlags["ell"] {
-				*ellOverride = t.Ell
-			}
-			if !setFlags["ell-prime"] {
-				*ellPrimeOverride = t.EllPrime
-			}
-			if !setFlags["kappa1"] {
-				*kappa1Override = t.Kappa[0]
-			}
-			if !setFlags["kappa2"] {
-				*kappa2Override = t.Kappa[1]
-			}
-			if !setFlags["kappa3"] {
-				*kappa3Override = t.Kappa[2]
-			}
-			if !setFlags["kappa4"] {
-				*kappa4Override = t.Kappa[3]
-			}
-			if !setFlags["prf-companion-mode"] && t.PRFCompanionMode != "" {
-				*prfCompanionMode = t.PRFCompanionMode
-			}
-			if !setFlags["prf-checkpoint-samples"] && t.CheckpointSamples > 0 {
-				*prfCheckpointSamples = t.CheckpointSamples
-			}
-			if !setFlags["sig-shortness-radix"] && t.SigShortnessRadix > 0 {
-				*sigShortnessRadix = t.SigShortnessRadix
-			}
-			if !setFlags["sig-shortness-digits"] && t.SigShortnessDigits > 0 {
-				*sigShortnessDigits = t.SigShortnessDigits
-			}
-			if !setFlags["intgenisis-compressed-rows"] {
-				*intGenISISCompressedRows = t.CompressedRows
-			}
-			if !setFlags["intgenisis-replay-projection"] && t.ReplayProjection != "" {
-				*intGenISISReplayProjection = t.ReplayProjection
-			}
-		}
-		if setFlags["fixed-transcript-size"] {
-			value, ok, err := parseShowingTranscriptSizeFlag(*fixedTranscriptSize)
-			if err != nil {
-				cli.fatalf("[showing-cli] ", "%v", err)
-			}
-			if ok {
-				fixedTranscriptSizeValue = value
-			}
-		}
-		if !setFlags["state-path"] {
-			*statePathFlag = filepath.Join("credential", "keys", "credential_state.json")
-		}
-		if err := runIntGenISISShowingCLI(
-			*statePathFlag,
-			*intGenISISPublicParamsPath,
-			*intGenISISVerifierKeyPath,
-			*ncolsOverride,
-			*lvcsNColsOverride,
-			*nLeavesOverride,
-			*etaOverride,
-			*thetaOverride,
-			*rhoOverride,
-			*ellOverride,
-			*ellPrimeOverride,
-			effectiveKappaFromFlags(*kappa1Override, *kappa2Override, *kappa3Override, *kappa4Override),
-			PIOP.PRFCompanionMode(*prfCompanionMode),
-			*prfCheckpointSamples,
-			*intGenISISCompressedRows,
-			*sigShortnessRadix,
-			*sigShortnessDigits,
-			*intGenISISReplayProjection,
-			fixedTranscriptSizeValue,
-			*presentationOut,
-			*verifyPresentation,
-			*verifierStatePath,
-			*unsafeSigLookupShadow,
-		); err != nil {
-			cli.fatalf("[showing-cli] ", "%v", err)
-		}
-		return
-	}
-	activeProfile, ok := lookupShowingProfile(activeProfileName)
-	if !ok {
-		cli.fatalf("[showing-cli] ", "unknown -showing-profile=%q (supported: %s)", activeProfileName, strings.Join(showingProfileNames(), ", "))
-	}
-	if !setFlags["state-path"] {
-		*statePathFlag = activeProfile.StatePath
-	}
-	selectedRingDegree := activeProfile.RingDegree
-	if *unsafeSigLookupShadow != "" && PIOP.NormalizeSigLookupShadowR121L2Mode(*unsafeSigLookupShadow) == PIOP.SigLookupShadowR121L2None {
-		cli.fatalf("[showing-cli] ", "unknown unsafe shadow sig lookup mode %q", *unsafeSigLookupShadow)
-	}
-
-	resolvedModel := *coeffModel
-	if resolvedModel == "" {
-		resolvedModel = PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3
-	}
-	presetDefaults := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-		Credential:          true,
-		CoeffNativeSigModel: resolvedModel,
-		ShowingPreset:       PIOP.ShowingPresetInlineTargetReplayCompactResearch,
-	})
-	effectiveNCols := productionNCols
-	if *ncolsOverride > 0 {
-		effectiveNCols = *ncolsOverride
-	} else if presetDefaults.ShowingPreset == PIOP.ShowingPresetInlineTargetReplayCompactResearch {
-		effectiveNCols = 16
-	}
-	effectivePostLVCS := 0
-	effectivePostNLeaves := 0
-	effectivePRFLVCS := 0
-	effectivePRFNLeaves := 0
-	if *lvcsNColsOverride > 0 {
-		effectivePostLVCS = *lvcsNColsOverride
-		effectivePRFLVCS = *lvcsNColsOverride
-	}
-	if *nLeavesOverride > 0 {
-		effectivePostNLeaves = *nLeavesOverride
-		effectivePRFNLeaves = *nLeavesOverride
-	}
-	effectiveEta := 0
-	if *etaOverride > 0 {
-		effectiveEta = *etaOverride
-	}
-	effectiveTheta := 0
-	if *thetaOverride > 0 {
-		effectiveTheta = *thetaOverride
-	}
-	effectiveRho := 0
-	if *rhoOverride > 0 {
-		effectiveRho = *rhoOverride
-	}
-	effectiveEllPrime := 0
-	if *ellPrimeOverride > 0 {
-		effectiveEllPrime = *ellPrimeOverride
-	}
-	effectiveKappa := [4]int{0, 0, 0, 0}
-	if *kappa1Override >= 0 {
-		effectiveKappa[0] = *kappa1Override
-	}
-	if *kappa2Override >= 0 {
-		effectiveKappa[1] = *kappa2Override
-	}
-	if *kappa3Override >= 0 {
-		effectiveKappa[2] = *kappa3Override
-	}
-	if *kappa4Override >= 0 {
-		effectiveKappa[3] = *kappa4Override
-	}
-	if *lvcsNColsOverride <= 0 {
-		effectivePostLVCS = activeProfile.LVCSNCols
-		effectivePRFLVCS = activeProfile.LVCSNCols
-	}
-	if *nLeavesOverride <= 0 {
-		effectivePostNLeaves = activeProfile.NLeaves
-		effectivePRFNLeaves = activeProfile.NLeaves
-	}
-	if *etaOverride <= 0 {
-		effectiveEta = activeProfile.Eta
-	}
-	if *thetaOverride <= 0 {
-		effectiveTheta = activeProfile.Theta
-	}
-	if *rhoOverride <= 0 {
-		effectiveRho = activeProfile.Rho
-	}
-	if *ellPrimeOverride <= 0 {
-		effectiveEllPrime = activeProfile.EllPrime
-	}
-	if *kappa1Override < 0 {
-		effectiveKappa[0] = activeProfile.Kappa[0]
-	}
-	if *kappa2Override < 0 {
-		effectiveKappa[1] = activeProfile.Kappa[1]
-	}
-	if *kappa3Override < 0 {
-		effectiveKappa[2] = activeProfile.Kappa[2]
-	}
-	if *kappa4Override < 0 {
-		effectiveKappa[3] = activeProfile.Kappa[3]
-	}
-
-	if wd, err := os.Getwd(); err == nil {
-		cli.printf(categoryStatus, "[showing-cli] ", "cwd=%s", wd)
-	}
-	cli.printf(categoryStatus, "[showing-cli] ", "starting showing demo")
-	cli.printf(categoryStatus, "[showing-cli] ", "showing_profile=%s ring_degree=%d x0_len=%d target_bits=%.0f state=%s",
-		activeProfile.Name, activeProfile.RingDegree, activeProfile.X0Len, activeProfile.SoundnessTarget, *statePathFlag)
-	ringQ, err := credential.LoadRingWithDegree(selectedRingDegree)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "load ring: %v", err)
-	}
-	if selectedRingDegree == 512 {
-		cli.printf(categoryWarning, "[showing-cli] ", "UNSAFE RESEARCH MODE: selected ring_degree=512; this is a statement fork requiring fresh N=512 artifacts and is not production-valid without security review")
-	}
-	statePath := *statePathFlag
-	state, err := credential.LoadState(statePath)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "load credential state: %v", err)
-	}
-	publicParams, err := loadCredentialPublicParamsFromState(state)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "load credential public params: %v", err)
-	}
-	if state.HashRelation != "" && credential.NormalizeHashRelation(state.HashRelation) != credential.NormalizeHashRelation(publicParams.HashRelation) {
-		cli.fatalf("[showing-cli] ", "credential state hash relation %q does not match public params relation %q", state.HashRelation, publicParams.HashRelation)
-	}
-	if err := validateArtifactRingDegree(int(ringQ.N), statePath, state, publicParams); err != nil {
+	if err := runIntGenISISShowingCLI(
+		cfg.StatePath,
+		cfg.PublicParamsPath,
+		cfg.VerifierKeyPath,
+		cfg.Preset,
+		cfg.PresentationOut,
+		cfg.VerifyPresentation,
+		cfg.VerifierStatePath,
+	); err != nil {
 		cli.fatalf("[showing-cli] ", "%v", err)
 	}
-	if publicParams.X0Len != activeProfile.X0Len {
-		cli.fatalf("[showing-cli] ", "public params x0_len=%d incompatible with showing profile %s x0_len=%d", publicParams.X0Len, activeProfile.Name, activeProfile.X0Len)
-	}
-	if state.X0Len != activeProfile.X0Len {
-		cli.fatalf("[showing-cli] ", "credential state x0_len=%d incompatible with showing profile %s x0_len=%d", state.X0Len, activeProfile.Name, activeProfile.X0Len)
-	}
-	if err := credential.ValidateLiveHashRelation(publicParams.HashRelation); err != nil {
-		cli.fatalf("[showing-cli] ", "%v", err)
-	}
-	boundB := publicParams.BoundB
-	params, err := loadPRFParamsFromState(state)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "load prf params: %v", err)
-	}
-	opts := PIOP.SimOpts{
-		Credential:                  true,
-		Theta:                       effectiveTheta,
-		EllPrime:                    effectiveEllPrime,
-		Rho:                         effectiveRho,
-		NCols:                       effectiveNCols,
-		Ell:                         productionEll,
-		Eta:                         effectiveEta,
-		RingDegree:                  selectedRingDegree,
-		DomainMode:                  PIOP.DomainModeExplicit,
-		NLeaves:                     effectivePostNLeaves,
-		Kappa:                       effectiveKappa,
-		PRFGroupRounds:              productionPRFGroupRounds,
-		CoeffPacking:                true,
-		CoeffNativeSigModel:         resolvedModel,
-		ShowingPreset:               PIOP.ShowingPresetInlineTargetReplayCompactResearch,
-		ShowingReplayMode:           PIOP.ShowingReplayModeFull,
-		SigShortnessProfile:         *sigShortnessProfile,
-		SigShortnessRadix:           *sigShortnessRadix,
-		SigShortnessL:               *sigShortnessDigits,
-		PackedSigChainGroupSize:     *packedSigChainGroupSize,
-		SigShortnessNCols:           *sigShortnessNCols,
-		PostSignLVCSNCols:           effectivePostLVCS,
-		PostSignNLeaves:             effectivePostNLeaves,
-		PRFLVCSNCols:                effectivePRFLVCS,
-		PRFNLeaves:                  effectivePRFNLeaves,
-		PRFCompanionMode:            PIOP.PRFCompanionMode(*prfCompanionMode),
-		PRFCheckpointSamples:        *prfCheckpointSamples,
-		AggregateR0Replay:           true,
-		UnsafeSigLookupShadowR121L2: *unsafeSigLookupShadow,
-	}
-	opts = PIOP.ResolveSimOptsDefaults(opts)
-	effectivePostLVCS = opts.PostSignLVCSNCols
-	effectivePRFLVCS = opts.PRFLVCSNCols
-	effectivePostNLeaves = opts.PostSignNLeaves
-	effectivePRFNLeaves = opts.PRFNLeaves
-	resolvedShowingPreset := PIOP.ResolveShowingPresetLabelForOpts(opts)
-	resolvedSigProfile := PIOP.ResolveSignatureShortnessProfileLabelForOpts(opts)
-	sigBase, sigL, sigRowsPer, sigDegree, sigMetricErr := PIOP.ResolveSignatureShortnessMetricsForOpts(ringQ.Modulus[0], opts)
-	if sigMetricErr != nil {
-		cli.fatalf("[showing-cli] ", "resolve signature shortness profile: %v", sigMetricErr)
-	}
-	baselineOpts := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-		Credential:                  true,
-		NCols:                       effectiveNCols,
-		Ell:                         productionEll,
-		RingDegree:                  selectedRingDegree,
-		DomainMode:                  PIOP.DomainModeExplicit,
-		PRFGroupRounds:              productionPRFGroupRounds,
-		CoeffPacking:                true,
-		CoeffNativeSigModel:         resolvedModel,
-		ShowingPreset:               PIOP.ShowingPresetInlineTargetReplayCompactResearch,
-		ShowingReplayMode:           opts.ShowingReplayMode,
-		AggregateR0Replay:           true,
-		PackedSigChainGroupSize:     *packedSigChainGroupSize,
-		SigShortnessNCols:           *sigShortnessNCols,
-		PRFCompanionMode:            PIOP.PRFCompanionMode(*prfCompanionMode),
-		PRFCheckpointSamples:        *prfCheckpointSamples,
-		UnsafeSigLookupShadowR121L2: *unsafeSigLookupShadow,
-	})
-	cli.printf(categoryStatus, "[showing-cli] ", "production showing profile (preset=%s replay=%s ring_degree=%d ell=%d eta=%d ell'=%d rho=%d theta=%d ncols=%d lvcs_ncols=%d nleaves=%d kappa={%d,%d,%d,%d} prf_group_rounds=%d prf_mode=%s prf_samples=%d sig_profile=%s sig_R=%d sig_L=%d sig_rows=%d sig_deg=%d)",
-		resolvedShowingPreset, opts.ShowingReplayMode, ringQ.N, opts.Ell, opts.Eta, opts.EllPrime, opts.Rho, opts.Theta, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], opts.PRFGroupRounds, opts.PRFCompanionMode, opts.PRFCheckpointSamples, resolvedSigProfile, sigBase, sigL, sigRowsPer, sigDegree)
-	manualOverridesActive := manualShowingResearchOverrideActive(setFlags)
-	if opts.NCols != baselineOpts.NCols ||
-		effectivePostLVCS != baselineOpts.PostSignLVCSNCols ||
-		effectivePRFLVCS != baselineOpts.PRFLVCSNCols ||
-		opts.NLeaves != baselineOpts.NLeaves ||
-		effectivePostNLeaves != baselineOpts.PostSignNLeaves ||
-		effectivePRFNLeaves != baselineOpts.PRFNLeaves ||
-		opts.Eta != baselineOpts.Eta ||
-		opts.Theta != baselineOpts.Theta ||
-		opts.Rho != baselineOpts.Rho ||
-		opts.EllPrime != baselineOpts.EllPrime ||
-		opts.Kappa != baselineOpts.Kappa ||
-		opts.ShowingReplayMode != baselineOpts.ShowingReplayMode ||
-		opts.RingDegree != baselineOpts.RingDegree ||
-		opts.PackedSigChainGroupSize != baselineOpts.PackedSigChainGroupSize ||
-		opts.SigShortnessNCols != baselineOpts.SigShortnessNCols ||
-		opts.PRFCompanionMode != baselineOpts.PRFCompanionMode ||
-		opts.PRFCheckpointSamples != baselineOpts.PRFCheckpointSamples ||
-		opts.UnsafeSigLookupShadowR121L2 != baselineOpts.UnsafeSigLookupShadowR121L2 ||
-		resolvedShowingPreset != baselineOpts.ShowingPreset ||
-		*sigShortnessProfile != "" || *sigShortnessRadix > 0 || *sigShortnessDigits > 0 {
-		manualOverridesActive = true
-	}
-	if manualOverridesActive {
-		cli.printf(categoryWarning, "[showing-cli] ", "warning: transcript/soundness overrides active (preset=%s replay=%s ring_degree=%d ncols=%d lvcs_ncols=%d nleaves=%d eta=%d theta=%d rho=%d ell'=%d kappa={%d,%d,%d,%d} sig_profile=%s sig_R=%d sig_L=%d)",
-			resolvedShowingPreset, opts.ShowingReplayMode, ringQ.N, opts.NCols, effectivePostLVCS, opts.NLeaves, opts.Eta, opts.Theta, opts.Rho, opts.EllPrime, opts.Kappa[0], opts.Kappa[1], opts.Kappa[2], opts.Kappa[3], resolvedSigProfile, sigBase, sigL)
-	}
-	for i, kappa := range opts.Kappa {
-		if kappa > 5 {
-			cli.printf(categoryWarning, "[showing-cli] ", "grinding disclosure: kappa%d=%d is part of the selected theorem tuple and increases proving work by 2^%d for that round", i+1, kappa, kappa)
-		}
-		if kappa >= 32 {
-			cli.printf(categoryWarning, "[showing-cli] ", "warning: kappa%d=%d implies infeasible grinding in live proving; use large κ only for theorem-floor analysis, not production runs", i+1, kappa)
-		}
-	}
-	if opts.ShowingReplayMode == PIOP.ShowingReplayModeFull {
-		cli.printf(categoryStatus, "[showing-cli] ", "full replay mode selected: maintained direct bb_tran full replay statement with a larger authenticated showing surface than reduced engineering mode")
-	}
-	switch PIOP.NormalizeSigLookupShadowR121L2Mode(opts.UnsafeSigLookupShadowR121L2) {
-	case PIOP.SigLookupShadowR121L2Free:
-		cli.printf(categoryWarning, "[showing-cli] ", "UNSOUND FREE-LOOKUP UPPER BOUND: R121/L2 signature shortness membership is not proved")
-	case PIOP.SigLookupShadowR121L2SameQ:
-		cli.printf(categoryWarning, "[showing-cli] ", "UNSAFE SAME-Q NEGATIVE CONTROL: R121/L2 signature shortness uses degree-121 membership inside Q")
-	}
-	switch opts.PRFCompanionMode {
-	case PIOP.PRFCompanionModeDirectAuth:
-		// direct_auth remains supported for legacy compact companion proofs.
-	case PIOP.PRFCompanionModeDirectFull:
-		// direct_full is the maintained compact preset companion mode.
-	case PIOP.PRFCompanionModeAuxInstance:
-		cli.printf(categoryWarning, "[showing-cli] ", "warning: aux_instance is outside the maintained compact preset surface")
-	case "current":
-		cli.fatalf("[showing-cli] ", "prf companion mode %q is no longer supported", opts.PRFCompanionMode)
-	}
-	if opts.PRFGroupRounds <= 0 {
-		cli.fatalf("[showing-cli] ", "invalid fixed PRFGroupRounds=%d", opts.PRFGroupRounds)
-	}
-	if opts.NCols < 2*params.LenKey {
-		cli.fatalf("[showing-cli] ", "production NCols=%d is too small for PRF key width %d", opts.NCols, 2*params.LenKey)
-	}
-	if opts.NCols%2 != 0 {
-		cli.fatalf("[showing-cli] ", "production NCols=%d must be even", opts.NCols)
-	}
-	opts.LVCSNCols = effectivePostLVCS
-	if opts.LVCSNCols < opts.NCols {
-		cli.fatalf("[showing-cli] ", "production LVCSNCols=%d must be >= NCols=%d", opts.LVCSNCols, opts.NCols)
-	}
-	// Clamp ℓ so grouped PRF degree stays below the ring degree.
-	if opts.PRFGroupRounds > 1 {
-		prfDeg, derr := prf.MaxConstraintDegreeGrouped(params, opts.PRFGroupRounds)
-		if derr != nil {
-			cli.fatalf("[showing-cli] ", "compute grouped PRF degree: %v", derr)
-		}
-		maxEll := maxEllForGroupedPRF(int(ringQ.N), opts.NCols, int(prfDeg))
-		if maxEll <= 0 {
-			cli.fatalf("[showing-cli] ", "invalid grouped PRF parameters: N=%d ncols=%d prfDeg=%d g=%d", ringQ.N, opts.NCols, prfDeg, opts.PRFGroupRounds)
-		}
-		if opts.Ell > maxEll {
-			cli.printf(categoryWarning, "[showing-cli] ", "warning: clamping ℓ from %d to %d for PRFGroupRounds=%d (avoids degree wrap-around)", opts.Ell, maxEll, opts.PRFGroupRounds)
-			opts.Ell = maxEll
-		}
-	}
-	omega, err := deriveOmegaForOpts(ringQ, opts, publicParams.HashRelation)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "derive omega: %v", err)
-	}
-	ncols := len(omega)
-
-	// Build public matrices.
-	B, err := loadBForShowing(ringQ, state, publicParams)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "load B: %v", err)
-	}
-	wit, err := buildWitnessFromState(ringQ, state, B, omega, boundB, publicParams.X0CoeffBound)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "build witness: %v", err)
-	}
-	if wit.CoeffNativeShowing == nil {
-		cli.fatalf("[showing-cli] ", "missing coeff-native showing witness in credential state")
-	}
-	A, err := buildSignatureMatrix(ringQ, state, showingSignatureComponentCount(wit))
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "build A: %v", err)
-	}
-
-	nonce, noncePublic := sampleNonce(params.LenNonce, ncols, ringQ.Modulus[0])
-	key, err := prfKeyFromWitnessOnOmega(ringQ, wit, omega, params.LenKey)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "prf key: %v", err)
-	}
-	tag, err := prf.Tag(key, nonce, params)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "prf tag: %v", err)
-	}
-	tagPublic := lanesFromElems(tag, ncols)
-
-	pub := PIOP.PublicInputs{
-		A:                  A,
-		B:                  B,
-		Tag:                tagPublic,
-		Nonce:              noncePublic,
-		BoundB:             boundB,
-		X0Len:              publicParams.X0Len,
-		X0CoeffBound:       publicParams.X0CoeffBound,
-		TargetDim:          publicParams.TargetDim,
-		TargetHidingLambda: publicParams.TargetHidingLambda,
-		RingDegree:         int(ringQ.N),
-		HashRelation:       publicParams.HashRelation,
-	}
-
-	cli.printf(categoryStatus, "[showing-cli] ", "building proof")
-	proofStart := time.Now()
-	proof, err := PIOP.BuildShowingCombined(pub, wit, opts)
-	if err != nil {
-		cli.fatalf("[showing-cli] ", "build showing: %v", err)
-	}
-	proofDur := time.Since(proofStart)
-
-	verifyStart := time.Now()
-	verifySet := PIOP.ConstraintSet{PRFLayout: proof.PRFLayout}
-	if proof.PRFCompanion != nil {
-		verifySet.PRFCompanionLayout = proof.PRFCompanion.Layout
-	}
-	verified, err := PIOP.VerifyWithConstraints(proof, verifySet, pub, opts, PIOP.FSModeCredential)
-	verifyDur := time.Since(verifyStart)
-	if err != nil || !verified {
-		cli.fatalf("[showing-cli] ", "verify showing failed: ok=%v err=%v", verified, err)
-	}
-	cli.printf(categoryStatus, "[showing-cli] ", "showing proof verified")
-	printLogicalWitnessRowBreakdown("[showing-cli] ", proof)
-	printCommittedWitnessRowBreakdown("[showing-cli] ", proof)
-	rep, reportOK := printProofReport("[showing-cli] ", proof, opts, pub.BoundB, ringQ, proofDur, verifyDur)
-	if reportOK {
-		if rep.X0Len != activeProfile.X0Len || rep.TranscriptFocus.X0Len != activeProfile.X0Len || rep.PaperTranscript.X0Len != activeProfile.X0Len {
-			cli.fatalf("[showing-cli] ", "report x0_len mismatch for %s: proof=%d focus=%d transcript=%d want=%d",
-				activeProfile.Name, rep.X0Len, rep.TranscriptFocus.X0Len, rep.PaperTranscript.X0Len, activeProfile.X0Len)
-		}
-		if rep.RingDegree != activeProfile.RingDegree || rep.TranscriptFocus.RingDegree != activeProfile.RingDegree || rep.PaperTranscript.RingDegree != activeProfile.RingDegree {
-			cli.fatalf("[showing-cli] ", "report ring_degree mismatch for %s: proof=%d focus=%d transcript=%d want=%d",
-				activeProfile.Name, rep.RingDegree, rep.TranscriptFocus.RingDegree, rep.PaperTranscript.RingDegree, activeProfile.RingDegree)
-		}
-		if rep.Soundness.TotalBits+1e-9 < activeProfile.SoundnessTarget {
-			cli.fatalf("[showing-cli] ", "showing profile %s missed target: theorem bits %.2f < %.0f", activeProfile.Name, rep.Soundness.TotalBits, activeProfile.SoundnessTarget)
-		}
-	}
 }
 
-func rejectPublicShowingTuningOverrides(setFlags map[string]bool) error {
-	for _, name := range []string{
-		"coeff-model",
-		"ncols",
-		"lvcs-ncols",
-		"nleaves",
-		"eta",
-		"theta",
-		"rho",
-		"ell",
-		"ell-prime",
-		"kappa1",
-		"kappa2",
-		"kappa3",
-		"kappa4",
-		"sig-shortness-profile",
-		"sig-shortness-radix",
-		"sig-shortness-digits",
-		"packed-sig-chain-group-size",
-		"sig-shortness-ncols",
-		"prf-companion-mode",
-		"prf-checkpoint-samples",
-		"intgenisis-compressed-rows",
-		"intgenisis-replay-projection",
-		"unsafe-shadow-sig-lookup-r121-l2",
-	} {
-		if setFlags[name] {
-			return fmt.Errorf("-%s is not a public showing option; choose one of the maintained -preset values", name)
-		}
-	}
-	return nil
-}
-
-func effectiveKappaFromFlags(k1, k2, k3, k4 int) [4]int {
-	out := [4]int{0, 0, 0, 0}
-	for i, v := range []int{k1, k2, k3, k4} {
-		if v >= 0 {
-			out[i] = v
-		}
-	}
-	return out
-}
-
-func parseShowingTranscriptSizeFlag(mode string) (value bool, ok bool, err error) {
-	switch strings.TrimSpace(strings.ToLower(mode)) {
-	case "", "auto":
-		return false, false, nil
-	case "on", "true", "1", "fixed", "fixed_size":
-		return true, true, nil
-	case "off", "false", "0", "compact", "legacy":
-		return false, true, nil
-	default:
-		return false, false, fmt.Errorf("unknown transcript size mode %q (supported: auto, on, off)", mode)
-	}
-}
-
-func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int, replayProjection string, fixedTranscriptSize bool, presentationOut, verifyPresentationPath, verifierStatePath, unsafeSigLookupShadow string) error {
-	cli.printf(categoryStatus, "[showing-cli] ", "starting IntGenISIS showing profile=%s state=%s", showingProfileIntGenISISB, statePath)
-	if unsafeSigLookupShadow != "" && PIOP.NormalizeSigLookupShadowR121L2Mode(unsafeSigLookupShadow) == PIOP.SigLookupShadowR121L2None {
-		return fmt.Errorf("unknown unsafe shadow sig lookup mode %q", unsafeSigLookupShadow)
-	}
-	if PIOP.NormalizeSigLookupShadowR121L2Mode(unsafeSigLookupShadow) != PIOP.SigLookupShadowR121L2None {
-		return fmt.Errorf("IntGenISIS showing does not support unsafe R121/L2 signature lookup shadow mode")
-	}
+func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string, preset credential.IntGenISISPreset, presentationOut, verifyPresentationPath, verifierStatePath string) error {
+	cli.printf(categoryStatus, "[showing-cli] ", "starting IntGenISIS showing preset=%s state=%s", preset.Name, statePath)
 	if verifyPresentationPath != "" {
 		if publicParamsPath == "" {
 			return fmt.Errorf("IntGenISIS presentation verification requires -public-params")
@@ -822,7 +218,7 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 		if err != nil {
 			return fmt.Errorf("load ring: %w", err)
 		}
-		opts := intGenISISShowingOpts(publicParams.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits, replayProjection, fixedTranscriptSize)
+		opts := intGenISISShowingOpts(publicParams.RingDegree, preset.Showing)
 		return verifyIntGenISISPresentationCLI(verifyPresentationPath, verifierStatePath, verifierKey, publicParams, ringQ, opts)
 	}
 	st, err := credential.LoadIntGenISISState(statePath)
@@ -840,6 +236,9 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 	if !ok {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", st.Profile)
 	}
+	if profile.Name != preset.Profile {
+		return fmt.Errorf("credential state profile=%q does not match preset %s profile=%q", profile.Name, preset.Name, preset.Profile)
+	}
 	ringQ, err := credential.LoadRingWithDegree(st.RingDegree)
 	if err != nil {
 		return fmt.Errorf("load ring: %w", err)
@@ -848,7 +247,7 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 	if err != nil {
 		return fmt.Errorf("load prf params: %w", err)
 	}
-	opts := intGenISISShowingOpts(st.RingDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride, kappa, companionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits, replayProjection, fixedTranscriptSize)
+	opts := intGenISISShowingOpts(st.RingDegree, preset.Showing)
 	if opts.NCols < params.LenKey {
 		return fmt.Errorf("ncols=%d is too small for IntGenISIS PRF key width %d", opts.NCols, params.LenKey)
 	}
@@ -947,47 +346,11 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 	return nil
 }
 
-func intGenISISShowingOpts(ringDegree, ncolsOverride, lvcsNColsOverride, nLeavesOverride, etaOverride, thetaOverride, rhoOverride, ellOverride, ellPrimeOverride int, kappa [4]int, companionMode PIOP.PRFCompanionMode, checkpointSamples, compressedRows, sigShortnessRadix, sigShortnessDigits int, replayProjection string, fixedTranscriptSize bool) PIOP.SimOpts {
-	ncols := 16
-	if ncolsOverride > 0 {
-		ncols = ncolsOverride
-	}
-	lvcsNCols := 32
-	if lvcsNColsOverride > 0 {
-		lvcsNCols = lvcsNColsOverride
-	}
+func intGenISISShowingOpts(ringDegree int, tuning credential.IntGenISISTuningPreset) PIOP.SimOpts {
+	ncols := tuning.NCols
+	lvcsNCols := tuning.LVCSNCols
 	if lvcsNCols < ncols {
 		lvcsNCols = ncols
-	}
-	nLeaves := 4096
-	if nLeavesOverride > 0 {
-		nLeaves = nLeavesOverride
-	}
-	eta := 8
-	if etaOverride > 0 {
-		eta = etaOverride
-	}
-	theta := 1
-	if thetaOverride > 0 {
-		theta = thetaOverride
-	}
-	rho := 1
-	if rhoOverride > 0 {
-		rho = rhoOverride
-	}
-	ell := 4
-	if ellOverride > 0 {
-		ell = ellOverride
-	}
-	ellPrime := 4
-	if ellPrimeOverride > 0 {
-		ellPrime = ellPrimeOverride
-	}
-	if companionMode == "" {
-		companionMode = PIOP.PRFCompanionModeOutputAudit
-	}
-	if checkpointSamples <= 0 {
-		checkpointSamples = 8
 	}
 	return PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
 		Credential:                 true,
@@ -997,22 +360,22 @@ func intGenISISShowingOpts(ringDegree, ncolsOverride, lvcsNColsOverride, nLeaves
 		LVCSNCols:                  lvcsNCols,
 		PostSignLVCSNCols:          lvcsNCols,
 		PRFLVCSNCols:               lvcsNCols,
-		NLeaves:                    nLeaves,
-		Ell:                        ell,
-		EllPrime:                   ellPrime,
-		Eta:                        eta,
-		Rho:                        rho,
-		Theta:                      theta,
-		Kappa:                      kappa,
+		NLeaves:                    tuning.NLeaves,
+		Ell:                        tuning.Ell,
+		EllPrime:                   tuning.EllPrime,
+		Eta:                        tuning.Eta,
+		Rho:                        tuning.Rho,
+		Theta:                      tuning.Theta,
+		Kappa:                      tuning.Kappa,
 		DomainMode:                 PIOP.DomainModeExplicit,
-		PRFGroupRounds:             2,
-		PRFCompanionMode:           companionMode,
-		PRFCheckpointSamples:       checkpointSamples,
-		IntGenISISMSECompression:   compressedRows,
-		IntGenISISReplayProjection: replayProjection,
-		SigShortnessRadix:          sigShortnessRadix,
-		SigShortnessL:              sigShortnessDigits,
-		FixedTranscriptSize:        fixedTranscriptSize,
+		PRFGroupRounds:             tuning.PRFGroupRounds,
+		PRFCompanionMode:           PIOP.PRFCompanionMode(tuning.PRFCompanionMode),
+		PRFCheckpointSamples:       tuning.CheckpointSamples,
+		IntGenISISMSECompression:   tuning.CompressedRows,
+		IntGenISISReplayProjection: tuning.ReplayProjection,
+		SigShortnessRadix:          tuning.SigShortnessRadix,
+		SigShortnessL:              tuning.SigShortnessDigits,
+		FixedTranscriptSize:        tuning.FixedTranscriptSize,
 	})
 }
 
@@ -1372,7 +735,7 @@ func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, 
 	if len(st.SigS1) == 0 || len(st.SigS2) == 0 {
 		return nil, fmt.Errorf("missing sig_s1/sig_s2 in credential state")
 	}
-	par, err := ntrurio.LoadParams(filepath.Join("Parameters", "Parameters.json"), true)
+	par, err := ntrurio.LoadParams(filepath.Join("internal", "source_data", "Parameters.json"), true)
 	if err != nil {
 		return nil, fmt.Errorf("load signature bound: %w", err)
 	}
@@ -1841,17 +1204,6 @@ func formatTranscriptOptimizationSummary(rep PIOP.ProofReport) string {
 			focus.PRFNLeaves,
 			focus.HiddenShortnessLVCSNCols,
 			focus.HiddenShortnessNLeaves,
-		)
-	}
-	if focus.PRFAuxInstance {
-		instances += fmt.Sprintf(
-			" prf_aux=on auxProof=%d auxOpening=%d bridgeRows=%d bridgeSlots=%d bridgeBlocks=%d bridgePad=%d",
-			focus.PRFAuxProofBytes,
-			focus.PRFAuxOpeningBytes,
-			focus.PRFBridgeRowCount,
-			focus.PRFBridgeSupportSlots,
-			focus.PRFBridgeOpenedBlocks,
-			focus.PRFBridgePaddingRows,
 		)
 	}
 	rowFamilies := fmt.Sprintf(

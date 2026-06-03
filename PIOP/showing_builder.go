@@ -69,7 +69,7 @@ func BuildShowingCombined(pub PublicInputs, wit WitnessInputs, opts SimOpts) (*P
 	opts.EnablePackedPRFWitnessRows = true
 	opts.EnablePRFCompanion = true
 	if normalizePRFCompanionMode(opts.PRFCompanionMode) == "" {
-		opts.PRFCompanionMode = PRFCompanionModeOutputAudit
+		opts.PRFCompanionMode = PRFCompanionModeDirectFull
 	}
 	for attempt := 0; attempt < 4; attempt++ {
 		ringQ, omega, pcsNCols, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)

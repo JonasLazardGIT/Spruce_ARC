@@ -686,20 +686,6 @@ func BuildCredentialRowsShowingIntGenISIS(
 			RelationVersion:       prfCompanionRelationVersion(companionMode),
 			RowSemantics:          rowSemantics,
 		}
-		if companionMode == PRFCompanionModeAuxInstance {
-			var aerr error
-			rows, aerr = appendPRFBridgeStripeRows(ringQ, rows, prfCompanionLayout, lvcsNCols)
-			if aerr != nil {
-				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("append prf bridge stripe rows: %w", aerr)
-			}
-			for i := len(rowInputs); i < len(rows); i++ {
-				in, ierr := makeRowInput(rows[i])
-				if ierr != nil {
-					return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("prf bridge row %d input: %w", i, ierr)
-				}
-				rowInputs = append(rowInputs, in)
-			}
-		}
 		recordRowPhase("showing.rows.prf_companion", prfCompanionStart)
 	}
 
@@ -2775,7 +2761,7 @@ func PrepareIntGenISISShowingContext(pub PublicInputs, opts SimOpts) (*IntGenISI
 	opts.EnablePackedPRFWitnessRows = true
 	opts.EnablePRFCompanion = true
 	if normalizePRFCompanionMode(opts.PRFCompanionMode) == "" {
-		opts.PRFCompanionMode = PRFCompanionModeOutputAudit
+		opts.PRFCompanionMode = PRFCompanionModeDirectFull
 	}
 	ringQ, omega, pcsNCols, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
 	if err != nil {

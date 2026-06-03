@@ -33,8 +33,7 @@ IntGenISIS public parameters store:
 - `ell_mu_sig`, `ell_x0`, `ell_x1`
 - `ring_degree`
 
-The current protocol does not use the old challenge-style `r0/r1` issuance
-artifact path. The issuer signs:
+The issuer signs:
 
 ```text
 T = c + h_tran(mu_sig, x0, x1)

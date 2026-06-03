@@ -61,10 +61,6 @@ func detectCSmoothingFromC() (float64, error) {
 			path:  filepath.Join("ntru_c", "antrag_opt-main", "gen", "const.h"),
 			regex: regexp.MustCompile(`(?m)^#define\s+R\s+([0-9]+(?:\.[0-9]+)?)`),
 		},
-		{
-			path:  filepath.Join("ntru_c", "antrag_opt-main", "scripts", "gen_headers.sage"),
-			regex: regexp.MustCompile(`(?m)smoothing\s*=\s*([0-9]+(?:\.[0-9]+)?)`),
-		},
 	}
 	for _, cand := range candidates {
 		if val, err := parseFloatFromFile(cand.path, cand.regex); err == nil {
@@ -75,7 +71,7 @@ func detectCSmoothingFromC() (float64, error) {
 }
 
 func loadSystemParams() (systemParams, error) {
-	path := filepath.Join("Parameters", "Parameters.json")
+	path := filepath.Join("internal", "source_data", "Parameters.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return systemParams{}, err

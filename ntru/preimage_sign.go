@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	ps "vSIS-Signature/Preimage_Sampler"
+	ps "vSIS-Signature/ntru/internal/preimage"
 )
 
 func (S *Sampler) SamplePreimageTargetOptionB(t ModQPoly, maxTrials int) (s0, s1 *IntPoly, trials int, err error) {

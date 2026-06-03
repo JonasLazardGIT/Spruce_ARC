@@ -314,12 +314,8 @@ func cloneOpeningForSmallFieldTest(open *decs.DECSOpening) *decs.DECSOpening {
 	out.Nodes = cloneBytesMatrixForSmallFieldTest(open.Nodes)
 	out.PathIndex = cloneIntMatrixForSmallFieldTest(open.PathIndex)
 	out.PathBits = append([]byte(nil), open.PathBits...)
-	out.FrontierRefsBits = append([]byte(nil), open.FrontierRefsBits...)
 	out.Nonces = cloneBytesMatrixForSmallFieldTest(open.Nonces)
 	out.NonceSeed = append([]byte(nil), open.NonceSeed...)
-	out.FrontierNodes = cloneBytesMatrixForSmallFieldTest(open.FrontierNodes)
-	out.FrontierProof = append([]byte(nil), open.FrontierProof...)
-	out.FrontierLR = append([]byte(nil), open.FrontierLR...)
 	return &out
 }
 

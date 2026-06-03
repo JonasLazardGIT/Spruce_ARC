@@ -46,7 +46,7 @@ func TestPackOpeningFixedRowMajorPathsVerify(t *testing.T) {
 	if open.PathDepth <= 0 {
 		t.Fatalf("missing fixed path depth")
 	}
-	if len(open.PathIndex) != 0 || len(open.PathBits) != 0 || len(open.FrontierNodes) != 0 {
+	if len(open.PathIndex) != 0 || len(open.PathBits) != 0 {
 		t.Fatalf("fixed opening kept compact path material")
 	}
 	if want := open.EntryCount() * open.PathDepth; len(open.Nodes) != want {
@@ -88,27 +88,5 @@ func TestPackOpeningFixedAuthenticationShapeIsConstant(t *testing.T) {
 	}
 	if len(openA.PvalsBits) != len(openB.PvalsBits) || len(openA.MvalsBits) != len(openB.MvalsBits) {
 		t.Fatalf("residue shape A=(%d,%d) B=(%d,%d)", len(openA.PvalsBits), len(openA.MvalsBits), len(openB.PvalsBits), len(openB.MvalsBits))
-	}
-}
-
-func TestPackOpeningLegacyFrontierStillVerifies(t *testing.T) {
-	pr := makeDeterministicFormalProver(t)
-	root, err := pr.CommitInit()
-	if err != nil {
-		t.Fatalf("commit init: %v", err)
-	}
-	gamma := DeriveGamma(root, pr.params.Eta, pr.rowCount(), pr.ringQ.Modulus[0])
-	rFormal := pr.CommitStep2Formal(gamma)
-	open := pr.EvalOpen([]int{3, 17, 42})
-	PackOpening(open)
-	if len(open.FrontierNodes) == 0 {
-		t.Fatalf("legacy opening did not use frontier compression")
-	}
-	verifier, err := NewVerifierWithParamsAndPointsChecked(pr.ringQ, pr.rowCount(), pr.params, pr.points)
-	if err != nil {
-		t.Fatalf("new verifier: %v", err)
-	}
-	if !verifier.VerifyEvalAtFormal(root, gamma, rFormal, open, []int{3, 17, 42}) {
-		t.Fatalf("legacy frontier opening did not verify")
 	}
 }
