@@ -12,10 +12,17 @@ intgenisis_profile_c  N=1024  used by n1024-compact96 and n1024-compact125
 
 These numbers were produced before artifact pruning with
 `malb/lattice-estimator` at commit
-`14c2c10e6f2f7a39072130627b2cec5495704701`, using rough estimates. The Docker
-artifact does not ship the Python estimator wrapper or lattice-estimator source;
-this note is retained as comparison-only security context for the maintained Go
-presets.
+`14c2c10e6f2f7a39072130627b2cec5495704701`, using rough estimates. The current
+artifact branch keeps the Python estimator wrappers and a vendored
+`lattice-estimator-main/` source tree as source-tree provenance. They are
+excluded from Docker and are not part of the normal Go proof runtime.
+
+To rerun the maintained estimates outside Docker in a Sage-capable environment:
+
+```bash
+python3 tools/intgenisis_commitment_estimator.py --pretty
+python3 tools/intgenisis_lattice_security_estimator.py --pretty
+```
 
 ## Profile Inputs
 

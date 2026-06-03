@@ -41,8 +41,9 @@ credential secret.
   relation, not a legacy standalone PRF replay layout
 - the PRF key comes from the stored signed message field `k`, not from any
   deprecated aligned-commitment witness slot
-- Sage parameter generation scripts are not part of the artifact; the checked-in
-  `prf_params.json` is the source parameter file used by Go tests and commands
+- `prf_params.json` is the source parameter file used by Go tests and commands
+- Sage parameter generation scripts are retained as source-tree provenance, but
+  are excluded from Docker and are not part of the normal proof runtime
 
 ## Current protocol role
 

@@ -14,12 +14,13 @@ PIOP/ntru_keys/
 ntru/signverify/ntru_keys/
 
 # Research-only or generated trees kept out of the artifact image.
-lattice-estimator-main/
 parameter_search/
-tools/
 _markdown_test/
 
-# Sage generation scripts are not needed in the Docker artifact.
+# Security-provenance sources are kept in the repository but not in Docker.
+# Docker artifact scripts should depend only on Go, not Sage/Python tooling.
+tools/
+lattice-estimator-main/
 prf/*.sage
 prf/RUN_SAGE.md
 
@@ -28,6 +29,7 @@ docs/*.pdf
 
 # Build/cache output.
 showing
+poseidon_params_n*_t*_alpha*_M*.txt
 __pycache__/
 *.pyc
 *.pyo

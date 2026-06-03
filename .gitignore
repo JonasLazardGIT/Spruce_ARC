@@ -55,11 +55,10 @@ credential/issuance/summary.json
 
 # Search outputs are generated.
 parameter_search/
-lattice-estimator-main/
-tools/
 _markdown_test/
 docs/*.pdf
 paper_section*_alignment_report.md
+poseidon_params_n*_t*_alpha*_M*.txt
 
 # Python cache output.
 __pycache__/

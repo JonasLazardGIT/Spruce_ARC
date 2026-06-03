@@ -47,7 +47,9 @@ The artifact should not expose:
 A fresh reviewer should be able to clone the repository, run one Docker command,
 and reproduce the maintained IntGenISIS proof generation, verification, timing,
 and fixed transcript-size tables without needing local paths, private files,
-manual setup, Sage, lattice-estimator installs, or historical context.
+manual setup, Sage, lattice-estimator installs, or historical context. Security
+estimation provenance may remain in the source tree, but it must stay outside
+the Docker context so artifact scripts depend only on Go.
 
 ## Maintained Presets
 
@@ -173,9 +175,9 @@ The Docker image should:
 - run without host absolute paths;
 - not copy `.git`, `.gocache`, `.private`, `.vscode`, generated credential
   states, local paper repositories, or scratch artifacts;
-- not include lattice-estimator source unless explicitly needed by a documented
-  command;
-- not require Sage;
+- not copy `tools/`, `lattice-estimator-main/`, PRF Sage scripts, or other
+  Sage/Python provenance material;
+- not require Sage or Python for any Docker artifact script;
 - not require external keys or generated files.
 
 The Docker image should not be huge. It should be a Go artifact image, not a
@@ -298,10 +300,18 @@ Packages that should be removed from the public artifact unless still imported:
 
 ```text
 parameter_search
-lattice-estimator-main
-tools
 Parameters
 _markdown_test
+```
+
+Security-provenance directories are retained but should not become public proof
+runtime packages or Docker-context inputs:
+
+```text
+tools
+lattice-estimator-main
+prf/*.sage
+prf/RUN_SAGE.md
 ```
 
 Packages/directories that should be quarantined or deleted if not needed by
@@ -311,8 +321,6 @@ maintained commands:
 vSIS-HASH
 Preimage_Sampler
 cmd/ntrucli
-prf/*.sage
-prf/RUN_SAGE.md
 ```
 
 Current import graph still references:
@@ -502,7 +510,7 @@ Dockerfile should:
 - build public commands during build;
 - default to artifact entrypoint;
 - not copy hidden local directories;
-- not install Sage or system packages unless proven necessary;
+- not install Sage or Python tooling for artifact scripts;
 - not fetch lattice estimator at runtime.
 
 Recommended shape:
@@ -646,14 +654,14 @@ docs                  keep-public, prune stale docs
 internal              keep-public/internal core
 issuance              keep-public/internal core
 ntru                  keep-public/internal core, prune generated keys
-prf                   keep-public/internal core, prune Sage scripts if not needed
+prf                   keep-public/internal core, keep Sage scripts as provenance
 Preimage_Sampler      needs-inspection, imported by ntru
 vSIS-HASH             needs-inspection, imported by credential/cmd/ntru
 cmd/ntrucli           delete or internal-only
 Parameters            delete or dockerignore
 parameter_search      delete or dockerignore
-lattice-estimator-main delete or dockerignore
-tools                 delete or dockerignore
+lattice-estimator-main keep-provenance, dockerignore
+tools                 keep-provenance, dockerignore
 _markdown_test        delete or dockerignore
 .gocache              delete and dockerignore
 .private              dockerignore, never artifact
@@ -820,8 +828,8 @@ ntru:
 prf:
 
 - keep PRF params and grouped witness trace;
-- remove Sage generation scripts from Docker context;
-- keep them only under `research/` if still valuable.
+- keep Sage generation scripts as parameter-computation provenance;
+- exclude Sage generation scripts from the Docker context.
 
 Exit criteria:
 
@@ -831,22 +839,27 @@ Exit criteria:
 
 ## Stage 7: Optional Dependency Isolation
 
-Purpose: keep research tools out of artifact.
+Purpose: keep research/provenance tools in the source tree but out of the Go
+artifact Docker context.
 
 Actions:
 
-- remove `lattice-estimator-main` from Docker context;
+- keep `tools/`, `lattice-estimator-main/`, `prf/*.sage`, and
+  `prf/RUN_SAGE.md` in the repository for provenance;
+- exclude `tools/`, `lattice-estimator-main/`, `prf/*.sage`, and
+  `prf/RUN_SAGE.md` from the Docker context;
 - remove `parameter_search` from Docker context;
-- move estimator instructions to docs if needed;
-- keep security numbers as documented measured results, not Docker runtime
-  estimator output;
-- do not require Sage for PRF params.
+- document estimator instructions in `tools/README.md` and
+  `docs/intgenisis_lattice_security.md`;
+- keep security numbers as documented measured results;
+- do not require Sage or Python for Docker artifact scripts.
 
 Exit criteria:
 
-- Docker build does not copy estimator/search directories;
-- Docker build does not install Sage;
-- README says estimator review is documented, not rerun by artifact command.
+- Docker context excludes estimator/search directories and PRF Sage scripts;
+- Docker build does not install Sage or Python tooling for artifact scripts;
+- README says estimator review is documented as native/source-tree provenance,
+  not rerun by artifact commands.
 
 ## Stage 8: Docker Artifact Construction
 
@@ -1132,13 +1145,13 @@ internalization is done.
 
 ## Second Pruning Pass Note
 
-This pass removes remaining research-only and stale public-surface files:
+This pass removed remaining research-only and stale public-surface files:
 external paper PDFs, Sage PRF parameter-generation scripts, the dead showing
 beta-audit helper, and the `demo-local` issuance subcommand. The maintained
 role-separated issuance commands and `benchmark-intgenisis-e2e` remain the
-artifact reproduction path. The lattice-estimator note is now explicitly
-archived/comparison-only because its Python wrapper and estimator checkout are
-not part of the artifact branch.
+artifact reproduction path. This was later superseded for security provenance:
+the Sage PRF scripts, estimator wrappers, and vendored lattice-estimator source
+are restored as optional provenance inputs, not public proof-runtime features.
 
 ## Deep Code Pruning Pass Note
 
@@ -1174,6 +1187,35 @@ go run ./cmd/issuance benchmark-intgenisis-e2e -preset n512-compact96 -artifact-
 go run ./cmd/issuance gate-degree1024-maintained-presets -artifact-root "$(mktemp -d)"
 ```
 
+## Security Provenance Policy Update
+
+The earlier maximal-prune policy removed `tools/`, `lattice-estimator-main/`,
+and the PRF Sage scripts. They are restored for traceability of security
+estimation and PRF parameter computation:
+
+```text
+tools/intgenisis_commitment_estimator.py
+tools/intgenisis_lattice_security_estimator.py
+lattice-estimator-main/
+prf/RUN_SAGE.md
+prf/generate_params.sage
+prf/sweep_rounds.sage
+```
+
+These files are kept in the source tree but excluded from the Docker build
+context. The Docker artifact should remain Go-only. To rerun provenance checks,
+use a native Sage/Python-capable environment:
+
+```bash
+python3 tools/intgenisis_commitment_estimator.py --pretty
+python3 tools/intgenisis_lattice_security_estimator.py --pretty
+sage prf/sweep_rounds.sage 20 0xf8801 3 128 20 20 7
+```
+
+Local validation of the restored provenance files confirmed that both Python
+estimator scripts run from a temporary checkout with the vendored estimator
+tree, and that the PRF sweep reports the maintained `t=20, RF=8, RP=19` row.
+
 ## Final Acceptance Criteria
 
 Cleanup is complete when:
@@ -1182,6 +1224,8 @@ Cleanup is complete when:
 - Docker builds from clean checkout;
 - Docker does not copy private, generated, cache, or editor files;
 - Docker can reproduce maintained E2E proof generation and verification;
+- Docker context excludes Sage/Python provenance tools and PRF generation
+  scripts;
 - maintained fixed-size transcript byte counts are constant across repeated runs;
 - README is enough for a fresh reviewer to run artifact;
 - obsolete presets and research modes are not presented as public features;
