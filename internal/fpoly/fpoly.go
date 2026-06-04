@@ -44,50 +44,6 @@ func Zero(q uint64) Poly {
 	return Poly{Q: q, Coeffs: []uint64{0}}
 }
 
-// Const returns the constant polynomial c over F_q.
-func Const(q, c uint64) Poly {
-	return Poly{Q: q, Coeffs: []uint64{c % q}}
-}
-
-// Degree returns the algebraic degree (or -1 for the zero polynomial).
-func (p Poly) Degree() int {
-	for i := len(p.Coeffs) - 1; i >= 0; i-- {
-		c := p.Coeffs[i]
-		if c >= p.Q {
-			c %= p.Q
-		}
-		if c != 0 {
-			return i
-		}
-	}
-	return -1
-}
-
-// Eval evaluates p(x) via Horner's rule.
-func (p Poly) Eval(x uint64) uint64 {
-	if len(p.Coeffs) == 0 {
-		return 0
-	}
-	mod := p.Q
-	val := uint64(0)
-	xm := x
-	if xm >= mod {
-		xm %= mod
-	}
-	for i := len(p.Coeffs) - 1; i >= 0; i-- {
-		val = mulModReduced(val, xm, mod)
-		c := p.Coeffs[i]
-		if c >= mod {
-			c %= mod
-		}
-		val = addModReduced(val, c, mod)
-		if i == 0 {
-			break
-		}
-	}
-	return val
-}
-
 // Add returns p + rhs.
 func (p Poly) Add(rhs Poly) Poly {
 	if p.Q != rhs.Q {
@@ -225,12 +181,6 @@ func (p Poly) Compose(rhs Poly) Poly {
 	return acc
 }
 
-func ensureSameField(a, b Poly) {
-	if a.Q != b.Q {
-		panic("fpoly: mismatched modulus")
-	}
-}
-
 func trim(coeffs []uint64, q uint64) []uint64 {
 	if len(coeffs) == 0 {
 		return []uint64{0}
@@ -273,34 +223,4 @@ func mulModReduced(a, b, q uint64) uint64 {
 	hi, lo := bits.Mul64(a, b)
 	_, rem := bits.Div64(hi, lo, q)
 	return rem
-}
-
-func addMod(a, b, q uint64) uint64 {
-	if a >= q {
-		a %= q
-	}
-	if b >= q {
-		b %= q
-	}
-	return addModReduced(a, b, q)
-}
-
-func subMod(a, b, q uint64) uint64 {
-	if a >= q {
-		a %= q
-	}
-	if b >= q {
-		b %= q
-	}
-	return subModReduced(a, b, q)
-}
-
-func mulMod(a, b, q uint64) uint64 {
-	if a >= q {
-		a %= q
-	}
-	if b >= q {
-		b %= q
-	}
-	return mulModReduced(a, b, q)
 }

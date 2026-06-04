@@ -56,16 +56,6 @@ func polyInverseNTT(r *ring.Ring, a *ring.Poly) (*ring.Poly, bool) {
 	return out, true
 }
 
-func IsInvertibleDenominator(ringQ *ring.Ring, b3, x1 *ring.Poly) bool {
-	if ringQ == nil || b3 == nil || x1 == nil {
-		return false
-	}
-	d := ringQ.NewPoly()
-	ringQ.Sub(b3, x1, d)
-	_, ok := polyInverseNTT(ringQ, d)
-	return ok
-}
-
 func ComputeBBTranInverse(
 	ringQ *ring.Ring,
 	b3, x1 *ring.Poly,

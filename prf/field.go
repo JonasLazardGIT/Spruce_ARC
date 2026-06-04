@@ -13,23 +13,12 @@ func NewField(q uint64) Field {
 	return Field{q: q}
 }
 
-func (f Field) Q() uint64 { return f.q }
-
 func (f Field) add(a, b Elem) Elem {
 	v := uint64(a) + uint64(b)
 	if v >= f.q {
 		v -= f.q
 	}
 	return Elem(v)
-}
-
-func (f Field) sub(a, b Elem) Elem {
-	va := uint64(a)
-	vb := uint64(b)
-	if va >= vb {
-		return Elem(va - vb)
-	}
-	return Elem(va + f.q - vb)
 }
 
 func (f Field) mul(a, b Elem) Elem {

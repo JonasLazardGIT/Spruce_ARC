@@ -58,10 +58,10 @@ func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	}
 	for i := range pub.CM {
 		if len(pub.CM[i]) != l.MCount {
-			return nil, fmt.Errorf("C_M row %d cols=%d want %d", i, len(pub.CM[i]), l.MCount)
+			return nil, fmt.Errorf("c_m row %d cols=%d want %d", i, len(pub.CM[i]), l.MCount)
 		}
 		if len(pub.AS[i]) != l.SCount {
-			return nil, fmt.Errorf("A_s row %d cols=%d want %d", i, len(pub.AS[i]), l.SCount)
+			return nil, fmt.Errorf("a_s row %d cols=%d want %d", i, len(pub.AS[i]), l.SCount)
 		}
 	}
 	toThetaCoeff := func(p *ring.Poly, name string) ([]uint64, error) {

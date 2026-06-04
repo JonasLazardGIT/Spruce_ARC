@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 
 	"golang.org/x/crypto/sha3"
 )
@@ -233,38 +232,4 @@ func (d Domain) Validate() error {
 		}
 	}
 	return nil
-}
-
-func (d Domain) PointAtIndex(i int) (uint64, error) {
-	if i < 0 || i >= len(d.E) {
-		return 0, fmt.Errorf("index %d out of range (len(E)=%d)", i, len(d.E))
-	}
-	return d.E[i], nil
-}
-
-// SampleTailIndices returns distinct indices in [TailStart, NLeaves).
-func (d Domain) SampleTailIndices(count int, rng *rand.Rand) ([]int, error) {
-	if err := d.Validate(); err != nil {
-		return nil, err
-	}
-	if count < 0 {
-		return nil, fmt.Errorf("count must be >= 0 (got %d)", count)
-	}
-	if rng == nil {
-		return nil, errors.New("rng must be non-nil")
-	}
-	tailLen := d.NLeaves - d.TailStart
-	if count > tailLen {
-		return nil, fmt.Errorf("count=%d exceeds tail length %d", count, tailLen)
-	}
-	if count == 0 {
-		return nil, nil
-	}
-
-	perm := rng.Perm(tailLen)
-	out := make([]int, count)
-	for i := 0; i < count; i++ {
-		out[i] = d.TailStart + perm[i]
-	}
-	return out, nil
 }

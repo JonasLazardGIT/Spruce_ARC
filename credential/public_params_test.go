@@ -30,7 +30,7 @@ func chdirForCredentialTest(t *testing.T) {
 
 func TestPublicParamsRoundTripAndLift(t *testing.T) {
 	chdirForCredentialTest(t)
-	ringQ, err := LoadDefaultRing()
+	ringQ, err := LoadRingWithDegree(0)
 	if err != nil {
 		t.Fatalf("load ring: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestPublicParamsRoundTripAndLift(t *testing.T) {
 
 func TestGenerateUniformCoeffMatrixNotIdentityLike(t *testing.T) {
 	chdirForCredentialTest(t)
-	ringQ, err := LoadDefaultRing()
+	ringQ, err := LoadRingWithDegree(0)
 	if err != nil {
 		t.Fatalf("load ring: %v", err)
 	}

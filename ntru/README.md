@@ -29,10 +29,9 @@ The CLI-facing wrappers live in:
 
 The main operator entrypoints built on top of this package are:
 
-- `signverify.GenerateKeypairAnnulus`
-- `signverify.SignWithOpts`
-- `signverify.SignTarget`
-- `signverify.Verify`
+- `signverify.GenerateKeypairAnnulusToFiles`
+- `signverify.SignTargetWithPaths`
+- `signverify.VerifyWithParamsPath`
 
 ## Current protocol role
 

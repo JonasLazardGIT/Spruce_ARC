@@ -13,11 +13,9 @@ import (
 )
 
 const intGenISISPRFKeyLen = credential.IntGenISISPRFPoseidonKeyLen
-const intGenISISPRFSeedLen = credential.IntGenISISPRFSeedLen
 const intGenISISPRFSeedDigitsPerLane = credential.IntGenISISPRFSeedDigitsPerLane
 const intGenISISMaxDirectSignatureRangeBound = 64
 const intGenISISTernaryBound = 1
-const intGenISISTernaryMembershipDegree = 3
 const intGenISISDefaultBound = credential.IntGenISISLiveBound
 const intGenISISSeedBound = credential.IntGenISISPRFSeedBound
 const intGenISISDegreeModePaperEq3V1 = credential.IntGenISISDegreeModePaperEq3V1
@@ -25,8 +23,6 @@ const intGenISISUShortnessVersion = "intgenisis_u_shortness_r11_l4_v1"
 const intGenISISUShortnessMode = "radix_beta_aware_top_digit_cap_v1"
 const intGenISISUShortnessRadix = 11
 const intGenISISUShortnessDigits = 4
-const intGenISISUShortnessDigitBound = 5
-const intGenISISUShortnessCapacity = 7320
 
 type intGenISISRowMaterial struct {
 	Poly *ring.Poly
@@ -229,10 +225,6 @@ func intGenISISUShortnessShapeForRadixDigits(radix, digits int) (intGenISISUShor
 	}, nil
 }
 
-func intGenISISUShortnessDescriptorForBound(sigBound int64) (intGenISISUShortnessDescriptor, error) {
-	return intGenISISUShortnessDescriptorForBoundAndOpts(sigBound, SimOpts{})
-}
-
 func intGenISISUShortnessDescriptorForBoundAndOpts(sigBound int64, opts SimOpts) (intGenISISUShortnessDescriptor, error) {
 	if sigBound <= 0 {
 		return intGenISISUShortnessDescriptor{}, fmt.Errorf("invalid IntGenISIS signature bound %d", sigBound)
@@ -307,20 +299,12 @@ func intGenISISUShortnessCapsForBound(shape intGenISISUShortnessShape, sigBound 
 	return caps, capacity, nil
 }
 
-func intGenISISUShortnessDescriptorBytes(sigBound int64) ([]byte, error) {
-	return intGenISISUShortnessDescriptorBytesWithOpts(sigBound, SimOpts{})
-}
-
 func intGenISISUShortnessDescriptorBytesWithOpts(sigBound int64, opts SimOpts) ([]byte, error) {
 	desc, err := intGenISISUShortnessDescriptorForBoundAndOpts(sigBound, opts)
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(desc)
-}
-
-func intGenISISUShortnessSpec(q uint64, sigBound int64) (spec LinfSpec, err error) {
-	return intGenISISUShortnessSpecForOpts(q, sigBound, SimOpts{})
 }
 
 func intGenISISUShortnessSpecForOpts(q uint64, sigBound int64, opts SimOpts) (spec LinfSpec, err error) {
@@ -429,10 +413,6 @@ func validateIntGenISISBoundedPolys(ringQ *ring.Ring, bound int64, name string, 
 	return nil
 }
 
-func validateIntGenISISTernaryPolys(ringQ *ring.Ring, name string, rows []*ring.Poly) error {
-	return validateIntGenISISBoundedPolys(ringQ, intGenISISTernaryBound, name, rows)
-}
-
 func validateIntGenISISLiveBoundPolys(ringQ *ring.Ring, bound int64, name string, rows []*ring.Poly) error {
 	if bound != credential.IntGenISISLiveBound {
 		return fmt.Errorf("IntGenISIS live bound=%d want %d", bound, credential.IntGenISISLiveBound)
@@ -472,40 +452,6 @@ func extractIntGenISISPRFKeyElemsFromSemanticM(ringQ *ring.Ring, bound int64, M 
 		out[i] = prf.Elem(liftToField(ringQ.Modulus[0], v))
 	}
 	return out, nil
-}
-
-func intGenISISKeySourceSlots(mRow, lenKey, ringDegree int) ([]CoeffSlot, error) {
-	if ringDegree <= lenKey {
-		return nil, fmt.Errorf("ring degree %d too small for key length %d", ringDegree, lenKey)
-	}
-	out := make([]CoeffSlot, lenKey)
-	start := ringDegree - lenKey
-	for i := range out {
-		out[i] = CoeffSlot{Row: mRow, Coeff: start + i}
-	}
-	return out, nil
-}
-
-func intGenISISKeySourceViewSlots(mViewStart, keyLen, ncols, ringDegree int) ([]CoeffSlot, error) {
-	if mViewStart < 0 {
-		return nil, fmt.Errorf("invalid M view start %d", mViewStart)
-	}
-	if keyLen <= 0 {
-		return nil, fmt.Errorf("invalid key length %d", keyLen)
-	}
-	if ncols <= 0 {
-		return nil, fmt.Errorf("invalid ncols %d", ncols)
-	}
-	if ringDegree <= keyLen {
-		return nil, fmt.Errorf("ring degree %d too small for key length %d", ringDegree, keyLen)
-	}
-	slots := make([]CoeffSlot, keyLen)
-	keyStart := ringDegree - keyLen
-	for i := 0; i < keyLen; i++ {
-		semanticCoeff := keyStart + i
-		slots[i] = CoeffSlot{Row: mViewStart + semanticCoeff/ncols, Coeff: semanticCoeff % ncols}
-	}
-	return slots, nil
 }
 
 func intGenISISSeedSourceViewSlots(mViewStart, ncols, ringDegree int) ([]CoeffSlot, error) {
@@ -561,11 +507,11 @@ func intGenISISSplitMViewRowsForPack9Tail(rows []intGenISISRowMaterial, ringDegr
 	}
 	ordinaryCoeffs := ringDegree - credential.IntGenISISPRFSeedTailReserve
 	if ordinaryCoeffs < 0 || ordinaryCoeffs%ncols != 0 {
-		return nil, nil, fmt.Errorf("IntGenISIS Pack9 tail reserve %d is not aligned for N=%d ncols=%d", credential.IntGenISISPRFSeedTailReserve, ringDegree, ncols)
+		return nil, nil, fmt.Errorf("intgenisis Pack9 tail reserve %d is not aligned for N=%d ncols=%d", credential.IntGenISISPRFSeedTailReserve, ringDegree, ncols)
 	}
 	ordinaryRows := ordinaryCoeffs / ncols
 	if len(rows) != ringDegree/ncols {
-		return nil, nil, fmt.Errorf("M view rows=%d want %d", len(rows), ringDegree/ncols)
+		return nil, nil, fmt.Errorf("m view rows=%d want %d", len(rows), ringDegree/ncols)
 	}
 	return rows[:ordinaryRows], rows[ordinaryRows:], nil
 }
@@ -592,46 +538,6 @@ func intGenISISSplitMViewRowIndicesForPack9Tail(start, ringDegree, ncols int) (o
 		seedTail[i] = start + len(ordinaryMats) + i
 	}
 	return ordinary, seedTail, nil
-}
-
-func intGenISISKeySourceCarrierSlots(mCarrierStart, keyLen, ncols, ringDegree, packWidth int) ([]CoeffSlot, []int, error) {
-	if mCarrierStart < 0 {
-		return nil, nil, fmt.Errorf("invalid M carrier start %d", mCarrierStart)
-	}
-	if packWidth <= 1 {
-		return nil, nil, fmt.Errorf("invalid compressed key-source pack width %d", packWidth)
-	}
-	if keyLen <= 0 {
-		return nil, nil, fmt.Errorf("invalid key length %d", keyLen)
-	}
-	if ncols <= 0 {
-		return nil, nil, fmt.Errorf("invalid ncols %d", ncols)
-	}
-	if ringDegree <= keyLen {
-		return nil, nil, fmt.Errorf("ring degree %d too small for key length %d", ringDegree, keyLen)
-	}
-	slots := make([]CoeffSlot, keyLen)
-	lanes := make([]int, keyLen)
-	keyStart := ringDegree - keyLen
-	for i := 0; i < keyLen; i++ {
-		semanticCoeff := keyStart + i
-		sourceRow := semanticCoeff / ncols
-		slots[i] = CoeffSlot{Row: mCarrierStart + sourceRow/packWidth, Coeff: semanticCoeff % ncols}
-		lanes[i] = sourceRow % packWidth
-	}
-	return slots, lanes, nil
-}
-
-func intGenISISHatRowsFromCoeffViews(ringQ *ring.Ring, omega []uint64, coeffRows []*ring.Poly, rowsPerPoly int, makeRowFromHead func([]uint64) *ring.Poly, name string) ([]*ring.Poly, error) {
-	mats := make([]intGenISISRowMaterial, len(coeffRows))
-	for i, row := range coeffRows {
-		mats[i] = intGenISISRowMaterial{Poly: row}
-	}
-	hatMats, err := intGenISISHatRowMaterialsFromCoeffViews(ringQ, omega, mats, rowsPerPoly, nil, makeRowFromHead, name)
-	if err != nil {
-		return nil, err
-	}
-	return intGenISISRowMaterialPolys(hatMats), nil
 }
 
 func intGenISISHatRowMaterialsFromCoeffViews(ringQ *ring.Ring, omega []uint64, coeffRows []intGenISISRowMaterial, rowsPerPoly int, interp *omegaInterpolationPlan, makeRowFromHead func([]uint64) *ring.Poly, name string) ([]intGenISISRowMaterial, error) {
@@ -732,10 +638,6 @@ func intGenISISRangeMembershipRows(ringQ *ring.Ring, rowsNTT []*ring.Poly, indic
 	}
 	spec := NewRangeMembershipSpec(ringQ.Modulus[0], int(bound))
 	return buildFparRangeMembershipComposeFormalCoeffs(ringQ, selected, spec)
-}
-
-func intGenISISTernaryMembershipRows(ringQ *ring.Ring, rowsNTT []*ring.Poly, indices []int) ([]*ring.Poly, [][]uint64, error) {
-	return intGenISISRangeMembershipRows(ringQ, rowsNTT, indices, intGenISISTernaryBound)
 }
 
 func intGenISISLiveMembershipRows(ringQ *ring.Ring, rowsNTT []*ring.Poly, indices []int, bound int64) ([]*ring.Poly, [][]uint64, error) {
@@ -1031,14 +933,6 @@ func intGenISISUShortnessDigitRowMaterials(ringQ *ring.Ring, omega []uint64, uRo
 	return out, nil
 }
 
-func intGenISISUShortnessDigitRows(ringQ *ring.Ring, omega []uint64, uRows []*ring.Poly, ncols int, spec LinfSpec) ([]*ring.Poly, error) {
-	mats, err := intGenISISUShortnessDigitRowMaterials(ringQ, omega, uRows, ncols, spec, nil)
-	if err != nil {
-		return nil, err
-	}
-	return intGenISISRowMaterialPolys(mats), nil
-}
-
 func intGenISISViewRowIndices(start, count int) []int {
 	out := make([]int, count)
 	for i := range out {
@@ -1060,43 +954,6 @@ func intGenISISEvalKPolyAtElem(K *kf.Field, coeffs []uint64, x kf.Elem) kf.Elem 
 		out = K.Add(K.Mul(out, x), K.EmbedF(coeffs[i]))
 	}
 	return out
-}
-
-func intGenISISPolicyRows(
-	ringQ *ring.Ring,
-	policy credential.IntGenISISPolicy,
-	layout credential.SemanticMessageLayout,
-	omega []uint64,
-) ([][]uint64, error) {
-	if policy.ID == "" || policy.ID == credential.IntGenISISPolicyNoop {
-		return nil, nil
-	}
-	if policy.ID != credential.IntGenISISPolicyMEquals {
-		return nil, fmt.Errorf("unsupported IntGenISIS policy %q", policy.ID)
-	}
-	var data credential.IntGenISISMEqualsPolicyData
-	if err := json.Unmarshal(policy.Data, &data); err != nil {
-		return nil, fmt.Errorf("decode m_eq policy data: %w", err)
-	}
-	if len(data.MAttr) != layout.AttributeRows {
-		return nil, fmt.Errorf("policy m rows=%d want %d", len(data.MAttr), layout.AttributeRows)
-	}
-	out := make([][]uint64, len(data.MAttr))
-	for i := range data.MAttr {
-		if len(data.MAttr[i]) != layout.RingDegree {
-			return nil, fmt.Errorf("policy m[%d] length=%d want %d", i, len(data.MAttr[i]), layout.RingDegree)
-		}
-		theta, err := thetaPolyFromCoeff(ringQ, data.MAttr[i], omega)
-		if err != nil {
-			return nil, fmt.Errorf("policy m[%d] theta: %w", i, err)
-		}
-		coeff, err := coeffFromNTTPoly(ringQ, theta)
-		if err != nil {
-			return nil, fmt.Errorf("policy m[%d] coeffs: %w", i, err)
-		}
-		out[i] = trimPoly(coeff, ringQ.Modulus[0])
-	}
-	return out, nil
 }
 
 func intGenISISPolicyCoeffViewCoeffs(

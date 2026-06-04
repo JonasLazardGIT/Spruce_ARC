@@ -51,35 +51,14 @@ type PublicParams struct {
 	LenR0H               int                           `json:"LenR0H,omitempty"`
 	LenR1H               int                           `json:"LenR1H,omitempty"`
 	LenRBar              int                           `json:"LenRBar,omitempty"`
-
-	LegacyLenM1  int `json:"LenM1,omitempty"`
-	LegacyLenM2  int `json:"LenM2,omitempty"`
-	LegacyLenRU0 int `json:"LenRU0,omitempty"`
-	LegacyLenRU1 int `json:"LenRU1,omitempty"`
-	LegacyLenR   int `json:"LenR,omitempty"`
 }
 
 func (pp *PublicParams) normalizeLegacy() {
 	if pp.Version == 0 {
 		pp.Version = 1
 	}
-	if pp.LenM == 0 {
-		pp.LenM = pp.LegacyLenM1
-	}
-	if pp.LenK == 0 {
-		pp.LenK = pp.LegacyLenM2
-	}
 	if pp.LenMu == 0 && (pp.LenM > 0 || pp.LenK > 0) {
 		pp.LenMu = 1
-	}
-	if pp.LenR0H == 0 {
-		pp.LenR0H = pp.LegacyLenRU0
-	}
-	if pp.LenR1H == 0 {
-		pp.LenR1H = pp.LegacyLenRU1
-	}
-	if pp.LenRBar == 0 {
-		pp.LenRBar = pp.LegacyLenR
 	}
 	if pp.X0Len == 0 {
 		if pp.LenR0H > 0 {
@@ -256,7 +235,7 @@ func (pp *PublicParams) Validate() error {
 	for i := range pp.Ac {
 		for j := range pp.Ac[i] {
 			if len(pp.Ac[i][j]) != pp.RingDegree {
-				return fmt.Errorf("Ac[%d][%d] coefficient length=%d want ring_degree=%d", i, j, len(pp.Ac[i][j]), pp.RingDegree)
+				return fmt.Errorf("ac[%d][%d] coefficient length=%d want ring_degree=%d", i, j, len(pp.Ac[i][j]), pp.RingDegree)
 			}
 		}
 	}
@@ -436,11 +415,6 @@ func (pp PublicParams) ToIssuanceParams(ringQ *ring.Ring) (*Params, error) {
 		LenR0H:               pp.LenR0H,
 		LenR1H:               pp.LenR1H,
 		LenRBar:              pp.LenRBar,
-		LenM1:                pp.LenM,
-		LenM2:                pp.LenK,
-		LenRU0:               pp.LenR0H,
-		LenRU1:               pp.LenR1H,
-		LenR:                 pp.LenRBar,
 		RingQ:                ringQ,
 	}, nil
 }

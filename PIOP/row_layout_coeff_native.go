@@ -20,10 +20,6 @@ func rowLayoutHasCoeffNativeSig(layout RowLayout) bool {
 	return layout.CoeffNativeSig.Enabled
 }
 
-func rowLayoutCoeffNativeIsBlocked(layout RowLayout) bool {
-	return false
-}
-
 func rowLayoutCoeffNativeUsesTransformBridge(layout RowLayout) bool {
 	cfg := layout.CoeffNativeSig
 	return cfg.Enabled && rowLayoutCoeffNativeUsesLiteralPackedV3(layout)
@@ -37,36 +33,6 @@ func rowLayoutCoeffNativeUsesLiteralPacked(layout RowLayout) bool {
 func rowLayoutCoeffNativeUsesLiteralPackedV3(layout RowLayout) bool {
 	cfg := layout.CoeffNativeSig
 	return cfg.Enabled && cfg.Model == CoeffNativeSigModelLiteralPackedAggregatedV3
-}
-
-func rowLayoutCoeffNativeSigIndex(layout RowLayout, block, comp int) int {
-	cfg := layout.CoeffNativeSig
-	componentCount := cfg.SigUCount
-	if componentCount <= 0 {
-		componentCount = cfg.SigComponentCount
-	}
-	if !rowLayoutCoeffNativeUsesLiteralPacked(layout) || block < 0 || comp < 0 || comp >= componentCount || block >= cfg.SigBlocks {
-		return -1
-	}
-	return cfg.SigBase + block*componentCount + comp
-}
-
-func rowLayoutCoeffNativeSigScalarIndex(layout RowLayout, comp, coeff int) int {
-	return -1
-}
-
-func rowLayoutCoeffNativePackedSigIndex(layout RowLayout, comp, block int) int {
-	cfg := layout.CoeffNativeSig
-	if !rowLayoutCoeffNativeUsesLiteralPacked(layout) {
-		return -1
-	}
-	if comp < 0 || block < 0 || comp >= cfg.PackedSigComponents || block >= cfg.PackedSigBlocks {
-		return -1
-	}
-	if cfg.PackedSigBase < 0 || cfg.PackedSigCount <= 0 {
-		return -1
-	}
-	return cfg.PackedSigBase + comp*cfg.PackedSigBlocks + block
 }
 
 func rowLayoutCoeffLookupIndex(layout RowLayout, comp, block int) int {
@@ -113,17 +79,6 @@ func rowLayoutPackedSigChainEffectiveBlocks(layout RowLayout) int {
 	return layout.CoeffNativeSig.PackedSigBlocks
 }
 
-func rowLayoutPackedSigChainSourceBlockWidth(layout RowLayout) int {
-	if layout.PackedSigChainSourceBlockWidth > 0 {
-		return layout.PackedSigChainSourceBlockWidth
-	}
-	return layout.CoeffNativeSig.PackedSigBlockWidth
-}
-
-func rowLayoutCoeffNativeW3ScalarIndex(layout RowLayout, comp, coeff int) int {
-	return -1
-}
-
 func rowLayoutCoeffNativePackedSigChainIndex(layout RowLayout, group, lane int) int {
 	if !rowLayoutCoeffNativeUsesLiteralPacked(layout) {
 		return -1
@@ -165,16 +120,4 @@ func rowLayoutPairLookupExtractRowCount(layout RowLayout) int {
 		return 0
 	}
 	return layout.PairLookupExtractGroupCount * layout.PackedSigChainRowsPerGroup * layout.PairLookupExtractRowsPerLane
-}
-
-func rowLayoutCoeffNativeMsgIndex(layout RowLayout, block, ord int) int {
-	return -1
-}
-
-func rowLayoutCoeffNativeRndIndex(layout RowLayout, block, ord int) int {
-	return -1
-}
-
-func rowLayoutCoeffNativeW2Index(layout RowLayout, block int) int {
-	return -1
 }

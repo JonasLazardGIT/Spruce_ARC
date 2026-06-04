@@ -25,14 +25,6 @@ func NoopIntGenISISPolicy() IntGenISISPolicy {
 	return IntGenISISPolicy{ID: IntGenISISPolicyNoop}
 }
 
-func NewIntGenISISMEqualsPolicy(mAttr [][]int64) (IntGenISISPolicy, error) {
-	data, err := json.Marshal(IntGenISISMEqualsPolicyData{MAttr: cloneInt64Rows(mAttr)})
-	if err != nil {
-		return IntGenISISPolicy{}, err
-	}
-	return IntGenISISPolicy{ID: IntGenISISPolicyMEquals, Data: data}, nil
-}
-
 func ParseIntGenISISPolicy(data []byte) (IntGenISISPolicy, error) {
 	if len(data) == 0 {
 		return NoopIntGenISISPolicy(), nil

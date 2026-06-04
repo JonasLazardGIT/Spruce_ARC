@@ -35,7 +35,7 @@ func chdirForPIOPTest(tb testing.TB, dir string) {
 
 func TestBuildSmallFieldWitnessRowsFromLiteralInputsPreservesOmegaHeads(t *testing.T) {
 	chdirForPIOPTest(t, piopTestRepoRoot(t))
-	ringQ, err := credential.LoadDefaultRing()
+	ringQ, err := credential.LoadRingWithDegree(0)
 	if err != nil {
 		t.Fatalf("load ring: %v", err)
 	}

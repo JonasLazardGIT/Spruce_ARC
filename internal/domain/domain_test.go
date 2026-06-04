@@ -2,7 +2,6 @@ package domain
 
 import (
 	"bytes"
-	"math/rand"
 	"testing"
 )
 
@@ -53,24 +52,6 @@ func TestNewDomain_PartitioningAndDistinctness(t *testing.T) {
 		t.Fatalf("bad Tail size: %d", len(d.Tail))
 	}
 
-	rng := rand.New(rand.NewSource(1))
-	indices, err := d.SampleTailIndices(10, rng)
-	if err != nil {
-		t.Fatalf("SampleTailIndices: %v", err)
-	}
-	if len(indices) != 10 {
-		t.Fatalf("unexpected index count: %d", len(indices))
-	}
-	seen := map[int]struct{}{}
-	for _, idx := range indices {
-		if idx < d.TailStart || idx >= d.NLeaves {
-			t.Fatalf("index out of tail range: %d", idx)
-		}
-		if _, ok := seen[idx]; ok {
-			t.Fatalf("duplicate index: %d", idx)
-		}
-		seen[idx] = struct{}{}
-	}
 }
 
 func TestNewDomainWithPrefix_PreservesPrefixAndIsDeterministic(t *testing.T) {

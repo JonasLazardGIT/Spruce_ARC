@@ -23,7 +23,6 @@ type preparedCredentialBuild struct {
 	rowLayout             RowLayout
 	decsParams            decs.Params
 	maskRowOffset         int
-	maskRowCount          int
 	witnessCount          int
 	witnessNCols          int
 	omega                 []uint64
@@ -31,12 +30,6 @@ type preparedCredentialBuild struct {
 	domainPoints          []uint64
 	builtPK               *lvcs.ProverKey
 	skipConstraintRebuild bool
-}
-
-// BuildWithConstraints proves a credential-mode statement from explicit
-// publics/witnesses and a custom constraint set (F-polys).
-func BuildWithConstraints(pub PublicInputs, wit WitnessInputs, set ConstraintSet, opts SimOpts, personalization string) (*Proof, error) {
-	return buildWithConstraintsPrepared(pub, wit, set, opts, personalization, nil)
 }
 
 func rowLayoutCanReusePreparedConstraintSet(layout RowLayout, opts SimOpts) bool {
@@ -113,7 +106,6 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			rowLayout = prepared.rowLayout
 			decsParams = prepared.decsParams
 			maskRowOffset = prepared.maskRowOffset
-			maskRowCount = prepared.maskRowCount
 			witnessCount = prepared.witnessCount
 			if prepared.witnessNCols > 0 {
 				witnessNCols = prepared.witnessNCols
@@ -154,14 +146,14 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				}
 				var prfLayout *PRFLayout
 				var prfCompanionLayout *PRFCompanionLayout
-				rows, rowInputs, rowLayout, prfLayout, prfCompanionLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, _, err = BuildCredentialRowsShowing(ringQ, pub, wit, params.LenKey, params.LenNonce, params.RF, params.RP, groupRounds, opts)
+				rows, rowInputs, rowLayout, prfLayout, prfCompanionLayout, decsParams, maskRowOffset, _, witnessCount, _, _, err = BuildCredentialRowsShowing(ringQ, pub, wit, params.LenKey, params.LenNonce, params.RF, params.RP, groupRounds, opts)
 				if err != nil {
 					return nil, fmt.Errorf("build showing rows: %w", err)
 				}
 				set.PRFLayout = prfLayout
 				set.PRFCompanionLayout = prfCompanionLayout
 			} else {
-				rows, rowInputs, rowLayout, decsParams, maskRowOffset, maskRowCount, witnessCount, _, err = buildCredentialRows(ringQ, pub.HashRelation, wit, opts, pub.BoundB, pub.X0CoeffBound)
+				rows, rowInputs, rowLayout, decsParams, maskRowOffset, _, witnessCount, _, err = buildCredentialRows(ringQ, pub.HashRelation, wit, opts, pub.BoundB, pub.X0CoeffBound)
 			}
 			if err != nil {
 				return nil, fmt.Errorf("build credential rows: %w", err)
@@ -431,41 +423,21 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			prepared.rowLayout = rowLayout
 			prepared.decsParams = decsParams
 			prepared.maskRowOffset = maskRowOffset
-			prepared.maskRowCount = maskRowCount
 			prepared.witnessCount = witnessCount
 			prepared.domainPoints = domainPoints
 		}
 		pcsGeometry.OracleLayout = oracleLayout
 		if rowLayoutHasCoeffNativeSig(rowLayout) && rowLayoutCoeffNativeUsesLiteralPacked(rowLayout) && wit.CoeffNativeShowing != nil {
-			if sigShortnessInlinedTargetHidingEnabledForOpts(opts) {
-				sigShortness, err = buildSigShortnessProofV7Metadata(ringQ, rowLayout, opts)
-				if err != nil {
-					return nil, fmt.Errorf("build inlined sig shortness metadata: %w", err)
-				}
-				sigShortnessBindingDigest, err = buildSigShortnessBindingDigest(sigShortness, rowLayout, witnessNCols)
-				if err != nil {
-					return nil, fmt.Errorf("build inlined sig shortness binding: %w", err)
-				}
-			} else {
-				pcsNCols := ncols
-				if pcsNCols <= 0 {
-					pcsNCols = witnessNCols
-				}
-				sigShortness, sigShortnessBindingDigest, err = buildSigShortnessProofV6(
-					ringQ,
-					pk,
-					root,
-					rowLayout,
-					wit.CoeffNativeShowing,
-					pub,
-					omegaWitness,
-					witnessNCols,
-					pcsNCols,
-					opts,
-				)
-				if err != nil {
-					return nil, fmt.Errorf("build sig shortness V6: %w", err)
-				}
+			if !sigShortnessInlinedTargetHidingEnabledForOpts(opts) {
+				return nil, fmt.Errorf("coeff-native literal-packed showing requires maintained sig shortness V18 profile")
+			}
+			sigShortness, err = buildSigShortnessProofV18Metadata(ringQ, rowLayout, opts)
+			if err != nil {
+				return nil, fmt.Errorf("build inlined sig shortness metadata: %w", err)
+			}
+			sigShortnessBindingDigest, err = buildSigShortnessBindingDigest(sigShortness, rowLayout, witnessNCols)
+			if err != nil {
+				return nil, fmt.Errorf("build inlined sig shortness binding: %w", err)
 			}
 		}
 
@@ -870,7 +842,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 					evalK = ek
 				}
 				if proof.SigShortness != nil && proof.SigShortness.Version == sigShortnessProofVersionV18 {
-					sigReplay, serr := buildSigShortnessV7Replay(ringQ, proof, pub, omegaWitness, domainPoints, opts)
+					sigReplay, serr := buildSigShortnessV18Replay(ringQ, proof, pub, omegaWitness, domainPoints, opts)
 					if serr != nil {
 						return false, serr
 					}

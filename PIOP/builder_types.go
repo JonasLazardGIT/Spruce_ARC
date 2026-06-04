@@ -45,12 +45,11 @@ func publicInputsWithRingDegree(pub PublicInputs, ringDegree int) (PublicInputs,
 // witness. It carries the signed mu row directly so PRF key material can be
 // derived from the key slice of mu by construction.
 type CoeffNativeShowingWitness struct {
-	Sig   []*ring.Poly
-	Mu    *ring.Poly
-	M     *ring.Poly
-	MAttr *ring.Poly
-	K     *ring.Poly
-	// Deprecated split rows retained only for older tests/fixtures.
+	Sig         []*ring.Poly
+	Mu          *ring.Poly
+	M           *ring.Poly
+	MAttr       *ring.Poly
+	K           *ring.Poly
 	M1          *ring.Poly
 	M2          *ring.Poly
 	S           []*ring.Poly
@@ -63,65 +62,6 @@ type CoeffNativeShowingWitness struct {
 	Z           *ring.Poly
 	T           *ring.Poly
 	PackedNCols int
-}
-
-// Validate checks the coeff-native showing witness before row packing.
-func (wit *CoeffNativeShowingWitness) Validate(ringN int) error {
-	if wit == nil {
-		return fmt.Errorf("nil coeff-native showing witness")
-	}
-	if len(wit.Sig) == 0 {
-		return fmt.Errorf("missing coeff-native signature witness rows")
-	}
-	if wit.Mu == nil {
-		if wit.M1 == nil {
-			return fmt.Errorf("missing signed mu witness row")
-		}
-		wit.Mu = wit.M1
-	}
-	if len(wit.R0) == 0 {
-		return fmt.Errorf("missing signed R0 witness row")
-	}
-	for i, poly := range wit.R0 {
-		if poly == nil {
-			return fmt.Errorf("nil signed R0 witness row %d", i)
-		}
-		if ringN > 0 && (len(poly.Coeffs) == 0 || len(poly.Coeffs[0]) != ringN) {
-			return fmt.Errorf("signed R0 witness row %d width=%d want ringN=%d", i, len(poly.Coeffs[0]), ringN)
-		}
-	}
-	if wit.R1 == nil {
-		return fmt.Errorf("missing signed R1 witness row")
-	}
-	if wit.Z == nil {
-		return fmt.Errorf("missing signed Z witness row")
-	}
-	if wit.T == nil {
-		return fmt.Errorf("missing signed T witness row")
-	}
-	if wit.PackedNCols <= 0 {
-		return fmt.Errorf("invalid coeff-native packed ncols=%d", wit.PackedNCols)
-	}
-	rows := []*ring.Poly{wit.Mu, wit.R1, wit.Z, wit.T}
-	for i, poly := range wit.Sig {
-		if poly == nil {
-			return fmt.Errorf("nil coeff-native signature row %d", i)
-		}
-		if ringN > 0 {
-			if len(poly.Coeffs) == 0 || len(poly.Coeffs[0]) != ringN {
-				return fmt.Errorf("coeff-native signature row %d width=%d want ringN=%d", i, len(poly.Coeffs[0]), ringN)
-			}
-		}
-	}
-	for i, poly := range rows {
-		if len(poly.Coeffs) == 0 {
-			return fmt.Errorf("nil coeff-native base row %d", i)
-		}
-		if ringN > 0 && len(poly.Coeffs[0]) != ringN {
-			return fmt.Errorf("coeff-native base row %d width=%d want ringN=%d", i, len(poly.Coeffs[0]), ringN)
-		}
-	}
-	return nil
 }
 
 // WitnessInputs holds the witness vectors for a statement build.
@@ -206,28 +146,3 @@ type PRFLayout struct {
 }
 
 const PRFLayoutModeSBox = "sbox"
-
-func clonePRFSlots(src []PRFSlot) []PRFSlot {
-	if len(src) == 0 {
-		return nil
-	}
-	out := make([]PRFSlot, len(src))
-	copy(out, src)
-	return out
-}
-
-func clonePRFLayout(src *PRFLayout) *PRFLayout {
-	if src == nil {
-		return nil
-	}
-	out := *src
-	out.KeySlots = clonePRFSlots(src.KeySlots)
-	out.SBoxSlots = clonePRFSlots(src.SBoxSlots)
-	return &out
-}
-
-// StatementBuilder builds and verifies a statement.
-type StatementBuilder interface {
-	Build(pub PublicInputs, wit WitnessInputs, cfg MaskConfig) (*Proof, error)
-	Verify(pub PublicInputs, proof *Proof) (bool, error)
-}

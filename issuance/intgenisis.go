@@ -47,18 +47,6 @@ func PrepareIntGenISISCommit(params *credential.Params, in IntGenISISInputs) (co
 	return commitment.CommitMessage(targetParams, in.M, in.S, in.E)
 }
 
-func VerifyIntGenISISCommit(params *credential.Params, c commitment.Vector, in IntGenISISInputs) error {
-	targetParams, err := commitmentParamsFromIssuance(params)
-	if err != nil {
-		return err
-	}
-	return commitment.VerifyCommitmentOpening(targetParams, c, commitment.TargetOpening{
-		M: in.M,
-		S: in.S,
-		E: in.E,
-	})
-}
-
 func commitmentParamsFromIssuance(params *credential.Params) (commitment.TargetParams, error) {
 	if params == nil {
 		return commitment.TargetParams{}, fmt.Errorf("nil params")
@@ -96,7 +84,7 @@ func SampleSignatureHashData(ringQ *ring.Ring, B []*ring.Poly, ellMuSig, ellX0 i
 		return SignatureHashData{}, fmt.Errorf("nil ring")
 	}
 	if len(B) != 3+ellX0 {
-		return SignatureHashData{}, fmt.Errorf("B length=%d want %d", len(B), 3+ellX0)
+		return SignatureHashData{}, fmt.Errorf("b length=%d want %d", len(B), 3+ellX0)
 	}
 	if ellMuSig != 1 {
 		return SignatureHashData{}, fmt.Errorf("ell_mu_sig=%d want 1", ellMuSig)
@@ -159,7 +147,7 @@ func ComputeIntGenISISTarget(ringQ *ring.Ring, B []*ring.Poly, c commitment.Vect
 		return IntGenISISTarget{}, fmt.Errorf("invalid x0 length=%d", ellX0)
 	}
 	if len(B) != 3+ellX0 {
-		return IntGenISISTarget{}, fmt.Errorf("B length=%d want %d", len(B), 3+ellX0)
+		return IntGenISISTarget{}, fmt.Errorf("b length=%d want %d", len(B), 3+ellX0)
 	}
 	if len(c) != 1 || c[0] == nil {
 		return IntGenISISTarget{}, fmt.Errorf("commitment length=%d want 1", len(c))
@@ -193,22 +181,6 @@ func ComputeIntGenISISTarget(ringQ *ring.Ring, B []*ring.Poly, c commitment.Vect
 		TNTT:   []*ring.Poly{tNTT},
 		TCoeff: coeffPolyToInt64(ringQ, tCoeffPoly),
 	}, nil
-}
-
-func VerifyIntGenISISTarget(ringQ *ring.Ring, B []*ring.Poly, c commitment.Vector, data SignatureHashData, tCoeff []int64) error {
-	got, err := ComputeIntGenISISTarget(ringQ, B, c, data)
-	if err != nil {
-		return err
-	}
-	if len(got.TCoeff) != len(tCoeff) {
-		return fmt.Errorf("target length=%d want %d", len(tCoeff), len(got.TCoeff))
-	}
-	for i := range tCoeff {
-		if got.TCoeff[i] != tCoeff[i] {
-			return fmt.Errorf("target coefficient %d=%d want %d", i, tCoeff[i], got.TCoeff[i])
-		}
-	}
-	return nil
 }
 
 func computeInverseNoMutate(ringQ *ring.Ring, b3, x1Coeff *ring.Poly) (*ring.Poly, error) {

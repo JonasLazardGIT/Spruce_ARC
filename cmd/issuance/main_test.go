@@ -221,7 +221,7 @@ func TestDeriveOmegaForIssuanceOptsUsesRelationAwareWitnessOmega(t *testing.T) {
 	root := issuanceTestRepoRoot(t)
 	chdirForIssuanceTest(t, root)
 
-	ringQ, err := credential.LoadDefaultRing()
+	ringQ, err := credential.LoadRingWithDegree(0)
 	if err != nil {
 		t.Fatalf("load ring: %v", err)
 	}

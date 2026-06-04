@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math/bits"
 
@@ -91,13 +90,6 @@ func modMul(a, b, q uint64) uint64 {
 // modInv returns a^{‑1} mod q (q must be prime).
 func modInv(a, q uint64) uint64 {
 	return ring.ModExp(a, q-2, q) // Fermat since q is prime in all params used.
-}
-
-// copyPolyNTT copies src into dst assuming both are in NTT form.
-func copyPolyNTT(dst, src *ring.Poly) {
-	for i := range dst.Coeffs {
-		copy(dst.Coeffs[i], src.Coeffs[i])
-	}
 }
 
 // -----------------------------------------------------------------------------
@@ -387,20 +379,6 @@ func BuildQK(
 	return out
 }
 
-// firstLimbToFPoly converts the first limb of a K-polynomial to an F[X] polynomial in coeff-domain.
-func firstLimbToFPoly(r *ring.Ring, kp *KPoly) *ring.Poly {
-	if r == nil || kp == nil {
-		return nil
-	}
-	coeffs := firstLimbCoeffs(kp, r.Modulus[0])
-	if coeffs == nil || len(coeffs) > int(r.N) {
-		return nil
-	}
-	poly := r.NewPoly()
-	copy(poly.Coeffs[0], coeffs)
-	return poly
-}
-
 func firstLimbCoeffs(kp *KPoly, q uint64) []uint64 {
 	if kp == nil || len(kp.Limbs) == 0 {
 		return nil
@@ -657,24 +635,6 @@ func (kp *KPoly) setCoeffK(k int, aLimbs []uint64) {
 	}
 }
 
-func (kp *KPoly) coeffLimbs(k int) []uint64 {
-	out := make([]uint64, len(kp.Limbs))
-	for j := range kp.Limbs {
-		out[j] = kp.Limbs[j][k]
-	}
-	return out
-}
-
-func kpolyToCoeffPolys(r *ring.Ring, kp *KPoly) []*ring.Poly {
-	out := make([]*ring.Poly, len(kp.Limbs))
-	for j := range kp.Limbs {
-		poly := r.NewPoly()
-		copy(poly.Coeffs[0], kp.Limbs[j])
-		out[j] = poly
-	}
-	return out
-}
-
 func splitKPolysToCoeffRows(polys []*KPoly, theta int, q uint64) [][]uint64 {
 	if theta <= 0 || len(polys) == 0 {
 		return nil
@@ -746,27 +706,6 @@ func equalKPolys(a, b []*KPoly, q uint64) bool {
 	return true
 }
 
-func evalKPolyAtF(K *kf.Field, kp *KPoly, w uint64) kf.Elem {
-	acc := K.Zero()
-	x := K.EmbedF(w % K.Q)
-	coeff := K.Zero()
-	for k := kp.Degree; k >= 0; k-- {
-		K.MulInto(&acc, acc, x)
-		setKPolyCoeff(K, &coeff, kp, k)
-		K.AddInto(&acc, acc, coeff)
-		if k == 0 {
-			break
-		}
-	}
-	return acc
-}
-
-func evalKPolyAtK(K *kf.Field, kp *KPoly, e kf.Elem) kf.Elem {
-	acc := K.Zero()
-	evalKPolyAtKInto(K, &acc, kp, e)
-	return acc
-}
-
 func evalKPolyAtKInto(K *kf.Field, dst *kf.Elem, kp *KPoly, e kf.Elem) {
 	ensureKElem(K, dst)
 	clear(dst.Limb)
@@ -782,19 +721,6 @@ func evalKPolyAtKInto(K *kf.Field, dst *kf.Elem, kp *KPoly, e kf.Elem) {
 			break
 		}
 	}
-}
-
-func evalKScalarPolyAtF(K *kf.Field, coeffs []KScalar, w uint64) kf.Elem {
-	x := K.EmbedF(w % K.Q)
-	return evalKScalarPolyAtK(K, coeffs, x)
-}
-
-// evalKScalarPolyAtK evaluates a low-degree K[X] polynomial given by its
-// coefficient slice (ascending degree) at a K-point e.
-func evalKScalarPolyAtK(K *kf.Field, coeffs []KScalar, e kf.Elem) kf.Elem {
-	acc := K.Zero()
-	evalKScalarPolyAtKInto(K, &acc, coeffs, e)
-	return acc
 }
 
 func evalKScalarPolyAtKInto(K *kf.Field, dst *kf.Elem, coeffs []KScalar, e kf.Elem) {
@@ -1033,28 +959,6 @@ func SampleIndependentMaskPolynomialsK(
 ) []*KPoly {
 	params := maskSamplerParams{omega: omega, maxDeg: dQ}
 	return sampleMaskPolynomialsK(ringQ, K, params, rho, nil)
-}
-
-// randFieldElem draws a uniform element in [0,q) not in the forbidden set.
-func randFieldElem(q uint64, forbid map[uint64]struct{}) (uint64, error) {
-	if q == 0 {
-		return 0, errors.New("q=0")
-	}
-	bound := ^uint64(0) - (^uint64(0) % q)
-	for {
-		var buf [8]byte
-		if _, err := rand.Read(buf[:]); err != nil {
-			return 0, err
-		}
-		v := uint64(buf[0]) | uint64(buf[1])<<8 | uint64(buf[2])<<16 | uint64(buf[3])<<24 | uint64(buf[4])<<32 | uint64(buf[5])<<40 | uint64(buf[6])<<48 | uint64(buf[7])<<56
-		if v >= bound {
-			continue
-		}
-		v %= q
-		if _, bad := forbid[v]; !bad {
-			return v, nil
-		}
-	}
 }
 
 // -----------------------------------------------------------------------------
@@ -1308,39 +1212,6 @@ func shouldUseNTTNegacyclicProduct(ringQ *ring.Ring, dst, a, b []uint64) bool {
 	return n >= 512 && len(a)*len(b) >= 32768
 }
 
-func addMulModXN1NTTInto(ringQ *ring.Ring, dst, a, b []uint64, scale uint64, scratch *negacyclicProductScratch) bool {
-	if scratch == nil || !shouldUseNTTNegacyclicProduct(ringQ, dst, a, b) {
-		return false
-	}
-	q := ringQ.Modulus[0]
-	if scale >= q {
-		scale %= q
-	}
-	if scale == 0 {
-		return true
-	}
-	resetRingPolyCoeffs(scratch.a)
-	resetRingPolyCoeffs(scratch.b)
-	for i, v := range a {
-		if v >= q {
-			v %= q
-		}
-		scratch.a.Coeffs[0][i] = v
-	}
-	for i, v := range b {
-		if v >= q {
-			v %= q
-		}
-		scratch.b.Coeffs[0][i] = v
-	}
-	ringQ.NTT(scratch.a, scratch.a)
-	ringQ.NTT(scratch.b, scratch.b)
-	ringQ.MulCoeffs(scratch.a, scratch.b, scratch.out)
-	ringQ.InvNTT(scratch.out, scratch.out)
-	addScaledInto(dst, scratch.out.Coeffs[0], scale, q)
-	return true
-}
-
 func addMulModXN1PrecomputedNTTInto(ringQ *ring.Ring, dst []uint64, aNTT *ring.Poly, b []uint64, scale uint64, scratch *negacyclicProductScratch) bool {
 	if scratch == nil || aNTT == nil || !shouldUseNTTNegacyclicProduct(ringQ, dst, aNTT.Coeffs[0], b) {
 		return false
@@ -1491,25 +1362,6 @@ func trimPoly(coeffs []uint64, q uint64) []uint64 {
 	return coeffs[:n]
 }
 
-// addInto in‑place: dst += src mod q (resize dst if needed).
-func addIntoUint(dst *[]uint64, src []uint64, q uint64) {
-	if len(src) > len(*dst) {
-		newDst := make([]uint64, len(src))
-		copy(newDst, *dst)
-		*dst = newDst
-	}
-	for i, v := range src {
-		if v >= q {
-			v %= q
-		}
-		(*dst)[i] = modAddReduced((*dst)[i], v, q)
-	}
-}
-
-func addInto(r *ring.Ring, dst, src *ring.Poly) {
-	r.Add(dst, src, dst)
-}
-
 // checkOmega ensures Ω has distinct elements and q ∤ |Ω|.
 func checkOmega(omega []uint64, q uint64) error {
 	seen := make(map[uint64]struct{}, len(omega))
@@ -1605,33 +1457,6 @@ func buildInterpolationPlan(xs []uint64, q uint64) (*interpolationPlan, error) {
 		basis[i] = trimPoly(row, q)
 	}
 	return &interpolationPlan{q: q, basis: basis}, nil
-}
-
-func (p *interpolationPlan) interpolate(ys []uint64) []uint64 {
-	if p == nil || len(p.basis) == 0 {
-		return []uint64{0}
-	}
-	res := make([]uint64, len(p.basis))
-	n := len(p.basis)
-	if len(ys) < n {
-		n = len(ys)
-	}
-	for i := 0; i < n; i++ {
-		yi := ys[i]
-		if yi >= p.q {
-			yi %= p.q
-		}
-		if yi == 0 {
-			continue
-		}
-		for k := 0; k < len(p.basis[i]); k++ {
-			if p.basis[i][k] == 0 {
-				continue
-			}
-			res[k] = modAddReduced(res[k], modMulReduced(p.basis[i][k], yi, p.q), p.q)
-		}
-	}
-	return trimPoly(res, p.q)
 }
 
 // Interpolate returns the coefficients of the unique poly of degree <len(xs)
@@ -1754,20 +1579,6 @@ func (p *omegaInterpolationPlan) coeffPolyFromHead(ringQ *ring.Ring, head []uint
 	return out
 }
 
-func (p *omegaInterpolationPlan) nttPolyFromHead(ringQ *ring.Ring, head []uint64) *ring.Poly {
-	out := p.coeffPolyFromHead(ringQ, head)
-	ringQ.NTT(out, out)
-	return out
-}
-
-func buildValueRow(r *ring.Ring, vals, omega []uint64, ell int) *ring.Poly {
-	p, _, _, err := BuildRowPolynomial(r, vals, omega, ell)
-	if err != nil {
-		panic(err)
-	}
-	return p
-}
-
 func scalePolyNTT(r *ring.Ring, a *ring.Poly, c uint64, out *ring.Poly) {
 	if out != a {
 		copy(out.Coeffs[0], a.Coeffs[0])
@@ -1777,61 +1588,4 @@ func scalePolyNTT(r *ring.Ring, a *ring.Poly, c uint64, out *ring.Poly) {
 	for i := range out.Coeffs[0] {
 		out.Coeffs[0][i] = modMulReduced(out.Coeffs[0][i], c, q)
 	}
-}
-
-// -----------------------------------------------------------------------------
-//  Public helper – build P_i(X) with random blinding
-// -----------------------------------------------------------------------------
-
-// BuildRowPolynomial takes a witness row (length s), the corresponding
-// domain Ω, and a blinding parameter ℓ.  It returns
-//   - *ring.Poly in NTT form (degree ≤ s+ℓ-1),
-//   - the extra points r[0:ℓ],
-//   - their evaluations y[0:ℓ].
-//
-// Pre‑conditions:  len(row)==len(omega)==s,   ℓ≥1,   xs are all distinct.
-func BuildRowPolynomial(ringQ *ring.Ring, row, omega []uint64, ell int) (poly *ring.Poly, rPoints, rEvals []uint64, err error) {
-	if len(row) != len(omega) {
-		return nil, nil, nil, errors.New("row and omega length mismatch")
-	}
-	if ell <= 0 {
-		return nil, nil, nil, errors.New("ell must be ≥1")
-	}
-	q := ringQ.Modulus[0]
-
-	// 1. choose ℓ random points outside Ω
-	forbid := make(map[uint64]struct{}, len(omega))
-	for _, w := range omega {
-		forbid[w] = struct{}{}
-	}
-	rPoints = make([]uint64, ell)
-	for i := 0; i < ell; i++ {
-		rp, e := randFieldElem(q, forbid)
-		if e != nil {
-			return nil, nil, nil, e
-		}
-		forbid[rp] = struct{}{}
-		rPoints[i] = rp
-	}
-
-	// 2. choose ℓ random evaluations y_i
-	rEvals = make([]uint64, ell)
-	for i := 0; i < ell; i++ {
-		y, e := randFieldElem(q, nil)
-		if e != nil {
-			return nil, nil, nil, e
-		}
-		rEvals[i] = y
-	}
-
-	// 3. interpolate over xs = Ω ∪ rPoints, ys = row ∪ rEvals
-	xs := append(append([]uint64{}, omega...), rPoints...)
-	ys := append(append([]uint64{}, row...), rEvals...)
-	coeffs := Interpolate(xs, ys, q) // coeff domain
-
-	// 4. lift to NTT and wrap in *ring.Poly
-	poly = ringQ.NewPoly()
-	copy(poly.Coeffs[0], coeffs)
-	ringQ.NTT(poly, poly)
-	return poly, rPoints, rEvals, nil
 }

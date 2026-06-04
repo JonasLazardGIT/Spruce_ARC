@@ -239,15 +239,15 @@ func ValidateSemanticMessage(layout SemanticMessageLayout, msg SemanticMessage) 
 			id := slotKey(r, c)
 			if attrAllowed[id] {
 				if absInt64(msg.M[r][c]) > layout.ordinaryBound() {
-					return fmt.Errorf("M[%d][%d]=%d outside [-%d,%d]", r, c, msg.M[r][c], layout.ordinaryBound(), layout.ordinaryBound())
+					return fmt.Errorf("m[%d][%d]=%d outside [-%d,%d]", r, c, msg.M[r][c], layout.ordinaryBound(), layout.ordinaryBound())
 				}
 				if !isTernaryInt64(msg.M[r][c]) {
-					return fmt.Errorf("M[%d][%d]=%d outside ternary domain {-1,0,1}", r, c, msg.M[r][c])
+					return fmt.Errorf("m[%d][%d]=%d outside ternary domain {-1,0,1}", r, c, msg.M[r][c])
 				}
 			}
 			if keyAllowed[id] {
 				if absInt64(msg.M[r][c]) > layout.seedBound() {
-					return fmt.Errorf("M seed[%d][%d]=%d outside [-%d,%d]", r, c, msg.M[r][c], layout.seedBound(), layout.seedBound())
+					return fmt.Errorf("m seed[%d][%d]=%d outside [-%d,%d]", r, c, msg.M[r][c], layout.seedBound(), layout.seedBound())
 				}
 			}
 			if !attrAllowed[id] && !keyAllowed[id] && msg.M[r][c] != 0 {
@@ -273,7 +273,7 @@ func ValidateSemanticMessage(layout SemanticMessageLayout, msg SemanticMessage) 
 				}
 			}
 			if msg.M[r][c] != msg.MAttr[r][c]+msg.K[r][c] {
-				return fmt.Errorf("M=m||k mismatch at poly=%d coeff=%d", r, c)
+				return fmt.Errorf("m=m||k mismatch at poly=%d coeff=%d", r, c)
 			}
 		}
 	}

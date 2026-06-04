@@ -40,14 +40,7 @@ type Params struct {
 	LenR0H               int
 	LenR1H               int
 	LenRBar              int
-	// Deprecated aliases retained so older tests can still build while the
-	// live runtime uses the semantic lengths above.
-	LenM1  int
-	LenM2  int
-	LenRU0 int
-	LenRU1 int
-	LenR   int
-	RingQ  *ring.Ring
+	RingQ                *ring.Ring
 }
 
 const (
@@ -55,11 +48,6 @@ const (
 	DefaultTargetHidingLambda     = 128
 	X0DistributionUniformInterval = "uniform_interval"
 )
-
-// paramsFile mirrors the JSON schema stored on disk.
-func LoadDefaultRing() (*ring.Ring, error) {
-	return LoadRingWithDegree(0)
-}
 
 // LoadRingWithDegree loads the repository modulus and one of the maintained
 // IntGenISIS ring degrees.

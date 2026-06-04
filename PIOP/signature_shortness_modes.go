@@ -7,26 +7,11 @@ type sigShortnessPackedRawSpec struct {
 	GroupSize int
 }
 
-func signatureChainRowsPerSigForOpts(spec LinfSpec, _ SimOpts) (int, error) {
-	return signatureChainRowsPerSig(spec), nil
-}
-
-func signatureChainConstraintCountPerSigForOpts(spec LinfSpec, _ SimOpts) (int, error) {
-	return signatureChainConstraintCountPerSig(spec), nil
-}
-
 func signaturePackedChainRowsPerGroupForOpts(spec LinfSpec, _ SimOpts, groupSize int) (int, error) {
 	if _, err := buildSigShortnessPackedRawSpec(spec, groupSize); err != nil {
 		return 0, err
 	}
 	return spec.L, nil
-}
-
-func signaturePackedChainConstraintCountPerGroupForOpts(spec LinfSpec, _ SimOpts, groupSize int) (int, error) {
-	if _, err := buildSigShortnessPackedRawSpec(spec, groupSize); err != nil {
-		return 0, err
-	}
-	return 1 + spec.L, nil
 }
 
 func signatureShortnessMaxDegree(spec LinfSpec, _ SimOpts) (int, error) {

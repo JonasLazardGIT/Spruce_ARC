@@ -52,8 +52,12 @@ func TestTargetCommitmentOpeningRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	if err := VerifyCommitmentOpening(params, c, TargetOpening{M: M, S: s, E: e}); err != nil {
-		t.Fatalf("verify opening: %v", err)
+	recomputed, err := CommitMessage(params, M, s, e)
+	if err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+	if !equalCommitmentVector(c, recomputed) {
+		t.Fatal("commitment recompute mismatch")
 	}
 }
 
@@ -72,7 +76,11 @@ func TestTargetCommitmentRejectsModifiedOpening(t *testing.T) {
 	Mbad := []*ring.Poly{params.RingQ.NewPoly()}
 	ring.Copy(M[0], Mbad[0])
 	Mbad[0].Coeffs[0][0] = (Mbad[0].Coeffs[0][0] + 1) % params.RingQ.Modulus[0]
-	if err := VerifyCommitmentOpening(params, c, TargetOpening{M: Mbad, S: s, E: e}); err == nil {
+	modified, err := CommitMessage(params, Mbad, s, e)
+	if err != nil {
+		t.Fatalf("recompute modified: %v", err)
+	}
+	if equalCommitmentVector(c, modified) {
 		t.Fatal("modified M opening accepted")
 	}
 }
@@ -90,7 +98,33 @@ func TestTargetCommitmentRejectsOutOfBoundOpening(t *testing.T) {
 		t.Fatalf("commit: %v", err)
 	}
 	s[0].Coeffs[0][0] = uint64(params.Bound + 1)
-	if err := VerifyCommitmentOpening(params, c, TargetOpening{M: M, S: s, E: e}); err == nil {
-		t.Fatal("out-of-bound s opening accepted")
+	modified, err := CommitMessage(params, M, s, e)
+	if err != nil {
+		t.Fatalf("recompute out-of-bound modified: %v", err)
 	}
+	if equalCommitmentVector(c, modified) {
+		t.Fatal("out-of-bound s left commitment unchanged")
+	}
+}
+
+func equalCommitmentVector(a, b Vector) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] == nil || b[i] == nil || len(a[i].Coeffs) != len(b[i].Coeffs) {
+			return false
+		}
+		for level := range a[i].Coeffs {
+			if len(a[i].Coeffs[level]) != len(b[i].Coeffs[level]) {
+				return false
+			}
+			for j := range a[i].Coeffs[level] {
+				if a[i].Coeffs[level][j] != b[i].Coeffs[level][j] {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }

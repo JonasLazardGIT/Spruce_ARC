@@ -111,7 +111,7 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 	mViewStart := len(rows)
 	mViewRows, err := intGenISISCoeffViewRows(ringQ, omegaWitness, wit.M, ncols)
 	if err != nil {
-		return nil, fmt.Errorf("M coefficient views: %w", err)
+		return nil, fmt.Errorf("m coefficient views: %w", err)
 	}
 	rows = append(rows, mViewRows...)
 	mAttrViewStart := len(rows)
@@ -185,7 +185,6 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 		rowLayout:     layout,
 		decsParams:    decs.Params{},
 		maskRowOffset: len(rows) - rho,
-		maskRowCount:  rho,
 		witnessCount:  len(rows) - rho,
 		witnessNCols:  ncols,
 		omega:         omega,

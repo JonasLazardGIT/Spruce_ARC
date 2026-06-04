@@ -78,7 +78,7 @@ func (st IntGenISISState) Validate() error {
 		return fmt.Errorf("ring_degree=%d want %d", st.RingDegree, profile.N)
 	}
 	if len(st.M) != profile.EllM {
-		return fmt.Errorf("M rows=%d want ell_M=%d", len(st.M), profile.EllM)
+		return fmt.Errorf("m rows=%d want ell_M=%d", len(st.M), profile.EllM)
 	}
 	if len(st.MAttr) != profile.EllM {
 		return fmt.Errorf("m rows=%d want ell_M=%d", len(st.MAttr), profile.EllM)

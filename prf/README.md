@@ -24,11 +24,8 @@ credential secret.
 - `Tag`
 - `LoadParamsFromFile`
 - `LoadLocalOrDefaultParams`
-- `Trace`
-- `TraceSBoxOutputs`
-- `TraceSBoxOutputsGrouped`
 - `ShouldCheckpointRound`
-- `MaxConstraintDegreeGrouped`
+- `SBoxOutputCountGrouped`
 
 ## Current Invariants
 

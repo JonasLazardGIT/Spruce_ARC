@@ -1,6 +1,7 @@
 package PIOP
 
 import (
+	"encoding/json"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -299,7 +300,7 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 		t.Fatal("tampered mask degree verified")
 	}
 
-	policy, err := credential.NewIntGenISISMEqualsPolicy(msg.MAttr)
+	policy, err := newMEqualsPolicyForTest(msg.MAttr)
 	if err != nil {
 		t.Fatalf("policy: %v", err)
 	}
@@ -323,7 +324,7 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	}
 	badPolicyRows := credential.ZeroSemanticAttributes(semanticLayout)
 	badPolicyRows[0][0] = 1
-	badPolicy, err := credential.NewIntGenISISMEqualsPolicy(badPolicyRows)
+	badPolicy, err := newMEqualsPolicyForTest(badPolicyRows)
 	if err != nil {
 		t.Fatalf("bad policy: %v", err)
 	}
@@ -336,6 +337,18 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	if _, err := BuildIntGenISISPreSign(ringQ, pubBadPolicy, wit, opts); err == nil {
 		t.Fatal("mismatched m_eq policy accepted")
 	}
+}
+
+func newMEqualsPolicyForTest(mAttr [][]int64) (credential.IntGenISISPolicy, error) {
+	rows := make([][]int64, len(mAttr))
+	for i := range mAttr {
+		rows[i] = append([]int64(nil), mAttr[i]...)
+	}
+	data, err := json.Marshal(credential.IntGenISISMEqualsPolicyData{MAttr: rows})
+	if err != nil {
+		return credential.IntGenISISPolicy{}, err
+	}
+	return credential.IntGenISISPolicy{ID: credential.IntGenISISPolicyMEquals, Data: data}, nil
 }
 
 func chdirForPIOPIntGenISISTest(t testing.TB) {
@@ -355,21 +368,6 @@ func chdirForPIOPIntGenISISTest(t testing.TB) {
 	t.Cleanup(func() {
 		_ = os.Chdir(cwd)
 	})
-}
-
-func boundedPIOPPoly(ringQ *ring.Ring, bound int64, rng *rand.Rand) *ring.Poly {
-	p := ringQ.NewPoly()
-	q := int64(ringQ.Modulus[0])
-	width := 2*bound + 1
-	for i := 0; i < ringQ.N; i++ {
-		v := rng.Int63n(width) - bound
-		if v < 0 {
-			p.Coeffs[0][i] = uint64(v + q)
-		} else {
-			p.Coeffs[0][i] = uint64(v)
-		}
-	}
-	return p
 }
 
 func polysFromInt64ForIntGenISISTest(ringQ *ring.Ring, rows [][]int64) []*ring.Poly {
@@ -406,15 +404,4 @@ func clonePolyMatrixForIntGenISISTest(ringQ *ring.Ring, in [][]*ring.Poly) [][]*
 		out[i] = clonePolySliceForIntGenISISTest(ringQ, in[i])
 	}
 	return out
-}
-
-func truncatePIOPPolysForTest(width int, polys ...*ring.Poly) {
-	for _, p := range polys {
-		if p == nil || len(p.Coeffs) == 0 {
-			continue
-		}
-		for i := width; i < len(p.Coeffs[0]); i++ {
-			p.Coeffs[0][i] = 0
-		}
-	}
 }

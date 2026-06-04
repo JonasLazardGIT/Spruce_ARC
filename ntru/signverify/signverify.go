@@ -1,8 +1,6 @@
 package signverify
 
 import (
-	crand "crypto/rand"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math/big"
@@ -31,12 +29,6 @@ func loadParams() (*ntrurio.SystemParams, error) {
 		return nil, err
 	}
 	return &p, nil
-}
-
-func LoadParamsForCLI() (*ntrurio.SystemParams, error) { return loadParams() }
-
-func GenerateKeypairAnnulus(par ntru.Params, kg ntru.KeygenOpts) (pk *keys.PublicKey, sk *keys.PrivateKey, err error) {
-	return GenerateKeypairAnnulusToFiles(par, kg, "ntru_keys/public.json", "ntru_keys/private.json")
 }
 
 func GenerateKeypairAnnulusToFiles(par ntru.Params, kg ntru.KeygenOpts, publicPath, privatePath string) (pk *keys.PublicKey, sk *keys.PrivateKey, err error) {
@@ -109,17 +101,9 @@ type SignPaths struct {
 	SignaturePath string
 }
 
-func SignTarget(tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts) (*keys.Signature, error) {
-	return SignTargetWithPaths(tCoeffs, maxTrials, opts, SignPaths{})
-}
-
 func SignTargetWithPaths(tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts, paths SignPaths) (*keys.Signature, error) {
 	meta := targetMeta{Persist: false}
 	return signWithTCoeffsAndPaths(tCoeffs, maxTrials, opts, meta, paths)
-}
-
-func SignTargetNoPersistWithPaths(tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts, paths SignPaths) (*keys.Signature, error) {
-	return SignTargetWithPaths(tCoeffs, maxTrials, opts, paths)
 }
 
 func loadParamsFromPath(path string) (*ntrurio.SystemParams, error) {
@@ -131,47 +115,6 @@ func loadParamsFromPath(path string) (*ntrurio.SystemParams, error) {
 		return nil, err
 	}
 	return &p, nil
-}
-
-func SignWithOpts(message []byte, maxTrials int, opts ntru.SamplerOpts) (*keys.Signature, error) {
-	return SignWithPaths(message, maxTrials, opts, SignPaths{})
-}
-
-func SignWithPaths(message []byte, maxTrials int, opts ntru.SamplerOpts, paths SignPaths) (*keys.Signature, error) {
-	// Load system params for hashing the target
-	sys, err := loadParamsFromPath(paths.ParamsPath)
-	if err != nil {
-		return nil, err
-	}
-	// seeds from message and fresh randomness
-	mSeedArr := sha256.Sum256(message)
-	mSeed := mSeedArr[:]
-	x0Seed := make([]byte, 32)
-	x1Seed := make([]byte, 32)
-	if _, err := crand.Read(x0Seed); err != nil {
-		return nil, err
-	}
-	if _, err := crand.Read(x1Seed); err != nil {
-		return nil, err
-	}
-	// target t
-	bFile := paths.BFile
-	if bFile == "" {
-		bFile = "internal/source_data/Bmatrix.intgenisis_profile_b.json"
-	}
-	tCoeffs, err := ntru.ComputeTargetFromSeeds(sys, bFile, "", mSeed, x0Seed, x1Seed)
-	if err != nil {
-		return nil, err
-	}
-	meta := targetMeta{
-		BFile:        bFile,
-		HashRelation: "",
-		MSeed:        mSeed,
-		X0Seed:       x0Seed,
-		X1Seed:       x1Seed,
-		Persist:      true,
-	}
-	return signWithTCoeffsAndPaths(tCoeffs, maxTrials, opts, meta, paths)
 }
 
 func autoTuneSignerAlpha(opts *ntru.SamplerOpts, sampler *ntru.Sampler) error {
@@ -186,10 +129,6 @@ func autoTuneSignerAlpha(opts *ntru.SamplerOpts, sampler *ntru.Sampler) error {
 		opts.Alpha = alpha
 	}
 	return nil
-}
-
-func signWithTCoeffs(tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts, meta targetMeta) (*keys.Signature, error) {
-	return signWithTCoeffsAndPaths(tCoeffs, maxTrials, opts, meta, SignPaths{})
 }
 
 func signWithTCoeffsAndPaths(tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts, meta targetMeta, paths SignPaths) (*keys.Signature, error) {
@@ -382,11 +321,6 @@ func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64
 		}
 	}
 	return sig, nil
-}
-
-// Verify checks the signature bundle for congruence and norm predicate.
-func Verify(sig *keys.Signature) error {
-	return VerifyWithParamsPath(sig, "")
 }
 
 func VerifyWithParamsPath(sig *keys.Signature, paramsPath string) error {

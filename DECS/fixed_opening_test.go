@@ -31,7 +31,7 @@ func TestPackOpeningFixedTailIndicesAboveLegacyLimit(t *testing.T) {
 
 func TestPackOpeningFixedRowMajorPathsVerify(t *testing.T) {
 	pr := makeDeterministicFormalProver(t)
-	root, err := pr.CommitInit()
+	root, err := pr.CommitInitWithOptions(CommitOptions{})
 	if err != nil {
 		t.Fatalf("commit init: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestPackOpeningFixedRowMajorPathsVerify(t *testing.T) {
 
 func TestPackOpeningFixedAuthenticationShapeIsConstant(t *testing.T) {
 	pr := makeDeterministicFormalProver(t)
-	if _, err := pr.CommitInit(); err != nil {
+	if _, err := pr.CommitInitWithOptions(CommitOptions{}); err != nil {
 		t.Fatalf("commit init: %v", err)
 	}
 	openA := pr.EvalOpen([]int{1, 2, 3, 4})

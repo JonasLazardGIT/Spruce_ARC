@@ -68,7 +68,7 @@ func TestFormalEvalPlanMatchesEvalPoly(t *testing.T) {
 					t.Fatalf("iter=%d trial=%d row=%d got=%d want=%d", iter, trial, j, dst[j], want)
 				}
 			}
-			plan.evalInto(dst, x, red)
+			evalFormalPlanForTest(plan, dst, x, red)
 			for j := range rows {
 				want := evalPoly(rows[j], x, q)
 				if dst[j] != want {
@@ -77,6 +77,16 @@ func TestFormalEvalPlanMatchesEvalPoly(t *testing.T) {
 			}
 		}
 	}
+}
+
+func evalFormalPlanForTest(plan formalEvalPlan, dst []uint64, x uint64, red modReducer64) {
+	if plan.usesPowerEval() {
+		powers := make([]uint64, plan.maxDeg+1)
+		computeFormalEvalPowers(powers, x, red)
+		plan.evalIntoPrepared(dst, x, red, powers)
+		return
+	}
+	plan.evalIntoHorner(dst, x, red)
 }
 
 func TestFormalEvalTileMatchesScalar(t *testing.T) {

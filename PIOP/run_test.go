@@ -37,14 +37,6 @@ func TestInlineTargetReplayCompactPresetEnablesOnlyV18(t *testing.T) {
 	if !sigShortnessV18EnabledForOpts(opts) {
 		t.Fatalf("canonical inline-target preset did not enable V18")
 	}
-	if sigShortnessV7EnabledForOpts(opts) ||
-		sigShortnessV8EnabledForOpts(opts) ||
-		sigShortnessV9EnabledForOpts(opts) ||
-		sigShortnessV10EnabledForOpts(opts) ||
-		sigShortnessV12EnabledForOpts(opts) ||
-		sigShortnessV13EnabledForOpts(opts) {
-		t.Fatalf("canonical inline-target preset enabled a pruned shortness family")
-	}
 	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetInlineTargetReplayCompactResearch {
 		t.Fatalf("resolved preset=%q want %q", got, ShowingPresetInlineTargetReplayCompactResearch)
 	}

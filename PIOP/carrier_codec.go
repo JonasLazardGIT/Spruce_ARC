@@ -187,13 +187,6 @@ func buildPackedMuCarrierMembershipPoly(bound int64, packWidth int, q uint64) ([
 	return trimPoly(coeffs, q), nil
 }
 
-// EncodeCarrierPair is the exported form of the pair codec used by issuance
-// and tests when they need to derive the same committed carrier surface as the
-// constraint builder.
-func EncodeCarrierPair(m1, m2, bound int64) (uint64, error) {
-	return encodeCarrierPair(m1, m2, bound)
-}
-
 func packedMessageCarrierAlphabetSize(bound int64) (int64, error) {
 	if bound < 0 {
 		return 0, fmt.Errorf("invalid packed-message bound %d", bound)
@@ -307,31 +300,6 @@ func buildPackedMessageCarrierMembershipPoly(bound int64, q uint64) ([]uint64, e
 	return trimPoly(coeffs, q), nil
 }
 
-func decodeSingletonCarrier(code uint64, bound int64) (int64, error) {
-	size, err := singletonCarrierAlphabetSize(bound)
-	if err != nil {
-		return 0, err
-	}
-	if int64(code) < 0 || int64(code) >= size {
-		return 0, fmt.Errorf("singleton carrier code %d outside [0,%d)", code, size)
-	}
-	return int64(code) - bound, nil
-}
-
-func decodeCarrierPair(code uint64, bound int64) (int64, int64, error) {
-	size, err := carrierAlphabetSize(bound)
-	if err != nil {
-		return 0, 0, err
-	}
-	if int64(code) < 0 || int64(code) >= size {
-		return 0, 0, fmt.Errorf("carrier code %d outside [0,%d)", code, size)
-	}
-	base, _ := carrierBase(bound)
-	m1v := int64(code % uint64(base))
-	m2v := int64(code / uint64(base))
-	return m1v - bound, m2v - bound, nil
-}
-
 func buildCarrierDecodePolys(bound int64, q uint64) ([]uint64, []uint64, error) {
 	size, err := carrierAlphabetSize(bound)
 	if err != nil {
@@ -442,35 +410,6 @@ func firstCoeff(coeffs [][]uint64) []uint64 {
 		return nil
 	}
 	return coeffs[0]
-}
-
-// DecodeCarrierHeadToFormalPair interpolates the carrier head over Ω,
-// composes the public decode polynomials with that committed carrier
-// polynomial, and returns the formal coefficient vectors of the two decoded
-// coordinates. This matches the exact pre-sign/showing virtual-row semantics
-// used by the explicit-domain constraint builders.
-func DecodeCarrierHeadToFormalPair(ringQ *ring.Ring, bound int64, carrierHead, omega []uint64) ([]uint64, []uint64, error) {
-	if ringQ == nil {
-		return nil, nil, fmt.Errorf("nil ring")
-	}
-	if len(omega) == 0 {
-		return nil, nil, fmt.Errorf("empty omega")
-	}
-	if len(carrierHead) < len(omega) {
-		return nil, nil, fmt.Errorf("carrier head len=%d < omega len=%d", len(carrierHead), len(omega))
-	}
-	q := ringQ.Modulus[0]
-	decode1, decode2, err := buildCarrierDecodePolys(bound, q)
-	if err != nil {
-		return nil, nil, err
-	}
-	carrierTheta := BuildThetaPrime(ringQ, carrierHead[:len(omega)], omega)
-	carrierCoeff := ringQ.NewPoly()
-	ringQ.InvNTT(carrierTheta, carrierCoeff)
-	carrierPoly := fpoly.New(q, trimPoly(carrierCoeff.Coeffs[0], q))
-	left := fpoly.New(q, decode1).Compose(carrierPoly)
-	right := fpoly.New(q, decode2).Compose(carrierPoly)
-	return trimPoly(left.Coeffs, q), trimPoly(right.Coeffs, q), nil
 }
 
 const (
@@ -707,22 +646,6 @@ func assembleFullCoeffFromAliasBlocks(aliasCoeffs [][]uint64, omega []uint64, ri
 		}
 	}
 	return trimPoly(out, q), nil
-}
-
-// CanonicalMuAliasPoly returns the decompressed row polynomial used by the
-// current explicit-domain carrier surface for a coefficient-bounded mu payload.
-// The carrier itself is encoded from the first |omega| coefficients of mu.
-func CanonicalMuAliasPoly(ringQ *ring.Ring, boundB, x0Bound int64, omega []uint64, mu *ring.Poly) (*ring.Poly, error) {
-	surface, err := DerivePreSignCarrierAndAliasRows(ringQ, boundB, x0Bound, omega, DomainModeExplicit, PreSignRawRows{Mu: mu})
-	if err != nil {
-		return nil, err
-	}
-	if surface.AliasMu == nil {
-		return nil, fmt.Errorf("missing canonical mu alias")
-	}
-	out := ringQ.NewPoly()
-	ring.Copy(surface.AliasMu, out)
-	return out, nil
 }
 
 // DerivePreSignCarrierAndAliasRows builds the canonical pre-sign witness
@@ -1145,7 +1068,7 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, boundB int64, x0Bound in
 	if err := assignAlias(PreSignAliasM2, right, rightRow); err != nil {
 		return nil, err
 	}
-	left, right, leftRow, rightRow, err = buildAliasPair(carrierRU1, scalarDecode1, scalarDecode2)
+	left, _, leftRow, _, err = buildAliasPair(carrierRU1, scalarDecode1, scalarDecode2)
 	if err != nil {
 		return nil, err
 	}
@@ -1166,7 +1089,7 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, boundB int64, x0Bound in
 	if err := assignAlias(PreSignAliasR, left, leftRow); err != nil {
 		return nil, err
 	}
-	left, right, leftRow, rightRow, err = buildAliasPair(carrierR1, scalarDecode1, scalarDecode2)
+	left, _, leftRow, _, err = buildAliasPair(carrierR1, scalarDecode1, scalarDecode2)
 	if err != nil {
 		return nil, err
 	}
@@ -1180,7 +1103,7 @@ func DerivePreSignCarrierAndAliasRows(ringQ *ring.Ring, boundB int64, x0Bound in
 	if err := assignAlias(PreSignAliasR1, left, leftRow); err != nil {
 		return nil, err
 	}
-	left, right, leftRow, rightRow, err = buildAliasPair(carrierK1, decode1K, decode2K)
+	left, _, leftRow, _, err = buildAliasPair(carrierK1, decode1K, decode2K)
 	if err != nil {
 		return nil, err
 	}

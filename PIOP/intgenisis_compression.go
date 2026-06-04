@@ -47,10 +47,6 @@ func intGenISISMSECompressionPackWidth(level int) (int, error) {
 	return level + 1, nil
 }
 
-func intGenISISMSECompressionDescriptorForLevel(level int) (intGenISISMSECompressionDescriptor, error) {
-	return intGenISISMSECompressionDescriptorForBound(level, intGenISISDefaultBound)
-}
-
 func intGenISISMSECompressionDescriptorForBound(level int, bound int64) (intGenISISMSECompressionDescriptor, error) {
 	packWidth, err := intGenISISMSECompressionPackWidth(level)
 	if err != nil {
@@ -94,10 +90,6 @@ func intGenISISMSECompressionDescriptorForBound(level int, bound int64) (intGenI
 	}, nil
 }
 
-func intGenISISMSECompressionDescriptorBytes(level int, compressedRows int) ([]byte, error) {
-	return intGenISISMSECompressionDescriptorBytesForBound(level, compressedRows, intGenISISDefaultBound)
-}
-
 func intGenISISMSECompressionDescriptorBytesForBound(level int, compressedRows int, bound int64) ([]byte, error) {
 	desc, err := intGenISISMSECompressionDescriptorForBound(level, bound)
 	if err != nil {
@@ -105,10 +97,6 @@ func intGenISISMSECompressionDescriptorBytesForBound(level int, compressedRows i
 	}
 	desc.CompressedRows = compressedRows
 	return json.Marshal(desc)
-}
-
-func newIntGenISISMSECompressionSpec(q uint64, level int) (intGenISISMSECompressionSpec, error) {
-	return newIntGenISISMSECompressionSpecForBound(q, level, intGenISISDefaultBound)
 }
 
 func newIntGenISISMSECompressionSpecForBound(q uint64, level int, bound int64) (intGenISISMSECompressionSpec, error) {
@@ -139,22 +127,6 @@ func intGenISISCompressedCarrierCount(sourceRows, packWidth int) int {
 		return 0
 	}
 	return (sourceRows + packWidth - 1) / packWidth
-}
-
-func intGenISISBuildTernaryCarrierRows(ringQ *ring.Ring, omega []uint64, sourceRows []*ring.Poly, packWidth int, makeRowFromHead func([]uint64) *ring.Poly, name string) ([]*ring.Poly, error) {
-	sourceMaterials := make([]intGenISISRowMaterial, len(sourceRows))
-	for i, row := range sourceRows {
-		head, err := rowHeadOnOmega(ringQ, omega, row, len(omega))
-		if err != nil {
-			return nil, fmt.Errorf("%s source row %d head: %w", name, i, err)
-		}
-		sourceMaterials[i] = intGenISISRowMaterial{Poly: row, Head: head}
-	}
-	mats, err := intGenISISBuildTernaryCarrierRowMaterials(ringQ, omega, sourceMaterials, packWidth, nil, makeRowFromHead, name)
-	if err != nil {
-		return nil, err
-	}
-	return intGenISISRowMaterialPolys(mats), nil
 }
 
 func intGenISISBuildTernaryCarrierRowMaterials(ringQ *ring.Ring, omega []uint64, sourceRows []intGenISISRowMaterial, packWidth int, interp *omegaInterpolationPlan, makeRowFromHead func([]uint64) *ring.Poly, name string) ([]intGenISISRowMaterial, error) {

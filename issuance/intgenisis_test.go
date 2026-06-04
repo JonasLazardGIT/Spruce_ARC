@@ -90,8 +90,12 @@ func TestIntGenISISIssuanceCommitAndTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	if err := VerifyIntGenISISCommit(params, c, inputs); err != nil {
-		t.Fatalf("verify commitment: %v", err)
+	recomputed, err := PrepareIntGenISISCommit(params, inputs)
+	if err != nil {
+		t.Fatalf("recompute commitment: %v", err)
+	}
+	if !equalPolyVec(c, recomputed) {
+		t.Fatal("commitment recompute mismatch")
 	}
 	prng, err := utils.NewPRNG()
 	if err != nil {
@@ -115,8 +119,12 @@ func TestIntGenISISIssuanceCommitAndTarget(t *testing.T) {
 	if len(target.ZCoeff) != 1 || len(target.TNTT) != 1 || len(target.TCoeff) != int(ringQ.N) {
 		t.Fatalf("unexpected target shape z=%d tNTT=%d tCoeff=%d", len(target.ZCoeff), len(target.TNTT), len(target.TCoeff))
 	}
-	if err := VerifyIntGenISISTarget(ringQ, B, c, data, target.TCoeff); err != nil {
-		t.Fatalf("verify target: %v", err)
+	recomputedTarget, err := ComputeIntGenISISTarget(ringQ, B, c, data)
+	if err != nil {
+		t.Fatalf("recompute target: %v", err)
+	}
+	if !equalInt64Slices(target.TCoeff, recomputedTarget.TCoeff) {
+		t.Fatal("target recompute mismatch")
 	}
 }
 
@@ -152,9 +160,54 @@ func TestIntGenISISTargetRejectsModifiedCommitment(t *testing.T) {
 		t.Fatalf("compute target: %v", err)
 	}
 	c[0].Coeffs[0][0] = (c[0].Coeffs[0][0] + 1) % ringQ.Modulus[0]
-	if err := VerifyIntGenISISTarget(ringQ, B, c, data, target.TCoeff); err == nil {
+	modified, err := ComputeIntGenISISTarget(ringQ, B, c, data)
+	if err != nil {
+		t.Fatalf("compute modified target: %v", err)
+	}
+	if equalInt64Slices(target.TCoeff, modified.TCoeff) {
 		t.Fatal("modified commitment accepted for target")
 	}
+}
+
+func equalPolyVec(a, b []*ring.Poly) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !equalPoly(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func equalPoly(a, b *ring.Poly) bool {
+	if a == nil || b == nil || len(a.Coeffs) != len(b.Coeffs) {
+		return false
+	}
+	for level := range a.Coeffs {
+		if len(a.Coeffs[level]) != len(b.Coeffs[level]) {
+			return false
+		}
+		for i := range a.Coeffs[level] {
+			if a.Coeffs[level][i] != b.Coeffs[level][i] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func equalInt64Slices(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func boundedTestPoly(ringQ *ring.Ring, bound int64, rng *rand.Rand) *ring.Poly {

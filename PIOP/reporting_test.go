@@ -10,7 +10,7 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-func TestBuildPaperTranscriptReportLeafUsesFormulaicRAndQ(t *testing.T) {
+func TestPaperTranscriptReportLeafUsesFormulaicRAndQ(t *testing.T) {
 	base := &Proof{
 		VTargetsBits: []byte{1, 2},
 		BarSetsBits:  []byte{3},
@@ -72,7 +72,7 @@ func TestPaperTranscriptReportIncludesRingDegree(t *testing.T) {
 		PCSOpening:   testOpening(),
 		QOpening:     testOpening(),
 	}
-	rep, err := BuildPaperTranscriptReport(proof, SimOpts{
+	report, err := BuildProofReport(proof, SimOpts{
 		RingDegree: 1024,
 		NCols:      16,
 		LVCSNCols:  16,
@@ -86,6 +86,7 @@ func TestPaperTranscriptReportIncludesRingDegree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("paper transcript report: %v", err)
 	}
+	rep := report.PaperTranscript
 	if rep.RingDegree != 1024 {
 		t.Fatalf("paper transcript ring_degree=%d want 1024", rep.RingDegree)
 	}
@@ -267,7 +268,7 @@ func TestMeasureProofSizeUnaffectedByPaperTranscriptReport(t *testing.T) {
 		QOpening:     testOpening(),
 	}
 	before := MeasureProofSize(proof)
-	if _, err := BuildPaperTranscriptReport(proof, opts, ringQ); err != nil {
+	if _, err := BuildProofReport(proof, opts, ringQ); err != nil {
 		t.Fatalf("paper report: %v", err)
 	}
 	after := MeasureProofSize(proof)
@@ -345,15 +346,14 @@ func TestResolveShowingStatementClassDistinguishesReducedAndDirectFull(t *testin
 	}
 }
 
-func TestResolveSigShortnessModeUsesHiddenV6Label(t *testing.T) {
+func TestResolveSigShortnessModeMarksRemovedVersionsUnsupported(t *testing.T) {
 	got := ResolveSigShortnessMode(&Proof{
 		SigShortness: &SigShortnessProof{
-			Version: sigShortnessProofVersionV6,
-			V6:      &SigShortnessProofV6{},
+			Version: 6,
 		},
 	})
-	if got != SigShortnessModeHiddenV6 {
-		t.Fatalf("sig shortness mode=%q want %q", got, SigShortnessModeHiddenV6)
+	if got != "sig_shortness_v6_unsupported" {
+		t.Fatalf("sig shortness mode=%q want unsupported v6 label", got)
 	}
 }
 

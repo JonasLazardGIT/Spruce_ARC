@@ -42,11 +42,6 @@ const (
 
 const (
 	SigShortnessModeNone             = "none"
-	SigShortnessModeLegacyV2         = "sig_shortness_v2_same_root"
-	SigShortnessModeLegacyV3         = "sig_shortness_v3_same_root"
-	SigShortnessModeLegacyV4         = "sig_shortness_v4_same_root"
-	SigShortnessModeExactHeadV5      = "sig_shortness_v5_exact_head"
-	SigShortnessModeHiddenV6         = "sig_shortness_v6_hidden"
 	SigShortnessModeReplayCompactV18 = "sig_shortness_inline_target_replay_compact_hiding"
 )
 
@@ -262,37 +257,11 @@ func ResolveSigShortnessMode(proof *Proof) string {
 		return SigShortnessModeNone
 	}
 	switch proof.SigShortness.Version {
-	case sigShortnessProofVersionV2:
-		return SigShortnessModeLegacyV2
-	case sigShortnessProofVersionV3:
-		return SigShortnessModeLegacyV3
-	case sigShortnessProofVersionV4:
-		return SigShortnessModeLegacyV4
-	case sigShortnessProofVersionV5:
-		return SigShortnessModeExactHeadV5
-	case sigShortnessProofVersionV6:
-		return SigShortnessModeHiddenV6
 	case sigShortnessProofVersionV18:
 		return SigShortnessModeReplayCompactV18
 	default:
-		return fmt.Sprintf("sig_shortness_v%d_unknown", proof.SigShortness.Version)
+		return fmt.Sprintf("sig_shortness_v%d_unsupported", proof.SigShortness.Version)
 	}
-}
-
-func sigShortnessV7EnabledForOpts(opts SimOpts) bool {
-	return false
-}
-
-func sigShortnessV8EnabledForOpts(opts SimOpts) bool {
-	return false
-}
-
-func sigShortnessV9EnabledForOpts(opts SimOpts) bool {
-	return false
-}
-
-func sigShortnessV10EnabledForOpts(opts SimOpts) bool {
-	return false
 }
 
 func sigShortnessV18EnabledForOpts(opts SimOpts) bool {
@@ -318,14 +287,6 @@ func sigShortnessV18EnabledForOpts(opts SimOpts) bool {
 	}
 	return ResolveSignatureShortnessProfileLabelForOpts(resolved) == aggregateInlineTargetReplayCompactSigProfile &&
 		resolved.NCols == aggregateInlineTargetReplayCompactNCols
-}
-
-func sigShortnessV12EnabledForOpts(opts SimOpts) bool {
-	return false
-}
-
-func sigShortnessV13EnabledForOpts(opts SimOpts) bool {
-	return false
 }
 
 func sigShortnessInlinedTargetHidingEnabledForOpts(opts SimOpts) bool {
@@ -1034,85 +995,7 @@ type SigShortnessProof struct {
 	Version      int
 	SupportSlots []int
 	Opening      *decs.DECSOpening
-	V5           *SigShortnessProofV5
-	V6           *SigShortnessProofV6
-	V7           *SigShortnessProofV7
-	V8           *SigShortnessProofV8
-	V9           *SigShortnessProofV9
-	V10          *SigShortnessProofV10
-	V12          *SigShortnessProofV12
-	V13          *SigShortnessProofV13
 	V18          *SigShortnessProofV18
-}
-
-type SigShortnessProofV5 struct {
-	Mode        uint8
-	Radix       int
-	Digits      int
-	ExactHeads  SigShortnessPackedMatrix
-	THatOpening *decs.DECSOpening
-}
-
-type SigShortnessProofV6 struct {
-	Mode        uint8
-	Radix       int
-	Digits      int
-	HiddenProof *Proof
-	THatOpening *decs.DECSOpening
-}
-
-type SigShortnessProofV7 struct {
-	Mode   uint8
-	Radix  int
-	Digits int
-}
-
-type SigShortnessProofV8 struct {
-	Mode        uint8
-	Radix       int
-	Digits      int
-	HiddenProof *Proof
-	THatHeads   SigShortnessPackedMatrix
-}
-
-type SigShortnessProofV9 struct {
-	Mode                   uint8
-	Radix                  int
-	Digits                 int
-	HiddenProof            *Proof
-	THatCommitment         SigShortnessAjtaiCommitment
-	CommitmentParamsDigest []byte
-	MainOpeningDigest      []byte
-	HiddenOpeningDigest    []byte
-}
-
-type SigShortnessProofV10 struct {
-	Mode       uint8
-	Radix      int
-	Digits     int
-	GroupSize  int
-	BlockWidth int
-}
-
-type SigShortnessProofV12 struct {
-	Mode            uint8
-	Radix           int
-	Digits          int
-	GroupSize       int
-	BlockWidth      int
-	MainBlockWidth  int
-	EffectiveBlocks int
-}
-
-type SigShortnessProofV13 struct {
-	Mode              uint8
-	Radix             int
-	Digits            int
-	GroupSize         int
-	BlockWidth        int
-	MainBlockWidth    int
-	EffectiveBlocks   int
-	LookupTableDigest []byte
 }
 
 type SigShortnessProofV18 struct {
@@ -1132,20 +1015,6 @@ type IntervalLookupProof struct {
 	Backend       string
 	Status        string
 	FailureReason string
-}
-
-type SigShortnessAjtaiCommitment struct {
-	Rows      int
-	Cols      int
-	THatRows  int
-	RandRows  int
-	RandBound int
-	Heads     SigShortnessPackedMatrix
-}
-
-type SigShortnessPackedMatrix struct {
-	Bits     []byte
-	BitWidth uint8
 }
 
 type fsRoundResult struct {
@@ -1409,19 +1278,6 @@ func copyTensor3(src [][][]uint64) [][][]uint64 {
 		out[i] = make([][]uint64, len(src[i]))
 		for j := range src[i] {
 			out[i][j] = append([]uint64(nil), src[i][j]...)
-		}
-	}
-	return out
-}
-
-func clonePolys(src []*ring.Poly) []*ring.Poly {
-	if src == nil {
-		return nil
-	}
-	out := make([]*ring.Poly, len(src))
-	for i := range src {
-		if src[i] != nil {
-			out[i] = src[i].CopyNew()
 		}
 	}
 	return out
@@ -1833,9 +1689,7 @@ func maybeCompressQOpeningMvals(open *decs.DECSOpening, keepCols []int) {
 func maybeCompressQOpening(open *decs.DECSOpening, gammaQ [][]uint64, mod uint64, compressM bool) {
 	eqRows, pCompressed := maybeCompressQOpeningPvals(open, gammaQ, mod)
 	if compressM && pCompressed {
-		var keepM []int
-		keepM = eqRows
-		maybeCompressQOpeningMvals(open, keepM)
+		maybeCompressQOpeningMvals(open, eqRows)
 	}
 }
 
@@ -2070,40 +1924,6 @@ func theoremTerm(queryCap int, eps float64, kappa int) (float64, float64) {
 	return term, -math.Log2(term)
 }
 
-// ComputeSoundnessBudgetForParams evaluates the SmallWood-ARK Eq. (8) terms and
-// the Theorem 9 ROM aggregation for a concrete parameter tuple.
-func ComputeSoundnessBudgetForParams(
-	o SimOpts,
-	q uint64,
-	dQ int,
-	witnessSupportCols int,
-	committedCols int,
-	nLeaves int,
-	witnessRows int,
-) SoundnessBudget {
-	o.applyDefaults()
-	fieldSize := float64(q)
-	if o.Theta > 1 {
-		// Small-field PACS lifts from the base field F_q to K/F_q of degree θ, so
-		// PACS sampling happens over |K| = q^θ while PCS/LVCS/DECS stay over F_q.
-		fieldSize = math.Pow(float64(q), float64(o.Theta))
-	}
-	return computeSoundnessBudget(
-		o,
-		q,
-		fieldSize,
-		fsCollisionSpaceBits(o.Lambda, 0),
-		dQ,
-		witnessSupportCols,
-		committedCols,
-		o.Ell,
-		o.EllPrime,
-		o.Eta,
-		nLeaves,
-		witnessRows,
-	)
-}
-
 func computeSoundnessBudget(
 	o SimOpts,
 	q uint64,
@@ -2271,16 +2091,6 @@ func computeSoundnessBudget(
 	return sb
 }
 
-func logSoundnessBudget(o SimOpts, q uint64, fieldSize float64, dQ int, sWitness int, ncolsLVCS int, ell int, ellPrime int, eta int, nLeaves int, witnessRows int) SoundnessBudget {
-	sb := computeSoundnessBudget(o, q, fieldSize, fsCollisionSpaceBits(o.Lambda, 0), dQ, sWitness, ncolsLVCS, ell, ellPrime, eta, nLeaves, witnessRows)
-	fmt.Printf("[soundness] eq8={eps1≤2^{-%0.2f}, eps2≤2^{-%0.2f}, eps3≤2^{-%0.2f}, eps4≤2^{-%0.2f}} eq8_total≈2^{-%0.2f} theorem_total≈2^{-%0.2f}\n",
-		sb.Bits[0], sb.Bits[1], sb.Bits[2], sb.Bits[3], sb.Eq8TotalBits, sb.TotalBits)
-	fmt.Printf("[soundness] theorem_terms={collision≈2^{-%0.2f}, round1≈2^{-%0.2f}, round2≈2^{-%0.2f}, round3≈2^{-%0.2f}, round4≈2^{-%0.2f}} qcaps=%v\n",
-		sb.CollisionBits, sb.TheoremBits[0], sb.TheoremBits[1], sb.TheoremBits[2], sb.TheoremBits[3], sb.QueryCaps)
-	fmt.Printf("[size] nrows=%d, m=%d, dQ=%d\n", sb.NRows, sb.M, sb.DQ)
-	return sb
-}
-
 func sizeUint64Matrix(mat [][]uint64) int {
 	sum := 0
 	for _, row := range mat {
@@ -2392,50 +2202,8 @@ func sizeDECSOpening(open *decs.DECSOpening) int {
 	return sum
 }
 
-func estimateProofSize(proof *Proof) int {
-	if proof == nil {
-		return 0
-	}
-	proof.syncPCSCompat()
-	proof.ensureQPayloadPacked()
-	if !proofUsesPaperQPayloadOnly(proof) {
-		proof.ensureQRPacked()
-	}
-	proof.ensureVTargetsPacked()
-	proof.ensureBarSetsPacked()
-	sum := 0
-	sum += len(proof.Salt)
-	sum += varintSize(proof.RingDegree)
-	sum += 16 // Merkle root
-	sum += len(proof.Ctr) * 8
-	for _, d := range proof.Digests {
-		sum += len(d)
-	}
-	// EvalPoints and KPoint are re-derived on verifier
-	sum += len(proof.Chi) * 8
-	sum += len(proof.Zeta) * 8
-	sum += len(proof.Tail) * 4
-	sum += sizePackedUintMatrix(proof.R)
-	sum += len(proof.QPayloadBits)
-	if !proofUsesPaperQPayloadOnly(proof) {
-		sum += 16 // QRoot
-		sum += len(proof.QRBits)
-	}
-	// CoeffMatrix (C) re-derived on verifier
-	sum += len(proof.VTargetsBits)
-	sum += len(proof.BarSetsBits)
-	sum += sizeDECSOpening(resolveProofPCSOpening(proof))
-	if !proofUsesPaperQPayloadOnly(proof) {
-		sum += sizeDECSOpening(proof.QOpening)
-	}
-	sum += sizePRFCompanionProof(proof.PRFCompanion)
-	sum += sizeSourceProductBridge(proof.SourceProductBridge)
-	sum += sizeSigShortnessProof(proof.SigShortness)
-	sum += sizeSmallField2025Proof(proof.SmallField2025)
-	return sum
-}
-
-// proofSizeBreakdown computes a per-component size accounting matching estimateProofSize.
+// proofSizeBreakdown computes a per-component size accounting for the retained
+// proof serialization.
 func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 	if proof == nil {
 		return map[string]int{}, 0
@@ -2495,53 +2263,6 @@ func sizeSigShortnessProof(sig *SigShortnessProof) int {
 	if sig == nil {
 		return 0
 	}
-	if sig.Version == sigShortnessProofVersionV7 && sig.V7 != nil {
-		size := 0
-		if sig.V7.Mode != 0 {
-			size++
-		}
-		size += varintSize(sig.V7.Radix)
-		size += varintSize(sig.V7.Digits)
-		return size
-	}
-	if sig.Version == sigShortnessProofVersionV10 && sig.V10 != nil {
-		size := 0
-		if sig.V10.Mode != 0 {
-			size++
-		}
-		size += varintSize(sig.V10.Radix)
-		size += varintSize(sig.V10.Digits)
-		size += varintSize(sig.V10.GroupSize)
-		size += varintSize(sig.V10.BlockWidth)
-		return size
-	}
-	if sig.Version == sigShortnessProofVersionV12 && sig.V12 != nil {
-		size := 0
-		if sig.V12.Mode != 0 {
-			size++
-		}
-		size += varintSize(sig.V12.Radix)
-		size += varintSize(sig.V12.Digits)
-		size += varintSize(sig.V12.GroupSize)
-		size += varintSize(sig.V12.BlockWidth)
-		size += varintSize(sig.V12.MainBlockWidth)
-		size += varintSize(sig.V12.EffectiveBlocks)
-		return size
-	}
-	if sig.Version == sigShortnessProofVersionV13 && sig.V13 != nil {
-		size := 0
-		if sig.V13.Mode != 0 {
-			size++
-		}
-		size += varintSize(sig.V13.Radix)
-		size += varintSize(sig.V13.Digits)
-		size += varintSize(sig.V13.GroupSize)
-		size += varintSize(sig.V13.BlockWidth)
-		size += varintSize(sig.V13.MainBlockWidth)
-		size += varintSize(sig.V13.EffectiveBlocks)
-		size += len(sig.V13.LookupTableDigest)
-		return size
-	}
 	if sig.Version == sigShortnessProofVersionV18 && sig.V18 != nil {
 		size := 0
 		if sig.V18.Mode != 0 {
@@ -2557,83 +2278,7 @@ func sizeSigShortnessProof(sig *SigShortnessProof) int {
 		size += len(sig.V18.PRFCompactDigest)
 		return size
 	}
-	if sig.Version == sigShortnessProofVersionV8 && sig.V8 != nil {
-		size := 0
-		if sig.V8.Mode != 0 {
-			size++
-		}
-		size += varintSize(sig.V8.Radix)
-		size += varintSize(sig.V8.Digits)
-		if sig.V8.HiddenProof != nil {
-			_, hiddenTotal := proofSizeBreakdown(sig.V8.HiddenProof)
-			size += hiddenTotal
-		}
-		if sig.V8.THatHeads.BitWidth != 0 {
-			size++
-		}
-		size += varintSize(len(sig.V8.THatHeads.Bits))
-		size += len(sig.V8.THatHeads.Bits)
-		return size
-	}
-	if sig.Version == sigShortnessProofVersionV9 && sig.V9 != nil {
-		size := 0
-		if sig.V9.Mode != 0 {
-			size++
-		}
-		size += varintSize(sig.V9.Radix)
-		size += varintSize(sig.V9.Digits)
-		if sig.V9.HiddenProof != nil {
-			_, hiddenTotal := proofSizeBreakdown(sig.V9.HiddenProof)
-			size += hiddenTotal
-		}
-		size += varintSize(sig.V9.THatCommitment.Rows)
-		size += varintSize(sig.V9.THatCommitment.Cols)
-		size += varintSize(sig.V9.THatCommitment.THatRows)
-		size += varintSize(sig.V9.THatCommitment.RandRows)
-		size += varintSize(sig.V9.THatCommitment.RandBound)
-		if sig.V9.THatCommitment.Heads.BitWidth != 0 {
-			size++
-		}
-		size += varintSize(len(sig.V9.THatCommitment.Heads.Bits))
-		size += len(sig.V9.THatCommitment.Heads.Bits)
-		size += varintSize(len(sig.V9.CommitmentParamsDigest))
-		size += len(sig.V9.CommitmentParamsDigest)
-		size += varintSize(len(sig.V9.MainOpeningDigest))
-		size += len(sig.V9.MainOpeningDigest)
-		size += varintSize(len(sig.V9.HiddenOpeningDigest))
-		size += len(sig.V9.HiddenOpeningDigest)
-		return size
-	}
-	if sig.Version == sigShortnessProofVersionV6 && sig.V6 != nil {
-		size := 0
-		if sig.V6.Mode != 0 {
-			size++
-		}
-		size += varintSize(sig.V6.Radix)
-		size += varintSize(sig.V6.Digits)
-		if sig.V6.HiddenProof != nil {
-			_, hiddenTotal := proofSizeBreakdown(sig.V6.HiddenProof)
-			size += hiddenTotal
-		}
-		size += sizeDECSOpening(sig.V6.THatOpening)
-		return size
-	}
-	if sig.Version == sigShortnessProofVersionV5 && sig.V5 != nil {
-		size := 0
-		if sig.V5.Mode != 0 {
-			size++
-		}
-		size += varintSize(sig.V5.Radix)
-		size += varintSize(sig.V5.Digits)
-		if sig.V5.ExactHeads.BitWidth != 0 {
-			size++
-		}
-		size += varintSize(len(sig.V5.ExactHeads.Bits))
-		size += len(sig.V5.ExactHeads.Bits)
-		size += sizeDECSOpening(sig.V5.THatOpening)
-		return size
-	}
-	return sizeDECSOpening(sig.Opening)
+	return 0
 }
 
 func sizePRFCompanionOpening(open PRFCompanionOpening) int {
@@ -2790,103 +2435,6 @@ func combineOpenings(mask, tail *decs.DECSOpening) *decs.DECSOpening {
 	return combined
 }
 
-func columnsToRowsSmallField(r *ring.Ring,
-	w1 []*ring.Poly, _ *ring.Poly, _ []*ring.Poly,
-	_ int, omega []uint64, ncols int, K *kf.Field,
-) (rows [][]uint64, omegaS1 kf.Elem, muDenomInv kf.Elem, err error) {
-	if K == nil {
-		return nil, kf.Elem{}, kf.Elem{}, fmt.Errorf("columnsToRowsSmallField: nil extension field")
-	}
-	q := r.Modulus[0]
-	s := len(omega)
-	if s == 0 {
-		return nil, kf.Elem{}, kf.Elem{}, fmt.Errorf("columnsToRowsSmallField: empty omega")
-	}
-	if ncols != s {
-		return nil, kf.Elem{}, kf.Elem{}, fmt.Errorf("columnsToRowsSmallField: ncols=%d must equal |Ω|=%d", ncols, s)
-	}
-	theta := K.Theta
-	blocks := ceilDiv(len(w1), ncols)
-	if blocks == 0 {
-		blocks = 1
-	}
-	rows = make([][]uint64, 0, blocks*(s+theta))
-
-	coeffs := make([][]uint64, len(w1))
-	tmp := r.NewPoly()
-	for i := range w1 {
-		r.InvNTT(w1[i], tmp)
-		coeffs[i] = append([]uint64(nil), tmp.Coeffs[0]...)
-	}
-
-	const maxAttempts = 1 << 12
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		candidate, randErr := K.RandomElement(nil)
-		if randErr != nil {
-			return nil, kf.Elem{}, kf.Elem{}, fmt.Errorf("columnsToRowsSmallField: %v", randErr)
-		}
-		conflict := false
-		for _, w := range omega {
-			if elemEqual(K, candidate, K.EmbedF(w%q)) {
-				conflict = true
-				break
-			}
-		}
-		if conflict {
-			continue
-		}
-		denom := K.One()
-		zeroDiff := false
-		for _, w := range omega {
-			diff := K.Sub(candidate, K.EmbedF(w%q))
-			if K.IsZero(diff) {
-				zeroDiff = true
-				break
-			}
-			denom = K.Mul(denom, diff)
-		}
-		if zeroDiff || K.IsZero(denom) {
-			continue
-		}
-		muDenomInv = K.Inv(denom)
-		omegaS1 = candidate
-		break
-	}
-	if len(muDenomInv.Limb) == 0 {
-		return nil, kf.Elem{}, kf.Elem{}, fmt.Errorf("columnsToRowsSmallField: failed to sample ω_{s+1}")
-	}
-
-	Yvals := make([]kf.Elem, len(w1))
-	for idx := range w1 {
-		Yvals[idx] = K.EvalFPolyAtK(coeffs[idx], omegaS1)
-	}
-
-	for block := 0; block < blocks; block++ {
-		for j := 0; j < s; j++ {
-			row := make([]uint64, ncols)
-			for t := 0; t < ncols; t++ {
-				col := block*ncols + t
-				if col < len(w1) {
-					row[t] = EvalPoly(coeffs[col], omega[j]%q, q)
-				}
-			}
-			rows = append(rows, row)
-		}
-		for coord := 0; coord < theta; coord++ {
-			row := make([]uint64, ncols)
-			for t := 0; t < ncols; t++ {
-				col := block*ncols + t
-				if col < len(Yvals) {
-					row[t] = Yvals[col].Limb[coord] % q
-				}
-			}
-			rows = append(rows, row)
-		}
-	}
-
-	return rows, omegaS1, muDenomInv, nil
-}
-
 func buildKPointCoeffMatrix(
 	r *ring.Ring, K *kf.Field, omega []uint64, rows [][]uint64, e kf.Elem, omegaS1 kf.Elem, muDenomInv kf.Elem,
 	replayWitnessRows, maskRowOffset, maskRowCount int,
@@ -2992,70 +2540,6 @@ func elemEqual(f *kf.Field, a, b kf.Elem) bool {
 		}
 	}
 	return true
-}
-
-func columnsToRows(r *ring.Ring, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly, ell int, omega []uint64) [][]uint64 {
-	s := len(w1)
-	ncols := len(omega)
-	rows := make([][]uint64, s+2)
-	q := r.Modulus[0]
-
-	// Row 0..s-1: for each witness column k, evaluate w1[k](ω_j) for all j.
-	tmp := r.NewPoly()
-	for k := 0; k < s; k++ {
-		rows[k] = make([]uint64, ncols)
-		r.InvNTT(w1[k], tmp) // coeff domain of w1[k]
-		for j := 0; j < ncols; j++ {
-			rows[k][j] = EvalPoly(tmp.Coeffs[0], omega[j]%q, q)
-		}
-	}
-
-	// Row s: w2(ω_j)
-	r.InvNTT(w2, tmp)
-	rows[s] = make([]uint64, ncols)
-	for j := 0; j < ncols; j++ {
-		rows[s][j] = EvalPoly(tmp.Coeffs[0], omega[j]%q, q)
-	}
-
-	// Row s+1: per‑column product w3[col](ω_col) on the diagonal; 0 elsewhere.
-	rows[s+1] = make([]uint64, ncols)
-	for col := 0; col < ncols && col < len(w3); col++ {
-		r.InvNTT(w3[col], tmp)
-		rows[s+1][col] = EvalPoly(tmp.Coeffs[0], omega[col]%q, q)
-	}
-
-	return rows
-}
-
-func evalAt(r *ring.Ring, p *ring.Poly, x uint64) uint64 {
-	coeff := r.NewPoly()
-	r.InvNTT(p, coeff)
-	return EvalPoly(coeff.Coeffs[0], x%r.Modulus[0], r.Modulus[0])
-}
-
-func evalPolySetAtIndices(r *ring.Ring, polys []*ring.Poly, indices []int, points []uint64) [][]uint64 {
-	if len(polys) == 0 || len(indices) == 0 {
-		return nil
-	}
-	if len(points) == 0 {
-		panic("evalPolySetAtIndices: explicit domain points are required")
-	}
-	q := r.Modulus[0]
-	out := make([][]uint64, len(polys))
-	tmp := r.NewPoly()
-	for i := range polys {
-		row := make([]uint64, len(indices))
-		r.InvNTT(polys[i], tmp)
-		coeffs := tmp.Coeffs[0]
-		for j, idx := range indices {
-			if idx < 0 || idx >= len(points) {
-				panic(fmt.Sprintf("evalPolySetAtIndices: index %d out of range (len(points)=%d)", idx, len(points)))
-			}
-			row[j] = EvalPoly(coeffs, points[idx]%q, q)
-		}
-		out[i] = row
-	}
-	return out
 }
 
 func logComb2Stable(n float64, k int) float64 {

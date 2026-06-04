@@ -19,7 +19,6 @@ import (
 	"vSIS-Signature/credential"
 	vsishash "vSIS-Signature/internal/hash"
 	ntrurio "vSIS-Signature/ntru/io"
-	"vSIS-Signature/ntru/keys"
 	"vSIS-Signature/prf"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -468,64 +467,6 @@ func intGenISISFieldElemFromSigned(v int64, q uint64) prf.Elem {
 	return prf.Elem((q - neg) % q)
 }
 
-func maxEllForGroupedPRF(ringN, ncols, prfDegree int) int {
-	if ringN <= 0 || ncols <= 0 || prfDegree <= 1 {
-		return 0
-	}
-	factor := prfDegree
-	// Need: factor*(ncols+ell-1) <= ringN-1  =>  ell <= floor((ringN-1)/factor) - ncols + 1.
-	maxDeg0 := (ringN - 1) / factor
-	maxEll := maxDeg0 - ncols + 1
-	if maxEll < 1 {
-		return 0
-	}
-	return maxEll
-}
-
-func loadBForShowing(r *ring.Ring, st credential.State, public credential.PublicParams) ([]*ring.Poly, error) {
-	bPath := public.BPath
-	if bPath == "" {
-		bPath = st.BPath
-	}
-	if bPath == "" {
-		return nil, fmt.Errorf("missing B path in public params/state")
-	}
-	meta, err := ntrurio.LoadBMatrixMetadata(bPath)
-	if err != nil {
-		return nil, err
-	}
-	if meta.TargetDim != public.TargetDim {
-		return nil, fmt.Errorf("B target_dim=%d want %d", meta.TargetDim, public.TargetDim)
-	}
-	if meta.X0Len != public.X0Len {
-		return nil, fmt.Errorf("B x0_len=%d want %d", meta.X0Len, public.X0Len)
-	}
-	if meta.RingDegree != int(r.N) {
-		return nil, fmt.Errorf("B ring_degree=%d want %d", meta.RingDegree, r.N)
-	}
-	coeffs := meta.B
-	out := make([]*ring.Poly, len(coeffs))
-	for i := range coeffs {
-		if len(coeffs[i]) != int(r.N) {
-			return nil, fmt.Errorf("B[%d] coefficient length=%d want ring_degree=%d", i, len(coeffs[i]), r.N)
-		}
-		p := r.NewPoly()
-		copy(p.Coeffs[0], coeffs[i])
-		r.NTT(p, p)
-		out[i] = p
-	}
-	return out, nil
-}
-
-func loadPRFParamsFromState(st credential.State) (*prf.Params, error) {
-	if st.PRFParamsPath != "" {
-		if params, err := prf.LoadParamsFromFile(st.PRFParamsPath); err == nil {
-			return params, nil
-		}
-	}
-	return prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
-}
-
 func loadPRFParamsFromIntGenISISState(st credential.IntGenISISState) (*prf.Params, error) {
 	if st.PRFParamsPath != "" {
 		if params, err := prf.LoadParamsFromFile(st.PRFParamsPath); err == nil {
@@ -533,13 +474,6 @@ func loadPRFParamsFromIntGenISISState(st credential.IntGenISISState) (*prf.Param
 		}
 	}
 	return prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
-}
-
-func loadCredentialPublicParamsFromState(st credential.State) (credential.PublicParams, error) {
-	if st.CredentialPublicPath == "" {
-		return credential.PublicParams{}, fmt.Errorf("credential state missing credential_public_path")
-	}
-	return credential.LoadPublicParams(st.CredentialPublicPath)
 }
 
 func loadBForIntGenISISShowing(r *ring.Ring, public credential.PublicParams) ([]*ring.Poly, error) {
@@ -551,18 +485,18 @@ func loadBForIntGenISISShowing(r *ring.Ring, public credential.PublicParams) ([]
 		return nil, err
 	}
 	if meta.TargetDim != public.NC {
-		return nil, fmt.Errorf("B target_dim=%d want n_c=%d", meta.TargetDim, public.NC)
+		return nil, fmt.Errorf("b target_dim=%d want n_c=%d", meta.TargetDim, public.NC)
 	}
 	if meta.X0Len != public.EllX0 {
-		return nil, fmt.Errorf("B x0_len=%d want ell_x0=%d", meta.X0Len, public.EllX0)
+		return nil, fmt.Errorf("b x0_len=%d want ell_x0=%d", meta.X0Len, public.EllX0)
 	}
 	if meta.RingDegree != int(r.N) {
-		return nil, fmt.Errorf("B ring_degree=%d want %d", meta.RingDegree, r.N)
+		return nil, fmt.Errorf("b ring_degree=%d want %d", meta.RingDegree, r.N)
 	}
 	out := make([]*ring.Poly, len(meta.B))
 	for i := range meta.B {
 		if len(meta.B[i]) != int(r.N) {
-			return nil, fmt.Errorf("B[%d] coefficient length=%d want %d", i, len(meta.B[i]), r.N)
+			return nil, fmt.Errorf("b[%d] coefficient length=%d want %d", i, len(meta.B[i]), r.N)
 		}
 		p := r.NewPoly()
 		copy(p.Coeffs[0], meta.B[i])
@@ -578,7 +512,7 @@ func buildIntGenISISSignatureMatrix(r *ring.Ring, st credential.IntGenISISState)
 
 func buildIntGenISISSignatureMatrixFromRows(r *ring.Ring, ntruPublic [][]int64) ([][]*ring.Poly, error) {
 	if len(ntruPublic) == 0 || len(ntruPublic[0]) != int(r.N) {
-		return nil, fmt.Errorf("IntGenISIS state missing NTRU public row of length %d", r.N)
+		return nil, fmt.Errorf("intgenisis state missing NTRU public row of length %d", r.N)
 	}
 	hNTT := polyFromInt64(r, ntruPublic[0])
 	r.NTT(hNTT, hNTT)
@@ -592,14 +526,14 @@ func buildIntGenISISSignatureMatrixFromRows(r *ring.Ring, ntruPublic [][]int64) 
 
 func buildIntGenISISWitnessFromState(r *ring.Ring, st credential.IntGenISISState, B []*ring.Poly, packedNCols int) (PIOP.WitnessInputs, error) {
 	if len(st.SigS1) != int(r.N) || len(st.SigS2) != int(r.N) {
-		return PIOP.WitnessInputs{}, fmt.Errorf("IntGenISIS state missing sig_s1/sig_s2 rows")
+		return PIOP.WitnessInputs{}, fmt.Errorf("intgenisis state missing sig_s1/sig_s2 rows")
 	}
 	x1Rows := polysFromInt64(r, st.X1)
 	if len(x1Rows) != 1 {
 		return PIOP.WitnessInputs{}, fmt.Errorf("x1 rows=%d want 1", len(x1Rows))
 	}
 	if len(B) != 3+len(st.X0) {
-		return PIOP.WitnessInputs{}, fmt.Errorf("B rows=%d want %d", len(B), 3+len(st.X0))
+		return PIOP.WitnessInputs{}, fmt.Errorf("b rows=%d want %d", len(B), 3+len(st.X0))
 	}
 	x1ForInverse := r.NewPoly()
 	ring.Copy(x1Rows[0], x1ForInverse)
@@ -624,279 +558,6 @@ func buildIntGenISISWitnessFromState(r *ring.Ring, st credential.IntGenISISState
 		PackedNCols: packedNCols,
 	}
 	return PIOP.WitnessInputs{CoeffNativeShowing: cn}, nil
-}
-
-func validateArtifactRingDegree(ringDegree int, statePath string, st credential.State, public credential.PublicParams) error {
-	if ringDegree <= 0 {
-		return fmt.Errorf("invalid selected ring_degree=%d", ringDegree)
-	}
-	if got := public.InferRingDegree(); got > 0 && got != ringDegree {
-		return fmt.Errorf("credential public params ring_degree=%d incompatible with selected ring_degree=%d; fresh N=%d artifacts are required", got, ringDegree, ringDegree)
-	}
-	if got := st.InferRingDegree(); got > 0 && got != ringDegree {
-		return fmt.Errorf("credential state %s ring_degree=%d incompatible with selected ring_degree=%d; fresh N=%d artifacts are required", statePath, got, ringDegree, ringDegree)
-	}
-	if public.X0Len <= 0 {
-		return fmt.Errorf("credential public params missing x0_len")
-	}
-	if st.X0Len <= 0 {
-		return fmt.Errorf("credential state %s missing x0_len", statePath)
-	}
-	if st.X0Len != public.X0Len {
-		return fmt.Errorf("credential state %s x0_len=%d incompatible with public params x0_len=%d; fresh matching artifacts are required", statePath, st.X0Len, public.X0Len)
-	}
-	if len(st.R0) != st.X0Len {
-		return fmt.Errorf("credential state %s r0 rows=%d incompatible with x0_len=%d", statePath, len(st.R0), st.X0Len)
-	}
-	checkRows := func(label string, rows [][]int64, required bool) error {
-		if len(rows) == 0 {
-			if required {
-				return fmt.Errorf("credential state %s missing %s rows", statePath, label)
-			}
-			return nil
-		}
-		for i := range rows {
-			if len(rows[i]) != ringDegree {
-				return fmt.Errorf("credential state %s %s[%d] coefficient length=%d want ring_degree=%d", statePath, label, i, len(rows[i]), ringDegree)
-			}
-		}
-		return nil
-	}
-	if err := checkRows("mu", st.Mu, true); err != nil {
-		return err
-	}
-	if err := checkRows("r0", st.R0, true); err != nil {
-		return err
-	}
-	if err := checkRows("r1", st.R1, true); err != nil {
-		return err
-	}
-	if err := checkRows("z", st.Z, true); err != nil {
-		return err
-	}
-	if len(st.SigS1) > 0 && len(st.SigS1) != ringDegree {
-		return fmt.Errorf("credential state %s sig_s1 coefficient length=%d want ring_degree=%d", statePath, len(st.SigS1), ringDegree)
-	}
-	if len(st.SigS2) > 0 && len(st.SigS2) != ringDegree {
-		return fmt.Errorf("credential state %s sig_s2 coefficient length=%d want ring_degree=%d", statePath, len(st.SigS2), ringDegree)
-	}
-	if err := checkRows("ntru_public", st.NTRUPublic, false); err != nil {
-		return err
-	}
-	if err := checkRows("embedded_b", st.B, false); err != nil {
-		return err
-	}
-	return nil
-}
-
-func buildSignatureMatrix(r *ring.Ring, st credential.State, uCount int) ([][]*ring.Poly, error) {
-	if len(st.NTRUPublic) == 0 {
-		pk, err := keys.LoadPublic()
-		if err != nil {
-			return nil, fmt.Errorf("load public key: %w", err)
-		}
-		st.NTRUPublic = [][]int64{pk.HCoeffs}
-	}
-	if uCount <= 1 {
-		one := r.NewPoly()
-		one.Coeffs[0][0] = 1 % r.Modulus[0]
-		r.NTT(one, one)
-		return [][]*ring.Poly{{one}}, nil
-	}
-	if len(st.NTRUPublic[0]) != int(r.N) {
-		return nil, fmt.Errorf("NTRU public key coefficient length=%d want ring_degree=%d", len(st.NTRUPublic[0]), r.N)
-	}
-	hNTT := polyFromInt64(r, st.NTRUPublic[0])
-	r.NTT(hNTT, hNTT)
-	negHNTT := r.NewPoly()
-	r.Neg(hNTT, negHNTT)
-	one := r.NewPoly()
-	one.Coeffs[0][0] = 1 % r.Modulus[0]
-	r.NTT(one, one)
-	// Signature rows are loaded as U = [s1, s2] where s2 = h*s1 + t (mod q),
-	// hence the post-sign equation is (-h)*s1 + s2 = t.
-	return [][]*ring.Poly{{negHNTT, one}}, nil
-}
-
-func buildWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly, omega []uint64, boundB, x0Bound int64) (PIOP.WitnessInputs, error) {
-	coeffNative, err := buildCoeffNativeShowingWitnessFromState(r, st, B, omega, boundB, x0Bound)
-	if err != nil {
-		return PIOP.WitnessInputs{}, err
-	}
-	return PIOP.WitnessInputs{
-		CoeffNativeShowing: coeffNative,
-	}, nil
-}
-
-func buildCoeffNativeShowingWitnessFromState(r *ring.Ring, st credential.State, B []*ring.Poly, omega []uint64, boundB, x0Bound int64) (*PIOP.CoeffNativeShowingWitness, error) {
-	if r == nil {
-		return nil, fmt.Errorf("nil ring")
-	}
-	if len(st.SigS1) == 0 || len(st.SigS2) == 0 {
-		return nil, fmt.Errorf("missing sig_s1/sig_s2 in credential state")
-	}
-	par, err := ntrurio.LoadParams(filepath.Join("internal", "source_data", "Parameters.json"), true)
-	if err != nil {
-		return nil, fmt.Errorf("load signature bound: %w", err)
-	}
-	_, _, maxSig := st.SignatureCoordLinf()
-	if uint64(maxSig) > par.Beta {
-		return nil, fmt.Errorf("signature shortness blocker: max(|sig_s1|,|sig_s2|)=%d exceeds beta=%d under q=%d", maxSig, par.Beta, par.Q)
-	}
-	if len(st.Mu) == 0 || len(st.R0) == 0 || len(st.R1) == 0 || len(st.Z) == 0 {
-		return nil, fmt.Errorf("missing semantic witness rows in credential state")
-	}
-	x0Len := st.X0Len
-	if x0Len <= 0 {
-		x0Len = len(st.R0)
-	}
-	if x0Len <= 0 {
-		x0Len = 1
-	}
-	if len(st.R0) != x0Len {
-		return nil, fmt.Errorf("credential state R0 len=%d want x0Len=%d", len(st.R0), x0Len)
-	}
-	if err := validateStateWitnessCoefficientLengths(st, int(r.N)); err != nil {
-		return nil, err
-	}
-	if len(B) < 3+x0Len {
-		return nil, fmt.Errorf("missing B matrix for target reconstruction: have %d want at least %d", len(B), 3+x0Len)
-	}
-	packedNCols, err := PIOP.ResolvePackedNCols(st.PackedNCols, 0, int(r.N))
-	if err != nil {
-		return nil, fmt.Errorf("resolve packed ncols: %w", err)
-	}
-	if err := credential.ValidateFullMuPayload(st.Mu, int(r.N), boundB); err != nil {
-		return nil, fmt.Errorf("invalid credential mu payload: %w", err)
-	}
-	muPoly := polyFromInt64(r, st.Mu[0])
-	_ = x0Bound
-	_ = omega
-	r0Polys := credentialPolysFromInt64(r, st.R0)
-	r1Poly := polyFromInt64(r, st.R1[0])
-	zPoly := polyFromInt64(r, st.Z[0])
-	_, tCoeffs, err := credential.ComputeTargetVectorFromMu(r, B, muPoly, r0Polys, r1Poly)
-	if err != nil {
-		return nil, fmt.Errorf("recompute target from credential state: %w", err)
-	}
-	tPoly := polyFromInt64(r, tCoeffs)
-	wit := &PIOP.CoeffNativeShowingWitness{
-		Sig: []*ring.Poly{
-			polyFromInt64(r, st.SigS1),
-			polyFromInt64(r, st.SigS2),
-		},
-		Mu:          muPoly,
-		R0:          r0Polys,
-		R1:          r1Poly,
-		Z:           zPoly,
-		T:           tPoly,
-		PackedNCols: packedNCols,
-	}
-	if err := wit.Validate(int(r.N)); err != nil {
-		return nil, fmt.Errorf("invalid coeff-native showing witness: %w", err)
-	}
-	return wit, nil
-}
-
-func validateStateWitnessCoefficientLengths(st credential.State, ringDegree int) error {
-	if ringDegree <= 0 {
-		return fmt.Errorf("invalid ring degree %d", ringDegree)
-	}
-	checkRows := func(name string, rows [][]int64) error {
-		for i := range rows {
-			if len(rows[i]) != ringDegree {
-				return fmt.Errorf("credential state %s[%d] coefficient length=%d want ring_degree=%d", name, i, len(rows[i]), ringDegree)
-			}
-		}
-		return nil
-	}
-	if err := checkRows("mu", st.Mu); err != nil {
-		return err
-	}
-	if err := checkRows("r0", st.R0); err != nil {
-		return err
-	}
-	if err := checkRows("r1", st.R1); err != nil {
-		return err
-	}
-	if err := checkRows("z", st.Z); err != nil {
-		return err
-	}
-	if len(st.SigS1) != ringDegree {
-		return fmt.Errorf("credential state sig_s1 coefficient length=%d want ring_degree=%d", len(st.SigS1), ringDegree)
-	}
-	if len(st.SigS2) != ringDegree {
-		return fmt.Errorf("credential state sig_s2 coefficient length=%d want ring_degree=%d", len(st.SigS2), ringDegree)
-	}
-	return nil
-}
-
-func showingSignatureComponentCount(wit PIOP.WitnessInputs) int {
-	if wit.CoeffNativeShowing != nil && len(wit.CoeffNativeShowing.Sig) > 0 {
-		return len(wit.CoeffNativeShowing.Sig)
-	}
-	return 0
-}
-
-func prfKeyFromWitnessOnOmega(r *ring.Ring, wit PIOP.WitnessInputs, omega []uint64, lenKey int) ([]prf.Elem, error) {
-	if r == nil {
-		return nil, fmt.Errorf("nil ring")
-	}
-	if wit.CoeffNativeShowing == nil {
-		return nil, fmt.Errorf("missing coeff-native showing witness")
-	}
-	if wit.CoeffNativeShowing.Mu == nil {
-		return nil, fmt.Errorf("coeff-native showing witness missing Mu row")
-	}
-	return PIOP.ExtractSignedPRFKeyElemsFromMuCoeffs(
-		r,
-		wit.CoeffNativeShowing.Mu,
-		wit.CoeffNativeShowing.PackedNCols,
-		lenKey,
-	)
-}
-
-func credentialPolysFromInt64(r *ring.Ring, vec [][]int64) []*ring.Poly {
-	out := make([]*ring.Poly, len(vec))
-	for i := range vec {
-		out[i] = polyFromInt64(r, vec[i])
-	}
-	return out
-}
-
-func deriveOmegaForOpts(ringQ *ring.Ring, opts PIOP.SimOpts, relation string) ([]uint64, error) {
-	if ringQ == nil {
-		return nil, fmt.Errorf("nil ring")
-	}
-	if opts.NCols <= 0 || opts.NCols > ringQ.N {
-		return nil, fmt.Errorf("invalid ncols=%d", opts.NCols)
-	}
-	if opts.DomainMode == PIOP.DomainModeExplicit {
-		nLeaves := opts.NLeaves
-		if nLeaves <= 0 {
-			nLeaves = int(ringQ.N)
-		}
-		lvcsNCols := opts.LVCSNCols
-		if lvcsNCols <= 0 {
-			lvcsNCols = opts.NCols
-		}
-		if lvcsNCols < opts.NCols {
-			return nil, fmt.Errorf("invalid lvcs ncols=%d < witness ncols=%d", lvcsNCols, opts.NCols)
-		}
-		omegaWitness, err := PIOP.DeriveRelationWitnessOmega(ringQ.Modulus[0], nLeaves, opts.NCols, lvcsNCols, opts.Ell, relation)
-		if err != nil {
-			return nil, err
-		}
-		if len(omegaWitness) < opts.NCols {
-			return nil, fmt.Errorf("derived omega len=%d < witness ncols=%d", len(omegaWitness), opts.NCols)
-		}
-		return append([]uint64(nil), omegaWitness[:opts.NCols]...), nil
-	}
-	px := ringQ.NewPoly()
-	px.Coeffs[0][1] = 1
-	pts := ringQ.NewPoly()
-	ringQ.NTT(px, pts)
-	return append([]uint64(nil), pts.Coeffs[0][:opts.NCols]...), nil
 }
 
 func sampleNonce(lennonce, ncols int, q uint64) ([]prf.Elem, [][]int64) {
@@ -924,31 +585,6 @@ func lanesFromElems(vals []prf.Elem, ncols int) [][]int64 {
 		out[i] = buildConstLane(ncols, int64(v))
 	}
 	return out
-}
-
-func elemsToPolys(r *ring.Ring, elems []prf.Elem) []*ring.Poly {
-	rows := make([]*ring.Poly, len(elems))
-	for i, v := range elems {
-		rows[i] = polyConst(r, int64(v))
-	}
-	return rows
-}
-
-func polyConst(r *ring.Ring, v int64) *ring.Poly {
-	pNTT := r.NewPoly()
-	q := int64(r.Modulus[0])
-	var coeff uint64
-	if v >= 0 {
-		coeff = uint64(v % q)
-	} else {
-		coeff = uint64((v+q)%q) % uint64(q)
-	}
-	for i := 0; i < r.N; i++ {
-		pNTT.Coeffs[0][i] = coeff
-	}
-	p := r.NewPoly()
-	r.InvNTT(pNTT, p)
-	return p
 }
 
 func polyFromInt64(r *ring.Ring, coeffs []int64) *ring.Poly {

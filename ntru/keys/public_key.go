@@ -1,20 +1,11 @@
 package keys
 
-import (
-	"path/filepath"
-)
-
 // PublicKey represents an NTRU public key persisted to JSON.
 type PublicKey struct {
 	Version string  `json:"version"`
 	N       int     `json:"N"`
 	Q       string  `json:"Q"`
 	HCoeffs []int64 `json:"h_coeffs"`
-}
-
-// LoadPublic reads the public key from ./ntru_keys/public.json.
-func LoadPublic() (*PublicKey, error) {
-	return LoadPublicFile(filepath.Join("ntru_keys", "public.json"))
 }
 
 func SavePublicFile(path string, pk *PublicKey) error {

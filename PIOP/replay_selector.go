@@ -89,10 +89,6 @@ func buildShowingReplayActiveRowSelectorWithSourceProductBridge(layout RowLayout
 	return out
 }
 
-func BuildShowingReplayActiveRowSelector(layout RowLayout, companion *PRFCompanionLayout, mode PRFCompanionMode) []int {
-	return buildShowingReplayActiveRowSelectorWithSourceProductBridge(layout, companion, mode, false)
-}
-
 func BuildShowingReplayActiveRowSelectorFromProof(proof *Proof) []int {
 	if proof == nil {
 		return nil

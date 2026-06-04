@@ -288,10 +288,6 @@ func deriveExplicitDomainForRelation(q uint64, nLeaves, witnessNCols, lvcsNCols,
 	return deriveExplicitDomainWithWitnessPrefix(q, nLeaves, witnessNCols, lvcsNCols, ell, witnessOmega)
 }
 
-func DeriveExplicitDomainForRelation(q uint64, nLeaves, witnessNCols, lvcsNCols, ell int, relation string) ([]uint64, []uint64, error) {
-	return deriveExplicitDomainForRelation(q, nLeaves, witnessNCols, lvcsNCols, ell, relation)
-}
-
 func loadParamsAndOmegaForRelation(opts SimOpts, relation string) (*ring.Ring, []uint64, int, error) {
 	opts.applyDefaults()
 	ringQ, err := loadParamsRingForOpts(opts)
@@ -326,52 +322,6 @@ func loadParamsAndOmegaForRelation(opts SimOpts, relation string) (*ring.Ring, [
 		return nil, nil, 0, fmt.Errorf("explicit domain: need lvcsNCols+ell <= ring dimension (lvcsNCols=%d, ell=%d, ringN=%d)", ncols, ell, ringQ.N)
 	}
 	omega, _, derr := deriveExplicitDomainForRelation(q, nLeaves, sWitness, ncols, ell, relation)
-	if derr != nil {
-		return nil, nil, 0, fmt.Errorf("explicit domain: %w", derr)
-	}
-	if err := checkOmega(omega, q); err != nil {
-		return nil, nil, 0, fmt.Errorf("invalid omega: %w", err)
-	}
-	return ringQ, omega, ncols, nil
-}
-
-// loadParamsAndOmega loads Parameters.json, constructs the ring, and derives
-// the explicit evaluation set Ω from the public domain E.
-// It returns the ring, omega, and ncols=|Ω| used for LVCS/domain plumbing.
-func loadParamsAndOmega(opts SimOpts) (*ring.Ring, []uint64, int, error) {
-	opts.applyDefaults()
-	ringQ, err := loadParamsRingForOpts(opts)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	q := ringQ.Modulus[0]
-	sWitness := opts.NCols
-	if sWitness <= 0 {
-		sWitness = int(ringQ.N)
-	}
-	pcsNCols := resolvePCSNCols(opts, sWitness)
-	ncols := pcsNCols
-	if ncols <= 0 {
-		ncols = sWitness
-	}
-	if ncols < sWitness {
-		return nil, nil, 0, fmt.Errorf("invalid lvcs ncols=%d (must be >= witness ncols=%d)", ncols, sWitness)
-	}
-	if opts.DomainMode != DomainModeExplicit {
-		return nil, nil, 0, fmt.Errorf("unsupported domain mode %d (only explicit mode is supported)", opts.DomainMode)
-	}
-	nLeaves := opts.NLeaves
-	if nLeaves <= 0 {
-		nLeaves = int(ringQ.N)
-	}
-	ell := opts.Ell
-	if ell < 0 {
-		ell = 0
-	}
-	if ncols+ell > int(ringQ.N) {
-		return nil, nil, 0, fmt.Errorf("explicit domain: need lvcsNCols+ell <= ring dimension (lvcsNCols=%d, ell=%d, ringN=%d)", ncols, ell, ringQ.N)
-	}
-	omega, _, derr := deriveExplicitDomain(q, nLeaves, ncols, ell)
 	if derr != nil {
 		return nil, nil, 0, fmt.Errorf("explicit domain: %w", derr)
 	}

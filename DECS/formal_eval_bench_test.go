@@ -71,7 +71,7 @@ func benchmarkFormalCommitInitShape(b *testing.B, rowCount, degree, eta, nLeaves
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := pr.CommitInit(); err != nil {
+		if _, err := pr.CommitInitWithOptions(CommitOptions{}); err != nil {
 			b.Fatalf("CommitInit: %v", err)
 		}
 	}

@@ -763,7 +763,7 @@ func benchmarkIntGenISISE2EWitnessFromState(r *ring.Ring, st credential.IntGenIS
 		return PIOP.WitnessInputs{}, fmt.Errorf("x1 rows=%d want 1", len(x1Rows))
 	}
 	if len(B) != 3+len(st.X0) {
-		return PIOP.WitnessInputs{}, fmt.Errorf("B rows=%d want %d", len(B), 3+len(st.X0))
+		return PIOP.WitnessInputs{}, fmt.Errorf("b rows=%d want %d", len(B), 3+len(st.X0))
 	}
 	x1ForInverse := r.NewPoly()
 	ring.Copy(x1Rows[0], x1ForInverse)

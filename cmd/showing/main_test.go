@@ -2,39 +2,12 @@ package main
 
 import (
 	"bytes"
-	"errors"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
 )
-
-func showingTestRepoRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-}
-
-func chdirForShowingTest(t *testing.T, dir string) {
-	t.Helper()
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir %s: %v", dir, err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
-	})
-}
 
 func TestFormatPaperTranscriptSummaryUsesPaperWording(t *testing.T) {
 	line := formatPaperTranscriptSummary(PIOP.ProofReport{
@@ -88,90 +61,6 @@ func TestShowingRemovedFlagsAreUnknown(t *testing.T) {
 				t.Fatalf("unexpected error for %s: %v", flagName, err)
 			}
 		})
-	}
-}
-
-func TestRingDegree512RejectsDefaultN1024Artifacts(t *testing.T) {
-	root := showingTestRepoRoot(t)
-	chdirForShowingTest(t, root)
-	statePath := filepath.Join("credential", "keys", "credential_state.json")
-	state, err := credential.LoadState(statePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			t.Skip("generated credential state fixture is not tracked")
-		}
-		t.Fatalf("load state: %v", err)
-	}
-	publicParams, err := loadCredentialPublicParamsFromState(state)
-	if err != nil {
-		t.Fatalf("load public params: %v", err)
-	}
-	err = validateArtifactRingDegree(512, statePath, state, publicParams)
-	if err == nil {
-		t.Fatal("default N=1024 artifacts accepted under ring_degree=512")
-	}
-	if !strings.Contains(err.Error(), "fresh N=512 artifacts") {
-		t.Fatalf("degree mismatch error did not explain fresh artifacts requirement: %v", err)
-	}
-}
-
-func TestValidateArtifactRingDegreeRejectsX0Mismatch(t *testing.T) {
-	st := credential.State{
-		X0Len:      69,
-		RingDegree: 512,
-		Mu:         [][]int64{make([]int64, 512)},
-		R0:         make([][]int64, 69),
-		R1:         [][]int64{make([]int64, 512)},
-		Z:          [][]int64{make([]int64, 512)},
-		SigS1:      make([]int64, 512),
-		SigS2:      make([]int64, 512),
-	}
-	for i := range st.R0 {
-		st.R0[i] = make([]int64, 512)
-	}
-	public := credential.PublicParams{RingDegree: 512, X0Len: 70}
-	err := validateArtifactRingDegree(512, "test_state.json", st, public)
-	if err == nil {
-		t.Fatal("x0_len mismatch accepted")
-	}
-	if !strings.Contains(err.Error(), "x0_len") {
-		t.Fatalf("x0 mismatch error did not mention x0_len: %v", err)
-	}
-}
-
-func TestDeriveOmegaForOptsUsesRelationAwareWitnessOmega(t *testing.T) {
-	root := showingTestRepoRoot(t)
-	chdirForShowingTest(t, root)
-	ringQ, err := credential.LoadDefaultRing()
-	if err != nil {
-		t.Fatalf("load ring: %v", err)
-	}
-	base := PIOP.ResolveSimOptsDefaults(PIOP.SimOpts{
-		Credential:          true,
-		NCols:               16,
-		LVCSNCols:           96,
-		Ell:                 18,
-		NLeaves:             4096,
-		DomainMode:          PIOP.DomainModeExplicit,
-		CoeffPacking:        true,
-		CoeffNativeSigModel: PIOP.CoeffNativeSigModelLiteralPackedAggregatedV3,
-	})
-	omega4096, err := deriveOmegaForOpts(ringQ, base, credential.HashRelationBBTran)
-	if err != nil {
-		t.Fatalf("deriveOmegaForOpts(4096): %v", err)
-	}
-	base.NLeaves = 8192
-	omega8192, err := deriveOmegaForOpts(ringQ, base, credential.HashRelationBBTran)
-	if err != nil {
-		t.Fatalf("deriveOmegaForOpts(8192): %v", err)
-	}
-	if len(omega4096) != len(omega8192) {
-		t.Fatalf("omega length mismatch: 4096=%d 8192=%d", len(omega4096), len(omega8192))
-	}
-	for i := range omega4096 {
-		if omega4096[i] != omega8192[i] {
-			t.Fatalf("omega[%d] mismatch: 4096=%d 8192=%d", i, omega4096[i], omega8192[i])
-		}
 	}
 }
 
@@ -256,11 +145,11 @@ func TestFormatStatementSummaryShowsClassReplayAndShortness(t *testing.T) {
 		TranscriptFocus: PIOP.TranscriptOptimizationReport{
 			StatementClass: string(PIOP.ShowingStatementClassTheoremCleanFullReplay),
 			ReplayMode:     string(PIOP.ShowingReplayModeFull),
-			ShortnessMode:  PIOP.SigShortnessModeHiddenV6,
+			ShortnessMode:  PIOP.SigShortnessModeReplayCompactV18,
 		},
 		SigShortness: PIOP.SigShortnessReport{
 			Enabled: true,
-			Mode:    PIOP.SigShortnessModeHiddenV6,
+			Mode:    PIOP.SigShortnessModeReplayCompactV18,
 		},
 	})
 	if !strings.Contains(line, "class=theorem_clean_full_replay") {
@@ -269,7 +158,7 @@ func TestFormatStatementSummaryShowsClassReplayAndShortness(t *testing.T) {
 	if !strings.Contains(line, "replay=full") {
 		t.Fatalf("missing replay mode: %q", line)
 	}
-	if !strings.Contains(line, "shortness=sig_shortness_v6_hidden") {
+	if !strings.Contains(line, "shortness=sig_shortness_inline_target_replay_compact_hiding") {
 		t.Fatalf("missing shortness mode: %q", line)
 	}
 }
@@ -282,7 +171,7 @@ func TestFormatStatementSummaryDistinguishesReducedAndFull(t *testing.T) {
 		},
 		SigShortness: PIOP.SigShortnessReport{
 			Enabled: true,
-			Mode:    PIOP.SigShortnessModeHiddenV6,
+			Mode:    PIOP.SigShortnessModeReplayCompactV18,
 		},
 	})
 	full := formatStatementSummary(PIOP.ProofReport{
@@ -451,8 +340,8 @@ func TestPrintSigShortnessShowsSupportSlots(t *testing.T) {
 	printSigShortness("[showing-cli] ", PIOP.ProofReport{
 		SigShortness: PIOP.SigShortnessReport{
 			Enabled:          true,
-			Mode:             PIOP.SigShortnessModeHiddenV6,
-			Version:          6,
+			Mode:             PIOP.SigShortnessModeReplayCompactV18,
+			Version:          18,
 			SupportSlotCount: 16,
 			OpenedBlockCount: 13,
 			OpeningBytes:     14469,

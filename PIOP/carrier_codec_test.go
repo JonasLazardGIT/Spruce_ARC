@@ -2,20 +2,21 @@ package PIOP
 
 import "testing"
 
-func TestCarrierEncodeDecodeRoundTrip(t *testing.T) {
+func TestCarrierEncodeMatchesPairAlphabet(t *testing.T) {
 	bound := int64(2)
+	base, err := carrierBase(bound)
+	if err != nil {
+		t.Fatalf("carrier base: %v", err)
+	}
 	for m1 := -bound; m1 <= bound; m1++ {
 		for m2 := -bound; m2 <= bound; m2++ {
 			code, err := encodeCarrierPair(m1, m2, bound)
 			if err != nil {
 				t.Fatalf("encode m1=%d m2=%d: %v", m1, m2, err)
 			}
-			d1, d2, err := decodeCarrierPair(code, bound)
-			if err != nil {
-				t.Fatalf("decode code=%d: %v", code, err)
-			}
-			if d1 != m1 || d2 != m2 {
-				t.Fatalf("round-trip mismatch: got (%d,%d) want (%d,%d)", d1, d2, m1, m2)
+			want := uint64((m2+bound)*base + (m1 + bound))
+			if code != want {
+				t.Fatalf("code mismatch for (%d,%d): got %d want %d", m1, m2, code, want)
 			}
 		}
 	}
@@ -32,11 +33,13 @@ func TestCarrierDecodePolys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alphabet size: %v", err)
 	}
+	base, err := carrierBase(bound)
+	if err != nil {
+		t.Fatalf("carrier base: %v", err)
+	}
 	for code := int64(0); code < size; code++ {
-		m1, m2, err := decodeCarrierPair(uint64(code), bound)
-		if err != nil {
-			t.Fatalf("decode pair code=%d: %v", code, err)
-		}
+		m1 := code%base - bound
+		m2 := code/base - bound
 		got1 := EvalPoly(d1, uint64(code)%q, q) % q
 		got2 := EvalPoly(d2, uint64(code)%q, q) % q
 		want1 := liftToField(q, m1) % q
@@ -70,19 +73,16 @@ func TestCarrierMembershipPoly(t *testing.T) {
 	}
 }
 
-func TestSingletonCarrierEncodeDecodeRoundTrip(t *testing.T) {
+func TestSingletonCarrierEncodeMatchesAlphabet(t *testing.T) {
 	for _, bound := range []int64{1, 5, 8} {
 		for m := -bound; m <= bound; m++ {
 			code, err := encodeSingletonCarrier(m, bound)
 			if err != nil {
 				t.Fatalf("bound=%d encode m=%d: %v", bound, m, err)
 			}
-			got, err := decodeSingletonCarrier(code, bound)
-			if err != nil {
-				t.Fatalf("bound=%d decode code=%d: %v", bound, code, err)
-			}
-			if got != m {
-				t.Fatalf("bound=%d round-trip mismatch: got %d want %d", bound, got, m)
+			want := uint64(m + bound)
+			if code != want {
+				t.Fatalf("bound=%d code mismatch: got %d want %d", bound, code, want)
 			}
 		}
 	}

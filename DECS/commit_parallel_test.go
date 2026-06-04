@@ -60,7 +60,7 @@ func maskRowsForCommitTest(maskCount int, degree int, mod uint64) [][]uint64 {
 func makeDeterministicFormalProver(t testing.TB) *Prover {
 	t.Helper()
 	chdirForDECSTest(t, decsTestRepoRoot(t))
-	ringQ, err := credential.LoadDefaultRing()
+	ringQ, err := credential.LoadRingWithDegree(0)
 	if err != nil {
 		t.Fatalf("load ring: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestCommitInitDeterministicAcrossParallelism(t *testing.T) {
 
 	prSerial := makeDeterministicFormalProver(t)
 	runtime.GOMAXPROCS(1)
-	rootSerial, err := prSerial.CommitInit()
+	rootSerial, err := prSerial.CommitInitWithOptions(CommitOptions{})
 	if err != nil {
 		t.Fatalf("serial commit init: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestCommitInitDeterministicAcrossParallelism(t *testing.T) {
 		parallelProcs = 2
 	}
 	runtime.GOMAXPROCS(parallelProcs)
-	rootParallel, err := prParallel.CommitInit()
+	rootParallel, err := prParallel.CommitInitWithOptions(CommitOptions{})
 	if err != nil {
 		t.Fatalf("parallel commit init: %v", err)
 	}

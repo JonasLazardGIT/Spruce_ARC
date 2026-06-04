@@ -1,7 +1,6 @@
 package decs
 
 const indexBitsPerValue = 13
-const indexBitsMask = (1 << indexBitsPerValue) - 1
 
 func (op *DECSOpening) tailLen() int {
 	if op == nil {

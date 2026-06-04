@@ -838,7 +838,7 @@ func verifyIntGenISISSignatureResponse(ringQ *ring.Ring, resp issueResponseFile,
 	ringQ.Sub(lhs, target, diff)
 	for _, c := range diff.Coeffs[0] {
 		if c%ringQ.Modulus[0] != 0 {
-			return fmt.Errorf("A u != T")
+			return fmt.Errorf("a u != t")
 		}
 	}
 	return nil
@@ -1086,7 +1086,7 @@ func loadBAsNTT(r *ring.Ring, path string) ([]*ring.Poly, error) {
 	out := make([]*ring.Poly, len(coeffs))
 	for i := range coeffs {
 		if len(coeffs[i]) != int(r.N) {
-			return nil, fmt.Errorf("B[%d] coefficient length=%d want ring_degree=%d", i, len(coeffs[i]), r.N)
+			return nil, fmt.Errorf("b[%d] coefficient length=%d want ring_degree=%d", i, len(coeffs[i]), r.N)
 		}
 		p := r.NewPoly()
 		copy(p.Coeffs[0], coeffs[i])

@@ -62,7 +62,6 @@ func prfCompanionModeDefault(mode PRFCompanionMode) PRFCompanionMode {
 }
 
 func prfCompanionOpeningLabels(mode PRFCompanionMode, checkpointSamples int) []string {
-	mode = prfCompanionModeDefault(mode)
 	if checkpointSamples <= 0 {
 		checkpointSamples = 1
 	}

@@ -169,7 +169,7 @@ func TestSignatureShortnessProfileMetrics(t *testing.T) {
 			if base != tc.wantBase || L != tc.wantL || rowsPerSig != tc.wantRows || degree != tc.wantDeg {
 				t.Fatalf("metrics=(R=%d,L=%d,rows=%d,deg=%d) want (R=%d,L=%d,rows=%d,deg=%d)", base, L, rowsPerSig, degree, tc.wantBase, tc.wantL, tc.wantRows, tc.wantDeg)
 			}
-			gotBase, gotL, gotCaps, err := ResolveSignatureBoundShapeForOpts(ringQ, tc.opts)
+			gotBase, gotL, _, gotCaps, err := signatureBoundShapeForOpts(ringQ, tc.opts)
 			if err != nil {
 				t.Fatalf("resolve bound shape: %v", err)
 			}
@@ -330,7 +330,7 @@ func TestSignatureShortnessTemptingCappedShapeIsNotProductionDefault(t *testing.
 	if missing == 0 {
 		t.Fatalf("expected capped R=11,L=4,[4,4,4,4] shape to miss some values in [-%d,%d]", beta, beta)
 	}
-	base, L, caps, err := ResolveSignatureBoundShapeForOpts(ringQ, SimOpts{
+	base, L, _, caps, err := signatureBoundShapeForOpts(ringQ, SimOpts{
 		CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
 		SigShortnessProfile: SigShortnessProfileR11L4Production,
 	})
@@ -340,6 +340,17 @@ func TestSignatureShortnessTemptingCappedShapeIsNotProductionDefault(t *testing.
 	if base != 11 || L != 4 || len(caps) != 0 {
 		t.Fatalf("production default unexpectedly resolved to capped shape: R=%d L=%d caps=%v", base, L, caps)
 	}
+}
+
+func recomposeLinfDigits(digits []int64, spec LinfSpec) int64 {
+	value := int64(0)
+	weight := int64(1)
+	R := int64(spec.R)
+	for i := 0; i < len(digits); i++ {
+		value += digits[i] * weight
+		weight *= R
+	}
+	return value
 }
 
 func TestResolveShowingPresetLabelForOpts(t *testing.T) {

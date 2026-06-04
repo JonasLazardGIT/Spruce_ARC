@@ -1,13 +1,10 @@
 package PIOP
 
 import (
-	"fmt"
 	"math"
 
 	decs "vSIS-Signature/DECS"
 	"vSIS-Signature/internal/packedwidth"
-
-	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
 // PaperTranscriptBucket tracks one paper transcript bucket in bits first, with
@@ -62,75 +59,6 @@ type paperTranscriptParams struct {
 	Theta      int
 	DQ         int
 	DDECS      int
-}
-
-// BuildPaperTranscriptReport returns the paper-primary transcript accounting
-// for the live proof object. It uses paper formulas for reducible prover
-// messages and actual transmitted packed payloads for the remaining proof data.
-func BuildPaperTranscriptReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (PaperTranscriptReport, error) {
-	if proof == nil {
-		return PaperTranscriptReport{}, fmt.Errorf("nil proof")
-	}
-	if ringQ == nil {
-		return PaperTranscriptReport{}, fmt.Errorf("nil ring")
-	}
-	opts.applyDefaults()
-	if err := validateProofRingDegree(proof, int(ringQ.N)); err != nil {
-		return PaperTranscriptReport{}, err
-	}
-	reportOpts := opts
-	reportOpts.RingDegree = int(ringQ.N)
-	if proof.Lambda > 0 {
-		reportOpts.Lambda = proof.Lambda
-	}
-	reportOpts.Kappa = proof.Kappa
-	if proof.Theta > 0 {
-		reportOpts.Theta = proof.Theta
-	}
-
-	ncols := proof.NColsUsed
-	if ncols <= 0 {
-		ncols = reportOpts.NCols
-	}
-	if ncols <= 0 {
-		ncols = int(ringQ.N)
-	}
-	lvcsNCols := resolveProofPCSNCols(proof, reportOpts.PCSNCols)
-	if lvcsNCols <= 0 {
-		lvcsNCols = reportOpts.LVCSNCols
-	}
-	if lvcsNCols <= 0 {
-		lvcsNCols = ncols
-	}
-	ell := reportOpts.Ell
-	ellPrime := reportOpts.EllPrime
-	rho := reportOpts.Rho
-	eta := reportOpts.Eta
-	theta := reportOpts.Theta
-
-	dQ := proof.QDegreeBound
-	if dQ <= 0 {
-		dQ = proof.MaskDegreeBound
-	}
-	if dQ <= 0 {
-		dQ = reportOpts.DQOverride
-	}
-	if dQ <= 0 {
-		return PaperTranscriptReport{}, fmt.Errorf("missing dQ/QDegreeBound in proof")
-	}
-	report := buildPaperTranscriptReportLeaf(proof, ringQ.Modulus[0], paperTranscriptParams{
-		Lambda:     reportOpts.Lambda,
-		RingDegree: int(ringQ.N),
-		X0Len:      rowLayoutX0Len(proof.RowLayout),
-		Eta:        eta,
-		Ell:        ell,
-		EllPrime:   ellPrime,
-		Rho:        rho,
-		Theta:      theta,
-		DQ:         dQ,
-		DDECS:      lvcsNCols + ell - 1,
-	})
-	return report, nil
 }
 
 func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptParams) PaperTranscriptReport {
@@ -299,35 +227,6 @@ func finalizePaperTranscriptReport(r *PaperTranscriptReport) {
 	}
 	r.NaiveBytes = bitsToBytes(r.NaiveBits)
 	r.OptimizedBytes = bitsToBytes(r.OptimizedBits)
-}
-
-func mergePaperTranscriptReports(a, b PaperTranscriptReport) PaperTranscriptReport {
-	a.Counters.NaiveBits += b.Counters.NaiveBits
-	a.Counters.OptimizedBits += b.Counters.OptimizedBits
-	a.SaltRoot.NaiveBits += b.SaltRoot.NaiveBits
-	a.SaltRoot.OptimizedBits += b.SaltRoot.OptimizedBits
-	a.ExtraHash.NaiveBits += b.ExtraHash.NaiveBits
-	a.ExtraHash.OptimizedBits += b.ExtraHash.OptimizedBits
-	a.R.NaiveBits += b.R.NaiveBits
-	a.R.OptimizedBits += b.R.OptimizedBits
-	a.Q.NaiveBits += b.Q.NaiveBits
-	a.Q.OptimizedBits += b.Q.OptimizedBits
-	a.SigShortness.NaiveBits += b.SigShortness.NaiveBits
-	a.SigShortness.OptimizedBits += b.SigShortness.OptimizedBits
-	a.VTargets.NaiveBits += b.VTargets.NaiveBits
-	a.VTargets.OptimizedBits += b.VTargets.OptimizedBits
-	a.BarSets.NaiveBits += b.BarSets.NaiveBits
-	a.BarSets.OptimizedBits += b.BarSets.OptimizedBits
-	a.Pdecs.NaiveBits += b.Pdecs.NaiveBits
-	a.Pdecs.OptimizedBits += b.Pdecs.OptimizedBits
-	a.Mdecs.NaiveBits += b.Mdecs.NaiveBits
-	a.Mdecs.OptimizedBits += b.Mdecs.OptimizedBits
-	a.Auth.NaiveBits += b.Auth.NaiveBits
-	a.Auth.OptimizedBits += b.Auth.OptimizedBits
-	a.Tapes.NaiveBits += b.Tapes.NaiveBits
-	a.Tapes.OptimizedBits += b.Tapes.OptimizedBits
-	finalizePaperTranscriptReport(&a)
-	return a
 }
 
 func sigShortnessPayloadBits(sig *SigShortnessProof) float64 {

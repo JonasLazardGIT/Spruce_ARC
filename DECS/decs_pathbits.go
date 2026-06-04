@@ -18,32 +18,6 @@ func pathBitWidth(maxValue int) int {
 	return width
 }
 
-func packPathMatrix(rows [][]int, depth, width int) []byte {
-	if depth <= 0 || width <= 0 {
-		return nil
-	}
-	totalValues := len(rows) * depth
-	totalBits := totalValues * width
-	out := make([]byte, (totalBits+7)/8)
-	mask := uint32((1 << width) - 1)
-	bitPos := 0
-	for _, row := range rows {
-		for _, v := range row {
-			val := uint32(v) & mask
-			bytePos := bitPos >> 3
-			shift := uint(bitPos & 7)
-			chunk := uint64(val) << shift
-			byteCount := ((width + int(shift) + 7) / 8)
-			for i := 0; i < byteCount && (bytePos+i) < len(out); i++ {
-				out[bytePos+i] |= byte(chunk & 0xFF)
-				chunk >>= 8
-			}
-			bitPos += width
-		}
-	}
-	return out
-}
-
 func unpackPathMatrix(bits []byte, rows, depth, width int) ([][]int, error) {
 	if rows < 0 || depth < 0 || width <= 0 {
 		return nil, errors.New("invalid path matrix parameters")

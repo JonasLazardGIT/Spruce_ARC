@@ -79,7 +79,7 @@ func prepareMaskSubsetRowRecovery(
 	for i := range proof.R {
 		rPolys[i] = coeffsToNTTIfFits(ringQ, proof.R[i])
 		if rPolys[i] == nil {
-			return nil, fmt.Errorf("R polynomial %d too large to materialize", i)
+			return nil, fmt.Errorf("r polynomial %d too large to materialize", i)
 		}
 	}
 	coeffMatrix := proof.CoeffMatrix

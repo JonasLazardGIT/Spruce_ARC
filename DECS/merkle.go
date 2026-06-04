@@ -123,11 +123,3 @@ func hashNodeIntoWith(h sha3.ShakeHash, left, right *[16]byte, out *[16]byte) {
 	_, _ = h.Write(right[:])
 	_, _ = h.Read(out[:])
 }
-
-func shake16(data []byte) [16]byte {
-	var out [16]byte
-	h := sha3.NewShake256()
-	_, _ = h.Write(data)
-	_, _ = h.Read(out[:])
-	return out
-}

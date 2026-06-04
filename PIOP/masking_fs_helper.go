@@ -84,22 +84,13 @@ type maskFSArgs struct {
 	// Public tables / commit key
 	PK  *lvcs.ProverKey
 	A   [][]*ring.Poly
-	b1  []*ring.Poly
 	B0c []*ring.Poly
 	B0m [][]*ring.Poly
 	B0r [][]*ring.Poly
 
 	// Witness
 	w1        []*ring.Poly
-	w2        *ring.Poly
-	w3        []*ring.Poly
 	origW1Len int
-	mSig      int
-
-	// Range offsets
-	msgRangeOffset int
-	rndRangeOffset int
-	x1RangeOffset  int
 
 	// Constraints
 	FparInt                  []*ring.Poly
@@ -120,8 +111,6 @@ type maskFSArgs struct {
 	prfTagPublic             [][]int64
 	prfNoncePublic           [][]int64
 	hashRelation             string
-	parallelDeg              int
-	aggDeg                   int
 
 	// Mask configuration
 	maskDegreeTarget      int
@@ -131,14 +120,13 @@ type maskFSArgs struct {
 	independentMasksK     []*KPoly
 
 	// Rows/layout
-	rows            [][]uint64
-	rowInputs       []lvcs.RowInput
-	witnessRowCount int
-	maskRowOffset   int
-	maskRowCount    int
-	rowLayout       RowLayout
-	oracleLayout    lvcs.OracleLayout
-	decsParams      decs.Params
+	rows          [][]uint64
+	rowInputs     []lvcs.RowInput
+	maskRowOffset int
+	maskRowCount  int
+	rowLayout     RowLayout
+	oracleLayout  lvcs.OracleLayout
+	decsParams    decs.Params
 
 	labelsDigest              []byte
 	sigShortnessBindingDigest []byte

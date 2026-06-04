@@ -296,19 +296,7 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 		return SigShortnessReport{}
 	}
 	sig := proof.SigShortness
-	pcsNCols := resolveProofPCSNCols(proof, 0)
 	openBlocks := 0
-	if pcsNCols > 0 && sig.Version != sigShortnessProofVersionV18 {
-		rows := buildSigShortnessWitnessPolyIndicesForVersion(proof.RowLayout, sig.Version)
-		seen := make(map[int]struct{}, len(rows))
-		for _, row := range rows {
-			if row < 0 {
-				continue
-			}
-			seen[row/pcsNCols] = struct{}{}
-		}
-		openBlocks = len(seen)
-	}
 	supportSlotCount := len(sig.SupportSlots)
 	openingBytes := sizeDECSOpening(sig.Opening)
 	if sig.Version == sigShortnessProofVersionV18 && sig.V18 != nil {
@@ -316,33 +304,11 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 		openingBytes = 0
 		openBlocks = 0
 	}
-	if sig.Version == sigShortnessProofVersionV6 && sig.V6 != nil {
-		if sig.V6.THatOpening != nil {
-			supportSlotCount = len(expandPackedOpening(sig.V6.THatOpening).AllIndices())
-		} else {
-			supportSlotCount = 0
-		}
-		openingBytes = sizeDECSOpening(sig.V6.THatOpening)
-	}
-	if sig.Version == sigShortnessProofVersionV5 && sig.V5 != nil {
-		if sig.V5.THatOpening != nil {
-			supportSlotCount = len(expandPackedOpening(sig.V5.THatOpening).AllIndices())
-		} else {
-			supportSlotCount = 0
-		}
-		openingBytes = sizeDECSOpening(sig.V5.THatOpening)
-	}
 	proofBytes := sizeSigShortnessProof(sig)
 	hiddenBytes := 0
 	hiddenProfile := ""
 	hiddenRadix := 0
 	hiddenDigits := 0
-	if sig.Version == sigShortnessProofVersionV6 && sig.V6 != nil && sig.V6.HiddenProof != nil {
-		_, hiddenBytes = proofSizeBreakdown(sig.V6.HiddenProof)
-		hiddenRadix = sig.V6.Radix
-		hiddenDigits = sig.V6.Digits
-		hiddenProfile = signatureShortnessProfileLabelFromMetrics(hiddenRadix, hiddenDigits)
-	}
 	return SigShortnessReport{
 		Enabled:          true,
 		Mode:             ResolveSigShortnessMode(proof),
@@ -473,19 +439,11 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 		out.OmitP = packing.PCSOpening.Pvals.OmittedCols
 		out.RowOpeningEntries = packing.PCSOpening.EntryCount
 	}
-	if proof == nil {
-		return out
-	}
 	if proof.RowLayout.IntGenISISShowing != nil {
 		l := proof.RowLayout.IntGenISISShowing
 		out.UDigitOnly = intGenISISProjectionUsesDigitOnlyU(l)
 		out.LinearHatSourceMode = intGenISISLinearHatSourceMode(l)
-		if intGenISISProjectionUsesSourceLinearHats(l) {
-			out.OmittedLinearHatRows = l.MuSigCount*l.ViewRowsPerPoly + l.X0Count*l.ViewRowsPerPoly + l.X1Count*l.ViewRowsPerPoly - (l.MuSigHatCount + l.X0HatCount + l.X1HatCount)
-			if out.OmittedLinearHatRows < 0 {
-				out.OmittedLinearHatRows = 0
-			}
-		} else if intGenISISProjectionUsesBBTranWResidual(l) {
+		if intGenISISProjectionUsesBBTranWResidual(l) {
 			out.OmittedLinearHatRows = l.MuSigCount*l.ViewRowsPerPoly + l.X0Count*l.ViewRowsPerPoly - l.WHatCount
 			if out.OmittedLinearHatRows < 0 {
 				out.OmittedLinearHatRows = 0
@@ -516,13 +474,6 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 				out.OpeningCols = out.PCols
 			}
 		}
-	}
-	if proof.SigShortness != nil && proof.SigShortness.V6 != nil && proof.SigShortness.V6.HiddenProof != nil {
-		out.HiddenShortnessProfile = signatureShortnessProfileLabelFromMetrics(proof.SigShortness.V6.Radix, proof.SigShortness.V6.Digits)
-		out.HiddenShortnessRadix = proof.SigShortness.V6.Radix
-		out.HiddenShortnessDigits = proof.SigShortness.V6.Digits
-		out.HiddenShortnessLVCSNCols = resolveProofPCSNCols(proof.SigShortness.V6.HiddenProof, 0)
-		out.HiddenShortnessNLeaves = proof.SigShortness.V6.HiddenProof.NLeavesUsed
 	}
 	if proof.SourceProductBridge != nil {
 		out.SourceProductBridgeBytes = sizeSourceProductBridge(proof.SourceProductBridge)

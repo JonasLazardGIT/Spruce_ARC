@@ -51,21 +51,21 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		return nil, err
 	}
 	if len(pub.A) != 1 || len(pub.A[0]) != l.UCount {
-		return nil, fmt.Errorf("A dimensions=%dx? want 1x%d", len(pub.A), l.UCount)
+		return nil, fmt.Errorf("a dimensions=%dx? want 1x%d", len(pub.A), l.UCount)
 	}
 	if len(pub.B) != 3+l.X0Count {
-		return nil, fmt.Errorf("B length=%d want %d", len(pub.B), 3+l.X0Count)
+		return nil, fmt.Errorf("b length=%d want %d", len(pub.B), 3+l.X0Count)
 	}
 	if intGenISISProjectionUsesBBTranWResidual(l) {
 		if err := validateIntGenISISBBTranLinearMapFullImage(ringQ, pub.B, l.X0Count); err != nil {
-			return nil, fmt.Errorf("IntGenISIS W-residual projection: %w", err)
+			return nil, fmt.Errorf("intgenisis w-residual projection: %w", err)
 		}
 	}
 	if len(pub.CM) != l.ECount || len(pub.CM[0]) != l.MCount {
-		return nil, fmt.Errorf("C_M dimensions mismatch")
+		return nil, fmt.Errorf("c_m dimensions mismatch")
 	}
 	if len(pub.AS) != l.ECount || len(pub.AS[0]) != l.SCount {
-		return nil, fmt.Errorf("A_s dimensions mismatch")
+		return nil, fmt.Errorf("a_s dimensions mismatch")
 	}
 	if len(omegaWitness) == 0 || len(domainPoints) == 0 {
 		return nil, fmt.Errorf("missing replay domains")
@@ -381,7 +381,7 @@ func (cfg *intGenISISShowingReplayConfig) evalYLinearSourceF(term intGenISISYLin
 		if term.Name == "M" && l.MSeedViewCount > 0 && local >= l.MCompressedSourceRows {
 			seedBlock := local - l.MCompressedSourceRows
 			if seedBlock < 0 || seedBlock >= l.MSeedViewCount {
-				return 0, fmt.Errorf("M seed-tail block=%d outside count=%d", seedBlock, l.MSeedViewCount)
+				return 0, fmt.Errorf("m seed-tail block=%d outside count=%d", seedBlock, l.MSeedViewCount)
 			}
 			return getRow(l.MSeedViewStart + seedBlock)
 		}
@@ -564,29 +564,6 @@ func (cfg *intGenISISShowingReplayConfig) evalProjectedSignatureF(x uint64, getR
 	return out, nil
 }
 
-func (cfg *intGenISISShowingReplayConfig) evalProjectedTransformLaneK(K *kf.Field, e kf.Elem, getRow func(int) (kf.Elem, error), sourceStart, comp, block, lane int) (kf.Elem, error) {
-	if cfg == nil || cfg.BridgeBasis == nil {
-		return K.Zero(), fmt.Errorf("missing IntGenISIS projected transform basis")
-	}
-	l := cfg.Layout
-	ncols := len(cfg.BridgeBasis.LagrangeBasis)
-	t := block*ncols + lane
-	if t < 0 || t >= len(cfg.BridgeBasis.TransformH) || t >= len(cfg.BridgeBasis.BlockFactors) {
-		return K.Zero(), fmt.Errorf("projected transform lane t=%d out of range", t)
-	}
-	left := K.Zero()
-	for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
-		source, err := getRow(sourceStart + comp*l.ViewRowsPerPoly + srcBlock)
-		if err != nil {
-			return K.Zero(), err
-		}
-		h := K.EvalFPolyAtK(cfg.BridgeBasis.TransformH[t], e)
-		scale := K.EmbedF(cfg.BridgeBasis.BlockFactors[t][srcBlock] % cfg.Ring.Modulus[0])
-		left = K.Add(left, K.Mul(scale, K.Mul(h, source)))
-	}
-	return left, nil
-}
-
 func (cfg *intGenISISShowingReplayConfig) evalYLinearSourceK(K *kf.Field, term intGenISISYLinearTermCache, comp, srcBlock int, getRow func(int) (kf.Elem, error)) (kf.Elem, error) {
 	if cfg == nil {
 		return K.Zero(), fmt.Errorf("nil IntGenISIS showing replay config")
@@ -598,7 +575,7 @@ func (cfg *intGenISISShowingReplayConfig) evalYLinearSourceK(K *kf.Field, term i
 		if term.Name == "M" && l.MSeedViewCount > 0 && local >= l.MCompressedSourceRows {
 			seedBlock := local - l.MCompressedSourceRows
 			if seedBlock < 0 || seedBlock >= l.MSeedViewCount {
-				return K.Zero(), fmt.Errorf("M seed-tail block=%d outside count=%d", seedBlock, l.MSeedViewCount)
+				return K.Zero(), fmt.Errorf("m seed-tail block=%d outside count=%d", seedBlock, l.MSeedViewCount)
 			}
 			return getRow(l.MSeedViewStart + seedBlock)
 		}
@@ -613,55 +590,6 @@ func (cfg *intGenISISShowingReplayConfig) evalYLinearSourceK(K *kf.Field, term i
 		return K.EvalFPolyAtK(cfg.MSECompression.DecodePolys[lane], carrier), nil
 	}
 	return getRow(term.Source + comp*l.ViewRowsPerPoly + srcBlock)
-}
-
-func (cfg *intGenISISShowingReplayConfig) evalProjectedSourceTransformLaneK(K *kf.Field, e kf.Elem, getRow func(int) (kf.Elem, error), term intGenISISYLinearTermCache, comp, block, lane int) (kf.Elem, error) {
-	if cfg == nil || cfg.BridgeBasis == nil {
-		return K.Zero(), fmt.Errorf("missing IntGenISIS projected source transform basis")
-	}
-	l := cfg.Layout
-	ncols := len(cfg.BridgeBasis.LagrangeBasis)
-	t := block*ncols + lane
-	if t < 0 || t >= len(cfg.BridgeBasis.TransformH) || t >= len(cfg.BridgeBasis.BlockFactors) {
-		return K.Zero(), fmt.Errorf("projected source transform lane t=%d out of range", t)
-	}
-	h := K.EvalFPolyAtK(cfg.BridgeBasis.TransformH[t], e)
-	left := K.Zero()
-	for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
-		source, err := cfg.evalYLinearSourceK(K, term, comp, srcBlock, getRow)
-		if err != nil {
-			return K.Zero(), err
-		}
-		scale := K.EmbedF(cfg.BridgeBasis.BlockFactors[t][srcBlock] % cfg.Ring.Modulus[0])
-		left = K.Add(left, K.Mul(scale, K.Mul(h, source)))
-	}
-	return left, nil
-}
-
-func (cfg *intGenISISShowingReplayConfig) evalProjectedYHatLaneK(K *kf.Field, e kf.Elem, getRow func(int) (kf.Elem, error), block, lane int) (kf.Elem, error) {
-	if cfg == nil || cfg.YLinear == nil || len(cfg.YLinear.Terms) != 3 {
-		return K.Zero(), fmt.Errorf("missing IntGenISIS projected Y replay cache")
-	}
-	l := cfg.Layout
-	mLane, err := cfg.evalProjectedSourceTransformLaneK(K, e, getRow, cfg.YLinear.Terms[0], 0, block, lane)
-	if err != nil {
-		return K.Zero(), err
-	}
-	cmVal := EvalPoly(cfg.CMCoeff[0][0][block], cfg.Omega[lane]%cfg.Ring.Modulus[0], cfg.Ring.Modulus[0]) % cfg.Ring.Modulus[0]
-	left := K.Mul(K.EmbedF(cmVal), mLane)
-	for i := 0; i < l.SCount; i++ {
-		sLane, err := cfg.evalProjectedSourceTransformLaneK(K, e, getRow, cfg.YLinear.Terms[1], i, block, lane)
-		if err != nil {
-			return K.Zero(), err
-		}
-		asVal := EvalPoly(cfg.ASCoeff[0][i][block], cfg.Omega[lane]%cfg.Ring.Modulus[0], cfg.Ring.Modulus[0]) % cfg.Ring.Modulus[0]
-		left = K.Add(left, K.Mul(K.EmbedF(asVal), sLane))
-	}
-	eLane, err := cfg.evalProjectedSourceTransformLaneK(K, e, getRow, cfg.YLinear.Terms[2], 0, block, lane)
-	if err != nil {
-		return K.Zero(), err
-	}
-	return K.Add(left, eLane), nil
 }
 
 func (cfg *intGenISISShowingReplayConfig) evalLinearHatK(K *kf.Field, _ kf.Elem, getRow func(int) (kf.Elem, error), kind intGenISISLinearHatKind, component, block int) (kf.Elem, error) {

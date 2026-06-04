@@ -95,29 +95,6 @@ func requiredExplicitPCSNColsForRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell
 	return required
 }
 
-func bumpExplicitPCSNCols(opts SimOpts, required int) SimOpts {
-	if required <= 0 {
-		return opts
-	}
-	if opts.PCSNCols <= 0 && opts.LVCSNCols <= 0 {
-		opts.LVCSNCols = required
-		return opts
-	}
-	if opts.PCSNCols > 0 && opts.PCSNCols < required {
-		opts.PCSNCols = required
-	}
-	if opts.LVCSNCols > 0 && opts.LVCSNCols < required {
-		opts.LVCSNCols = required
-	}
-	if opts.PCSNCols <= 0 && opts.LVCSNCols < required {
-		opts.LVCSNCols = required
-	}
-	if opts.LVCSNCols <= 0 && opts.PCSNCols < required {
-		opts.PCSNCols = required
-	}
-	return opts
-}
-
 // commitRows wraps LVCS.CommitInitWithParamsAndPoints and assigns the witness
 // and mask layout for a retained proof slice.
 func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs.Params, witnessCount, maskOffset, maskCount int, points []uint64, phase decs.CommitPhaseRecorder) (root [16]byte, pk *lvcs.ProverKey, oracleLayout lvcs.OracleLayout, err error) {

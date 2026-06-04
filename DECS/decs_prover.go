@@ -21,10 +21,6 @@ const nonceDeriveLabel = "decs-nonce"
 // profiles benchmark faster with uint64 coefficient rows on current hardware.
 const enableFormalEvalUint32 = false
 
-func DeriveNonce(seed []byte, idx int, nonceBytes int) []byte {
-	return deriveNonce(seed, idx, nonceBytes)
-}
-
 func deriveNonce(seed []byte, idx int, nonceBytes int) []byte {
 	scratch := make([]byte, 0, len(nonceDeriveLabel)+len(seed)+5)
 	out := make([]byte, nonceBytes)
@@ -224,16 +220,6 @@ func computeFormalEvalPowers(powers []uint64, x uint64, red modReducer64) {
 	for i := 1; i < len(powers); i++ {
 		powers[i] = red.mulReduced(powers[i-1], x)
 	}
-}
-
-func (p formalEvalPlan) evalInto(dst []uint64, x uint64, red modReducer64) {
-	if p.usesPowerEval() {
-		powers := make([]uint64, p.maxDeg+1)
-		computeFormalEvalPowers(powers, x, red)
-		p.evalIntoPrepared(dst, x, red, powers)
-		return
-	}
-	p.evalIntoHorner(dst, x, red)
 }
 
 func (p formalEvalPlan) evalIntoPrepared(dst []uint64, x uint64, red modReducer64, powers []uint64) {
@@ -508,26 +494,6 @@ func NewProverWithParamsAndPointsFormalChecked(ringQ *ring.Ring, coeffs [][]uint
 	}, nil
 }
 
-// SetFormalCommitmentRandomnessForTesting fixes formal masks and the nonce
-// seed for tests and benchmarks that need reproducible CommitInit roots.
-func (pr *Prover) SetFormalCommitmentRandomnessForTesting(mFormal [][]uint64, nonceSeed []byte) error {
-	if pr == nil {
-		return fmt.Errorf("decs: nil prover")
-	}
-	if pr.PFormal == nil {
-		return fmt.Errorf("decs: formal commitment randomness requires formal prover")
-	}
-	if len(mFormal) != pr.params.Eta {
-		return fmt.Errorf("decs: formal mask polynomial count mismatch: got=%d want=%d", len(mFormal), pr.params.Eta)
-	}
-	if len(nonceSeed) != pr.params.NonceBytes {
-		return fmt.Errorf("decs: nonce seed length mismatch: got=%d want=%d", len(nonceSeed), pr.params.NonceBytes)
-	}
-	pr.MFormal = normalizeFormalRows(mFormal, pr.ringQ.Modulus[0])
-	pr.nonceSeed = append([]byte(nil), nonceSeed...)
-	return nil
-}
-
 // CommitPhaseRecorder records opt-in commit phase timings. It is used by
 // benchmark/reporting callers only and is not part of the transcript.
 type CommitPhaseRecorder interface {
@@ -577,12 +543,6 @@ type commitInitPhaseTimings struct {
 	recordSubphases  bool
 }
 
-func (t *commitInitPhaseTimings) add(ptr *int64, d time.Duration) {
-	if t != nil {
-		atomic.AddInt64(ptr, int64(d))
-	}
-}
-
 func (t *commitInitPhaseTimings) record(rec CommitPhaseRecorder) {
 	if rec == nil || t == nil {
 		return
@@ -597,11 +557,6 @@ func (t *commitInitPhaseTimings) record(rec CommitPhaseRecorder) {
 	rec.RecordDuration("decs.leaf_encoding_cpu", time.Duration(atomic.LoadInt64(&t.leafEncodingNs)))
 	rec.RecordDuration("decs.nonce_derivation_cpu", time.Duration(atomic.LoadInt64(&t.nonceDeriveNs)))
 	rec.RecordDuration("decs.leaf_hashing_cpu", time.Duration(atomic.LoadInt64(&t.leafHashNs)))
-}
-
-// CommitInit does DECS.Commit step 1: sample M, nonces; build Merkle tree; NTT(P,M).
-func (pr *Prover) CommitInit() ([16]byte, error) {
-	return pr.commitInitWithOptions(commitInitOptions{forceScalarFormalEval: true})
 }
 
 // CommitInitWithOptions is CommitInit with benchmark-only controls. It keeps
@@ -625,7 +580,10 @@ func (pr *Prover) CommitInitWithOptions(opts CommitOptions) ([16]byte, error) {
 			internal.tileSize = 8
 		}
 	default:
-		return [16]byte{}, fmt.Errorf("decs: unknown formal eval mode %d", opts.FormalEvalMode)
+		return [16]byte{}, fmt.Errorf("decs: unsupported formal eval mode %d", opts.FormalEvalMode)
+	}
+	if opts.WorkerCount > 0 {
+		internal.workerCount = opts.WorkerCount
 	}
 	return pr.commitInitWithOptions(internal)
 }
@@ -1640,52 +1598,6 @@ func (op *DECSOpening) packResidues() {
 		}
 		op.Mvals = nil
 	}
-}
-
-func (op *DECSOpening) packPathIndexBits() {
-	if op == nil {
-		return
-	}
-	if len(op.PathIndex) == 0 {
-		if len(op.PathBits) == 0 && !op.hasRowMajorPaths() {
-			op.PathBitWidth = 0
-			op.PathDepth = 0
-		}
-		return
-	}
-	depth := len(op.PathIndex[0])
-	if depth == 0 {
-		op.PathBits = nil
-		op.PathBitWidth = 0
-		op.PathDepth = 0
-		op.PathIndex = nil
-		return
-	}
-	maxID := 0
-	for _, row := range op.PathIndex {
-		if len(row) != depth {
-			// inconsistent depth; keep explicit form
-			return
-		}
-		for _, id := range row {
-			if id > maxID {
-				maxID = id
-			}
-		}
-	}
-	width := pathBitWidth(maxID)
-	if width > 32 {
-		// packing beyond 32 bits not supported; keep explicit form
-		return
-	}
-	op.PathBits = packPathMatrix(op.PathIndex, depth, width)
-	op.PathBitWidth = uint8(width)
-	op.PathDepth = depth
-	op.PathIndex = nil
-}
-
-func (op *DECSOpening) hasRowMajorPaths() bool {
-	return op != nil && op.PathDepth > 0 && len(op.PathIndex) == 0 && len(op.PathBits) == 0 && len(op.Nodes) == op.EntryCount()*op.PathDepth
 }
 
 // DeriveGamma expands root→η×r matrix Γ with entries uniform in [0,q).
