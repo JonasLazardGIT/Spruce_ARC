@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-const IntGenISISStateVersion = 5
+const IntGenISISStateVersion = 6
 
 // IntGenISISState is the live credential witness/state for the committed-message
 // protocol. It intentionally does not include c, T, r0/r1, holder/issuer split
@@ -124,10 +124,10 @@ func (st IntGenISISState) Validate() error {
 	if err := ValidateSemanticMessage(layout, SemanticMessage{M: st.M, MAttr: st.MAttr, K: st.K}); err != nil {
 		return fmt.Errorf("semantic message: %w", err)
 	}
-	if err := validateBoundedIntGenISISRows("s", st.S, profile.B); err != nil {
+	if err := validateBoundedIntGenISISRows("s", st.S, IntGenISISLiveBound); err != nil {
 		return err
 	}
-	if err := validateBoundedIntGenISISRows("e", st.E, profile.B); err != nil {
+	if err := validateBoundedIntGenISISRows("e", st.E, IntGenISISLiveBound); err != nil {
 		return err
 	}
 	if len(st.SigS1) > 0 && len(st.SigS1) != profile.N {

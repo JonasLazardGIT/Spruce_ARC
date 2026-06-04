@@ -96,14 +96,14 @@ func buildMaintainedShowingPublicWitnessForBench(tb testing.TB, ringQ *ring.Ring
 	if err != nil {
 		tb.Fatalf("semantic layout: %v", err)
 	}
-	msg, err := credential.EncodeSemanticMessage(layout, credential.ZeroSemanticAttributes(layout), []int64{1, 0, -1, 1, 0, -1, 1, 0})
+	msg, err := credential.EncodeSemanticMessage(layout, credential.ZeroSemanticAttributes(layout), intGenISISTestPRFSeed())
 	if err != nil {
 		tb.Fatalf("encode semantic message: %v", err)
 	}
 	mRows := polysFromInt64ForIntGenISISTest(ringQ, msg.M)
 	mAttrRows := polysFromInt64ForIntGenISISTest(ringQ, msg.MAttr)
 	kRows := polysFromInt64ForIntGenISISTest(ringQ, msg.K)
-	key, err := extractIntGenISISPRFKeyElemsFromSemanticM(ringQ, profile.B, mRows)
+	key, err := extractIntGenISISPRFKeyElemsFromSemanticM(ringQ, credential.IntGenISISLiveBound, mRows)
 	if err != nil {
 		tb.Fatalf("extract key: %v", err)
 	}
@@ -172,7 +172,7 @@ func buildMaintainedShowingPublicWitnessForBench(tb testing.TB, ringQ *ring.Ring
 		AS:           [][]*ring.Poly{asRow},
 		Tag:          lanesFromElemsTest(tag, opts.NCols),
 		Nonce:        noncePublic,
-		BoundB:       profile.B,
+		BoundB:       credential.IntGenISISLiveBound,
 		X0Len:        profile.EllX0,
 		RingDegree:   profile.N,
 		HashRelation: credential.HashRelationBBTran,

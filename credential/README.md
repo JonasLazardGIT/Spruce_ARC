@@ -8,8 +8,11 @@ IntGenISIS flow.
 
 The live profiles are:
 
-- `intgenisis_profile_b`: `N=512`, `B=4`, used by `n512-compact96`
-- `intgenisis_profile_c`: `N=1024`, `B=1`, used by the degree-1024 presets
+- `intgenisis_profile_b`: `N=512`, live `B=1`, used by `n512-compact96`
+- `intgenisis_profile_c`: `N=1024`, live `B=1`, used by the degree-1024 presets
+
+The PRF key entropy is a separate 48-coefficient seed in `[-4,4]`, packed
+base-9 into the eight Poseidon key lanes.
 
 The public preset registry contains exactly:
 
@@ -27,7 +30,7 @@ IntGenISIS public parameters store:
 - `Modulus`
 - `HashRelation = bb_tran`
 - `BPath`
-- `BoundB` / `CommitmentBound`
+- `BoundB` / `CommitmentBound` for ordinary `M`, `s`, and `e`
 - `C_M`, `A_s`
 - `ell_M`, `k_s`, `n_c`
 - `ell_mu_sig`, `ell_x0`, `ell_x1`

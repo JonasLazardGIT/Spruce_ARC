@@ -12,7 +12,7 @@ import (
 )
 
 const DefaultPublicParamsPath = "internal/source_data/credential_public.intgenisis_profile_b.json"
-const PublicParamsVersion = 5
+const PublicParamsVersion = 6
 const MuLayoutFullCapacityHalvesV1 = "full_capacity_halves_v1"
 
 // PublicParams captures the stable credential-side public parameters used by
@@ -122,10 +122,10 @@ func (pp *PublicParams) normalizeLegacy() {
 				pp.Modulus = profile.Q
 			}
 			if pp.CommitmentBound == 0 {
-				pp.CommitmentBound = profile.B
+				pp.CommitmentBound = IntGenISISLiveBound
 			}
 			if pp.BoundB == 0 {
-				pp.BoundB = profile.B
+				pp.BoundB = IntGenISISLiveBound
 			}
 			if pp.EllM == 0 {
 				pp.EllM = profile.EllM
@@ -273,6 +273,9 @@ func (pp *PublicParams) validateIntGenISIS() error {
 	}
 	if pp.CommitmentBound <= 0 {
 		return fmt.Errorf("invalid commitment bound B=%d", pp.CommitmentBound)
+	}
+	if pp.BoundB != IntGenISISLiveBound || pp.CommitmentBound != IntGenISISLiveBound {
+		return fmt.Errorf("IntGenISIS live bounds must be BoundB=B=%d, got BoundB=%d B=%d", IntGenISISLiveBound, pp.BoundB, pp.CommitmentBound)
 	}
 	if pp.EllM <= 0 || pp.KS <= 0 || pp.NC <= 0 {
 		return fmt.Errorf("invalid commitment dimensions ell_M=%d k_s=%d n_c=%d", pp.EllM, pp.KS, pp.NC)

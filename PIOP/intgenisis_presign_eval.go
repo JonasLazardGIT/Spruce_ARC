@@ -16,7 +16,7 @@ type intGenISISPreSignReplayConfig struct {
 	ASCoeff      [][][]uint64
 	ComCoeff     [][]uint64
 	BoundRows    []int
-	BoundPoly    []uint64
+	BoundPolys   [][]uint64
 	PolicyRows   [][]uint64
 }
 
@@ -108,7 +108,33 @@ func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		}
 		comCoeff[i] = coeff
 	}
-	boundRows := intGenISISViewRowIndices(l.BoundViewStart, l.BoundViewCount)
+	mOrdRows, mSeedRows, err := intGenISISSplitMViewRowIndicesForPack9Tail(l.MViewStart, int(ringQ.N), len(omegaWitness))
+	if err != nil {
+		return nil, err
+	}
+	kOrdRows, kSeedRows, err := intGenISISSplitMViewRowIndicesForPack9Tail(l.KViewStart, int(ringQ.N), len(omegaWitness))
+	if err != nil {
+		return nil, err
+	}
+	boundRows := make([]int, 0)
+	boundPolys := make([][]uint64, 0)
+	ordinaryRows := make([]int, 0, len(mOrdRows)+len(kOrdRows)+l.MAttrCount*l.ViewRowsPerPoly+l.SCount*l.ViewRowsPerPoly+l.ECount*l.ViewRowsPerPoly)
+	ordinaryRows = append(ordinaryRows, mOrdRows...)
+	ordinaryRows = append(ordinaryRows, intGenISISViewRowIndices(l.MAttrViewStart, l.MAttrCount*l.ViewRowsPerPoly)...)
+	ordinaryRows = append(ordinaryRows, kOrdRows...)
+	ordinaryRows = append(ordinaryRows, intGenISISViewRowIndices(l.SViewStart, l.SCount*l.ViewRowsPerPoly)...)
+	ordinaryRows = append(ordinaryRows, intGenISISViewRowIndices(l.EViewStart, l.ECount*l.ViewRowsPerPoly)...)
+	ordinarySpec := NewRangeMembershipSpec(ringQ.Modulus[0], int(pub.BoundB)).Coeffs
+	boundRows = append(boundRows, ordinaryRows...)
+	for range ordinaryRows {
+		boundPolys = append(boundPolys, ordinarySpec)
+	}
+	seedRows := append(append([]int(nil), mSeedRows...), kSeedRows...)
+	seedSpec := NewRangeMembershipSpec(ringQ.Modulus[0], int(intGenISISSeedBound)).Coeffs
+	boundRows = append(boundRows, seedRows...)
+	for range seedRows {
+		boundPolys = append(boundPolys, seedSpec)
+	}
 	policy, err := intGenISISPolicyFromPublic(pub)
 	if err != nil {
 		return nil, err
@@ -129,7 +155,7 @@ func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		ASCoeff:      asCoeff,
 		ComCoeff:     comCoeff,
 		BoundRows:    boundRows,
-		BoundPoly:    NewRangeMembershipSpec(ringQ.Modulus[0], int(pub.BoundB)).Coeffs,
+		BoundPolys:   boundPolys,
 		PolicyRows:   policyRows,
 	}, nil
 }
@@ -211,12 +237,15 @@ func (cfg *intGenISISPreSignReplayConfig) CoreEvaluator() ConstraintEvaluator {
 				fpar = append(fpar, modSub(mAttr, evalTheta(cfg.PolicyRows[i]), q))
 			}
 		}
-		for _, idx := range cfg.BoundRows {
+		for i, idx := range cfg.BoundRows {
 			row, err := getRow(idx)
 			if err != nil {
 				return nil, nil, err
 			}
-			fpar = append(fpar, intGenISISEvalMembership(q, cfg.BoundPoly, row))
+			if i >= len(cfg.BoundPolys) {
+				return nil, nil, fmt.Errorf("missing IntGenISIS bound polynomial %d", i)
+			}
+			fpar = append(fpar, intGenISISEvalMembership(q, cfg.BoundPolys[i], row))
 		}
 		return fpar, nil, nil
 	}
@@ -296,12 +325,15 @@ func (cfg *intGenISISPreSignReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 				fpar = append(fpar, K.Sub(mAttr, evalTheta(cfg.PolicyRows[i])))
 			}
 		}
-		for _, idx := range cfg.BoundRows {
+		for i, idx := range cfg.BoundRows {
 			row, err := getRow(idx)
 			if err != nil {
 				return nil, nil, err
 			}
-			fpar = append(fpar, intGenISISEvalKPolyAtElem(K, cfg.BoundPoly, row))
+			if i >= len(cfg.BoundPolys) {
+				return nil, nil, fmt.Errorf("missing IntGenISIS bound polynomial %d", i)
+			}
+			fpar = append(fpar, intGenISISEvalKPolyAtElem(K, cfg.BoundPolys[i], row))
 		}
 		return fpar, nil, nil
 	}, nil

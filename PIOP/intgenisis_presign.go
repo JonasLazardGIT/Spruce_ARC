@@ -61,7 +61,7 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 	residuals = append(residuals, binding...)
 	set := ConstraintSet{
 		FparInt:          residuals,
-		ParallelAlgDeg:   intGenISISMembershipDegree(pub.BoundB),
+		ParallelAlgDeg:   maxInt(intGenISISMembershipDegree(pub.BoundB), intGenISISMembershipDegree(intGenISISSeedBound)),
 		AggregatedAlgDeg: 1,
 	}
 	ncols := opts.NCols
@@ -409,13 +409,33 @@ func buildIntGenISISPreSignConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 			fpar[i] = nttPolyFromFormalCoeffsIfFits(ringQ, residualCoeffs[i])
 		}
 	}
-	boundRows := intGenISISViewRowIndices(l.BoundViewStart, l.BoundViewCount)
-	boundPolys, boundCoeffs, err := intGenISISLiveMembershipRows(ringQ, rowsNTT, boundRows, pub.BoundB)
+	mOrdRows, mSeedRows, err := intGenISISSplitMViewRowIndicesForPack9Tail(l.MViewStart, int(ringQ.N), len(omega))
 	if err != nil {
 		return ConstraintSet{}, err
 	}
+	kOrdRows, kSeedRows, err := intGenISISSplitMViewRowIndicesForPack9Tail(l.KViewStart, int(ringQ.N), len(omega))
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	ordinaryRows := make([]int, 0, len(mOrdRows)+len(kOrdRows)+l.MAttrCount*l.ViewRowsPerPoly+l.SCount*l.ViewRowsPerPoly+l.ECount*l.ViewRowsPerPoly)
+	ordinaryRows = append(ordinaryRows, mOrdRows...)
+	ordinaryRows = append(ordinaryRows, intGenISISViewRowIndices(l.MAttrViewStart, l.MAttrCount*l.ViewRowsPerPoly)...)
+	ordinaryRows = append(ordinaryRows, kOrdRows...)
+	ordinaryRows = append(ordinaryRows, intGenISISViewRowIndices(l.SViewStart, l.SCount*l.ViewRowsPerPoly)...)
+	ordinaryRows = append(ordinaryRows, intGenISISViewRowIndices(l.EViewStart, l.ECount*l.ViewRowsPerPoly)...)
+	boundPolys, boundCoeffs, err := intGenISISLiveMembershipRows(ringQ, rowsNTT, ordinaryRows, pub.BoundB)
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	seedRows := append(append([]int(nil), mSeedRows...), kSeedRows...)
+	seedPolys, seedCoeffs, err := intGenISISRangeMembershipRows(ringQ, rowsNTT, seedRows, intGenISISSeedBound)
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	boundPolys = append(boundPolys, seedPolys...)
+	boundCoeffs = append(boundCoeffs, seedCoeffs...)
 	policyDegree := intGenISISPolicyDegree(policy)
-	membershipDegree := intGenISISMembershipDegree(pub.BoundB)
+	membershipDegree := maxInt(intGenISISMembershipDegree(pub.BoundB), intGenISISMembershipDegree(intGenISISSeedBound))
 	return ConstraintSet{
 		FparInt:          fpar,
 		FparIntCoeffs:    residualCoeffs,

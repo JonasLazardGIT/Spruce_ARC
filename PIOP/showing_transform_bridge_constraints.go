@@ -3,6 +3,7 @@ package PIOP
 import (
 	"fmt"
 
+	"vSIS-Signature/credential"
 	"vSIS-Signature/internal/fpoly"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -467,6 +468,10 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 		keySlots := append([]CoeffSlot(nil), prfCompanionLayout.KeySlots...)
 		keySourceSlots := append([]CoeffSlot(nil), prfCompanionLayout.KeySourceSlots...)
 		keySourceDecodeLanes := append([]int(nil), prfCompanionLayout.KeySourceDecodeLanes...)
+		keySourceMode := prfCompanionLayout.KeySourceMode
+		if keySourceMode == "" {
+			keySourceMode = PRFKeySourceModeDirect
+		}
 		if keyCount > 0 {
 			if len(keySourceSlots) == 0 && half < keyCount {
 				return ConstraintSet{}, fmt.Errorf("key binding requires ncols/2 >= lenkey; got ncols=%d lenkey=%d", ncols, keyCount)
@@ -487,6 +492,41 @@ func buildCredentialConstraintSetPostCoeffNativeTransformBridge(
 					return ConstraintSet{}, fmt.Errorf("key row coeffs: %w", err)
 				}
 				keyExtract := polyMul(selectorCoeff[slot.Coeff], keyCoeff, q)
+				if keySourceMode == PRFKeySourceModePack9Seed {
+					if len(keySourceDecodeLanes) > 0 {
+						return ConstraintSet{}, fmt.Errorf("Pack9 seed key source must not use decode lanes")
+					}
+					if len(keySourceSlots) != keyCount*credential.IntGenISISPRFSeedDigitsPerLane {
+						return ConstraintSet{}, fmt.Errorf("seed key source slots=%d want %d", len(keySourceSlots), keyCount*credential.IntGenISISPRFSeedDigitsPerLane)
+					}
+					resCoeff := keyExtract
+					pow := uint64(1)
+					constant := uint64(0)
+					for j := 0; j < credential.IntGenISISPRFSeedDigitsPerLane; j++ {
+						src := keySourceSlots[i*credential.IntGenISISPRFSeedDigitsPerLane+j]
+						if src.Coeff < 0 || src.Coeff >= len(selectorCoeff) {
+							return ConstraintSet{}, fmt.Errorf("seed key source slot col=%d out of range", src.Coeff)
+						}
+						srcCoeff, err := getRowCoeff(src.Row)
+						if err != nil {
+							return ConstraintSet{}, fmt.Errorf("seed key source row coeffs: %w", err)
+						}
+						term := scalePoly(polyMul(selectorCoeff[src.Coeff], srcCoeff, q), pow, q)
+						resCoeff = polySub(resCoeff, term, q)
+						constant = (constant + (uint64(credential.IntGenISISPRFSeedBound)%q)*pow) % q
+						pow = (pow * uint64(credential.IntGenISISPRFSeedPackBase)) % q
+					}
+					if constant != 0 {
+						resCoeff = polySub(resCoeff, scalePoly(selectorCoeff[slot.Coeff], constant, q), q)
+					}
+					resCoeff = reducePolyModXN1(resCoeff, int(ringQ.N), q)
+					keyBindCoeffs = append(keyBindCoeffs, resCoeff)
+					keyBindRes = append(keyBindRes, nttPolyFromFormalCoeffsIfFits(ringQ, resCoeff))
+					continue
+				}
+				if keySourceMode != PRFKeySourceModeDirect {
+					return ConstraintSet{}, fmt.Errorf("unsupported PRF key source mode %q", keySourceMode)
+				}
 				var keySourceExtract []uint64
 				if len(keySourceSlots) > 0 {
 					src := keySourceSlots[i]

@@ -101,6 +101,9 @@ type IntGenISISShowingRowLayout struct {
 	MSECompressionDecodeDegree int    `json:"mse_compression_decode_degree,omitempty"`
 	MCarrierStart              int    `json:"m_carrier_start,omitempty"`
 	MCarrierCount              int    `json:"m_carrier_count,omitempty"`
+	MCompressedSourceRows      int    `json:"m_compressed_source_rows,omitempty"`
+	MSeedViewStart             int    `json:"m_seed_view_start,omitempty"`
+	MSeedViewCount             int    `json:"m_seed_view_count,omitempty"`
 	SCarrierStart              int    `json:"s_carrier_start,omitempty"`
 	SCarrierCount              int    `json:"s_carrier_count,omitempty"`
 	ECarrierStart              int    `json:"e_carrier_start,omitempty"`
@@ -189,6 +192,7 @@ func (l *IntGenISISShowingRowLayout) WitnessRows() int {
 		{l.UShortnessStart, l.UShortnessGroupCount * l.UShortnessRowsPerGroup},
 		{l.BoundViewStart, l.BoundViewCount},
 		{l.MCarrierStart, l.MCarrierCount},
+		{l.MSeedViewStart, l.MSeedViewCount},
 		{l.SCarrierStart, l.SCarrierCount},
 		{l.ECarrierStart, l.ECarrierCount},
 		{l.YViewStart, l.YViewCount},

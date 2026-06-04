@@ -3,6 +3,7 @@ package PIOP
 import (
 	"fmt"
 
+	"vSIS-Signature/credential"
 	kf "vSIS-Signature/internal/kfield"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -25,6 +26,7 @@ type intGenISISShowingReplayConfig struct {
 	Shortness            LinfSpec
 	KeySlots             []CoeffSlot
 	KeySource            []CoeffSlot
+	KeySourceMode        string
 	KeySourceDecodeLanes []int
 	PRFDirectFullStart   int
 	PRFDirectFullCount   int
@@ -151,9 +153,15 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	if err != nil {
 		return nil, err
 	}
-	nonSigRows := intGenISISViewRowIndices(l.BoundViewStart, l.BoundViewCount)
 	var boundRows []int
 	var boundPolys [][]uint64
+	compressionSpec := intGenISISMSECompressionSpec{}
+	if l.MSECompressionLevel > 0 {
+		compressionSpec, err = newIntGenISISMSECompressionSpecForBound(ringQ.Modulus[0], l.MSECompressionLevel, pub.BoundB)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if intGenISISUseDirectSignatureRange(sigBound) {
 		if intGenISISProjectionUsesDigitOnlyU(l) {
 			return nil, fmt.Errorf("IntGenISIS digit-only U does not support direct signature range constraints")
@@ -165,15 +173,56 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 			boundPolys = append(boundPolys, shortSpec)
 		}
 	}
-	boundRows = append(boundRows, nonSigRows...)
-	msgSpec := NewRangeMembershipSpec(ringQ.Modulus[0], int(pub.BoundB)).Coeffs
-	for range nonSigRows {
-		boundPolys = append(boundPolys, msgSpec)
+	if l.MSECompressionLevel > 0 {
+		carrierRows := make([]int, 0, l.MCarrierCount+l.SCarrierCount+l.ECarrierCount)
+		carrierRows = append(carrierRows, intGenISISViewRowIndices(l.MCarrierStart, l.MCarrierCount)...)
+		carrierRows = append(carrierRows, intGenISISViewRowIndices(l.SCarrierStart, l.SCarrierCount)...)
+		carrierRows = append(carrierRows, intGenISISViewRowIndices(l.ECarrierStart, l.ECarrierCount)...)
+		boundRows = append(boundRows, carrierRows...)
+		for range carrierRows {
+			boundPolys = append(boundPolys, compressionSpec.MembershipPoly)
+		}
+		seedRows := intGenISISViewRowIndices(l.MSeedViewStart, l.MSeedViewCount)
+		boundRows = append(boundRows, seedRows...)
+		seedSpec := NewRangeMembershipSpec(ringQ.Modulus[0], int(intGenISISSeedBound)).Coeffs
+		for range seedRows {
+			boundPolys = append(boundPolys, seedSpec)
+		}
+	} else {
+		mOrdinaryRows, mSeedRows, serr := intGenISISSplitMViewRowIndicesForPack9Tail(l.MViewStart, int(ringQ.N), len(omegaWitness))
+		if serr != nil {
+			return nil, serr
+		}
+		ordinaryRows := make([]int, 0, len(mOrdinaryRows)+l.SCount*l.ViewRowsPerPoly+l.ECount*l.ViewRowsPerPoly)
+		ordinaryRows = append(ordinaryRows, mOrdinaryRows...)
+		ordinaryRows = append(ordinaryRows, intGenISISViewRowIndices(l.SViewStart, l.SCount*l.ViewRowsPerPoly)...)
+		ordinaryRows = append(ordinaryRows, intGenISISViewRowIndices(l.EViewStart, l.ECount*l.ViewRowsPerPoly)...)
+		boundRows = append(boundRows, ordinaryRows...)
+		msgSpec := NewRangeMembershipSpec(ringQ.Modulus[0], int(pub.BoundB)).Coeffs
+		for range ordinaryRows {
+			boundPolys = append(boundPolys, msgSpec)
+		}
+		boundRows = append(boundRows, mSeedRows...)
+		seedSpec := NewRangeMembershipSpec(ringQ.Modulus[0], int(intGenISISSeedBound)).Coeffs
+		for range mSeedRows {
+			boundPolys = append(boundPolys, seedSpec)
+		}
 	}
 	var keySlots, keySource []CoeffSlot
+	keySourceMode := ""
 	if prfCompanionLayout != nil && prfCompanionLayout.KeyCount > 0 {
-		if len(prfCompanionLayout.KeySourceSlots) != len(prfCompanionLayout.KeySlots) {
-			return nil, fmt.Errorf("PRF key source slots=%d want key slots=%d", len(prfCompanionLayout.KeySourceSlots), len(prfCompanionLayout.KeySlots))
+		keySourceMode = prfCompanionLayout.KeySourceMode
+		if keySourceMode == "" {
+			keySourceMode = PRFKeySourceModeDirect
+		}
+		wantSources := len(prfCompanionLayout.KeySlots)
+		if keySourceMode == PRFKeySourceModePack9Seed {
+			wantSources *= intGenISISPRFSeedDigitsPerLane
+		} else if keySourceMode != PRFKeySourceModeDirect {
+			return nil, fmt.Errorf("unsupported PRF key source mode %q", keySourceMode)
+		}
+		if len(prfCompanionLayout.KeySourceSlots) != wantSources {
+			return nil, fmt.Errorf("PRF key source slots=%d want %d", len(prfCompanionLayout.KeySourceSlots), wantSources)
 		}
 		keySlots = append([]CoeffSlot(nil), prfCompanionLayout.KeySlots...)
 		keySource = append([]CoeffSlot(nil), prfCompanionLayout.KeySourceSlots...)
@@ -185,18 +234,6 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	prfDirectFullCount := 0
 	if prfCompanionLayout != nil && prfCompanionLayout.RelationVersion == 1 {
 		prfDirectFullCount = len(prfCompanionLayout.CheckpointSlots) + len(prfCompanionLayout.FinalRoundOutputSlots) + 2*len(prfCompanionLayout.FinalTagSlots)
-	}
-	compressionSpec := intGenISISMSECompressionSpec{}
-	if l.MSECompressionLevel > 0 {
-		compressionSpec, err = newIntGenISISMSECompressionSpecForBound(ringQ.Modulus[0], l.MSECompressionLevel, pub.BoundB)
-		if err != nil {
-			return nil, err
-		}
-		msgSpec := compressionSpec.MembershipPoly
-		boundPolys = boundPolys[:len(boundPolys)-len(nonSigRows)]
-		for range nonSigRows {
-			boundPolys = append(boundPolys, msgSpec)
-		}
 	}
 	lagrange, err := buildLagrangeBasisCoeffs(omegaWitness, ringQ.Modulus[0])
 	if err != nil {
@@ -234,6 +271,7 @@ func newIntGenISISShowingReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		Shortness:            shortSpec,
 		KeySlots:             keySlots,
 		KeySource:            keySource,
+		KeySourceMode:        keySourceMode,
 		KeySourceDecodeLanes: keySourceDecodeLanes,
 		PRFDirectFullStart:   prfDirectFullStart,
 		PRFDirectFullCount:   prfDirectFullCount,
@@ -340,6 +378,13 @@ func (cfg *intGenISISShowingReplayConfig) evalYLinearSourceF(term intGenISISYLin
 	if term.Compressed {
 		pack := l.MSECompressionPackWidth
 		local := comp*l.ViewRowsPerPoly + srcBlock
+		if term.Name == "M" && l.MSeedViewCount > 0 && local >= l.MCompressedSourceRows {
+			seedBlock := local - l.MCompressedSourceRows
+			if seedBlock < 0 || seedBlock >= l.MSeedViewCount {
+				return 0, fmt.Errorf("M seed-tail block=%d outside count=%d", seedBlock, l.MSeedViewCount)
+			}
+			return getRow(l.MSeedViewStart + seedBlock)
+		}
 		carrier, err := getRow(term.Source + local/pack)
 		if err != nil {
 			return 0, err
@@ -550,6 +595,13 @@ func (cfg *intGenISISShowingReplayConfig) evalYLinearSourceK(K *kf.Field, term i
 	if term.Compressed {
 		pack := l.MSECompressionPackWidth
 		local := comp*l.ViewRowsPerPoly + srcBlock
+		if term.Name == "M" && l.MSeedViewCount > 0 && local >= l.MCompressedSourceRows {
+			seedBlock := local - l.MCompressedSourceRows
+			if seedBlock < 0 || seedBlock >= l.MSeedViewCount {
+				return K.Zero(), fmt.Errorf("M seed-tail block=%d outside count=%d", seedBlock, l.MSeedViewCount)
+			}
+			return getRow(l.MSeedViewStart + seedBlock)
+		}
 		carrier, err := getRow(term.Source + local/pack)
 		if err != nil {
 			return K.Zero(), err
@@ -818,22 +870,6 @@ func (cfg *intGenISISShowingReplayConfig) evalYLinearF(x uint64, getRow func(int
 	}
 	q := cfg.Ring.Modulus[0]
 	l := cfg.Layout
-	sourceValue := func(term intGenISISYLinearTermCache, comp, srcBlock int) (uint64, error) {
-		if term.Compressed {
-			pack := l.MSECompressionPackWidth
-			local := comp*l.ViewRowsPerPoly + srcBlock
-			carrier, err := getRow(term.Source + local/pack)
-			if err != nil {
-				return 0, err
-			}
-			lane := local % pack
-			if lane < 0 || lane >= len(cfg.MSECompression.DecodePolys) {
-				return 0, fmt.Errorf("compressed %s decode lane=%d outside lanes=%d", term.Name, lane, len(cfg.MSECompression.DecodePolys))
-			}
-			return EvalPoly(cfg.MSECompression.DecodePolys[lane], carrier, q) % q, nil
-		}
-		return getRow(term.Source + comp*l.ViewRowsPerPoly + srcBlock)
-	}
 	out := make([]uint64, 0, l.ViewRowsPerPoly*len(cfg.YLinear.Lagrange))
 	for block := 0; block < l.ViewRowsPerPoly; block++ {
 		y, err := getRow(l.YViewStart + block)
@@ -846,7 +882,7 @@ func (cfg *intGenISISShowingReplayConfig) evalYLinearF(x uint64, getRow func(int
 			for _, term := range cfg.YLinear.Terms {
 				for comp := 0; comp < term.Components; comp++ {
 					for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
-						src, err := sourceValue(term, comp, srcBlock)
+						src, err := cfg.evalYLinearSourceF(term, comp, srcBlock, getRow)
 						if err != nil {
 							return nil, err
 						}
@@ -867,22 +903,6 @@ func (cfg *intGenISISShowingReplayConfig) evalYLinearK(K *kf.Field, e kf.Elem, g
 		return nil, fmt.Errorf("missing IntGenISIS Y-linear replay cache")
 	}
 	l := cfg.Layout
-	sourceValue := func(term intGenISISYLinearTermCache, comp, srcBlock int) (kf.Elem, error) {
-		if term.Compressed {
-			pack := l.MSECompressionPackWidth
-			local := comp*l.ViewRowsPerPoly + srcBlock
-			carrier, err := getRow(term.Source + local/pack)
-			if err != nil {
-				return K.Zero(), err
-			}
-			lane := local % pack
-			if lane < 0 || lane >= len(cfg.MSECompression.DecodePolys) {
-				return K.Zero(), fmt.Errorf("compressed %s decode lane=%d outside lanes=%d", term.Name, lane, len(cfg.MSECompression.DecodePolys))
-			}
-			return K.EvalFPolyAtK(cfg.MSECompression.DecodePolys[lane], carrier), nil
-		}
-		return getRow(term.Source + comp*l.ViewRowsPerPoly + srcBlock)
-	}
 	out := make([]kf.Elem, 0, l.ViewRowsPerPoly*len(cfg.YLinear.Lagrange))
 	for block := 0; block < l.ViewRowsPerPoly; block++ {
 		y, err := getRow(l.YViewStart + block)
@@ -895,7 +915,7 @@ func (cfg *intGenISISShowingReplayConfig) evalYLinearK(K *kf.Field, e kf.Elem, g
 			for _, term := range cfg.YLinear.Terms {
 				for comp := 0; comp < term.Components; comp++ {
 					for srcBlock := 0; srcBlock < l.ViewRowsPerPoly; srcBlock++ {
-						src, err := sourceValue(term, comp, srcBlock)
+						src, err := cfg.evalYLinearSourceK(K, term, comp, srcBlock, getRow)
 						if err != nil {
 							return nil, err
 						}
@@ -1032,33 +1052,73 @@ func (cfg *intGenISISShowingReplayConfig) CoreEvaluator() ConstraintEvaluator {
 		}
 		fagg := make([]uint64, 0)
 		if len(cfg.KeySlots) > 0 {
-			for i := range cfg.KeySlots {
-				key := cfg.KeySlots[i]
-				src := cfg.KeySource[i]
-				if key.Coeff < 0 || key.Coeff >= len(cfg.Lagrange) || src.Coeff < 0 || src.Coeff >= len(cfg.Lagrange) {
-					return nil, nil, fmt.Errorf("PRF key binding slot out of range")
-				}
-				keyVal, err := getRow(key.Row)
-				if err != nil {
-					return nil, nil, err
-				}
-				srcVal, err := getRow(src.Row)
-				if err != nil {
-					return nil, nil, err
-				}
-				if len(cfg.KeySourceDecodeLanes) > 0 {
-					if i >= len(cfg.KeySourceDecodeLanes) {
-						return nil, nil, fmt.Errorf("missing PRF key source decode lane %d", i)
+			keySourceMode := cfg.KeySourceMode
+			if keySourceMode == "" {
+				keySourceMode = PRFKeySourceModeDirect
+			}
+			if keySourceMode == PRFKeySourceModePack9Seed {
+				for i := range cfg.KeySlots {
+					key := cfg.KeySlots[i]
+					if key.Coeff < 0 || key.Coeff >= len(cfg.Lagrange) {
+						return nil, nil, fmt.Errorf("PRF key binding slot out of range")
 					}
-					lane := cfg.KeySourceDecodeLanes[i]
-					if lane < 0 || lane >= len(cfg.MSECompression.DecodePolys) {
-						return nil, nil, fmt.Errorf("PRF key source decode lane=%d outside lanes=%d", lane, len(cfg.MSECompression.DecodePolys))
+					keyVal, err := getRow(key.Row)
+					if err != nil {
+						return nil, nil, err
 					}
-					srcVal = EvalPoly(cfg.MSECompression.DecodePolys[lane], srcVal, q) % q
+					val := modMul(EvalPoly(cfg.Lagrange[key.Coeff], x, q), keyVal, q)
+					pow := uint64(1)
+					constant := uint64(0)
+					for j := 0; j < intGenISISPRFSeedDigitsPerLane; j++ {
+						src := cfg.KeySource[i*intGenISISPRFSeedDigitsPerLane+j]
+						if src.Coeff < 0 || src.Coeff >= len(cfg.Lagrange) {
+							return nil, nil, fmt.Errorf("PRF seed binding slot out of range")
+						}
+						srcVal, err := getRow(src.Row)
+						if err != nil {
+							return nil, nil, err
+						}
+						term := modMul(EvalPoly(cfg.Lagrange[src.Coeff], x, q), modMul(pow, srcVal, q), q)
+						val = modSub(val, term, q)
+						constant = (constant + (uint64(credential.IntGenISISPRFSeedBound)%q)*pow) % q
+						pow = (pow * uint64(credential.IntGenISISPRFSeedPackBase)) % q
+					}
+					if constant != 0 {
+						val = modSub(val, modMul(EvalPoly(cfg.Lagrange[key.Coeff], x, q), constant, q), q)
+					}
+					fagg = append(fagg, val)
 				}
-				left := modMul(EvalPoly(cfg.Lagrange[key.Coeff], x, q), keyVal, q)
-				right := modMul(EvalPoly(cfg.Lagrange[src.Coeff], x, q), srcVal, q)
-				fagg = append(fagg, modSub(left, right, q))
+			} else if keySourceMode != PRFKeySourceModeDirect {
+				return nil, nil, fmt.Errorf("unsupported PRF key source mode %q", keySourceMode)
+			} else {
+				for i := range cfg.KeySlots {
+					key := cfg.KeySlots[i]
+					src := cfg.KeySource[i]
+					if key.Coeff < 0 || key.Coeff >= len(cfg.Lagrange) || src.Coeff < 0 || src.Coeff >= len(cfg.Lagrange) {
+						return nil, nil, fmt.Errorf("PRF key binding slot out of range")
+					}
+					keyVal, err := getRow(key.Row)
+					if err != nil {
+						return nil, nil, err
+					}
+					srcVal, err := getRow(src.Row)
+					if err != nil {
+						return nil, nil, err
+					}
+					if len(cfg.KeySourceDecodeLanes) > 0 {
+						if i >= len(cfg.KeySourceDecodeLanes) {
+							return nil, nil, fmt.Errorf("missing PRF key source decode lane %d", i)
+						}
+						lane := cfg.KeySourceDecodeLanes[i]
+						if lane < 0 || lane >= len(cfg.MSECompression.DecodePolys) {
+							return nil, nil, fmt.Errorf("PRF key source decode lane=%d outside lanes=%d", lane, len(cfg.MSECompression.DecodePolys))
+						}
+						srcVal = EvalPoly(cfg.MSECompression.DecodePolys[lane], srcVal, q) % q
+					}
+					left := modMul(EvalPoly(cfg.Lagrange[key.Coeff], x, q), keyVal, q)
+					right := modMul(EvalPoly(cfg.Lagrange[src.Coeff], x, q), srcVal, q)
+					fagg = append(fagg, modSub(left, right, q))
+				}
 			}
 		}
 		if !derivedYView {
@@ -1241,33 +1301,73 @@ func (cfg *intGenISISShowingReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 		}
 		fagg := make([]kf.Elem, 0)
 		if len(cfg.KeySlots) > 0 {
-			for i := range cfg.KeySlots {
-				key := cfg.KeySlots[i]
-				src := cfg.KeySource[i]
-				if key.Coeff < 0 || key.Coeff >= len(cfg.Lagrange) || src.Coeff < 0 || src.Coeff >= len(cfg.Lagrange) {
-					return nil, nil, fmt.Errorf("PRF key binding slot out of range")
-				}
-				keyVal, err := getRow(key.Row)
-				if err != nil {
-					return nil, nil, err
-				}
-				srcVal, err := getRow(src.Row)
-				if err != nil {
-					return nil, nil, err
-				}
-				if len(cfg.KeySourceDecodeLanes) > 0 {
-					if i >= len(cfg.KeySourceDecodeLanes) {
-						return nil, nil, fmt.Errorf("missing PRF key source decode lane %d", i)
+			keySourceMode := cfg.KeySourceMode
+			if keySourceMode == "" {
+				keySourceMode = PRFKeySourceModeDirect
+			}
+			if keySourceMode == PRFKeySourceModePack9Seed {
+				for i := range cfg.KeySlots {
+					key := cfg.KeySlots[i]
+					if key.Coeff < 0 || key.Coeff >= len(cfg.Lagrange) {
+						return nil, nil, fmt.Errorf("PRF key binding slot out of range")
 					}
-					lane := cfg.KeySourceDecodeLanes[i]
-					if lane < 0 || lane >= len(cfg.MSECompression.DecodePolys) {
-						return nil, nil, fmt.Errorf("PRF key source decode lane=%d outside lanes=%d", lane, len(cfg.MSECompression.DecodePolys))
+					keyVal, err := getRow(key.Row)
+					if err != nil {
+						return nil, nil, err
 					}
-					srcVal = K.EvalFPolyAtK(cfg.MSECompression.DecodePolys[lane], srcVal)
+					val := K.Mul(K.EvalFPolyAtK(cfg.Lagrange[key.Coeff], e), keyVal)
+					pow := uint64(1)
+					constant := uint64(0)
+					for j := 0; j < intGenISISPRFSeedDigitsPerLane; j++ {
+						src := cfg.KeySource[i*intGenISISPRFSeedDigitsPerLane+j]
+						if src.Coeff < 0 || src.Coeff >= len(cfg.Lagrange) {
+							return nil, nil, fmt.Errorf("PRF seed binding slot out of range")
+						}
+						srcVal, err := getRow(src.Row)
+						if err != nil {
+							return nil, nil, err
+						}
+						term := K.Mul(K.EvalFPolyAtK(cfg.Lagrange[src.Coeff], e), K.Mul(K.EmbedF(pow%cfg.Ring.Modulus[0]), srcVal))
+						val = K.Sub(val, term)
+						constant = (constant + (uint64(credential.IntGenISISPRFSeedBound)%cfg.Ring.Modulus[0])*pow) % cfg.Ring.Modulus[0]
+						pow = (pow * uint64(credential.IntGenISISPRFSeedPackBase)) % cfg.Ring.Modulus[0]
+					}
+					if constant != 0 {
+						val = K.Sub(val, K.Mul(K.EvalFPolyAtK(cfg.Lagrange[key.Coeff], e), K.EmbedF(constant)))
+					}
+					fagg = append(fagg, val)
 				}
-				left := K.Mul(K.EvalFPolyAtK(cfg.Lagrange[key.Coeff], e), keyVal)
-				right := K.Mul(K.EvalFPolyAtK(cfg.Lagrange[src.Coeff], e), srcVal)
-				fagg = append(fagg, K.Sub(left, right))
+			} else if keySourceMode != PRFKeySourceModeDirect {
+				return nil, nil, fmt.Errorf("unsupported PRF key source mode %q", keySourceMode)
+			} else {
+				for i := range cfg.KeySlots {
+					key := cfg.KeySlots[i]
+					src := cfg.KeySource[i]
+					if key.Coeff < 0 || key.Coeff >= len(cfg.Lagrange) || src.Coeff < 0 || src.Coeff >= len(cfg.Lagrange) {
+						return nil, nil, fmt.Errorf("PRF key binding slot out of range")
+					}
+					keyVal, err := getRow(key.Row)
+					if err != nil {
+						return nil, nil, err
+					}
+					srcVal, err := getRow(src.Row)
+					if err != nil {
+						return nil, nil, err
+					}
+					if len(cfg.KeySourceDecodeLanes) > 0 {
+						if i >= len(cfg.KeySourceDecodeLanes) {
+							return nil, nil, fmt.Errorf("missing PRF key source decode lane %d", i)
+						}
+						lane := cfg.KeySourceDecodeLanes[i]
+						if lane < 0 || lane >= len(cfg.MSECompression.DecodePolys) {
+							return nil, nil, fmt.Errorf("PRF key source decode lane=%d outside lanes=%d", lane, len(cfg.MSECompression.DecodePolys))
+						}
+						srcVal = K.EvalFPolyAtK(cfg.MSECompression.DecodePolys[lane], srcVal)
+					}
+					left := K.Mul(K.EvalFPolyAtK(cfg.Lagrange[key.Coeff], e), keyVal)
+					right := K.Mul(K.EvalFPolyAtK(cfg.Lagrange[src.Coeff], e), srcVal)
+					fagg = append(fagg, K.Sub(left, right))
+				}
 			}
 		}
 		if !derivedYView {

@@ -2,47 +2,57 @@ package credential
 
 import "testing"
 
-func TestSemanticMessageRingTailKeyRoundTrip(t *testing.T) {
+func TestSemanticMessagePack9SeedRoundTrip(t *testing.T) {
 	for _, profile := range []IntGenISISProfile{PrimaryIntGenISISProfile(), Ternary1024IntGenISISProfile()} {
 		t.Run(profile.Name, func(t *testing.T) {
 			layout, err := DefaultSemanticMessageLayout(profile, 8)
 			if err != nil {
 				t.Fatalf("layout: %v", err)
 			}
-			if layout.Name != IntGenISISMessageLayoutRingTailKeyV1 || layout.Version != 4 {
+			if layout.Name != IntGenISISMessageLayoutPack9SeedV1 || layout.Version != IntGenISISMessageLayoutVersion {
 				t.Fatalf("layout version/name=%d/%q", layout.Version, layout.Name)
 			}
-			if layout.MSEDomain != layoutDomainForProfile(profile) || layout.KeyDomain != layoutDomainForProfile(profile) || layout.Bound != profile.B {
-				t.Fatalf("layout domain/bound mse=%q key=%q bound=%d", layout.MSEDomain, layout.KeyDomain, layout.Bound)
+			if layout.MSEDomain != IntGenISISDomainTernaryV1 || layout.KeyDomain != IntGenISISDomainBoundedRangeB4V1 || layout.Bound != IntGenISISLiveBound || layout.SeedBound != IntGenISISPRFSeedBound {
+				t.Fatalf("layout domain/bounds mse=%q key=%q bound=%d seed=%d", layout.MSEDomain, layout.KeyDomain, layout.Bound, layout.SeedBound)
 			}
-			if len(layout.Attribute) != profile.N-8 || len(layout.Key) != 8 {
-				t.Fatalf("layout slots attr=%d key=%d want %d/8", len(layout.Attribute), len(layout.Key), profile.N-8)
+			if len(layout.Attribute) != profile.N-IntGenISISPRFSeedTailReserve || len(layout.Key) != IntGenISISPRFSeedLen {
+				t.Fatalf("layout slots attr=%d key=%d want %d/%d", len(layout.Attribute), len(layout.Key), profile.N-IntGenISISPRFSeedTailReserve, IntGenISISPRFSeedLen)
 			}
-			if layout.Key[0].Coeff != profile.N-8 || layout.Key[len(layout.Key)-1].Coeff != profile.N-1 {
-				t.Fatalf("key slots=%+v", layout.Key)
+			if layout.Key[0].Coeff != profile.N-IntGenISISPRFSeedLen || layout.Key[len(layout.Key)-1].Coeff != profile.N-1 {
+				t.Fatalf("seed slots=%+v", layout.Key)
 			}
 			attrs := ZeroSemanticAttributes(layout)
 			for i := 0; i < len(layout.Attribute); i++ {
-				attrs[0][layout.Attribute[i].Coeff] = sampleValueForBound(profile.B, i)
+				attrs[0][layout.Attribute[i].Coeff] = sampleValueForBound(IntGenISISLiveBound, i)
 			}
-			key := make([]int64, 8)
-			for i := range key {
-				key[i] = sampleValueForBound(profile.B, i+len(layout.Attribute))
-			}
-			msg, err := EncodeSemanticMessage(layout, attrs, key)
+			seed := makeSeedForTest()
+			msg, err := EncodeSemanticMessage(layout, attrs, seed)
 			if err != nil {
 				t.Fatalf("encode: %v", err)
 			}
 			if err := ValidateSemanticMessage(layout, msg); err != nil {
 				t.Fatalf("validate: %v", err)
 			}
+			gotSeed, err := PRFSeedFromSemanticMessage(layout, msg.M)
+			if err != nil {
+				t.Fatalf("extract seed: %v", err)
+			}
+			for i := range seed {
+				if gotSeed[i] != seed[i] {
+					t.Fatalf("seed[%d]=%d want %d", i, gotSeed[i], seed[i])
+				}
+			}
 			gotKey, err := PRFKeyFromSemanticMessage(layout, msg.M)
 			if err != nil {
 				t.Fatalf("extract key: %v", err)
 			}
-			for i := range key {
-				if gotKey[i] != key[i] {
-					t.Fatalf("key[%d]=%d want %d", i, gotKey[i], key[i])
+			wantKey, err := PackPRFSeed(seed)
+			if err != nil {
+				t.Fatalf("pack seed: %v", err)
+			}
+			for i := range wantKey {
+				if gotKey[i] != wantKey[i] {
+					t.Fatalf("packed key[%d]=%d want %d", i, gotKey[i], wantKey[i])
 				}
 			}
 			decoded, err := DecodeSemanticMessage(layout, msg.M)
@@ -56,13 +66,6 @@ func TestSemanticMessageRingTailKeyRoundTrip(t *testing.T) {
 	}
 }
 
-func layoutDomainForProfile(profile IntGenISISProfile) string {
-	if profile.B == 1 {
-		return IntGenISISDomainTernaryV1
-	}
-	return IntGenISISDomainBoundedRangeV1
-}
-
 func sampleValueForBound(bound int64, i int) int64 {
 	if bound == 1 {
 		return int64((i % 3) - 1)
@@ -70,24 +73,38 @@ func sampleValueForBound(bound int64, i int) int64 {
 	return int64((i % int(2*bound+1)) - int(bound))
 }
 
-func TestSemanticMessageTernary1024Defaults(t *testing.T) {
+func makeSeedForTest() []int64 {
+	seed := make([]int64, IntGenISISPRFSeedLen)
+	for i := range seed {
+		seed[i] = sampleValueForBound(IntGenISISPRFSeedBound, i)
+	}
+	return seed
+}
+
+func TestSemanticMessagePack9SeedDefaults(t *testing.T) {
 	profile := Ternary1024IntGenISISProfile()
 	layout, err := DefaultSemanticMessageLayout(profile, 8)
 	if err != nil {
 		t.Fatalf("layout: %v", err)
 	}
-	if layout.Bound != 1 || layout.MSEDomain != IntGenISISDomainTernaryV1 || layout.KeyDomain != IntGenISISDomainTernaryV1 {
+	if layout.Bound != 1 || layout.MSEDomain != IntGenISISDomainTernaryV1 || layout.KeyDomain != IntGenISISDomainBoundedRangeB4V1 || layout.SeedBound != 4 {
 		t.Fatalf("profile C layout domain/bound mse=%q key=%q bound=%d", layout.MSEDomain, layout.KeyDomain, layout.Bound)
 	}
 	attrs := ZeroSemanticAttributes(layout)
 	for i, slot := range layout.Attribute {
 		attrs[slot.Poly][slot.Coeff] = int64((i % 3) - 1)
 	}
-	if _, err := EncodeSemanticMessage(layout, attrs, []int64{-1, 0, 1, -1, 0, 1, -1, 0}); err != nil {
-		t.Fatalf("ternary encode rejected: %v", err)
+	seed := makeSeedForTest()
+	seed[0] = 4
+	if _, err := EncodeSemanticMessage(layout, attrs, seed); err != nil {
+		t.Fatalf("B4 seed encode rejected: %v", err)
 	}
-	if _, err := EncodeSemanticMessage(layout, attrs, []int64{2, 0, 1, -1, 0, 1, -1, 0}); err == nil {
-		t.Fatal("ternary profile accepted key value 2")
+	seed[0] = 5
+	if _, err := EncodeSemanticMessage(layout, attrs, seed); err == nil {
+		t.Fatal("semantic layout accepted seed value 5")
+	}
+	if _, err := EncodeSemanticMessage(layout, attrs, []int64{-1, 0, 1, -1, 0, 1, -1, 0}); err == nil {
+		t.Fatal("semantic layout accepted old 8-coefficient key")
 	}
 }
 
@@ -111,7 +128,8 @@ func TestSemanticMessageRejectsSplitMutations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("layout: %v", err)
 	}
-	msg, err := EncodeSemanticMessage(layout, nil, []int64{1, 0, -1, 1, 0, -1, 1, 0})
+	seed := makeSeedForTest()
+	msg, err := EncodeSemanticMessage(layout, nil, seed)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -119,7 +137,7 @@ func TestSemanticMessageRejectsSplitMutations(t *testing.T) {
 	if err := ValidateSemanticMessage(layout, msg); err == nil {
 		t.Fatal("m mutation in key region accepted")
 	}
-	msg, err = EncodeSemanticMessage(layout, nil, []int64{1, 0, -1, 1, 0, -1, 1, 0})
+	msg, err = EncodeSemanticMessage(layout, nil, seed)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -135,7 +153,8 @@ func TestSemanticMessageRejectsKeyAndBindingMutations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("layout: %v", err)
 	}
-	msg, err := EncodeSemanticMessage(layout, nil, []int64{1, 0, -1, 1, 0, -1, 1, 0})
+	seed := makeSeedForTest()
+	msg, err := EncodeSemanticMessage(layout, nil, seed)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -143,7 +162,7 @@ func TestSemanticMessageRejectsKeyAndBindingMutations(t *testing.T) {
 	if err := ValidateSemanticMessage(layout, msg); err == nil {
 		t.Fatal("out-of-bound key mutation accepted")
 	}
-	msg, err = EncodeSemanticMessage(layout, nil, []int64{1, 0, -1, 1, 0, -1, 1, 0})
+	msg, err = EncodeSemanticMessage(layout, nil, seed)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}

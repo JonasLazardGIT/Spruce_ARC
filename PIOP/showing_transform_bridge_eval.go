@@ -3,6 +3,7 @@ package PIOP
 import (
 	"fmt"
 
+	"vSIS-Signature/credential"
 	kf "vSIS-Signature/internal/kfield"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -13,6 +14,7 @@ type prfKeyBindingLayout struct {
 	Packed               bool
 	KeySlots             []CoeffSlot
 	KeySourceSlots       []CoeffSlot
+	KeySourceMode        string
 	KeySourceDecodeLanes []int
 	StartIdx             int
 }
@@ -237,6 +239,7 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 		keyBindLayout.Packed = true
 		keyBindLayout.KeySlots = append([]CoeffSlot(nil), prfCompanionLayout.KeySlots...)
 		keyBindLayout.KeySourceSlots = append([]CoeffSlot(nil), prfCompanionLayout.KeySourceSlots...)
+		keyBindLayout.KeySourceMode = prfCompanionLayout.KeySourceMode
 		keyBindLayout.KeySourceDecodeLanes = append([]int(nil), prfCompanionLayout.KeySourceDecodeLanes...)
 	}
 	if keyBindLayout.KeyCount > 0 {
@@ -246,8 +249,18 @@ func newTransformBridgePostSignConfig(ringQ *ring.Ring, proof *Proof, pub Public
 		if keyBindLayout.Packed && len(keyBindLayout.KeySlots) < keyBindLayout.KeyCount {
 			return nil, fmt.Errorf("key binding requires %d key slots, have %d", keyBindLayout.KeyCount, len(keyBindLayout.KeySlots))
 		}
-		if len(keyBindLayout.KeySourceSlots) > 0 && len(keyBindLayout.KeySourceSlots) < keyBindLayout.KeyCount {
-			return nil, fmt.Errorf("key binding requires %d key source slots, have %d", keyBindLayout.KeyCount, len(keyBindLayout.KeySourceSlots))
+		keySourceMode := keyBindLayout.KeySourceMode
+		if keySourceMode == "" {
+			keySourceMode = PRFKeySourceModeDirect
+		}
+		wantSources := keyBindLayout.KeyCount
+		if keySourceMode == PRFKeySourceModePack9Seed {
+			wantSources *= credential.IntGenISISPRFSeedDigitsPerLane
+		} else if keySourceMode != PRFKeySourceModeDirect {
+			return nil, fmt.Errorf("unsupported PRF key source mode %q", keySourceMode)
+		}
+		if len(keyBindLayout.KeySourceSlots) > 0 && len(keyBindLayout.KeySourceSlots) < wantSources {
+			return nil, fmt.Errorf("key binding requires %d key source slots, have %d", wantSources, len(keyBindLayout.KeySourceSlots))
 		}
 		if len(keyBindLayout.KeySourceDecodeLanes) > 0 && len(keyBindLayout.KeySourceDecodeLanes) < keyBindLayout.KeyCount {
 			return nil, fmt.Errorf("key binding requires %d key source decode lanes, have %d", keyBindLayout.KeyCount, len(keyBindLayout.KeySourceDecodeLanes))
@@ -489,7 +502,45 @@ func (cfg *transformBridgePostSignConfig) evaluator() ConstraintEvaluator {
 			for j := 0; j < ncols; j++ {
 				lagrangeVals[j] = EvalPoly(cfg.LagrangeBasis[j], x, q) % q
 			}
+			keySourceMode := cfg.KeyBindLayout.KeySourceMode
+			if keySourceMode == "" {
+				keySourceMode = PRFKeySourceModeDirect
+			}
 			for i := 0; i < cfg.KeyBindLayout.KeyCount; i++ {
+				if keySourceMode == PRFKeySourceModePack9Seed {
+					slot := cfg.KeyBindLayout.KeySlots[i]
+					if slot.Coeff < 0 || slot.Coeff >= ncols {
+						return nil, nil, fmt.Errorf("key slot col=%d out of range", slot.Coeff)
+					}
+					keyVal, err := getRow(slot.Row)
+					if err != nil {
+						return nil, nil, err
+					}
+					val := modMul(lagrangeVals[slot.Coeff], keyVal, q)
+					pow := uint64(1)
+					constant := uint64(0)
+					for j := 0; j < credential.IntGenISISPRFSeedDigitsPerLane; j++ {
+						src := cfg.KeyBindLayout.KeySourceSlots[i*credential.IntGenISISPRFSeedDigitsPerLane+j]
+						if src.Coeff < 0 || src.Coeff >= ncols {
+							return nil, nil, fmt.Errorf("seed key source slot col=%d out of range", src.Coeff)
+						}
+						srcVal, err := getRow(src.Row)
+						if err != nil {
+							return nil, nil, err
+						}
+						val = modSub(val, modMul(lagrangeVals[src.Coeff], modMul(pow, srcVal, q), q), q)
+						constant = (constant + (uint64(credential.IntGenISISPRFSeedBound)%q)*pow) % q
+						pow = (pow * uint64(credential.IntGenISISPRFSeedPackBase)) % q
+					}
+					if constant != 0 {
+						val = modSub(val, modMul(lagrangeVals[slot.Coeff], constant, q), q)
+					}
+					fpar = append(fpar, val)
+					continue
+				}
+				if keySourceMode != PRFKeySourceModeDirect {
+					return nil, nil, fmt.Errorf("unsupported PRF key source mode %q", keySourceMode)
+				}
 				var keySourceExtract uint64
 				if len(cfg.KeyBindLayout.KeySourceSlots) > 0 {
 					src := cfg.KeyBindLayout.KeySourceSlots[i]
@@ -724,6 +775,7 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 		if cfg == nil || cfg.Ring == nil {
 			return nil, nil, fmt.Errorf("nil transform-bridge replay config")
 		}
+		q := cfg.Ring.Modulus[0]
 		getRow := func(idx int) (kf.Elem, error) {
 			if idx < 0 || idx >= len(rows) {
 				return K.Zero(), fmt.Errorf("row idx %d out of range (rows=%d)", idx, len(rows))
@@ -894,7 +946,45 @@ func (cfg *transformBridgePostSignConfig) kEvaluator(K *kf.Field) KConstraintEva
 			for j := 0; j < ncols; j++ {
 				lagrangeVals[j] = K.EvalFPolyAtK(cfg.LagrangeBasis[j], e)
 			}
+			keySourceMode := cfg.KeyBindLayout.KeySourceMode
+			if keySourceMode == "" {
+				keySourceMode = PRFKeySourceModeDirect
+			}
 			for i := 0; i < cfg.KeyBindLayout.KeyCount; i++ {
+				if keySourceMode == PRFKeySourceModePack9Seed {
+					slot := cfg.KeyBindLayout.KeySlots[i]
+					if slot.Coeff < 0 || slot.Coeff >= ncols {
+						return nil, nil, fmt.Errorf("key slot col=%d out of range", slot.Coeff)
+					}
+					keyVal, err := getRow(slot.Row)
+					if err != nil {
+						return nil, nil, err
+					}
+					val := K.Mul(lagrangeVals[slot.Coeff], keyVal)
+					pow := uint64(1)
+					constant := uint64(0)
+					for j := 0; j < credential.IntGenISISPRFSeedDigitsPerLane; j++ {
+						src := cfg.KeyBindLayout.KeySourceSlots[i*credential.IntGenISISPRFSeedDigitsPerLane+j]
+						if src.Coeff < 0 || src.Coeff >= ncols {
+							return nil, nil, fmt.Errorf("seed key source slot col=%d out of range", src.Coeff)
+						}
+						srcVal, err := getRow(src.Row)
+						if err != nil {
+							return nil, nil, err
+						}
+						val = K.Sub(val, K.Mul(lagrangeVals[src.Coeff], K.Mul(K.EmbedF(pow%q), srcVal)))
+						constant = (constant + (uint64(credential.IntGenISISPRFSeedBound)%q)*pow) % q
+						pow = (pow * uint64(credential.IntGenISISPRFSeedPackBase)) % q
+					}
+					if constant != 0 {
+						val = K.Sub(val, K.Mul(lagrangeVals[slot.Coeff], K.EmbedF(constant)))
+					}
+					fpar = append(fpar, val)
+					continue
+				}
+				if keySourceMode != PRFKeySourceModeDirect {
+					return nil, nil, fmt.Errorf("unsupported PRF key source mode %q", keySourceMode)
+				}
 				var keySourceExtract kf.Elem
 				if len(cfg.KeyBindLayout.KeySourceSlots) > 0 {
 					src := cfg.KeyBindLayout.KeySourceSlots[i]

@@ -56,8 +56,8 @@ func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 		Profile:              profile.Name,
 		HashRelation:         HashRelationBBTran,
 		BPath:                filepath.Join("internal", "source_data", "Bmatrix.intgenisis_profile_b.json"),
-		BoundB:               profile.B,
-		CommitmentBound:      profile.B,
+		BoundB:               IntGenISISLiveBound,
+		CommitmentBound:      IntGenISISLiveBound,
 		RingDegree:           profile.N,
 		CM:                   cm,
 		AS:                   as,
@@ -90,7 +90,7 @@ func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commitment params: %v", err)
 	}
-	if targetParams.EllM != 1 || targetParams.KS != 2 || targetParams.NC != 1 || targetParams.Bound != 4 {
+	if targetParams.EllM != 1 || targetParams.KS != 2 || targetParams.NC != 1 || targetParams.Bound != IntGenISISLiveBound {
 		t.Fatalf("unexpected target params: %+v", targetParams)
 	}
 }

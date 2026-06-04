@@ -44,7 +44,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("semantic layout: %v", err)
 	}
-	msg, err := credential.EncodeSemanticMessage(layout, credential.ZeroSemanticAttributes(layout), []int64{1, 0, -1, 1, 0, -1, 1, 0})
+	msg, err := credential.EncodeSemanticMessage(layout, credential.ZeroSemanticAttributes(layout), intGenISISTestPRFSeed())
 	if err != nil {
 		t.Fatalf("encode semantic message: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	MAttrRows := polysFromInt64ForIntGenISISTest(ringQ, msg.MAttr)
 	KRows := polysFromInt64ForIntGenISISTest(ringQ, msg.K)
 	M := MRows[0]
-	key, err := extractIntGenISISPRFKeyElemsFromSemanticM(ringQ, profile.B, MRows)
+	key, err := extractIntGenISISPRFKeyElemsFromSemanticM(ringQ, credential.IntGenISISLiveBound, MRows)
 	if err != nil {
 		t.Fatalf("extract key: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		AS:           [][]*ring.Poly{{intGenISISTestPublicConstNTT(ringQ, 0), intGenISISTestPublicConstNTT(ringQ, 0)}},
 		Tag:          lanesFromElemsTest(tag, opts.NCols),
 		Nonce:        noncePublic,
-		BoundB:       profile.B,
+		BoundB:       credential.IntGenISISLiveBound,
 		X0Len:        profile.EllX0,
 		RingDegree:   profile.N,
 		HashRelation: credential.HashRelationBBTran,
@@ -757,11 +757,11 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	}
 	compressedOpts := opts
 	compressedOpts.IntGenISISMSECompression = 1
-	if _, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, compressedOpts); err == nil {
-		t.Fatal("B=4 showing accepted compressed M/s/e proof")
+	if _, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, compressedOpts); err != nil {
+		t.Fatalf("live-bound showing rejected hybrid compressed M/s/e proof: %v", err)
 	}
-	if _, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), compressedOpts); err == nil {
-		t.Fatal("B=4 public extras accepted compressed M/s/e descriptor")
+	if _, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), compressedOpts); err != nil {
+		t.Fatalf("live-bound public extras rejected compressed M/s/e descriptor: %v", err)
 	}
 	variantOpts := opts
 	variantOpts.SigShortnessRadix = 7
@@ -970,6 +970,14 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err == nil && ok {
 		t.Fatal("showing verifier accepted tampered target public data")
 	}
+}
+
+func intGenISISTestPRFSeed() []int64 {
+	seed := make([]int64, credential.IntGenISISPRFSeedLen)
+	for i := range seed {
+		seed[i] = int64((i % int(2*credential.IntGenISISPRFSeedBound+1)) - int(credential.IntGenISISPRFSeedBound))
+	}
+	return seed
 }
 
 func assertIntGenISISShowingPreparedConstraintsMatchRebuild(t *testing.T, ringQ *ring.Ring, pub PublicInputs, cn *CoeffNativeShowingWitness, params *prf.Params, opts SimOpts) {

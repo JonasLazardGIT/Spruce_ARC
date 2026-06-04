@@ -43,8 +43,8 @@ q = 1,017,857
 and maintained profile-dependent dimensions:
 
 ```text
-profile B: N=512,  ell_x0=2, B=4
-profile C: N=1024, ell_x0=1, B=1
+profile B: N=512,  ell_x0=2, live B=1
+profile C: N=1024, ell_x0=1, live B=1
 ```
 
 All profiles currently use:
@@ -183,7 +183,7 @@ commitment opening:
 
 ```text
 m      attribute/message rows
-k      hidden PRF key rows
+k      hidden PRF seed row: 48 coefficients in [-4,4], packed base-9 into 8 PRF lanes
 M      packed semantic message row, with M = m + k in the implemented layout
 s      Ajtai/MLWE commitment randomness
 e      Ajtai/MLWE commitment error
@@ -439,7 +439,7 @@ public tag, and public parameters; it does not expose `T`, `Y`, `mu_sig`, `x0`,
 
 | Phase | Holder Generates | Issuer Generates | Public / Verifier-Facing |
 | --- | --- | --- | --- |
-| Setup | none, unless holder participates in CRS generation | NTRU keypair may be issuer-side | `N, q, B, C_M, A_s, PRF params, proof params, NTRU public key` |
+| Setup | none, unless holder participates in CRS generation | NTRU keypair may be issuer-side | `N, q, live B=1, C_M, A_s, PRF params, proof params, NTRU public key` |
 | Commit | `m, k, M, s, e, c` | none | `c` in commit request |
 | Pre-sign proof | ZK proof of `c` opening and semantic constraints | verifies proof | proof transcript for issuer |
 | Hash/sign | none new | `mu_sig, x0, x1`, derived `Z`, target `T`, signature `u` | response to holder contains `mu_sig, x0, x1, u, NTRU public key`; `T` is not serialized |
@@ -479,7 +479,7 @@ h_tran inputs:
 
 not h_tran inputs:
   holder message m
-  holder PRF key k
+  holder PRF seed k
   packed holder message M
   Ajtai randomness s
   Ajtai error e

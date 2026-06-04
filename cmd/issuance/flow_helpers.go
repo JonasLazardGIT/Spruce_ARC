@@ -282,8 +282,8 @@ func setupIntGenISISPublicForProfile(outPath string, force bool, profile credent
 		Modulus:              ringQ.Modulus[0],
 		HashRelation:         credential.HashRelationBBTran,
 		BPath:                bPath,
-		BoundB:               profile.B,
-		CommitmentBound:      profile.B,
+		BoundB:               credential.IntGenISISLiveBound,
+		CommitmentBound:      credential.IntGenISISLiveBound,
 		RingDegree:           profile.N,
 		CM:                   cm,
 		AS:                   as,
@@ -306,9 +306,9 @@ func setupIntGenISISPublicForProfile(outPath string, force bool, profile credent
 	log.Printf("[issuance-cli] wrote IntGenISIS public params to %s", outPath)
 	layout, layoutErr := credential.DefaultSemanticMessageLayout(profile, 8)
 	if layoutErr == nil {
-		log.Printf("[issuance-cli] profile=%s N=%d q=%d ell_M=%d k_s=%d n_c=%d compat_B=%d live_M_s_e_domain=%s live_key_domain=%s live_bound=%d ell_x0=%d", profile.Name, profile.N, profile.Q, profile.EllM, profile.KS, profile.NC, profile.B, layout.MSEDomain, layout.KeyDomain, layout.Bound, profile.EllX0)
+		log.Printf("[issuance-cli] profile=%s N=%d q=%d ell_M=%d k_s=%d n_c=%d live_M_s_e_domain=%s live_key_domain=%s live_bound=%d seed_bound=%d ell_x0=%d", profile.Name, profile.N, profile.Q, profile.EllM, profile.KS, profile.NC, layout.MSEDomain, layout.KeyDomain, layout.Bound, layout.SeedBound, profile.EllX0)
 	} else {
-		log.Printf("[issuance-cli] profile=%s N=%d q=%d ell_M=%d k_s=%d n_c=%d compat_B=%d ell_x0=%d", profile.Name, profile.N, profile.Q, profile.EllM, profile.KS, profile.NC, profile.B, profile.EllX0)
+		log.Printf("[issuance-cli] profile=%s N=%d q=%d ell_M=%d k_s=%d n_c=%d ell_x0=%d", profile.Name, profile.N, profile.Q, profile.EllM, profile.KS, profile.NC, profile.EllX0)
 	}
 	return nil
 }
@@ -438,24 +438,24 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 	if !ok {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", rt.public.Profile)
 	}
-	if rt.public.CommitmentBound > 0 {
-		profile.B = rt.public.CommitmentBound
-	}
 	rng := newLocalRNG(seed)
 	layout, err := credential.DefaultSemanticMessageLayout(profile, rt.prfParams.LenKey)
 	if err != nil {
 		return err
 	}
-	sampleLive := func() int64 {
-		return rng.Int63n(2*layout.Bound+1) - layout.Bound
+	sampleLive := func(bound int64) int64 {
+		return rng.Int63n(2*bound+1) - bound
 	}
-	key := make([]int64, rt.prfParams.LenKey)
-	for i := 0; i < rt.prfParams.LenKey; i++ {
-		key[i] = sampleLive()
+	sampleSeed := func() int64 {
+		return rng.Int63n(2*layout.SeedBound+1) - layout.SeedBound
+	}
+	key := make([]int64, len(layout.Key))
+	for i := range key {
+		key[i] = sampleSeed()
 	}
 	attrs := credential.ZeroSemanticAttributes(layout)
 	for _, slot := range layout.Attribute {
-		attrs[slot.Poly][slot.Coeff] = sampleLive()
+		attrs[slot.Poly][slot.Coeff] = sampleLive(layout.Bound)
 	}
 	semantic, err := credential.EncodeSemanticMessage(layout, attrs, key)
 	if err != nil {

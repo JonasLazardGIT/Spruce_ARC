@@ -43,14 +43,14 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 		EllM:  profile.EllM,
 		KS:    profile.KS,
 		NC:    profile.NC,
-		Bound: profile.B,
+		Bound: credential.IntGenISISLiveBound,
 	}
 	rng := rand.New(rand.NewSource(31))
 	semanticLayout, err := credential.DefaultSemanticMessageLayout(profile, 8)
 	if err != nil {
 		t.Fatalf("semantic layout: %v", err)
 	}
-	msg, err := credential.EncodeSemanticMessage(semanticLayout, credential.ZeroSemanticAttributes(semanticLayout), []int64{1, 0, -1, 1, 0, -1, 1, 0})
+	msg, err := credential.EncodeSemanticMessage(semanticLayout, credential.ZeroSemanticAttributes(semanticLayout), intGenISISTestPRFSeed())
 	if err != nil {
 		t.Fatalf("encode semantic message: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 		Com:          c,
 		CM:           cm,
 		AS:           as,
-		BoundB:       profile.B,
+		BoundB:       credential.IntGenISISLiveBound,
 		X0Len:        profile.EllX0,
 		RingDegree:   profile.N,
 		HashRelation: credential.HashRelationBBTran,

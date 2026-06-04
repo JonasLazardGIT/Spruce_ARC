@@ -22,6 +22,11 @@ const (
 	KeySourceIndependentWitness KeySource = iota
 )
 
+const (
+	PRFKeySourceModeDirect    = "direct_v1"
+	PRFKeySourceModePack9Seed = "pack9_seed_v1"
+)
+
 type CoeffSlot struct {
 	Row   int
 	Coeff int
@@ -32,6 +37,7 @@ type PRFCompanionLayout struct {
 	PackWidth             int
 	GroupRounds           int
 	KeySource             KeySource
+	KeySourceMode         string
 	KeySlots              []CoeffSlot
 	KeySourceSlots        []CoeffSlot
 	KeySourceDecodeLanes  []int
@@ -383,8 +389,18 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 			return fmt.Errorf("key source slot coeff=%d outside [0,%d)", slot.Coeff, layout.PackWidth)
 		}
 	}
-	if len(layout.KeySourceSlots) > 0 && len(layout.KeySourceSlots) != len(layout.KeySlots) {
-		return fmt.Errorf("key source slots=%d want key slots=%d", len(layout.KeySourceSlots), len(layout.KeySlots))
+	keySourceMode := layout.KeySourceMode
+	if keySourceMode == "" {
+		keySourceMode = PRFKeySourceModeDirect
+	}
+	wantKeySourceSlots := len(layout.KeySlots)
+	if keySourceMode == PRFKeySourceModePack9Seed {
+		wantKeySourceSlots = len(layout.KeySlots) * intGenISISPRFSeedDigitsPerLane
+	} else if keySourceMode != PRFKeySourceModeDirect {
+		return fmt.Errorf("unsupported PRF key source mode %q", keySourceMode)
+	}
+	if len(layout.KeySourceSlots) > 0 && len(layout.KeySourceSlots) != wantKeySourceSlots {
+		return fmt.Errorf("key source slots=%d want %d for mode %s", len(layout.KeySourceSlots), wantKeySourceSlots, keySourceMode)
 	}
 	if len(layout.KeySourceDecodeLanes) > 0 {
 		if len(layout.KeySourceDecodeLanes) != len(layout.KeySourceSlots) {
@@ -466,6 +482,7 @@ func prfCompanionLayoutDigest(layout *PRFCompanionLayout) []byte {
 	writeInt(layout.StartRow)
 	writeInt(layout.PackWidth)
 	writeUint8(uint8(layout.KeySource))
+	writeString(layout.KeySourceMode)
 	writeInt(layout.PackedRows)
 	writeInt(layout.PackedLogicalCount)
 	writeInt(layout.HelperRowCount)

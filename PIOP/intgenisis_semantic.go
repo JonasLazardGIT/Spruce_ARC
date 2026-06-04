@@ -12,11 +12,14 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
-const intGenISISPRFKeyLen = 8
+const intGenISISPRFKeyLen = credential.IntGenISISPRFPoseidonKeyLen
+const intGenISISPRFSeedLen = credential.IntGenISISPRFSeedLen
+const intGenISISPRFSeedDigitsPerLane = credential.IntGenISISPRFSeedDigitsPerLane
 const intGenISISMaxDirectSignatureRangeBound = 64
 const intGenISISTernaryBound = 1
 const intGenISISTernaryMembershipDegree = 3
-const intGenISISDefaultBound = 4
+const intGenISISDefaultBound = credential.IntGenISISLiveBound
+const intGenISISSeedBound = credential.IntGenISISPRFSeedBound
 const intGenISISDegreeModePaperEq3V1 = credential.IntGenISISDegreeModePaperEq3V1
 const intGenISISUShortnessVersion = "intgenisis_u_shortness_r11_l4_v1"
 const intGenISISUShortnessMode = "radix_beta_aware_top_digit_cap_v1"
@@ -63,8 +66,8 @@ func intGenISISSemanticLayout(ringN int, bound int64) (credential.SemanticMessag
 	if !ok {
 		return credential.SemanticMessageLayout{}, fmt.Errorf("IntGenISIS semantic layout does not support ring_degree=%d", ringN)
 	}
-	if bound > 0 {
-		profile.B = bound
+	if bound > 0 && bound != credential.IntGenISISLiveBound {
+		return credential.SemanticMessageLayout{}, fmt.Errorf("IntGenISIS live bound=%d want %d", bound, credential.IntGenISISLiveBound)
 	}
 	return credential.DefaultSemanticMessageLayout(profile, intGenISISPRFKeyLen)
 }
@@ -88,6 +91,10 @@ func bindIntGenISISPublicExtrasWithOpts(pub PublicInputs, ringN int, opts SimOpt
 	pub.Extras["IntGenISIS.semantic_message_layout"] = layout.Digest()
 	pub.Extras["IntGenISIS.mse_domain"] = []byte(layout.MSEDomain)
 	pub.Extras["IntGenISIS.key_domain"] = []byte(layout.KeyDomain)
+	pub.Extras["IntGenISIS.key_model"] = []byte(layout.KeyModel)
+	pub.Extras["IntGenISIS.seed_bound"] = []byte(strconv.FormatInt(layout.SeedBound, 10))
+	pub.Extras["IntGenISIS.seed_len"] = []byte(strconv.Itoa(len(layout.Key)))
+	pub.Extras["IntGenISIS.packed_key_len"] = []byte(strconv.Itoa(layout.PackedKeyLen))
 	pub.Extras["IntGenISIS.degree_mode"] = []byte(intGenISISDegreeModePaperEq3V1)
 	compressionBytes, err := intGenISISMSECompressionDescriptorBytesForBound(opts.IntGenISISMSECompression, 0, pub.BoundB)
 	if err != nil {
@@ -427,6 +434,9 @@ func validateIntGenISISTernaryPolys(ringQ *ring.Ring, name string, rows []*ring.
 }
 
 func validateIntGenISISLiveBoundPolys(ringQ *ring.Ring, bound int64, name string, rows []*ring.Poly) error {
+	if bound != credential.IntGenISISLiveBound {
+		return fmt.Errorf("IntGenISIS live bound=%d want %d", bound, credential.IntGenISISLiveBound)
+	}
 	return validateIntGenISISBoundedPolys(ringQ, bound, name, rows)
 }
 
@@ -496,6 +506,92 @@ func intGenISISKeySourceViewSlots(mViewStart, keyLen, ncols, ringDegree int) ([]
 		slots[i] = CoeffSlot{Row: mViewStart + semanticCoeff/ncols, Coeff: semanticCoeff % ncols}
 	}
 	return slots, nil
+}
+
+func intGenISISSeedSourceViewSlots(mViewStart, ncols, ringDegree int) ([]CoeffSlot, error) {
+	if mViewStart < 0 {
+		return nil, fmt.Errorf("invalid M view start %d", mViewStart)
+	}
+	if ncols <= 0 {
+		return nil, fmt.Errorf("invalid ncols %d", ncols)
+	}
+	if ringDegree <= credential.IntGenISISPRFSeedLen {
+		return nil, fmt.Errorf("ring degree %d too small for seed length %d", ringDegree, credential.IntGenISISPRFSeedLen)
+	}
+	slots := make([]CoeffSlot, credential.IntGenISISPRFSeedLen)
+	seedStart := ringDegree - credential.IntGenISISPRFSeedLen
+	for i := 0; i < credential.IntGenISISPRFSeedLen; i++ {
+		semanticCoeff := seedStart + i
+		slots[i] = CoeffSlot{Row: mViewStart + semanticCoeff/ncols, Coeff: semanticCoeff % ncols}
+	}
+	return slots, nil
+}
+
+func intGenISISSeedSourceTailViewSlots(mSeedViewStart, ncols, ringDegree int) ([]CoeffSlot, error) {
+	if mSeedViewStart < 0 {
+		return nil, fmt.Errorf("invalid M seed view start %d", mSeedViewStart)
+	}
+	if ncols <= 0 {
+		return nil, fmt.Errorf("invalid ncols %d", ncols)
+	}
+	ordinaryCoeffs := ringDegree - credential.IntGenISISPRFSeedTailReserve
+	if ordinaryCoeffs < 0 || ordinaryCoeffs%ncols != 0 {
+		return nil, fmt.Errorf("IntGenISIS Pack9 tail reserve %d is not aligned for N=%d ncols=%d", credential.IntGenISISPRFSeedTailReserve, ringDegree, ncols)
+	}
+	tailRowStart := ordinaryCoeffs / ncols
+	seedStart := ringDegree - credential.IntGenISISPRFSeedLen
+	slots := make([]CoeffSlot, credential.IntGenISISPRFSeedLen)
+	for i := 0; i < credential.IntGenISISPRFSeedLen; i++ {
+		semanticCoeff := seedStart + i
+		semanticRow := semanticCoeff / ncols
+		if semanticRow < tailRowStart {
+			return nil, fmt.Errorf("seed coeff %d is before tail row start %d", semanticCoeff, tailRowStart)
+		}
+		slots[i] = CoeffSlot{Row: mSeedViewStart + semanticRow - tailRowStart, Coeff: semanticCoeff % ncols}
+	}
+	return slots, nil
+}
+
+func intGenISISSplitMViewRowsForPack9Tail(rows []intGenISISRowMaterial, ringDegree, ncols int) (ordinary, seedTail []intGenISISRowMaterial, err error) {
+	if ncols <= 0 {
+		return nil, nil, fmt.Errorf("invalid ncols %d", ncols)
+	}
+	if ringDegree%ncols != 0 {
+		return nil, nil, fmt.Errorf("ring degree %d is not divisible by ncols=%d", ringDegree, ncols)
+	}
+	ordinaryCoeffs := ringDegree - credential.IntGenISISPRFSeedTailReserve
+	if ordinaryCoeffs < 0 || ordinaryCoeffs%ncols != 0 {
+		return nil, nil, fmt.Errorf("IntGenISIS Pack9 tail reserve %d is not aligned for N=%d ncols=%d", credential.IntGenISISPRFSeedTailReserve, ringDegree, ncols)
+	}
+	ordinaryRows := ordinaryCoeffs / ncols
+	if len(rows) != ringDegree/ncols {
+		return nil, nil, fmt.Errorf("M view rows=%d want %d", len(rows), ringDegree/ncols)
+	}
+	return rows[:ordinaryRows], rows[ordinaryRows:], nil
+}
+
+func intGenISISSplitMViewRowIndicesForPack9Tail(start, ringDegree, ncols int) (ordinary, seedTail []int, err error) {
+	if start < 0 {
+		return nil, nil, fmt.Errorf("invalid M view start %d", start)
+	}
+	if ncols <= 0 {
+		return nil, nil, fmt.Errorf("invalid ncols %d", ncols)
+	}
+	rowCount := ringDegree / ncols
+	mats := make([]intGenISISRowMaterial, rowCount)
+	ordinaryMats, seedMats, err := intGenISISSplitMViewRowsForPack9Tail(mats, ringDegree, ncols)
+	if err != nil {
+		return nil, nil, err
+	}
+	ordinary = make([]int, len(ordinaryMats))
+	for i := range ordinary {
+		ordinary[i] = start + i
+	}
+	seedTail = make([]int, len(seedMats))
+	for i := range seedTail {
+		seedTail[i] = start + len(ordinaryMats) + i
+	}
+	return ordinary, seedTail, nil
 }
 
 func intGenISISKeySourceCarrierSlots(mCarrierStart, keyLen, ncols, ringDegree, packWidth int) ([]CoeffSlot, []int, error) {
@@ -699,7 +795,7 @@ func intGenISISDegreeMetadataForLayout(ringQ *ring.Ring, pub PublicInputs, layou
 		ell = 1
 	}
 	meta := IntGenISISDegreeMetadata{
-		TernaryDegree: intGenISISMembershipDegree(pub.BoundB),
+		TernaryDegree: maxInt(intGenISISMembershipDegree(pub.BoundB), intGenISISMembershipDegree(intGenISISSeedBound)),
 		PolicyDegree:  1,
 	}
 	compressionDesc, err := intGenISISMSECompressionDescriptorForBound(opts.IntGenISISMSECompression, pub.BoundB)

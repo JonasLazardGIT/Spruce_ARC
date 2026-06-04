@@ -380,8 +380,8 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	if cfg.ProfileBound < 0 {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("invalid profile bound %d", cfg.ProfileBound)
 	}
-	if cfg.ProfileBound > 0 {
-		profile.B = cfg.ProfileBound
+	if cfg.ProfileBound > 0 && cfg.ProfileBound != credential.IntGenISISLiveBound {
+		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("IntGenISIS live bound override=%d want %d", cfg.ProfileBound, credential.IntGenISISLiveBound)
 	}
 	if cfg.PRFParamsPath == "" {
 		cfg.PRFParamsPath = defaultPRFParamsPath
@@ -504,7 +504,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		Generated:    time.Now().UTC().Format(time.RFC3339),
 		Profile:      profile.Name,
 		Modulus:      profile.Q,
-		ProfileBound: profile.B,
+		ProfileBound: credential.IntGenISISLiveBound,
 		ArtifactDir:  artifactDir,
 		MaxNLeaves:   cfg.MaxNLeaves,
 		Options: benchmarkIntGenISISE2EOptions{
@@ -517,8 +517,8 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		Artifacts:      paths,
 		ReplayRejected: replayRejected,
 		Notes: []string{
-			fmt.Sprintf("semantic layout uses B=%d bounded-range m in coefficients [0,N-8) and B=%d bounded-range PRF key k in coefficients [N-8,N)", profile.B, profile.B),
-			fmt.Sprintf("live IntGenISIS M,s,e membership uses the public B=%d range and dQ/masks use the corresponding range-membership degree accounting", profile.B),
+			fmt.Sprintf("semantic layout uses ternary ordinary coefficients [0,N-%d), a reserved-zero tail prefix, and a %d-coefficient B=%d PRF seed packed into %d Poseidon key lanes", credential.IntGenISISPRFSeedTailReserve, credential.IntGenISISPRFSeedLen, credential.IntGenISISPRFSeedBound, credential.IntGenISISPRFPoseidonKeyLen),
+			fmt.Sprintf("live IntGenISIS ordinary M,s,e membership uses public B=%d; only PRF seed-tail rows use B=%d membership", credential.IntGenISISLiveBound, credential.IntGenISISPRFSeedBound),
 			"max_nleaves caps the explicit DECS/LVCS evaluation domain; pass -max-nleaves 0 only for uncapped local runs",
 			"showing shortness proves the configured signed-radix representable bound; the public signature beta is builder-validated and Fiat-Shamir-bound",
 		},

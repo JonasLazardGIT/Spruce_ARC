@@ -11,6 +11,7 @@ import (
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
+	"vSIS-Signature/credential"
 	"vSIS-Signature/prf"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -467,10 +468,17 @@ func BuildCredentialRowsShowingIntGenISIS(
 	mCarrierCount := 0
 	sCarrierCount := 0
 	eCarrierCount := 0
+	mCompressedSourceRows := 0
+	mSeedViewStart := -1
+	mSeedViewCount := 0
 	if mseCompressionDesc.Level > 0 {
 		carriersStart := time.Now()
+		mOrdinaryViewRows, mSeedViewRows, serr := intGenISISSplitMViewRowsForPack9Tail(mViewRows, int(ringQ.N), ncols)
+		if serr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, serr
+		}
 		mCarrierStart = len(rows)
-		mCarrierRows, cerr := intGenISISBuildTernaryCarrierRowMaterials(ringQ, omegaWitness, mViewRows, mseCompressionDesc.PackWidth, rowInterp, makeRowFromHead, "M")
+		mCarrierRows, cerr := intGenISISBuildTernaryCarrierRowMaterials(ringQ, omegaWitness, mOrdinaryViewRows, mseCompressionDesc.PackWidth, rowInterp, makeRowFromHead, "M")
 		if cerr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, cerr
 		}
@@ -478,6 +486,12 @@ func BuildCredentialRowsShowingIntGenISIS(
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 		mCarrierCount = len(mCarrierRows)
+		mCompressedSourceRows = len(mOrdinaryViewRows)
+		mSeedViewStart = len(rows)
+		if err := appendRowMaterialsWithInputs("M seed-tail coefficient view", mSeedViewRows); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+		}
+		mSeedViewCount = len(mSeedViewRows)
 		sCarrierStart = len(rows)
 		sCarrierRows, cerr := intGenISISBuildTernaryCarrierRowMaterials(ringQ, omegaWitness, sViewRows, mseCompressionDesc.PackWidth, rowInterp, makeRowFromHead, "s")
 		if cerr != nil {
@@ -650,15 +664,16 @@ func BuildCredentialRowsShowingIntGenISIS(
 		keySourceSlots := []CoeffSlot(nil)
 		keySourceDecodeLanes := []int(nil)
 		var kserr error
+		keySourceMode := PRFKeySourceModePack9Seed
 		if mseCompressionDesc.Level > 0 {
-			keySourceSlots, keySourceDecodeLanes, kserr = intGenISISKeySourceCarrierSlots(mCarrierStart, len(packed.KeySlots), ncols, int(ringQ.N), mseCompressionDesc.PackWidth)
+			keySourceSlots, kserr = intGenISISSeedSourceTailViewSlots(mSeedViewStart, ncols, int(ringQ.N))
 			if kserr != nil {
-				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("IntGenISIS compressed PRF key source slots: %w", kserr)
+				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("IntGenISIS compressed PRF seed source slots: %w", kserr)
 			}
 		} else {
-			keySourceSlots, kserr = intGenISISKeySourceViewSlots(mViewStart, len(packed.KeySlots), ncols, int(ringQ.N))
+			keySourceSlots, kserr = intGenISISSeedSourceViewSlots(mViewStart, ncols, int(ringQ.N))
 			if kserr != nil {
-				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("IntGenISIS PRF key source slots: %w", kserr)
+				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("IntGenISIS PRF seed source slots: %w", kserr)
 			}
 		}
 		prfCompanionLayout = &PRFCompanionLayout{
@@ -666,6 +681,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 			PackWidth:             ncols,
 			GroupRounds:           prfGroupRounds,
 			KeySource:             KeySourceIndependentWitness,
+			KeySourceMode:         keySourceMode,
 			KeySlots:              packed.KeySlots,
 			KeySourceSlots:        keySourceSlots,
 			KeySourceDecodeLanes:  keySourceDecodeLanes,
@@ -725,6 +741,9 @@ func BuildCredentialRowsShowingIntGenISIS(
 			MSECompressionDecodeDegree: mseCompressionDesc.DecodeDegree,
 			MCarrierStart:              mCarrierStart,
 			MCarrierCount:              mCarrierCount,
+			MCompressedSourceRows:      mCompressedSourceRows,
+			MSeedViewStart:             mSeedViewStart,
+			MSeedViewCount:             mSeedViewCount,
 			SCarrierStart:              sCarrierStart,
 			SCarrierCount:              sCarrierCount,
 			ECarrierStart:              eCarrierStart,
@@ -1069,7 +1088,13 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 			return fmt.Errorf("IntGenISIS M/s/e compression metadata mismatch level=%d pack=%d alphabet=%d decode_degree=%d",
 				l.MSECompressionLevel, l.MSECompressionPackWidth, l.MSECompressionAlphabet, l.MSECompressionDecodeDegree)
 		}
-		if l.MCarrierCount != intGenISISCompressedCarrierCount(l.MCount*rpp, desc.PackWidth) ||
+		if l.MCompressedSourceRows <= 0 || l.MCompressedSourceRows >= l.MCount*rpp {
+			return fmt.Errorf("IntGenISIS compressed M source rows=%d want strict subset of %d", l.MCompressedSourceRows, l.MCount*rpp)
+		}
+		if l.MSeedViewCount != l.MCount*rpp-l.MCompressedSourceRows {
+			return fmt.Errorf("IntGenISIS M seed-tail rows=%d want %d", l.MSeedViewCount, l.MCount*rpp-l.MCompressedSourceRows)
+		}
+		if l.MCarrierCount != intGenISISCompressedCarrierCount(l.MCompressedSourceRows, desc.PackWidth) ||
 			l.SCarrierCount != intGenISISCompressedCarrierCount(l.SCount*rpp, desc.PackWidth) ||
 			l.ECarrierCount != intGenISISCompressedCarrierCount(l.ECount*rpp, desc.PackWidth) {
 			return fmt.Errorf("IntGenISIS compressed carrier counts mismatch")
@@ -1206,6 +1231,11 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 				start int
 				count int
 			}{"M compressed carrier", l.MCarrierStart, l.MCarrierCount},
+			struct {
+				name  string
+				start int
+				count int
+			}{"M seed-tail coefficient-view", l.MSeedViewStart, l.MSeedViewCount},
 			struct {
 				name  string
 				start int
@@ -1507,6 +1537,9 @@ func intGenISISYLinearCacheKey(ringQ *ring.Ring, pub PublicInputs, l *IntGenISIS
 	writeInt(l.ViewRowsPerPoly)
 	writeInt(l.MSECompressionLevel)
 	writeInt(l.MViewStart)
+	writeInt(l.MSeedViewStart)
+	writeInt(l.MSeedViewCount)
+	writeInt(l.MCompressedSourceRows)
 	writeInt(l.SViewStart)
 	writeInt(l.EViewStart)
 	writeInt(l.MCarrierStart)
@@ -1639,14 +1672,31 @@ func intGenISISYLinearSourceFormalCoeffs(ringQ *ring.Ring, rowsNTT []*ring.Poly,
 	for ti, term := range cache.Terms {
 		sourceCoeffs[ti] = make([][][]uint64, term.Components)
 		if term.Compressed {
-			decoded, err := intGenISISCompressedSourceFormalCoeffs(ringQ, rowsNTT, term.Source, term.Components*l.ViewRowsPerPoly, l.MSECompressionPackWidth, compressionSpec.DecodePolys, term.Name)
+			sourceRows := term.Components * l.ViewRowsPerPoly
+			if term.Name == "M" && l.MSeedViewCount > 0 {
+				sourceRows = l.MCompressedSourceRows
+			}
+			decoded, err := intGenISISCompressedSourceFormalCoeffs(ringQ, rowsNTT, term.Source, sourceRows, l.MSECompressionPackWidth, compressionSpec.DecodePolys, term.Name)
 			if err != nil {
 				return nil, err
 			}
 			for comp := 0; comp < term.Components; comp++ {
 				sourceCoeffs[ti][comp] = make([][]uint64, l.ViewRowsPerPoly)
 				for block := 0; block < l.ViewRowsPerPoly; block++ {
-					sourceCoeffs[ti][comp][block] = decoded[comp*l.ViewRowsPerPoly+block]
+					src := comp*l.ViewRowsPerPoly + block
+					if term.Name == "M" && l.MSeedViewCount > 0 && src >= l.MCompressedSourceRows {
+						seedBlock := src - l.MCompressedSourceRows
+						if seedBlock < 0 || seedBlock >= l.MSeedViewCount {
+							return nil, fmt.Errorf("M seed-tail block=%d outside count=%d", seedBlock, l.MSeedViewCount)
+						}
+						coeff, err := rowCache.Row(l.MSeedViewStart + seedBlock)
+						if err != nil {
+							return nil, err
+						}
+						sourceCoeffs[ti][comp][block] = coeff
+						continue
+					}
+					sourceCoeffs[ti][comp][block] = decoded[src]
 				}
 			}
 			continue
@@ -2514,6 +2564,59 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 			if err != nil {
 				return fmt.Errorf("key source selectors: %w", err)
 			}
+			keySourceMode := prfCompanionLayout.KeySourceMode
+			if keySourceMode == "" {
+				keySourceMode = PRFKeySourceModeDirect
+			}
+			if keySourceMode == PRFKeySourceModePack9Seed {
+				if len(prfCompanionLayout.KeySourceDecodeLanes) > 0 {
+					return fmt.Errorf("Pack9 seed key source must not use compressed decode lanes")
+				}
+				wantSources := prfCompanionLayout.KeyCount * credential.IntGenISISPRFSeedDigitsPerLane
+				if len(prfCompanionLayout.KeySourceSlots) != wantSources {
+					return fmt.Errorf("PRF seed source slots=%d want %d", len(prfCompanionLayout.KeySourceSlots), wantSources)
+				}
+				for i := 0; i < prfCompanionLayout.KeyCount; i++ {
+					if i >= len(prfCompanionLayout.KeySlots) {
+						return fmt.Errorf("PRF key slot %d out of range", i)
+					}
+					keySlot := prfCompanionLayout.KeySlots[i]
+					if keySlot.Coeff < 0 || keySlot.Coeff >= len(selectorCoeff) {
+						return fmt.Errorf("PRF key binding slot out of range")
+					}
+					keyCoeff, err := rowCache.Row(keySlot.Row)
+					if err != nil {
+						return fmt.Errorf("PRF key row: %w", err)
+					}
+					res := make([]uint64, int(ringQ.N))
+					addMulModXN1Into(res, selectorCoeff[keySlot.Coeff], keyCoeff, 1, q)
+					pow := uint64(1)
+					constant := uint64(0)
+					for j := 0; j < credential.IntGenISISPRFSeedDigitsPerLane; j++ {
+						srcSlot := prfCompanionLayout.KeySourceSlots[i*credential.IntGenISISPRFSeedDigitsPerLane+j]
+						if srcSlot.Coeff < 0 || srcSlot.Coeff >= len(selectorCoeff) {
+							return fmt.Errorf("PRF seed binding slot out of range")
+						}
+						srcCoeff, err := rowCache.Row(srcSlot.Row)
+						if err != nil {
+							return fmt.Errorf("PRF seed source row: %w", err)
+						}
+						addMulModXN1Into(res, selectorCoeff[srcSlot.Coeff], srcCoeff, (q-pow)%q, q)
+						constant = (constant + (uint64(credential.IntGenISISPRFSeedBound)%q)*pow) % q
+						pow = (pow * uint64(credential.IntGenISISPRFSeedPackBase)) % q
+					}
+					if constant != 0 {
+						addMulModXN1Into(res, selectorCoeff[keySlot.Coeff], []uint64{1}, (q-constant)%q, q)
+					}
+					res = trimPoly(res, q)
+					keyBindCoeffs = append(keyBindCoeffs, res)
+					keyBindPolys = append(keyBindPolys, nttPolyFromFormalCoeffsIfFits(ringQ, res))
+				}
+				return nil
+			}
+			if keySourceMode != PRFKeySourceModeDirect {
+				return fmt.Errorf("unsupported PRF key source mode %q", keySourceMode)
+			}
 			if len(prfCompanionLayout.KeySourceSlots) != len(prfCompanionLayout.KeySlots) {
 				return fmt.Errorf("PRF key source slots=%d want key slots=%d", len(prfCompanionLayout.KeySourceSlots), len(prfCompanionLayout.KeySlots))
 			}
@@ -2565,7 +2668,6 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 	}
 	var sigBound int64
 	var shortSpec LinfSpec
-	nonSigRows := intGenISISViewRowIndices(l.BoundViewStart, l.BoundViewCount)
 	var shortPolys []*ring.Poly
 	var shortCoeffs [][]uint64
 	var boundPolys []*ring.Poly
@@ -2593,15 +2695,40 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 			}
 		}
 		if compressedMSE {
-			boundPolys, boundCoeffs, berr = intGenISISCompressedCarrierMembershipRows(ringQ, rowsNTT, nonSigRows, compressionSpec)
+			carrierRows := make([]int, 0, l.MCarrierCount+l.SCarrierCount+l.ECarrierCount)
+			carrierRows = append(carrierRows, intGenISISViewRowIndices(l.MCarrierStart, l.MCarrierCount)...)
+			carrierRows = append(carrierRows, intGenISISViewRowIndices(l.SCarrierStart, l.SCarrierCount)...)
+			carrierRows = append(carrierRows, intGenISISViewRowIndices(l.ECarrierStart, l.ECarrierCount)...)
+			boundPolys, boundCoeffs, berr = intGenISISCompressedCarrierMembershipRows(ringQ, rowsNTT, carrierRows, compressionSpec)
 			if berr != nil {
 				return berr
 			}
+			seedRows := intGenISISViewRowIndices(l.MSeedViewStart, l.MSeedViewCount)
+			seedPolys, seedCoeffs, serr := intGenISISRangeMembershipRows(ringQ, rowsNTT, seedRows, intGenISISSeedBound)
+			if serr != nil {
+				return serr
+			}
+			boundPolys = append(boundPolys, seedPolys...)
+			boundCoeffs = append(boundCoeffs, seedCoeffs...)
 		} else {
-			boundPolys, boundCoeffs, berr = intGenISISLiveMembershipRows(ringQ, rowsNTT, nonSigRows, pub.BoundB)
+			mOrdinaryRows, mSeedRows, serr := intGenISISSplitMViewRowIndicesForPack9Tail(l.MViewStart, int(ringQ.N), len(omega))
+			if serr != nil {
+				return serr
+			}
+			ordinaryRows := make([]int, 0, len(mOrdinaryRows)+l.SCount*l.ViewRowsPerPoly+l.ECount*l.ViewRowsPerPoly)
+			ordinaryRows = append(ordinaryRows, mOrdinaryRows...)
+			ordinaryRows = append(ordinaryRows, intGenISISViewRowIndices(l.SViewStart, l.SCount*l.ViewRowsPerPoly)...)
+			ordinaryRows = append(ordinaryRows, intGenISISViewRowIndices(l.EViewStart, l.ECount*l.ViewRowsPerPoly)...)
+			boundPolys, boundCoeffs, berr = intGenISISLiveMembershipRows(ringQ, rowsNTT, ordinaryRows, pub.BoundB)
 			if berr != nil {
 				return berr
 			}
+			seedPolys, seedCoeffs, serr := intGenISISRangeMembershipRows(ringQ, rowsNTT, mSeedRows, intGenISISSeedBound)
+			if serr != nil {
+				return serr
+			}
+			boundPolys = append(boundPolys, seedPolys...)
+			boundCoeffs = append(boundCoeffs, seedCoeffs...)
 		}
 		radixPolys, radixCoeffs, berr = intGenISISUShortnessConstraintRows(ringQ, rowsNTT, l, shortSpec)
 		return berr
@@ -2728,7 +2855,7 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 		FparNormCoeffs:   boundCoeffs,
 		FaggNorm:         bridgePolys,
 		FaggNormCoeffs:   bridgeCoeffs,
-		ParallelAlgDeg:   maxInt(maxInt(2, intGenISISMembershipDegree(pub.BoundB)), maxInt(shortDegree, compressionSpec.Descriptor.MembershipDeg)),
+		ParallelAlgDeg:   maxInt(maxInt(maxInt(2, intGenISISMembershipDegree(pub.BoundB)), intGenISISMembershipDegree(intGenISISSeedBound)), maxInt(shortDegree, compressionSpec.Descriptor.MembershipDeg)),
 		AggregatedAlgDeg: maxInt(maxInt(2, compressionSpec.Descriptor.DecodeDegree), prfDirectFullDegree),
 	}, nil
 }

@@ -19,7 +19,7 @@ func TestIntGenISISStateRoundTripOmitsOldRandomness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("layout: %v", err)
 	}
-	semantic, err := EncodeSemanticMessage(layout, [][]int64{row(1)}, []int64{1, 0, -1, 1, 0, -1, 1, 0})
+	semantic, err := EncodeSemanticMessage(layout, [][]int64{row(1)}, makeSeedForTest())
 	if err != nil {
 		t.Fatalf("encode semantic message: %v", err)
 	}
