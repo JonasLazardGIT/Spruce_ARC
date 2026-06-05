@@ -4,10 +4,15 @@ FROM golang:1.23.2-bookworm
 
 WORKDIR /src
 
-ENV CGO_ENABLED=1
+ENV CGO_ENABLED=1 \
+    HOME=/tmp \
+    GOCACHE=/tmp/go-build \
+    STATICCHECK_CACHE=/tmp/staticcheck
 
 COPY go.mod go.sum ./
 RUN go mod download
+RUN go install honnef.co/go/tools/cmd/staticcheck@v0.6.1 \
+    && go install golang.org/x/tools/cmd/deadcode@v0.36.0
 
 COPY . .
 
@@ -23,7 +28,12 @@ RUN go build -o /usr/local/bin/issuance ./cmd/issuance \
     && chmod +x scripts/artifact-entrypoint.sh \
         scripts/artifact-test.sh \
         scripts/artifact-bench.sh \
-        scripts/artifact-gate.sh
+        scripts/artifact-gate.sh \
+        scripts/validate-artifact.sh \
+        scripts/stress-ntru-keygen.sh \
+    && mkdir -p /artifacts \
+    && chmod 1777 /artifacts \
+    && rm -rf "$GOCACHE" "$STATICCHECK_CACHE"
 
 ENV GOPROXY=off
 

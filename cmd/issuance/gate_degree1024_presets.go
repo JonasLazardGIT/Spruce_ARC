@@ -10,14 +10,23 @@ import (
 	"vSIS-Signature/credential"
 )
 
-type degree1024PresetGate struct {
-	Name           string
-	MinTheoremBits float64
-	MaxPaperBytes  int
+type maintainedPresetGate struct {
+	Name               string
+	MinTheoremBits     float64
+	MaxPaperBytes      int
+	ExpectedPaperBytes int
+}
+
+func runGateMaintainedPresets(args []string) error {
+	return runMaintainedPresetGateCommand("gate-maintained-presets", args, allMaintainedPresetGates())
 }
 
 func runGateDegree1024MaintainedPresets(args []string) error {
-	fs := flag.NewFlagSet("gate-degree1024-maintained-presets", flag.ContinueOnError)
+	return runMaintainedPresetGateCommand("gate-degree1024-maintained-presets", args, degree1024MaintainedPresetGates())
+}
+
+func runMaintainedPresetGateCommand(name string, args []string, gates []maintainedPresetGate) error {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	artifactRoot := fs.String("artifact-dir", "", "artifact root for live benchmark artifacts; defaults to a temporary directory")
 	artifactRootAlias := fs.String("artifact-root", "", "alias for -artifact-dir")
@@ -43,27 +52,55 @@ func runGateDegree1024MaintainedPresets(args []string) error {
 		return fmt.Errorf("create artifact root %s: %w", root, err)
 	}
 
-	gates := []degree1024PresetGate{
-		{
-			Name:           credential.IntGenISISPresetN1024Compact96,
-			MinTheoremBits: 96,
-			MaxPaperBytes:  27500,
-		},
-		{
-			Name:           credential.IntGenISISPresetN1024Compact125,
-			MinTheoremBits: 125,
-			MaxPaperBytes:  35000,
-		},
-	}
 	for _, gate := range gates {
-		if err := runDegree1024PresetGate(root, gate); err != nil {
+		if err := runMaintainedPresetGate(root, gate); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func runDegree1024PresetGate(root string, gate degree1024PresetGate) error {
+func allMaintainedPresetGates() []maintainedPresetGate {
+	return []maintainedPresetGate{
+		{
+			Name:               credential.IntGenISISPresetN512Compact96,
+			MinTheoremBits:     96,
+			MaxPaperBytes:      22500,
+			ExpectedPaperBytes: 21754,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Compact96,
+			MinTheoremBits:     96,
+			MaxPaperBytes:      27500,
+			ExpectedPaperBytes: 25882,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Compact125,
+			MinTheoremBits:     125,
+			MaxPaperBytes:      35000,
+			ExpectedPaperBytes: 34853,
+		},
+	}
+}
+
+func degree1024MaintainedPresetGates() []maintainedPresetGate {
+	return []maintainedPresetGate{
+		{
+			Name:               credential.IntGenISISPresetN1024Compact96,
+			MinTheoremBits:     96,
+			MaxPaperBytes:      27500,
+			ExpectedPaperBytes: 25882,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Compact125,
+			MinTheoremBits:     125,
+			MaxPaperBytes:      35000,
+			ExpectedPaperBytes: 34853,
+		},
+	}
+}
+
+func runMaintainedPresetGate(root string, gate maintainedPresetGate) error {
 	reportPath := filepath.Join(root, gate.Name+".json")
 	artifactDir := filepath.Join(root, gate.Name)
 	benchArgs := []string{
@@ -93,6 +130,9 @@ func runDegree1024PresetGate(root string, gate degree1024PresetGate) error {
 	}
 	if showing.PaperTranscriptBytes >= gate.MaxPaperBytes {
 		return fmt.Errorf("%s paper transcript bytes %d above gate <%d", gate.Name, showing.PaperTranscriptBytes, gate.MaxPaperBytes)
+	}
+	if gate.ExpectedPaperBytes > 0 && showing.PaperTranscriptBytes != gate.ExpectedPaperBytes {
+		return fmt.Errorf("%s showing paper transcript bytes=%d, want %d", gate.Name, showing.PaperTranscriptBytes, gate.ExpectedPaperBytes)
 	}
 	if showing.TranscriptSecurityStatus != "smallwood_2025_1085_live" {
 		return fmt.Errorf("%s transcript security status=%q, want smallwood_2025_1085_live", gate.Name, showing.TranscriptSecurityStatus)

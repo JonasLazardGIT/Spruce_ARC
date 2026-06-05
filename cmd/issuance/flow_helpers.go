@@ -416,7 +416,7 @@ func generateIssuanceNTRUKeypairWithRetry(par ntru.Params, kg ntru.KeygenOpts, a
 			log.Printf("[issuance-cli] retrying annulus keygen after attempt %d/%d failed: %v", attempt, attempts, err)
 		}
 	}
-	return nil, nil, lastErr
+	return nil, nil, fmt.Errorf("annulus keygen failed after %d attempts with max_trials=%d: %w", attempts, kg.MaxTrials, lastErr)
 }
 
 func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath string, seed int64, overrides issuanceRuntimeOverrides) error {

@@ -26,7 +26,7 @@ const (
 )
 
 func usage() {
-	fmt.Println(`usage: issuance <setup-intgenisis-public|setup-ntru-keys|holder-commit|holder-prove|issuer-verify-sign|holder-finalize|benchmark-intgenisis-e2e|gate-degree1024-maintained-presets> [options]
+	fmt.Println(`usage: issuance <setup-intgenisis-public|setup-ntru-keys|holder-commit|holder-prove|issuer-verify-sign|holder-finalize|benchmark-intgenisis-e2e|gate-maintained-presets|gate-degree1024-maintained-presets> [options]
 
 Subcommands:
   setup-intgenisis-public Generate IntGenISIS MLWE-hiding credential public parameters
@@ -36,6 +36,7 @@ Subcommands:
   issuer-verify-sign Verify the pre-sign proof and sign the public target T
   holder-finalize    Verify and persist the final credential state
   benchmark-intgenisis-e2e Run IntGenISIS issuance + showing and print paper transcript sizes
+  gate-maintained-presets Run live exact-byte gates for all maintained presets
   gate-degree1024-maintained-presets Run live gates for promoted degree-1024 maintained presets`)
 }
 
@@ -66,6 +67,8 @@ func run(args []string) error {
 		return runHolderFinalize(args[1:])
 	case "benchmark-intgenisis-e2e":
 		return runBenchmarkIntGenISISE2E(args[1:])
+	case "gate-maintained-presets":
+		return runGateMaintainedPresets(args[1:])
 	case "gate-degree1024-maintained-presets":
 		return runGateDegree1024MaintainedPresets(args[1:])
 	case "-h", "--help", "help":
@@ -108,7 +111,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 		Issuance:       intGenISISTuningFromPresetSpec(preset.Issuance),
 		Showing:        intGenISISTuningFromPresetSpec(preset.Showing),
 		KeygenTrials:   10000,
-		KeygenAttempts: 4,
+		KeygenAttempts: defaultNTRUKeygenAttempts,
 		NTRUBeta:       preset.NTRUBeta,
 		MaxTrials:      2048,
 		MaxNLeaves:     preset.MaxNLeaves,
@@ -169,7 +172,7 @@ func runSetupNTRUKeys(args []string) error {
 	if !ok {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", preset.Profile)
 	}
-	return setupNTRUKeys(profile.N, *paramsOut, *publicOut, *privateOut, *force, 10000, 4, preset.NTRUBeta)
+	return setupNTRUKeys(profile.N, *paramsOut, *publicOut, *privateOut, *force, 10000, defaultNTRUKeygenAttempts, preset.NTRUBeta)
 }
 
 func runHolderCommit(args []string) error {

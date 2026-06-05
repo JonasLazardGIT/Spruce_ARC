@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  go-health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
+      - name: Deadcode with tests
+        run: go run golang.org/x/tools/cmd/deadcode@v0.36.0 -test ./...
+      - name: Deadcode runtime
+        run: go run golang.org/x/tools/cmd/deadcode@v0.36.0 ./...
+      - name: Diff hygiene
+        run: git diff --check
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker build
+        run: docker build -t spruce-artifact .
+      - name: Docker test
+        run: docker run --rm spruce-artifact test

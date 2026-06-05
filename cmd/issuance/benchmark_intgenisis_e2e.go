@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -22,6 +24,7 @@ const (
 	benchmarkIntGenISISE2EVersion     = 1
 	intGenISISDefaultMaxNLeaves       = 65536
 	intGenISISLeafCapDisabledSentinel = 0
+	defaultNTRUKeygenAttempts         = 16
 )
 
 type benchmarkIntGenISISE2EConfig struct {
@@ -88,6 +91,18 @@ type benchmarkIntGenISISE2EOptions struct {
 	Showing  intGenISISTuning `json:"showing"`
 }
 
+type benchmarkIntGenISISE2EEnvironment struct {
+	GoVersion  string `json:"go_version"`
+	GOOS       string `json:"goos"`
+	GOARCH     string `json:"goarch"`
+	NumCPU     int    `json:"num_cpu"`
+	GOMAXPROCS int    `json:"gomaxprocs"`
+	VCS        string `json:"vcs,omitempty"`
+	Commit     string `json:"commit,omitempty"`
+	CommitTime string `json:"commit_time,omitempty"`
+	Modified   *bool  `json:"modified,omitempty"`
+}
+
 type benchmarkIntGenISISE2EArtifacts struct {
 	PublicParams  string `json:"public_params"`
 	BMatrix       string `json:"b_matrix"`
@@ -106,20 +121,21 @@ type benchmarkIntGenISISE2EArtifacts struct {
 }
 
 type benchmarkIntGenISISE2EReport struct {
-	Version        int                             `json:"version"`
-	Generated      string                          `json:"generated_at"`
-	Profile        string                          `json:"profile"`
-	Modulus        uint64                          `json:"q,omitempty"`
-	ProfileBound   int64                           `json:"profile_bound,omitempty"`
-	ArtifactDir    string                          `json:"artifact_dir"`
-	MaxNLeaves     int                             `json:"max_nleaves,omitempty"`
-	Options        benchmarkIntGenISISE2EOptions   `json:"options"`
-	Timings        benchmarkIntGenISISE2ETimings   `json:"timings"`
-	Issuance       benchmarkIntGenISISMetrics      `json:"issuance"`
-	Showing        benchmarkIntGenISISMetrics      `json:"showing"`
-	Artifacts      benchmarkIntGenISISE2EArtifacts `json:"artifacts"`
-	ReplayRejected bool                            `json:"replay_rejected"`
-	Notes          []string                        `json:"notes"`
+	Version        int                               `json:"version"`
+	Generated      string                            `json:"generated_at"`
+	Profile        string                            `json:"profile"`
+	Modulus        uint64                            `json:"q,omitempty"`
+	ProfileBound   int64                             `json:"profile_bound,omitempty"`
+	ArtifactDir    string                            `json:"artifact_dir"`
+	MaxNLeaves     int                               `json:"max_nleaves,omitempty"`
+	Options        benchmarkIntGenISISE2EOptions     `json:"options"`
+	Environment    benchmarkIntGenISISE2EEnvironment `json:"environment"`
+	Timings        benchmarkIntGenISISE2ETimings     `json:"timings"`
+	Issuance       benchmarkIntGenISISMetrics        `json:"issuance"`
+	Showing        benchmarkIntGenISISMetrics        `json:"showing"`
+	Artifacts      benchmarkIntGenISISE2EArtifacts   `json:"artifacts"`
+	ReplayRejected bool                              `json:"replay_rejected"`
+	Notes          []string                          `json:"notes"`
 }
 
 func defaultIntGenISISTuning() intGenISISTuning {
@@ -174,6 +190,32 @@ func intGenISISTuningFromDefaultConfig(cfg benchmarkIntGenISISE2EConfig) intGenI
 		t.CheckpointSamples = cfg.CheckpointSamples
 	}
 	return t
+}
+
+func benchmarkIntGenISISE2EEnvironmentSnapshot() benchmarkIntGenISISE2EEnvironment {
+	env := benchmarkIntGenISISE2EEnvironment{
+		GoVersion:  runtime.Version(),
+		GOOS:       runtime.GOOS,
+		GOARCH:     runtime.GOARCH,
+		NumCPU:     runtime.NumCPU(),
+		GOMAXPROCS: runtime.GOMAXPROCS(0),
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs":
+				env.VCS = setting.Value
+			case "vcs.revision":
+				env.Commit = setting.Value
+			case "vcs.time":
+				env.CommitTime = setting.Value
+			case "vcs.modified":
+				modified := setting.Value == "true"
+				env.Modified = &modified
+			}
+		}
+	}
+	return env
 }
 
 func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) intGenISISTuning {
@@ -411,7 +453,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		cfg.KeygenTrials = 10000
 	}
 	if cfg.KeygenAttempts <= 0 {
-		cfg.KeygenAttempts = 4
+		cfg.KeygenAttempts = defaultNTRUKeygenAttempts
 	}
 	if cfg.MaxTrials <= 0 {
 		cfg.MaxTrials = 2048
@@ -511,6 +553,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 			Issuance: cfg.Issuance,
 			Showing:  cfg.Showing,
 		},
+		Environment:    benchmarkIntGenISISE2EEnvironmentSnapshot(),
 		Timings:        timings,
 		Issuance:       issuanceMetrics,
 		Showing:        showingMetrics,

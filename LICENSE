@@ -1,0 +1,16 @@
+Review Artifact License
+
+Copyright (c) 2026 The SPRUCE Authors.
+
+This repository is provided as a research artifact for reviewing and
+reproducing the accompanying paper's maintained ARC-SPRUCE IntGenISIS prototype.
+
+Permission is granted to use, copy, build, and run this artifact for academic
+review, reproducibility checking, and non-commercial research evaluation.
+
+Redistribution, sublicensing, commercial use, or incorporation into another
+software distribution requires explicit permission from the copyright holders,
+unless a different license is later provided by the authors.
+
+Third-party components remain governed by their own licenses or redistribution
+terms. See THIRD_PARTY_NOTICES.md.

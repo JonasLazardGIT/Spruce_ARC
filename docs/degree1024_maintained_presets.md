@@ -12,8 +12,8 @@ not be compared against older undercounted proof bytes.
 
 | Preset | Paper name | Status | Target | Live theorem bits | Observed showing paper bytes | Gate |
 | --- | --- | --- | ---: | ---: | ---: | --- |
-| `n1024-compact96` | `N1024-96` | maintained | 96 | 96.02 | 25,882 | `<27,500`, `>=96` |
-| `n1024-compact125` | `N1024-125` | maintained low-grind fixed-size | 125+ | 125.17 | 34,853 | `<35,000`, `>=125` |
+| `n1024-compact96` | `N1024-96` | maintained | 96 | 96.02 | 25,882 | `==25,882`, `>=96` |
+| `n1024-compact125` | `N1024-125` | maintained low-grind fixed-size | 125+ | 125.17 | 34,853 | `==34,853`, `>=125` |
 
 The public registry intentionally contains only the compact maintained names.
 Removed selectors are invalid rather than aliases. The high preset is a 125+
@@ -187,9 +187,17 @@ clamped={false,false,false,false}
 
 ## Live Gate
 
+The preferred reviewer gate checks all maintained presets, including the
+degree-512 compact profile:
+
 ```bash
-go run ./cmd/issuance gate-degree1024-maintained-presets \
-  -artifact-root "$(mktemp -d)"
+go run ./cmd/issuance gate-maintained-presets -artifact-root "$(mktemp -d)"
+```
+
+The degree-1024-only gate remains available for the two entries in this note:
+
+```bash
+go run ./cmd/issuance gate-degree1024-maintained-presets -artifact-root "$(mktemp -d)"
 ```
 
 Gate conditions:
@@ -197,13 +205,13 @@ Gate conditions:
 ```text
 n1024-compact96:
   showing.theorem_total_bits >= 96
-  showing.paper_transcript_bytes < 27500
+  showing.paper_transcript_bytes == 25882
   showing.transcript_security_status == smallwood_2025_1085_live
   showing.clamped all false
 
 n1024-compact125:
   showing.theorem_total_bits >= 125
-  showing.paper_transcript_bytes < 35000
+  showing.paper_transcript_bytes == 34853
   showing.transcript_security_status == smallwood_2025_1085_live
   showing.clamped all false
 ```

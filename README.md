@@ -27,19 +27,21 @@ high-security preset is `n1024-compact125`; it is a live 125+ preset, not a
 
 ```bash
 docker build -t spruce-artifact .
-docker run --rm spruce-artifact test
-docker run --rm spruce-artifact bench n512-compact96
-docker run --rm spruce-artifact bench n1024-compact96
-docker run --rm spruce-artifact bench n1024-compact125
-docker run --rm spruce-artifact gate
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact test
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench n512-compact96
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench n1024-compact96
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench n1024-compact125
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact gate
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact validate
 ```
 
 Benchmark and gate commands write JSON artifacts under `/artifacts` inside the
 container. To keep outputs on the host:
 
 ```bash
-docker run --rm -v "$(pwd)/artifacts:/artifacts" spruce-artifact bench n1024-compact125
-docker run --rm -v "$(pwd)/artifacts:/artifacts" spruce-artifact gate
+docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)/artifacts:/artifacts" spruce-artifact bench n1024-compact125
+docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)/artifacts:/artifacts" spruce-artifact gate
+docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)/artifacts:/artifacts" spruce-artifact validate
 ```
 
 The Docker artifact is Go-only. Security-estimator and PRF-generation
@@ -56,7 +58,7 @@ go run ./cmd/issuance holder-prove
 go run ./cmd/issuance issuer-verify-sign
 go run ./cmd/issuance holder-finalize
 go run ./cmd/issuance benchmark-intgenisis-e2e -preset n1024-compact125
-go run ./cmd/issuance gate-degree1024-maintained-presets
+go run ./cmd/issuance gate-maintained-presets
 go run ./cmd/showing -preset n1024-compact125
 ```
 
@@ -67,10 +69,16 @@ interfaces.
 ## Reproducing Results
 
 ```bash
-go test ./...
-go run ./cmd/issuance benchmark-intgenisis-e2e -preset n512-compact96 -artifact-dir "$(mktemp -d)" -force
-go run ./cmd/issuance gate-degree1024-maintained-presets -artifact-root "$(mktemp -d)"
+./scripts/validate-artifact.sh
 ```
+
+Expected showing paper transcript bytes are:
+
+| Preset | `showing.paper_transcript_bytes` |
+| --- | ---: |
+| `n512-compact96` | 21754 |
+| `n1024-compact96` | 25882 |
+| `n1024-compact125` | 34853 |
 
 For native security-estimation provenance, see [tools/README.md](tools/README.md).
 Those commands require Sage/Python locally and are not Docker artifact
@@ -78,9 +86,14 @@ dependencies.
 
 ## Documentation
 
+Start with [ARTIFACT.md](ARTIFACT.md), [CLAIMS.md](CLAIMS.md), and
+[LIMITATIONS.md](LIMITATIONS.md) for reviewer-facing reproduction details.
+
 See [docs/protocol.md](docs/protocol.md),
 [docs/intgenisis_protocol_h_tran.md](docs/intgenisis_protocol_h_tran.md),
 [docs/intgenisis_lattice_security.md](docs/intgenisis_lattice_security.md),
 [docs/modulus_choice.md](docs/modulus_choice.md), and
 [docs/degree1024_maintained_presets.md](docs/degree1024_maintained_presets.md)
-for the canonical protocol and parameter notes.
+for the canonical protocol and parameter notes. PRF seed packing is summarized
+in [docs/prf_seed_packing.md](docs/prf_seed_packing.md), and release notices
+are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

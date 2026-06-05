@@ -9,7 +9,8 @@ commands:
   help                  show this help
   test                  run go test ./...
   bench <preset>        run maintained IntGenISIS E2E benchmark
-  gate                  run maintained degree-1024 gate
+  gate                  run maintained exact-byte gate
+  validate              run tests, vet, staticcheck, deadcode, and all E2E checks
 
 maintained presets:
   n512-compact96
@@ -35,6 +36,11 @@ bench)
 gate)
 	shift
 	exec ./scripts/artifact-gate.sh "$@"
+	;;
+validate)
+	shift
+	export ARTIFACT_ROOT="${ARTIFACT_ROOT:-/artifacts/validate}"
+	exec ./scripts/validate-artifact.sh "$@"
 	;;
 *)
 	echo "unknown command: $command" >&2

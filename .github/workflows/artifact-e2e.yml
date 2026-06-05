@@ -1,0 +1,53 @@
+name: artifact-e2e
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  maintained-presets:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - preset: n512-compact96
+            bytes: 21754
+          - preset: n1024-compact96
+            bytes: 25882
+          - preset: n1024-compact125
+            bytes: 34853
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run E2E benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/${{ matrix.preset }}"
+          report="$artifact_dir/benchmark-intgenisis-e2e.json"
+          mkdir -p "$artifact_dir"
+          go run ./cmd/issuance benchmark-intgenisis-e2e \
+            -preset "${{ matrix.preset }}" \
+            -artifact-dir "$artifact_dir" \
+            -json-out "$report" \
+            -force
+          got=$(awk '
+            /"showing": \{/ { in_showing = 1; next }
+            in_showing && /"paper_transcript_bytes":/ {
+              line = $0
+              gsub(/[^0-9]/, "", line)
+              got = line
+            }
+            END { if (got != "") print got }
+          ' "$report")
+          test "$got" = "${{ matrix.bytes }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.preset }}-artifact
+          path: ${{ runner.temp }}/${{ matrix.preset }}
