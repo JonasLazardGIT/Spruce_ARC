@@ -109,5 +109,7 @@ NTRU_STRESS_RUNS=20 ./scripts/stress-ntru-keygen.sh n1024-compact125
 Go artifact commands do not rerun lattice-estimator or PRF-parameter generation.
 The source tree retains provenance material under `tools/`,
 `lattice-estimator-main/`, and `prf/*.sage`; see
-[tools/README.md](tools/README.md) and
+[tools/README.md](tools/README.md),
+[docs/security_estimation_workflow.md](docs/security_estimation_workflow.md),
+and
 [docs/intgenisis_lattice_security.md](docs/intgenisis_lattice_security.md).

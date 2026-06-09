@@ -8,8 +8,9 @@ const (
 	IntGenISISN512SignatureBeta = 6002
 )
 
-// IntGenISISProfile records the committed-message / MLWE-hiding protocol
-// dimensions. The old LHL/shared-randomness lengths are intentionally absent.
+// IntGenISISProfile records the committed-message / MLWE-hiding dimensions.
+// B is the live commitment bound for ordinary M, s, and e coefficients; the
+// wider PRF seed tail is tracked by the semantic message layout.
 type IntGenISISProfile struct {
 	Name                 string
 	N                    int
@@ -36,7 +37,7 @@ func PrimaryIntGenISISProfile() IntGenISISProfile {
 		EllM:                 1,
 		KS:                   2,
 		NC:                   1,
-		B:                    4,
+		B:                    IntGenISISLiveBound,
 		EllMuSig:             1,
 		EllX0:                2,
 		EllX1:                1,

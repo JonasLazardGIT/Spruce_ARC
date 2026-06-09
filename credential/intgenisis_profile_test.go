@@ -11,17 +11,20 @@ import (
 func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 	chdirForCredentialTest(t)
 	profile := PrimaryIntGenISISProfile()
-	if profile.B != 4 {
-		t.Fatalf("profile B bound=%d want 4", profile.B)
+	if profile.B != IntGenISISLiveBound {
+		t.Fatalf("profile B bound=%d want %d", profile.B, IntGenISISLiveBound)
 	}
 	if profile.Q != IntGenISISSharedModulusQ {
 		t.Fatalf("profile B q=%d want %d", profile.Q, IntGenISISSharedModulusQ)
 	}
-	if !closeFloat(profile.MLWEHidingBits, 203.816) || !closeFloat(profile.MSISBindingBits, 586.336) {
+	if !closeFloat(profile.MLWEHidingBits, 131.113) || profile.MSISBindingBits != 0 {
 		t.Fatalf("profile B commitment security hiding/binding=%.3f/%.3f", profile.MLWEHidingBits, profile.MSISBindingBits)
 	}
-	if profile.CommitmentSecurity.StatisticalHidingSatisfied {
-		t.Fatal("profile B must not claim statistical hiding")
+	if !profile.CommitmentSecurity.MSISBindingInfinite || profile.CommitmentSecurity.StatisticalHidingSatisfied {
+		t.Fatalf("profile B commitment security metadata mismatch: %+v", profile.CommitmentSecurity)
+	}
+	if profile.CommitmentSecurity.CommitmentBound != IntGenISISLiveBound || profile.CommitmentSecurity.PRFSeedBound != IntGenISISPRFSeedBound || profile.CommitmentSecurity.MSISBindingLinfBound != 2*IntGenISISPRFSeedBound {
+		t.Fatalf("profile B commitment bound metadata mismatch: %+v", profile.CommitmentSecurity)
 	}
 	ternary1024 := Ternary1024IntGenISISProfile()
 	if ternary1024.N != 1024 || ternary1024.B != 1 || ternary1024.KS != 1 || ternary1024.EllX0 != 1 {
@@ -33,7 +36,7 @@ func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 	if !closeFloat(ternary1024.MLWEHidingBits, 131.113) || ternary1024.MSISBindingBits != 0 {
 		t.Fatalf("profile C commitment security hiding/binding=%.3f/%.3f", ternary1024.MLWEHidingBits, ternary1024.MSISBindingBits)
 	}
-	if !ternary1024.CommitmentSecurity.MSISBindingInfinite || ternary1024.CommitmentSecurity.StatisticalHidingSatisfied {
+	if !ternary1024.CommitmentSecurity.MSISBindingInfinite || ternary1024.CommitmentSecurity.StatisticalHidingSatisfied || ternary1024.CommitmentSecurity.MSISBindingLinfBound != 2*IntGenISISPRFSeedBound {
 		t.Fatalf("profile C commitment security metadata mismatch: %+v", ternary1024.CommitmentSecurity)
 	}
 	if got, ok := LookupIntGenISISProfileByRingDegree(1024); !ok || got.Name != ProfileIntGenISISC {

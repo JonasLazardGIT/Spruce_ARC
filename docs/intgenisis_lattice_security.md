@@ -1,6 +1,6 @@
 # IntGenISIS Lattice Security Estimates
 
-Run date: 2026-05-29
+Run date: 2026-06-06
 
 This note records archived lattice-estimator checks for the maintained
 IntGenISIS profiles:
@@ -10,9 +10,8 @@ intgenisis_profile_b  N=512   used by n512-compact96
 intgenisis_profile_c  N=1024  used by n1024-compact96 and n1024-compact125
 ```
 
-These numbers were produced before artifact pruning with
-`malb/lattice-estimator` at commit
-`14c2c10e6f2f7a39072130627b2cec5495704701`, using rough estimates. The current
+These numbers were produced with `malb/lattice-estimator` at commit
+`4bfa63e364be9dd7fd1b2b531e2a11da8fb1c2ad`, using rough estimates. The current
 artifact branch keeps the Python estimator wrappers and a vendored
 `lattice-estimator-main/` source tree as source-tree provenance. They are
 excluded from Docker and are not part of the normal Go proof runtime.
@@ -26,10 +25,10 @@ python3 tools/intgenisis_lattice_security_estimator.py --pretty
 
 ## Profile Inputs
 
-| Profile | N | q | ell_M | k_s | n_c | Commitment B | ell_x0 | NTRU beta |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `intgenisis_profile_b` | 512 | 1,017,857 | 1 | 2 | 1 | 4 | 2 | 6,002 |
-| `intgenisis_profile_c` | 1024 | 1,017,857 | 1 | 1 | 1 | 1 | 1 | 6,142 |
+| Profile | N | q | ell_M | k_s | n_c | Ordinary M/s/e bound | PRF seed bound | ell_x0 | NTRU beta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `intgenisis_profile_b` | 512 | 1,017,857 | 1 | 2 | 1 | 1 | 4 | 2 | 6,002 |
+| `intgenisis_profile_c` | 1024 | 1,017,857 | 1 | 1 | 1 | 1 | 4 | 1 | 6,142 |
 
 ## Commitment Security
 
@@ -39,22 +38,26 @@ The commitment model is the implemented Ajtai/MLWE commitment:
 c = C_M*M + A_s*s + e
 ```
 
-with `M`, `s`, and `e` bounded by the profile commitment bound.
+with `s` and `e` bounded by the live commitment bound `1`. The committed
+semantic message row `M` has mixed bounds: ordinary attribute coefficients use
+`[-1,1]`, the 16-coefficient reserved gap is zero, and the 48 PRF seed-tail
+coefficients use `[-4,4]`.
 
-| Profile | MLWE hiding bits | MLWE attack | MSIS binding bits | Statistical hiding | Statistical hiding slack | Statistical binding slack |
-| --- | ---: | --- | ---: | --- | ---: | ---: |
-| `intgenisis_profile_b` | 203.816 | `usvp` | 586.336 | no | -5,605.032 | 1,846.913 |
-| `intgenisis_profile_c` | 131.113 | `dual_hybrid` | `inf` | no | -17,446.071 | 13,303.111 |
+| Profile | MLWE hiding bits | MLWE attack | MSIS binding bits | Mixed L2 bound | L∞ bound | Statistical hiding | Statistical hiding slack | Statistical binding slack |
+| --- | ---: | --- | ---: | ---: | ---: | --- | ---: | ---: |
+| `intgenisis_profile_b` | 131.113 | `dual_hybrid` | `inf` | 104.919 | 8 | no | -8,039.535 | 5,415.133 |
+| `intgenisis_profile_c` | 131.113 | `dual_hybrid` | `inf` | 122.898 | 8 | no | -17,446.071 | 13,255.516 |
 
 Interpretation:
 
 1. Neither maintained commitment is statistically hiding. The hiding claim is
    computational MLWE hiding.
-2. Profile B has ample margin for a 96-bit target, but its live use should
-   remain the 96-bit engineering preset.
-3. Profile C has enough MLWE hiding margin for the maintained 125+ preset.
-4. MSIS binding is not the bottleneck in either maintained profile. Profile C
-   returns no finite rough-estimator attack at the configured commitment bound.
+2. Both maintained commitment profiles have the same MLWE hiding estimate
+   because both use ternary `s,e`; profile B gets its extra runtime margin from
+   `k_s=2`, while profile C gets it from `N=1024`.
+3. Both maintained profiles return no finite rough-estimator attack for the
+   mixed-bound MSIS binding instance. This is estimator output, not an
+   unconditional proof.
 
 ## NTRU/vSIS Signature Surface
 
@@ -124,8 +127,8 @@ Interpretation:
 Profile B is consistent with the maintained 96-bit engineering target:
 
 ```text
-commitment MLWE hiding: 203.816 bits
-commitment MSIS binding: 586.336 bits
+commitment MLWE hiding: 131.113 bits
+commitment MSIS binding: inf in rough estimator
 NTRU/vSIS L∞ short-preimage: 103.368 bits
 ```
 

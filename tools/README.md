@@ -25,3 +25,7 @@ sage prf/generate_params.sage 1 0 20 20 3 128 0xf8801 8 12 7 nochecks
 
 These files are intentionally excluded from Docker. The artifact Docker context
 and scripts should remain Go-only and should not require Sage or Python.
+
+For a detailed explanation of the PRF Sage workflow, the Python
+`lattice-estimator` wrappers, and how those numbers map to maintained artifact
+claims, see `docs/security_estimation_workflow.md`.

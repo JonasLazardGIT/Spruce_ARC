@@ -89,17 +89,19 @@ e,c in R_q^{n_c}
 
 So all maintained profiles commit to one target row (`n_c=1`) and one packed
 semantic message row (`ell_M=1`). Profile B spends two randomness rows
-(`k_s=2`) and allows coefficients in `[-4,4]`. Profile C uses one randomness
-row and ternary coefficients in `[-1,1]`; the larger ring dimension supplies
-the security margin while keeping the target and rational-hash shape narrow.
+(`k_s=2`) with live ternary `s,e`. Profile C uses one randomness row and the
+larger ring dimension supplies the security margin while keeping the target and
+rational-hash shape narrow. In both profiles, ordinary message coefficients are
+ternary and the PRF key is a separate 48-coefficient `[-4,4]` seed tail inside
+the committed message row.
 
 The implementation records the following commitment-security estimates for the
 Ajtai/MLWE commitment `c = C_M*M + A_s*s + e`:
 
 | Profile | MLWE hiding bits | Hiding attack | MSIS binding bits | Statistical hiding | Statistical binding slack |
 | --- | ---: | --- | ---: | --- | ---: |
-| `intgenisis_profile_b` | 203.816 | `usvp` | 586.336 | no | 1,846.913 bits |
-| `intgenisis_profile_c` | 131.113 | `dual_hybrid` | infinite in rough estimator | no | 13,303.111 bits |
+| `intgenisis_profile_b` | 131.113 | `dual_hybrid` | infinite in rough estimator | no | 5,415.133 bits |
+| `intgenisis_profile_c` | 131.113 | `dual_hybrid` | infinite in rough estimator | no | 13,255.516 bits |
 
 These are not statistical-hiding commitments. The hiding claim is
 computational MLWE hiding. The statistical-hiding slack is negative for both

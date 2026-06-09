@@ -92,6 +92,7 @@ Start with [ARTIFACT.md](ARTIFACT.md), [CLAIMS.md](CLAIMS.md), and
 See [docs/protocol.md](docs/protocol.md),
 [docs/intgenisis_protocol_h_tran.md](docs/intgenisis_protocol_h_tran.md),
 [docs/intgenisis_lattice_security.md](docs/intgenisis_lattice_security.md),
+[docs/security_estimation_workflow.md](docs/security_estimation_workflow.md),
 [docs/modulus_choice.md](docs/modulus_choice.md), and
 [docs/degree1024_maintained_presets.md](docs/degree1024_maintained_presets.md)
 for the canonical protocol and parameter notes. PRF seed packing is summarized

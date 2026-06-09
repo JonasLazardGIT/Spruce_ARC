@@ -31,15 +31,19 @@ PROFILES = [
         "ell_M": 1,
         "k_s": 2,
         "n_c": 1,
-        "B": 4,
+        "ordinary_message_bound": 1,
+        "prf_seed_bound": 4,
+        "commitment_bound": 1,
+        "prf_seed_len": 48,
+        "semantic_tail_reserve": 64,
         "ell_mu_sig": 1,
         "ell_x0": 2,
         "ell_x1": 1,
         "ntru_beta": 6002,
-        "mlwe_bits_recorded": 203.816,
-        "mlwe_attack_recorded": "usvp",
-        "msis_bits_recorded": 586.336,
-        "msis_infinite_recorded": False,
+        "mlwe_bits_recorded": 131.113,
+        "mlwe_attack_recorded": "dual_hybrid",
+        "msis_bits_recorded": 0,
+        "msis_infinite_recorded": True,
     },
     {
         "name": "intgenisis_profile_c",
@@ -49,7 +53,11 @@ PROFILES = [
         "ell_M": 1,
         "k_s": 1,
         "n_c": 1,
-        "B": 1,
+        "ordinary_message_bound": 1,
+        "prf_seed_bound": 4,
+        "commitment_bound": 1,
+        "prf_seed_len": 48,
+        "semantic_tail_reserve": 64,
         "ell_mu_sig": 1,
         "ell_x0": 1,
         "ell_x1": 1,
@@ -123,7 +131,7 @@ def statistical_hiding_slack(profile: dict) -> float:
     q = profile["q"]
     k_s = profile["k_s"]
     n_c = profile["n_c"]
-    b = profile["B"]
+    b = profile["commitment_bound"]
     randomness = n * (k_s + n_c) * math.log2(2 * b + 1)
     required = n * n_c * math.log2(q) + 2 * SECURITY_LAMBDA
     return randomness - required
@@ -132,13 +140,45 @@ def statistical_hiding_slack(profile: dict) -> float:
 def statistical_binding_slack(profile: dict) -> float:
     n = profile["N"]
     q = profile["q"]
-    ell_m = profile["ell_M"]
-    k_s = profile["k_s"]
     n_c = profile["n_c"]
-    b = profile["B"]
     codomain = n * n_c * math.log2(q)
-    diff_space = n * (ell_m + k_s + n_c) * math.log2(4 * b + 1)
+    diff_space = binding_diff_space_bits(profile)
     return codomain - diff_space
+
+
+def commitment_binding_l2_bound(profile: dict) -> float:
+    n = profile["N"]
+    ordinary_coeffs = n - profile["semantic_tail_reserve"]
+    seed_coeffs = profile["prf_seed_len"]
+    se_coeffs = n * (profile["k_s"] + profile["n_c"])
+    ordinary = 2 * profile["ordinary_message_bound"]
+    seed = 2 * profile["prf_seed_bound"]
+    se = 2 * profile["commitment_bound"]
+    return math.sqrt(
+        ordinary_coeffs * ordinary * ordinary
+        + seed_coeffs * seed * seed
+        + se_coeffs * se * se
+    )
+
+
+def commitment_binding_linf_bound(profile: dict) -> int:
+    return max(
+        2 * profile["ordinary_message_bound"],
+        2 * profile["prf_seed_bound"],
+        2 * profile["commitment_bound"],
+    )
+
+
+def binding_diff_space_bits(profile: dict) -> float:
+    n = profile["N"]
+    ordinary_coeffs = n - profile["semantic_tail_reserve"]
+    seed_coeffs = profile["prf_seed_len"]
+    se_coeffs = n * (profile["k_s"] + profile["n_c"])
+    return (
+        ordinary_coeffs * math.log2(4 * profile["ordinary_message_bound"] + 1)
+        + seed_coeffs * math.log2(4 * profile["prf_seed_bound"] + 1)
+        + se_coeffs * math.log2(4 * profile["commitment_bound"] + 1)
+    )
 
 
 def ntru_c_l2_bound(profile: dict) -> float:
@@ -174,7 +214,7 @@ def main() -> int:
         ell_m = profile["ell_M"]
         k_s = profile["k_s"]
         n_c = profile["n_c"]
-        b = profile["B"]
+        b = profile["commitment_bound"]
         distribution = ND.Uniform(-b, b)
 
         lwe = LWE.Parameters(n=n * k_s, q=q, Xs=distribution, Xe=distribution, m=n * n_c)
@@ -182,7 +222,7 @@ def main() -> int:
         commitment_l2 = SIS.Parameters(
             n=n * n_c,
             q=q,
-            length_bound=float(2 * b * sqrt(n * bind_len)),
+            length_bound=float(commitment_binding_l2_bound(profile)),
             m=n * bind_len,
             norm=2,
             tag=f"{profile['name']}-commitment-msis-l2",
@@ -190,7 +230,7 @@ def main() -> int:
         commitment_inf = SIS.Parameters(
             n=n * n_c,
             q=q,
-            length_bound=2 * b,
+            length_bound=commitment_binding_linf_bound(profile),
             m=n * bind_len,
             norm=oo,
             tag=f"{profile['name']}-commitment-msis-inf",
@@ -239,6 +279,9 @@ def main() -> int:
                     "mlwe_hiding": summarize_estimate(LWE.estimate.rough(lwe, quiet=True), oo),
                     "msis_binding_l2": summarize_estimate(SIS.estimate.rough(commitment_l2, quiet=True), oo),
                     "msis_binding_inf": summarize_estimate(SIS.estimate.rough(commitment_inf, quiet=True), oo),
+                    "binding_l2_bound": round(commitment_binding_l2_bound(profile), 3),
+                    "binding_linf_bound": commitment_binding_linf_bound(profile),
+                    "binding_diff_space_bits": round(binding_diff_space_bits(profile), 3),
                     "statistical_hiding_satisfied": statistical_hiding_slack(profile) >= 0,
                     "statistical_hiding_slack_bits": round(statistical_hiding_slack(profile), 3),
                     "statistical_binding_slack_bits": round(statistical_binding_slack(profile), 3),
