@@ -74,6 +74,7 @@ type maskFSArgs struct {
 	witnessNCols int
 	pcsGeometry  PCSGeometry
 	root         [16]byte
+	rootHash     []byte
 
 	// Small-field parameters (Theta > 1)
 	smallFieldK       *kf.Field
@@ -203,6 +204,10 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	if q == 0 && ringQ != nil {
 		q = ringQ.Modulus[0]
 	}
+	rootBytes := append([]byte(nil), args.rootHash...)
+	if len(rootBytes) == 0 {
+		rootBytes = append([]byte(nil), args.root[:]...)
+	}
 	stage := func(label string, fn func() error) error {
 		start := time.Now()
 		err := fn()
@@ -223,6 +228,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	fs := NewFS(baseXOF, salt, FSParams{Lambda: o.Lambda, Kappa: o.Kappa, TranscriptVersion: o.TranscriptVersion})
 	proof := &Proof{
 		Root:                args.root,
+		RootHash:            proofHashField(args.root, rootBytes),
 		RingDegree:          int(ringQ.N),
 		Salt:                append([]byte(nil), salt...),
 		Lambda:              o.Lambda,
@@ -279,6 +285,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	// Verifier init
 	vrf := lvcs.NewVerifierWithParamsAndPoints(ringQ, len(args.rowInputs), args.decsParams, args.ncols, domainPoints)
 	vrf.Root = args.root
+	vrf.RootHash = rootBytes
 	var (
 		Gamma       [][]uint64
 		gammaBytes  []byte
@@ -286,7 +293,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	)
 	// Round 1: Gamma
 	if err := stage("RunMaskFS.Round1Gamma", func() error {
-		material0 := [][]byte{args.root[:]}
+		material0 := [][]byte{rootBytes}
 		if len(args.labelsDigest) > 0 {
 			material0 = append(material0, args.labelsDigest)
 		}
@@ -322,7 +329,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if args.prfCompanionLayout != nil {
 			totalAgg += args.prfCompanionBridgeChecks
 		}
-		transcript2 := [][]byte{args.root[:], gammaBytes, rTranscript}
+		transcript2 := [][]byte{rootBytes, gammaBytes, rTranscript}
 		if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 {
 			transcript2 = [][]byte{rTranscript}
 		} else if len(args.labelsDigest) > 0 {
@@ -549,6 +556,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		}
 		if paperQPayloadOnly {
 			proof.QRoot = [16]byte{}
+			proof.QRootHash = nil
 			proof.setQR(nil)
 			proof.QOpening = nil
 			return nil
@@ -565,6 +573,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			return fmt.Errorf("commit Q: %w", qErr)
 		}
 		proof.QRoot = qRoot
+		proof.QRootHash = proofHashField(qRoot, qProver.RootHash())
 		return nil
 	}); err != nil {
 		return out, err
@@ -597,7 +606,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if paperQPayloadOnly {
 			round3Material = [][]byte{proof.QPayloadBytes()}
 		} else {
-			round3Material = [][]byte{args.root[:], gammaBytes, gammaPrimeBytes, gammaAggBytes, proof.QRoot[:], proof.QPayloadBytes()}
+			round3Material = [][]byte{rootBytes, gammaBytes, gammaPrimeBytes, gammaAggBytes, proofQRootBytes(proof), proof.QPayloadBytes()}
 		}
 		if proof.PRFCompanion != nil && len(proof.PRFCompanion.CoordDigest) > 0 {
 			round3Material = append(round3Material, proof.PRFCompanion.CoordDigest)
@@ -818,10 +827,10 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				}
 			} else {
 				transcript4 = [][]byte{
-					args.root[:],
+					rootBytes,
 					gammaBytes,
 					gammaPrimeBytes,
-					proof.QRoot[:],
+					proofQRootBytes(proof),
 					proof.QPayloadBytes(),
 					proof.QRBytes(),
 					encodeUint64Slice(out.evalPoints),
@@ -902,11 +911,11 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			}
 		} else {
 			transcript4 = [][]byte{
-				args.root[:],
+				rootBytes,
 				gammaBytes,
 				bytesFromKScalarTensor3(GammaPrimeK),
 				bytesFromKScalarMat(GammaAggK),
-				proof.QRoot[:],
+				proofQRootBytes(proof),
 				proof.QPayloadBytes(),
 				proof.QRBytes(),
 				bytesFromUint64Matrix(kPointLimbs),

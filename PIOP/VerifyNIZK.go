@@ -116,7 +116,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		lambda = 256
 	}
 	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa, TranscriptVersion: proof.TranscriptVersion})
-	rootBytes := append([]byte(nil), proof.Root[:]...)
+	rootBytes := append([]byte(nil), proofRootBytes(proof)...)
 	material0 := [][]byte{rootBytes}
 	if len(proof.LabelsDigest) > 0 {
 		material0 = append(material0, proof.LabelsDigest)
@@ -155,9 +155,10 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	} else if len(pcsOpening.Nonces) > 0 && len(pcsOpening.Nonces[0]) > 0 {
 		nonceBytes = len(pcsOpening.Nonces[0])
 	}
-	lvcsParams := decs.Params{Degree: rowDegBound, Eta: eta, NonceBytes: nonceBytes}
+	lvcsParams := decs.Params{Degree: rowDegBound, Eta: eta, NonceBytes: nonceBytes, HashBytes: decs.NormalizeHashBytes(len(rootBytes))}
 	vrf := lvcs.NewVerifierWithParamsAndPoints(ringQ, rRows, lvcsParams, ncols, domainPoints)
 	vrf.Root = proof.Root
+	vrf.RootHash = rootBytes
 	vrf.AcceptGamma(Gamma)
 	if !vrf.CommitStep2Formal(proof.R) {
 		return false, false, false, errors.New("VerifyNIZK: LVCS CommitStep2 rejected R polynomials")
@@ -215,7 +216,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if proofHasLegacyQDECS(proof) {
 			return false, false, false, errors.New("VerifyNIZK: strict SmallWood transcript carries redundant legacy Q DECS material")
 		}
-	} else if proof.QRoot == ([16]byte{}) {
+	} else if proof.QRoot == ([16]byte{}) && len(proof.QRootHash) == 0 {
 		return false, false, false, errors.New("VerifyNIZK: missing QRoot commitment")
 	}
 
@@ -290,7 +291,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 			gammaBytes,
 			gammaPrimeBytes,
 			gammaAggBytes,
-			proof.QRoot[:],
+			proofQRootBytes(proof),
 			proof.QPayloadBytes(),
 		}
 	}
@@ -344,7 +345,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 				gammaBytes,
 				bytesFromKScalarTensor3(proof.GammaPrimeK),
 				bytesFromKScalarMat(proof.GammaAggK),
-				proof.QRoot[:],
+				proofQRootBytes(proof),
 				proof.QPayloadBytes(),
 				qrBytes,
 				bytesFromUint64Matrix(proof.KPoint),
@@ -396,7 +397,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 				rootBytes,
 				gammaBytes,
 				gammaPrimeBytes,
-				proof.QRoot[:],
+				proofQRootBytes(proof),
 				proof.QPayloadBytes(),
 				qrBytes,
 				encodeUint64Slice(points),
@@ -526,7 +527,8 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		} else if len(proof.QOpening.Nonces) > 0 && len(proof.QOpening.Nonces[0]) > 0 {
 			qNonceBytes = len(proof.QOpening.Nonces[0])
 		}
-		qParams := decs.Params{Degree: qDegBound, Eta: eta, NonceBytes: qNonceBytes}
+		qRootBytes := proofQRootBytes(proof)
+		qParams := decs.Params{Degree: qDegBound, Eta: eta, NonceBytes: qNonceBytes, HashBytes: decs.NormalizeHashBytes(len(qRootBytes))}
 		qVrf, err := decs.NewVerifierWithParamsAndPointsChecked(ringQ, rhoQ, qParams, domainPoints)
 		if err != nil {
 			return okLin, false, false, fmt.Errorf("VerifyNIZK: invalid Q verifier params: %w", err)
@@ -550,7 +552,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if qPrepErr != nil {
 			return okLin, false, false, fmt.Errorf("VerifyNIZK: prepare Q opening: %w", qPrepErr)
 		}
-		if !qVrf.VerifyEvalAtFormal(proof.QRoot, GammaQ, qr, qOpeningPrepared, qIdx) {
+		if !qVrf.VerifyEvalAtFormalHash(qRootBytes, GammaQ, qr, qOpeningPrepared, qIdx) {
 			return okLin, false, false, errors.New("VerifyNIZK: Q DECS opening rejected")
 		}
 		if len(qPayload) > 0 {

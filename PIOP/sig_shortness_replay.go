@@ -207,7 +207,7 @@ func deriveMainPCSSubsetGamma(proof *Proof, rowCount int, q uint64) ([][]uint64,
 		lambda = 256
 	}
 	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa, TranscriptVersion: proof.TranscriptVersion})
-	material0 := [][]byte{append([]byte(nil), proof.Root[:]...)}
+	material0 := [][]byte{append([]byte(nil), proofRootBytes(proof)...)}
 	if len(proof.LabelsDigest) > 0 {
 		material0 = append(material0, proof.LabelsDigest)
 	}

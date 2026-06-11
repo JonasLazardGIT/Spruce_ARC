@@ -180,7 +180,7 @@ func newSmallField2025Fixture(t *testing.T) smallField2025Fixture {
 	for i := range points {
 		points[i] = uint64(i + 1)
 	}
-	params := decs.Params{Degree: ncols + ell - 1, Eta: 2, NonceBytes: 16}
+	params := decs.Params{Degree: ncols + ell - 1, Eta: 2, NonceBytes: 16, HashBytes: 16}
 	root, pk, err := CommitInitWithParamsAndPointsWithOptions(ringQ, rows, ell, params, points, CommitOptions{})
 	if err != nil {
 		t.Fatalf("CommitInitWithParamsAndPointsWithOptions: %v", err)

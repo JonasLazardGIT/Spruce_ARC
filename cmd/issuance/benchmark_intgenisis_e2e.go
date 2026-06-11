@@ -53,6 +53,11 @@ type benchmarkIntGenISISE2EConfig struct {
 	NTRUBeta          uint64
 	MaxTrials         int
 	MaxNLeaves        int
+	ROQueryCaps       [5]int
+	ROQueryCapsSet    bool
+	DECSCollisionBits int
+	AcceptedIssuance  int
+	AcceptedShowing   int
 }
 
 type intGenISISTuning struct {
@@ -65,6 +70,9 @@ type intGenISISTuning struct {
 	Ell                    int                   `json:"ell"`
 	EllPrime               int                   `json:"ell_prime"`
 	Kappa                  [4]int                `json:"kappa"`
+	ROQueryCaps            [5]int                `json:"ro_query_caps,omitempty"`
+	ROQueryCapsSet         bool                  `json:"-"`
+	DECSCollisionBits      int                   `json:"decs_collision_bits,omitempty"`
 	PRFCompanionMode       PIOP.PRFCompanionMode `json:"prf_companion_mode,omitempty"`
 	PRFGroupRounds         int                   `json:"prf_group_rounds,omitempty"`
 	CheckpointSamples      int                   `json:"prf_checkpoint_samples,omitempty"`
@@ -133,6 +141,7 @@ type benchmarkIntGenISISE2EReport struct {
 	Timings        benchmarkIntGenISISE2ETimings     `json:"timings"`
 	Issuance       benchmarkIntGenISISMetrics        `json:"issuance"`
 	Showing        benchmarkIntGenISISMetrics        `json:"showing"`
+	FullGame       PIOP.FullGameSoundnessReport      `json:"full_game"`
 	Artifacts      benchmarkIntGenISISE2EArtifacts   `json:"artifacts"`
 	ReplayRejected bool                              `json:"replay_rejected"`
 	Notes          []string                          `json:"notes"`
@@ -246,6 +255,13 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 	if t.EllPrime <= 0 {
 		t.EllPrime = fallback.EllPrime
 	}
+	if !t.ROQueryCapsSet && fallback.ROQueryCapsSet {
+		t.ROQueryCaps = fallback.ROQueryCaps
+		t.ROQueryCapsSet = true
+	}
+	if t.DECSCollisionBits <= 0 {
+		t.DECSCollisionBits = fallback.DECSCollisionBits
+	}
 	if includePRF {
 		if t.PRFCompanionMode == "" {
 			t.PRFCompanionMode = fallback.PRFCompanionMode
@@ -325,6 +341,9 @@ func intGenISISTuningToIssuanceOverrides(t intGenISISTuning, ringDegree int) iss
 		Theta:               t.Theta,
 		Rho:                 t.Rho,
 		Kappa:               t.Kappa,
+		ROQueryCaps:         t.ROQueryCaps,
+		ROQueryCapsSet:      t.ROQueryCapsSet,
+		DECSCollisionBits:   t.DECSCollisionBits,
 		TranscriptMode:      t.TranscriptMode,
 		FixedTranscriptSize: t.FixedTranscriptSize,
 		RingDegree:          ringDegree,
@@ -351,6 +370,9 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 		Rho:                        t.Rho,
 		Theta:                      t.Theta,
 		Kappa:                      t.Kappa,
+		ROQueryCaps:                t.ROQueryCaps,
+		ROQueryCapsSet:             t.ROQueryCapsSet,
+		DECSCollisionBits:          t.DECSCollisionBits,
 		DomainMode:                 PIOP.DomainModeExplicit,
 		PRFGroupRounds:             t.PRFGroupRounds,
 		PRFCompanionMode:           t.PRFCompanionMode,
@@ -429,6 +451,19 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		cfg.PRFParamsPath = defaultPRFParamsPath
 	}
 	defaults := intGenISISTuningFromDefaultConfig(cfg)
+	if cfg.ROQueryCapsSet {
+		cfg.Issuance.ROQueryCaps = cfg.ROQueryCaps
+		cfg.Issuance.ROQueryCapsSet = true
+		cfg.Showing.ROQueryCaps = cfg.ROQueryCaps
+		cfg.Showing.ROQueryCapsSet = true
+	}
+	if cfg.DECSCollisionBits > 0 {
+		cfg.Issuance.DECSCollisionBits = cfg.DECSCollisionBits
+		cfg.Showing.DECSCollisionBits = cfg.DECSCollisionBits
+	}
+	if cfg.AcceptedIssuance < 0 || cfg.AcceptedShowing < 0 {
+		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("accepted proof counts must be nonnegative")
+	}
 	cfg.Issuance = normalizeIntGenISISTuning(cfg.Issuance, defaults, false)
 	cfg.Showing = normalizeIntGenISISTuning(cfg.Showing, defaults, true)
 	cfg.MaxNLeaves = normalizeIntGenISISMaxNLeaves(cfg.MaxNLeaves)
@@ -540,6 +575,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	if err != nil {
 		return benchmarkIntGenISISE2EReport{}, err
 	}
+	fullGame := PIOP.ComposeFullGameSoundness(issuanceMetrics.Soundness, showingMetrics.Soundness, cfg.AcceptedIssuance, cfg.AcceptedShowing)
 
 	report := benchmarkIntGenISISE2EReport{
 		Version:      benchmarkIntGenISISE2EVersion,
@@ -557,6 +593,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		Timings:        timings,
 		Issuance:       issuanceMetrics,
 		Showing:        showingMetrics,
+		FullGame:       fullGame,
 		Artifacts:      paths,
 		ReplayRejected: replayRejected,
 		Notes: []string{
@@ -860,6 +897,14 @@ func benchmarkIntGenISISE2EPrintReport(report benchmarkIntGenISISE2EReport) {
 	log.Printf("[issuance-cli] IntGenISIS e2e artifact_dir=%s profile=%s q=%d", report.ArtifactDir, report.Profile, report.Modulus)
 	benchmarkIntGenISISE2EPrintPhase("issuance", report.Issuance)
 	benchmarkIntGenISISE2EPrintPhase("showing", report.Showing)
+	log.Printf("[issuance-cli] IntGenISIS full_game accepted_issuance=%d accepted_showing=%d conservative_bits=%.2f global_collision_bits=%.2f global_query_caps=%v collision_space_bits=%d",
+		report.FullGame.AcceptedIssuance,
+		report.FullGame.AcceptedShowing,
+		displayBits(report.FullGame.ConservativeFullGameBits),
+		displayBits(report.FullGame.GlobalCollisionFullGameBits),
+		report.FullGame.GlobalQueryCaps,
+		report.FullGame.CollisionSpaceBits,
+	)
 	log.Printf("[issuance-cli] IntGenISIS e2e replay_rejected=%v", report.ReplayRejected)
 }
 
@@ -888,12 +933,23 @@ func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics
 		m.DQ,
 		displayBits(m.SoundnessEq8Bits),
 	)
-	log.Printf("[issuance-cli] IntGenISIS %s eq8_round_bits=[%.2f %.2f %.2f %.2f] theorem_total_bits=%.2f ddecs=%d support_cols=%d committed_cols=%d clamped=%v",
+	log.Printf("[issuance-cli] IntGenISIS %s eq8_round_bits=[%.2f %.2f %.2f %.2f] algebraic_round_bits=[%.2f %.2f %.2f %.2f] algebraic_total_bits=%.2f collision_bits=%.2f one_proof_total_bits=%.2f ro_query_caps=%v collision_space_bits=%d decs_hash_bits=%d decs_tape_bits=%d compat_theorem_total_bits=%.2f ddecs=%d support_cols=%d committed_cols=%d clamped=%v",
 		label,
 		displayBits(m.RoundBits[0]),
 		displayBits(m.RoundBits[1]),
 		displayBits(m.RoundBits[2]),
 		displayBits(m.RoundBits[3]),
+		displayBits(m.AlgebraicBits[0]),
+		displayBits(m.AlgebraicBits[1]),
+		displayBits(m.AlgebraicBits[2]),
+		displayBits(m.AlgebraicBits[3]),
+		displayBits(m.AlgebraicTotalBits),
+		displayBits(m.CollisionBits),
+		displayBits(m.OneProofTotalBits),
+		m.ROQueryCaps,
+		m.CollisionSpaceBits,
+		m.DECSHashBits,
+		m.DECSTapeBits,
 		displayBits(m.TheoremTotalBits),
 		m.DDECS,
 		m.WitnessSupportCols,

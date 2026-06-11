@@ -228,7 +228,9 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 	if theta > 1 {
 		fieldSize = math.Pow(float64(q), float64(theta))
 	}
-	sb := computeSoundnessBudget(reportOpts, q, fieldSize, fsCollisionSpaceBits(reportOpts.Lambda, len(proof.Salt)), dQ, ncols, lvcsNCols, ell, ellPrime, eta, nLeaves, witnessPolys)
+	decsHashBits := proofDECSHashBits(proof)
+	decsTapeBits := proofDECSTapeBits(proof)
+	sb := computeSoundnessBudget(reportOpts, q, fieldSize, fsCollisionSpaceBits(reportOpts.Lambda, len(proof.Salt)), decsHashBits, decsTapeBits, dQ, ncols, lvcsNCols, ell, ellPrime, eta, nLeaves, witnessPolys)
 	size := MeasureProofSize(proof)
 	packing, err := BuildProofPackingAudit(proof, q)
 	if err != nil {

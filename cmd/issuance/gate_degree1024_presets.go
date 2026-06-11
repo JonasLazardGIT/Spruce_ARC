@@ -66,19 +66,19 @@ func allMaintainedPresetGates() []maintainedPresetGate {
 			Name:               credential.IntGenISISPresetN512Compact96,
 			MinTheoremBits:     96,
 			MaxPaperBytes:      22500,
-			ExpectedPaperBytes: 21754,
+			ExpectedPaperBytes: 22008,
 		},
 		{
 			Name:               credential.IntGenISISPresetN1024Compact96,
 			MinTheoremBits:     96,
 			MaxPaperBytes:      27500,
-			ExpectedPaperBytes: 25882,
+			ExpectedPaperBytes: 26136,
 		},
 		{
 			Name:               credential.IntGenISISPresetN1024Compact125,
 			MinTheoremBits:     125,
-			MaxPaperBytes:      35000,
-			ExpectedPaperBytes: 34853,
+			MaxPaperBytes:      36000,
+			ExpectedPaperBytes: 35215,
 		},
 	}
 }
@@ -89,13 +89,13 @@ func degree1024MaintainedPresetGates() []maintainedPresetGate {
 			Name:               credential.IntGenISISPresetN1024Compact96,
 			MinTheoremBits:     96,
 			MaxPaperBytes:      27500,
-			ExpectedPaperBytes: 25882,
+			ExpectedPaperBytes: 26136,
 		},
 		{
 			Name:               credential.IntGenISISPresetN1024Compact125,
 			MinTheoremBits:     125,
-			MaxPaperBytes:      35000,
-			ExpectedPaperBytes: 34853,
+			MaxPaperBytes:      36000,
+			ExpectedPaperBytes: 35215,
 		},
 	}
 }

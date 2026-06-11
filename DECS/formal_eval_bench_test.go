@@ -201,7 +201,7 @@ func benchmarkDECSLeafHashShape(b *testing.B, rowCount, eta int) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = hashLeafWith(h, leaf)
+		_ = hashLeafWith(h, leaf, DefaultHashBytes)
 	}
 }
 

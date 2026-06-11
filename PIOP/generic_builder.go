@@ -191,7 +191,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if opts.Eta <= 0 {
 			return nil, fmt.Errorf("invalid Eta=%d", opts.Eta)
 		}
-		decsParams = decs.Params{Degree: maskCfg.DQ, Eta: opts.Eta, NonceBytes: 16}
+		decsParams = applyDECSCollisionWidth(decs.Params{Degree: maskCfg.DQ, Eta: opts.Eta, NonceBytes: 16}, opts)
 
 		rho := opts.Rho
 		if rho <= 0 {
@@ -582,6 +582,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			OmegaWitness:       omegaWitness,
 			DomainPoints:       domainPoints,
 			Root:               root,
+			RootHash:           pk.RootHash,
 			PK:                 pk,
 			OracleLayout:       oracleLayout,
 			RowLayout:          rowLayout,

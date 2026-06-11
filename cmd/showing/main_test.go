@@ -45,6 +45,69 @@ func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T)
 	}
 }
 
+func TestShowingCLIParsesSoundnessFlags(t *testing.T) {
+	defaultCfg, err := parseShowingCLIArgs([]string{
+		"-preset", credential.IntGenISISPresetN1024Compact125,
+	})
+	if err != nil {
+		t.Fatalf("parse showing default flags: %v", err)
+	}
+	if defaultCfg.DECSCollisionBits != 144 {
+		t.Fatalf("default decs collision bits=%d", defaultCfg.DECSCollisionBits)
+	}
+
+	cfg, err := parseShowingCLIArgs([]string{
+		"-preset", credential.IntGenISISPresetN1024Compact125,
+		"-ro-query-caps", "0,1,2,3,4",
+		"-decs-collision-bytes", "20",
+	})
+	if err != nil {
+		t.Fatalf("parse showing flags: %v", err)
+	}
+	if !cfg.ROQueryCapsSet {
+		t.Fatal("ro query caps were not marked explicit")
+	}
+	if cfg.ROQueryCaps != [5]int{0, 1, 2, 3, 4} {
+		t.Fatalf("ro query caps=%v", cfg.ROQueryCaps)
+	}
+	if cfg.DECSCollisionBits != 160 {
+		t.Fatalf("decs collision bits=%d", cfg.DECSCollisionBits)
+	}
+	opts := applyShowingCLIAccountingOverrides(intGenISISShowingOpts(1024, cfg.Preset.Showing), cfg)
+	if opts.ROQueryCaps != cfg.ROQueryCaps || !opts.ROQueryCapsSet {
+		t.Fatalf("opts query caps=%v set=%v", opts.ROQueryCaps, opts.ROQueryCapsSet)
+	}
+	if opts.DECSCollisionBits != 160 {
+		t.Fatalf("opts decs collision bits=%d", opts.DECSCollisionBits)
+	}
+}
+
+func TestShowingCLIRejectsMalformedSoundnessFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "bad query caps",
+			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-ro-query-caps", "1,2,3,4"},
+		},
+		{
+			name: "bad collision bits",
+			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-decs-collision-bits", "152"},
+		},
+		{
+			name: "bad collision bytes",
+			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-decs-collision-bytes", "19"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseShowingCLIArgs(tc.args); err == nil {
+				t.Fatalf("parseShowingCLIArgs(%v) unexpectedly succeeded", tc.args)
+			}
+		})
+	}
+}
+
 func TestShowingRemovedFlagsAreUnknown(t *testing.T) {
 	for _, flagName := range []string{
 		"-prf-companion-mode",
@@ -254,7 +317,7 @@ func TestFormatSoundnessNotesExplainsRawClampAndGrinding(t *testing.T) {
 	if !strings.Contains(line, "eps1 raw term is negative and is paper-clamped to 0") {
 		t.Fatalf("missing raw-clamp explanation: %q", line)
 	}
-	if !strings.Contains(line, "Thm.9 round bits already include grinding") {
+	if !strings.Contains(line, "algebraic round bits already include grinding") {
 		t.Fatalf("missing grinding explanation: %q", line)
 	}
 }

@@ -45,6 +45,13 @@ func (v *Verifier) VerifyEvalFormal(
 	root [16]byte, Gamma [][]uint64, R [][]uint64,
 	open *DECSOpening,
 ) bool {
+	return v.VerifyEvalFormalHash(root[:], Gamma, R, open)
+}
+
+func (v *Verifier) VerifyEvalFormalHash(
+	rootHash []byte, Gamma [][]uint64, R [][]uint64,
+	open *DECSOpening,
+) bool {
 	if open == nil {
 		return false
 	}
@@ -149,7 +156,7 @@ func (v *Verifier) VerifyEvalFormal(
 			}
 			path[lvl] = open.Nodes[id]
 		}
-		if !VerifyPath(buf, path, root, idx) {
+		if !VerifyPathHash(buf, path, rootHash, idx) {
 			return false
 		}
 
@@ -334,10 +341,24 @@ func (v *Verifier) VerifyEvalAt(
 	return v.VerifyEvalAtFormal(root, Gamma, ringRowsToFormal(R, v.ringQ.Modulus[0]), open, E)
 }
 
+func (v *Verifier) VerifyEvalAtHash(
+	rootHash []byte, Gamma [][]uint64, R []*ring.Poly,
+	open *DECSOpening, E []int,
+) bool {
+	return v.VerifyEvalAtFormalHash(rootHash, Gamma, ringRowsToFormal(R, v.ringQ.Modulus[0]), open, E)
+}
+
 // VerifyEvalAtFormal enforces that the prover opened exactly E, then runs
 // VerifyEvalFormal.
 func (v *Verifier) VerifyEvalAtFormal(
 	root [16]byte, Gamma [][]uint64, R [][]uint64,
+	open *DECSOpening, E []int,
+) bool {
+	return v.VerifyEvalAtFormalHash(root[:], Gamma, R, open, E)
+}
+
+func (v *Verifier) VerifyEvalAtFormalHash(
+	rootHash []byte, Gamma [][]uint64, R [][]uint64,
 	open *DECSOpening, E []int,
 ) bool {
 	if open == nil {
@@ -366,12 +387,15 @@ func (v *Verifier) VerifyEvalAtFormal(
 	if len(seen) != 0 {
 		return false
 	}
-	return v.VerifyEvalFormal(root, Gamma, R, open)
+	return v.VerifyEvalFormalHash(rootHash, Gamma, R, open)
 }
 
 func validateVerifierParams(params Params) error {
 	if params.Degree < 0 {
 		return fmt.Errorf("decs: invalid degree parameter")
+	}
+	if params.HashBytes != 0 && !IsSupportedHashBytes(params.HashBytes) {
+		return fmt.Errorf("decs: invalid HashBytes (supported: %s)", SupportedHashBytesList())
 	}
 	return nil
 }

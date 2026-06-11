@@ -44,6 +44,9 @@ type smallWoodTuningSpec struct {
 	Theta               int    `json:"theta,omitempty"`
 	Rho                 int    `json:"rho,omitempty"`
 	Kappa               [4]int `json:"kappa,omitempty"`
+	ROQueryCaps         [5]int `json:"ro_query_caps,omitempty"`
+	ROQueryCapsSet      bool   `json:"ro_query_caps_set,omitempty"`
+	DECSCollisionBits   int    `json:"decs_collision_bits,omitempty"`
 	TranscriptMode      string `json:"transcript_mode,omitempty"`
 	FixedTranscriptSize bool   `json:"fixed_transcript_size,omitempty"`
 }
@@ -110,6 +113,9 @@ type issuanceRuntimeOverrides struct {
 	Theta               int
 	Rho                 int
 	Kappa               [4]int
+	ROQueryCaps         [5]int
+	ROQueryCapsSet      bool
+	DECSCollisionBits   int
 	TranscriptMode      string
 	FixedTranscriptSize bool
 	RingDegree          int
@@ -151,6 +157,9 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 		out.Theta = spec.Theta
 		out.Rho = spec.Rho
 		out.Kappa = spec.Kappa
+		out.ROQueryCaps = spec.ROQueryCaps
+		out.ROQueryCapsSet = spec.ROQueryCapsSet
+		out.DECSCollisionBits = spec.DECSCollisionBits
 		out.TranscriptMode = spec.TranscriptMode
 		out.FixedTranscriptSize = spec.FixedTranscriptSize
 	}
@@ -172,6 +181,9 @@ func smallWoodTuningSpecFromOpts(opts PIOP.SimOpts) *smallWoodTuningSpec {
 		Theta:               opts.Theta,
 		Rho:                 opts.Rho,
 		Kappa:               opts.Kappa,
+		ROQueryCaps:         opts.ROQueryCaps,
+		ROQueryCapsSet:      opts.ROQueryCapsSet,
+		DECSCollisionBits:   opts.DECSCollisionBits,
 		TranscriptMode:      transcriptMode,
 		FixedTranscriptSize: opts.FixedTranscriptSize,
 	}
@@ -208,6 +220,13 @@ func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeO
 	}
 	if overrides.Kappa != ([4]int{}) {
 		opts.Kappa = overrides.Kappa
+	}
+	if overrides.ROQueryCapsSet {
+		opts.ROQueryCaps = overrides.ROQueryCaps
+		opts.ROQueryCapsSet = true
+	}
+	if overrides.DECSCollisionBits > 0 {
+		opts.DECSCollisionBits = overrides.DECSCollisionBits
 	}
 	if overrides.TranscriptMode != "" {
 		opts.TranscriptCodec = intGenISISLiveTranscriptCodecOrDefault(overrides.TranscriptMode)

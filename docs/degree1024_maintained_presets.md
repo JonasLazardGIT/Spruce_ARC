@@ -1,6 +1,6 @@
 # Degree-1024 Maintained IntGenISIS Presets
 
-Run date: 2026-06-03
+Run date: 2026-06-10
 
 This note records the curated degree-1024 IntGenISIS preset surface. The
 primary transcript metric is `showing.paper_transcript_bytes`; this is the
@@ -12,13 +12,15 @@ not be compared against older undercounted proof bytes.
 
 | Preset | Paper name | Status | Target | Live theorem bits | Observed showing paper bytes | Gate |
 | --- | --- | --- | ---: | ---: | ---: | --- |
-| `n1024-compact96` | `N1024-96` | maintained | 96 | 96.02 | 25,882 | `==25,882`, `>=96` |
-| `n1024-compact125` | `N1024-125` | maintained low-grind fixed-size | 125+ | 125.17 | 34,853 | `==34,853`, `>=125` |
+| `n1024-compact96` | `N1024-96` | maintained | 96 | 96.02 | 26,136 | `==26,136`, `>=96` |
+| `n1024-compact125` | `N1024-125` | maintained low-grind fixed-size | 125+ | 126.92 | 35,215 | `==35,215`, `>=125` |
 
 The public registry intentionally contains only the compact maintained names.
 Removed selectors are invalid rather than aliases. The high preset is a 125+
 live preset, not a 128-bit claim. Maintained issuance and showing both use
-`smallfield_2025_1085_v1` and fixed-size DECS authentication.
+`smallfield_2025_1085_v1` and fixed-size DECS authentication. The default DECS
+collision hash/tape width is 18 bytes, giving a 144-bit DECS collision space in
+the live proof format.
 
 ## Fresh E2E Snapshot
 
@@ -72,17 +74,17 @@ Fresh live issuance snapshot:
 
 ```text
 q=1017857
-paper_transcript_bytes=14307
-proof_size_bytes=15355
-prove_ms=658.58
-verify_ms=206.46
-theorem_total_bits=96.46
+paper_transcript_bytes=17842
+proof_size_bytes=18914
+prove_ms=956.43
+verify_ms=211.05
+theorem_total_bits=96.02
 rows=165
 rows_block=4
-dQ=145
+dQ=373
 DDECS=49
 committed_cols=43
-q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=1784/4291/2507/0/2035/0/2698/448
+q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=4628/4291/2944/0/2287/0/2698/448
 transcript_size_mode=fixed
 transcript_security_status=smallwood_2025_1085_live
 clamped={false,false,false,false}
@@ -92,17 +94,17 @@ Fresh live showing snapshot:
 
 ```text
 q=1017857
-paper_transcript_bytes=25882
-proof_size_bytes=28517
-prove_ms=1565.55
-verify_ms=315.45
+paper_transcript_bytes=26136
+proof_size_bytes=28789
+prove_ms=2623.54
+verify_ms=335.35
 theorem_total_bits=96.02
-rows=471
+rows=472
 rows_block=11
 dQ=373
 DDECS=49
 committed_cols=43
-q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=4628/4291/6864/0/2035/0/6460/1060
+q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=4628/4291/6864/0/2287/0/6460/1060
 transcript_size_mode=fixed
 transcript_security_status=smallwood_2025_1085_live
 clamped={false,false,false,false}
@@ -133,17 +135,17 @@ Fresh live issuance snapshot:
 
 ```text
 q=1017857
-paper_transcript_bytes=19751
-proof_size_bytes=21238
-prove_ms=1604.80
-verify_ms=663.61
-theorem_total_bits=125.19
+paper_transcript_bytes=25091
+proof_size_bytes=26605
+prove_ms=2911.72
+verify_ms=655.83
+theorem_total_bits=126.94
 rows=165
 rows_block=4
-dQ=151
+dQ=391
 DDECS=54
 committed_cols=46
-q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=2602/5509/3357/0/2906/0/4035/798
+q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=6793/5509/4144/0/3266/0/4035/798
 transcript_size_mode=fixed
 transcript_security_status=smallwood_2025_1085_live
 clamped={false,false,false,false}
@@ -153,17 +155,17 @@ Fresh live showing snapshot:
 
 ```text
 q=1017857
-paper_transcript_bytes=34853
-proof_size_bytes=37933
-prove_ms=3290.90
-verify_ms=854.82
-theorem_total_bits=125.17
-rows=407
+paper_transcript_bytes=35215
+proof_size_bytes=38313
+prove_ms=5246.69
+verify_ms=857.39
+theorem_total_bits=126.92
+rows=408
 rows_block=9
 dQ=471
 DDECS=54
 committed_cols=46
-q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=8190/5509/8059/0/2906/0/8060/1585
+q/r/pdecs/mdecs/auth/tapes/vtargets/barsets=8190/5509/8059/0/3266/0/8060/1585
 transcript_size_mode=fixed
 transcript_security_status=smallwood_2025_1085_live
 clamped={false,false,false,false}
@@ -205,13 +207,13 @@ Gate conditions:
 ```text
 n1024-compact96:
   showing.theorem_total_bits >= 96
-  showing.paper_transcript_bytes == 25882
+  showing.paper_transcript_bytes == 26136
   showing.transcript_security_status == smallwood_2025_1085_live
   showing.clamped all false
 
 n1024-compact125:
   showing.theorem_total_bits >= 125
-  showing.paper_transcript_bytes == 34853
+  showing.paper_transcript_bytes == 35215
   showing.transcript_security_status == smallwood_2025_1085_live
   showing.clamped all false
 ```

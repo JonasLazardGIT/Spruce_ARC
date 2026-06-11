@@ -104,6 +104,7 @@ func proofHasLegacyQDECS(proof *Proof) bool {
 		return false
 	}
 	return proof.QRoot != ([16]byte{}) ||
+		len(proof.QRootHash) > 0 ||
 		len(proof.QR) > 0 ||
 		len(proof.QRBits) > 0 ||
 		proof.QRRows != 0 ||
@@ -397,6 +398,8 @@ type SimOpts struct {
 	// ROQueryCaps records the assumed Random Oracle query counts (Q0..Q4) used
 	// for the theorem-level ROM soundness bound.
 	ROQueryCaps       [5]int
+	ROQueryCapsSet    bool `json:"-"`
+	DECSCollisionBits int
 	NCols             int
 	PCSNCols          int
 	LVCSNCols         int
@@ -492,6 +495,7 @@ func defaultSimOpts() SimOpts {
 		Theta:                1,
 		Kappa:                [4]int{0, 0, 0, 0},
 		ROQueryCaps:          [5]int{1, 1, 1, 1, 1},
+		DECSCollisionBits:    144,
 		NCols:                8,
 		PCSNCols:             0,
 		LVCSNCols:            0,
@@ -641,9 +645,16 @@ func (o *SimOpts) applyDefaults() {
 		}
 	}
 	for i := 0; i < len(o.ROQueryCaps); i++ {
-		if o.ROQueryCaps[i] <= 0 {
+		if o.ROQueryCapsSet {
+			if o.ROQueryCaps[i] < 0 {
+				o.ROQueryCaps[i] = 0
+			}
+		} else if o.ROQueryCaps[i] <= 0 {
 			o.ROQueryCaps[i] = def.ROQueryCaps[i]
 		}
+	}
+	if o.DECSCollisionBits <= 0 {
+		o.DECSCollisionBits = def.DECSCollisionBits
 	}
 	if o.NCols <= 0 {
 		o.NCols = def.NCols
@@ -890,6 +901,7 @@ type KPolySnapshot struct {
 // nine-round SmallWood–ARK flow.
 type Proof struct {
 	Root                   [16]byte
+	RootHash               []byte `json:"root_hash,omitempty"`
 	RingDegree             int
 	HashRelation           string
 	TranscriptVersion      string
@@ -927,6 +939,7 @@ type Proof struct {
 	// Q material. Legacy proofs carry a redundant Q DECS commitment/opening here;
 	// smallwood_2025_1085_v1 proofs carry the paper-shaped QPayload only.
 	QRoot            [16]byte
+	QRootHash        []byte `json:"q_root_hash,omitempty"`
 	QR               [][]uint64
 	QRBits           []byte
 	QRRows           int
@@ -1183,12 +1196,18 @@ type SoundnessBudget struct {
 	GrindingBits        [4]float64
 	TheoremTerms        [4]float64
 	TheoremBits         [4]float64
+	AlgebraicTerms      [4]float64
+	AlgebraicBits       [4]float64
+	AlgebraicTotal      float64
+	AlgebraicTotalBits  float64
 	Eq8Total            float64
 	Eq8TotalBits        float64
 	Collision           float64
 	CollisionBits       float64
 	Total               float64
 	TotalBits           float64
+	OneProofTotal       float64
+	OneProofTotalBits   float64
 	DQ                  int
 	DDECS               int
 	WitnessSupportCols  int
@@ -1929,6 +1948,8 @@ func computeSoundnessBudget(
 	q uint64,
 	fieldSize float64,
 	collisionSpaceBits int,
+	decsHashBits int,
+	decsTapeBits int,
 	dQ int,
 	sWitness int,
 	ncolsLVCS int,
@@ -1952,8 +1973,12 @@ func computeSoundnessBudget(
 	if collisionSpaceBits <= 0 {
 		collisionSpaceBits = fsCollisionSpaceBits(o.Lambda, 0)
 	}
-	const decsHashBits = 16 * 8
-	const decsTapeBits = 16 * 8
+	if decsHashBits <= 0 {
+		decsHashBits = decs.DefaultHashBytes * 8
+	}
+	if decsTapeBits <= 0 {
+		decsTapeBits = decs.DefaultHashBytes * 8
+	}
 	effectiveLambdaBits := o.Lambda
 	if effectiveLambdaBits <= 0 {
 		effectiveLambdaBits = defaultSimOpts().Lambda
@@ -2045,6 +2070,17 @@ func computeSoundnessBudget(
 		sb.GrindingBits[i] = float64(kappa)
 		sb.Grinding[i] = math.Pow(2, -float64(kappa))
 		sb.TheoremTerms[i], sb.TheoremBits[i] = theoremTerm(o.ROQueryCaps[i+1], sb.Eps[i], kappa)
+		sb.AlgebraicTerms[i] = sb.TheoremTerms[i]
+		sb.AlgebraicBits[i] = sb.TheoremBits[i]
+		sb.AlgebraicTotal += sb.AlgebraicTerms[i]
+	}
+	if sb.AlgebraicTotal <= 0 {
+		sb.AlgebraicTotalBits = math.Inf(1)
+	} else {
+		if sb.AlgebraicTotal > 1 {
+			sb.AlgebraicTotal = 1
+		}
+		sb.AlgebraicTotalBits = -math.Log2(sb.AlgebraicTotal)
 	}
 
 	querySquares := 0.0
@@ -2074,6 +2110,8 @@ func computeSoundnessBudget(
 		sb.Total = 1
 	}
 	sb.TotalBits = -math.Log2(sb.Total)
+	sb.OneProofTotal = sb.Total
+	sb.OneProofTotalBits = sb.TotalBits
 
 	rowsBlock := ceilDiv(witnessRows, ncolsLVCS)
 	sb.NRows = rowsBlock * (sWitness + o.Theta)
@@ -2218,7 +2256,7 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 	sizes := make(map[string]int)
 	sizes["Salt"] = len(proof.Salt)
 	sizes["RingDegree"] = varintSize(proof.RingDegree)
-	sizes["Root"] = 16
+	sizes["Root"] = proofRootSerializedSize(proof)
 	sizes["Ctr"] = len(proof.Ctr) * 8
 	digSum := 0
 	for _, d := range proof.Digests {
@@ -2236,7 +2274,7 @@ func proofSizeBreakdown(proof *Proof) (map[string]int, int) {
 	sizes["QRoot"] = 0
 	sizes["QR"] = 0
 	if !proofUsesPaperQPayloadOnly(proof) {
-		sizes["QRoot"] = 16
+		sizes["QRoot"] = proofQRootSerializedSize(proof)
 		sizes["QR"] = len(proof.QRBits)
 	}
 	sizes["QPayload"] = len(proof.QPayloadBits)

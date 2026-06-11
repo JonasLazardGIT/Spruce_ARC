@@ -397,9 +397,9 @@ Security estimates and proof transcript soundness are separate checks:
 The maintained artifact gates enforce:
 
 ```text
-n512-compact96       showing.paper_transcript_bytes = 21754
-n1024-compact96      showing.paper_transcript_bytes = 25882
-n1024-compact125     showing.paper_transcript_bytes = 34853
+n512-compact96       showing.paper_transcript_bytes = 22008
+n1024-compact96      showing.paper_transcript_bytes = 26136
+n1024-compact125     showing.paper_transcript_bytes = 35215
 ```
 
 and theorem-bit lower bounds for the maintained 96-bit and 125+ targets. Those

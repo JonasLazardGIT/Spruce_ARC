@@ -780,7 +780,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 			CoreRowCount:               coreRowCount,
 		},
 	}
-	decsParams = decs.Params{Degree: int(ringQ.N) - 1, Eta: opts.Eta, NonceBytes: 16}
+	decsParams = applyDECSCollisionWidth(decs.Params{Degree: int(ringQ.N) - 1, Eta: opts.Eta, NonceBytes: 16}, opts)
 	maskRowOffset = len(rows)
 	maskRowCount = opts.Rho
 	if maskRowCount <= 0 {

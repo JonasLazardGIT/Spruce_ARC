@@ -288,7 +288,12 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 		t.Fatal("tampered row layout verified")
 	}
 	badProof := *proof
-	badProof.Root[0] ^= 1
+	if len(badProof.RootHash) > 0 {
+		badProof.RootHash = append([]byte(nil), badProof.RootHash...)
+		badProof.RootHash[0] ^= 1
+	} else {
+		badProof.Root[0] ^= 1
+	}
 	ok, err = VerifyIntGenISISPreSign(pub, &badProof, opts)
 	if err == nil && ok {
 		t.Fatal("tampered proof root verified")

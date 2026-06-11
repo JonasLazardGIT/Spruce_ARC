@@ -87,6 +87,7 @@ type MaskingFSInput struct {
 	OmegaWitness              []uint64
 	DomainPoints              []uint64
 	Root                      [16]byte
+	RootHash                  []byte
 	PK                        *lvcs.ProverKey
 	OracleLayout              lvcs.OracleLayout
 	RowLayout                 RowLayout
@@ -183,6 +184,7 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		}(),
 		witnessNCols:       in.NCols,
 		root:               in.Root,
+		rootHash:           append([]byte(nil), in.RootHash...),
 		PK:                 in.PK,
 		w1:                 in.WitnessPolys,
 		origW1Len:          len(in.WitnessPolys),

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
 )
 
@@ -81,43 +82,83 @@ func run(args []string) error {
 }
 
 func runBenchmarkIntGenISISE2E(args []string) error {
+	cfg, err := parseBenchmarkIntGenISISE2EConfig(args)
+	if err != nil {
+		return err
+	}
+	_, err = benchmarkIntGenISISE2E(cfg)
+	return err
+}
+
+func parseBenchmarkIntGenISISE2EConfig(args []string) (benchmarkIntGenISISE2EConfig, error) {
 	fs := flag.NewFlagSet("benchmark-intgenisis-e2e", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	artifactDir := fs.String("artifact-dir", "", "artifact directory; defaults to a temporary directory")
 	jsonOut := fs.String("json-out", "", "optional JSON output path")
 	presetName := fs.String("preset", "", "named IntGenISIS preset: n512-compact96, n1024-compact96, or n1024-compact125")
 	force := fs.Bool("force", false, "overwrite existing artifacts")
+	roQueryCaps := fs.String("ro-query-caps", "", "SmallWood random-oracle query caps Q0,Q1,Q2,Q3,Q4")
+	acceptedIssuance := fs.Int("accepted-issuance", 1, "accepted issuance proof count for full-game soundness")
+	acceptedShowing := fs.Int("accepted-showing", 1, "accepted showing proof count for full-game soundness")
+	decsCollisionBits := fs.Int("decs-collision-bits", PIOP.ResolveDECSCollisionBits(0), "DECS collision hash/tape bits: "+PIOP.DECSCollisionBitsUsage())
+	decsCollisionBytes := fs.Int("decs-collision-bytes", 0, "DECS collision hash/tape bytes: 16,17,18,20,24,28,32")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return benchmarkIntGenISISE2EConfig{}, err
+	}
+	var queryCaps [5]int
+	queryCapsSet := false
+	if strings.TrimSpace(*roQueryCaps) != "" {
+		var err error
+		queryCaps, err = PIOP.ParseROQueryCaps(*roQueryCaps)
+		if err != nil {
+			return benchmarkIntGenISISE2EConfig{}, err
+		}
+		queryCapsSet = true
+	}
+	if *acceptedIssuance < 0 || *acceptedShowing < 0 {
+		return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("accepted proof counts must be nonnegative")
+	}
+	collisionBits := *decsCollisionBits
+	if *decsCollisionBytes > 0 {
+		if err := PIOP.ValidateDECSCollisionBytes(*decsCollisionBytes); err != nil {
+			return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("-decs-collision-bytes: %w", err)
+		}
+		collisionBits = 8 * *decsCollisionBytes
+	}
+	if err := PIOP.ValidateDECSCollisionBits(collisionBits); err != nil {
+		return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("-decs-collision-bits: %w", err)
 	}
 	selectedPresetName, err := credential.ResolveIntGenISISPresetSelector(*presetName, false)
 	if err != nil {
-		return err
+		return benchmarkIntGenISISE2EConfig{}, err
 	}
 	if selectedPresetName == "" {
-		return fmt.Errorf("missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
+		return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
 	}
 	preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
 	if err != nil {
-		return err
+		return benchmarkIntGenISISE2EConfig{}, err
 	}
-	cfg := benchmarkIntGenISISE2EConfig{
-		ArtifactDir:    *artifactDir,
-		Profile:        preset.Profile,
-		PRFParamsPath:  defaultPRFParamsPath,
-		JSONOut:        *jsonOut,
-		Force:          *force,
-		Seed:           11,
-		Issuance:       intGenISISTuningFromPresetSpec(preset.Issuance),
-		Showing:        intGenISISTuningFromPresetSpec(preset.Showing),
-		KeygenTrials:   10000,
-		KeygenAttempts: defaultNTRUKeygenAttempts,
-		NTRUBeta:       preset.NTRUBeta,
-		MaxTrials:      2048,
-		MaxNLeaves:     preset.MaxNLeaves,
-	}
-	_, err = benchmarkIntGenISISE2E(cfg)
-	return err
+	return benchmarkIntGenISISE2EConfig{
+		ArtifactDir:       *artifactDir,
+		Profile:           preset.Profile,
+		PRFParamsPath:     defaultPRFParamsPath,
+		JSONOut:           *jsonOut,
+		Force:             *force,
+		Seed:              11,
+		Issuance:          intGenISISTuningFromPresetSpec(preset.Issuance),
+		Showing:           intGenISISTuningFromPresetSpec(preset.Showing),
+		KeygenTrials:      10000,
+		KeygenAttempts:    defaultNTRUKeygenAttempts,
+		NTRUBeta:          preset.NTRUBeta,
+		MaxTrials:         2048,
+		MaxNLeaves:        preset.MaxNLeaves,
+		ROQueryCaps:       queryCaps,
+		ROQueryCapsSet:    queryCapsSet,
+		DECSCollisionBits: collisionBits,
+		AcceptedIssuance:  *acceptedIssuance,
+		AcceptedShowing:   *acceptedShowing,
+	}, nil
 }
 
 func runSetupIntGenISISPublic(args []string) error {

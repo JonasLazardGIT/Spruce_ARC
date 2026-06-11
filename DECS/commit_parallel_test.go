@@ -78,7 +78,7 @@ func makeDeterministicFormalProver(t testing.TB) *Prover {
 	prover, err := NewProverWithParamsAndPointsFormalChecked(
 		ringQ,
 		formalRowsForCommitTest(rowCount, degree, mod),
-		Params{Degree: degree, Eta: maskCount, NonceBytes: 16},
+		Params{Degree: degree, Eta: maskCount, NonceBytes: 16, HashBytes: 16},
 		points,
 	)
 	if err != nil {

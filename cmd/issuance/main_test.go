@@ -108,6 +108,75 @@ func TestBenchmarkRemovedTuningFlagsAreUnknown(t *testing.T) {
 	}
 }
 
+func TestBenchmarkIntGenISISE2EParsesSoundnessFlags(t *testing.T) {
+	defaultCfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
+		"-preset", credential.IntGenISISPresetN1024Compact125,
+	})
+	if err != nil {
+		t.Fatalf("parse benchmark default flags: %v", err)
+	}
+	if defaultCfg.DECSCollisionBits != 144 {
+		t.Fatalf("default decs collision bits=%d", defaultCfg.DECSCollisionBits)
+	}
+
+	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
+		"-preset", credential.IntGenISISPresetN1024Compact125,
+		"-ro-query-caps", "0,1,2,3,4",
+		"-accepted-issuance", "7",
+		"-accepted-showing", "9",
+		"-decs-collision-bytes", "20",
+	})
+	if err != nil {
+		t.Fatalf("parse benchmark flags: %v", err)
+	}
+	if !cfg.ROQueryCapsSet {
+		t.Fatal("ro query caps were not marked explicit")
+	}
+	if cfg.ROQueryCaps != [5]int{0, 1, 2, 3, 4} {
+		t.Fatalf("ro query caps=%v", cfg.ROQueryCaps)
+	}
+	if cfg.AcceptedIssuance != 7 || cfg.AcceptedShowing != 9 {
+		t.Fatalf("accepted counts=%d/%d", cfg.AcceptedIssuance, cfg.AcceptedShowing)
+	}
+	if cfg.DECSCollisionBits != 160 {
+		t.Fatalf("decs collision bits=%d", cfg.DECSCollisionBits)
+	}
+}
+
+func TestBenchmarkIntGenISISE2ERejectsMalformedSoundnessFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "bad query caps",
+			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-ro-query-caps", "1,2,3,4"},
+		},
+		{
+			name: "negative accepted issuance",
+			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-accepted-issuance", "-1"},
+		},
+		{
+			name: "negative accepted showing",
+			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-accepted-showing", "-1"},
+		},
+		{
+			name: "bad collision bits",
+			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-decs-collision-bits", "152"},
+		},
+		{
+			name: "bad collision bytes",
+			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-decs-collision-bytes", "19"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseBenchmarkIntGenISISE2EConfig(tc.args); err == nil {
+				t.Fatalf("parseBenchmarkIntGenISISE2EConfig(%v) unexpectedly succeeded", tc.args)
+			}
+		})
+	}
+}
+
 func TestSetupIntGenISISPublicWritesMaintainedProfileParams(t *testing.T) {
 	root := issuanceTestRepoRoot(t)
 	chdirForIssuanceTest(t, root)
@@ -214,6 +283,34 @@ func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
 
 	if !issuance.FixedTranscriptSize || issuance.TranscriptMode != sweepTranscriptModeSmallField2025 {
 		t.Fatalf("preset issuance tuning lost maintained transcript defaults: %+v", issuance)
+	}
+}
+
+func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
+	overrides := issuanceRuntimeOverrides{
+		ROQueryCaps:         [5]int{0, 1, 2, 3, 4},
+		ROQueryCapsSet:      true,
+		DECSCollisionBits:   256,
+		FixedTranscriptSize: true,
+	}
+	opts := applyIssuanceRuntimeOverrides(PIOP.SimOpts{}, overrides)
+	opts = PIOP.ResolveSimOptsDefaults(opts)
+	spec := smallWoodTuningSpecFromOpts(opts)
+	if !spec.ROQueryCapsSet {
+		t.Fatal("persisted spec did not mark ro query caps explicit")
+	}
+	if spec.ROQueryCaps != overrides.ROQueryCaps {
+		t.Fatalf("persisted ro query caps=%v", spec.ROQueryCaps)
+	}
+	if spec.DECSCollisionBits != 256 {
+		t.Fatalf("persisted decs collision bits=%d", spec.DECSCollisionBits)
+	}
+	roundTrip := persistedIssuanceRuntimeOverridesWithSmallWood(spec.NCols, spec.LVCSNCols, spec.NLeaves, nil, spec)
+	if !roundTrip.ROQueryCapsSet || roundTrip.ROQueryCaps != overrides.ROQueryCaps {
+		t.Fatalf("round-trip query caps=%v set=%v", roundTrip.ROQueryCaps, roundTrip.ROQueryCapsSet)
+	}
+	if roundTrip.DECSCollisionBits != 256 {
+		t.Fatalf("round-trip decs collision bits=%d", roundTrip.DECSCollisionBits)
 	}
 }
 

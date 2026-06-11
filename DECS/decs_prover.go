@@ -456,6 +456,7 @@ type Prover struct {
 	nonceSeed []byte
 	mt        *MerkleTree
 	root      [16]byte
+	rootHash  []byte
 	R         []*ring.Poly // η output polys in coeff form
 	RFormal   [][]uint64   // optional formal coeffs for explicit-domain mode
 	params    Params
@@ -592,6 +593,7 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 	r := pr.rowCount()
 	N := pr.nLeaves
 	q := pr.ringQ.Modulus[0]
+	hashBytes := NormalizeHashBytes(pr.params.HashBytes)
 	var timings *commitInitPhaseTimings
 	if opts.phaseRecorder != nil {
 		timings = &commitInitPhaseTimings{recordSubphases: opts.recordSubphases}
@@ -650,7 +652,7 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 	if timings != nil {
 		evalHashStart = time.Now()
 	}
-	leafHashes := make([][16]byte, N)
+	leafHashes := make([][]byte, N)
 	if len(pr.nonceSeed) == 0 {
 		pr.nonceSeed = make([]byte, pr.params.NonceBytes)
 		if _, err := rand.Read(pr.nonceSeed); err != nil {
@@ -690,7 +692,8 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 			h := nilShake()
 			for i := 0; i < N; i++ {
 				leaf := buildLeaf(i)
-				hashLeafIntoWith(h, leaf, &leafHashes[i])
+				leafHashes[i] = make([]byte, hashBytes)
+				hashLeafIntoWith(h, leaf, leafHashes[i])
 			}
 		} else {
 			if workers > N {
@@ -710,7 +713,8 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 					h := nilShake()
 					for i := start; i < end; i++ {
 						leaf := buildLeaf(i)
-						hashLeafIntoWith(h, leaf, &leafHashes[i])
+						leafHashes[i] = make([]byte, hashBytes)
+						hashLeafIntoWith(h, leaf, leafHashes[i])
 					}
 				}()
 			}
@@ -726,8 +730,9 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 	if timings != nil {
 		merkleStart = time.Now()
 	}
-	pr.mt = BuildMerkleTreeFromLeafHashes(leafHashes)
+	pr.mt = BuildMerkleTreeFromLeafHashBytes(leafHashes, hashBytes)
 	pr.root = pr.mt.Root()
+	pr.rootHash = pr.mt.RootHash()
 	if timings != nil {
 		timings.merkleNs = int64(time.Since(merkleStart))
 		timings.record(opts.phaseRecorder)
@@ -736,7 +741,7 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 	return pr.root, nil
 }
 
-func (pr *Prover) commitInitFormalScalarLeafHashes(leafHashes [][16]byte, leafBytes int, timings *commitInitPhaseTimings) {
+func (pr *Prover) commitInitFormalScalarLeafHashes(leafHashes [][]byte, leafBytes int, timings *commitInitPhaseTimings) {
 	r := pr.rowCount()
 	N := pr.nLeaves
 	q := pr.ringQ.Modulus[0]
@@ -773,7 +778,7 @@ func (pr *Prover) commitInitFormalScalarLeafHashes(leafHashes [][16]byte, leafBy
 	wg.Wait()
 }
 
-func (pr *Prover) commitInitFormalScalarRange(start, end int, leafHashes [][16]byte, leafBytes, r int, red modReducer64, pPlan, mPlan formalEvalPlan, usePowerEval bool, powerCount int, timings *commitInitPhaseTimings) {
+func (pr *Prover) commitInitFormalScalarRange(start, end int, leafHashes [][]byte, leafBytes, r int, red modReducer64, pPlan, mPlan formalEvalPlan, usePowerEval bool, powerCount int, timings *commitInitPhaseTimings) {
 	buf := make([]byte, leafBytes)
 	pScratch := make([]uint64, r)
 	mScratch := make([]uint64, pr.params.Eta)
@@ -830,7 +835,8 @@ func (pr *Prover) commitInitFormalScalarRange(start, end int, leafHashes [][16]b
 		if record {
 			hashStart = time.Now()
 		}
-		hashLeafIntoWith(shake, buf, &leafHashes[i])
+		leafHashes[i] = make([]byte, NormalizeHashBytes(pr.params.HashBytes))
+		hashLeafIntoWith(shake, buf, leafHashes[i])
 		if record {
 			hashNs += int64(time.Since(hashStart))
 		}
@@ -843,7 +849,7 @@ func (pr *Prover) commitInitFormalScalarRange(start, end int, leafHashes [][16]b
 	}
 }
 
-func (pr *Prover) commitInitFormalTiledLeafHashes(leafHashes [][16]byte, leafBytes int, opts commitInitOptions, timings *commitInitPhaseTimings) {
+func (pr *Prover) commitInitFormalTiledLeafHashes(leafHashes [][]byte, leafBytes int, opts commitInitOptions, timings *commitInitPhaseTimings) {
 	r := pr.rowCount()
 	N := pr.nLeaves
 	q := pr.ringQ.Modulus[0]
@@ -891,7 +897,7 @@ func (pr *Prover) commitInitFormalTiledLeafHashes(leafHashes [][16]byte, leafByt
 	wg.Wait()
 }
 
-func (pr *Prover) commitInitFormalOptimizedLeafHashes(leafHashes [][16]byte, leafBytes int, opts commitInitOptions, timings *commitInitPhaseTimings) {
+func (pr *Prover) commitInitFormalOptimizedLeafHashes(leafHashes [][]byte, leafBytes int, opts commitInitOptions, timings *commitInitPhaseTimings) {
 	if opts.tileSize > 1 {
 		pr.commitInitFormalTiledLeafHashes(leafHashes, leafBytes, opts, timings)
 		return
@@ -936,7 +942,7 @@ func (pr *Prover) commitInitFormalOptimizedLeafHashes(leafHashes [][16]byte, lea
 	wg.Wait()
 }
 
-func (pr *Prover) commitInitFormalOptimizedRange(start, end int, leafHashes [][16]byte, leafBytes, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
+func (pr *Prover) commitInitFormalOptimizedRange(start, end int, leafHashes [][]byte, leafBytes, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
 	buf := make([]byte, leafBytes)
 	values := make([]uint64, plan.rowCount)
 	powers := make([]uint64, plan.maxDeg+1)
@@ -986,7 +992,8 @@ func (pr *Prover) commitInitFormalOptimizedRange(start, end int, leafHashes [][1
 		if record {
 			hashStart = time.Now()
 		}
-		hashLeafIntoWith(shake, buf, &leafHashes[i])
+		leafHashes[i] = make([]byte, NormalizeHashBytes(pr.params.HashBytes))
+		hashLeafIntoWith(shake, buf, leafHashes[i])
 		if record {
 			hashNs += int64(time.Since(hashStart))
 		}
@@ -999,7 +1006,7 @@ func (pr *Prover) commitInitFormalOptimizedRange(start, end int, leafHashes [][1
 	}
 }
 
-func (pr *Prover) commitInitFormalTiledRange(start, end, tileSize int, leafHashes [][16]byte, leafBytes, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
+func (pr *Prover) commitInitFormalTiledRange(start, end, tileSize int, leafHashes [][]byte, leafBytes, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
 	rowCount := plan.rowCount
 	buf := make([]byte, leafBytes)
 	values := make([]uint64, tileSize*rowCount)
@@ -1057,7 +1064,8 @@ func (pr *Prover) commitInitFormalTiledRange(start, end, tileSize int, leafHashe
 			if record {
 				hashStart = time.Now()
 			}
-			hashLeafIntoWith(shake, buf, &leafHashes[i])
+			leafHashes[i] = make([]byte, NormalizeHashBytes(pr.params.HashBytes))
+			hashLeafIntoWith(shake, buf, leafHashes[i])
 			if record {
 				hashNs += int64(time.Since(hashStart))
 			}
@@ -1151,7 +1159,7 @@ func (pr *Prover) EvalOpen(E []int) *DECSOpening {
 		cur := idx
 		for lvl := 0; lvl < depth; lvl++ {
 			sib := cur ^ 1
-			h := pr.mt.layers[lvl][sib][:]
+			h := pr.mt.layers[lvl][sib]
 			pi[lvl] = addNode(h)
 			cur >>= 1
 		}
@@ -1189,7 +1197,20 @@ func validateProverParams(params Params) error {
 	if params.Degree < 0 {
 		return fmt.Errorf("decs: invalid degree parameter")
 	}
+	if params.HashBytes != 0 && !IsSupportedHashBytes(params.HashBytes) {
+		return fmt.Errorf("decs: invalid HashBytes (supported: %s)", SupportedHashBytesList())
+	}
 	return nil
+}
+
+func (pr *Prover) RootHash() []byte {
+	if pr == nil {
+		return nil
+	}
+	if len(pr.rootHash) > 0 {
+		return append([]byte(nil), pr.rootHash...)
+	}
+	return append([]byte(nil), pr.root[:]...)
 }
 
 func (pr *Prover) rowCount() int {

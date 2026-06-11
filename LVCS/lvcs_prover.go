@@ -74,6 +74,7 @@ type ProverKey struct {
 	RowPolyCoeffs [][]uint64   // formal row coefficients (always populated)
 	Gamma         [][]uint64   // gamma values for the prover
 	Params        decs.Params  // DECS parameters
+	RootHash      []byte       // full DECS Merkle root hash
 	TailLen       int          // ℓ
 	Layout        OracleLayout // oracle segmentation metadata
 
@@ -343,6 +344,7 @@ func CommitInitWithParamsAndPointsWithOptions(
 		MaskPolys:     masksNTT,
 		Gamma:         Gamma,
 		Params:        params,
+		RootHash:      dprover.RootHash(),
 		TailLen:       ell,
 		Points:        points,
 		NLeaves:       nLeaves,

@@ -121,6 +121,9 @@ type showingCLIConfig struct {
 	PresentationOut    string
 	VerifyPresentation string
 	VerifierStatePath  string
+	ROQueryCaps        [5]int
+	ROQueryCapsSet     bool
+	DECSCollisionBits  int
 }
 
 func parseShowingCLIArgs(args []string) (showingCLIConfig, error) {
@@ -133,8 +136,31 @@ func parseShowingCLIArgs(args []string) (showingCLIConfig, error) {
 	presentationOut := fs.String("presentation-out", "", "IntGenISIS presentation output path")
 	verifyPresentation := fs.String("verify-presentation", "", "verify an IntGenISIS presentation artifact instead of proving")
 	verifierStatePath := fs.String("verifier-state", "", "persistent IntGenISIS verifier replay-state path")
+	roQueryCaps := fs.String("ro-query-caps", "", "SmallWood random-oracle query caps Q0,Q1,Q2,Q3,Q4")
+	decsCollisionBits := fs.Int("decs-collision-bits", PIOP.ResolveDECSCollisionBits(0), "DECS collision hash/tape bits: "+PIOP.DECSCollisionBitsUsage())
+	decsCollisionBytes := fs.Int("decs-collision-bytes", 0, "DECS collision hash/tape bytes: 16,17,18,20,24,28,32")
 	if err := fs.Parse(args); err != nil {
 		return showingCLIConfig{}, err
+	}
+	var queryCaps [5]int
+	queryCapsSet := false
+	if strings.TrimSpace(*roQueryCaps) != "" {
+		var err error
+		queryCaps, err = PIOP.ParseROQueryCaps(*roQueryCaps)
+		if err != nil {
+			return showingCLIConfig{}, err
+		}
+		queryCapsSet = true
+	}
+	collisionBits := *decsCollisionBits
+	if *decsCollisionBytes > 0 {
+		if err := PIOP.ValidateDECSCollisionBytes(*decsCollisionBytes); err != nil {
+			return showingCLIConfig{}, fmt.Errorf("-decs-collision-bytes: %w", err)
+		}
+		collisionBits = 8 * *decsCollisionBytes
+	}
+	if err := PIOP.ValidateDECSCollisionBits(collisionBits); err != nil {
+		return showingCLIConfig{}, fmt.Errorf("-decs-collision-bits: %w", err)
 	}
 	selectedIntGenISISPreset, err := credential.ResolveIntGenISISPresetSelector(*intGenISISPreset, false)
 	if err != nil {
@@ -159,6 +185,9 @@ func parseShowingCLIArgs(args []string) (showingCLIConfig, error) {
 		PresentationOut:    *presentationOut,
 		VerifyPresentation: *verifyPresentation,
 		VerifierStatePath:  *verifierStatePath,
+		ROQueryCaps:        queryCaps,
+		ROQueryCapsSet:     queryCapsSet,
+		DECSCollisionBits:  collisionBits,
 	}, nil
 }
 
@@ -170,20 +199,19 @@ func main() {
 		}
 		cli.fatalf("[showing-cli] ", "%v", err)
 	}
-	if err := runIntGenISISShowingCLI(
-		cfg.StatePath,
-		cfg.PublicParamsPath,
-		cfg.VerifierKeyPath,
-		cfg.Preset,
-		cfg.PresentationOut,
-		cfg.VerifyPresentation,
-		cfg.VerifierStatePath,
-	); err != nil {
+	if err := runIntGenISISShowingCLI(cfg); err != nil {
 		cli.fatalf("[showing-cli] ", "%v", err)
 	}
 }
 
-func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string, preset credential.IntGenISISPreset, presentationOut, verifyPresentationPath, verifierStatePath string) error {
+func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
+	statePath := cfg.StatePath
+	publicParamsPath := cfg.PublicParamsPath
+	verifierKeyPath := cfg.VerifierKeyPath
+	preset := cfg.Preset
+	presentationOut := cfg.PresentationOut
+	verifyPresentationPath := cfg.VerifyPresentation
+	verifierStatePath := cfg.VerifierStatePath
 	cli.printf(categoryStatus, "[showing-cli] ", "starting IntGenISIS showing preset=%s state=%s", preset.Name, statePath)
 	if verifyPresentationPath != "" {
 		if publicParamsPath == "" {
@@ -217,7 +245,7 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 		if err != nil {
 			return fmt.Errorf("load ring: %w", err)
 		}
-		opts := intGenISISShowingOpts(publicParams.RingDegree, preset.Showing)
+		opts := applyShowingCLIAccountingOverrides(intGenISISShowingOpts(publicParams.RingDegree, preset.Showing), cfg)
 		return verifyIntGenISISPresentationCLI(verifyPresentationPath, verifierStatePath, verifierKey, publicParams, ringQ, opts)
 	}
 	st, err := credential.LoadIntGenISISState(statePath)
@@ -246,7 +274,7 @@ func runIntGenISISShowingCLI(statePath, publicParamsPath, verifierKeyPath string
 	if err != nil {
 		return fmt.Errorf("load prf params: %w", err)
 	}
-	opts := intGenISISShowingOpts(st.RingDegree, preset.Showing)
+	opts := applyShowingCLIAccountingOverrides(intGenISISShowingOpts(st.RingDegree, preset.Showing), cfg)
 	if opts.NCols < params.LenKey {
 		return fmt.Errorf("ncols=%d is too small for IntGenISIS PRF key width %d", opts.NCols, params.LenKey)
 	}
@@ -376,6 +404,17 @@ func intGenISISShowingOpts(ringDegree int, tuning credential.IntGenISISTuningPre
 		SigShortnessL:              tuning.SigShortnessDigits,
 		FixedTranscriptSize:        tuning.FixedTranscriptSize,
 	})
+}
+
+func applyShowingCLIAccountingOverrides(opts PIOP.SimOpts, cfg showingCLIConfig) PIOP.SimOpts {
+	if cfg.ROQueryCapsSet {
+		opts.ROQueryCaps = cfg.ROQueryCaps
+		opts.ROQueryCapsSet = true
+	}
+	if cfg.DECSCollisionBits > 0 {
+		opts.DECSCollisionBits = cfg.DECSCollisionBits
+	}
+	return PIOP.ResolveSimOptsDefaults(opts)
 }
 
 func verifyIntGenISISPresentationCLI(path, verifierStatePath string, verifierKey credential.IntGenISISVerifierKey, publicParams credential.PublicParams, ringQ *ring.Ring, opts PIOP.SimOpts) error {
@@ -736,11 +775,13 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 		formatSoundnessComponent("eps3", rep.Soundness.RawBits[2], rep.Soundness.Bits[2]),
 		formatSoundnessComponent("eps4", rep.Soundness.RawBits[3], rep.Soundness.Bits[3]),
 		displayBits(rep.Soundness.Eq8TotalBits))
-	cli.printf(categorySoundness, prefix, "Soundness Thm.9: collision=%.2f round={%.2f,%.2f,%.2f,%.2f} total=%.2f qcaps=%v",
+	cli.printf(categorySoundness, prefix, "Soundness one-proof: collision_bits=%.2f algebraic_round_bits={%.2f,%.2f,%.2f,%.2f} algebraic_total_bits=%.2f one_proof_total_bits=%.2f ro_query_caps=%v collision_space_bits=%d",
 		rep.Soundness.CollisionBits,
-		rep.Soundness.TheoremBits[0], rep.Soundness.TheoremBits[1], rep.Soundness.TheoremBits[2], rep.Soundness.TheoremBits[3],
-		displayBits(rep.Soundness.TotalBits),
-		rep.Soundness.QueryCaps)
+		rep.Soundness.AlgebraicBits[0], rep.Soundness.AlgebraicBits[1], rep.Soundness.AlgebraicBits[2], rep.Soundness.AlgebraicBits[3],
+		displayBits(rep.Soundness.AlgebraicTotalBits),
+		displayBits(rep.Soundness.OneProofTotalBits),
+		rep.Soundness.QueryCaps,
+		rep.Soundness.CollisionSpaceBits)
 	if note := formatSoundnessNotes(rep); note != "" {
 		cli.printf(categorySoundness, prefix, "%s", note)
 	}
@@ -758,7 +799,7 @@ func printProofReport(prefix string, proof *PIOP.Proof, opts PIOP.SimOpts, bound
 	}
 	paperTranscriptKB := float64(rep.PaperTranscript.OptimizedBytes) / 1024.0
 	cli.printf(categoryWarning, prefix, "Table row: %.2f %.3f %.2f %d %d %d %d %d %d",
-		paperTranscriptKB, proveDur.Seconds(), rep.Soundness.TotalBits,
+		paperTranscriptKB, proveDur.Seconds(), rep.Soundness.OneProofTotalBits,
 		rep.NCols, rep.Ell, rep.EllPrime, rep.Rho, rep.Theta, rep.Eta)
 	return rep, true
 }
@@ -786,7 +827,7 @@ func formatSoundnessNotes(rep PIOP.ProofReport) string {
 	}
 	for _, kappa := range rep.Kappa {
 		if kappa > 0 {
-			notes = append(notes, "Thm.9 round bits already include grinding κ; large κ improves theorem terms but increases prover work exponentially")
+			notes = append(notes, "algebraic round bits already include grinding κ; large κ improves theorem terms but increases prover work exponentially")
 			break
 		}
 	}

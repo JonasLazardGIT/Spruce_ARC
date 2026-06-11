@@ -20,34 +20,46 @@ var (
 
 const merkleParallelLevelThreshold = 4096
 
-// MerkleTree is a full binary Merkle tree of 16-byte hashes (SHAKE-256 truncated).
+// MerkleTree is a full binary Merkle tree of SHAKE-256 truncated hashes.
 type MerkleTree struct {
-	layers [][][16]byte
+	layers    [][][]byte
+	hashBytes int
 }
 
 func BuildMerkleTreeFromLeafHashes(leaves [][16]byte) *MerkleTree {
+	leafBytes := make([][]byte, len(leaves))
+	for i := range leaves {
+		leafBytes[i] = append([]byte(nil), leaves[i][:]...)
+	}
+	return BuildMerkleTreeFromLeafHashBytes(leafBytes, DefaultHashBytes)
+}
+
+func BuildMerkleTreeFromLeafHashBytes(leaves [][]byte, hashBytes int) *MerkleTree {
+	hashBytes = NormalizeHashBytes(hashBytes)
 	n := len(leaves)
 	size := 1
 	for size < n {
 		size <<= 1
 	}
-	layer := make([][16]byte, size)
-	copy(layer, leaves)
-	h := sha3.NewShake256()
-	emptyLeaf := hashLeafWith(h, nil)
-	for i := n; i < size; i++ {
-		layer[i] = emptyLeaf
+	layer := make([][]byte, size)
+	for i := 0; i < n; i++ {
+		layer[i] = normalizeHashCopy(leaves[i], hashBytes)
 	}
-	layers := [][][16]byte{layer}
+	h := sha3.NewShake256()
+	emptyLeaf := hashLeafWith(h, nil, hashBytes)
+	for i := n; i < size; i++ {
+		layer[i] = append([]byte(nil), emptyLeaf...)
+	}
+	layers := [][][]byte{layer}
 
 	for sz := size; sz > 1; sz >>= 1 {
 		prev := layers[len(layers)-1]
-		next := make([][16]byte, sz/2)
+		next := make([][]byte, sz/2)
 		pairs := sz / 2
 		workers := runtime.GOMAXPROCS(0)
 		if pairs < merkleParallelLevelThreshold || workers < 2 {
 			for i := 0; i < sz; i += 2 {
-				hashNodeIntoWith(h, &prev[i], &prev[i+1], &next[i/2])
+				next[i/2] = hashNodeWith(h, prev[i], prev[i+1], hashBytes)
 			}
 		} else {
 			if workers > pairs {
@@ -63,7 +75,7 @@ func BuildMerkleTreeFromLeafHashes(leaves [][16]byte) *MerkleTree {
 					hw := sha3.NewShake256()
 					for pair := start; pair < end; pair++ {
 						i := pair * 2
-						hashNodeIntoWith(hw, &prev[i], &prev[i+1], &next[pair])
+						next[pair] = hashNodeWith(hw, prev[i], prev[i+1], hashBytes)
 					}
 				}(start, end)
 			}
@@ -72,54 +84,86 @@ func BuildMerkleTreeFromLeafHashes(leaves [][16]byte) *MerkleTree {
 		layers = append(layers, next)
 	}
 
-	return &MerkleTree{layers: layers}
+	return &MerkleTree{layers: layers, hashBytes: hashBytes}
 }
 
 // Root returns the root hash.
 func (mt *MerkleTree) Root() [16]byte {
-	return mt.layers[len(mt.layers)-1][0]
+	var root [16]byte
+	if mt == nil || len(mt.layers) == 0 {
+		return root
+	}
+	copy(root[:], mt.layers[len(mt.layers)-1][0])
+	return root
+}
+
+// RootHash returns the full Merkle root hash.
+func (mt *MerkleTree) RootHash() []byte {
+	if mt == nil || len(mt.layers) == 0 {
+		return nil
+	}
+	return append([]byte(nil), mt.layers[len(mt.layers)-1][0]...)
 }
 
 // VerifyPath checks leaf→root via path.
 func VerifyPath(leaf []byte, path [][]byte, root [16]byte, idx int) bool {
+	return VerifyPathHash(leaf, path, root[:], idx)
+}
+
+// VerifyPathHash checks leaf→root via path using the supplied root hash width.
+func VerifyPathHash(leaf []byte, path [][]byte, root []byte, idx int) bool {
+	hashBytes := NormalizeHashBytes(len(root))
 	shake := sha3.NewShake256()
-	h := hashLeafWith(shake, leaf)
+	h := hashLeafWith(shake, leaf, hashBytes)
 	for _, sib := range path {
-		var sibHash [16]byte
-		copy(sibHash[:], sib)
+		sibHash := normalizeHashCopy(sib, hashBytes)
 		if idx&1 == 0 {
-			h = hashNodeWith(shake, h, sibHash)
+			h = hashNodeWith(shake, h, sibHash, hashBytes)
 		} else {
-			h = hashNodeWith(shake, sibHash, h)
+			h = hashNodeWith(shake, sibHash, h, hashBytes)
 		}
 		idx >>= 1
 	}
-	return bytes.Equal(h[:], root[:])
+	return bytes.Equal(h, normalizeHashCopy(root, hashBytes))
 }
 
-func hashLeafWith(h sha3.ShakeHash, leaf []byte) [16]byte {
-	var out [16]byte
-	hashLeafIntoWith(h, leaf, &out)
+func hashLeafWith(h sha3.ShakeHash, leaf []byte, hashBytes int) []byte {
+	out := make([]byte, NormalizeHashBytes(hashBytes))
+	hashLeafIntoWith(h, leaf, out)
 	return out
 }
 
-func hashLeafIntoWith(h sha3.ShakeHash, leaf []byte, out *[16]byte) {
+func hashLeafIntoWith(h sha3.ShakeHash, leaf []byte, out []byte) {
 	h.Reset()
 	_, _ = h.Write(leafPrefixBytes[:])
 	_, _ = h.Write(leaf)
-	_, _ = h.Read(out[:])
+	_, _ = h.Read(out)
 }
 
-func hashNodeWith(h sha3.ShakeHash, left, right [16]byte) [16]byte {
-	var out [16]byte
-	hashNodeIntoWith(h, &left, &right, &out)
+func hashNodeWith(h sha3.ShakeHash, left, right []byte, hashBytes int) []byte {
+	out := make([]byte, NormalizeHashBytes(hashBytes))
+	hashNodeIntoWith(h, left, right, out)
 	return out
 }
 
-func hashNodeIntoWith(h sha3.ShakeHash, left, right *[16]byte, out *[16]byte) {
+func hashNodeIntoWith(h sha3.ShakeHash, left, right []byte, out []byte) {
 	h.Reset()
 	_, _ = h.Write(nodePrefixBytes[:])
-	_, _ = h.Write(left[:])
-	_, _ = h.Write(right[:])
-	_, _ = h.Read(out[:])
+	_, _ = h.Write(left)
+	_, _ = h.Write(right)
+	_, _ = h.Read(out)
+}
+
+func NormalizeHashBytes(hashBytes int) int {
+	if IsSupportedHashBytes(hashBytes) {
+		return hashBytes
+	}
+	return DefaultHashBytes
+}
+
+func normalizeHashCopy(in []byte, hashBytes int) []byte {
+	hashBytes = NormalizeHashBytes(hashBytes)
+	out := make([]byte, hashBytes)
+	copy(out, in)
+	return out
 }

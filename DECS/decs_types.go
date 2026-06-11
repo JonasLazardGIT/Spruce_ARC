@@ -4,7 +4,25 @@ const (
 	OpeningFormatPlain        uint8 = 0
 	OpeningFormatOmitCols     uint8 = 1
 	OpeningFormatColumnWidths uint8 = 2
+
+	DefaultHashBytes = 18
+	WideHashBytes    = 32
 )
+
+// IsSupportedHashBytes reports whether hashBytes is one of the maintained
+// byte-aligned Merkle/tape widths.
+func IsSupportedHashBytes(hashBytes int) bool {
+	switch hashBytes {
+	case 16, 17, 18, 20, 24, 28, 32:
+		return true
+	default:
+		return false
+	}
+}
+
+func SupportedHashBytesList() string {
+	return "16,17,18,20,24,28,32"
+}
 
 // DECSOpening holds the DECS opening data sent by the prover.
 type DECSOpening struct {
@@ -101,6 +119,7 @@ type Params struct {
 	Degree     int // max polynomial degree d
 	Eta        int // number of mask polynomials η
 	NonceBytes int // size of each nonce ρ_e in bytes
+	HashBytes  int // size of Merkle hashes in bytes; zero keeps DefaultHashBytes
 }
 
 // DefaultParams provides the maintained DECS parameters.

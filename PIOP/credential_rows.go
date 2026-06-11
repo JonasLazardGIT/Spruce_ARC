@@ -354,6 +354,6 @@ func buildCredentialRows(ringQ *ring.Ring, relation string, wit WitnessInputs, o
 		err = fmt.Errorf("invalid degree bound %d (ringN=%d)", maxDegree, ringQ.N)
 		return
 	}
-	decsParams = decs.Params{Degree: maxDegree, Eta: opts.Eta, NonceBytes: 16}
+	decsParams = applyDECSCollisionWidth(decs.Params{Degree: maxDegree, Eta: opts.Eta, NonceBytes: 16}, opts)
 	return
 }

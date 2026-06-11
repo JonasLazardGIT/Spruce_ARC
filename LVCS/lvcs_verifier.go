@@ -19,10 +19,11 @@ type VerifierState struct {
 	points  []uint64
 	nLeaves int
 
-	Root    [16]byte
-	Gamma   [][]uint64
-	R       []*ring.Poly
-	RFormal [][]uint64
+	Root     [16]byte
+	RootHash []byte
+	Gamma    [][]uint64
+	R        []*ring.Poly
+	RFormal  [][]uint64
 }
 
 const (
@@ -77,6 +78,16 @@ func NewVerifierWithParamsAndPoints(ringQ *ring.Ring, r int, params decs.Params,
 		Mask:    LayoutSegment{Offset: r, Count: 0},
 	}
 	return v
+}
+
+func (v *VerifierState) rootHashBytes() []byte {
+	if v == nil {
+		return nil
+	}
+	if len(v.RootHash) > 0 {
+		return v.RootHash
+	}
+	return v.Root[:]
 }
 
 // AcceptGamma allows callers to inject an explicit Γ sampled via Fiat–Shamir grinding.
@@ -336,13 +347,13 @@ func (v *VerifierState) evalStep2SmallField2025Core(in SmallField2025EvalInput, 
 		return false
 	}
 	if len(v.RFormal) > 0 {
-		if !decv.VerifyEvalAtFormal(v.Root, v.Gamma, v.RFormal, in.Opening, in.Tail) {
+		if !decv.VerifyEvalAtFormalHash(v.rootHashBytes(), v.Gamma, v.RFormal, in.Opening, in.Tail) {
 			if debug {
 				fmt.Println("[LVCS_DEBUG_EVALSTEP2] smallfield2025 VerifyEvalAtFormal(tail) rejected")
 			}
 			return false
 		}
-	} else if !decv.VerifyEvalAt(v.Root, v.Gamma, v.R, in.Opening, in.Tail) {
+	} else if !decv.VerifyEvalAtHash(v.rootHashBytes(), v.Gamma, v.R, in.Opening, in.Tail) {
 		if debug {
 			fmt.Println("[LVCS_DEBUG_EVALSTEP2] smallfield2025 VerifyEvalAt(tail) rejected")
 		}
@@ -645,26 +656,26 @@ func (v *VerifierState) evalStep2Core(
 		maskIdx[i] = ncols + i
 	}
 	if len(v.RFormal) > 0 {
-		if !decv.VerifyEvalAtFormal(v.Root, v.Gamma, v.RFormal, maskOpen, maskIdx) {
+		if !decv.VerifyEvalAtFormalHash(v.rootHashBytes(), v.Gamma, v.RFormal, maskOpen, maskIdx) {
 			if debug {
 				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAtFormal(mask) rejected")
 			}
 			return false
 		}
-		if !decv.VerifyEvalAtFormal(v.Root, v.Gamma, v.RFormal, tailOpen, E) {
+		if !decv.VerifyEvalAtFormalHash(v.rootHashBytes(), v.Gamma, v.RFormal, tailOpen, E) {
 			if debug {
 				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAtFormal(tail) rejected")
 			}
 			return false
 		}
 	} else {
-		if !decv.VerifyEvalAt(v.Root, v.Gamma, v.R, maskOpen, maskIdx) {
+		if !decv.VerifyEvalAtHash(v.rootHashBytes(), v.Gamma, v.R, maskOpen, maskIdx) {
 			if debug {
 				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAt(mask) rejected")
 			}
 			return false
 		}
-		if !decv.VerifyEvalAt(v.Root, v.Gamma, v.R, tailOpen, E) {
+		if !decv.VerifyEvalAtHash(v.rootHashBytes(), v.Gamma, v.R, tailOpen, E) {
 			if debug {
 				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAt(tail) rejected")
 			}
