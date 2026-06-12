@@ -160,7 +160,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			}
 		}
 		if set.PRFLayout != nil {
-			return nil, fmt.Errorf("legacy PRF layout is no longer supported")
+			return nil, fmt.Errorf("old PRF layout is no longer supported")
 		}
 		if opts.DomainMode == DomainModeExplicit {
 			requiredPCSNCols := requiredExplicitPCSNColsForRows(ringQ, rowInputs, opts.Ell)
@@ -655,7 +655,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 	}
 	if opts.Credential {
 		if proof.PRFLayout != nil {
-			return false, fmt.Errorf("legacy PRF layout is no longer supported")
+			return false, fmt.Errorf("old PRF layout is no longer supported")
 		}
 		if set.PRFCompanionLayout == nil && proof.PRFCompanion != nil {
 			set.PRFCompanionLayout = clonePRFCompanionLayout(proof.PRFCompanion.Layout)

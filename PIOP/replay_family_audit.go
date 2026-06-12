@@ -260,7 +260,7 @@ func replayFamilyNotes(kind ReplayFamilyKind) string {
 	case ReplayFamilyTSource:
 		return "Committed T-source rows are absent on theorem-clean full replay and excluded from the active replay selector."
 	case ReplayFamilySourceProduct:
-		return "Source-product is a deprecated compatibility/reporting bucket. Maintained proofs keep it at zero selected rows."
+		return "Source-product is an inactive compatibility/reporting bucket. Maintained proofs keep it at zero selected rows."
 	case ReplayFamilyCarrier:
 		return "Carrier rows remain selected because replay decoding and key binding still consume them directly."
 	case ReplayFamilyPRFCompanion:
@@ -277,11 +277,11 @@ func replayFamilyNotes(kind ReplayFamilyKind) string {
 func replayFamilySourceProductNotes(selectedRows int, bridgeActive bool) string {
 	switch {
 	case bridgeActive:
-		return "Source-product is a deprecated compatibility/reporting bucket. This proof carries the legacy bridge payload, so the active selector cost stays at zero."
+		return "Source-product is an inactive compatibility/reporting bucket. This proof carries a compatibility bridge payload, so the active selector cost stays at zero."
 	case selectedRows == 0:
-		return "Source-product is a deprecated compatibility/reporting bucket. Maintained proofs keep it at zero selected rows."
+		return "Source-product is an inactive compatibility/reporting bucket. Maintained proofs keep it at zero selected rows."
 	default:
-		return "Source-product is a deprecated compatibility/reporting bucket. This proof still carries committed source-product rows, so the selector reports their legacy cost."
+		return "Source-product is an inactive compatibility/reporting bucket. This proof still carries committed source-product rows, so the selector reports their compatibility cost."
 	}
 }
 

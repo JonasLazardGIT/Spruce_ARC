@@ -502,7 +502,7 @@ type CommitPhaseRecorder interface {
 }
 
 // CommitOptions carries non-transcript-affecting CommitInit controls.
-// The zero value preserves the normal legacy-compatible proving path.
+// The zero value preserves the normal proving path.
 type CommitOptions struct {
 	PhaseRecorder      CommitPhaseRecorder
 	WorkerCount        int
@@ -512,13 +512,13 @@ type CommitOptions struct {
 }
 
 // FormalEvalMode selects the internal formal-row evaluator used by CommitInit.
-// All modes keep the legacy leaf bytes and Merkle tree format; they are
+// All modes keep the committed leaf bytes and Merkle tree format; they are
 // expected to produce identical roots when masks and nonces are fixed.
 type FormalEvalMode uint8
 
 const (
-	// FormalEvalLegacyScalar preserves the existing per-leaf scalar evaluator.
-	FormalEvalLegacyScalar FormalEvalMode = iota
+	// FormalEvalScalar preserves the existing per-leaf scalar evaluator.
+	FormalEvalScalar FormalEvalMode = iota
 	// FormalEvalCombined scans the combined P||M formal plan once per leaf.
 	FormalEvalCombined
 	// FormalEvalTiled scans the combined P||M formal plan across small leaf tiles.
@@ -534,14 +534,14 @@ type commitInitOptions struct {
 }
 
 type commitInitPhaseTimings struct {
-	maskSamplingNs   int64
-	formalEvalNs     int64
-	leafEncodingNs   int64
-	nonceDeriveNs    int64
-	leafHashNs       int64
-	merkleNs         int64
-	legacyEvalHashNs int64
-	recordSubphases  bool
+	maskSamplingNs  int64
+	formalEvalNs    int64
+	leafEncodingNs  int64
+	nonceDeriveNs   int64
+	leafHashNs      int64
+	merkleNs        int64
+	evalHashNs      int64
+	recordSubphases bool
 }
 
 func (t *commitInitPhaseTimings) record(rec CommitPhaseRecorder) {
@@ -549,7 +549,7 @@ func (t *commitInitPhaseTimings) record(rec CommitPhaseRecorder) {
 		return
 	}
 	rec.RecordDuration("decs.mask_sampling", time.Duration(atomic.LoadInt64(&t.maskSamplingNs)))
-	rec.RecordDuration("decs.eval_hash", time.Duration(atomic.LoadInt64(&t.legacyEvalHashNs)))
+	rec.RecordDuration("decs.eval_hash", time.Duration(atomic.LoadInt64(&t.evalHashNs)))
 	rec.RecordDuration("decs.merkle", time.Duration(atomic.LoadInt64(&t.merkleNs)))
 	if !t.recordSubphases {
 		return
@@ -561,8 +561,8 @@ func (t *commitInitPhaseTimings) record(rec CommitPhaseRecorder) {
 }
 
 // CommitInitWithOptions is CommitInit with benchmark-only controls. It keeps
-// the legacy leaf encoding and tree format so roots and proof bytes are
-// unchanged relative to CommitInit for fixed masks/nonces.
+// the committed leaf encoding and tree format so roots and proof bytes match
+// CommitInit for fixed masks/nonces.
 func (pr *Prover) CommitInitWithOptions(opts CommitOptions) ([16]byte, error) {
 	internal := commitInitOptions{
 		phaseRecorder:         opts.PhaseRecorder,
@@ -571,7 +571,7 @@ func (pr *Prover) CommitInitWithOptions(opts CommitOptions) ([16]byte, error) {
 		recordSubphases:       opts.RecordSubphases,
 	}
 	switch opts.FormalEvalMode {
-	case FormalEvalLegacyScalar:
+	case FormalEvalScalar:
 	case FormalEvalCombined:
 		internal.forceScalarFormalEval = false
 	case FormalEvalTiled:
@@ -722,7 +722,7 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 		}
 	}
 	if timings != nil {
-		timings.legacyEvalHashNs = int64(time.Since(evalHashStart))
+		timings.evalHashNs = int64(time.Since(evalHashStart))
 	}
 
 	// 1d) Merkle tree
@@ -1304,7 +1304,7 @@ type OpeningPackOptions struct {
 	// NLeaves is used to derive the fixed index width when FixedSize is true.
 	NLeaves int
 	// FieldBitWidth fixes P/M residue streams when FixedSize is true. Zero keeps
-	// the legacy instance-minimum width.
+	// the compact instance-minimum width.
 	FieldBitWidth uint8
 }
 

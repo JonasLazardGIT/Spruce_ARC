@@ -13,16 +13,15 @@ ntru_keys/
 PIOP/ntru_keys/
 ntru/signverify/ntru_keys/
 
-# Research-only or generated trees kept out of the artifact image.
+# Local generated trees kept out of the artifact image.
 parameter_search/
 _markdown_test/
 
-# Security-provenance sources are kept in the repository but not in Docker.
+# Security-provenance sources are kept out of Docker.
 # Docker artifact scripts should depend only on Go, not Sage/Python tooling.
 tools
-lattice-estimator-main
+external/lattice-estimator
 prf/*.sage
-prf/RUN_SAGE.md
 
 # External papers are cited by ID, not copied into the artifact image.
 docs/*.pdf

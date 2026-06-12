@@ -45,66 +45,33 @@ func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T)
 	}
 }
 
-func TestShowingCLIParsesSoundnessFlags(t *testing.T) {
-	defaultCfg, err := parseShowingCLIArgs([]string{
-		"-preset", credential.IntGenISISPresetN1024Compact125,
-	})
-	if err != nil {
-		t.Fatalf("parse showing default flags: %v", err)
-	}
-	if defaultCfg.DECSCollisionBits != 144 {
-		t.Fatalf("default decs collision bits=%d", defaultCfg.DECSCollisionBits)
-	}
-
+func TestShowingCLIPropagatesPresetAccounting(t *testing.T) {
 	cfg, err := parseShowingCLIArgs([]string{
-		"-preset", credential.IntGenISISPresetN1024Compact125,
-		"-ro-query-caps", "0,1,2,3,4",
-		"-decs-collision-bytes", "20",
+		"-preset", credential.IntGenISISPresetN1024Q16_128,
 	})
 	if err != nil {
-		t.Fatalf("parse showing flags: %v", err)
+		t.Fatalf("parse showing query-budget preset: %v", err)
 	}
-	if !cfg.ROQueryCapsSet {
-		t.Fatal("ro query caps were not marked explicit")
-	}
-	if cfg.ROQueryCaps != [5]int{0, 1, 2, 3, 4} {
-		t.Fatalf("ro query caps=%v", cfg.ROQueryCaps)
-	}
-	if cfg.DECSCollisionBits != 160 {
-		t.Fatalf("decs collision bits=%d", cfg.DECSCollisionBits)
-	}
-	opts := applyShowingCLIAccountingOverrides(intGenISISShowingOpts(1024, cfg.Preset.Showing), cfg)
-	if opts.ROQueryCaps != cfg.ROQueryCaps || !opts.ROQueryCapsSet {
+	opts := intGenISISShowingOpts(1024, cfg.Preset.Showing)
+	wantCaps := [5]int{65536, 65536, 65536, 65536, 65536}
+	if !opts.ROQueryCapsSet || opts.ROQueryCaps != wantCaps {
 		t.Fatalf("opts query caps=%v set=%v", opts.ROQueryCaps, opts.ROQueryCapsSet)
 	}
-	if opts.DECSCollisionBits != 160 {
+	if opts.DECSCollisionBits != 168 {
 		t.Fatalf("opts decs collision bits=%d", opts.DECSCollisionBits)
 	}
 }
 
-func TestShowingCLIRejectsMalformedSoundnessFlags(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		args []string
-	}{
-		{
-			name: "bad query caps",
-			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-ro-query-caps", "1,2,3,4"},
-		},
-		{
-			name: "bad collision bits",
-			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-decs-collision-bits", "152"},
-		},
-		{
-			name: "bad collision bytes",
-			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-decs-collision-bytes", "19"},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := parseShowingCLIArgs(tc.args); err == nil {
-				t.Fatalf("parseShowingCLIArgs(%v) unexpectedly succeeded", tc.args)
-			}
-		})
+func TestShowingVerboseFlagParses(t *testing.T) {
+	cfg, err := parseShowingCLIArgs([]string{
+		"-preset", credential.IntGenISISPresetN512Compact96,
+		"-verbose",
+	})
+	if err != nil {
+		t.Fatalf("parse showing verbose flag: %v", err)
+	}
+	if !cfg.Verbose {
+		t.Fatal("verbose flag was not carried into config")
 	}
 }
 
@@ -114,6 +81,9 @@ func TestShowingRemovedFlagsAreUnknown(t *testing.T) {
 		"-intgenisis-replay-projection",
 		"-sig-shortness-profile",
 		"-fixed-transcript-size",
+		"-ro-query-caps",
+		"-decs-collision-bits",
+		"-decs-collision-bytes",
 	} {
 		t.Run(flagName, func(t *testing.T) {
 			_, err := parseShowingCLIArgs([]string{"-preset", "n512-compact96", flagName, "x"})
@@ -145,7 +115,7 @@ func TestFormatPaperTranscriptReductionSummaryShowsRSavedAndQSaved(t *testing.T)
 func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T) {
 	line := formatTranscriptOptimizationSummary(PIOP.ProofReport{
 		TranscriptFocus: PIOP.TranscriptOptimizationReport{
-			ShowingPreset:     PIOP.ShowingPresetInlineTargetReplayCompactResearch,
+			ShowingPreset:     PIOP.ShowingPresetInlineTargetReplayCompact,
 			ReplayMode:        string(PIOP.ShowingReplayModeFull),
 			ReplayBlocks:      1,
 			LVCSNCols:         128,
@@ -163,7 +133,7 @@ func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T)
 			RowOpeningEntries: 36,
 		},
 	})
-	if !strings.Contains(line, "preset=aggregate_inline_target_replay_compact_research replay=full blocks=1 lvcs=128 nleaves=2048 rowsBlock=7 maskChunks=2 witness=859 nrows=560 m=288 pcols=272 omitP=288") {
+	if !strings.Contains(line, "preset=aggregate_inline_target_replay_compact replay=full blocks=1 lvcs=128 nleaves=2048 rowsBlock=7 maskChunks=2 witness=859 nrows=560 m=288 pcols=272 omitP=288") {
 		t.Fatalf("missing nrows/m/pcols summary: %q", line)
 	}
 	if !strings.Contains(line, "prf_scalars=165 prf_rows=11 (packed)") {
@@ -174,7 +144,7 @@ func TestFormatTranscriptOptimizationSummaryShowsPackedPRFGeometry(t *testing.T)
 func TestFormatTranscriptOptimizationSummaryShowsFactorizedInstanceGeometry(t *testing.T) {
 	line := formatTranscriptOptimizationSummary(PIOP.ProofReport{
 		TranscriptFocus: PIOP.TranscriptOptimizationReport{
-			ShowingPreset:            PIOP.ShowingPresetInlineTargetReplayCompactResearch,
+			ShowingPreset:            PIOP.ShowingPresetInlineTargetReplayCompact,
 			ReplayMode:               string(PIOP.ShowingReplayModeFull),
 			ReplayBlocks:             32,
 			LVCSNCols:                32,
@@ -415,6 +385,31 @@ func TestPrintSigShortnessShowsSupportSlots(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "slots=16") || !strings.Contains(got, "blocks=13") {
 		t.Fatalf("missing shortness slot summary: %q", got)
+	}
+}
+
+func TestPrintConciseProofReportOmitsDetailedBreakdown(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	old := cli
+	cli = cliRenderer{out: &out, err: &errBuf, colorEnabled: false}
+	defer func() { cli = old }()
+
+	printConciseProofReport("[showing-cli] ", PIOP.ProofReport{
+		PaperTranscript: PIOP.PaperTranscriptReport{OptimizedBytes: 22008},
+		Soundness:       PIOP.SoundnessBudget{TotalBits: 96.5},
+	}, 2, 3)
+
+	got := out.String()
+	for _, want := range []string{"paper_transcript_bytes=22008", "paper_transcript_kb=21.49", "theorem_total_bits=96.50", "timing prove=2ns verify=3ns"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("concise proof report missing %q: %s", want, got)
+		}
+	}
+	for _, stale := range []string{"Paper transcript breakdown", "Current verifier payload", "Table row", "Bucket focus"} {
+		if strings.Contains(got, stale) {
+			t.Fatalf("concise proof report retained detailed field %q: %s", stale, got)
+		}
 	}
 }
 

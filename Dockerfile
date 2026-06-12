@@ -17,10 +17,9 @@ RUN go install honnef.co/go/tools/cmd/staticcheck@v0.6.1 \
 COPY . .
 
 RUN test ! -d tools \
-    && test ! -d lattice-estimator-main \
+    && test ! -d external/lattice-estimator \
     && test ! -f prf/generate_params.sage \
-    && test ! -f prf/sweep_rounds.sage \
-    && test ! -f prf/RUN_SAGE.md
+    && test ! -f prf/sweep_rounds.sage
 
 RUN go test ./...
 RUN go build -o /usr/local/bin/issuance ./cmd/issuance \

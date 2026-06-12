@@ -275,7 +275,7 @@ func (pp *PublicParams) validateIntGenISIS() error {
 		return fmt.Errorf("target_dim=%d must match n_c=%d", pp.TargetDim, pp.NC)
 	}
 	if pp.X0Len != 0 && pp.X0Len != pp.EllX0 {
-		return fmt.Errorf("legacy X0Len=%d must match ell_x0=%d", pp.X0Len, pp.EllX0)
+		return fmt.Errorf("stored X0Len=%d must match ell_x0=%d", pp.X0Len, pp.EllX0)
 	}
 	if err := validateCoeffMatrixDims("C_M", pp.CM, pp.NC, pp.EllM, pp.RingDegree); err != nil {
 		return err

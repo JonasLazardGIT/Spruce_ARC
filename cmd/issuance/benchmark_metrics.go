@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	sweepTranscriptModeSmallField2025 = "smallfield_2025_1085_v1"
+	intGenISISTranscriptModeSmallField2025 = "smallfield_2025_1085_v1"
 )
 
 type benchmarkIntGenISISMetrics struct {
@@ -46,7 +46,7 @@ type benchmarkIntGenISISMetrics struct {
 	ShortnessConstraints          int                  `json:"shortness_constraints,omitempty"`
 	HatRows                       int                  `json:"hat_rows"`
 	YHatRows                      int                  `json:"y_hat_rows,omitempty"`
-	SourceBridgeConstraints       int                  `json:"source_bridge_constraints"`
+	SourceBridgeConstraints       int                  `json:"source_bridge_constraints,omitempty"`
 	UBridgeConstraints            int                  `json:"u_bridge_constraints,omitempty"`
 	CommitmentBridgeConstraints   int                  `json:"commitment_bridge_constraints,omitempty"`
 	YLinearConstraints            int                  `json:"y_linear_constraints,omitempty"`
@@ -64,7 +64,7 @@ type benchmarkIntGenISISMetrics struct {
 	MaskDegreeBound               int                  `json:"mask_degree_bound,omitempty"`
 	DominantDegreeSource          string               `json:"dominant_degree_source,omitempty"`
 	TernaryRows                   int                  `json:"ternary_rows,omitempty"`
-	CompressedRows                int                  `json:"compressed_rows"`
+	CompressedRows                int                  `json:"compressed_rows,omitempty"`
 	MSECompressionLevel           int                  `json:"mse_compression_level,omitempty"`
 	MSECompressionPackWidth       int                  `json:"mse_compression_pack_width,omitempty"`
 	MSECompressionDegree          int                  `json:"mse_compression_degree,omitempty"`
@@ -117,10 +117,10 @@ type benchmarkIntGenISISMetrics struct {
 	Soundness                     PIOP.SoundnessBudget `json:"-"`
 }
 
-func normalizeSweepTranscriptMode(mode string) (string, error) {
+func normalizeIntGenISISTranscriptMode(mode string) (string, error) {
 	switch strings.TrimSpace(strings.ToLower(mode)) {
-	case "", sweepTranscriptModeSmallField2025, "smallfield-2025-1085-v1", "smallwood-2025-1085-smallfield", "paper-smallfield":
-		return sweepTranscriptModeSmallField2025, nil
+	case "", intGenISISTranscriptModeSmallField2025, "smallfield-2025-1085-v1", "smallwood-2025-1085-smallfield", "paper-smallfield":
+		return intGenISISTranscriptModeSmallField2025, nil
 	default:
 		return "", fmt.Errorf("unknown transcript mode %q (supported: smallfield_2025_1085_v1)", mode)
 	}
@@ -140,7 +140,7 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		BarSetsBytes:             report.PaperTranscript.BarSets.OptimizedBytes,
 		ProvingMS:                float64(proveDur.Microseconds()) / 1000.0,
 		VerificationMS:           float64(verifyDur.Microseconds()) / 1000.0,
-		PhaseTimings:             opts.PhaseRecorder.Snapshot(),
+		PhaseTimings:             nonZeroPhaseTimings(opts.PhaseRecorder.Snapshot()),
 		TotalRows:                proof.RowLayout.SigCount,
 		RowsBlock:                report.TranscriptFocus.RowsBlock,
 		AuditRows:                report.TranscriptFocus.AuditRows,
@@ -307,6 +307,16 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		metrics.ProofReportBuckets = report.TranscriptFocus.RowOpeningEntries
 	}
 	return metrics
+}
+
+func nonZeroPhaseTimings(in []PIOP.PhaseTiming) []PIOP.PhaseTiming {
+	out := in[:0]
+	for _, ph := range in {
+		if ph.Label != "" && ph.Milliseconds > 0 {
+			out = append(out, ph)
+		}
+	}
+	return out
 }
 
 func transcriptSizeModeLabel(fixed bool) string {

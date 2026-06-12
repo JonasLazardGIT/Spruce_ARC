@@ -325,7 +325,7 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 	switch layout.RelationVersion {
 	case 0:
 		if layout.FinalRoundOutputCount != 0 || len(layout.FinalRoundOutputSlots) != 0 {
-			return fmt.Errorf("legacy companion relation carries final-round output slots")
+			return fmt.Errorf("version-0 companion relation carries final-round output slots")
 		}
 	case 1:
 		if layout.FinalRoundOutputCount <= 0 {

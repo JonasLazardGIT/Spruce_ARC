@@ -80,6 +80,42 @@ func allMaintainedPresetGates() []maintainedPresetGate {
 			MaxPaperBytes:      36000,
 			ExpectedPaperBytes: 35215,
 		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q10_128,
+			MinTheoremBits:     128,
+			MaxPaperBytes:      38000,
+			ExpectedPaperBytes: 37266,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q16_128,
+			MinTheoremBits:     128,
+			MaxPaperBytes:      43000,
+			ExpectedPaperBytes: 42155,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q32_128,
+			MinTheoremBits:     128,
+			MaxPaperBytes:      50000,
+			ExpectedPaperBytes: 48960,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q10_96,
+			MinTheoremBits:     96,
+			MaxPaperBytes:      30500,
+			ExpectedPaperBytes: 29645,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q16_96,
+			MinTheoremBits:     96,
+			MaxPaperBytes:      31500,
+			ExpectedPaperBytes: 30583,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q32_96,
+			MinTheoremBits:     96,
+			MaxPaperBytes:      38000,
+			ExpectedPaperBytes: 37249,
+		},
 	}
 }
 
@@ -96,6 +132,42 @@ func degree1024MaintainedPresetGates() []maintainedPresetGate {
 			MinTheoremBits:     125,
 			MaxPaperBytes:      36000,
 			ExpectedPaperBytes: 35215,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q10_128,
+			MinTheoremBits:     128,
+			MaxPaperBytes:      38000,
+			ExpectedPaperBytes: 37266,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q16_128,
+			MinTheoremBits:     128,
+			MaxPaperBytes:      43000,
+			ExpectedPaperBytes: 42155,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q32_128,
+			MinTheoremBits:     128,
+			MaxPaperBytes:      50000,
+			ExpectedPaperBytes: 48960,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q10_96,
+			MinTheoremBits:     96,
+			MaxPaperBytes:      30500,
+			ExpectedPaperBytes: 29645,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q16_96,
+			MinTheoremBits:     96,
+			MaxPaperBytes:      31500,
+			ExpectedPaperBytes: 30583,
+		},
+		{
+			Name:               credential.IntGenISISPresetN1024Q32_96,
+			MinTheoremBits:     96,
+			MaxPaperBytes:      38000,
+			ExpectedPaperBytes: 37249,
 		},
 	}
 }

@@ -1,7 +1,7 @@
 # Third-Party Notices
 
-This repository vendors and depends on third-party code for artifact
-reproduction and provenance.
+This repository depends on third-party code for artifact reproduction and
+provenance.
 
 ## Go Module Dependencies
 
@@ -18,20 +18,15 @@ Notable direct dependencies:
 Before public archival, confirm whether the venue requires copying upstream
 license texts for module dependencies into the artifact bundle.
 
-## Vendored Security Estimator
+## External Security Estimator
 
-The `lattice-estimator-main/` directory is retained as source-tree provenance
-for the archived security-estimator runs described in
-[docs/intgenisis_lattice_security.md](docs/intgenisis_lattice_security.md).
-It is excluded from the Docker artifact context.
-
-No license file is present in this vendored checkout. Before public
-redistribution, either add the appropriate upstream license notice, replace the
-vendored tree with a pinned source reference, or obtain explicit redistribution
-clearance.
+Security-estimator reproduction uses an external pinned checkout of
+`malb/lattice-estimator` at commit
+`4bfa63e364be9dd7fd1b2b531e2a11da8fb1c2ad`, as described in
+[docs/SECURITY.md](docs/SECURITY.md). The estimator source is not vendored in
+this repository or copied into the Docker image.
 
 ## Sage/Python Provenance Scripts
 
 The scripts under `tools/` and `prf/*.sage` are provenance material. They are
 not required by Docker artifact commands and are excluded from the Docker image.
-

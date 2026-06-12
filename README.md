@@ -1,15 +1,32 @@
 # SPRUCE
 
-This repository contains the maintained ARC-SPRUCE IntGenISIS prototype. The
-public surface is intentionally narrow: committed-message issuance, IntGenISIS
-showing, and the three promoted compact presets.
+SPRUCE is the maintained ARC-SPRUCE IntGenISIS paper artifact. It implements
+the committed-message issuance flow, final IntGenISIS showing proof, verifier
+path, fixed transcript reporting, and the curated maintained presets.
 
-## Artifact Scope
+The public artifact surface is intentionally narrow:
 
-The maintained artifact supports IntGenISIS issuance, showing, verification,
-fixed-size transcript reporting, and E2E benchmark reproduction for the
-maintained compact presets. Research tuning surfaces and old presets are not
-public artifact interfaces.
+- `cmd/issuance`
+- `cmd/showing`
+- the nine maintained IntGenISIS presets
+- Go tests, gates, and benchmark reports for those presets
+
+Removed tuning flags, old preset labels, and non-maintained command surfaces
+are not public interfaces.
+
+## Reviewer Path
+
+This README is the first reviewer document. Then read:
+
+1. [ARTIFACT.md](ARTIFACT.md): build, run, validate, expected outputs, claims,
+   limitations, and generated files.
+2. [docs/PROTOCOL.md](docs/PROTOCOL.md): implemented protocol, preset surface,
+   artifact/code map, and data flow.
+3. [docs/SECURITY.md](docs/SECURITY.md): security estimates, provenance
+   commands, PRF parameter generation, and caveats.
+
+Package-level READMEs remain available for code navigation, but the files above
+are the canonical reviewer-facing docs.
 
 ## Maintained Presets
 
@@ -17,38 +34,67 @@ public artifact interfaces.
 n512-compact96
 n1024-compact96
 n1024-compact125
+n1024-q10-128
+n1024-q16-128
+n1024-q32-128
+n1024-q10-96
+n1024-q16-96
+n1024-q32-96
 ```
 
-`n512-compact96` is the compact 96-bit engineering preset. The maintained
-high-security preset is `n1024-compact125`; it is a live 125+ preset, not a
-128-bit claim.
+`n512-compact96` is the profile-B engineering preset. `n1024-compact96` and
+`n1024-compact125` are compact profile-C presets, where `n1024-compact125` is a
+125+ live preset rather than a 128-bit claim. The `n1024-q*` presets are
+query-budget-specific profile-C presets with fixed random-oracle query caps and
+DECS hash/tape widths baked into the preset registry.
 
-## Docker Quickstart
+## Fast Docker Run
 
 ```bash
 docker build -t spruce-artifact .
 docker run --rm --user "$(id -u):$(id -g)" spruce-artifact test
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench n512-compact96
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench n1024-compact96
 docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench n1024-compact125
 docker run --rm --user "$(id -u):$(id -g)" spruce-artifact gate
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact validate
 ```
 
-Benchmark and gate commands write JSON artifacts under `/artifacts` inside the
-container. To keep outputs on the host:
+To keep generated reports:
 
 ```bash
-docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)/artifacts:/artifacts" spruce-artifact bench n1024-compact125
-docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)/artifacts:/artifacts" spruce-artifact gate
-docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)/artifacts:/artifacts" spruce-artifact validate
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$(pwd)/artifacts:/artifacts" \
+  spruce-artifact validate
 ```
 
-The Docker artifact is Go-only. Security-estimator and PRF-generation
-provenance under `tools/`, `lattice-estimator-main/`, and `prf/*.sage` is kept
-in the source tree but excluded from Docker.
+The Docker artifact is Go-only. Sage/Python provenance scripts stay in the
+source tree, while lattice-estimator reproduction uses an external pinned
+checkout documented in [docs/SECURITY.md](docs/SECURITY.md).
 
-## Native Quickstart
+## Fast Native Run
+
+```bash
+go test ./...
+go build ./cmd/issuance ./cmd/showing
+go run ./cmd/issuance benchmark-intgenisis-e2e -preset n1024-compact125
+go run ./cmd/issuance gate-maintained-presets
+```
+
+The full native validation script runs formatting, tests, vet, staticcheck,
+strict deadcode, CLI builds, and all maintained preset byte gates:
+
+```bash
+./scripts/validate-artifact.sh
+```
+
+To keep validation artifacts:
+
+```bash
+ARTIFACT_ROOT="$(pwd)/artifacts" ./scripts/validate-artifact.sh
+```
+
+## Manual Flow
+
+The end-to-end benchmark above is the main reviewer command. The individual
+issuance/showing commands are also available:
 
 ```bash
 go run ./cmd/issuance setup-intgenisis-public -preset n1024-compact125
@@ -57,44 +103,9 @@ go run ./cmd/issuance holder-commit -preset n1024-compact125
 go run ./cmd/issuance holder-prove
 go run ./cmd/issuance issuer-verify-sign
 go run ./cmd/issuance holder-finalize
-go run ./cmd/issuance benchmark-intgenisis-e2e -preset n1024-compact125
-go run ./cmd/issuance gate-maintained-presets
 go run ./cmd/showing -preset n1024-compact125
 ```
 
-Commands that create preset-dependent material require one of the maintained
-IntGenISIS presets. Tuning flags and research selectors are not public
-interfaces.
-
-## Reproducing Results
-
-```bash
-./scripts/validate-artifact.sh
-```
-
-Expected showing paper transcript bytes are:
-
-| Preset | `showing.paper_transcript_bytes` |
-| --- | ---: |
-| `n512-compact96` | 21754 |
-| `n1024-compact96` | 25882 |
-| `n1024-compact125` | 34853 |
-
-For native security-estimation provenance, see [tools/README.md](tools/README.md).
-Those commands require Sage/Python locally and are not Docker artifact
-dependencies.
-
-## Documentation
-
-Start with [ARTIFACT.md](ARTIFACT.md), [CLAIMS.md](CLAIMS.md), and
-[LIMITATIONS.md](LIMITATIONS.md) for reviewer-facing reproduction details.
-
-See [docs/protocol.md](docs/protocol.md),
-[docs/intgenisis_protocol_h_tran.md](docs/intgenisis_protocol_h_tran.md),
-[docs/intgenisis_lattice_security.md](docs/intgenisis_lattice_security.md),
-[docs/security_estimation_workflow.md](docs/security_estimation_workflow.md),
-[docs/modulus_choice.md](docs/modulus_choice.md), and
-[docs/degree1024_maintained_presets.md](docs/degree1024_maintained_presets.md)
-for the canonical protocol and parameter notes. PRF seed packing is summarized
-in [docs/prf_seed_packing.md](docs/prf_seed_packing.md), and release notices
-are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Commands that create preset-dependent material require `-preset`. Accounting
+parameters are not exposed as public flags; they come from the maintained
+preset registry.

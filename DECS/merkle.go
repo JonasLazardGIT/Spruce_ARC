@@ -26,14 +26,6 @@ type MerkleTree struct {
 	hashBytes int
 }
 
-func BuildMerkleTreeFromLeafHashes(leaves [][16]byte) *MerkleTree {
-	leafBytes := make([][]byte, len(leaves))
-	for i := range leaves {
-		leafBytes[i] = append([]byte(nil), leaves[i][:]...)
-	}
-	return BuildMerkleTreeFromLeafHashBytes(leafBytes, DefaultHashBytes)
-}
-
 func BuildMerkleTreeFromLeafHashBytes(leaves [][]byte, hashBytes int) *MerkleTree {
 	hashBytes = NormalizeHashBytes(hashBytes)
 	n := len(leaves)
@@ -103,11 +95,6 @@ func (mt *MerkleTree) RootHash() []byte {
 		return nil
 	}
 	return append([]byte(nil), mt.layers[len(mt.layers)-1][0]...)
-}
-
-// VerifyPath checks leaf→root via path.
-func VerifyPath(leaf []byte, path [][]byte, root [16]byte, idx int) bool {
-	return VerifyPathHash(leaf, path, root[:], idx)
 }
 
 // VerifyPathHash checks leaf→root via path using the supplied root hash width.

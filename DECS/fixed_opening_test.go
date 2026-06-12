@@ -56,7 +56,7 @@ func TestPackOpeningFixedRowMajorPathsVerify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new verifier: %v", err)
 	}
-	if !verifier.VerifyEvalAtFormal(root, gamma, rFormal, open, []int{3, 17, 42, 211}) {
+	if !verifier.VerifyEvalAtFormalHash(root[:], gamma, rFormal, open, []int{3, 17, 42, 211}) {
 		t.Fatalf("fixed row-major opening did not verify")
 	}
 	tampered := *open
@@ -65,7 +65,7 @@ func TestPackOpeningFixedRowMajorPathsVerify(t *testing.T) {
 		tampered.Nodes[i] = append([]byte(nil), open.Nodes[i]...)
 	}
 	tampered.Nodes[0][0] ^= 1
-	if verifier.VerifyEvalAtFormal(root, gamma, rFormal, &tampered, []int{3, 17, 42, 211}) {
+	if verifier.VerifyEvalAtFormalHash(root[:], gamma, rFormal, &tampered, []int{3, 17, 42, 211}) {
 		t.Fatalf("tampered row-major path verified")
 	}
 }

@@ -6,6 +6,12 @@ func TestIntGenISISPresetRegistryIsMaintainedOnly(t *testing.T) {
 	want := []string{
 		IntGenISISPresetN1024Compact125,
 		IntGenISISPresetN1024Compact96,
+		IntGenISISPresetN1024Q10_128,
+		IntGenISISPresetN1024Q10_96,
+		IntGenISISPresetN1024Q16_128,
+		IntGenISISPresetN1024Q16_96,
+		IntGenISISPresetN1024Q32_128,
+		IntGenISISPresetN1024Q32_96,
 		IntGenISISPresetN512Compact96,
 	}
 	names := IntGenISISPresetNames()
@@ -74,6 +80,9 @@ func TestN1024CompactPresets(t *testing.T) {
 	if compact96.Showing.ReplayProjection != "project_u_digits_y_w_residual_v5" {
 		t.Fatalf("compact96 projection=%q", compact96.Showing.ReplayProjection)
 	}
+	if compact96.Showing.ROQueryCapsSet || compact96.Showing.ROQueryCaps != [5]int{} || compact96.Showing.DECSCollisionBits != 0 {
+		t.Fatalf("compact96 should use default accounting overrides: %+v", compact96.Showing)
+	}
 
 	compact125, ok := LookupIntGenISISPreset(IntGenISISPresetN1024Compact125)
 	if !ok {
@@ -91,8 +100,148 @@ func TestN1024CompactPresets(t *testing.T) {
 	if compact125.Showing.ReplayProjection != "project_u_digits_y_w_residual_v5" {
 		t.Fatalf("compact125 projection=%q", compact125.Showing.ReplayProjection)
 	}
+	if compact125.Showing.ROQueryCapsSet || compact125.Showing.ROQueryCaps != [5]int{} || compact125.Showing.DECSCollisionBits != 0 {
+		t.Fatalf("compact125 should use default accounting overrides: %+v", compact125.Showing)
+	}
 	if compact125.TargetTheoremBits >= 128 {
 		t.Fatal("compact125 must remain a 125+ preset, not a claimed 128-bit preset")
+	}
+}
+
+func TestN1024QueryBudgetPresets(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		caps       [5]int
+		decsBits   int
+		ncols      int
+		lvcs       int
+		nleaves    int
+		eta        int
+		theta      int
+		ell        int
+		kappa      [4]int
+		radix      int
+		digits     int
+		targetBits float64
+	}{
+		{
+			name:       IntGenISISPresetN1024Q10_128,
+			caps:       [5]int{1024, 1024, 1024, 1024, 1024},
+			decsBits:   160,
+			ncols:      32,
+			lvcs:       36,
+			nleaves:    983040,
+			eta:        44,
+			theta:      7,
+			ell:        9,
+			kappa:      [4]int{0, 4, 8, 8},
+			radix:      11,
+			digits:     4,
+			targetBits: 128,
+		},
+		{
+			name:       IntGenISISPresetN1024Q16_128,
+			caps:       [5]int{65536, 65536, 65536, 65536, 65536},
+			decsBits:   168,
+			ncols:      32,
+			lvcs:       37,
+			nleaves:    524288,
+			eta:        44,
+			theta:      8,
+			ell:        10,
+			kappa:      [4]int{0, 0, 0, 8},
+			radix:      7,
+			digits:     5,
+			targetBits: 128,
+		},
+		{
+			name:       IntGenISISPresetN1024Q32_128,
+			caps:       [5]int{int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32)},
+			decsBits:   200,
+			ncols:      32,
+			lvcs:       37,
+			nleaves:    655360,
+			eta:        48,
+			theta:      9,
+			ell:        11,
+			kappa:      [4]int{0, 0, 0, 7},
+			radix:      7,
+			digits:     5,
+			targetBits: 128,
+		},
+		{
+			name:       IntGenISISPresetN1024Q10_96,
+			caps:       [5]int{1024, 1024, 1024, 1024, 1024},
+			decsBits:   128,
+			ncols:      32,
+			lvcs:       37,
+			nleaves:    720896,
+			eta:        40,
+			theta:      6,
+			ell:        7,
+			kappa:      [4]int{0, 0, 0, 8},
+			radix:      7,
+			digits:     5,
+			targetBits: 96,
+		},
+		{
+			name:       IntGenISISPresetN1024Q16_96,
+			caps:       [5]int{65536, 65536, 65536, 65536, 65536},
+			decsBits:   136,
+			ncols:      32,
+			lvcs:       38,
+			nleaves:    393216,
+			eta:        40,
+			theta:      6,
+			ell:        8,
+			kappa:      [4]int{0, 0, 3, 7},
+			radix:      11,
+			digits:     4,
+			targetBits: 96,
+		},
+		{
+			name:       IntGenISISPresetN1024Q32_96,
+			caps:       [5]int{int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32)},
+			decsBits:   168,
+			ncols:      32,
+			lvcs:       37,
+			nleaves:    458752,
+			eta:        44,
+			theta:      7,
+			ell:        9,
+			kappa:      [4]int{0, 0, 2, 7},
+			radix:      7,
+			digits:     5,
+			targetBits: 96,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, ok := LookupIntGenISISPreset(tc.name)
+			if !ok {
+				t.Fatalf("%s missing", tc.name)
+			}
+			if p.Profile != ProfileIntGenISISC || p.TargetTheoremBits != tc.targetBits {
+				t.Fatalf("%s target/profile=(%q,%v)", tc.name, p.Profile, p.TargetTheoremBits)
+			}
+			if p.Showing.NCols != tc.ncols || p.Showing.LVCSNCols != tc.lvcs || p.Showing.NLeaves != tc.nleaves || p.Showing.Eta != tc.eta {
+				t.Fatalf("%s showing geometry=%+v", tc.name, p.Showing)
+			}
+			if p.Showing.Theta != tc.theta || p.Showing.Rho != 1 || p.Showing.Ell != tc.ell || p.Showing.EllPrime != 1 {
+				t.Fatalf("%s soundness tuple=%+v", tc.name, p.Showing)
+			}
+			if p.Showing.Kappa != tc.kappa || !p.Showing.ROQueryCapsSet || p.Showing.ROQueryCaps != tc.caps || p.Showing.DECSCollisionBits != tc.decsBits {
+				t.Fatalf("%s accounting tuple=%+v", tc.name, p.Showing)
+			}
+			if p.Showing.SigShortnessRadix != tc.radix || p.Showing.SigShortnessDigits != tc.digits || p.Showing.CompressedRows != 1 {
+				t.Fatalf("%s shortness/compression tuple=%+v", tc.name, p.Showing)
+			}
+			if p.Issuance.ROQueryCaps != tc.caps || !p.Issuance.ROQueryCapsSet || p.Issuance.DECSCollisionBits != tc.decsBits {
+				t.Fatalf("%s issuance accounting tuple=%+v", tc.name, p.Issuance)
+			}
+			if p.Issuance.PRFCompanionMode != "" || p.Issuance.SigShortnessRadix != 0 || p.Issuance.CompressedRows != 0 {
+				t.Fatalf("%s issuance retained showing-only fields: %+v", tc.name, p.Issuance)
+			}
+		})
 	}
 }
 

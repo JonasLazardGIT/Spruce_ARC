@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -57,8 +59,9 @@ func TestRemovedIssuanceCommandsAreRejected(t *testing.T) {
 		"issuer-challenge",
 		"benchmark-x0",
 		"benchmark-intgenisis",
-		"sweep-intgenisis",
-		"sweep-intgenisis-estimate",
+		"research-showing-transcript",
+		"swe" + "ep-intgenisis",
+		"swe" + "ep-intgenisis-estimate",
 		"demo-local",
 	} {
 		t.Run(command, func(t *testing.T) {
@@ -89,12 +92,17 @@ func TestRemovedPresetSelectorsAreRejectedByCLI(t *testing.T) {
 	}
 }
 
-func TestBenchmarkRemovedTuningFlagsAreUnknown(t *testing.T) {
+func TestBenchmarkRemovedTuningAndAccountingFlagsAreUnknown(t *testing.T) {
 	for _, flagName := range []string{
 		"-prf-companion-mode",
 		"-showing-transcript-mode",
 		"-ncols",
 		"-fixed-transcript-size",
+		"-ro-query-caps",
+		"-accepted-issuance",
+		"-accepted-showing",
+		"-decs-collision-bits",
+		"-decs-collision-bytes",
 	} {
 		t.Run(flagName, func(t *testing.T) {
 			err := run([]string{"benchmark-intgenisis-e2e", "-preset", "n512-compact96", flagName, "x"})
@@ -108,72 +116,113 @@ func TestBenchmarkRemovedTuningFlagsAreUnknown(t *testing.T) {
 	}
 }
 
-func TestBenchmarkIntGenISISE2EParsesSoundnessFlags(t *testing.T) {
-	defaultCfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
-		"-preset", credential.IntGenISISPresetN1024Compact125,
-	})
-	if err != nil {
-		t.Fatalf("parse benchmark default flags: %v", err)
-	}
-	if defaultCfg.DECSCollisionBits != 144 {
-		t.Fatalf("default decs collision bits=%d", defaultCfg.DECSCollisionBits)
-	}
-
+func TestBenchmarkIntGenISISE2EPropagatesPresetAccounting(t *testing.T) {
 	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
-		"-preset", credential.IntGenISISPresetN1024Compact125,
-		"-ro-query-caps", "0,1,2,3,4",
-		"-accepted-issuance", "7",
-		"-accepted-showing", "9",
-		"-decs-collision-bytes", "20",
+		"-preset", credential.IntGenISISPresetN1024Q32_128,
 	})
 	if err != nil {
-		t.Fatalf("parse benchmark flags: %v", err)
+		t.Fatalf("parse benchmark query-budget preset: %v", err)
 	}
-	if !cfg.ROQueryCapsSet {
-		t.Fatal("ro query caps were not marked explicit")
+	wantCaps := [5]int{int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32)}
+	if !cfg.Showing.ROQueryCapsSet || cfg.Showing.ROQueryCaps != wantCaps {
+		t.Fatalf("showing query caps=%v set=%v", cfg.Showing.ROQueryCaps, cfg.Showing.ROQueryCapsSet)
 	}
-	if cfg.ROQueryCaps != [5]int{0, 1, 2, 3, 4} {
-		t.Fatalf("ro query caps=%v", cfg.ROQueryCaps)
+	if cfg.Showing.DECSCollisionBits != 200 {
+		t.Fatalf("showing decs collision bits=%d", cfg.Showing.DECSCollisionBits)
 	}
-	if cfg.AcceptedIssuance != 7 || cfg.AcceptedShowing != 9 {
-		t.Fatalf("accepted counts=%d/%d", cfg.AcceptedIssuance, cfg.AcceptedShowing)
+	if !cfg.Issuance.ROQueryCapsSet || cfg.Issuance.ROQueryCaps != cfg.Showing.ROQueryCaps {
+		t.Fatalf("issuance query caps=%v set=%v", cfg.Issuance.ROQueryCaps, cfg.Issuance.ROQueryCapsSet)
 	}
-	if cfg.DECSCollisionBits != 160 {
-		t.Fatalf("decs collision bits=%d", cfg.DECSCollisionBits)
+	if cfg.Issuance.DECSCollisionBits != 200 {
+		t.Fatalf("issuance decs collision bits=%d", cfg.Issuance.DECSCollisionBits)
 	}
 }
 
-func TestBenchmarkIntGenISISE2ERejectsMalformedSoundnessFlags(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		args []string
-	}{
-		{
-			name: "bad query caps",
-			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-ro-query-caps", "1,2,3,4"},
+func TestBenchmarkIntGenISISE2EVerboseFlagParses(t *testing.T) {
+	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
+		"-preset", credential.IntGenISISPresetN512Compact96,
+		"-verbose",
+	})
+	if err != nil {
+		t.Fatalf("parse verbose benchmark config: %v", err)
+	}
+	if !cfg.Verbose {
+		t.Fatal("verbose flag was not carried into config")
+	}
+}
+
+func TestBenchmarkPrintReportDefaultIsConcise(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	benchmarkIntGenISISE2EPrintReport(benchmarkIntGenISISE2EReport{
+		Preset:      credential.IntGenISISPresetN512Compact96,
+		Profile:     credential.ProfileIntGenISISB,
+		ArtifactDir: "artifacts/n512-compact96",
+		Timings: benchmarkIntGenISISE2ETimings{
+			SetupPublicMS:    1,
+			SetupNTRUKeysMS:  2,
+			HolderCommitMS:   3,
+			HolderProveMS:    4,
+			IssuerSignMS:     5,
+			HolderFinalizeMS: 6,
 		},
-		{
-			name: "negative accepted issuance",
-			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-accepted-issuance", "-1"},
+		Showing: benchmarkIntGenISISMetrics{
+			PaperTranscriptBytes: 22008,
+			TheoremTotalBits:     96.5,
+			ProvingMS:            7,
+			VerificationMS:       8,
 		},
-		{
-			name: "negative accepted showing",
-			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-accepted-showing", "-1"},
-		},
-		{
-			name: "bad collision bits",
-			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-decs-collision-bits", "152"},
-		},
-		{
-			name: "bad collision bytes",
-			args: []string{"-preset", credential.IntGenISISPresetN512Compact96, "-decs-collision-bytes", "19"},
-		},
+		ReplayRejected: true,
+	}, false)
+
+	got := buf.String()
+	for _, want := range []string{
+		"status=pass",
+		"preset=n512-compact96",
+		"showing.paper_transcript_bytes=22008",
+		"theorem_total_bits=96.50",
+		"replay_rejected=true",
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := parseBenchmarkIntGenISISE2EConfig(tc.args); err == nil {
-				t.Fatalf("parseBenchmarkIntGenISISE2EConfig(%v) unexpectedly succeeded", tc.args)
-			}
-		})
+		if !strings.Contains(got, want) {
+			t.Fatalf("concise benchmark output missing %q: %s", want, got)
+		}
+	}
+	for _, stale := range []string{"paper_buckets", "source_bridge_constraints=0", "mdecs=0", "tapes=0", "compat_"} {
+		if strings.Contains(got, stale) {
+			t.Fatalf("concise benchmark output retained stale metric %q: %s", stale, got)
+		}
+	}
+}
+
+func TestBenchmarkMetricsJSONOmitsZeroOnlyFields(t *testing.T) {
+	raw, err := json.Marshal(benchmarkIntGenISISMetrics{
+		PaperTranscriptBytes: 22008,
+		TheoremTotalBits:     96.5,
+		PhaseTimings: nonZeroPhaseTimings([]PIOP.PhaseTiming{
+			{Label: "cached", Milliseconds: 0},
+			{Label: "prove", Milliseconds: 1.25},
+		}),
+	})
+	if err != nil {
+		t.Fatalf("marshal metrics: %v", err)
+	}
+	text := string(raw)
+	for _, stale := range []string{
+		`"mdecs_bytes":0`,
+		`"tapes_bytes":0`,
+		`"source_bridge_constraints":0`,
+		`"ms":0`,
+		`"cached"`,
+	} {
+		if strings.Contains(text, stale) {
+			t.Fatalf("benchmark JSON retained stale field %q: %s", stale, text)
+		}
+	}
+	if !strings.Contains(text, `"label":"prove"`) {
+		t.Fatalf("benchmark JSON dropped non-zero timing: %s", text)
 	}
 }
 
@@ -224,7 +273,7 @@ func TestSetupIntGenISISPublicWritesMaintainedProfileParams(t *testing.T) {
 	}
 }
 
-func TestSetupNTRUKeysRejectsRemovedResearchDegree(t *testing.T) {
+func TestSetupNTRUKeysRejectsRemovedRingDegreeFlag(t *testing.T) {
 	root := issuanceTestRepoRoot(t)
 	chdirForIssuanceTest(t, root)
 
@@ -249,11 +298,11 @@ func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
 	issuance := intGenISISTuningFromPresetSpec(preset.Issuance)
 	showing := intGenISISTuningFromPresetSpec(preset.Showing)
 	normalized := normalizeIntGenISISTuning(issuance, showing, false)
-	if normalized.TranscriptMode != sweepTranscriptModeSmallField2025 {
+	if normalized.TranscriptMode != intGenISISTranscriptModeSmallField2025 {
 		t.Fatalf("normalized issuance transcript mode=%q", normalized.TranscriptMode)
 	}
 	overrides := intGenISISTuningToIssuanceOverrides(normalized, credential.Ternary1024IntGenISISProfile().N)
-	if overrides.TranscriptMode != sweepTranscriptModeSmallField2025 {
+	if overrides.TranscriptMode != intGenISISTranscriptModeSmallField2025 {
 		t.Fatalf("issuance override transcript mode=%q", overrides.TranscriptMode)
 	}
 	if !overrides.FixedTranscriptSize {
@@ -267,21 +316,21 @@ func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
 		t.Fatalf("issuance opts fixed transcript size=false")
 	}
 	spec := smallWoodTuningSpecFromOpts(opts)
-	if spec.TranscriptMode != sweepTranscriptModeSmallField2025 {
+	if spec.TranscriptMode != intGenISISTranscriptModeSmallField2025 {
 		t.Fatalf("persisted SmallWood transcript mode=%q", spec.TranscriptMode)
 	}
 	if !spec.FixedTranscriptSize {
 		t.Fatalf("persisted SmallWood fixed transcript size=false")
 	}
 	roundTrip := persistedIssuanceRuntimeOverridesWithSmallWood(spec.NCols, spec.LVCSNCols, spec.NLeaves, nil, spec)
-	if roundTrip.TranscriptMode != sweepTranscriptModeSmallField2025 {
+	if roundTrip.TranscriptMode != intGenISISTranscriptModeSmallField2025 {
 		t.Fatalf("round-trip override transcript mode=%q", roundTrip.TranscriptMode)
 	}
 	if !roundTrip.FixedTranscriptSize {
 		t.Fatalf("round-trip fixed transcript size=false")
 	}
 
-	if !issuance.FixedTranscriptSize || issuance.TranscriptMode != sweepTranscriptModeSmallField2025 {
+	if !issuance.FixedTranscriptSize || issuance.TranscriptMode != intGenISISTranscriptModeSmallField2025 {
 		t.Fatalf("preset issuance tuning lost maintained transcript defaults: %+v", issuance)
 	}
 }

@@ -164,7 +164,7 @@ func LoadBMatrixMetadata(path string) (BMatrixMetadata, error) {
 	}
 	if tmp.Version == 1 {
 		if len(tmp.B) != 4 {
-			return tmp, fmt.Errorf("legacy b has %d rows, want 4", len(tmp.B))
+			return tmp, fmt.Errorf("version-1 b has %d rows, want 4", len(tmp.B))
 		}
 		tmp.TargetDim = 1
 		tmp.X0Len = 1

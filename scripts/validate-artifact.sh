@@ -25,6 +25,39 @@ run() {
 	"$@"
 }
 
+run_deadcode() {
+	printf '\n==> deadcode %s\n' "$*"
+	out=$(mktemp "${TMPDIR:-/tmp}/spruce-deadcode.XXXXXX")
+	if command -v deadcode >/dev/null 2>&1; then
+		deadcode_bin=deadcode
+	else
+		run go install golang.org/x/tools/cmd/deadcode@v0.36.0
+		deadcode_bin="$(go env GOPATH)/bin/deadcode"
+	fi
+	if ! "$deadcode_bin" "$@" >"$out" 2>&1; then
+		cat "$out" >&2
+		rm -f "$out"
+		exit 1
+	fi
+	if [ -s "$out" ]; then
+		cat "$out" >&2
+		rm -f "$out"
+		exit 1
+	fi
+	rm -f "$out"
+}
+
+check_gofmt() {
+	out=$(mktemp "${TMPDIR:-/tmp}/spruce-gofmt.XXXXXX")
+	find . -name '*.go' -not -path './external/*' -not -path './.git/*' -print | xargs gofmt -l >"$out"
+	if [ -s "$out" ]; then
+		cat "$out" >&2
+		rm -f "$out"
+		exit 1
+	fi
+	rm -f "$out"
+}
+
 showing_bytes_from_report() {
 	awk '
 		/"showing": \{/ { in_showing = 1; next }
@@ -58,6 +91,7 @@ check_preset() {
 	echo "$preset showing.paper_transcript_bytes=$got"
 }
 
+run check_gofmt
 run go test ./...
 run go vet ./...
 if command -v staticcheck >/dev/null 2>&1; then
@@ -65,17 +99,19 @@ if command -v staticcheck >/dev/null 2>&1; then
 else
 	run go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
 fi
-if command -v deadcode >/dev/null 2>&1; then
-	run deadcode -test ./...
-	run deadcode ./...
-else
-	run go run golang.org/x/tools/cmd/deadcode@v0.36.0 -test ./...
-	run go run golang.org/x/tools/cmd/deadcode@v0.36.0 ./...
-fi
+run_deadcode -test ./...
+run_deadcode ./...
+run go build ./cmd/issuance ./cmd/showing
 
-check_preset n512-compact96 21754
-check_preset n1024-compact96 25882
-check_preset n1024-compact125 34853
+check_preset n512-compact96 22008
+check_preset n1024-compact96 26136
+check_preset n1024-compact125 35215
+check_preset n1024-q10-128 37266
+check_preset n1024-q16-128 42155
+check_preset n1024-q32-128 48960
+check_preset n1024-q10-96 29645
+check_preset n1024-q16-96 30583
+check_preset n1024-q32-96 37249
 
 if [ "$cleanup_artifacts" -eq 1 ]; then
 	echo "artifact validation passed; temporary artifacts removed"

@@ -40,14 +40,6 @@ func NewVerifierWithParamsAndPointsChecked(ringQ *ring.Ring, r int, params Param
 	return &Verifier{ringQ: ringQ, r: r, params: params, points: points, nLeaves: len(points)}, nil
 }
 
-// VerifyEvalFormal runs DECS.Eval checks with formal coefficient rows for R.
-func (v *Verifier) VerifyEvalFormal(
-	root [16]byte, Gamma [][]uint64, R [][]uint64,
-	open *DECSOpening,
-) bool {
-	return v.VerifyEvalFormalHash(root[:], Gamma, R, open)
-}
-
 func (v *Verifier) VerifyEvalFormalHash(
 	rootHash []byte, Gamma [][]uint64, R [][]uint64,
 	open *DECSOpening,
@@ -332,29 +324,11 @@ func pathRowIndices(open *DECSOpening, row int) ([]int, bool) {
 	return rowVals, true
 }
 
-// VerifyEvalAt enforces that the prover opened exactly the challenged set E,
-// then runs the standard DECS checks.
-func (v *Verifier) VerifyEvalAt(
-	root [16]byte, Gamma [][]uint64, R []*ring.Poly,
-	open *DECSOpening, E []int,
-) bool {
-	return v.VerifyEvalAtFormal(root, Gamma, ringRowsToFormal(R, v.ringQ.Modulus[0]), open, E)
-}
-
 func (v *Verifier) VerifyEvalAtHash(
 	rootHash []byte, Gamma [][]uint64, R []*ring.Poly,
 	open *DECSOpening, E []int,
 ) bool {
 	return v.VerifyEvalAtFormalHash(rootHash, Gamma, ringRowsToFormal(R, v.ringQ.Modulus[0]), open, E)
-}
-
-// VerifyEvalAtFormal enforces that the prover opened exactly E, then runs
-// VerifyEvalFormal.
-func (v *Verifier) VerifyEvalAtFormal(
-	root [16]byte, Gamma [][]uint64, R [][]uint64,
-	open *DECSOpening, E []int,
-) bool {
-	return v.VerifyEvalAtFormalHash(root[:], Gamma, R, open, E)
 }
 
 func (v *Verifier) VerifyEvalAtFormalHash(

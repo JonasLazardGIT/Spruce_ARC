@@ -1,58 +1,46 @@
 # credential
 
-`credential/` defines the persisted public parameters, holder state, preset
-registry, and verifier keys used by the maintained committed-message
-IntGenISIS flow.
+`credential/` defines the persisted IntGenISIS data model: public parameters,
+holder state, maintained presets, policy data, presentations, and verifier
+keys.
 
-## Maintained Profiles
+## Package Role
 
-The live profiles are:
+- Own the public preset registry used by `cmd/issuance` and `cmd/showing`.
+- Persist the public matrices, profile metadata, commitment/security
+  annotations, and verifier-facing parameters.
+- Persist holder state after issuance without storing issuer trapdoor material.
+- Bind presentation metadata, replay state, and policy digests to verifier
+  checks.
 
-- `intgenisis_profile_b`: `N=512`, live `B=1`, used by `n512-compact96`
-- `intgenisis_profile_c`: `N=1024`, live `B=1`, used by the degree-1024 presets
+## Key Files
 
-The PRF key entropy is a separate 48-coefficient seed in `[-4,4]`, packed
-base-9 into the eight Poseidon key lanes.
+- `intgenisis_profile.go`: profile descriptors for the maintained `N=512` and
+  `N=1024` families.
+- `intgenisis_presets.go`: the preset registry and preset-derived accounting.
+- `public_params.go`: shared public-parameter serialization.
+- `intgenisis_public.go`: IntGenISIS public-parameter structure.
+- `intgenisis_state.go`: holder state saved by issuance and consumed by
+  showing.
+- `intgenisis_presentation.go`: verifier-facing presentation metadata.
+- `intgenisis_verifier_key.go`: verifier-key persistence.
+- `intgenisis_security.go`: archived estimator metadata attached to public
+  parameters.
 
-The public preset registry contains exactly:
+## Current Invariants
 
-```text
-n512-compact96
-n1024-compact96
-n1024-compact125
-```
-
-## Public Parameters
-
-IntGenISIS public parameters store:
-
-- `Profile`
-- `Modulus`
-- `HashRelation = bb_tran`
-- `BPath`
-- `BoundB` / `CommitmentBound` for ordinary `M`, `s`, and `e`
-- `C_M`, `A_s`
-- `ell_M`, `k_s`, `n_c`
-- `ell_mu_sig`, `ell_x0`, `ell_x1`
-- `ring_degree`
-
-The issuer signs:
-
-```text
-T = c + h_tran(mu_sig, x0, x1)
-```
-
-where `c = C_M*M + A_s*s + e`.
-
-## State
-
-The IntGenISIS holder state stores the committed message witness, issuer hash
-data, NTRU signature rows, public NTRU key material, and runtime anchors needed
-to build a showing proof. It must not contain issuer trapdoor material.
+- The public CLI parameter surface is the maintained preset registry.
+- Preset-derived `ROQueryCaps` and `DECSCollisionBits` remain part of reports
+  and persisted runtime artifacts.
+- Holder state stores witness and signature material needed for showing; it
+  must not contain issuer trapdoor material.
+- Public parameters bind `Profile`, `Modulus`, `HashRelation`, `BPath`,
+  commitment matrices, dimensions, `ring_degree`, and security metadata.
+- The PRF seed is a bounded 48-coefficient witness region that is packed into
+  the Poseidon key lanes by the protocol layer.
 
 ## Read Next
 
-- [../docs/protocol.md](../docs/protocol.md)
-- [../docs/intgenisis_protocol_h_tran.md](../docs/intgenisis_protocol_h_tran.md)
-- [../docs/intgenisis_lattice_security.md](../docs/intgenisis_lattice_security.md)
-- [../docs/degree1024_maintained_presets.md](../docs/degree1024_maintained_presets.md)
+- [Protocol](../docs/PROTOCOL.md)
+- [Security](../docs/SECURITY.md)
+- [Artifact Guide](../ARTIFACT.md)

@@ -1,10 +1,7 @@
 package PIOP
 
 import (
-	"fmt"
 	"math"
-	"strconv"
-	"strings"
 
 	decs "vSIS-Signature/DECS"
 )
@@ -28,53 +25,11 @@ type FullGameSoundnessReport struct {
 	ShowingAlgebraicContribution  float64 `json:"showing_algebraic_contribution"`
 }
 
-// ParseROQueryCaps parses Q0,Q1,Q2,Q3,Q4 for SmallWood ROM accounting.
-func ParseROQueryCaps(s string) ([5]int, error) {
-	var caps [5]int
-	parts := strings.Split(s, ",")
-	if len(parts) != len(caps) {
-		return caps, fmt.Errorf("ro-query-caps: expected 5 comma-separated integers Q0,Q1,Q2,Q3,Q4")
-	}
-	for i, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			return caps, fmt.Errorf("ro-query-caps: empty Q%d", i)
-		}
-		v, err := strconv.Atoi(part)
-		if err != nil {
-			return caps, fmt.Errorf("ro-query-caps: invalid Q%d %q", i, part)
-		}
-		if v < 0 {
-			return caps, fmt.Errorf("ro-query-caps: Q%d must be nonnegative", i)
-		}
-		caps[i] = v
-	}
-	return caps, nil
-}
-
 func ResolveDECSCollisionBits(bits int) int {
 	if bits > 0 && bits%8 == 0 && decs.IsSupportedHashBytes(bits/8) {
 		return bits
 	}
 	return decs.DefaultHashBytes * 8
-}
-
-func ValidateDECSCollisionBits(bits int) error {
-	if bits > 0 && bits%8 == 0 && decs.IsSupportedHashBytes(bits/8) {
-		return nil
-	}
-	return fmt.Errorf("DECS collision bits must be one of %s", DECSCollisionBitsUsage())
-}
-
-func ValidateDECSCollisionBytes(hashBytes int) error {
-	if decs.IsSupportedHashBytes(hashBytes) {
-		return nil
-	}
-	return fmt.Errorf("DECS collision bytes must be one of %s", decs.SupportedHashBytesList())
-}
-
-func DECSCollisionBitsUsage() string {
-	return "128,136,144,160,192,224,256"
 }
 
 func decsCollisionBytesForOpts(opts SimOpts) int {

@@ -169,7 +169,7 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 func smallWoodTuningSpecFromOpts(opts PIOP.SimOpts) *smallWoodTuningSpec {
 	transcriptMode := ""
 	if opts.TranscriptProtocolMode == PIOP.TranscriptProtocolSmallField2025V1 {
-		transcriptMode = sweepTranscriptModeSmallField2025
+		transcriptMode = intGenISISTranscriptModeSmallField2025
 	}
 	return &smallWoodTuningSpec{
 		NCols:               opts.NCols,

@@ -21,7 +21,7 @@ const (
 )
 
 const (
-	ShowingPresetInlineTargetReplayCompactResearch = "aggregate_inline_target_replay_compact_research"
+	ShowingPresetInlineTargetReplayCompact = "aggregate_inline_target_replay_compact"
 )
 
 type ShowingReplayMode string
@@ -268,7 +268,7 @@ func ResolveSigShortnessMode(proof *Proof) string {
 func sigShortnessV18EnabledForOpts(opts SimOpts) bool {
 	resolved := opts
 	resolved.applyDefaults()
-	if normalizeShowingPreset(resolved.ShowingPreset) != ShowingPresetInlineTargetReplayCompactResearch {
+	if normalizeShowingPreset(resolved.ShowingPreset) != ShowingPresetInlineTargetReplayCompact {
 		return false
 	}
 	if normalizeShowingReplayMode(resolved.ShowingReplayMode) != ShowingReplayModeFull || !resolved.AggregateR0Replay {
@@ -347,8 +347,8 @@ func sigLookupShadowR121L2FreeForOpts(opts SimOpts) bool {
 
 func normalizeShowingPreset(preset string) string {
 	switch strings.TrimSpace(preset) {
-	case ShowingPresetInlineTargetReplayCompactResearch:
-		return ShowingPresetInlineTargetReplayCompactResearch
+	case ShowingPresetInlineTargetReplayCompact:
+		return ShowingPresetInlineTargetReplayCompact
 	default:
 		return ""
 	}
@@ -364,7 +364,7 @@ func ResolveShowingPresetLabelForOpts(opts SimOpts) string {
 	resolved := opts
 	resolved.applyDefaults()
 	requested := normalizeShowingPreset(opts.ShowingPreset)
-	if requested == ShowingPresetInlineTargetReplayCompactResearch && showingOptsMatchInlineTargetReplayCompactShape(resolved) {
+	if requested == ShowingPresetInlineTargetReplayCompact && showingOptsMatchInlineTargetReplayCompactShape(resolved) {
 		return requested
 	}
 	return ""
@@ -391,7 +391,7 @@ type SimOpts struct {
 	Eta      int
 	NLeaves  int
 	Theta    int
-	// RingDegree selects the ring dimension for opt-in research runs. Zero
+	// RingDegree selects the ring dimension for non-default internal runs. Zero
 	// keeps the repository default from internal/source_data/Parameters.json.
 	RingDegree int
 	Kappa      [4]int
@@ -438,11 +438,10 @@ type SimOpts struct {
 	// MuWitnessPackWidth compresses full-capacity showing-time mu carrier
 	// blocks. Width 1 is the singleton carrier; width 2 packs matching columns
 	// from adjacent logical mu blocks into one carrier value. Width 4 is an
-	// internal high-degree experiment and is not selected by public presets.
+	// internal high-degree variant and is not selected by public presets.
 	MuWitnessPackWidth int
-	// EnablePackedPRFWitnessRows gates the experimental row-major PRF packing
-	// path. The retained verifier model still uses the unpacked layout by
-	// default.
+	// EnablePackedPRFWitnessRows gates the internal row-major PRF packing path.
+	// The retained verifier model still uses the unpacked layout by default.
 	EnablePackedPRFWitnessRows bool
 	// EnablePRFCompanion emits and verifies the Phase-2 authenticated packed
 	// coordinate bridge for packed PRF witness rows.
@@ -452,16 +451,16 @@ type SimOpts struct {
 	AggregateR0Replay bool
 	// PackedSigChainGroupSize is fixed by the selected optimized V18 profile.
 	PackedSigChainGroupSize int
-	// SigShortnessNCols is reserved for future single-root signature packing
-	// research. The removed V12/V13 two-oracle paths are no longer live.
+	// SigShortnessNCols is reserved for future single-root signature packing.
+	// The removed V12/V13 two-oracle paths are no longer live.
 	SigShortnessNCols int
-	// IntGenISISMSECompression selects the legacy IntGenISIS ternary carrier
+	// IntGenISISMSECompression selects the IntGenISIS ternary carrier
 	// compression level for showing-time M/s/e coefficient rows. Level 0 keeps
 	// the uncompressed rows; bounded-range B>1 profiles reject level k>0.
 	IntGenISISMSECompression int
 	// IntGenISISReplayProjection selects the IntGenISIS showing replay
 	// projection mode. Empty and "none" keep the explicit hat-row relation;
-	// experimental source-linear modes are sound-gated by layout validation.
+	// non-maintained source-linear modes are sound-gated by layout validation.
 	IntGenISISReplayProjection string
 	// UnsafeSigLookupShadowR121L2 enables an explicitly unsound measurement
 	// mode for the R121/L2 fixed-table lookup idea. "free" omits interval
@@ -474,8 +473,8 @@ type SimOpts struct {
 	// keeps the historical dense replay protocol.
 	TranscriptProtocolMode string
 	// TranscriptVersion selects the Fiat-Shamir/proof-message transcript shape.
-	// Empty preserves the legacy implementation. The SmallWood 2025 version is
-	// introduced incrementally and requires an explicit PACS Q payload.
+	// Empty preserves the default implementation. The SmallWood 2025 version
+	// requires an explicit PACS Q payload.
 	TranscriptVersion string
 	// FixedTranscriptSize selects fixed-width DECS openings for stable maintained
 	// proof-size reporting. It does not change the algebraic statement.
@@ -571,7 +570,7 @@ func (o *SimOpts) applyDefaults() {
 	}
 	if o.Credential && resolveCoeffNativeSigModel(*o) == CoeffNativeSigModelLiteralPackedAggregatedV3 {
 		o.ShowingPreset = normalizeShowingPreset(o.ShowingPreset)
-		if o.ShowingPreset == ShowingPresetInlineTargetReplayCompactResearch {
+		if o.ShowingPreset == ShowingPresetInlineTargetReplayCompact {
 			o.ShowingReplayMode = ShowingReplayModeFull
 			o.AggregateR0Replay = true
 			if o.NCols <= 0 {
@@ -717,11 +716,11 @@ type CoeffNativeSigLayout struct {
 	USlots            []PRFSlot
 	X0Slots           []PRFSlot
 	X1Slot            PRFSlot
-	// Replay-facing projection rows for the legacy compressed non-sign scalar path.
+	// Replay-facing projection rows for the compressed non-sign scalar path.
 	PostSignMsgSumRow int
 	PostSignRndSumRow int
 	PostSignX1Row     int
-	// Signed-digit certificate rows for the legacy compressed non-sign scalar path.
+	// Signed-digit certificate rows for the compressed non-sign scalar path.
 	UScalarCertBase         int
 	UScalarCertCount        int
 	X0ScalarCertBase        int
@@ -760,7 +759,7 @@ type RowLayout struct {
 	RndCount   int
 	// IntGenISISPreSign records the committed-message pre-sign witness row
 	// inventory. The rows are raw ring-polynomial witnesses in the order
-	// M || s || e; no legacy r0/r1/challenge rows are present.
+	// M || s || e; no r0/r1/challenge rows are present.
 	IntGenISISPreSign *IntGenISISPreSignRowLayout
 	// IntGenISISShowing records the committed-message showing witness inventory.
 	// The rows are raw ring-polynomial witnesses before PRF auxiliary rows.
@@ -862,7 +861,7 @@ type RowLayout struct {
 	RndRangeBase                   int
 	X1RangeBase                    int
 	NonSigBoundRowsPer             int
-	// Experimental v3 logical-slice accounting for the single-root coeff-native
+	// V3 logical-slice accounting for the single-root coeff-native
 	// showing path.
 	SigPrimaryLimbRows            int
 	ScalarBundleRows              int

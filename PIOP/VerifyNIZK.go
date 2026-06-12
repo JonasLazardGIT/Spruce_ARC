@@ -214,7 +214,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 
 	if paperQPayloadOnly {
 		if proofHasLegacyQDECS(proof) {
-			return false, false, false, errors.New("VerifyNIZK: strict SmallWood transcript carries redundant legacy Q DECS material")
+			return false, false, false, errors.New("VerifyNIZK: strict SmallWood transcript carries redundant Q DECS material")
 		}
 	} else if proof.QRoot == ([16]byte{}) && len(proof.QRootHash) == 0 {
 		return false, false, false, errors.New("VerifyNIZK: missing QRoot commitment")

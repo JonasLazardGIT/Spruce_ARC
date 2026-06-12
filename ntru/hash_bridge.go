@@ -17,7 +17,7 @@ import (
 
 // ComputeTargetFromSeeds rebuilds the configured hash target in coefficient
 // domain from the provided seeds. It returns coefficients centered in
-// [-Q/2, Q/2]. Empty relation defaults to the legacy BBS path.
+// [-Q/2, Q/2]. Empty relation defaults to the BBS path.
 func ComputeTargetFromSeeds(pp *ntrurio.SystemParams, Bfile, relation string, mSeed, x0Seed, x1Seed []byte) ([]int64, error) {
 	if pp == nil {
 		return nil, errors.New("nil params")

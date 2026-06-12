@@ -114,7 +114,7 @@ func buildSigShortnessV18BindingDigest(sig *SigShortnessProof, layout RowLayout,
 	}
 	_ = witnessNCols
 	if len(sig.SupportSlots) != 0 || sig.Opening != nil {
-		return nil, fmt.Errorf("sig shortness V18 must not populate legacy or other version payload fields")
+		return nil, fmt.Errorf("sig shortness V18 must not populate inactive or other-version payload fields")
 	}
 	v18 := sig.V18
 	ringDegree := resolveRowLayoutRingDegree(layout)
@@ -1394,7 +1394,7 @@ func validateSigShortnessV18Shape(proof *Proof) error {
 		return fmt.Errorf("missing sig shortness V18 payload")
 	}
 	if len(sig.SupportSlots) != 0 || sig.Opening != nil {
-		return fmt.Errorf("sig shortness V18 must not populate legacy or unrelated payload fields")
+		return fmt.Errorf("sig shortness V18 must not populate inactive or unrelated payload fields")
 	}
 	v18 := sig.V18
 	if v18.Mode != sigShortnessV18ModeReplayCompact {

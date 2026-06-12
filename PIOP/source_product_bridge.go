@@ -2,8 +2,8 @@ package PIOP
 
 import decs "vSIS-Signature/DECS"
 
-// SourceProductBridge is retained only as a deprecated compatibility payload so
-// proof/report schemas stay stable while maintained proofs keep it nil.
+// SourceProductBridge is retained only as a compatibility payload so proof and
+// report schemas stay stable while maintained proofs keep it nil.
 type SourceProductBridge struct {
 	Version        int
 	RowIndices     []int

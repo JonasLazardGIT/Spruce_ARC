@@ -28,36 +28,21 @@ const (
 )
 
 type benchmarkIntGenISISE2EConfig struct {
-	ArtifactDir       string
-	Profile           string
-	ProfileBound      int64
-	PRFParamsPath     string
-	JSONOut           string
-	Force             bool
-	Seed              int64
-	Issuance          intGenISISTuning
-	Showing           intGenISISTuning
-	NCols             int
-	LVCSNCols         int
-	NLeaves           int
-	Eta               int
-	Theta             int
-	Rho               int
-	Ell               int
-	EllPrime          int
-	PRFCompanionMode  PIOP.PRFCompanionMode
-	PRFGroupRounds    int
-	CheckpointSamples int
-	KeygenTrials      int
-	KeygenAttempts    int
-	NTRUBeta          uint64
-	MaxTrials         int
-	MaxNLeaves        int
-	ROQueryCaps       [5]int
-	ROQueryCapsSet    bool
-	DECSCollisionBits int
-	AcceptedIssuance  int
-	AcceptedShowing   int
+	ArtifactDir    string
+	PresetName     string
+	Profile        string
+	PRFParamsPath  string
+	JSONOut        string
+	Force          bool
+	Verbose        bool
+	Seed           int64
+	Issuance       intGenISISTuning
+	Showing        intGenISISTuning
+	KeygenTrials   int
+	KeygenAttempts int
+	NTRUBeta       uint64
+	MaxTrials      int
+	MaxNLeaves     int
 }
 
 type intGenISISTuning struct {
@@ -86,12 +71,12 @@ type intGenISISTuning struct {
 }
 
 type benchmarkIntGenISISE2ETimings struct {
-	SetupPublicMS    float64 `json:"setup_public_ms"`
-	SetupNTRUKeysMS  float64 `json:"setup_ntru_keys_ms"`
-	HolderCommitMS   float64 `json:"holder_commit_ms"`
-	HolderProveMS    float64 `json:"holder_prove_ms"`
-	IssuerSignMS     float64 `json:"issuer_verify_sign_ms"`
-	HolderFinalizeMS float64 `json:"holder_finalize_ms"`
+	SetupPublicMS    float64 `json:"setup_public_ms,omitempty"`
+	SetupNTRUKeysMS  float64 `json:"setup_ntru_keys_ms,omitempty"`
+	HolderCommitMS   float64 `json:"holder_commit_ms,omitempty"`
+	HolderProveMS    float64 `json:"holder_prove_ms,omitempty"`
+	IssuerSignMS     float64 `json:"issuer_verify_sign_ms,omitempty"`
+	HolderFinalizeMS float64 `json:"holder_finalize_ms,omitempty"`
 }
 
 type benchmarkIntGenISISE2EOptions struct {
@@ -131,6 +116,7 @@ type benchmarkIntGenISISE2EArtifacts struct {
 type benchmarkIntGenISISE2EReport struct {
 	Version        int                               `json:"version"`
 	Generated      string                            `json:"generated_at"`
+	Preset         string                            `json:"preset,omitempty"`
 	Profile        string                            `json:"profile"`
 	Modulus        uint64                            `json:"q,omitempty"`
 	ProfileBound   int64                             `json:"profile_bound,omitempty"`
@@ -161,44 +147,6 @@ func defaultIntGenISISTuning() intGenISISTuning {
 		PRFGroupRounds:    2,
 		CheckpointSamples: 8,
 	}
-}
-
-func intGenISISTuningFromDefaultConfig(cfg benchmarkIntGenISISE2EConfig) intGenISISTuning {
-	t := defaultIntGenISISTuning()
-	if cfg.NCols > 0 {
-		t.NCols = cfg.NCols
-	}
-	if cfg.LVCSNCols > 0 {
-		t.LVCSNCols = cfg.LVCSNCols
-	}
-	if cfg.NLeaves > 0 {
-		t.NLeaves = cfg.NLeaves
-	}
-	if cfg.Eta > 0 {
-		t.Eta = cfg.Eta
-	}
-	if cfg.Theta > 0 {
-		t.Theta = cfg.Theta
-	}
-	if cfg.Rho > 0 {
-		t.Rho = cfg.Rho
-	}
-	if cfg.Ell > 0 {
-		t.Ell = cfg.Ell
-	}
-	if cfg.EllPrime > 0 {
-		t.EllPrime = cfg.EllPrime
-	}
-	if cfg.PRFCompanionMode != "" {
-		t.PRFCompanionMode = cfg.PRFCompanionMode
-	}
-	if cfg.PRFGroupRounds > 0 {
-		t.PRFGroupRounds = cfg.PRFGroupRounds
-	}
-	if cfg.CheckpointSamples > 0 {
-		t.CheckpointSamples = cfg.CheckpointSamples
-	}
-	return t
 }
 
 func benchmarkIntGenISISE2EEnvironmentSnapshot() benchmarkIntGenISISE2EEnvironment {
@@ -389,12 +337,12 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 }
 
 func intGenISISLiveTranscriptConfig(mode string) (codec, protocol string, err error) {
-	normalized, err := normalizeSweepTranscriptMode(mode)
+	normalized, err := normalizeIntGenISISTranscriptMode(mode)
 	if err != nil {
 		return "", "", err
 	}
 	switch normalized {
-	case sweepTranscriptModeSmallField2025:
+	case intGenISISTranscriptModeSmallField2025:
 		return "", PIOP.TranscriptProtocolSmallField2025V1, nil
 	default:
 		return "", "", fmt.Errorf("transcript mode %q has no live verifier implementation", normalized)
@@ -423,11 +371,11 @@ func intGenISISLiveTranscriptProtocolOrDefault(mode string) string {
 }
 
 func intGenISISLiveTranscriptVersionOrDefault(mode string) string {
-	normalized, err := normalizeSweepTranscriptMode(mode)
+	normalized, err := normalizeIntGenISISTranscriptMode(mode)
 	if err != nil {
 		return ""
 	}
-	if normalized == sweepTranscriptModeSmallField2025 {
+	if normalized == intGenISISTranscriptModeSmallField2025 {
 		return PIOP.TranscriptVersionSmallWood2025
 	}
 	return ""
@@ -441,29 +389,10 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	if !ok {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("unsupported IntGenISIS profile %q", cfg.Profile)
 	}
-	if cfg.ProfileBound < 0 {
-		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("invalid profile bound %d", cfg.ProfileBound)
-	}
-	if cfg.ProfileBound > 0 && cfg.ProfileBound != credential.IntGenISISLiveBound {
-		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("IntGenISIS live bound override=%d want %d", cfg.ProfileBound, credential.IntGenISISLiveBound)
-	}
 	if cfg.PRFParamsPath == "" {
 		cfg.PRFParamsPath = defaultPRFParamsPath
 	}
-	defaults := intGenISISTuningFromDefaultConfig(cfg)
-	if cfg.ROQueryCapsSet {
-		cfg.Issuance.ROQueryCaps = cfg.ROQueryCaps
-		cfg.Issuance.ROQueryCapsSet = true
-		cfg.Showing.ROQueryCaps = cfg.ROQueryCaps
-		cfg.Showing.ROQueryCapsSet = true
-	}
-	if cfg.DECSCollisionBits > 0 {
-		cfg.Issuance.DECSCollisionBits = cfg.DECSCollisionBits
-		cfg.Showing.DECSCollisionBits = cfg.DECSCollisionBits
-	}
-	if cfg.AcceptedIssuance < 0 || cfg.AcceptedShowing < 0 {
-		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("accepted proof counts must be nonnegative")
-	}
+	defaults := defaultIntGenISISTuning()
 	cfg.Issuance = normalizeIntGenISISTuning(cfg.Issuance, defaults, false)
 	cfg.Showing = normalizeIntGenISISTuning(cfg.Showing, defaults, true)
 	cfg.MaxNLeaves = normalizeIntGenISISMaxNLeaves(cfg.MaxNLeaves)
@@ -575,11 +504,12 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	if err != nil {
 		return benchmarkIntGenISISE2EReport{}, err
 	}
-	fullGame := PIOP.ComposeFullGameSoundness(issuanceMetrics.Soundness, showingMetrics.Soundness, cfg.AcceptedIssuance, cfg.AcceptedShowing)
+	fullGame := PIOP.ComposeFullGameSoundness(issuanceMetrics.Soundness, showingMetrics.Soundness, 1, 1)
 
 	report := benchmarkIntGenISISE2EReport{
 		Version:      benchmarkIntGenISISE2EVersion,
 		Generated:    time.Now().UTC().Format(time.RFC3339),
+		Preset:       cfg.PresetName,
 		Profile:      profile.Name,
 		Modulus:      profile.Q,
 		ProfileBound: credential.IntGenISISLiveBound,
@@ -603,7 +533,6 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 			"showing shortness proves the configured signed-radix representable bound; the public signature beta is builder-validated and Fiat-Shamir-bound",
 		},
 	}
-	benchmarkIntGenISISE2EPrintReport(report)
 	if cfg.JSONOut != "" {
 		if err := writeJSONFile(cfg.JSONOut, report, 0o644); err != nil {
 			return benchmarkIntGenISISE2EReport{}, fmt.Errorf("write e2e benchmark json: %w", err)
@@ -893,7 +822,22 @@ func benchmarkIntGenISISE2ESignatureBoundExtras(bound int64) map[string]interfac
 	}
 }
 
-func benchmarkIntGenISISE2EPrintReport(report benchmarkIntGenISISE2EReport) {
+func benchmarkIntGenISISE2EPrintReport(report benchmarkIntGenISISE2EReport, verbose bool) {
+	if !verbose {
+		issuanceMS := report.Timings.SetupPublicMS + report.Timings.SetupNTRUKeysMS + report.Timings.HolderCommitMS + report.Timings.HolderProveMS + report.Timings.IssuerSignMS + report.Timings.HolderFinalizeMS
+		showingMS := report.Showing.ProvingMS + report.Showing.VerificationMS
+		log.Printf("[issuance-cli] benchmark-intgenisis-e2e status=pass preset=%s profile=%s artifact_dir=%s showing.paper_transcript_bytes=%d theorem_total_bits=%.2f replay_rejected=%v issuance_ms=%.2f showing_ms=%.2f",
+			report.Preset,
+			report.Profile,
+			report.ArtifactDir,
+			report.Showing.PaperTranscriptBytes,
+			displayBits(report.Showing.TheoremTotalBits),
+			report.ReplayRejected,
+			issuanceMS,
+			showingMS,
+		)
+		return
+	}
 	log.Printf("[issuance-cli] IntGenISIS e2e artifact_dir=%s profile=%s q=%d", report.ArtifactDir, report.Profile, report.Modulus)
 	benchmarkIntGenISISE2EPrintPhase("issuance", report.Issuance)
 	benchmarkIntGenISISE2EPrintPhase("showing", report.Showing)
@@ -933,7 +877,7 @@ func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics
 		m.DQ,
 		displayBits(m.SoundnessEq8Bits),
 	)
-	log.Printf("[issuance-cli] IntGenISIS %s eq8_round_bits=[%.2f %.2f %.2f %.2f] algebraic_round_bits=[%.2f %.2f %.2f %.2f] algebraic_total_bits=%.2f collision_bits=%.2f one_proof_total_bits=%.2f ro_query_caps=%v collision_space_bits=%d decs_hash_bits=%d decs_tape_bits=%d compat_theorem_total_bits=%.2f ddecs=%d support_cols=%d committed_cols=%d clamped=%v",
+	log.Printf("[issuance-cli] IntGenISIS %s eq8_round_bits=[%.2f %.2f %.2f %.2f] algebraic_round_bits=[%.2f %.2f %.2f %.2f] algebraic_total_bits=%.2f collision_bits=%.2f one_proof_total_bits=%.2f ro_query_caps=%v collision_space_bits=%d decs_hash_bits=%d decs_tape_bits=%d theorem_total_bits=%.2f ddecs=%d support_cols=%d committed_cols=%d clamped=%v",
 		label,
 		displayBits(m.RoundBits[0]),
 		displayBits(m.RoundBits[1]),
@@ -1043,5 +987,5 @@ func millisSince(start time.Time) float64 {
 }
 
 func durationMS(d time.Duration) float64 {
-	return float64(d.Microseconds()) / 1000.0
+	return float64(d.Nanoseconds()) / 1e6
 }

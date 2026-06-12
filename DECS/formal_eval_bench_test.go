@@ -214,8 +214,9 @@ func BenchmarkDECSLeafHashSW115Shape(b *testing.B) {
 }
 
 func benchmarkDECSMerkleFromLeafHashesShape(b *testing.B, nLeaves int) {
-	leaves := make([][16]byte, nLeaves)
+	leaves := make([][]byte, nLeaves)
 	for i := range leaves {
+		leaves[i] = make([]byte, DefaultHashBytes)
 		for j := range leaves[i] {
 			leaves[i][j] = byte(i + 3*j)
 		}
@@ -223,7 +224,7 @@ func benchmarkDECSMerkleFromLeafHashesShape(b *testing.B, nLeaves int) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = BuildMerkleTreeFromLeafHashes(leaves)
+		_ = BuildMerkleTreeFromLeafHashBytes(leaves, DefaultHashBytes)
 	}
 }
 

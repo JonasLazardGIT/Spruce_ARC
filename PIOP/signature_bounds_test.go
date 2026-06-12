@@ -129,7 +129,7 @@ func TestSignatureShortnessProfileMetrics(t *testing.T) {
 		},
 		{
 			name:     "research_r12285_l1",
-			opts:     SimOpts{CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3, SigShortnessProfile: SigShortnessProfileR12285L1Research},
+			opts:     SimOpts{CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3, SigShortnessProfile: SigShortnessProfileR12285L1Compact},
 			wantBase: 12285,
 			wantL:    1,
 			wantRows: 1,
@@ -148,7 +148,7 @@ func TestSignatureShortnessProfileMetrics(t *testing.T) {
 		},
 		{
 			name:    "experimental_r7_l4_rejects_current_beta",
-			opts:    SimOpts{CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3, SigShortnessProfile: SigShortnessProfileR7L4Experimental},
+			opts:    SimOpts{CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3, SigShortnessProfile: SigShortnessProfileR7L4LowRadix},
 			wantErr: true,
 		},
 	}
@@ -249,7 +249,7 @@ func TestSignatureShortnessNamedCompactProfilesRepresentability(t *testing.T) {
 	for _, profile := range []string{
 		SigShortnessProfileR24L3Compact,
 		SigShortnessProfileR111L2Compact,
-		SigShortnessProfileR12285L1Research,
+		SigShortnessProfileR12285L1Compact,
 	} {
 		spec, err := signatureChainSpecForOpts(ringQ, SimOpts{
 			CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
@@ -276,7 +276,7 @@ func TestSignatureShortnessObsoleteProfilesRejectCurrentBeta(t *testing.T) {
 	for _, profile := range []string{
 		SigShortnessProfileR12L3Default,
 		SigShortnessProfileR13L3Legacy,
-		SigShortnessProfileR7L4Experimental,
+		SigShortnessProfileR7L4LowRadix,
 	} {
 		if _, err := signatureChainSpecForOpts(ringQ, SimOpts{
 			CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
@@ -364,9 +364,9 @@ func TestResolveShowingPresetLabelForOpts(t *testing.T) {
 			opts: SimOpts{
 				Credential:          true,
 				CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
-				ShowingPreset:       ShowingPresetInlineTargetReplayCompactResearch,
+				ShowingPreset:       ShowingPresetInlineTargetReplayCompact,
 			},
-			want: ShowingPresetInlineTargetReplayCompactResearch,
+			want: ShowingPresetInlineTargetReplayCompact,
 		},
 		{
 			name: "raw_override_has_no_maintained_preset_label",
@@ -392,10 +392,10 @@ func TestResolveSimOptsDefaultsInlineTargetReplayCompactPreset(t *testing.T) {
 	opts := ResolveSimOptsDefaults(SimOpts{
 		Credential:          true,
 		CoeffNativeSigModel: CoeffNativeSigModelLiteralPackedAggregatedV3,
-		ShowingPreset:       ShowingPresetInlineTargetReplayCompactResearch,
+		ShowingPreset:       ShowingPresetInlineTargetReplayCompact,
 	})
-	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetInlineTargetReplayCompactResearch {
-		t.Fatalf("showing preset=%q want %q", got, ShowingPresetInlineTargetReplayCompactResearch)
+	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetInlineTargetReplayCompact {
+		t.Fatalf("showing preset=%q want %q", got, ShowingPresetInlineTargetReplayCompact)
 	}
 	if opts.SigShortnessProfile != SigShortnessProfileR11L4Production {
 		t.Fatalf("sig shortness profile=%q want %q", opts.SigShortnessProfile, SigShortnessProfileR11L4Production)

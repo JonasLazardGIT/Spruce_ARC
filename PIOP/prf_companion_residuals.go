@@ -513,7 +513,7 @@ func verifyPRFCompanionOpenings(
 	mode := prfCompanionModeDefault(proof.PRFCompanion.Mode)
 	if mode == PRFCompanionModeDirectFull {
 		if len(proof.PRFCompanion.CheckpointAudits) != 0 || prfCompanionHasOpeningPayload(proof.PRFCompanion) {
-			return fmt.Errorf("direct_full companion proof carries legacy opening payload")
+			return fmt.Errorf("direct_full companion proof carries inactive opening payload")
 		}
 		return nil
 	}

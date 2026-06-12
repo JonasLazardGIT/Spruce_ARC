@@ -373,7 +373,7 @@ func TestInlineTargetReplayCompactPresetDefaultsToCanonicalW84Tuple(t *testing.T
 	opts := ResolveSimOptsDefaults(SimOpts{
 		Credential:           true,
 		CoeffNativeSigModel:  CoeffNativeSigModelLiteralPackedAggregatedV3,
-		ShowingPreset:        ShowingPresetInlineTargetReplayCompactResearch,
+		ShowingPreset:        ShowingPresetInlineTargetReplayCompact,
 		PRFCompanionMode:     PRFCompanionModeDirectFull,
 		PRFCheckpointSamples: 8,
 	})
@@ -407,8 +407,8 @@ func TestInlineTargetReplayCompactPresetDefaultsToCanonicalW84Tuple(t *testing.T
 	if !sigShortnessV18EnabledForOpts(opts) {
 		t.Fatalf("inline-target preset did not enable V18 shortness")
 	}
-	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetInlineTargetReplayCompactResearch {
-		t.Fatalf("inline-target resolved preset=%q want %q", got, ShowingPresetInlineTargetReplayCompactResearch)
+	if got := ResolveShowingPresetLabelForOpts(opts); got != ShowingPresetInlineTargetReplayCompact {
+		t.Fatalf("inline-target resolved preset=%q want %q", got, ShowingPresetInlineTargetReplayCompact)
 	}
 }
 

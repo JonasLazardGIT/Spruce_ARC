@@ -56,6 +56,7 @@ credential/issuance/summary.json
 # Search outputs are generated.
 parameter_search/
 _markdown_test/
+external/lattice-estimator/
 docs/*.pdf
 paper_section*_alignment_report.md
 poseidon_params_n*_t*_alpha*_M*.txt

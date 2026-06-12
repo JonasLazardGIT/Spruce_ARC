@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -54,8 +55,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--estimator-path",
-        default="lattice-estimator-main",
-        help="path containing the estimator Python package",
+        default="",
+        help="path containing the estimator Python package; defaults to SPRUCE_LATTICE_ESTIMATOR",
     )
     parser.add_argument(
         "--pretty",
@@ -63,6 +64,19 @@ def parse_args() -> argparse.Namespace:
         help="pretty-print JSON",
     )
     return parser.parse_args()
+
+
+def resolve_estimator_path(raw_path: str) -> Path:
+    path_text = raw_path or os.environ.get("SPRUCE_LATTICE_ESTIMATOR", "")
+    if path_text == "":
+        raise SystemExit(
+            "missing estimator checkout; pass --estimator-path or set "
+            "SPRUCE_LATTICE_ESTIMATOR to a pinned malb/lattice-estimator checkout"
+        )
+    path = Path(path_text).resolve()
+    if not (path / "estimator").is_dir():
+        raise SystemExit(f"{path} does not contain the estimator Python package")
+    return path
 
 
 def estimator_commit(path: Path) -> str:
@@ -159,7 +173,7 @@ def binding_diff_space_bits(profile: dict) -> float:
 
 def main() -> int:
     args = parse_args()
-    estimator_path = Path(args.estimator_path).resolve()
+    estimator_path = resolve_estimator_path(args.estimator_path)
     sys.path.insert(0, str(estimator_path))
 
     from sage.all import oo  # noqa: PLC0415

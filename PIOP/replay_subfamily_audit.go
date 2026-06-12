@@ -276,9 +276,9 @@ func proofPRFCompanionMode(proof *Proof) PRFCompanionMode {
 
 func replaySubfamilySourceProductNote(derivedNow bool, name string) string {
 	if derivedNow {
-		return fmt.Sprintf("%s is a deprecated zero-row compatibility entry on the maintained selector.", name)
+		return fmt.Sprintf("%s is an inactive zero-row compatibility entry on the maintained selector.", name)
 	}
-	return fmt.Sprintf("%s remains selected only on legacy proofs that still carry committed source-product rows.", name)
+	return fmt.Sprintf("%s remains selected only on compatibility proofs that still carry committed source-product rows.", name)
 }
 
 func replayPRFSubfamilySpec(kind ReplaySubfamilyKind, rows, replayRows, keyRows, companionRows []int, consumers []string, notes string) replaySubfamilySpec {

@@ -16,6 +16,12 @@ maintained presets:
   n512-compact96
   n1024-compact96
   n1024-compact125
+  n1024-q10-128
+  n1024-q16-128
+  n1024-q32-128
+  n1024-q10-96
+  n1024-q16-96
+  n1024-q32-96
 EOF
 }
 

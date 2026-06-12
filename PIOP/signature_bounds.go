@@ -11,29 +11,29 @@ import (
 const (
 	signatureNTTBridgeChecks = 6
 
-	SigShortnessProfileR11L4Production  = "r11_l4_production"
-	SigShortnessProfileR24L3Compact     = "r24_l3_compact"
-	SigShortnessProfileR111L2Compact    = "r111_l2_compact"
-	SigShortnessProfileR12285L1Research = "r12285_l1_research"
-	SigShortnessProfileR12L3Default     = "r12_l3_default"
-	SigShortnessProfileR13L3Legacy      = "r13_l3_legacy"
-	SigShortnessProfileR7L4Experimental = "r7_l4_experimental"
-	SigShortnessProfileCustomBalanced   = "custom_balanced"
+	SigShortnessProfileR11L4Production = "r11_l4_production"
+	SigShortnessProfileR24L3Compact    = "r24_l3_compact"
+	SigShortnessProfileR111L2Compact   = "r111_l2_compact"
+	SigShortnessProfileR12285L1Compact = "r12285_l1_compact"
+	SigShortnessProfileR12L3Default    = "r12_l3_default"
+	SigShortnessProfileR13L3Legacy     = "r13_l3_legacy"
+	SigShortnessProfileR7L4LowRadix    = "r7_l4_low_radix"
+	SigShortnessProfileCustomBalanced  = "custom_balanced"
 
-	signaturePackedProductionRadix   = 11
-	signaturePackedProductionL       = 4
-	signaturePackedCompactL3Radix    = 24
-	signaturePackedCompactL3L        = 3
-	signaturePackedCompactL2Radix    = 111
-	signaturePackedCompactL2L        = 2
-	signaturePackedResearchL1Radix   = 12285
-	signaturePackedResearchL1L       = 1
-	signaturePackedDefaultRadix      = 12
-	signaturePackedDefaultL          = 3
-	signaturePackedLegacyRadix       = 13
-	signaturePackedLegacyL           = 3
-	signaturePackedExperimentalRadix = 7
-	signaturePackedExperimentalL     = 4
+	signaturePackedProductionRadix = 11
+	signaturePackedProductionL     = 4
+	signaturePackedCompactL3Radix  = 24
+	signaturePackedCompactL3L      = 3
+	signaturePackedCompactL2Radix  = 111
+	signaturePackedCompactL2L      = 2
+	signaturePackedCompactL1Radix  = 12285
+	signaturePackedCompactL1L      = 1
+	signaturePackedDefaultRadix    = 12
+	signaturePackedDefaultL        = 3
+	signaturePackedLegacyRadix     = 13
+	signaturePackedLegacyL         = 3
+	signaturePackedLowRadixRadix   = 7
+	signaturePackedLowRadixL       = 4
 )
 
 var (
@@ -72,10 +72,10 @@ func sigShortnessProfileDigits(profile string) int {
 		return signaturePackedCompactL3L
 	case SigShortnessProfileR111L2Compact:
 		return signaturePackedCompactL2L
-	case SigShortnessProfileR12285L1Research:
-		return signaturePackedResearchL1L
-	case SigShortnessProfileR7L4Experimental:
-		return signaturePackedExperimentalL
+	case SigShortnessProfileR12285L1Compact:
+		return signaturePackedCompactL1L
+	case SigShortnessProfileR7L4LowRadix:
+		return signaturePackedLowRadixL
 	case SigShortnessProfileR13L3Legacy:
 		return signaturePackedLegacyL
 	case SigShortnessProfileR12L3Default:
@@ -93,14 +93,14 @@ func sigShortnessFixedShape(profile string) (base int, L int, caps []int, ok boo
 		return signaturePackedCompactL3Radix, signaturePackedCompactL3L, nil, true
 	case SigShortnessProfileR111L2Compact:
 		return signaturePackedCompactL2Radix, signaturePackedCompactL2L, nil, true
-	case SigShortnessProfileR12285L1Research:
-		return signaturePackedResearchL1Radix, signaturePackedResearchL1L, nil, true
+	case SigShortnessProfileR12285L1Compact:
+		return signaturePackedCompactL1Radix, signaturePackedCompactL1L, nil, true
 	case SigShortnessProfileR12L3Default:
 		return signaturePackedDefaultRadix, signaturePackedDefaultL, nil, true
 	case SigShortnessProfileR13L3Legacy:
 		return signaturePackedLegacyRadix, signaturePackedLegacyL, signaturePackedV2Caps(), true
-	case SigShortnessProfileR7L4Experimental:
-		return signaturePackedExperimentalRadix, signaturePackedExperimentalL, nil, true
+	case SigShortnessProfileR7L4LowRadix:
+		return signaturePackedLowRadixRadix, signaturePackedLowRadixL, nil, true
 	default:
 		return 0, 0, nil, false
 	}
@@ -114,14 +114,14 @@ func normalizeSigShortnessProfile(profile string) string {
 		return SigShortnessProfileR24L3Compact
 	case SigShortnessProfileR111L2Compact:
 		return SigShortnessProfileR111L2Compact
-	case SigShortnessProfileR12285L1Research:
-		return SigShortnessProfileR12285L1Research
+	case SigShortnessProfileR12285L1Compact:
+		return SigShortnessProfileR12285L1Compact
 	case SigShortnessProfileR12L3Default:
 		return SigShortnessProfileR12L3Default
 	case SigShortnessProfileR13L3Legacy:
 		return SigShortnessProfileR13L3Legacy
-	case SigShortnessProfileR7L4Experimental:
-		return SigShortnessProfileR7L4Experimental
+	case SigShortnessProfileR7L4LowRadix:
+		return SigShortnessProfileR7L4LowRadix
 	default:
 		return SigShortnessProfileR11L4Production
 	}

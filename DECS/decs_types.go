@@ -12,16 +12,11 @@ const (
 // IsSupportedHashBytes reports whether hashBytes is one of the maintained
 // byte-aligned Merkle/tape widths.
 func IsSupportedHashBytes(hashBytes int) bool {
-	switch hashBytes {
-	case 16, 17, 18, 20, 24, 28, 32:
-		return true
-	default:
-		return false
-	}
+	return hashBytes >= 16 && hashBytes <= 32
 }
 
 func SupportedHashBytesList() string {
-	return "16,17,18,20,24,28,32"
+	return "16..32"
 }
 
 // DECSOpening holds the DECS opening data sent by the prover.
@@ -41,9 +36,9 @@ type DECSOpening struct {
 	MaskCount int
 	Indices   []int  // explicit indices after the mask segment (optional)
 	TailCount int    // number of tail indices when Indices is packed
-	IndexBits []byte // packed tail indices (13-bit legacy or IndexBitWidth per entry; optional)
-	// IndexBitWidth selects the packed tail-index width. Zero means the legacy
-	// 13-bit encoding used by compact openings.
+	IndexBits []byte // packed tail indices (13-bit compatibility or IndexBitWidth per entry; optional)
+	// IndexBitWidth selects the packed tail-index width. Zero means the
+	// compatibility 13-bit encoding used by compact openings.
 	IndexBitWidth uint8
 	Pvals         [][]uint64 // optional: P_j(e) for each e∈E, j∈[0..r)
 	Mvals         [][]uint64 // optional: M_k(e) for each e∈E, k∈[0..η)

@@ -1,46 +1,40 @@
 # commitment
 
-`commitment/` contains the Ajtai-style linear commitment helper used by
+`commitment/` contains the ring-linear commitment helpers used by IntGenISIS
 issuance.
 
-The live committed witness is semantic and vector-aware:
+The live public commitment equation is:
 
 ```text
-[m || k || r0H[0] || ... || r0H[X0Len-1] || r1H || rbar]
+c = C_M*M + A_s*s + e
 ```
 
-so the public commitment is:
+where `M` is the semantic message polynomial vector, `s` is commitment
+randomness, and `e` is bounded error.
 
-```text
-com = ACom [m || k || r0H || r1H || rbar]^T
-```
+## Package Role
 
-where:
+- Generate and load coefficient matrices for commitment parameters.
+- Sample bounded commitment randomness.
+- Evaluate the public commitment equation over the shared ring.
+- Keep matrix shape checks close to the arithmetic helpers.
 
-- `m` is the hidden attribute/message part
-- `k` is the hidden PRF key later used for `tag = F(k, nonce)`
-- `r0H` is the holder `x0` randomness block of length `X0Len`
-- `r1H` is the scalar denominator-side randomness
-- `rbar` is the remaining bounded commitment randomness
+## Main Entry Points
 
-## Main Responsibility
-
-- compute `com = Ac · vec` over ring polynomials
-
-## Main Entry Point
-
-- `Commit`
+- `GenerateUniformCoeffMatrix`
+- `MatrixFromCoeff`
+- `SampleCommitmentRandomness`
+- `CommitMessage`
 
 ## Current Invariants
 
-- inputs must live in one consistent ring/domain
-- matrix dimensions must match the semantic committed vector
-- the live block order is semantic:
-  `[A_m | A_k | A_r0h | A_r1h | A_rbar]`
-- `LenR0H` must equal `X0Len`
-- no aligned-randomness `(S, E)` commitment path remains live
+- Inputs must live in one consistent ring and modulus domain.
+- Matrix dimensions must match the IntGenISIS public parameters.
+- `M`, `s`, and `e` are bounded by the active profile/preset configuration.
+- The package only evaluates the commitment equation; protocol binding to
+  NTRU targets, PRF keys, and proof rows happens above this layer.
 
 ## Read Next
 
-- [../docs/protocol.md](../docs/protocol.md)
-- [../issuance/flow.go](../issuance/flow.go)
+- [Protocol](../docs/PROTOCOL.md)
+- [Security](../docs/SECURITY.md)

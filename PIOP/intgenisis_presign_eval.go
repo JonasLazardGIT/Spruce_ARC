@@ -28,7 +28,7 @@ func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 		return nil, fmt.Errorf("IntGenISIS replay requires IntGenISIS public inputs")
 	}
 	if len(pub.Ac) > 0 || len(pub.RI0) > 0 || len(pub.RI1) > 0 || len(pub.T) > 0 || len(pub.B) > 0 {
-		return nil, fmt.Errorf("IntGenISIS pre-sign public inputs must not include legacy Ac/RI0/RI1/T/B data")
+		return nil, fmt.Errorf("IntGenISIS pre-sign public inputs must not include inactive Ac/RI0/RI1/T/B data")
 	}
 	if len(pub.Com) == 0 || len(pub.CM) == 0 || len(pub.AS) == 0 {
 		return nil, fmt.Errorf("missing IntGenISIS commitment public inputs")

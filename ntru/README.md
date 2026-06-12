@@ -1,74 +1,48 @@
 # ntru
 
-`ntru/` contains the lattice trapdoor, sampler, and signing logic used by the
-shipped credential path.
+`ntru/` contains the lattice trapdoor, sampler, key, and signature utilities
+used by the credential issuer.
 
-This package signs the public `bb_tran` target fixed by issuance after the
-holder has proven the shared-randomness relation.
+The issuer signs the public IntGenISIS target fixed by issuance:
 
-## Main Responsibilities
+```text
+T = c + h_tran(mu_sig, x0, x1)
+```
 
-- construct NTRU parameters and public keys
-- generate trapdoors with the shipped FFT-based key generation path
-- run the preimage sampler used for signing
-- reconstruct and verify signature targets
-- bind the sampler to the live target equation rather than a deprecated
-  commitment-derived target
+with preimage sampling for:
+
+```text
+A*u = T
+```
+
+## Package Role
+
+- Construct NTRU parameters and public keys.
+- Generate trapdoors with the FFT-based key-generation path.
+- Run the preimage sampler used for signing.
+- Reconstruct and verify signature targets.
+- Persist and load signing/verification key material for CLI flows.
 
 ## Main Entry Points
 
 - `KeygenFFT`
 - `NewSampler`
 - `PublicKeyH`
-
-The CLI-facing wrappers live in:
-
-- `ntru/signverify`
-- `ntru/keys`
-- `ntru/io`
-
-The main operator entrypoints built on top of this package are:
-
 - `signverify.GenerateKeypairAnnulusToFiles`
 - `signverify.SignTargetWithPaths`
 - `signverify.VerifyWithParamsPath`
 
-## Current protocol role
-
-The issuer-side signing step is:
-
-```text
-sample u such that A u = T
-```
-
-where the live target is:
-
-```text
-T = B0 + B1 * (m || k) + sum_j B2[j] * r0[j] + Z
-```
-
-with:
-
-```text
-(B3 - r1) ⊙ Z = 1
-```
-
-The NTRU package does not derive `T` from the commitment and does not know
-about the deprecated `Uc` path. It consumes the public target supplied by the
-current issuance flow.
-
 ## Current Invariants
 
-- the shipped path uses the current tracked parameter file in
-  `internal/source_data/Parameters.json`
-- signatures are verified against the same target construction used during
-  signing
-- the target shape is the direct shared-randomness `bb_tran` target
-- the modulus is shared with the proof system and the PRF
-- the final credential state stores the signature witness and hidden message
-  material, not `T` itself
+- The shipped path uses `internal/source_data/Parameters.json` unless an
+  operator passes an explicit key/parameter path.
+- Signatures are verified against the same target construction used during
+  signing.
+- The modulus is shared with the proof system, commitment layer, and PRF.
+- Final credential state stores signature witness and hidden message material,
+  not the public target itself.
 
 ## Read Next
 
-- [../docs/protocol.md](../docs/protocol.md)
-- [../docs/modulus_choice.md](../docs/modulus_choice.md)
+- [Protocol](../docs/PROTOCOL.md)
+- [Security](../docs/SECURITY.md)

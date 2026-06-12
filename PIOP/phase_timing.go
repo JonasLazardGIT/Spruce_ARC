@@ -23,13 +23,13 @@ func NewPhaseRecorder() *PhaseRecorder {
 }
 
 func (r *PhaseRecorder) RecordDuration(label string, d time.Duration) {
-	if r == nil || label == "" {
+	if r == nil || label == "" || d <= 0 {
 		return
 	}
 	r.mu.Lock()
 	r.entries = append(r.entries, PhaseTiming{
 		Label:        label,
-		Milliseconds: float64(d.Microseconds()) / 1000.0,
+		Milliseconds: float64(d.Nanoseconds()) / 1e6,
 	})
 	r.mu.Unlock()
 }
