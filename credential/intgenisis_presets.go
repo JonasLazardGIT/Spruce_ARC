@@ -10,12 +10,18 @@ const (
 	IntGenISISPresetN512Compact96   = "n512-compact96"
 	IntGenISISPresetN1024Compact96  = "n1024-compact96"
 	IntGenISISPresetN1024Compact125 = "n1024-compact125"
+	IntGenISISPresetN1024BQ32_96    = "n1024-bq32-96"
 	IntGenISISPresetN1024Q10_128    = "n1024-q10-128"
 	IntGenISISPresetN1024Q16_128    = "n1024-q16-128"
 	IntGenISISPresetN1024Q32_128    = "n1024-q32-128"
 	IntGenISISPresetN1024Q10_96     = "n1024-q10-96"
 	IntGenISISPresetN1024Q16_96     = "n1024-q16-96"
 	IntGenISISPresetN1024Q32_96     = "n1024-q32-96"
+
+	IntGenISISPRFProfileDefault = "poseidon2-t20-tag7"
+	IntGenISISPRFProfileTag9    = "poseidon2-t20-tag9"
+	IntGenISISPRFParamsDefault  = "prf/prf_params.json"
+	IntGenISISPRFParamsTag9     = "prf/prf_params_tag9.json"
 )
 
 // IntGenISISTuningPreset is the CLI-stable, package-neutral representation of
@@ -33,6 +39,12 @@ type IntGenISISTuningPreset struct {
 	ROQueryCaps         [5]int  `json:"ro_query_caps,omitempty"`
 	ROQueryCapsSet      bool    `json:"ro_query_caps_set,omitempty"`
 	DECSCollisionBits   int     `json:"decs_collision_bits,omitempty"`
+	DECSHashBits        int     `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits        int     `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits     int     `json:"fs_collision_bits,omitempty"`
+	SaltBits            int     `json:"salt_bits,omitempty"`
+	PRFProfile          string  `json:"prf_profile,omitempty"`
+	PRFParamsPath       string  `json:"prf_params_path,omitempty"`
 	PRFCompanionMode    string  `json:"prf_companion_mode,omitempty"`
 	PRFGroupRounds      int     `json:"prf_group_rounds,omitempty"`
 	CheckpointSamples   int     `json:"prf_checkpoint_samples,omitempty"`
@@ -49,18 +61,24 @@ type IntGenISISTuningPreset struct {
 
 // IntGenISISPreset describes a maintained issuance/showing parameter set.
 type IntGenISISPreset struct {
-	Name              string                 `json:"name"`
-	Description       string                 `json:"description"`
-	Profile           string                 `json:"profile"`
-	TargetEq8Bits     float64                `json:"target_eq8_bits"`
-	TargetTheoremBits float64                `json:"target_theorem_bits,omitempty"`
-	SoundnessGate     string                 `json:"soundness_gate,omitempty"`
-	NTRUBeta          uint64                 `json:"ntru_beta,omitempty"`
-	LVCSNCols         int                    `json:"lvcs_ncols"`
-	MaxNLeaves        int                    `json:"max_nleaves,omitempty"`
-	Issuance          IntGenISISTuningPreset `json:"issuance"`
-	Showing           IntGenISISTuningPreset `json:"showing"`
-	Notes             []string               `json:"notes,omitempty"`
+	Name                string                 `json:"name"`
+	Description         string                 `json:"description"`
+	Profile             string                 `json:"profile"`
+	SecurityProfile     string                 `json:"security_profile,omitempty"`
+	SecurityMode        string                 `json:"security_mode,omitempty"`
+	CoreBitsRequired    float64                `json:"core_bits_required,omitempty"`
+	CompleteSystemClaim bool                   `json:"complete_system_claim,omitempty"`
+	PRFProfile          string                 `json:"prf_profile,omitempty"`
+	PRFParamsPath       string                 `json:"prf_params_path,omitempty"`
+	TargetEq8Bits       float64                `json:"target_eq8_bits"`
+	TargetTheoremBits   float64                `json:"target_theorem_bits,omitempty"`
+	SoundnessGate       string                 `json:"soundness_gate,omitempty"`
+	NTRUBeta            uint64                 `json:"ntru_beta,omitempty"`
+	LVCSNCols           int                    `json:"lvcs_ncols"`
+	MaxNLeaves          int                    `json:"max_nleaves,omitempty"`
+	Issuance            IntGenISISTuningPreset `json:"issuance"`
+	Showing             IntGenISISTuningPreset `json:"showing"`
+	Notes               []string               `json:"notes,omitempty"`
 }
 
 func LookupIntGenISISPreset(name string) (IntGenISISPreset, bool) {
@@ -178,10 +196,10 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		Rho:                 1,
 		Ell:                 9,
 		EllPrime:            1,
-		Kappa:               [4]int{0, 4, 8, 8},
+		Kappa:               [4]int{0, 4, 9, 9},
 		ROQueryCaps:         intGenISISROQueryCaps(intGenISISPow2QueryCap(10)),
 		ROQueryCapsSet:      true,
-		DECSCollisionBits:   160,
+		DECSCollisionBits:   152,
 		PRFCompanionMode:    "direct_full",
 		PRFGroupRounds:      2,
 		CheckpointSamples:   1,
@@ -200,7 +218,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		NCols:               32,
 		LVCSNCols:           37,
 		NLeaves:             524288,
-		Eta:                 44,
+		Eta:                 43,
 		Theta:               8,
 		Rho:                 1,
 		Ell:                 10,
@@ -227,12 +245,12 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		NCols:               32,
 		LVCSNCols:           37,
 		NLeaves:             655360,
-		Eta:                 48,
+		Eta:                 45,
 		Theta:               9,
 		Rho:                 1,
 		Ell:                 11,
 		EllPrime:            1,
-		Kappa:               [4]int{0, 0, 0, 7},
+		Kappa:               [4]int{1, 0, 0, 8},
 		ROQueryCaps:         intGenISISROQueryCaps(intGenISISPow2QueryCap(32)),
 		ROQueryCapsSet:      true,
 		DECSCollisionBits:   200,
@@ -330,8 +348,16 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		SoundnessGate:       "smallwood_2025_1085_live",
 	}
 	n1024Q32Issuance96 := intGenISISIssuanceTuning(n1024Q32Show96)
+	n1024BQ32Show96 := n1024Q32Show96
+	n1024BQ32Show96.DECSHashBits = 168
+	n1024BQ32Show96.DECSTapeBits = 128
+	n1024BQ32Show96.FSCollisionBits = 168
+	n1024BQ32Show96.SaltBits = 128
+	n1024BQ32Show96.PRFProfile = IntGenISISPRFProfileTag9
+	n1024BQ32Show96.PRFParamsPath = IntGenISISPRFParamsTag9
+	n1024BQ32Issuance96 := intGenISISIssuanceTuning(n1024BQ32Show96)
 
-	return map[string]IntGenISISPreset{
+	reg := map[string]IntGenISISPreset{
 		IntGenISISPresetN512Compact96: {
 			Name:              IntGenISISPresetN512Compact96,
 			Description:       "profile-B N=512 compact 96-bit engineering preset",
@@ -376,6 +402,21 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Notes: []string{
 				"Maintained high-security preset.",
 				"This is a 125+ live preset optimized for execution time with less than 6 grinding bits per round; it is not a 128-bit live preset.",
+			},
+		},
+		IntGenISISPresetN1024BQ32_96: {
+			Name:              IntGenISISPresetN1024BQ32_96,
+			Description:       "profile-C N=1024 BQ32-96 candidate with split DECS widths and tag-9 PRF",
+			Profile:           ProfileIntGenISISC,
+			TargetTheoremBits: 96,
+			SoundnessGate:     n1024BQ32Show96.SoundnessGate,
+			LVCSNCols:         n1024BQ32Show96.LVCSNCols,
+			MaxNLeaves:        n1024BQ32Show96.NLeaves,
+			Issuance:          n1024BQ32Issuance96,
+			Showing:           n1024BQ32Show96,
+			Notes: []string{
+				"BQ32-96 candidate preset for equal ROQueryCaps=[2^32]*5.",
+				"Uses split DECS hash/tape metadata and tag-9 PRF params; complete-system promotion remains gated by the security ledger.",
 			},
 		},
 		IntGenISISPresetN1024Q10_128: {
@@ -469,6 +510,55 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			},
 		},
 	}
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN512Compact96, "SC-96")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Compact96, "SC-96")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Compact125, "SC-125")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ32_96, "BQ32-96")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_128, "BQ32-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_128, "BQ32-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q32_128, "BQ32-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_96, "BQ32-96")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_96, "BQ32-96")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q32_96, "BQ32-96")
+	intGenISISPresetApplyDefaultPRF(reg)
+	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ32_96, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
+	return reg
+}
+
+func intGenISISPresetApplySecurityProfile(reg map[string]IntGenISISPreset, name, label string) {
+	preset, ok := reg[name]
+	if !ok {
+		panic(fmt.Sprintf("missing IntGenISIS preset %s for security profile %q", name, label))
+	}
+	profile, ok := LookupIntGenISISSecurityProfile(label)
+	if !ok {
+		panic(fmt.Sprintf("unknown IntGenISIS security profile %q for preset %s", label, name))
+	}
+	preset.SecurityProfile = profile.Label
+	preset.SecurityMode = string(profile.Mode)
+	preset.CoreBitsRequired = profile.CoreBitsRequired
+	preset.CompleteSystemClaim = profile.Status == SecurityProfileCompleteLive
+	reg[name] = preset
+}
+
+func intGenISISPresetApplyDefaultPRF(reg map[string]IntGenISISPreset) {
+	for name := range reg {
+		intGenISISPresetApplyPRF(reg, name, IntGenISISPRFProfileDefault, IntGenISISPRFParamsDefault)
+	}
+}
+
+func intGenISISPresetApplyPRF(reg map[string]IntGenISISPreset, name, profile, paramsPath string) {
+	preset, ok := reg[name]
+	if !ok {
+		panic(fmt.Sprintf("missing IntGenISIS preset %s for PRF profile %q", name, profile))
+	}
+	preset.PRFProfile = profile
+	preset.PRFParamsPath = paramsPath
+	preset.Issuance.PRFProfile = profile
+	preset.Issuance.PRFParamsPath = paramsPath
+	preset.Showing.PRFProfile = profile
+	preset.Showing.PRFParamsPath = paramsPath
+	reg[name] = preset
 }
 
 func intGenISISIssuanceTuning(showing IntGenISISTuningPreset) IntGenISISTuningPreset {

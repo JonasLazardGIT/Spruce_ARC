@@ -12,17 +12,19 @@ import (
 // Params holds all public parameters for the PRF permutation.
 // Matrices and round constants are stored in coefficient form (mod q).
 type Params struct {
-	Q        uint64     // field modulus
-	D        uint64     // S-box exponent
-	LenKey   int        // key length (lenkey)
-	LenNonce int        // nonce length (lennonce)
-	LenTag   int        // tag length (lentag)
-	RF       int        // number of external rounds (must be even)
-	RP       int        // number of internal rounds
-	ME       [][]uint64 // external round MDS matrix (t x t)
-	MI       [][]uint64 // internal round MDS matrix (t x t)
-	CExt     [][]uint64 // external round constants [RF][t]
-	CInt     []uint64   // internal round constants [RP]
+	Q             uint64     // field modulus
+	D             uint64     // S-box exponent
+	LenKey        int        // key length (lenkey)
+	LenNonce      int        // nonce length (lennonce)
+	LenTag        int        // tag length (lentag)
+	RF            int        // number of external rounds (must be even)
+	RP            int        // number of internal rounds
+	SecPermBits   float64    `json:"sec_perm_bits,omitempty"`
+	SecTruncBound float64    `json:"sec_trunc_bound,omitempty"`
+	ME            [][]uint64 // external round MDS matrix (t x t)
+	MI            [][]uint64 // internal round MDS matrix (t x t)
+	CExt          [][]uint64 // external round constants [RF][t]
+	CInt          []uint64   // internal round constants [RP]
 }
 
 // T returns the state width (lenkey + lennonce).
@@ -109,15 +111,23 @@ func LoadParamsFromFile(path string) (*Params, error) {
 	return LoadParams(f)
 }
 
-// LoadDefaultParams loads prf_params.json from the prf package directory.
-func LoadDefaultParams() (*Params, error) {
+// LoadBundledParams loads a params file from the prf package directory.
+func LoadBundledParams(name string) (*Params, error) {
+	if name == "" || filepath.Base(name) != name {
+		return nil, fmt.Errorf("bundled params name must be a filename")
+	}
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		return nil, fmt.Errorf("runtime.Caller failed")
 	}
 	dir := filepath.Dir(file)
-	path := filepath.Join(dir, "prf_params.json")
+	path := filepath.Join(dir, name)
 	return LoadParamsFromFile(path)
+}
+
+// LoadDefaultParams loads prf_params.json from the prf package directory.
+func LoadDefaultParams() (*Params, error) {
+	return LoadBundledParams("prf_params.json")
 }
 
 // LoadLocalOrDefaultParams prefers a caller-provided local params file and
@@ -129,4 +139,20 @@ func LoadLocalOrDefaultParams(path string) (*Params, error) {
 		}
 	}
 	return LoadDefaultParams()
+}
+
+// LoadLocalOrBundledParams prefers a caller-provided local params file and
+// falls back only to a bundled file with the same basename.
+func LoadLocalOrBundledParams(path string) (*Params, error) {
+	if path == "" {
+		return LoadDefaultParams()
+	}
+	if params, err := LoadParamsFromFile(path); err == nil {
+		return params, nil
+	}
+	params, err := LoadBundledParams(filepath.Base(path))
+	if err != nil {
+		return nil, fmt.Errorf("load params %q: %w", path, err)
+	}
+	return params, nil
 }

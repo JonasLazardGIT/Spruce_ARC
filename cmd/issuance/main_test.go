@@ -138,6 +138,27 @@ func TestBenchmarkIntGenISISE2EPropagatesPresetAccounting(t *testing.T) {
 	}
 }
 
+func TestBenchmarkIntGenISISE2EPropagatesBQ32ProfileMetadata(t *testing.T) {
+	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
+		"-preset", credential.IntGenISISPresetN1024BQ32_96,
+	})
+	if err != nil {
+		t.Fatalf("parse benchmark bq32 preset: %v", err)
+	}
+	if cfg.SecurityProfile != "BQ32-96" || cfg.SecurityMode != "residual_at_budget" {
+		t.Fatalf("security tuple=(%q,%q)", cfg.SecurityProfile, cfg.SecurityMode)
+	}
+	if cfg.CompleteSystemClaim {
+		t.Fatal("bq32 candidate should not parse as complete claim")
+	}
+	if cfg.PRFProfile != credential.IntGenISISPRFProfileTag9 || cfg.PRFParamsPath != credential.IntGenISISPRFParamsTag9 {
+		t.Fatalf("PRF tuple=(%q,%q)", cfg.PRFProfile, cfg.PRFParamsPath)
+	}
+	if cfg.Showing.DECSHashBits != 168 || cfg.Showing.DECSTapeBits != 128 || cfg.Showing.FSCollisionBits != 168 {
+		t.Fatalf("showing split widths=%+v", cfg.Showing)
+	}
+}
+
 func TestBenchmarkIntGenISISE2EVerboseFlagParses(t *testing.T) {
 	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
 		"-preset", credential.IntGenISISPresetN512Compact96,
@@ -340,6 +361,10 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 		ROQueryCaps:         [5]int{0, 1, 2, 3, 4},
 		ROQueryCapsSet:      true,
 		DECSCollisionBits:   256,
+		DECSHashBits:        200,
+		DECSTapeBits:        128,
+		FSCollisionBits:     200,
+		SaltBits:            128,
 		FixedTranscriptSize: true,
 	}
 	opts := applyIssuanceRuntimeOverrides(PIOP.SimOpts{}, overrides)
@@ -354,12 +379,18 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 	if spec.DECSCollisionBits != 256 {
 		t.Fatalf("persisted decs collision bits=%d", spec.DECSCollisionBits)
 	}
+	if spec.DECSHashBits != 200 || spec.DECSTapeBits != 128 || spec.FSCollisionBits != 200 || spec.SaltBits != 128 {
+		t.Fatalf("persisted split widths hash=%d tape=%d fs=%d salt=%d", spec.DECSHashBits, spec.DECSTapeBits, spec.FSCollisionBits, spec.SaltBits)
+	}
 	roundTrip := persistedIssuanceRuntimeOverridesWithSmallWood(spec.NCols, spec.LVCSNCols, spec.NLeaves, nil, spec)
 	if !roundTrip.ROQueryCapsSet || roundTrip.ROQueryCaps != overrides.ROQueryCaps {
 		t.Fatalf("round-trip query caps=%v set=%v", roundTrip.ROQueryCaps, roundTrip.ROQueryCapsSet)
 	}
 	if roundTrip.DECSCollisionBits != 256 {
 		t.Fatalf("round-trip decs collision bits=%d", roundTrip.DECSCollisionBits)
+	}
+	if roundTrip.DECSHashBits != 200 || roundTrip.DECSTapeBits != 128 || roundTrip.FSCollisionBits != 200 || roundTrip.SaltBits != 128 {
+		t.Fatalf("round-trip split widths hash=%d tape=%d fs=%d salt=%d", roundTrip.DECSHashBits, roundTrip.DECSTapeBits, roundTrip.FSCollisionBits, roundTrip.SaltBits)
 	}
 }
 

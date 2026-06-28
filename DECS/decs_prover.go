@@ -1200,6 +1200,9 @@ func validateProverParams(params Params) error {
 	if params.HashBytes != 0 && !IsSupportedHashBytes(params.HashBytes) {
 		return fmt.Errorf("decs: invalid HashBytes (supported: %s)", SupportedHashBytesList())
 	}
+	if params.NonceBytes != 0 && !IsSupportedNonceBytes(params.NonceBytes) {
+		return fmt.Errorf("decs: invalid NonceBytes (supported: %s)", SupportedNonceBytesList())
+	}
 	return nil
 }
 

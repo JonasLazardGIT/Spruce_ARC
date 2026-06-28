@@ -4,6 +4,7 @@ import "testing"
 
 func TestIntGenISISPresetRegistryIsMaintainedOnly(t *testing.T) {
 	want := []string{
+		IntGenISISPresetN1024BQ32_96,
 		IntGenISISPresetN1024Compact125,
 		IntGenISISPresetN1024Compact96,
 		IntGenISISPresetN1024Q10_128,
@@ -37,6 +38,91 @@ func TestIntGenISISPresetRegistryIsMaintainedOnly(t *testing.T) {
 		}
 		if p.Issuance.PRFCompanionMode != "" || p.Issuance.SigShortnessRadix != 0 || p.Issuance.TranscriptMode != "smallfield_2025_1085_v1" || !p.Issuance.FixedTranscriptSize {
 			t.Fatalf("maintained preset %s issuance tuple=%+v", name, p.Issuance)
+		}
+	}
+}
+
+func TestIntGenISISPresetSecurityProfileMetadata(t *testing.T) {
+	wantProfiles := map[string]string{
+		IntGenISISPresetN512Compact96:   "SC-96",
+		IntGenISISPresetN1024Compact96:  "SC-96",
+		IntGenISISPresetN1024Compact125: "SC-125",
+		IntGenISISPresetN1024BQ32_96:    "BQ32-96",
+		IntGenISISPresetN1024Q10_128:    "BQ32-128",
+		IntGenISISPresetN1024Q16_128:    "BQ32-128",
+		IntGenISISPresetN1024Q32_128:    "BQ32-128",
+		IntGenISISPresetN1024Q10_96:     "BQ32-96",
+		IntGenISISPresetN1024Q16_96:     "BQ32-96",
+		IntGenISISPresetN1024Q32_96:     "BQ32-96",
+	}
+	for _, name := range IntGenISISPresetNames() {
+		preset, ok := LookupIntGenISISPreset(name)
+		if !ok {
+			t.Fatalf("preset %q missing", name)
+		}
+		wantProfile, ok := wantProfiles[name]
+		if !ok {
+			t.Fatalf("preset %s missing expected security-profile classification", name)
+		}
+		if preset.SecurityProfile != wantProfile {
+			t.Fatalf("preset %s security profile=%q want %q", name, preset.SecurityProfile, wantProfile)
+		}
+		profile, ok := LookupIntGenISISSecurityProfile(preset.SecurityProfile)
+		if !ok {
+			t.Fatalf("preset %s invalid security profile %q", name, preset.SecurityProfile)
+		}
+		if preset.SecurityMode != string(profile.Mode) {
+			t.Fatalf("preset %s security mode=%q want %q", name, preset.SecurityMode, profile.Mode)
+		}
+		if preset.CoreBitsRequired != profile.CoreBitsRequired {
+			t.Fatalf("preset %s core bits=%v want %v", name, preset.CoreBitsRequired, profile.CoreBitsRequired)
+		}
+		if preset.CompleteSystemClaim != (profile.Status == SecurityProfileCompleteLive) {
+			t.Fatalf("preset %s complete claim=%v profile status=%q", name, preset.CompleteSystemClaim, profile.Status)
+		}
+	}
+}
+
+func TestN1024BQ32_96PresetIsCandidateWithSplitWidthsAndTag9(t *testing.T) {
+	p, ok := LookupIntGenISISPreset(IntGenISISPresetN1024BQ32_96)
+	if !ok {
+		t.Fatal("n1024-bq32-96 missing")
+	}
+	if p.SecurityProfile != "BQ32-96" || p.SecurityMode != string(SecurityModeResidualAtBudget) {
+		t.Fatalf("bq32 security tuple=(%q,%q)", p.SecurityProfile, p.SecurityMode)
+	}
+	if p.CompleteSystemClaim {
+		t.Fatal("bq32 candidate must not be a complete system claim before live ledger status")
+	}
+	if p.PRFProfile != IntGenISISPRFProfileTag9 || p.PRFParamsPath != IntGenISISPRFParamsTag9 {
+		t.Fatalf("bq32 PRF tuple=(%q,%q)", p.PRFProfile, p.PRFParamsPath)
+	}
+	if p.Showing.DECSHashBits != 168 || p.Showing.DECSTapeBits != 128 || p.Showing.FSCollisionBits != 168 || p.Showing.SaltBits != 128 {
+		t.Fatalf("bq32 split widths showing=%+v", p.Showing)
+	}
+	if p.Issuance.DECSHashBits != p.Showing.DECSHashBits || p.Issuance.DECSTapeBits != p.Showing.DECSTapeBits || p.Issuance.FSCollisionBits != p.Showing.FSCollisionBits {
+		t.Fatalf("bq32 issuance/showing split width mismatch: issuance=%+v showing=%+v", p.Issuance, p.Showing)
+	}
+	if !p.Showing.ROQueryCapsSet || p.Showing.ROQueryCaps != [5]int{int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32)} {
+		t.Fatalf("bq32 query caps=%v set=%v", p.Showing.ROQueryCaps, p.Showing.ROQueryCapsSet)
+	}
+}
+
+func TestCurrentQBudget128PresetsAreNotCompleteSystemClaims(t *testing.T) {
+	for _, name := range []string{
+		IntGenISISPresetN1024Q10_128,
+		IntGenISISPresetN1024Q16_128,
+		IntGenISISPresetN1024Q32_128,
+	} {
+		preset, ok := LookupIntGenISISPreset(name)
+		if !ok {
+			t.Fatalf("preset %s missing", name)
+		}
+		if preset.SecurityProfile != "BQ32-128" {
+			t.Fatalf("preset %s security profile=%q want BQ32-128", name, preset.SecurityProfile)
+		}
+		if preset.CompleteSystemClaim {
+			t.Fatalf("preset %s must remain proof/q-budget only", name)
 		}
 	}
 }
@@ -106,6 +192,9 @@ func TestN1024CompactPresets(t *testing.T) {
 	if compact125.TargetTheoremBits >= 128 {
 		t.Fatal("compact125 must remain a 125+ preset, not a claimed 128-bit preset")
 	}
+	if compact125.SecurityProfile != "SC-125" || compact125.SecurityMode != string(SecurityModeSingleCandidate) || compact125.CompleteSystemClaim {
+		t.Fatalf("compact125 security classification=%+v", compact125)
+	}
 }
 
 func TestN1024QueryBudgetPresets(t *testing.T) {
@@ -127,14 +216,14 @@ func TestN1024QueryBudgetPresets(t *testing.T) {
 		{
 			name:       IntGenISISPresetN1024Q10_128,
 			caps:       [5]int{1024, 1024, 1024, 1024, 1024},
-			decsBits:   160,
+			decsBits:   152,
 			ncols:      32,
 			lvcs:       36,
 			nleaves:    983040,
 			eta:        44,
 			theta:      7,
 			ell:        9,
-			kappa:      [4]int{0, 4, 8, 8},
+			kappa:      [4]int{0, 4, 9, 9},
 			radix:      11,
 			digits:     4,
 			targetBits: 128,
@@ -146,7 +235,7 @@ func TestN1024QueryBudgetPresets(t *testing.T) {
 			ncols:      32,
 			lvcs:       37,
 			nleaves:    524288,
-			eta:        44,
+			eta:        43,
 			theta:      8,
 			ell:        10,
 			kappa:      [4]int{0, 0, 0, 8},
@@ -161,10 +250,10 @@ func TestN1024QueryBudgetPresets(t *testing.T) {
 			ncols:      32,
 			lvcs:       37,
 			nleaves:    655360,
-			eta:        48,
+			eta:        45,
 			theta:      9,
 			ell:        11,
-			kappa:      [4]int{0, 0, 0, 7},
+			kappa:      [4]int{1, 0, 0, 8},
 			radix:      7,
 			digits:     5,
 			targetBits: 128,

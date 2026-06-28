@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -615,7 +614,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 			}
 			nonceElems[i] = prf.Elem(liftToField(q, pub.Nonce[i][0]))
 		}
-		params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+		params, perr := loadPRFParamsForOpts(opts)
 		if perr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("load prf params: %w", perr)
 		}
@@ -2724,9 +2723,16 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 		var prfFullPolys []*ring.Poly
 		var prfFullCoeffs [][]uint64
 		if err := stage("showing.constraints.prf_direct_full", func() error {
-			params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
-			if perr != nil {
-				return fmt.Errorf("load prf params: %w", perr)
+			params := (*prf.Params)(nil)
+			if prepared != nil {
+				params = prepared.prfParams
+			}
+			if params == nil {
+				var perr error
+				params, perr = loadPRFParamsForOpts(SimOpts{})
+				if perr != nil {
+					return fmt.Errorf("load prf params: %w", perr)
+				}
 			}
 			var degree int
 			var ferr error
@@ -2886,7 +2892,7 @@ func PrepareIntGenISISShowingContext(pub PublicInputs, opts SimOpts) (*IntGenISI
 			return nil, fmt.Errorf("explicit domain: %w", derr)
 		}
 	}
-	params, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+	params, err := loadPRFParamsForOpts(opts)
 	if err != nil {
 		return nil, fmt.Errorf("load prf params: %w", err)
 	}

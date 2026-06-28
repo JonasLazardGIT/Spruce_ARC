@@ -47,6 +47,10 @@ type smallWoodTuningSpec struct {
 	ROQueryCaps         [5]int `json:"ro_query_caps,omitempty"`
 	ROQueryCapsSet      bool   `json:"ro_query_caps_set,omitempty"`
 	DECSCollisionBits   int    `json:"decs_collision_bits,omitempty"`
+	DECSHashBits        int    `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits        int    `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits     int    `json:"fs_collision_bits,omitempty"`
+	SaltBits            int    `json:"salt_bits,omitempty"`
 	TranscriptMode      string `json:"transcript_mode,omitempty"`
 	FixedTranscriptSize bool   `json:"fixed_transcript_size,omitempty"`
 }
@@ -116,6 +120,10 @@ type issuanceRuntimeOverrides struct {
 	ROQueryCaps         [5]int
 	ROQueryCapsSet      bool
 	DECSCollisionBits   int
+	DECSHashBits        int
+	DECSTapeBits        int
+	FSCollisionBits     int
+	SaltBits            int
 	TranscriptMode      string
 	FixedTranscriptSize bool
 	RingDegree          int
@@ -160,6 +168,10 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 		out.ROQueryCaps = spec.ROQueryCaps
 		out.ROQueryCapsSet = spec.ROQueryCapsSet
 		out.DECSCollisionBits = spec.DECSCollisionBits
+		out.DECSHashBits = spec.DECSHashBits
+		out.DECSTapeBits = spec.DECSTapeBits
+		out.FSCollisionBits = spec.FSCollisionBits
+		out.SaltBits = spec.SaltBits
 		out.TranscriptMode = spec.TranscriptMode
 		out.FixedTranscriptSize = spec.FixedTranscriptSize
 	}
@@ -184,6 +196,10 @@ func smallWoodTuningSpecFromOpts(opts PIOP.SimOpts) *smallWoodTuningSpec {
 		ROQueryCaps:         opts.ROQueryCaps,
 		ROQueryCapsSet:      opts.ROQueryCapsSet,
 		DECSCollisionBits:   opts.DECSCollisionBits,
+		DECSHashBits:        opts.DECSHashBits,
+		DECSTapeBits:        opts.DECSTapeBits,
+		FSCollisionBits:     opts.FSCollisionBits,
+		SaltBits:            opts.SaltBits,
 		TranscriptMode:      transcriptMode,
 		FixedTranscriptSize: opts.FixedTranscriptSize,
 	}
@@ -227,6 +243,18 @@ func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeO
 	}
 	if overrides.DECSCollisionBits > 0 {
 		opts.DECSCollisionBits = overrides.DECSCollisionBits
+	}
+	if overrides.DECSHashBits > 0 {
+		opts.DECSHashBits = overrides.DECSHashBits
+	}
+	if overrides.DECSTapeBits > 0 {
+		opts.DECSTapeBits = overrides.DECSTapeBits
+	}
+	if overrides.FSCollisionBits > 0 {
+		opts.FSCollisionBits = overrides.FSCollisionBits
+	}
+	if overrides.SaltBits > 0 {
+		opts.SaltBits = overrides.SaltBits
 	}
 	if overrides.TranscriptMode != "" {
 		opts.TranscriptCodec = intGenISISLiveTranscriptCodecOrDefault(overrides.TranscriptMode)
@@ -891,6 +919,7 @@ func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOv
 		return nil, fmt.Errorf("load prf params: %w", err)
 	}
 	opts := defaultIssuanceOpts(prfParams)
+	opts.PRFParamsPath = prfPath
 	opts.RingDegree = int(ringQ.N)
 	if _, _, err := intGenISISLiveTranscriptConfig(overrides.TranscriptMode); err != nil {
 		return nil, err

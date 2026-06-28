@@ -85,3 +85,33 @@ func TestShippedCubicPRFDeterministicTag(t *testing.T) {
 		}
 	}
 }
+
+func TestTag9ParamsFileLoadsSameStateWidth(t *testing.T) {
+	base, err := LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+	if err != nil {
+		t.Fatalf("load base params: %v", err)
+	}
+	tag9, err := LoadBundledParams("prf_params_tag9.json")
+	if err != nil {
+		t.Fatalf("load tag9 params: %v", err)
+	}
+	if tag9.LenTag != 9 {
+		t.Fatalf("tag9 LenTag=%d want 9", tag9.LenTag)
+	}
+	if tag9.LenKey != base.LenKey || tag9.LenNonce != base.LenNonce || tag9.T() != base.T() || tag9.RF != base.RF || tag9.RP != base.RP {
+		t.Fatalf("tag9 changed non-tag shape: base=%+v tag9=%+v", base, tag9)
+	}
+	if tag9.SecPermBits != base.SecPermBits || tag9.SecPermBits == 0 {
+		t.Fatalf("tag9 sec bits=%f base=%f", tag9.SecPermBits, base.SecPermBits)
+	}
+}
+
+func TestLoadLocalOrBundledParamsKeepsRequestedTagWidth(t *testing.T) {
+	params, err := LoadLocalOrBundledParams(filepath.Join("missing", "prf_params_tag9.json"))
+	if err != nil {
+		t.Fatalf("load tag9 params by basename fallback: %v", err)
+	}
+	if params.LenTag != 9 {
+		t.Fatalf("LenTag=%d want 9", params.LenTag)
+	}
+}

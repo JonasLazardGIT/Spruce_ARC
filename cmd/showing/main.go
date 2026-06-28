@@ -253,6 +253,9 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 		return fmt.Errorf("load prf params: %w", err)
 	}
 	opts := intGenISISShowingOpts(st.RingDegree, preset.Showing)
+	if st.PRFParamsPath != "" {
+		opts.PRFParamsPath = st.PRFParamsPath
+	}
 	if opts.NCols < params.LenKey {
 		return fmt.Errorf("ncols=%d is too small for IntGenISIS PRF key width %d", opts.NCols, params.LenKey)
 	}
@@ -377,6 +380,11 @@ func intGenISISShowingOpts(ringDegree int, tuning credential.IntGenISISTuningPre
 		ROQueryCaps:                tuning.ROQueryCaps,
 		ROQueryCapsSet:             tuning.ROQueryCapsSet,
 		DECSCollisionBits:          tuning.DECSCollisionBits,
+		DECSHashBits:               tuning.DECSHashBits,
+		DECSTapeBits:               tuning.DECSTapeBits,
+		FSCollisionBits:            tuning.FSCollisionBits,
+		SaltBits:                   tuning.SaltBits,
+		PRFParamsPath:              tuning.PRFParamsPath,
 		DomainMode:                 PIOP.DomainModeExplicit,
 		PRFGroupRounds:             tuning.PRFGroupRounds,
 		PRFCompanionMode:           PIOP.PRFCompanionMode(tuning.PRFCompanionMode),
@@ -480,9 +488,7 @@ func intGenISISFieldElemFromSigned(v int64, q uint64) prf.Elem {
 
 func loadPRFParamsFromIntGenISISState(st credential.IntGenISISState) (*prf.Params, error) {
 	if st.PRFParamsPath != "" {
-		if params, err := prf.LoadParamsFromFile(st.PRFParamsPath); err == nil {
-			return params, nil
-		}
+		return prf.LoadLocalOrBundledParams(st.PRFParamsPath)
 	}
 	return prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
 }

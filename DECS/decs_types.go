@@ -10,13 +10,23 @@ const (
 )
 
 // IsSupportedHashBytes reports whether hashBytes is one of the maintained
-// byte-aligned Merkle/tape widths.
+// byte-aligned Merkle widths.
 func IsSupportedHashBytes(hashBytes int) bool {
-	return hashBytes >= 16 && hashBytes <= 32
+	return hashBytes >= 16 && hashBytes <= 64
+}
+
+// IsSupportedNonceBytes reports whether nonceBytes is one of the maintained
+// byte-aligned tape/nonce widths.
+func IsSupportedNonceBytes(nonceBytes int) bool {
+	return nonceBytes >= 12 && nonceBytes <= 64
 }
 
 func SupportedHashBytesList() string {
-	return "16..32"
+	return "16..64"
+}
+
+func SupportedNonceBytesList() string {
+	return "12..64"
 }
 
 // DECSOpening holds the DECS opening data sent by the prover.

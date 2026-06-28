@@ -17,15 +17,47 @@ func TestDECSCollisionWidthResolutionSupportsIntermediateBytes(t *testing.T) {
 	if got := ResolveDECSCollisionBits(0); got != 144 {
 		t.Fatalf("ResolveDECSCollisionBits(0)=%d want 144", got)
 	}
-	for bits := 128; bits <= 256; bits += 8 {
+	for bits := 128; bits <= 512; bits += 8 {
 		if got := ResolveDECSCollisionBits(bits); got != bits {
 			t.Fatalf("ResolveDECSCollisionBits(%d)=%d", bits, got)
 		}
 	}
-	for _, bits := range []int{120, 264, 127, 129} {
+	for _, bits := range []int{120, 520, 127, 129} {
 		if got := ResolveDECSCollisionBits(bits); got != decs.DefaultHashBytes*8 {
 			t.Fatalf("ResolveDECSCollisionBits(%d)=%d want default", bits, got)
 		}
+	}
+	for bits := 96; bits <= 512; bits += 8 {
+		if got := ResolveDECSTapeBits(bits); got != bits {
+			t.Fatalf("ResolveDECSTapeBits(%d)=%d", bits, got)
+		}
+	}
+}
+
+func TestDECSWidthResolutionSupportsSplitHashTape(t *testing.T) {
+	opts := soundnessTestOpts([5]int{1, 1, 1, 1, 1})
+	opts.DECSCollisionBits = 168
+	opts.DECSHashBits = 192
+	opts.DECSTapeBits = 128
+	params := applyDECSWidths(decs.Params{Degree: 16, Eta: 1, NonceBytes: 16}, opts)
+	if params.HashBytes != 24 || params.NonceBytes != 16 {
+		t.Fatalf("split params hash=%d nonce=%d", params.HashBytes, params.NonceBytes)
+	}
+	sb := computeSoundnessBudget(opts, 12289, 12289, 512, 192, 128, 32, 16, 16, 1, 1, 64, 64, 16)
+	if sb.DECSHashBits != 192 || sb.DECSTapeBits != 128 || sb.CollisionSpaceBits != 192 {
+		t.Fatalf("split soundness widths hash=%d tape=%d collision=%d", sb.DECSHashBits, sb.DECSTapeBits, sb.CollisionSpaceBits)
+	}
+	tapeOnly := opts
+	tapeOnly.DECSTapeBits = 96
+	sbTapeOnly := computeSoundnessBudget(tapeOnly, 12289, 12289, 512, 192, 96, 32, 16, 16, 1, 1, 64, 64, 16)
+	if sbTapeOnly.CollisionBits != sb.CollisionBits {
+		t.Fatalf("tape-only split changed collision bits: %f vs %f", sbTapeOnly.CollisionBits, sb.CollisionBits)
+	}
+	fsLimited := opts
+	fsLimited.FSCollisionBits = 160
+	sbFSLimited := computeSoundnessBudget(fsLimited, 12289, 12289, 512, 192, 128, 32, 16, 16, 1, 1, 64, 64, 16)
+	if sbFSLimited.CollisionSpaceBits != 160 {
+		t.Fatalf("fs collision bits=%d want 160", sbFSLimited.CollisionSpaceBits)
 	}
 }
 

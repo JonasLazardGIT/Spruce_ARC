@@ -20,7 +20,7 @@ const (
 	defaultIssueResponsePath       = defaultArtifactDir + "/issue_response.json"
 	defaultCredentialStatePath     = "credential/keys/credential_state.json"
 	defaultCredentialSignaturePath = "credential/keys/signature.json"
-	defaultPRFParamsPath           = "prf/prf_params.json"
+	defaultPRFParamsPath           = credential.IntGenISISPRFParamsDefault
 	defaultNTRUParamsPath          = "internal/source_data/Parameters.json"
 	defaultNTRUPublicKeyPath       = "ntru_keys/public.json"
 	defaultNTRUPrivateKeyPath      = "ntru_keys/private.json"
@@ -132,21 +132,26 @@ func parseBenchmarkIntGenISISE2EConfig(args []string) (benchmarkIntGenISISE2ECon
 		return benchmarkIntGenISISE2EConfig{}, err
 	}
 	return benchmarkIntGenISISE2EConfig{
-		ArtifactDir:    *artifactDir,
-		PresetName:     selectedPresetName,
-		Profile:        preset.Profile,
-		PRFParamsPath:  defaultPRFParamsPath,
-		JSONOut:        *jsonOut,
-		Force:          *force,
-		Verbose:        *verbose,
-		Seed:           11,
-		Issuance:       intGenISISTuningFromPresetSpec(preset.Issuance),
-		Showing:        intGenISISTuningFromPresetSpec(preset.Showing),
-		KeygenTrials:   10000,
-		KeygenAttempts: defaultNTRUKeygenAttempts,
-		NTRUBeta:       preset.NTRUBeta,
-		MaxTrials:      2048,
-		MaxNLeaves:     preset.MaxNLeaves,
+		ArtifactDir:         *artifactDir,
+		PresetName:          selectedPresetName,
+		Profile:             preset.Profile,
+		SecurityProfile:     preset.SecurityProfile,
+		SecurityMode:        string(preset.SecurityMode),
+		CoreBitsRequired:    preset.CoreBitsRequired,
+		CompleteSystemClaim: preset.CompleteSystemClaim,
+		PRFProfile:          preset.PRFProfile,
+		PRFParamsPath:       preset.PRFParamsPath,
+		JSONOut:             *jsonOut,
+		Force:               *force,
+		Verbose:             *verbose,
+		Seed:                11,
+		Issuance:            intGenISISTuningFromPresetSpec(preset.Issuance),
+		Showing:             intGenISISTuningFromPresetSpec(preset.Showing),
+		KeygenTrials:        10000,
+		KeygenAttempts:      defaultNTRUKeygenAttempts,
+		NTRUBeta:            preset.NTRUBeta,
+		MaxTrials:           2048,
+		MaxNLeaves:          preset.MaxNLeaves,
 	}, nil
 }
 
@@ -235,6 +240,9 @@ func runHolderCommit(args []string) error {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", preset.Profile)
 	}
 	tuning := intGenISISTuningFromPresetSpec(preset.Issuance)
+	if *prfPath == defaultPRFParamsPath && preset.PRFParamsPath != "" {
+		*prfPath = preset.PRFParamsPath
+	}
 	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, "", 0, intGenISISTuningToIssuanceOverrides(tuning, profile.N))
 }
 

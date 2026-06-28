@@ -62,6 +62,22 @@ func TestShowingCLIPropagatesPresetAccounting(t *testing.T) {
 	}
 }
 
+func TestShowingCLIPropagatesBQ32SplitWidthsAndPRFPath(t *testing.T) {
+	cfg, err := parseShowingCLIArgs([]string{
+		"-preset", credential.IntGenISISPresetN1024BQ32_96,
+	})
+	if err != nil {
+		t.Fatalf("parse showing bq32 preset: %v", err)
+	}
+	opts := intGenISISShowingOpts(1024, cfg.Preset.Showing)
+	if opts.DECSHashBits != 168 || opts.DECSTapeBits != 128 || opts.FSCollisionBits != 168 || opts.SaltBits != 128 {
+		t.Fatalf("opts split widths hash=%d tape=%d fs=%d salt=%d", opts.DECSHashBits, opts.DECSTapeBits, opts.FSCollisionBits, opts.SaltBits)
+	}
+	if opts.PRFParamsPath != credential.IntGenISISPRFParamsTag9 {
+		t.Fatalf("opts PRF params path=%q", opts.PRFParamsPath)
+	}
+}
+
 func TestShowingVerboseFlagParses(t *testing.T) {
 	cfg, err := parseShowingCLIArgs([]string{
 		"-preset", credential.IntGenISISPresetN512Compact96,

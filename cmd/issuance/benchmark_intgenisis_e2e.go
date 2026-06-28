@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,21 +29,26 @@ const (
 )
 
 type benchmarkIntGenISISE2EConfig struct {
-	ArtifactDir    string
-	PresetName     string
-	Profile        string
-	PRFParamsPath  string
-	JSONOut        string
-	Force          bool
-	Verbose        bool
-	Seed           int64
-	Issuance       intGenISISTuning
-	Showing        intGenISISTuning
-	KeygenTrials   int
-	KeygenAttempts int
-	NTRUBeta       uint64
-	MaxTrials      int
-	MaxNLeaves     int
+	ArtifactDir         string
+	PresetName          string
+	Profile             string
+	SecurityProfile     string
+	SecurityMode        string
+	CoreBitsRequired    float64
+	CompleteSystemClaim bool
+	PRFProfile          string
+	PRFParamsPath       string
+	JSONOut             string
+	Force               bool
+	Verbose             bool
+	Seed                int64
+	Issuance            intGenISISTuning
+	Showing             intGenISISTuning
+	KeygenTrials        int
+	KeygenAttempts      int
+	NTRUBeta            uint64
+	MaxTrials           int
+	MaxNLeaves          int
 }
 
 type intGenISISTuning struct {
@@ -58,6 +64,12 @@ type intGenISISTuning struct {
 	ROQueryCaps            [5]int                `json:"ro_query_caps,omitempty"`
 	ROQueryCapsSet         bool                  `json:"-"`
 	DECSCollisionBits      int                   `json:"decs_collision_bits,omitempty"`
+	DECSHashBits           int                   `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits           int                   `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits        int                   `json:"fs_collision_bits,omitempty"`
+	SaltBits               int                   `json:"salt_bits,omitempty"`
+	PRFProfile             string                `json:"prf_profile,omitempty"`
+	PRFParamsPath          string                `json:"prf_params_path,omitempty"`
 	PRFCompanionMode       PIOP.PRFCompanionMode `json:"prf_companion_mode,omitempty"`
 	PRFGroupRounds         int                   `json:"prf_group_rounds,omitempty"`
 	CheckpointSamples      int                   `json:"prf_checkpoint_samples,omitempty"`
@@ -114,23 +126,31 @@ type benchmarkIntGenISISE2EArtifacts struct {
 }
 
 type benchmarkIntGenISISE2EReport struct {
-	Version        int                               `json:"version"`
-	Generated      string                            `json:"generated_at"`
-	Preset         string                            `json:"preset,omitempty"`
-	Profile        string                            `json:"profile"`
-	Modulus        uint64                            `json:"q,omitempty"`
-	ProfileBound   int64                             `json:"profile_bound,omitempty"`
-	ArtifactDir    string                            `json:"artifact_dir"`
-	MaxNLeaves     int                               `json:"max_nleaves,omitempty"`
-	Options        benchmarkIntGenISISE2EOptions     `json:"options"`
-	Environment    benchmarkIntGenISISE2EEnvironment `json:"environment"`
-	Timings        benchmarkIntGenISISE2ETimings     `json:"timings"`
-	Issuance       benchmarkIntGenISISMetrics        `json:"issuance"`
-	Showing        benchmarkIntGenISISMetrics        `json:"showing"`
-	FullGame       PIOP.FullGameSoundnessReport      `json:"full_game"`
-	Artifacts      benchmarkIntGenISISE2EArtifacts   `json:"artifacts"`
-	ReplayRejected bool                              `json:"replay_rejected"`
-	Notes          []string                          `json:"notes"`
+	Version             int                               `json:"version"`
+	Generated           string                            `json:"generated_at"`
+	Preset              string                            `json:"preset,omitempty"`
+	Profile             string                            `json:"profile"`
+	SecurityProfile     string                            `json:"security_profile,omitempty"`
+	SecurityMode        string                            `json:"security_mode,omitempty"`
+	CompleteSystemClaim bool                              `json:"complete_system_claim,omitempty"`
+	CoreBitsRequired    float64                           `json:"core_required_bits,omitempty"`
+	CoreAvailableBits   float64                           `json:"core_available_bits,omitempty"`
+	PRFProfile          string                            `json:"prf_profile,omitempty"`
+	PRFParamsPath       string                            `json:"prf_params_path,omitempty"`
+	Modulus             uint64                            `json:"q,omitempty"`
+	ProfileBound        int64                             `json:"profile_bound,omitempty"`
+	ArtifactDir         string                            `json:"artifact_dir"`
+	MaxNLeaves          int                               `json:"max_nleaves,omitempty"`
+	Options             benchmarkIntGenISISE2EOptions     `json:"options"`
+	Environment         benchmarkIntGenISISE2EEnvironment `json:"environment"`
+	Timings             benchmarkIntGenISISE2ETimings     `json:"timings"`
+	Issuance            benchmarkIntGenISISMetrics        `json:"issuance"`
+	Showing             benchmarkIntGenISISMetrics        `json:"showing"`
+	FullGame            PIOP.FullGameSoundnessReport      `json:"full_game"`
+	SecurityLedger      credential.SystemSecurityLedger   `json:"security_ledger"`
+	Artifacts           benchmarkIntGenISISE2EArtifacts   `json:"artifacts"`
+	ReplayRejected      bool                              `json:"replay_rejected"`
+	Notes               []string                          `json:"notes"`
 }
 
 func defaultIntGenISISTuning() intGenISISTuning {
@@ -209,6 +229,24 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 	}
 	if t.DECSCollisionBits <= 0 {
 		t.DECSCollisionBits = fallback.DECSCollisionBits
+	}
+	if t.DECSHashBits <= 0 {
+		t.DECSHashBits = fallback.DECSHashBits
+	}
+	if t.DECSTapeBits <= 0 {
+		t.DECSTapeBits = fallback.DECSTapeBits
+	}
+	if t.FSCollisionBits <= 0 {
+		t.FSCollisionBits = fallback.FSCollisionBits
+	}
+	if t.SaltBits <= 0 {
+		t.SaltBits = fallback.SaltBits
+	}
+	if t.PRFParamsPath == "" {
+		t.PRFParamsPath = fallback.PRFParamsPath
+	}
+	if t.PRFProfile == "" {
+		t.PRFProfile = fallback.PRFProfile
 	}
 	if includePRF {
 		if t.PRFCompanionMode == "" {
@@ -292,6 +330,10 @@ func intGenISISTuningToIssuanceOverrides(t intGenISISTuning, ringDegree int) iss
 		ROQueryCaps:         t.ROQueryCaps,
 		ROQueryCapsSet:      t.ROQueryCapsSet,
 		DECSCollisionBits:   t.DECSCollisionBits,
+		DECSHashBits:        t.DECSHashBits,
+		DECSTapeBits:        t.DECSTapeBits,
+		FSCollisionBits:     t.FSCollisionBits,
+		SaltBits:            t.SaltBits,
 		TranscriptMode:      t.TranscriptMode,
 		FixedTranscriptSize: t.FixedTranscriptSize,
 		RingDegree:          ringDegree,
@@ -321,6 +363,11 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 		ROQueryCaps:                t.ROQueryCaps,
 		ROQueryCapsSet:             t.ROQueryCapsSet,
 		DECSCollisionBits:          t.DECSCollisionBits,
+		DECSHashBits:               t.DECSHashBits,
+		DECSTapeBits:               t.DECSTapeBits,
+		FSCollisionBits:            t.FSCollisionBits,
+		SaltBits:                   t.SaltBits,
+		PRFParamsPath:              t.PRFParamsPath,
 		DomainMode:                 PIOP.DomainModeExplicit,
 		PRFGroupRounds:             t.PRFGroupRounds,
 		PRFCompanionMode:           t.PRFCompanionMode,
@@ -395,6 +442,12 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	defaults := defaultIntGenISISTuning()
 	cfg.Issuance = normalizeIntGenISISTuning(cfg.Issuance, defaults, false)
 	cfg.Showing = normalizeIntGenISISTuning(cfg.Showing, defaults, true)
+	if cfg.Issuance.PRFParamsPath == "" {
+		cfg.Issuance.PRFParamsPath = cfg.PRFParamsPath
+	}
+	if cfg.Showing.PRFParamsPath == "" {
+		cfg.Showing.PRFParamsPath = cfg.PRFParamsPath
+	}
 	cfg.MaxNLeaves = normalizeIntGenISISMaxNLeaves(cfg.MaxNLeaves)
 	if err := validateIntGenISISLeafCap("issuance", cfg.Issuance, cfg.MaxNLeaves); err != nil {
 		return benchmarkIntGenISISE2EReport{}, err
@@ -505,16 +558,24 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		return benchmarkIntGenISISE2EReport{}, err
 	}
 	fullGame := PIOP.ComposeFullGameSoundness(issuanceMetrics.Soundness, showingMetrics.Soundness, 1, 1)
+	ledger := benchmarkIntGenISISE2ESecurityLedger(cfg, profile, issuanceMetrics, showingMetrics, fullGame, replayRejected)
 
 	report := benchmarkIntGenISISE2EReport{
-		Version:      benchmarkIntGenISISE2EVersion,
-		Generated:    time.Now().UTC().Format(time.RFC3339),
-		Preset:       cfg.PresetName,
-		Profile:      profile.Name,
-		Modulus:      profile.Q,
-		ProfileBound: credential.IntGenISISLiveBound,
-		ArtifactDir:  artifactDir,
-		MaxNLeaves:   cfg.MaxNLeaves,
+		Version:             benchmarkIntGenISISE2EVersion,
+		Generated:           time.Now().UTC().Format(time.RFC3339),
+		Preset:              cfg.PresetName,
+		Profile:             profile.Name,
+		SecurityProfile:     cfg.SecurityProfile,
+		SecurityMode:        cfg.SecurityMode,
+		CompleteSystemClaim: ledger.CompleteSystemClaim,
+		CoreBitsRequired:    ledger.CoreBitsRequired,
+		CoreAvailableBits:   ledger.CoreAvailableBits,
+		PRFProfile:          cfg.PRFProfile,
+		PRFParamsPath:       cfg.PRFParamsPath,
+		Modulus:             profile.Q,
+		ProfileBound:        credential.IntGenISISLiveBound,
+		ArtifactDir:         artifactDir,
+		MaxNLeaves:          cfg.MaxNLeaves,
 		Options: benchmarkIntGenISISE2EOptions{
 			Issuance: cfg.Issuance,
 			Showing:  cfg.Showing,
@@ -524,6 +585,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		Issuance:       issuanceMetrics,
 		Showing:        showingMetrics,
 		FullGame:       fullGame,
+		SecurityLedger: ledger,
 		Artifacts:      paths,
 		ReplayRejected: replayRejected,
 		Notes: []string{
@@ -565,6 +627,67 @@ func benchmarkIntGenISISE2EOverwriteCheck(paths benchmarkIntGenISISE2EArtifacts,
 		}
 	}
 	return nil
+}
+
+func benchmarkIntGenISISE2ESecurityLedger(
+	cfg benchmarkIntGenISISE2EConfig,
+	profile credential.IntGenISISProfile,
+	issuanceMetrics benchmarkIntGenISISMetrics,
+	showingMetrics benchmarkIntGenISISMetrics,
+	fullGame PIOP.FullGameSoundnessReport,
+	replayRejected bool,
+) credential.SystemSecurityLedger {
+	spec, _ := credential.LookupIntGenISISSecurityProfile(cfg.SecurityProfile)
+	params, _ := prf.LoadLocalOrDefaultParams(cfg.PRFParamsPath)
+	prfBits := 0.0
+	tagElements := spec.PRFTagElements
+	if params != nil {
+		prfBits = params.SecPermBits
+		if tagElements <= 0 {
+			tagElements = params.LenTag
+		}
+	}
+	tagsPerContext := uint64(1)
+	for _, cap := range spec.ROQueryCaps {
+		if cap > tagsPerContext {
+			tagsPerContext = cap
+		}
+	}
+	saltBits := cfg.Showing.SaltBits
+	if saltBits <= 0 {
+		saltBits = spec.SaltBits
+	}
+	collisionBits := minPositiveFloat64Local(issuanceMetrics.CollisionBits, showingMetrics.CollisionBits)
+	proofBits := minPositiveFloat64Local(issuanceMetrics.TheoremTotalBits, showingMetrics.TheoremTotalBits)
+	return credential.EvaluateIntGenISISSystemSecurityLedger(credential.SystemSecurityLedgerInput{
+		SecurityProfile:     cfg.SecurityProfile,
+		SecurityMode:        cfg.SecurityMode,
+		CompleteSystemClaim: cfg.CompleteSystemClaim,
+		TargetBits:          spec.TargetBits,
+		CoreBitsRequired:    cfg.CoreBitsRequired,
+		CoreAvailableBits:   minPositiveFloat64Local(prfBits, profile.MLWEHidingBits),
+		ProofBits:           proofBits,
+		FullGameBits:        fullGame.GlobalCollisionFullGameBits,
+		CollisionBits:       collisionBits,
+		TagCollisionBits:    credential.IntGenISISTagCollisionBits(profile.Q, tagElements, tagsPerContext),
+		SaltCollisionBits:   credential.IntGenISISSaltCollisionBits(saltBits, 2),
+		PRFBits:             prfBits,
+		MLWEBits:            profile.MLWEHidingBits,
+		ReplayRejected:      replayRejected,
+	})
+}
+
+func minPositiveFloat64Local(vals ...float64) float64 {
+	out := 0.0
+	for _, v := range vals {
+		if v <= 0 || math.IsInf(v, -1) || math.IsNaN(v) {
+			continue
+		}
+		if out == 0 || v < out {
+			out = v
+		}
+	}
+	return out
 }
 
 func benchmarkIntGenISISE2EPreSignMetrics(holderSecretPath, commitRequestPath, submissionPath string, proveDur time.Duration) (benchmarkIntGenISISMetrics, error) {
@@ -640,6 +763,9 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("load prf params: %w", err)
 	}
 	opts := benchmarkIntGenISISE2EShowingOpts(st.RingDegree, cfg)
+	if st.PRFParamsPath != "" {
+		opts.PRFParamsPath = st.PRFParamsPath
+	}
 	opts.PhaseRecorder = PIOP.NewPhaseRecorder()
 	if opts.NCols < params.LenKey {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("ncols=%d is too small for PRF key width %d", opts.NCols, params.LenKey)
@@ -848,6 +974,15 @@ func benchmarkIntGenISISE2EPrintReport(report benchmarkIntGenISISE2EReport, verb
 		displayBits(report.FullGame.GlobalCollisionFullGameBits),
 		report.FullGame.GlobalQueryCaps,
 		report.FullGame.CollisionSpaceBits,
+	)
+	log.Printf("[issuance-cli] IntGenISIS security_ledger profile=%s mode=%s status=%s full_game_bits=%.2f tag_collision_bits=%.2f core_available_bits=%.2f reasons=%v",
+		report.SecurityLedger.SecurityProfile,
+		report.SecurityLedger.SecurityMode,
+		report.SecurityLedger.LedgerStatus,
+		displayBits(report.SecurityLedger.FullGameBits),
+		displayBits(report.SecurityLedger.TagCollisionBits),
+		displayBits(report.SecurityLedger.CoreAvailableBits),
+		report.SecurityLedger.RejectionReasons,
 	)
 	log.Printf("[issuance-cli] IntGenISIS e2e replay_rejected=%v", report.ReplayRejected)
 }

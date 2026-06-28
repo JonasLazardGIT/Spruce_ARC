@@ -2,14 +2,12 @@ package PIOP
 
 import (
 	"fmt"
-	"path/filepath"
 	"time"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
 	"vSIS-Signature/credential"
 	kf "vSIS-Signature/internal/kfield"
-	"vSIS-Signature/prf"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -133,7 +131,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		} else {
 			useShowingRows := opts.CoeffPacking && wit.CoeffNativeShowing != nil
 			if useShowingRows {
-				params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+				params, perr := loadPRFParamsForOpts(opts)
 				if perr != nil {
 					return nil, fmt.Errorf("load prf params: %w", perr)
 				}
@@ -1080,7 +1078,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 					return false, err
 				}
 			}
-			params, perr := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+			params, perr := loadPRFParamsForOpts(opts)
 			if perr != nil {
 				return false, fmt.Errorf("load prf params: %w", perr)
 			}

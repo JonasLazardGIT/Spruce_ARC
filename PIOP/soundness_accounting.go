@@ -32,15 +32,45 @@ func ResolveDECSCollisionBits(bits int) int {
 	return decs.DefaultHashBytes * 8
 }
 
-func decsCollisionBytesForOpts(opts SimOpts) int {
-	return ResolveDECSCollisionBits(opts.DECSCollisionBits) / 8
+func ResolveDECSTapeBits(bits int) int {
+	if bits > 0 && bits%8 == 0 && decs.IsSupportedNonceBytes(bits/8) {
+		return bits
+	}
+	return decs.DefaultHashBytes * 8
+}
+
+func DECSHashBitsForOpts(opts SimOpts) int {
+	if opts.DECSHashBits > 0 {
+		return ResolveDECSCollisionBits(opts.DECSHashBits)
+	}
+	return ResolveDECSCollisionBits(opts.DECSCollisionBits)
+}
+
+func DECSTapeBitsForOpts(opts SimOpts) int {
+	if opts.DECSTapeBits > 0 {
+		return ResolveDECSTapeBits(opts.DECSTapeBits)
+	}
+	if opts.DECSCollisionBits > 0 {
+		return ResolveDECSTapeBits(opts.DECSCollisionBits)
+	}
+	return decs.DefaultHashBytes * 8
+}
+
+func FSCollisionBitsForOpts(opts SimOpts) int {
+	if opts.FSCollisionBits > 0 {
+		return opts.FSCollisionBits
+	}
+	return DECSHashBitsForOpts(opts)
+}
+
+func applyDECSWidths(params decs.Params, opts SimOpts) decs.Params {
+	params.NonceBytes = DECSTapeBitsForOpts(opts) / 8
+	params.HashBytes = DECSHashBitsForOpts(opts) / 8
+	return params
 }
 
 func applyDECSCollisionWidth(params decs.Params, opts SimOpts) decs.Params {
-	width := decsCollisionBytesForOpts(opts)
-	params.NonceBytes = width
-	params.HashBytes = width
-	return params
+	return applyDECSWidths(params, opts)
 }
 
 func proofRootBytes(proof *Proof) []byte {

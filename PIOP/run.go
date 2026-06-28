@@ -400,6 +400,10 @@ type SimOpts struct {
 	ROQueryCaps       [5]int
 	ROQueryCapsSet    bool `json:"-"`
 	DECSCollisionBits int
+	DECSHashBits      int
+	DECSTapeBits      int
+	FSCollisionBits   int
+	SaltBits          int
 	NCols             int
 	PCSNCols          int
 	LVCSNCols         int
@@ -479,6 +483,7 @@ type SimOpts struct {
 	// FixedTranscriptSize selects fixed-width DECS openings for stable maintained
 	// proof-size reporting. It does not change the algebraic statement.
 	FixedTranscriptSize bool
+	PRFParamsPath       string
 	PhaseRecorder       *PhaseRecorder                                                                               `json:"-"`
 	Mutate              func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
 	Credential          bool
@@ -654,6 +659,18 @@ func (o *SimOpts) applyDefaults() {
 	}
 	if o.DECSCollisionBits <= 0 {
 		o.DECSCollisionBits = def.DECSCollisionBits
+	}
+	if o.DECSHashBits < 0 {
+		o.DECSHashBits = 0
+	}
+	if o.DECSTapeBits < 0 {
+		o.DECSTapeBits = 0
+	}
+	if o.FSCollisionBits < 0 {
+		o.FSCollisionBits = 0
+	}
+	if o.SaltBits < 0 {
+		o.SaltBits = 0
 	}
 	if o.NCols <= 0 {
 		o.NCols = def.NCols
@@ -1972,6 +1989,9 @@ func computeSoundnessBudget(
 	if collisionSpaceBits <= 0 {
 		collisionSpaceBits = fsCollisionSpaceBits(o.Lambda, 0)
 	}
+	if o.FSCollisionBits > 0 {
+		collisionSpaceBits = FSCollisionBitsForOpts(o)
+	}
 	if decsHashBits <= 0 {
 		decsHashBits = decs.DefaultHashBytes * 8
 	}
@@ -1984,9 +2004,6 @@ func computeSoundnessBudget(
 	}
 	if decsHashBits < effectiveLambdaBits {
 		effectiveLambdaBits = decsHashBits
-	}
-	if decsTapeBits < effectiveLambdaBits {
-		effectiveLambdaBits = decsTapeBits
 	}
 	if effectiveLambdaBits < collisionSpaceBits {
 		collisionSpaceBits = effectiveLambdaBits
