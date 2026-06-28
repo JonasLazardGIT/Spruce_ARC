@@ -126,31 +126,43 @@ type benchmarkIntGenISISE2EArtifacts struct {
 }
 
 type benchmarkIntGenISISE2EReport struct {
-	Version             int                               `json:"version"`
-	Generated           string                            `json:"generated_at"`
-	Preset              string                            `json:"preset,omitempty"`
-	Profile             string                            `json:"profile"`
-	SecurityProfile     string                            `json:"security_profile,omitempty"`
-	SecurityMode        string                            `json:"security_mode,omitempty"`
-	CompleteSystemClaim bool                              `json:"complete_system_claim,omitempty"`
-	CoreBitsRequired    float64                           `json:"core_required_bits,omitempty"`
-	CoreAvailableBits   float64                           `json:"core_available_bits,omitempty"`
-	PRFProfile          string                            `json:"prf_profile,omitempty"`
-	PRFParamsPath       string                            `json:"prf_params_path,omitempty"`
-	Modulus             uint64                            `json:"q,omitempty"`
-	ProfileBound        int64                             `json:"profile_bound,omitempty"`
-	ArtifactDir         string                            `json:"artifact_dir"`
-	MaxNLeaves          int                               `json:"max_nleaves,omitempty"`
-	Options             benchmarkIntGenISISE2EOptions     `json:"options"`
-	Environment         benchmarkIntGenISISE2EEnvironment `json:"environment"`
-	Timings             benchmarkIntGenISISE2ETimings     `json:"timings"`
-	Issuance            benchmarkIntGenISISMetrics        `json:"issuance"`
-	Showing             benchmarkIntGenISISMetrics        `json:"showing"`
-	FullGame            PIOP.FullGameSoundnessReport      `json:"full_game"`
-	SecurityLedger      credential.SystemSecurityLedger   `json:"security_ledger"`
-	Artifacts           benchmarkIntGenISISE2EArtifacts   `json:"artifacts"`
-	ReplayRejected      bool                              `json:"replay_rejected"`
-	Notes               []string                          `json:"notes"`
+	Version             int                                   `json:"version"`
+	Generated           string                                `json:"generated_at"`
+	Preset              string                                `json:"preset,omitempty"`
+	Profile             string                                `json:"profile"`
+	SecurityProfile     string                                `json:"security_profile,omitempty"`
+	SecurityMode        string                                `json:"security_mode,omitempty"`
+	CompleteSystemClaim bool                                  `json:"complete_system_claim,omitempty"`
+	CoreBitsRequired    float64                               `json:"core_required_bits,omitempty"`
+	CoreAvailableBits   float64                               `json:"core_available_bits,omitempty"`
+	PRFProfile          string                                `json:"prf_profile,omitempty"`
+	PRFParamsPath       string                                `json:"prf_params_path,omitempty"`
+	LedgerStatus        string                                `json:"ledger_status,omitempty"`
+	LedgerReasons       []string                              `json:"ledger_rejection_reasons,omitempty"`
+	LedgerTerms         []credential.SystemSecurityLedgerTerm `json:"ledger_terms,omitempty"`
+	SoundnessBits       float64                               `json:"soundness_bits,omitempty"`
+	UnlinkabilityBits   float64                               `json:"unlinkability_bits,omitempty"`
+	CorrectnessBits     float64                               `json:"correctness_bits,omitempty"`
+	PrimitiveBits       float64                               `json:"primitive_bits,omitempty"`
+	TagCollisionBits    float64                               `json:"tag_collision_bits,omitempty"`
+	SaltCollisionBits   float64                               `json:"salt_collision_bits,omitempty"`
+	TapeGuessingBits    float64                               `json:"tape_guessing_bits,omitempty"`
+	ProgrammingBits     float64                               `json:"programming_conflict_bits,omitempty"`
+	ChallengeBiasBits   float64                               `json:"challenge_bias_bits,omitempty"`
+	Modulus             uint64                                `json:"q,omitempty"`
+	ProfileBound        int64                                 `json:"profile_bound,omitempty"`
+	ArtifactDir         string                                `json:"artifact_dir"`
+	MaxNLeaves          int                                   `json:"max_nleaves,omitempty"`
+	Options             benchmarkIntGenISISE2EOptions         `json:"options"`
+	Environment         benchmarkIntGenISISE2EEnvironment     `json:"environment"`
+	Timings             benchmarkIntGenISISE2ETimings         `json:"timings"`
+	Issuance            benchmarkIntGenISISMetrics            `json:"issuance"`
+	Showing             benchmarkIntGenISISMetrics            `json:"showing"`
+	FullGame            PIOP.FullGameSoundnessReport          `json:"full_game"`
+	SecurityLedger      credential.SystemSecurityLedger       `json:"security_ledger"`
+	Artifacts           benchmarkIntGenISISE2EArtifacts       `json:"artifacts"`
+	ReplayRejected      bool                                  `json:"replay_rejected"`
+	Notes               []string                              `json:"notes"`
 }
 
 func defaultIntGenISISTuning() intGenISISTuning {
@@ -572,6 +584,18 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		CoreAvailableBits:   ledger.CoreAvailableBits,
 		PRFProfile:          cfg.PRFProfile,
 		PRFParamsPath:       cfg.PRFParamsPath,
+		LedgerStatus:        ledger.LedgerStatus,
+		LedgerReasons:       ledger.RejectionReasons,
+		LedgerTerms:         ledger.Terms,
+		SoundnessBits:       ledger.SoundnessBits,
+		UnlinkabilityBits:   ledger.UnlinkabilityBits,
+		CorrectnessBits:     ledger.CorrectnessBits,
+		PrimitiveBits:       ledger.PrimitiveBits,
+		TagCollisionBits:    ledger.TagCollisionBits,
+		SaltCollisionBits:   ledger.SaltCollisionBits,
+		TapeGuessingBits:    ledger.TapeGuessingBits,
+		ProgrammingBits:     ledger.ProgrammingConflictBits,
+		ChallengeBiasBits:   ledger.ChallengeBiasBits,
 		Modulus:             profile.Q,
 		ProfileBound:        credential.IntGenISISLiveBound,
 		ArtifactDir:         artifactDir,
@@ -638,7 +662,7 @@ func benchmarkIntGenISISE2ESecurityLedger(
 	replayRejected bool,
 ) credential.SystemSecurityLedger {
 	spec, _ := credential.LookupIntGenISISSecurityProfile(cfg.SecurityProfile)
-	params, _ := prf.LoadLocalOrDefaultParams(cfg.PRFParamsPath)
+	params, _ := prf.LoadLocalOrBundledParams(cfg.PRFParamsPath)
 	prfBits := 0.0
 	tagElements := spec.PRFTagElements
 	if params != nil {
@@ -647,18 +671,24 @@ func benchmarkIntGenISISE2ESecurityLedger(
 			tagElements = params.LenTag
 		}
 	}
-	tagsPerContext := uint64(1)
-	for _, cap := range spec.ROQueryCaps {
-		if cap > tagsPerContext {
-			tagsPerContext = cap
-		}
-	}
+	scope := credential.DefaultIntGenISISAdversaryScope(spec)
+	budgets := credential.ROBudgetVectorFromCaps(spec.ROQueryCaps)
 	saltBits := cfg.Showing.SaltBits
 	if saltBits <= 0 {
 		saltBits = spec.SaltBits
 	}
 	collisionBits := minPositiveFloat64Local(issuanceMetrics.CollisionBits, showingMetrics.CollisionBits)
 	proofBits := minPositiveFloat64Local(issuanceMetrics.TheoremTotalBits, showingMetrics.TheoremTotalBits)
+	fullGameBits := fullGame.GlobalCollisionFullGameBits
+	tapeBits := minPositiveIntLocal(issuanceMetrics.DECSTapeBits, showingMetrics.DECSTapeBits, spec.DECSTapeBits)
+	tapeGuessingBits := credential.IntGenISISTapeGuessingBits(tapeBits, budgets.GuessTape)
+	programmingBits := minPositiveFloat64Local(collisionBits, fullGame.GlobalCollisionBits)
+	challengeBiasBits := float64(minPositiveIntLocal(issuanceMetrics.EffectiveLambdaBits, showingMetrics.EffectiveLambdaBits, spec.FSCollisionBits))
+	tagCollisionBits := credential.IntGenISISTagCollisionBits(profile.Q, tagElements, scope.TagsPerContext)
+	saltCollisionBits := credential.IntGenISISSaltCollisionBits(saltBits, scope.Proofs)
+	scopeBaseBits := minPositiveFloat64Local(fullGameBits, tagCollisionBits, saltCollisionBits, prfBits, profile.MLWEHidingBits)
+	multiUserBits := credential.IntGenISISMultiScopeBits(scopeBaseBits, scope.Users)
+	multiContextBits := credential.IntGenISISMultiScopeBits(scopeBaseBits, scope.Contexts)
 	return credential.EvaluateIntGenISISSystemSecurityLedger(credential.SystemSecurityLedgerInput{
 		SecurityProfile:     cfg.SecurityProfile,
 		SecurityMode:        cfg.SecurityMode,
@@ -667,13 +697,50 @@ func benchmarkIntGenISISE2ESecurityLedger(
 		CoreBitsRequired:    cfg.CoreBitsRequired,
 		CoreAvailableBits:   minPositiveFloat64Local(prfBits, profile.MLWEHidingBits),
 		ProofBits:           proofBits,
-		FullGameBits:        fullGame.GlobalCollisionFullGameBits,
+		FullGameBits:        fullGameBits,
 		CollisionBits:       collisionBits,
-		TagCollisionBits:    credential.IntGenISISTagCollisionBits(profile.Q, tagElements, tagsPerContext),
-		SaltCollisionBits:   credential.IntGenISISSaltCollisionBits(saltBits, 2),
+		TagCollisionBits:    tagCollisionBits,
+		SaltCollisionBits:   saltCollisionBits,
+		TapeGuessingBits:    tapeGuessingBits,
+		ProgrammingBits:     programmingBits,
+		ChallengeBiasBits:   challengeBiasBits,
+		MultiUserBits:       multiUserBits,
+		MultiContextBits:    multiContextBits,
 		PRFBits:             prfBits,
 		MLWEBits:            profile.MLWEHidingBits,
 		ReplayRejected:      replayRejected,
+		ROBudgets:           budgets,
+		Scope:               scope,
+		Terms: []credential.SystemSecurityLedgerTerm{
+			{
+				Category:     credential.SystemLedgerTermSoundness,
+				Name:         "programming_conflict",
+				Bits:         programmingBits,
+				Required:     true,
+				Conservative: true,
+			},
+			{
+				Category:     credential.SystemLedgerTermSoundness,
+				Name:         "challenge_bias",
+				Bits:         challengeBiasBits,
+				Required:     true,
+				Conservative: true,
+			},
+			{
+				Category:     credential.SystemLedgerTermComposition,
+				Name:         "multi_user",
+				Bits:         multiUserBits,
+				Required:     true,
+				Conservative: true,
+			},
+			{
+				Category:     credential.SystemLedgerTermComposition,
+				Name:         "multi_context",
+				Bits:         multiContextBits,
+				Required:     true,
+				Conservative: true,
+			},
+		},
 	})
 }
 
@@ -681,6 +748,19 @@ func minPositiveFloat64Local(vals ...float64) float64 {
 	out := 0.0
 	for _, v := range vals {
 		if v <= 0 || math.IsInf(v, -1) || math.IsNaN(v) {
+			continue
+		}
+		if out == 0 || v < out {
+			out = v
+		}
+	}
+	return out
+}
+
+func minPositiveIntLocal(vals ...int) int {
+	out := 0
+	for _, v := range vals {
+		if v <= 0 {
 			continue
 		}
 		if out == 0 || v < out {

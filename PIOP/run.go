@@ -1254,7 +1254,7 @@ func maxDegreeFromCoeffs(poly []uint64) int {
 // where d and d′ are algebraic degrees of the parallel/aggregated constraint
 // polynomials in the witness variables, s=|Ω|, and ℓ is the number of blinding
 // points per committed row polynomial (so deg(P_i) ≤ ℓ+s−1).
-func computeDQFromConstraintDegrees(d, dPrime, s, ell int) int {
+func ComputeDQBranchBounds(d, dPrime, s, ell int) (parallel int, aggregate int, dq int) {
 	if s <= 0 {
 		s = 1
 	}
@@ -1262,12 +1262,17 @@ func computeDQFromConstraintDegrees(d, dPrime, s, ell int) int {
 		ell = 1
 	}
 	span := ell + s - 1
-	c1 := d*span + (s - 1)
-	c2 := dPrime * span
-	if c1 >= c2 {
-		return c1
+	parallel = d*span + (s - 1)
+	aggregate = dPrime * span
+	if parallel >= aggregate {
+		return parallel, aggregate, parallel
 	}
-	return c2
+	return parallel, aggregate, aggregate
+}
+
+func computeDQFromConstraintDegrees(d, dPrime, s, ell int) int {
+	_, _, dq := ComputeDQBranchBounds(d, dPrime, s, ell)
+	return dq
 }
 
 func computeVTargets(mod uint64, rows [][]uint64, C [][]uint64) [][]uint64 {

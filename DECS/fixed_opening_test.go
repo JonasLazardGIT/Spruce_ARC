@@ -90,3 +90,49 @@ func TestPackOpeningFixedAuthenticationShapeIsConstant(t *testing.T) {
 		t.Fatalf("residue shape A=(%d,%d) B=(%d,%d)", len(openA.PvalsBits), len(openA.MvalsBits), len(openB.PvalsBits), len(openB.MvalsBits))
 	}
 }
+
+func TestVerifierRejectsExplicitHashAndTapeWidthMismatch(t *testing.T) {
+	pr := makeDeterministicFormalProver(t)
+	pr.params.HashBytes = 21
+	pr.params.NonceBytes = 16
+	if _, err := pr.CommitInitWithOptions(CommitOptions{}); err != nil {
+		t.Fatalf("commit init: %v", err)
+	}
+	rootHash := pr.RootHash()
+	gamma := DeriveGamma([16]byte{}, pr.params.Eta, pr.rowCount(), pr.ringQ.Modulus[0])
+	// Recompute gamma from the legacy root prefix so CommitStep2Formal matches
+	// the verifier path used by low-level DECS callers.
+	copyRoot := [16]byte{}
+	copy(copyRoot[:], rootHash)
+	gamma = DeriveGamma(copyRoot, pr.params.Eta, pr.rowCount(), pr.ringQ.Modulus[0])
+	rFormal := pr.CommitStep2Formal(gamma)
+	open := pr.EvalOpen([]int{3, 17, 42})
+
+	verifier, err := NewVerifierWithParamsAndPointsChecked(pr.ringQ, pr.rowCount(), pr.params, pr.points)
+	if err != nil {
+		t.Fatalf("new verifier: %v", err)
+	}
+	if !verifier.VerifyEvalAtFormalHash(rootHash, gamma, rFormal, open, []int{3, 17, 42}) {
+		t.Fatal("baseline explicit-width opening did not verify")
+	}
+
+	hashMismatch := pr.params
+	hashMismatch.HashBytes = 20
+	hashVerifier, err := NewVerifierWithParamsAndPointsChecked(pr.ringQ, pr.rowCount(), hashMismatch, pr.points)
+	if err != nil {
+		t.Fatalf("new hash mismatch verifier: %v", err)
+	}
+	if hashVerifier.VerifyEvalAtFormalHash(rootHash, gamma, rFormal, open, []int{3, 17, 42}) {
+		t.Fatal("verifier accepted opening with mismatched explicit hash width")
+	}
+
+	tapeMismatch := pr.params
+	tapeMismatch.NonceBytes = 24
+	tapeVerifier, err := NewVerifierWithParamsAndPointsChecked(pr.ringQ, pr.rowCount(), tapeMismatch, pr.points)
+	if err != nil {
+		t.Fatalf("new tape mismatch verifier: %v", err)
+	}
+	if tapeVerifier.VerifyEvalAtFormalHash(rootHash, gamma, rFormal, open, []int{3, 17, 42}) {
+		t.Fatal("verifier accepted opening with mismatched tape width")
+	}
+}

@@ -14,107 +14,122 @@ const (
 )
 
 type benchmarkIntGenISISMetrics struct {
-	ProofSizeBytes                int                  `json:"proof_size_bytes"`
-	PaperTranscriptBytes          int                  `json:"paper_transcript_bytes"`
-	PaperTranscriptKB             float64              `json:"paper_transcript_kb"`
-	QBytes                        int                  `json:"q_bytes"`
-	RBytes                        int                  `json:"r_bytes"`
-	PdecsBytes                    int                  `json:"pdecs_bytes"`
-	MdecsBytes                    int                  `json:"mdecs_bytes,omitempty"`
-	AuthBytes                     int                  `json:"auth_bytes"`
-	TapesBytes                    int                  `json:"tapes_bytes,omitempty"`
-	SigShortnessBytes             int                  `json:"sig_shortness_bytes"`
-	VTargetsBytes                 int                  `json:"vtargets_bytes"`
-	BarSetsBytes                  int                  `json:"barsets_bytes"`
-	ProvingMS                     float64              `json:"proving_ms"`
-	VerificationMS                float64              `json:"verification_ms"`
-	PhaseTimings                  []PIOP.PhaseTiming   `json:"phase_timings,omitempty"`
-	TotalRows                     int                  `json:"total_rows"`
-	RowsBlock                     int                  `json:"rows_block,omitempty"`
-	AuditRows                     int                  `json:"audit_rows,omitempty"`
-	OpeningCols                   int                  `json:"opening_cols,omitempty"`
-	PRFRows                       int                  `json:"prf_rows"`
-	CoefficientViewRows           int                  `json:"coefficient_view_rows"`
-	UCoefficientViewRows          int                  `json:"u_coefficient_view_rows,omitempty"`
-	UDigitOnly                    bool                 `json:"u_digit_only,omitempty"`
-	SemanticViewRows              int                  `json:"semantic_view_rows,omitempty"`
-	CommitmentViewRows            int                  `json:"commitment_view_rows,omitempty"`
-	YCoefficientViewRows          int                  `json:"y_coefficient_view_rows,omitempty"`
-	IssuerViewRows                int                  `json:"issuer_view_rows,omitempty"`
-	BoundRows                     int                  `json:"bound_rows"`
-	ShortnessRows                 int                  `json:"shortness_rows"`
-	ShortnessConstraints          int                  `json:"shortness_constraints,omitempty"`
-	HatRows                       int                  `json:"hat_rows"`
-	YHatRows                      int                  `json:"y_hat_rows,omitempty"`
-	SourceBridgeConstraints       int                  `json:"source_bridge_constraints,omitempty"`
-	UBridgeConstraints            int                  `json:"u_bridge_constraints,omitempty"`
-	CommitmentBridgeConstraints   int                  `json:"commitment_bridge_constraints,omitempty"`
-	YLinearConstraints            int                  `json:"y_linear_constraints,omitempty"`
-	ProjectedSignatureConstraints int                  `json:"projected_signature_constraints,omitempty"`
-	ReplayProjection              string               `json:"replay_projection,omitempty"`
-	IssuerBridgeConstraints       int                  `json:"issuer_bridge_constraints,omitempty"`
-	PRFKeyBridgeConstraints       int                  `json:"prf_key_bridge_constraints,omitempty"`
-	FparIntConstraints            int                  `json:"fpar_int_constraints,omitempty"`
-	RangeConstraints              int                  `json:"range_constraints,omitempty"`
-	ParallelDegree                int                  `json:"parallel_degree"`
-	AggregatedDegree              int                  `json:"aggregated_degree"`
-	ParallelAlgDegree             int                  `json:"parallel_alg_degree,omitempty"`
-	AggregatedAlgDegree           int                  `json:"aggregated_alg_degree,omitempty"`
-	PaperConservativeDQ           int                  `json:"paper_conservative_dq,omitempty"`
-	MaskDegreeBound               int                  `json:"mask_degree_bound,omitempty"`
-	DominantDegreeSource          string               `json:"dominant_degree_source,omitempty"`
-	TernaryRows                   int                  `json:"ternary_rows,omitempty"`
-	CompressedRows                int                  `json:"compressed_rows,omitempty"`
-	MSECompressionLevel           int                  `json:"mse_compression_level,omitempty"`
-	MSECompressionPackWidth       int                  `json:"mse_compression_pack_width,omitempty"`
-	MSECompressionDegree          int                  `json:"mse_compression_degree,omitempty"`
-	RoundBits                     [4]float64           `json:"round_bits"`
-	RawRoundBits                  [4]float64           `json:"raw_round_bits"`
-	TheoremBits                   [4]float64           `json:"theorem_bits"`
-	TheoremTotalBits              float64              `json:"theorem_total_bits"`
-	ROQueryCaps                   [5]int               `json:"ro_query_caps"`
-	CollisionSpaceBits            int                  `json:"collision_space_bits"`
-	FSLambdaBits                  int                  `json:"fs_lambda_bits"`
-	EffectiveLambdaBits           int                  `json:"effective_lambda_bits"`
-	DECSHashBits                  int                  `json:"decs_hash_bits"`
-	DECSTapeBits                  int                  `json:"decs_tape_bits"`
-	AlgebraicTerms                [4]float64           `json:"algebraic_terms"`
-	AlgebraicBits                 [4]float64           `json:"algebraic_bits"`
-	AlgebraicTotal                float64              `json:"algebraic_total"`
-	AlgebraicTotalBits            float64              `json:"algebraic_total_bits"`
-	Collision                     float64              `json:"collision"`
-	CollisionBits                 float64              `json:"collision_bits"`
-	OneProofTotal                 float64              `json:"one_proof_total"`
-	OneProofTotalBits             float64              `json:"one_proof_total_bits"`
-	Clamped                       [4]bool              `json:"clamped"`
-	SoundnessEq8Bits              float64              `json:"soundness_eq8_bits"`
-	DQ                            int                  `json:"dq"`
-	DDECS                         int                  `json:"ddecs"`
-	WitnessSupportCols            int                  `json:"witness_support_cols"`
-	CommittedCols                 int                  `json:"committed_cols"`
-	ProofReportBuckets            int                  `json:"proof_report_buckets"`
-	Theta                         int                  `json:"theta"`
-	Rho                           int                  `json:"rho"`
-	EllPrime                      int                  `json:"ell_prime"`
-	SmallFieldReplayRows          int                  `json:"smallfield_replay_rows,omitempty"`
-	MaskRows                      int                  `json:"mask_rows,omitempty"`
-	QSplitRows                    int                  `json:"q_split_rows,omitempty"`
-	QLimbRows                     int                  `json:"q_limb_rows,omitempty"`
-	PDecsBitWidth                 int                  `json:"pdecs_bit_width,omitempty"`
-	VTargetsBitWidth              int                  `json:"vtargets_bit_width,omitempty"`
-	PaperShapeNRows               int                  `json:"paper_shape_nrows,omitempty"`
-	PaperShapeQueries             int                  `json:"paper_shape_queries,omitempty"`
-	PaperShapeWitnessLayers       int                  `json:"paper_shape_witness_layers,omitempty"`
-	PaperShapeMaskRows            int                  `json:"paper_shape_mask_rows,omitempty"`
-	PaperShapeVHeadBytes          int                  `json:"paper_shape_vhead_bytes,omitempty"`
-	PaperShapeVBarBytes           int                  `json:"paper_shape_vbar_bytes,omitempty"`
-	PaperShapeOpeningOmitEntries  int                  `json:"paper_shape_opening_omit_entries,omitempty"`
-	PaperShapeCanonical           bool                 `json:"paper_shape_canonical,omitempty"`
-	FixedTranscriptSize           bool                 `json:"fixed_transcript_size"`
-	TranscriptSizeMode            string               `json:"transcript_size_mode"`
-	TranscriptSecurityStatus      string               `json:"transcript_security_status,omitempty"`
-	MeasurementStatus             string               `json:"measurement_status"`
-	Soundness                     PIOP.SoundnessBudget `json:"-"`
+	ProofSizeBytes                int                               `json:"proof_size_bytes"`
+	PaperTranscriptBytes          int                               `json:"paper_transcript_bytes"`
+	PaperTranscriptKB             float64                           `json:"paper_transcript_kb"`
+	QBytes                        int                               `json:"q_bytes"`
+	RBytes                        int                               `json:"r_bytes"`
+	PdecsBytes                    int                               `json:"pdecs_bytes"`
+	MdecsBytes                    int                               `json:"mdecs_bytes,omitempty"`
+	AuthBytes                     int                               `json:"auth_bytes"`
+	TapesBytes                    int                               `json:"tapes_bytes,omitempty"`
+	SigShortnessBytes             int                               `json:"sig_shortness_bytes"`
+	VTargetsBytes                 int                               `json:"vtargets_bytes"`
+	BarSetsBytes                  int                               `json:"barsets_bytes"`
+	ProvingMS                     float64                           `json:"proving_ms"`
+	VerificationMS                float64                           `json:"verification_ms"`
+	PhaseTimings                  []PIOP.PhaseTiming                `json:"phase_timings,omitempty"`
+	TotalRows                     int                               `json:"total_rows"`
+	RowsBlock                     int                               `json:"rows_block,omitempty"`
+	AuditRows                     int                               `json:"audit_rows,omitempty"`
+	OpeningCols                   int                               `json:"opening_cols,omitempty"`
+	PRFRows                       int                               `json:"prf_rows"`
+	CoefficientViewRows           int                               `json:"coefficient_view_rows"`
+	UCoefficientViewRows          int                               `json:"u_coefficient_view_rows,omitempty"`
+	UDigitOnly                    bool                              `json:"u_digit_only,omitempty"`
+	SemanticViewRows              int                               `json:"semantic_view_rows,omitempty"`
+	CommitmentViewRows            int                               `json:"commitment_view_rows,omitempty"`
+	YCoefficientViewRows          int                               `json:"y_coefficient_view_rows,omitempty"`
+	IssuerViewRows                int                               `json:"issuer_view_rows,omitempty"`
+	BoundRows                     int                               `json:"bound_rows"`
+	ShortnessRows                 int                               `json:"shortness_rows"`
+	ShortnessConstraints          int                               `json:"shortness_constraints,omitempty"`
+	HatRows                       int                               `json:"hat_rows"`
+	YHatRows                      int                               `json:"y_hat_rows,omitempty"`
+	SourceBridgeConstraints       int                               `json:"source_bridge_constraints,omitempty"`
+	UBridgeConstraints            int                               `json:"u_bridge_constraints,omitempty"`
+	CommitmentBridgeConstraints   int                               `json:"commitment_bridge_constraints,omitempty"`
+	YLinearConstraints            int                               `json:"y_linear_constraints,omitempty"`
+	ProjectedSignatureConstraints int                               `json:"projected_signature_constraints,omitempty"`
+	ReplayProjection              string                            `json:"replay_projection,omitempty"`
+	IssuerBridgeConstraints       int                               `json:"issuer_bridge_constraints,omitempty"`
+	PRFKeyBridgeConstraints       int                               `json:"prf_key_bridge_constraints,omitempty"`
+	FparIntConstraints            int                               `json:"fpar_int_constraints,omitempty"`
+	RangeConstraints              int                               `json:"range_constraints,omitempty"`
+	ParallelDegree                int                               `json:"parallel_degree"`
+	AggregatedDegree              int                               `json:"aggregated_degree"`
+	ParallelAlgDegree             int                               `json:"parallel_alg_degree,omitempty"`
+	AggregatedAlgDegree           int                               `json:"aggregated_alg_degree,omitempty"`
+	PaperConservativeDQ           int                               `json:"paper_conservative_dq,omitempty"`
+	MaskDegreeBound               int                               `json:"mask_degree_bound,omitempty"`
+	DominantDegreeSource          string                            `json:"dominant_degree_source,omitempty"`
+	TernaryRows                   int                               `json:"ternary_rows,omitempty"`
+	CompressedRows                int                               `json:"compressed_rows,omitempty"`
+	MSECompressionLevel           int                               `json:"mse_compression_level,omitempty"`
+	MSECompressionPackWidth       int                               `json:"mse_compression_pack_width,omitempty"`
+	MSECompressionDegree          int                               `json:"mse_compression_degree,omitempty"`
+	RoundBits                     [4]float64                        `json:"round_bits"`
+	RawRoundBits                  [4]float64                        `json:"raw_round_bits"`
+	TheoremBits                   [4]float64                        `json:"theorem_bits"`
+	TheoremTotalBits              float64                           `json:"theorem_total_bits"`
+	ROQueryCaps                   [5]int                            `json:"ro_query_caps"`
+	CollisionSpaceBits            int                               `json:"collision_space_bits"`
+	FSLambdaBits                  int                               `json:"fs_lambda_bits"`
+	EffectiveLambdaBits           int                               `json:"effective_lambda_bits"`
+	DECSHashBits                  int                               `json:"decs_hash_bits"`
+	DECSTapeBits                  int                               `json:"decs_tape_bits"`
+	AlgebraicTerms                [4]float64                        `json:"algebraic_terms"`
+	AlgebraicBits                 [4]float64                        `json:"algebraic_bits"`
+	AlgebraicTotal                float64                           `json:"algebraic_total"`
+	AlgebraicTotalBits            float64                           `json:"algebraic_total_bits"`
+	Collision                     float64                           `json:"collision"`
+	CollisionBits                 float64                           `json:"collision_bits"`
+	OneProofTotal                 float64                           `json:"one_proof_total"`
+	OneProofTotalBits             float64                           `json:"one_proof_total_bits"`
+	Clamped                       [4]bool                           `json:"clamped"`
+	SoundnessEq8Bits              float64                           `json:"soundness_eq8_bits"`
+	DQ                            int                               `json:"dq"`
+	DDECS                         int                               `json:"ddecs"`
+	WitnessSupportCols            int                               `json:"witness_support_cols"`
+	CommittedCols                 int                               `json:"committed_cols"`
+	ProofReportBuckets            int                               `json:"proof_report_buckets"`
+	Theta                         int                               `json:"theta"`
+	Rho                           int                               `json:"rho"`
+	EllPrime                      int                               `json:"ell_prime"`
+	SmallFieldReplayRows          int                               `json:"smallfield_replay_rows,omitempty"`
+	MaskRows                      int                               `json:"mask_rows,omitempty"`
+	QSplitRows                    int                               `json:"q_split_rows,omitempty"`
+	QLimbRows                     int                               `json:"q_limb_rows,omitempty"`
+	PDecsBitWidth                 int                               `json:"pdecs_bit_width,omitempty"`
+	VTargetsBitWidth              int                               `json:"vtargets_bit_width,omitempty"`
+	PaperShapeNRows               int                               `json:"paper_shape_nrows,omitempty"`
+	PaperShapeQueries             int                               `json:"paper_shape_queries,omitempty"`
+	PaperShapeWitnessLayers       int                               `json:"paper_shape_witness_layers,omitempty"`
+	PaperShapeMaskRows            int                               `json:"paper_shape_mask_rows,omitempty"`
+	PaperShapeVHeadBytes          int                               `json:"paper_shape_vhead_bytes,omitempty"`
+	PaperShapeVBarBytes           int                               `json:"paper_shape_vbar_bytes,omitempty"`
+	PaperShapeOpeningOmitEntries  int                               `json:"paper_shape_opening_omit_entries,omitempty"`
+	PaperShapeCanonical           bool                              `json:"paper_shape_canonical,omitempty"`
+	FixedTranscriptSize           bool                              `json:"fixed_transcript_size"`
+	TranscriptSizeMode            string                            `json:"transcript_size_mode"`
+	TranscriptSecurityStatus      string                            `json:"transcript_security_status,omitempty"`
+	MeasurementStatus             string                            `json:"measurement_status"`
+	RelationCandidate             benchmarkIntGenISISRelationReport `json:"relation_candidate,omitempty"`
+	Soundness                     PIOP.SoundnessBudget              `json:"-"`
+}
+
+type benchmarkIntGenISISRelationReport struct {
+	LogicalRows          int            `json:"logical_rows,omitempty"`
+	ParallelDegree       int            `json:"parallel_degree,omitempty"`
+	AggregatedDegree     int            `json:"aggregated_degree,omitempty"`
+	DQParallel           int            `json:"dq_parallel,omitempty"`
+	DQAggregate          int            `json:"dq_aggregate,omitempty"`
+	DQ                   int            `json:"dq,omitempty"`
+	MaskDegreeBound      int            `json:"mask_degree_bound,omitempty"`
+	RowCounts            map[string]int `json:"row_counts,omitempty"`
+	ConstraintCounts     map[string]int `json:"constraint_counts,omitempty"`
+	DominantDegreeSource string         `json:"dominant_degree_source,omitempty"`
+	DominantDQBranch     string         `json:"dominant_dq_branch,omitempty"`
 }
 
 func normalizeIntGenISISTranscriptMode(mode string) (string, error) {
@@ -306,7 +321,71 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 	if metrics.ProofReportBuckets == 0 {
 		metrics.ProofReportBuckets = report.TranscriptFocus.RowOpeningEntries
 	}
+	if metrics.ParallelAlgDegree > 0 || metrics.AggregatedAlgDegree > 0 {
+		metrics.RelationCandidate = benchmarkIntGenISISRelationReportFromMetrics(proof, metrics, opts)
+	}
 	return metrics
+}
+
+func benchmarkIntGenISISRelationReportFromMetrics(proof *PIOP.Proof, metrics benchmarkIntGenISISMetrics, opts PIOP.SimOpts) benchmarkIntGenISISRelationReport {
+	dqParallel, dqAggregate, dq := PIOP.ComputeDQBranchBounds(metrics.ParallelAlgDegree, metrics.AggregatedAlgDegree, opts.NCols, opts.Ell)
+	dominantDQ := "parallel"
+	if dqAggregate > dqParallel {
+		dominantDQ = "aggregate"
+	}
+	rowCounts := map[string]int{
+		"total":            metrics.TotalRows,
+		"coefficient_view": metrics.CoefficientViewRows,
+		"prf":              metrics.PRFRows,
+		"bound":            metrics.BoundRows,
+		"shortness":        metrics.ShortnessRows,
+		"mask":             reportPositiveInt(metrics.MaskRows, proof.MaskRowCount),
+	}
+	constraintCounts := map[string]int{
+		"range":               metrics.RangeConstraints,
+		"shortness":           metrics.ShortnessConstraints,
+		"source_bridge":       metrics.SourceBridgeConstraints,
+		"u_bridge":            metrics.UBridgeConstraints,
+		"commitment_bridge":   metrics.CommitmentBridgeConstraints,
+		"projected_signature": metrics.ProjectedSignatureConstraints,
+		"issuer_bridge":       metrics.IssuerBridgeConstraints,
+		"prf_key_bridge":      metrics.PRFKeyBridgeConstraints,
+		"fpar_int":            metrics.FparIntConstraints,
+	}
+	return benchmarkIntGenISISRelationReport{
+		LogicalRows:          metrics.TotalRows,
+		ParallelDegree:       metrics.ParallelAlgDegree,
+		AggregatedDegree:     metrics.AggregatedAlgDegree,
+		DQParallel:           dqParallel,
+		DQAggregate:          dqAggregate,
+		DQ:                   dq,
+		MaskDegreeBound:      metrics.MaskDegreeBound,
+		RowCounts:            pruneZeroIntMap(rowCounts),
+		ConstraintCounts:     pruneZeroIntMap(constraintCounts),
+		DominantDegreeSource: metrics.DominantDegreeSource,
+		DominantDQBranch:     dominantDQ,
+	}
+}
+
+func pruneZeroIntMap(in map[string]int) map[string]int {
+	for k, v := range in {
+		if v == 0 {
+			delete(in, k)
+		}
+	}
+	if len(in) == 0 {
+		return nil
+	}
+	return in
+}
+
+func reportPositiveInt(vals ...int) int {
+	for _, v := range vals {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 func nonZeroPhaseTimings(in []PIOP.PhaseTiming) []PIOP.PhaseTiming {

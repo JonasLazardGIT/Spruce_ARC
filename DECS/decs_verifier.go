@@ -47,6 +47,9 @@ func (v *Verifier) VerifyEvalFormalHash(
 	if open == nil {
 		return false
 	}
+	if v.params.HashBytes > 0 && len(rootHash) != NormalizeHashBytes(v.params.HashBytes) {
+		return false
+	}
 	if openingPRequiresReconstruction(open) {
 		if len(open.Pvals) == 0 {
 			// Compressed openings must be reconstructed before DECS verification.
@@ -147,6 +150,9 @@ func (v *Verifier) VerifyEvalFormalHash(
 				return false
 			}
 			path[lvl] = open.Nodes[id]
+			if v.params.HashBytes > 0 && len(path[lvl]) != NormalizeHashBytes(v.params.HashBytes) {
+				return false
+			}
 		}
 		if !VerifyPathHash(buf, path, rootHash, idx) {
 			return false

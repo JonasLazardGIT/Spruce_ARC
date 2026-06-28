@@ -792,6 +792,13 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err == nil && ok {
 		t.Fatal("showing verifier accepted tampered target public data")
 	}
+
+	tampered = pub
+	tampered.Extras = map[string]interface{}{"IntGenISIS.signature_bound_value": int64(0)}
+	ok, err = VerifyIntGenISISShowing(tampered, proof, opts)
+	if err == nil && ok {
+		t.Fatal("showing verifier accepted tampered presentation context extras")
+	}
 }
 
 func intGenISISTestPRFSeed() []int64 {

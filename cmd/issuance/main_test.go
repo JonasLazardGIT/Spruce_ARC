@@ -159,6 +159,56 @@ func TestBenchmarkIntGenISISE2EPropagatesBQ32ProfileMetadata(t *testing.T) {
 	}
 }
 
+func TestBenchmarkRelationReportIncludesDQBranches(t *testing.T) {
+	metrics := benchmarkIntGenISISMetrics{
+		TotalRows:            100,
+		CoefficientViewRows:  20,
+		ParallelAlgDegree:    11,
+		AggregatedAlgDegree:  2,
+		MaskDegreeBound:      400,
+		DominantDegreeSource: "shortness",
+	}
+	opts := PIOP.SimOpts{NCols: 32, Ell: 4}
+	report := benchmarkIntGenISISRelationReportFromMetrics(&PIOP.Proof{MaskRowCount: 5}, metrics, opts)
+	wantParallel := 11*(32+4-1) + 31
+	wantAggregate := 2 * (32 + 4 - 1)
+	if report.DQParallel != wantParallel || report.DQAggregate != wantAggregate {
+		t.Fatalf("dq branches parallel=%d aggregate=%d", report.DQParallel, report.DQAggregate)
+	}
+	if report.DQ != report.DQParallel || report.DominantDQBranch != "parallel" {
+		t.Fatalf("unexpected dominant dq branch: %+v", report)
+	}
+	if report.RowCounts["mask"] != 5 || report.RowCounts["coefficient_view"] != 20 {
+		t.Fatalf("row counts=%v", report.RowCounts)
+	}
+}
+
+func TestBenchmarkReportCarriesFlattenedLedgerFields(t *testing.T) {
+	report := benchmarkIntGenISISE2EReport{
+		LedgerStatus:      string(credential.SecurityProfileCandidate),
+		SoundnessBits:     100,
+		UnlinkabilityBits: 101,
+		CorrectnessBits:   102,
+		PrimitiveBits:     103,
+		LedgerTerms: []credential.SystemSecurityLedgerTerm{{
+			Category: credential.SystemLedgerTermSoundness,
+			Name:     "full_game",
+			Bits:     100,
+			Required: true,
+			Status:   "pass",
+		}},
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ledger_status", "ledger_terms", "soundness_bits", "unlinkability_bits", "correctness_bits", "primitive_bits"} {
+		if !bytes.Contains(data, []byte(want)) {
+			t.Fatalf("benchmark report JSON missing %s: %s", want, data)
+		}
+	}
+}
+
 func TestBenchmarkIntGenISISE2EVerboseFlagParses(t *testing.T) {
 	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
 		"-preset", credential.IntGenISISPresetN512Compact96,
