@@ -78,6 +78,28 @@ func TestShowingCLIPropagatesBQ32SplitWidthsAndPRFPath(t *testing.T) {
 	}
 }
 
+func TestShowingCLIPropagatesBQ64LogCapsAndWidths(t *testing.T) {
+	cfg, err := parseShowingCLIArgs([]string{
+		"-preset", credential.IntGenISISPresetN1024BQ64_96Theta11,
+	})
+	if err != nil {
+		t.Fatalf("parse showing bq64 preset: %v", err)
+	}
+	opts := intGenISISShowingOpts(1024, cfg.Preset.Showing)
+	if opts.ROQueryCapsSet {
+		t.Fatalf("legacy caps unexpectedly set: %v", opts.ROQueryCaps)
+	}
+	if !opts.ROQueryCapBitsSet || opts.ROQueryCapBits != [5]float64{64, 64, 64, 64, 64} {
+		t.Fatalf("log caps=%v set=%v", opts.ROQueryCapBits, opts.ROQueryCapBitsSet)
+	}
+	if opts.DECSHashBits != 232 || opts.DECSTapeBits != 160 || opts.FSCollisionBits != 232 || opts.SaltBits != 224 {
+		t.Fatalf("opts widths hash=%d tape=%d fs=%d salt=%d", opts.DECSHashBits, opts.DECSTapeBits, opts.FSCollisionBits, opts.SaltBits)
+	}
+	if opts.Theta != 11 || opts.Ell != 16 || opts.LVCSNCols != 43 || opts.PRFParamsPath != credential.IntGenISISPRFParamsTag9 {
+		t.Fatalf("opts BQ64 shape=%+v", opts)
+	}
+}
+
 func TestShowingVerboseFlagParses(t *testing.T) {
 	cfg, err := parseShowingCLIArgs([]string{
 		"-preset", credential.IntGenISISPresetN512Compact96,

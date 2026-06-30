@@ -1,10 +1,15 @@
 package credential
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestIntGenISISPresetRegistryIsMaintainedOnly(t *testing.T) {
+func TestIntGenISISPresetRegistryIncludesMaintainedAndResearchPresets(t *testing.T) {
 	want := []string{
 		IntGenISISPresetN1024BQ32_96,
+		IntGenISISPresetN1024BQ64_128Theta13H256,
+		IntGenISISPresetN1024BQ64_96Theta11,
 		IntGenISISPresetN1024Compact125,
 		IntGenISISPresetN1024Compact96,
 		IntGenISISPresetN1024Q10_128,
@@ -30,8 +35,15 @@ func TestIntGenISISPresetRegistryIsMaintainedOnly(t *testing.T) {
 		if p.Name != name {
 			t.Fatalf("preset name=%q want %q", p.Name, name)
 		}
-		if p.TargetTheoremBits == 0 || p.SoundnessGate != "smallwood_2025_1085_live" {
-			t.Fatalf("maintained preset %s has invalid target/gate: %+v", name, p)
+		if p.TargetTheoremBits == 0 {
+			t.Fatalf("preset %s has invalid target: %+v", name, p)
+		}
+		if name == IntGenISISPresetN1024BQ64_96Theta11 || name == IntGenISISPresetN1024BQ64_128Theta13H256 {
+			if p.SoundnessGate != "smallwood_2025_1085_theorem_trail" {
+				t.Fatalf("research preset %s has invalid gate: %+v", name, p)
+			}
+		} else if p.SoundnessGate != "smallwood_2025_1085_live" {
+			t.Fatalf("maintained preset %s has invalid gate: %+v", name, p)
 		}
 		if p.Showing.TranscriptMode != "smallfield_2025_1085_v1" || p.Showing.PRFCompanionMode != "direct_full" || !p.Showing.FixedTranscriptSize {
 			t.Fatalf("maintained preset %s showing tuple=%+v", name, p.Showing)
@@ -44,16 +56,18 @@ func TestIntGenISISPresetRegistryIsMaintainedOnly(t *testing.T) {
 
 func TestIntGenISISPresetSecurityProfileMetadata(t *testing.T) {
 	wantProfiles := map[string]string{
-		IntGenISISPresetN512Compact96:   "SC-96",
-		IntGenISISPresetN1024Compact96:  "SC-96",
-		IntGenISISPresetN1024Compact125: "SC-125",
-		IntGenISISPresetN1024BQ32_96:    "BQ32-96",
-		IntGenISISPresetN1024Q10_128:    "BQ32-128",
-		IntGenISISPresetN1024Q16_128:    "BQ32-128",
-		IntGenISISPresetN1024Q32_128:    "BQ32-128",
-		IntGenISISPresetN1024Q10_96:     "BQ32-96",
-		IntGenISISPresetN1024Q16_96:     "BQ32-96",
-		IntGenISISPresetN1024Q32_96:     "BQ32-96",
+		IntGenISISPresetN512Compact96:            "SC-96",
+		IntGenISISPresetN1024Compact96:           "SC-96",
+		IntGenISISPresetN1024Compact125:          "SC-125",
+		IntGenISISPresetN1024BQ32_96:             "BQ32-96",
+		IntGenISISPresetN1024BQ64_96Theta11:      "BQ64-96",
+		IntGenISISPresetN1024BQ64_128Theta13H256: "BQ64-128",
+		IntGenISISPresetN1024Q10_128:             "BQ32-128",
+		IntGenISISPresetN1024Q16_128:             "BQ32-128",
+		IntGenISISPresetN1024Q32_128:             "BQ32-128",
+		IntGenISISPresetN1024Q10_96:              "BQ32-96",
+		IntGenISISPresetN1024Q16_96:              "BQ32-96",
+		IntGenISISPresetN1024Q32_96:              "BQ32-96",
 	}
 	for _, name := range IntGenISISPresetNames() {
 		preset, ok := LookupIntGenISISPreset(name)
@@ -97,6 +111,18 @@ func TestN1024BQ32_96PresetIsCandidateWithSplitWidthsAndTag9(t *testing.T) {
 	if p.PRFProfile != IntGenISISPRFProfileTag9 || p.PRFParamsPath != IntGenISISPRFParamsTag9 {
 		t.Fatalf("bq32 PRF tuple=(%q,%q)", p.PRFProfile, p.PRFParamsPath)
 	}
+	if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 40 || p.Showing.NLeaves != 557056 || p.Showing.Eta != 44 {
+		t.Fatalf("bq32 tuned geometry=%+v", p.Showing)
+	}
+	if p.MaxNLeaves != 557056 || p.Issuance.LVCSNCols != 40 || p.Issuance.NLeaves != 557056 || p.Issuance.Eta != 44 {
+		t.Fatalf("bq32 issuance/max leaves geometry=(max=%d issuance=%+v)", p.MaxNLeaves, p.Issuance)
+	}
+	if p.Showing.Theta != 7 || p.Showing.Rho != 1 || p.Showing.Ell != 9 || p.Showing.EllPrime != 1 {
+		t.Fatalf("bq32 soundness tuple=%+v", p.Showing)
+	}
+	if p.Showing.Kappa != [4]int{0, 0, 2, 7} {
+		t.Fatalf("bq32 kappa=%+v", p.Showing.Kappa)
+	}
 	if p.Showing.DECSHashBits != 168 || p.Showing.DECSTapeBits != 128 || p.Showing.FSCollisionBits != 168 || p.Showing.SaltBits != 128 {
 		t.Fatalf("bq32 split widths showing=%+v", p.Showing)
 	}
@@ -105,6 +131,102 @@ func TestN1024BQ32_96PresetIsCandidateWithSplitWidthsAndTag9(t *testing.T) {
 	}
 	if !p.Showing.ROQueryCapsSet || p.Showing.ROQueryCaps != [5]int{int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32)} {
 		t.Fatalf("bq32 query caps=%v set=%v", p.Showing.ROQueryCaps, p.Showing.ROQueryCapsSet)
+	}
+}
+
+func TestN1024BQ64TheoremTrailPresetsUseLogCapsAndRemainNonLive(t *testing.T) {
+	tests := []struct {
+		name         string
+		profile      string
+		coreBits     float64
+		targetBits   float64
+		lvcs         int
+		nleaves      int
+		eta          int
+		theta        int
+		ell          int
+		kappa        [4]int
+		hashBits     int
+		tapeBits     int
+		fsBits       int
+		saltBits     int
+		requiredNote string
+	}{
+		{
+			name:         IntGenISISPresetN1024BQ64_96Theta11,
+			profile:      "BQ64-96",
+			coreBits:     160,
+			targetBits:   164,
+			lvcs:         43,
+			nleaves:      983040,
+			eta:          58,
+			theta:        11,
+			ell:          16,
+			kappa:        [4]int{0, 11, 13, 2},
+			hashBits:     232,
+			tapeBits:     160,
+			fsBits:       232,
+			saltBits:     224,
+			requiredNote: "160-bit primitive family",
+		},
+		{
+			name:         IntGenISISPresetN1024BQ64_128Theta13H256,
+			profile:      "BQ64-128",
+			coreBits:     192,
+			targetBits:   200,
+			lvcs:         48,
+			nleaves:      983040,
+			eta:          65,
+			theta:        13,
+			ell:          18,
+			kappa:        [4]int{0, 7, 13, 13},
+			hashBits:     256,
+			tapeBits:     192,
+			fsBits:       256,
+			saltBits:     256,
+			requiredNote: "192-bit primitive family",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p, ok := LookupIntGenISISPreset(tc.name)
+			if !ok {
+				t.Fatalf("preset %s missing", tc.name)
+			}
+			if p.SecurityProfile != tc.profile || p.SecurityMode != string(SecurityModeResidualAtBudget) {
+				t.Fatalf("security tuple=(%q,%q)", p.SecurityProfile, p.SecurityMode)
+			}
+			if p.CoreBitsRequired != tc.coreBits || p.CompleteSystemClaim {
+				t.Fatalf("core/claim=(%v,%v)", p.CoreBitsRequired, p.CompleteSystemClaim)
+			}
+			if p.TargetTheoremBits != tc.targetBits || p.SoundnessGate != "smallwood_2025_1085_theorem_trail" {
+				t.Fatalf("target/gate=(%v,%q)", p.TargetTheoremBits, p.SoundnessGate)
+			}
+			if p.PRFProfile != IntGenISISPRFProfileTag9 || p.PRFParamsPath != IntGenISISPRFParamsTag9 {
+				t.Fatalf("PRF tuple=(%q,%q)", p.PRFProfile, p.PRFParamsPath)
+			}
+			if p.Showing.ROQueryCapsSet || p.Showing.ROQueryCaps != [5]int{} {
+				t.Fatalf("BQ64 trails must not use legacy int caps: %+v", p.Showing)
+			}
+			if !p.Showing.ROQueryCapBitsSet || p.Showing.ROQueryCapBits != [5]float64{64, 64, 64, 64, 64} {
+				t.Fatalf("log caps=%v set=%v", p.Showing.ROQueryCapBits, p.Showing.ROQueryCapBitsSet)
+			}
+			if p.Issuance.ROQueryCapBits != p.Showing.ROQueryCapBits || !p.Issuance.ROQueryCapBitsSet {
+				t.Fatalf("issuance log caps=%v set=%v", p.Issuance.ROQueryCapBits, p.Issuance.ROQueryCapBitsSet)
+			}
+			if p.Showing.LVCSNCols != tc.lvcs || p.Showing.NLeaves != tc.nleaves || p.Showing.Eta != tc.eta ||
+				p.Showing.Theta != tc.theta || p.Showing.Ell != tc.ell || p.Showing.Kappa != tc.kappa {
+				t.Fatalf("showing geometry=%+v", p.Showing)
+			}
+			if p.Showing.DECSHashBits != tc.hashBits || p.Showing.DECSTapeBits != tc.tapeBits ||
+				p.Showing.FSCollisionBits != tc.fsBits || p.Showing.SaltBits != tc.saltBits {
+				t.Fatalf("widths hash=%d tape=%d fs=%d salt=%d",
+					p.Showing.DECSHashBits, p.Showing.DECSTapeBits, p.Showing.FSCollisionBits, p.Showing.SaltBits)
+			}
+			if !intGenISISPresetTestNotesContain(p.Notes, "external") || !intGenISISPresetTestNotesContain(p.Notes, tc.requiredNote) {
+				t.Fatalf("notes missing theorem/primitive justification: %v", p.Notes)
+			}
+		})
 	}
 }
 
@@ -332,6 +454,15 @@ func TestN1024QueryBudgetPresets(t *testing.T) {
 			}
 		})
 	}
+}
+
+func intGenISISPresetTestNotesContain(notes []string, needle string) bool {
+	for _, note := range notes {
+		if strings.Contains(note, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestHistoricalPresetSelectorsAreRemoved(t *testing.T) {

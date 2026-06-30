@@ -35,24 +35,26 @@ type intGenISISHolderWitnessSpec struct {
 }
 
 type smallWoodTuningSpec struct {
-	NCols               int    `json:"ncols,omitempty"`
-	LVCSNCols           int    `json:"lvcs_ncols,omitempty"`
-	NLeaves             int    `json:"nleaves,omitempty"`
-	Ell                 int    `json:"ell,omitempty"`
-	EllPrime            int    `json:"ell_prime,omitempty"`
-	Eta                 int    `json:"eta,omitempty"`
-	Theta               int    `json:"theta,omitempty"`
-	Rho                 int    `json:"rho,omitempty"`
-	Kappa               [4]int `json:"kappa,omitempty"`
-	ROQueryCaps         [5]int `json:"ro_query_caps,omitempty"`
-	ROQueryCapsSet      bool   `json:"ro_query_caps_set,omitempty"`
-	DECSCollisionBits   int    `json:"decs_collision_bits,omitempty"`
-	DECSHashBits        int    `json:"decs_hash_bits,omitempty"`
-	DECSTapeBits        int    `json:"decs_tape_bits,omitempty"`
-	FSCollisionBits     int    `json:"fs_collision_bits,omitempty"`
-	SaltBits            int    `json:"salt_bits,omitempty"`
-	TranscriptMode      string `json:"transcript_mode,omitempty"`
-	FixedTranscriptSize bool   `json:"fixed_transcript_size,omitempty"`
+	NCols               int        `json:"ncols,omitempty"`
+	LVCSNCols           int        `json:"lvcs_ncols,omitempty"`
+	NLeaves             int        `json:"nleaves,omitempty"`
+	Ell                 int        `json:"ell,omitempty"`
+	EllPrime            int        `json:"ell_prime,omitempty"`
+	Eta                 int        `json:"eta,omitempty"`
+	Theta               int        `json:"theta,omitempty"`
+	Rho                 int        `json:"rho,omitempty"`
+	Kappa               [4]int     `json:"kappa,omitempty"`
+	ROQueryCaps         [5]int     `json:"ro_query_caps,omitempty"`
+	ROQueryCapsSet      bool       `json:"ro_query_caps_set,omitempty"`
+	ROQueryCapBits      [5]float64 `json:"ro_query_cap_bits,omitempty"`
+	ROQueryCapBitsSet   bool       `json:"ro_query_cap_bits_set,omitempty"`
+	DECSCollisionBits   int        `json:"decs_collision_bits,omitempty"`
+	DECSHashBits        int        `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits        int        `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits     int        `json:"fs_collision_bits,omitempty"`
+	SaltBits            int        `json:"salt_bits,omitempty"`
+	TranscriptMode      string     `json:"transcript_mode,omitempty"`
+	FixedTranscriptSize bool       `json:"fixed_transcript_size,omitempty"`
 }
 
 type holderSecretFile struct {
@@ -119,6 +121,8 @@ type issuanceRuntimeOverrides struct {
 	Kappa               [4]int
 	ROQueryCaps         [5]int
 	ROQueryCapsSet      bool
+	ROQueryCapBits      [5]float64
+	ROQueryCapBitsSet   bool
 	DECSCollisionBits   int
 	DECSHashBits        int
 	DECSTapeBits        int
@@ -167,6 +171,8 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 		out.Kappa = spec.Kappa
 		out.ROQueryCaps = spec.ROQueryCaps
 		out.ROQueryCapsSet = spec.ROQueryCapsSet
+		out.ROQueryCapBits = spec.ROQueryCapBits
+		out.ROQueryCapBitsSet = spec.ROQueryCapBitsSet
 		out.DECSCollisionBits = spec.DECSCollisionBits
 		out.DECSHashBits = spec.DECSHashBits
 		out.DECSTapeBits = spec.DECSTapeBits
@@ -195,6 +201,8 @@ func smallWoodTuningSpecFromOpts(opts PIOP.SimOpts) *smallWoodTuningSpec {
 		Kappa:               opts.Kappa,
 		ROQueryCaps:         opts.ROQueryCaps,
 		ROQueryCapsSet:      opts.ROQueryCapsSet,
+		ROQueryCapBits:      opts.ROQueryCapBits,
+		ROQueryCapBitsSet:   opts.ROQueryCapBitsSet,
 		DECSCollisionBits:   opts.DECSCollisionBits,
 		DECSHashBits:        opts.DECSHashBits,
 		DECSTapeBits:        opts.DECSTapeBits,
@@ -240,6 +248,10 @@ func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeO
 	if overrides.ROQueryCapsSet {
 		opts.ROQueryCaps = overrides.ROQueryCaps
 		opts.ROQueryCapsSet = true
+	}
+	if overrides.ROQueryCapBitsSet {
+		opts.ROQueryCapBits = overrides.ROQueryCapBits
+		opts.ROQueryCapBitsSet = true
 	}
 	if overrides.DECSCollisionBits > 0 {
 		opts.DECSCollisionBits = overrides.DECSCollisionBits

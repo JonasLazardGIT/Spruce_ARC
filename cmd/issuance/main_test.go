@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -159,6 +160,33 @@ func TestBenchmarkIntGenISISE2EPropagatesBQ32ProfileMetadata(t *testing.T) {
 	}
 }
 
+func TestBenchmarkIntGenISISE2EPropagatesBQ64LogCapPreset(t *testing.T) {
+	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
+		"-preset", credential.IntGenISISPresetN1024BQ64_128Theta13H256,
+	})
+	if err != nil {
+		t.Fatalf("parse benchmark bq64 preset: %v", err)
+	}
+	if cfg.SecurityProfile != "BQ64-128" || cfg.SecurityMode != "residual_at_budget" || cfg.CompleteSystemClaim {
+		t.Fatalf("security tuple=(%q,%q,%v)", cfg.SecurityProfile, cfg.SecurityMode, cfg.CompleteSystemClaim)
+	}
+	if cfg.Showing.ROQueryCapsSet || cfg.Showing.ROQueryCaps != [5]int{} {
+		t.Fatalf("showing legacy caps=%v set=%v", cfg.Showing.ROQueryCaps, cfg.Showing.ROQueryCapsSet)
+	}
+	if !cfg.Showing.ROQueryCapBitsSet || cfg.Showing.ROQueryCapBits != [5]float64{64, 64, 64, 64, 64} {
+		t.Fatalf("showing log caps=%v set=%v", cfg.Showing.ROQueryCapBits, cfg.Showing.ROQueryCapBitsSet)
+	}
+	if !cfg.Issuance.ROQueryCapBitsSet || cfg.Issuance.ROQueryCapBits != cfg.Showing.ROQueryCapBits {
+		t.Fatalf("issuance log caps=%v set=%v", cfg.Issuance.ROQueryCapBits, cfg.Issuance.ROQueryCapBitsSet)
+	}
+	if cfg.Showing.DECSHashBits != 256 || cfg.Showing.DECSTapeBits != 192 || cfg.Showing.FSCollisionBits != 256 || cfg.Showing.SaltBits != 256 {
+		t.Fatalf("showing width lane=%+v", cfg.Showing)
+	}
+	if cfg.Showing.Theta != 13 || cfg.Showing.Ell != 18 || cfg.Showing.LVCSNCols != 48 || cfg.MaxNLeaves != 983040 {
+		t.Fatalf("showing shape/max leaves=%+v max=%d", cfg.Showing, cfg.MaxNLeaves)
+	}
+}
+
 func TestBenchmarkRelationReportIncludesDQBranches(t *testing.T) {
 	metrics := benchmarkIntGenISISMetrics{
 		TotalRows:            100,
@@ -185,11 +213,16 @@ func TestBenchmarkRelationReportIncludesDQBranches(t *testing.T) {
 
 func TestBenchmarkReportCarriesFlattenedLedgerFields(t *testing.T) {
 	report := benchmarkIntGenISISE2EReport{
-		LedgerStatus:      string(credential.SecurityProfileCandidate),
-		SoundnessBits:     100,
-		UnlinkabilityBits: 101,
-		CorrectnessBits:   102,
-		PrimitiveBits:     103,
+		LedgerStatus:               string(credential.SecurityProfileCandidate),
+		SoundnessBits:              100,
+		UnlinkabilityBits:          101,
+		CorrectnessBits:            102,
+		PrimitiveBits:              103,
+		CompositionBits:            104,
+		ZeroKnowledgeBits:          105,
+		RequiredPhaseAlgebraicBits: 97,
+		PhaseAlgebraicSlackBits:    1,
+		DominantSoundnessLimiter:   "full_game",
 		LedgerTerms: []credential.SystemSecurityLedgerTerm{{
 			Category: credential.SystemLedgerTermSoundness,
 			Name:     "full_game",
@@ -202,10 +235,102 @@ func TestBenchmarkReportCarriesFlattenedLedgerFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"ledger_status", "ledger_terms", "soundness_bits", "unlinkability_bits", "correctness_bits", "primitive_bits"} {
+	for _, want := range []string{"ledger_status", "ledger_terms", "soundness_bits", "unlinkability_bits", "correctness_bits", "primitive_bits", "composition_bits", "zero_knowledge_bits", "required_phase_algebraic_bits", "phase_algebraic_slack_bits", "dominant_soundness_limiter"} {
 		if !bytes.Contains(data, []byte(want)) {
 			t.Fatalf("benchmark report JSON missing %s: %s", want, data)
 		}
+	}
+}
+
+func TestBenchmarkRequiredPhaseAlgebraicBitsForBQ32Current(t *testing.T) {
+	fullGame := PIOP.FullGameSoundnessReport{
+		AcceptedIssuance:     1,
+		AcceptedShowing:      1,
+		GlobalCollisionError: math.Pow(2, -99.67807190511263),
+		GlobalCollisionBits:  99.67807190511263,
+	}
+	got := benchmarkRequiredPhaseAlgebraicBits(96, fullGame)
+	if math.Abs(got-97.11735695063815) > 1e-9 {
+		t.Fatalf("required phase algebraic bits=%f", got)
+	}
+}
+
+func TestBenchmarkSecurityLedgerExplainsBQ32FullGameComponents(t *testing.T) {
+	cfg := benchmarkIntGenISISE2EConfig{
+		SecurityProfile:  "BQ32-96",
+		SecurityMode:     string(credential.SecurityModeResidualAtBudget),
+		CoreBitsRequired: 128,
+		PRFParamsPath:    credential.IntGenISISPRFParamsTag9,
+		Showing:          intGenISISTuning{SaltBits: 128},
+	}
+	m := benchmarkIntGenISISMetrics{
+		TheoremTotalBits:    96.00,
+		AlgebraicTotalBits:  96.03,
+		CollisionBits:       101.68,
+		DECSTapeBits:        128,
+		EffectiveLambdaBits: 168,
+	}
+	ledger := benchmarkIntGenISISE2ESecurityLedger(
+		cfg,
+		credential.Ternary1024IntGenISISProfile(),
+		m,
+		m,
+		PIOP.FullGameSoundnessReport{
+			GlobalCollisionBits:         99.67807190511263,
+			GlobalCollisionFullGameBits: 94.97,
+		},
+		true,
+	)
+	for _, name := range []string{"issuance_smallwood_extraction", "showing_smallwood_extraction", "ro_collision", "full_game", "challenge_bias"} {
+		if ledgerTermByName(ledger, credential.SystemLedgerTermSoundness, name).Name == "" {
+			t.Fatalf("missing soundness ledger component %q in %+v", name, ledger.Terms)
+		}
+	}
+	for _, name := range []string{"tape_guessing", "programming_conflict"} {
+		if ledgerTermByName(ledger, credential.SystemLedgerTermZeroKnowledge, name).Name == "" {
+			t.Fatalf("missing zero-knowledge ledger component %q in %+v", name, ledger.Terms)
+		}
+	}
+	fullGame := ledgerTermByName(ledger, credential.SystemLedgerTermSoundness, "full_game")
+	if !fullGame.ReportOnly ||
+		fullGame.Source != credential.SystemLedgerTermSourceExact ||
+		fullGame.AccountingStatus != credential.SystemLedgerTermAccountingCurrentTheorem {
+		t.Fatalf("full_game term=%+v", fullGame)
+	}
+	programming := ledgerTermByName(ledger, credential.SystemLedgerTermZeroKnowledge, "programming_conflict")
+	if programming.Source != credential.SystemLedgerTermSourceConservative ||
+		programming.AccountingStatus != credential.SystemLedgerTermAccountingRequiresTheory ||
+		!programming.Conservative ||
+		programming.Status != "pass" {
+		t.Fatalf("programming term=%+v", programming)
+	}
+	if programming.Bits < 96 {
+		t.Fatalf("programming placeholder accounting should clear BQ32-96: %+v", programming)
+	}
+	if tape := ledgerTermByName(ledger, credential.SystemLedgerTermZeroKnowledge, "tape_guessing"); tape.Status != "pass" {
+		t.Fatalf("tape term should pass in zero-knowledge category: %+v", tape)
+	}
+	if ledgerTermByName(ledger, credential.SystemLedgerTermSoundness, "tape_guessing").Name != "" {
+		t.Fatalf("tape term should not remain in soundness: %+v", ledger.Terms)
+	}
+	if ledger.SoundnessBits < 94.96 || ledger.SoundnessBits > 94.99 {
+		t.Fatalf("soundness bits should reflect full-game composition blocker, got %f", ledger.SoundnessBits)
+	}
+	if ledger.ZeroKnowledgeBits <= 0 || ledger.ZeroKnowledgeBits < 96-1e-9 {
+		t.Fatalf("zero-knowledge bits should clear target: %f", ledger.ZeroKnowledgeBits)
+	}
+	multiUser := ledgerTermByName(ledger, credential.SystemLedgerTermComposition, "multi_user")
+	if multiUser.Required || multiUser.Status != "informational" {
+		t.Fatalf("single-user scope should not create an active multi-user rejection: %+v", multiUser)
+	}
+	if !containsStringLocal(ledger.RejectionReasons, "full-game bits below target") {
+		t.Fatalf("ledger did not explain full-game deficit: %+v", ledger.RejectionReasons)
+	}
+	if containsStringLocal(ledger.RejectionReasons, "programming conflict bits below target") {
+		t.Fatalf("programming placeholder should not be reported as the current blocker: %+v", ledger.RejectionReasons)
+	}
+	if ledger.LedgerStatus != string(credential.SecurityProfileCandidate) || ledger.CompleteSystemClaim {
+		t.Fatalf("BQ32 ledger should remain candidate-only: %+v", ledger)
 	}
 }
 
@@ -410,6 +535,8 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 	overrides := issuanceRuntimeOverrides{
 		ROQueryCaps:         [5]int{0, 1, 2, 3, 4},
 		ROQueryCapsSet:      true,
+		ROQueryCapBits:      [5]float64{64, 64, 64, 64, 64},
+		ROQueryCapBitsSet:   true,
 		DECSCollisionBits:   256,
 		DECSHashBits:        200,
 		DECSTapeBits:        128,
@@ -426,6 +553,9 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 	if spec.ROQueryCaps != overrides.ROQueryCaps {
 		t.Fatalf("persisted ro query caps=%v", spec.ROQueryCaps)
 	}
+	if !spec.ROQueryCapBitsSet || spec.ROQueryCapBits != overrides.ROQueryCapBits {
+		t.Fatalf("persisted ro query cap bits=%v set=%v", spec.ROQueryCapBits, spec.ROQueryCapBitsSet)
+	}
 	if spec.DECSCollisionBits != 256 {
 		t.Fatalf("persisted decs collision bits=%d", spec.DECSCollisionBits)
 	}
@@ -435,6 +565,9 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 	roundTrip := persistedIssuanceRuntimeOverridesWithSmallWood(spec.NCols, spec.LVCSNCols, spec.NLeaves, nil, spec)
 	if !roundTrip.ROQueryCapsSet || roundTrip.ROQueryCaps != overrides.ROQueryCaps {
 		t.Fatalf("round-trip query caps=%v set=%v", roundTrip.ROQueryCaps, roundTrip.ROQueryCapsSet)
+	}
+	if !roundTrip.ROQueryCapBitsSet || roundTrip.ROQueryCapBits != overrides.ROQueryCapBits {
+		t.Fatalf("round-trip query cap bits=%v set=%v", roundTrip.ROQueryCapBits, roundTrip.ROQueryCapBitsSet)
 	}
 	if roundTrip.DECSCollisionBits != 256 {
 		t.Fatalf("round-trip decs collision bits=%d", roundTrip.DECSCollisionBits)
@@ -557,4 +690,22 @@ func TestIntGenISISIssueResponseOmitsTargetAndVerifiesAUEqualsT(t *testing.T) {
 	if err := verifyIntGenISISSignatureResponse(ringQ, resp, target); err == nil {
 		t.Fatal("modified signature response accepted")
 	}
+}
+
+func ledgerTermByName(ledger credential.SystemSecurityLedger, category, name string) credential.SystemSecurityLedgerTerm {
+	for _, term := range ledger.Terms {
+		if term.Category == category && term.Name == name {
+			return term
+		}
+	}
+	return credential.SystemSecurityLedgerTerm{}
+}
+
+func containsStringLocal(vals []string, want string) bool {
+	for _, v := range vals {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }

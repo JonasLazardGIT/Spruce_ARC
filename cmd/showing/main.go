@@ -379,6 +379,8 @@ func intGenISISShowingOpts(ringDegree int, tuning credential.IntGenISISTuningPre
 		Kappa:                      tuning.Kappa,
 		ROQueryCaps:                tuning.ROQueryCaps,
 		ROQueryCapsSet:             tuning.ROQueryCapsSet,
+		ROQueryCapBits:             tuning.ROQueryCapBits,
+		ROQueryCapBitsSet:          tuning.ROQueryCapBitsSet,
 		DECSCollisionBits:          tuning.DECSCollisionBits,
 		DECSHashBits:               tuning.DECSHashBits,
 		DECSTapeBits:               tuning.DECSTapeBits,

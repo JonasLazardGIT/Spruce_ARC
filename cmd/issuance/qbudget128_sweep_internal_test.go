@@ -18,29 +18,35 @@ import (
 const (
 	qBudget128SweepTargetBits = 128.0
 
-	qBudget128CategorySafePreset                 = "safe_preset"
-	qBudget128CategoryHighKResearch              = "high_k_research"
-	qBudget128CategoryRequiresTheoremAccounting  = "requires_theorem_accounting_work"
-	qBudget128CategoryRejected                   = "rejected"
-	qBudget128ResearchSummaryVersion             = 1
-	qBudget128DefaultFrontierLimit               = 10
-	qBudget128DefaultMaxE2E                      = 1
-	qBudget128MaxSupportedGrinding               = 13
-	qBudget128HighKThreshold                     = 10
-	qBudget128HighKDeltaThreshold                = 4
-	qBudget128ResearchSummaryFilename            = "qbudget128-research-summary.json"
-	qBudget128CollisionBitsQ10_128               = 152
-	qBudget128CollisionBitsQ16_128               = 168
-	qBudget128CollisionBitsQ32_128               = 200
-	qBudget128QueryCapQ10                        = 1024
-	qBudget128QueryCapQ16                        = 65536
-	qBudget128QueryCapQ32                        = int(uint64(1) << 32)
-	qBudget128ProjectionNone                     = "none"
-	qBudget128ProjectionProjectUDigitsYViewV3    = PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3
-	qBudget128ProjectionProjectUDigitsYWResidual = PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+	qBudget128CategorySafePreset                  = "safe_preset"
+	qBudget128CategoryHighKResearch               = "high_k_research"
+	qBudget128CategoryRequiresTheoremAccounting   = "requires_theorem_accounting_work"
+	qBudget128CategoryRejected                    = "rejected"
+	qBudget128ResearchSummaryVersion              = 1
+	qBudget128DefaultFrontierLimit                = 10
+	qBudget128DefaultMaxE2E                       = 1
+	qBudget128MaxSupportedGrinding                = 13
+	qBudget128HighKThreshold                      = 10
+	qBudget128HighKDeltaThreshold                 = 4
+	qBudget128ResearchSummaryFilename             = "qbudget128-research-summary.json"
+	qBudget128CollisionBitsQ10_128                = 152
+	qBudget128CollisionBitsQ16_128                = 168
+	qBudget128CollisionBitsQ32_128                = 200
+	qBudget128QueryCapQ10                         = 1024
+	qBudget128QueryCapQ16                         = 65536
+	qBudget128QueryCapQ32                         = int(uint64(1) << 32)
+	securityProfileFrontierCandidateByteReduction = "candidate_byte_reduction"
+	securityProfileFrontierSecurityOnlyCandidate  = "security_only_candidate"
+	qBudget128ProjectionNone                      = "none"
+	qBudget128ProjectionProjectUDigitsYViewV3     = PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3
+	qBudget128ProjectionProjectUDigitsYWResidual  = PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
 
 	securityProfileSweepSummaryVersion  = 1
 	securityProfileSweepSummaryFilename = "security-profile-research-summary.json"
+	bq32PreTuningShowingPaperBytes      = 37244
+	bq32CandidateSoundnessThreshold     = 96.25
+	bq32CandidateFullGameThreshold      = 96.25
+	bq32CandidateZeroKnowledgeThreshold = 96.0
 )
 
 type qBudget128SweepCandidate struct {
@@ -66,6 +72,7 @@ type qBudget128MetricDigest struct {
 	PaperTranscriptBytes     int                               `json:"paper_transcript_bytes"`
 	PaperTranscriptKB        float64                           `json:"paper_transcript_kb"`
 	Buckets                  qBudget128BucketDigest            `json:"buckets"`
+	TranscriptAudit          PIOP.PaperTranscriptAudit         `json:"transcript_audit,omitempty"`
 	TheoremTotalBits         float64                           `json:"theorem_total_bits"`
 	CollisionBits            float64                           `json:"collision_bits"`
 	AlgebraicBits            [4]float64                        `json:"algebraic_bits"`
@@ -138,28 +145,37 @@ type qBudget128SweepSummary struct {
 }
 
 type securityProfileSweepCandidate struct {
-	Name            string                           `json:"name"`
-	SecurityProfile string                           `json:"security_profile"`
-	TargetStatus    credential.SecurityProfileStatus `json:"target_status"`
-	Preset          string                           `json:"preset"`
-	Issuance        intGenISISTuning                 `json:"issuance"`
-	Showing         intGenISISTuning                 `json:"showing"`
+	Name                  string                           `json:"name"`
+	SecurityProfile       string                           `json:"security_profile"`
+	TargetStatus          credential.SecurityProfileStatus `json:"target_status"`
+	Preset                string                           `json:"preset"`
+	PredictedFullGameBits float64                          `json:"predicted_full_game_bits,omitempty"`
+	Issuance              intGenISISTuning                 `json:"issuance"`
+	Showing               intGenISISTuning                 `json:"showing"`
 }
 
 type securityProfileSweepResult struct {
-	Candidate        string                            `json:"candidate"`
-	Preset           string                            `json:"preset"`
-	SecurityProfile  string                            `json:"security_profile"`
-	FrontierClass    string                            `json:"frontier_class"`
-	Accepted         bool                              `json:"accepted"`
-	LedgerStatus     string                            `json:"ledger_status"`
-	LedgerReasons    []string                          `json:"ledger_rejection_reasons,omitempty"`
-	Relation         benchmarkIntGenISISRelationReport `json:"relation_candidate,omitempty"`
-	PaperBytes       int                               `json:"paper_transcript_bytes,omitempty"`
-	FullGameBits     float64                           `json:"full_game_bits,omitempty"`
-	TagCollisionBits float64                           `json:"tag_collision_bits,omitempty"`
-	ReplayRejected   bool                              `json:"replay_rejected"`
-	Artifacts        benchmarkIntGenISISE2EArtifacts   `json:"artifacts,omitempty"`
+	Candidate                  string                            `json:"candidate"`
+	Preset                     string                            `json:"preset"`
+	SecurityProfile            string                            `json:"security_profile"`
+	FrontierClass              string                            `json:"frontier_class"`
+	Accepted                   bool                              `json:"accepted"`
+	LedgerStatus               string                            `json:"ledger_status"`
+	LedgerReasons              []string                          `json:"ledger_rejection_reasons,omitempty"`
+	Reason                     string                            `json:"reason,omitempty"`
+	Relation                   benchmarkIntGenISISRelationReport `json:"relation_candidate,omitempty"`
+	PaperBytes                 int                               `json:"paper_transcript_bytes,omitempty"`
+	BaselinePaperBytes         int                               `json:"baseline_paper_transcript_bytes,omitempty"`
+	TranscriptDeltaBytes       int                               `json:"transcript_delta_bytes,omitempty"`
+	FullGameBits               float64                           `json:"full_game_bits,omitempty"`
+	SoundnessBits              float64                           `json:"soundness_bits,omitempty"`
+	ZeroKnowledgeBits          float64                           `json:"zero_knowledge_bits,omitempty"`
+	RequiredPhaseAlgebraicBits float64                           `json:"required_phase_algebraic_bits,omitempty"`
+	PhaseAlgebraicSlackBits    float64                           `json:"phase_algebraic_slack_bits,omitempty"`
+	DominantSoundnessLimiter   string                            `json:"dominant_soundness_limiter,omitempty"`
+	TagCollisionBits           float64                           `json:"tag_collision_bits,omitempty"`
+	ReplayRejected             bool                              `json:"replay_rejected"`
+	Artifacts                  benchmarkIntGenISISE2EArtifacts   `json:"artifacts,omitempty"`
 }
 
 type securityProfileSweepSummary struct {
@@ -176,8 +192,18 @@ func TestSecurityProfileSweepCandidateGeneration(t *testing.T) {
 	if len(candidates) == 0 {
 		t.Fatal("no security-profile candidates generated")
 	}
+	wantNames := map[string]bool{
+		"bq32-current-control":                     false,
+		"bq32-safe-n524288-lvcs37-eta44-ell9":      false,
+		"bq32-rowblock-n557056-lvcs40-eta44-ell9":  false,
+		"bq32-rowblock-n589824-lvcs44-eta47-ell9":  false,
+		"bq32-fallback-ell10-lvcs37-n458752-eta44": false,
+	}
 	foundBQ32 := false
 	for _, cand := range candidates {
+		if _, ok := wantNames[cand.Name]; ok {
+			wantNames[cand.Name] = true
+		}
 		if cand.SecurityProfile == "BQ32-96" {
 			foundBQ32 = true
 			if cand.TargetStatus != credential.SecurityProfileCandidate {
@@ -190,6 +216,77 @@ func TestSecurityProfileSweepCandidateGeneration(t *testing.T) {
 	}
 	if !foundBQ32 {
 		t.Fatal("missing BQ32-96 security-profile candidate")
+	}
+	for name, found := range wantNames {
+		if !found {
+			t.Fatalf("missing BQ32 tuning candidate %q", name)
+		}
+	}
+}
+
+func TestSecurityProfileCandidateAcceptanceRequiresLedgerAndByteReduction(t *testing.T) {
+	report := securityProfileSyntheticReport(37100, 96.5, 96.5, 96)
+	accepted, frontier, reason := securityProfileCandidateAcceptance(report)
+	if !accepted || frontier != securityProfileFrontierCandidateByteReduction || !strings.Contains(reason, "accepted") {
+		t.Fatalf("byte-reducing candidate not accepted: accepted=%v frontier=%q reason=%q", accepted, frontier, reason)
+	}
+
+	report = securityProfileSyntheticReport(37244, 96.5, 96.5, 96)
+	accepted, frontier, reason = securityProfileCandidateAcceptance(report)
+	if accepted || frontier != securityProfileFrontierSecurityOnlyCandidate || !strings.Contains(reason, "showing transcript bytes") {
+		t.Fatalf("security-only candidate should not be accepted for preset update: accepted=%v frontier=%q reason=%q", accepted, frontier, reason)
+	}
+
+	report = securityProfileSyntheticReport(37100, 95.9, 96.5, 96)
+	accepted, _, reason = securityProfileCandidateAcceptance(report)
+	if accepted || !strings.Contains(reason, "soundness bits") {
+		t.Fatalf("weak soundness candidate accepted: accepted=%v reason=%q", accepted, reason)
+	}
+}
+
+func TestSecurityProfileSweepResultOrderingPrefersByteReducingCandidates(t *testing.T) {
+	results := []securityProfileSweepResult{
+		{Candidate: "security-only", PaperBytes: 37400, TranscriptDeltaBytes: 156, FullGameBits: 98, SoundnessBits: 98, ZeroKnowledgeBits: 96, ReplayRejected: true},
+		{Candidate: "rejected-small", PaperBytes: 36000, TranscriptDeltaBytes: -1244, FullGameBits: 95, SoundnessBits: 95, ZeroKnowledgeBits: 96, ReplayRejected: true},
+		{Candidate: "accepted-byte", Accepted: true, PaperBytes: 37100, TranscriptDeltaBytes: -144, FullGameBits: 96.5, SoundnessBits: 96.5, ZeroKnowledgeBits: 96, ReplayRejected: true},
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		return securityProfileSweepResultLess(results[i], results[j])
+	})
+	if results[0].Candidate != "accepted-byte" {
+		t.Fatalf("first result=%+v", results[0])
+	}
+}
+
+func securityProfileSyntheticReport(showingBytes int, soundnessBits, fullGameBits, zeroKnowledgeBits float64) benchmarkIntGenISISE2EReport {
+	target := 96.0
+	return benchmarkIntGenISISE2EReport{
+		SecurityProfile: "BQ32-96",
+		ReplayRejected:  true,
+		Showing: benchmarkIntGenISISMetrics{
+			PaperTranscriptBytes: showingBytes,
+		},
+		SecurityLedger: credential.SystemSecurityLedger{
+			SecurityProfile:   "BQ32-96",
+			TargetBits:        target,
+			SoundnessBits:     soundnessBits,
+			FullGameBits:      fullGameBits,
+			ZeroKnowledgeBits: zeroKnowledgeBits,
+			UnlinkabilityBits: target,
+			CorrectnessBits:   target,
+			PrimitiveBits:     128,
+			TagCollisionBits:  116,
+			SaltCollisionBits: 128,
+			LedgerStatus:      string(credential.SecurityProfileCandidate),
+			RejectionReasons:  []string{"profile status is candidate"},
+			Terms: []credential.SystemSecurityLedgerTerm{
+				{Category: credential.SystemLedgerTermSoundness, Name: "full_game", Bits: fullGameBits, Required: true, Status: "pass"},
+				{Category: credential.SystemLedgerTermZeroKnowledge, Name: "tape_guessing", Bits: zeroKnowledgeBits, Required: true, Status: "pass"},
+				{Category: credential.SystemLedgerTermUnlinkability, Name: "tag_collision", Bits: 116, Required: true, Status: "pass"},
+				{Category: credential.SystemLedgerTermCorrectness, Name: "salt_collision", Bits: 128, Required: true, Status: "pass"},
+				{Category: credential.SystemLedgerTermPrimitive, Name: "core_available", Bits: 128, Required: true, Status: "pass"},
+			},
+		},
 	}
 }
 
@@ -240,6 +337,9 @@ func TestInternalSecurityProfileSweep(t *testing.T) {
 		results = append(results, result)
 		t.Logf("%s/%s frontier=%s ledger=%s accepted=%v reasons=%v", cand.Preset, cand.Name, result.FrontierClass, result.LedgerStatus, result.Accepted, result.LedgerReasons)
 	}
+	sort.SliceStable(results, func(i, j int) bool {
+		return securityProfileSweepResultLess(results[i], results[j])
+	})
 	summary := securityProfileSweepSummary{
 		Version:        securityProfileSweepSummaryVersion,
 		GeneratedAt:    time.Now().UTC().Format(time.RFC3339),
@@ -439,15 +539,48 @@ func securityProfileSweepCandidates() []securityProfileSweepCandidate {
 	if !ok {
 		return nil
 	}
+	baseShowing := intGenISISTuningFromPresetSpec(preset.Showing)
+	candidate := func(name string, predicted float64, tune func(*intGenISISTuning)) securityProfileSweepCandidate {
+		showing := baseShowing
+		if tune != nil {
+			tune(&showing)
+		}
+		return securityProfileSweepCandidate{
+			Name:                  name,
+			SecurityProfile:       spec.Label,
+			TargetStatus:          spec.Status,
+			Preset:                preset.Name,
+			PredictedFullGameBits: predicted,
+			Issuance:              qBudget128IssuanceFromShowing(showing),
+			Showing:               showing,
+		}
+	}
 	return []securityProfileSweepCandidate{
-		{
-			Name:            "bq32-96-current",
-			SecurityProfile: spec.Label,
-			TargetStatus:    spec.Status,
-			Preset:          preset.Name,
-			Issuance:        intGenISISTuningFromPresetSpec(preset.Issuance),
-			Showing:         intGenISISTuningFromPresetSpec(preset.Showing),
-		},
+		candidate("bq32-current-control", 96.38, nil),
+		candidate("bq32-safe-n524288-lvcs37-eta44-ell9", 96.50, func(showing *intGenISISTuning) {
+			showing.NLeaves = 524288
+			showing.LVCSNCols = 37
+			showing.Eta = 44
+			showing.Ell = 9
+		}),
+		candidate("bq32-rowblock-n557056-lvcs40-eta44-ell9", 96.38, func(showing *intGenISISTuning) {
+			showing.NLeaves = 557056
+			showing.LVCSNCols = 40
+			showing.Eta = 44
+			showing.Ell = 9
+		}),
+		candidate("bq32-rowblock-n589824-lvcs44-eta47-ell9", 96.06, func(showing *intGenISISTuning) {
+			showing.NLeaves = 589824
+			showing.LVCSNCols = 44
+			showing.Eta = 47
+			showing.Ell = 9
+		}),
+		candidate("bq32-fallback-ell10-lvcs37-n458752-eta44", 98.85, func(showing *intGenISISTuning) {
+			showing.NLeaves = 458752
+			showing.LVCSNCols = 37
+			showing.Eta = 44
+			showing.Ell = 10
+		}),
 	}
 }
 
@@ -466,22 +599,124 @@ func securityProfileFilterCandidates(candidates []securityProfileSweepCandidate,
 }
 
 func securityProfileSweepResultFromReport(cand securityProfileSweepCandidate, report benchmarkIntGenISISE2EReport) securityProfileSweepResult {
-	accepted := report.SecurityLedger.LedgerStatus == string(credential.SecurityProfileCompleteLive) && report.SecurityLedger.CompleteSystemClaim
+	accepted, frontierClass, reason := securityProfileCandidateAcceptance(report)
 	return securityProfileSweepResult{
-		Candidate:        cand.Name,
-		Preset:           cand.Preset,
-		SecurityProfile:  cand.SecurityProfile,
-		FrontierClass:    securityProfileFrontierClass(report.SecurityLedger),
-		Accepted:         accepted,
-		LedgerStatus:     report.SecurityLedger.LedgerStatus,
-		LedgerReasons:    report.SecurityLedger.RejectionReasons,
-		Relation:         report.Showing.RelationCandidate,
-		PaperBytes:       report.Showing.PaperTranscriptBytes,
-		FullGameBits:     report.SecurityLedger.FullGameBits,
-		TagCollisionBits: report.SecurityLedger.TagCollisionBits,
-		ReplayRejected:   report.ReplayRejected,
-		Artifacts:        report.Artifacts,
+		Candidate:                  cand.Name,
+		Preset:                     cand.Preset,
+		SecurityProfile:            cand.SecurityProfile,
+		FrontierClass:              frontierClass,
+		Accepted:                   accepted,
+		LedgerStatus:               report.SecurityLedger.LedgerStatus,
+		LedgerReasons:              report.SecurityLedger.RejectionReasons,
+		Reason:                     reason,
+		Relation:                   report.Showing.RelationCandidate,
+		PaperBytes:                 report.Showing.PaperTranscriptBytes,
+		BaselinePaperBytes:         bq32PreTuningShowingPaperBytes,
+		TranscriptDeltaBytes:       report.Showing.PaperTranscriptBytes - bq32PreTuningShowingPaperBytes,
+		FullGameBits:               report.SecurityLedger.FullGameBits,
+		SoundnessBits:              report.SecurityLedger.SoundnessBits,
+		ZeroKnowledgeBits:          report.SecurityLedger.ZeroKnowledgeBits,
+		RequiredPhaseAlgebraicBits: report.RequiredPhaseAlgebraicBits,
+		PhaseAlgebraicSlackBits:    report.PhaseAlgebraicSlackBits,
+		DominantSoundnessLimiter:   report.DominantSoundnessLimiter,
+		TagCollisionBits:           report.SecurityLedger.TagCollisionBits,
+		ReplayRejected:             report.ReplayRejected,
+		Artifacts:                  report.Artifacts,
 	}
+}
+
+func securityProfileCandidateAcceptance(report benchmarkIntGenISISE2EReport) (bool, string, string) {
+	reasons := securityProfileCandidateAcceptanceReasons(report)
+	if len(reasons) == 0 {
+		return true, securityProfileFrontierCandidateByteReduction, "accepted for candidate preset tuning"
+	}
+	securityOnlyReasons := securityProfileCandidateAcceptanceReasonsIgnoringBytes(report)
+	if len(securityOnlyReasons) == 0 {
+		return false, securityProfileFrontierSecurityOnlyCandidate, strings.Join(reasons, "; ")
+	}
+	return false, securityProfileFrontierClass(report.SecurityLedger), strings.Join(reasons, "; ")
+}
+
+func securityProfileCandidateAcceptanceReasons(report benchmarkIntGenISISE2EReport) []string {
+	reasons := securityProfileCandidateAcceptanceReasonsIgnoringBytes(report)
+	if report.Showing.PaperTranscriptBytes >= bq32PreTuningShowingPaperBytes {
+		reasons = append(reasons, fmt.Sprintf("showing transcript bytes %d >= baseline %d", report.Showing.PaperTranscriptBytes, bq32PreTuningShowingPaperBytes))
+	}
+	return reasons
+}
+
+func securityProfileCandidateAcceptanceReasonsIgnoringBytes(report benchmarkIntGenISISE2EReport) []string {
+	var reasons []string
+	if report.SecurityProfile != "BQ32-96" {
+		reasons = append(reasons, "not a BQ32-96 candidate")
+	}
+	if securityProfileBitsBelow(report.SecurityLedger.SoundnessBits, bq32CandidateSoundnessThreshold) {
+		reasons = append(reasons, fmt.Sprintf("soundness bits %.2f < %.2f", report.SecurityLedger.SoundnessBits, bq32CandidateSoundnessThreshold))
+	}
+	if securityProfileBitsBelow(report.SecurityLedger.FullGameBits, bq32CandidateFullGameThreshold) {
+		reasons = append(reasons, fmt.Sprintf("full-game bits %.2f < %.2f", report.SecurityLedger.FullGameBits, bq32CandidateFullGameThreshold))
+	}
+	if securityProfileBitsBelow(report.SecurityLedger.ZeroKnowledgeBits, bq32CandidateZeroKnowledgeThreshold) {
+		reasons = append(reasons, fmt.Sprintf("zero-knowledge bits %.2f < %.2f", report.SecurityLedger.ZeroKnowledgeBits, bq32CandidateZeroKnowledgeThreshold))
+	}
+	target := report.SecurityLedger.TargetBits
+	for _, category := range []struct {
+		name string
+		bits float64
+	}{
+		{"unlinkability", report.SecurityLedger.UnlinkabilityBits},
+		{"correctness", report.SecurityLedger.CorrectnessBits},
+		{"primitive", report.SecurityLedger.PrimitiveBits},
+	} {
+		if securityProfileBitsBelow(category.bits, target) {
+			reasons = append(reasons, fmt.Sprintf("%s bits %.2f < %.2f", category.name, category.bits, target))
+		}
+	}
+	for _, term := range report.SecurityLedger.Terms {
+		if term.Required && term.Status != "pass" {
+			reasons = append(reasons, fmt.Sprintf("%s/%s status=%s", term.Category, term.Name, term.Status))
+		}
+	}
+	if !report.ReplayRejected {
+		reasons = append(reasons, "replay was accepted")
+	}
+	return qBudget128UniqueStrings(reasons)
+}
+
+func securityProfileBitsBelow(bits, target float64) bool {
+	const tolerance = 1e-9
+	return target > 0 && bits+tolerance < target
+}
+
+func securityProfileSweepResultLess(a, b securityProfileSweepResult) bool {
+	if a.Accepted != b.Accepted {
+		return a.Accepted
+	}
+	aSecurity := securityProfileSweepResultClearsSecurity(a)
+	bSecurity := securityProfileSweepResultClearsSecurity(b)
+	if aSecurity != bSecurity {
+		return aSecurity
+	}
+	if a.TranscriptDeltaBytes != b.TranscriptDeltaBytes {
+		return a.TranscriptDeltaBytes < b.TranscriptDeltaBytes
+	}
+	if a.FullGameBits != b.FullGameBits {
+		return a.FullGameBits > b.FullGameBits
+	}
+	if a.SoundnessBits != b.SoundnessBits {
+		return a.SoundnessBits > b.SoundnessBits
+	}
+	if a.PaperBytes != b.PaperBytes {
+		return a.PaperBytes < b.PaperBytes
+	}
+	return a.Candidate < b.Candidate
+}
+
+func securityProfileSweepResultClearsSecurity(result securityProfileSweepResult) bool {
+	return !securityProfileBitsBelow(result.SoundnessBits, bq32CandidateSoundnessThreshold) &&
+		!securityProfileBitsBelow(result.FullGameBits, bq32CandidateFullGameThreshold) &&
+		!securityProfileBitsBelow(result.ZeroKnowledgeBits, bq32CandidateZeroKnowledgeThreshold) &&
+		result.ReplayRejected
 }
 
 func securityProfileFrontierClass(ledger credential.SystemSecurityLedger) string {
@@ -929,6 +1164,7 @@ func qBudget128MergeKappas(groups ...[][4]int) [][4]int {
 
 func qBudget128BenchmarkConfig(preset credential.IntGenISISPreset, cand qBudget128SweepCandidate, root string, idx int) benchmarkIntGenISISE2EConfig {
 	name := fmt.Sprintf("%03d-%s", idx, cand.Name)
+	maxNLeaves := maxInt(preset.MaxNLeaves, maxInt(cand.Issuance.NLeaves, cand.Showing.NLeaves))
 	return benchmarkIntGenISISE2EConfig{
 		ArtifactDir:         filepath.Join(root, name),
 		PresetName:          preset.Name + ":" + cand.Name,
@@ -948,7 +1184,7 @@ func qBudget128BenchmarkConfig(preset credential.IntGenISISPreset, cand qBudget1
 		KeygenAttempts:      defaultNTRUKeygenAttempts,
 		NTRUBeta:            preset.NTRUBeta,
 		MaxTrials:           2048,
-		MaxNLeaves:          preset.MaxNLeaves,
+		MaxNLeaves:          maxNLeaves,
 	}
 }
 
@@ -1036,6 +1272,7 @@ func qBudget128MetricDigestFromMetrics(m benchmarkIntGenISISMetrics) qBudget128M
 	return qBudget128MetricDigest{
 		PaperTranscriptBytes: m.PaperTranscriptBytes,
 		PaperTranscriptKB:    m.PaperTranscriptKB,
+		TranscriptAudit:      m.TranscriptAudit,
 		Buckets: qBudget128BucketDigest{
 			Q:            m.QBytes,
 			R:            m.RBytes,
@@ -1387,6 +1624,13 @@ func absInt(v int) int {
 
 func minInt(a, b int) int {
 	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
 		return a
 	}
 	return b

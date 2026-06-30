@@ -18,6 +18,8 @@ func intGenISISTuningFromPresetSpec(spec credential.IntGenISISTuningPreset) intG
 		Kappa:                  spec.Kappa,
 		ROQueryCaps:            spec.ROQueryCaps,
 		ROQueryCapsSet:         spec.ROQueryCapsSet,
+		ROQueryCapBits:         spec.ROQueryCapBits,
+		ROQueryCapBitsSet:      spec.ROQueryCapBitsSet,
 		DECSCollisionBits:      spec.DECSCollisionBits,
 		DECSHashBits:           spec.DECSHashBits,
 		DECSTapeBits:           spec.DECSTapeBits,
