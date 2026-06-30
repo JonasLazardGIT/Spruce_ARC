@@ -66,6 +66,46 @@ func TestIntGenISISSecurityProfilesRequireNewPrimitives(t *testing.T) {
 	}
 }
 
+func TestBQ6496SaltBitsMatchPDFBareTarget(t *testing.T) {
+	profile, ok := LookupIntGenISISSecurityProfile("BQ64-96")
+	if !ok {
+		t.Fatal("missing BQ64-96 profile")
+	}
+	if profile.SaltBits != 224 {
+		t.Fatalf("BQ64-96 salt bits=%d want 224 bare PDF target", profile.SaltBits)
+	}
+	if profile.Status != SecurityProfileRequiresNewPrimitives {
+		t.Fatalf("BQ64-96 status=%q want %q", profile.Status, SecurityProfileRequiresNewPrimitives)
+	}
+}
+
+func TestResidualBudgetProfilesExposeLogCaps(t *testing.T) {
+	tests := map[string]float64{
+		"BQ32-96":   32,
+		"BQ32-128":  32,
+		"BQ64-96":   64,
+		"BQ64-128":  64,
+		"BQ128-128": 128,
+	}
+	for label, want := range tests {
+		profile, ok := LookupIntGenISISSecurityProfile(label)
+		if !ok {
+			t.Fatalf("missing profile %s", label)
+		}
+		if len(profile.ROQueryCapBits) != 5 {
+			t.Fatalf("%s log caps=%v want five entries", label, profile.ROQueryCapBits)
+		}
+		for _, got := range profile.ROQueryCapBits {
+			if got != want {
+				t.Fatalf("%s log cap=%v want %v in %v", label, got, want, profile.ROQueryCapBits)
+			}
+		}
+		if want >= 64 && len(profile.ROQueryCaps) != 0 {
+			t.Fatalf("%s uint64 caps should be empty for 2^%.0f budget: %v", label, want, profile.ROQueryCaps)
+		}
+	}
+}
+
 func TestLookupIntGenISISSecurityProfileNormalizesLabels(t *testing.T) {
 	profile, ok := LookupIntGenISISSecurityProfile(" sc-96 ")
 	if !ok {

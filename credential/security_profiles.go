@@ -37,6 +37,7 @@ type IntGenISISSecurityProfileSpec struct {
 	TargetBits       float64               `json:"target_bits"`
 	CoreBitsRequired float64               `json:"core_bits_required"`
 	ROQueryCaps      []uint64              `json:"ro_query_caps,omitempty"`
+	ROQueryCapBits   []float64             `json:"ro_query_cap_bits,omitempty"`
 	DECSHashBits     int                   `json:"decs_hash_bits,omitempty"`
 	DECSTapeBits     int                   `json:"decs_tape_bits,omitempty"`
 	FSCollisionBits  int                   `json:"fs_collision_bits,omitempty"`
@@ -147,6 +148,7 @@ func intGenISISSecurityProfileSpecs() []IntGenISISSecurityProfileSpec {
 			TargetBits:       96,
 			CoreBitsRequired: 128,
 			ROQueryCaps:      intGenISISSecurityProfileROQueryCaps(32),
+			ROQueryCapBits:   intGenISISSecurityProfileROQueryCapBits(32),
 			DECSHashBits:     168,
 			DECSTapeBits:     128,
 			FSCollisionBits:  168,
@@ -164,6 +166,7 @@ func intGenISISSecurityProfileSpecs() []IntGenISISSecurityProfileSpec {
 			TargetBits:       128,
 			CoreBitsRequired: 160,
 			ROQueryCaps:      intGenISISSecurityProfileROQueryCaps(32),
+			ROQueryCapBits:   intGenISISSecurityProfileROQueryCapBits(32),
 			DECSHashBits:     200,
 			DECSTapeBits:     160,
 			FSCollisionBits:  200,
@@ -181,15 +184,16 @@ func intGenISISSecurityProfileSpecs() []IntGenISISSecurityProfileSpec {
 			TargetBits:       96,
 			CoreBitsRequired: 160,
 			ROQueryCaps:      intGenISISSecurityProfileROQueryCaps(64),
+			ROQueryCapBits:   intGenISISSecurityProfileROQueryCapBits(64),
 			DECSHashBits:     232,
 			DECSTapeBits:     160,
 			FSCollisionBits:  232,
-			SaltBits:         192,
+			SaltBits:         224,
 			PRFTagElements:   12,
 			SeedSlots:        IntGenISISPRFSeedLen,
 			PackedKeyCoords:  IntGenISISPRFPoseidonKeyLen,
 			Status:           SecurityProfileRequiresNewPrimitives,
-			Notes:            "Requires about 160-bit lattice and PRF primitive families.",
+			Notes:            "Requires about 160-bit lattice and PRF primitive families; 224-bit salt is the bare PDF target and 256-bit salt is the practical engineering lane.",
 		},
 		{
 			Label:            "BQ64-128",
@@ -198,6 +202,7 @@ func intGenISISSecurityProfileSpecs() []IntGenISISSecurityProfileSpec {
 			TargetBits:       128,
 			CoreBitsRequired: 192,
 			ROQueryCaps:      intGenISISSecurityProfileROQueryCaps(64),
+			ROQueryCapBits:   intGenISISSecurityProfileROQueryCapBits(64),
 			DECSHashBits:     320,
 			DECSTapeBits:     192,
 			FSCollisionBits:  320,
@@ -215,6 +220,7 @@ func intGenISISSecurityProfileSpecs() []IntGenISISSecurityProfileSpec {
 			TargetBits:       128,
 			CoreBitsRequired: 256,
 			ROQueryCaps:      intGenISISSecurityProfileROQueryCaps(128),
+			ROQueryCapBits:   intGenISISSecurityProfileROQueryCapBits(128),
 			DECSHashBits:     512,
 			DECSTapeBits:     256,
 			FSCollisionBits:  512,
@@ -236,9 +242,17 @@ func intGenISISSecurityProfileROQueryCaps(exp uint) []uint64 {
 	return []uint64{cap, cap, cap, cap, cap}
 }
 
+func intGenISISSecurityProfileROQueryCapBits(exp uint) []float64 {
+	bits := float64(exp)
+	return []float64{bits, bits, bits, bits, bits}
+}
+
 func cloneIntGenISISSecurityProfileSpec(profile IntGenISISSecurityProfileSpec) IntGenISISSecurityProfileSpec {
 	if profile.ROQueryCaps != nil {
 		profile.ROQueryCaps = append([]uint64(nil), profile.ROQueryCaps...)
+	}
+	if profile.ROQueryCapBits != nil {
+		profile.ROQueryCapBits = append([]float64(nil), profile.ROQueryCapBits...)
 	}
 	return profile
 }

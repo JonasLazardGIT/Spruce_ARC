@@ -399,6 +399,8 @@ type SimOpts struct {
 	// for the theorem-level ROM soundness bound.
 	ROQueryCaps       [5]int
 	ROQueryCapsSet    bool `json:"-"`
+	ROQueryCapBits    [5]float64
+	ROQueryCapBitsSet bool `json:"-"`
 	DECSCollisionBits int
 	DECSHashBits      int
 	DECSTapeBits      int
@@ -473,6 +475,9 @@ type SimOpts struct {
 	// TranscriptCodec selects exact serialization codecs that do not change the
 	// algebraic relation. Empty keeps the historical transcript encoding.
 	TranscriptCodec string
+	// TranscriptOmissionMode selects internal, verifier-bound paper transcript
+	// omission models. Empty keeps all payload buckets explicit.
+	TranscriptOmissionMode string
 	// TranscriptProtocolMode selects transcript-shape protocol changes. Empty
 	// keeps the historical dense replay protocol.
 	TranscriptProtocolMode string
@@ -655,6 +660,11 @@ func (o *SimOpts) applyDefaults() {
 			}
 		} else if o.ROQueryCaps[i] <= 0 {
 			o.ROQueryCaps[i] = def.ROQueryCaps[i]
+		}
+		if o.ROQueryCapBitsSet {
+			if o.ROQueryCapBits[i] < 0 {
+				o.ROQueryCapBits[i] = 0
+			}
 		}
 	}
 	if o.DECSCollisionBits <= 0 {
@@ -1234,6 +1244,7 @@ type SoundnessBudget struct {
 	EffectiveLambdaBits int
 	CollisionSpaceBits  int
 	QueryCaps           [5]int
+	QueryCapBits        [5]float64
 	NRows               int
 	M                   int
 }
@@ -1951,17 +1962,25 @@ func clampBitsToProbability(rawBits float64) (float64, float64) {
 }
 
 func theoremTerm(queryCap int, eps float64, kappa int) (float64, float64) {
-	if queryCap <= 0 || eps <= 0 {
+	if queryCap <= 0 {
 		return 0, math.Inf(1)
 	}
-	term := float64(queryCap) * eps * math.Pow(2, -float64(kappa))
+	return theoremTermLog2Cap(math.Log2(float64(queryCap)), eps, kappa)
+}
+
+func theoremTermLog2Cap(queryCapBits float64, eps float64, kappa int) (float64, float64) {
+	if math.IsInf(queryCapBits, -1) || queryCapBits < 0 || eps <= 0 {
+		return 0, math.Inf(1)
+	}
+	logTerm := queryCapBits + math.Log2(eps) - float64(kappa)
+	if logTerm >= 0 {
+		return 1, 0
+	}
+	term := math.Exp2(logTerm)
 	if term <= 0 {
 		return 0, math.Inf(1)
 	}
-	if term >= 1 {
-		return 1, 0
-	}
-	return term, -math.Log2(term)
+	return term, -logTerm
 }
 
 func computeSoundnessBudget(
@@ -2024,6 +2043,7 @@ func computeSoundnessBudget(
 	sb.EffectiveLambdaBits = effectiveLambdaBits
 	sb.CollisionSpaceBits = collisionSpaceBits
 	sb.QueryCaps = o.ROQueryCaps
+	sb.QueryCapBits = queryCapBitsForOpts(o)
 
 	rawBits1 := float64(eta)*math.Log2(qf) - logComb2Stable(float64(nLeaves), ddecs+2)
 	sb.RawBits[0] = rawBits1
@@ -2090,7 +2110,7 @@ func computeSoundnessBudget(
 		kappa := o.Kappa[i]
 		sb.GrindingBits[i] = float64(kappa)
 		sb.Grinding[i] = math.Pow(2, -float64(kappa))
-		sb.TheoremTerms[i], sb.TheoremBits[i] = theoremTerm(o.ROQueryCaps[i+1], sb.Eps[i], kappa)
+		sb.TheoremTerms[i], sb.TheoremBits[i] = theoremTermLog2Cap(sb.QueryCapBits[i+1], sb.Eps[i], kappa)
 		sb.AlgebraicTerms[i] = sb.TheoremTerms[i]
 		sb.AlgebraicBits[i] = sb.TheoremBits[i]
 		sb.AlgebraicTotal += sb.AlgebraicTerms[i]
@@ -2104,17 +2124,8 @@ func computeSoundnessBudget(
 		sb.AlgebraicTotalBits = -math.Log2(sb.AlgebraicTotal)
 	}
 
-	querySquares := 0.0
-	for _, cap := range o.ROQueryCaps {
-		if cap > 0 {
-			querySquares += float64(cap) * float64(cap)
-		}
-	}
-	if querySquares > 0 {
-		sb.Collision = querySquares * math.Pow(2, -float64(collisionSpaceBits))
-		if sb.Collision > 1 {
-			sb.Collision = 1
-		}
+	sb.Collision = collisionErrorLog(sb.QueryCapBits, collisionSpaceBits)
+	if sb.Collision > 0 {
 		sb.CollisionBits = -math.Log2(sb.Collision)
 	} else {
 		sb.CollisionBits = math.Inf(1)

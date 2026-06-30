@@ -120,6 +120,32 @@ func TestSoundnessBudgetQueryBudgetCollisionBits(t *testing.T) {
 	}
 }
 
+func TestSoundnessBudgetLogQueryCapsSupportBQ64(t *testing.T) {
+	opts := soundnessTestOpts([5]int{})
+	opts.ROQueryCapsSet = false
+	opts.ROQueryCapBits = [5]float64{64, 64, 64, 64, 64}
+	opts.ROQueryCapBitsSet = true
+	opts.DECSCollisionBits = 232
+	opts.DECSHashBits = 232
+	opts.DECSTapeBits = 160
+	opts.FSCollisionBits = 232
+
+	sb := computeSoundnessBudget(opts, 12289, math.Pow(12289, 5), 232, 232, 160, 32, 16, 16, 1, 1, 64, 64, 16)
+	if sb.QueryCapBits != opts.ROQueryCapBits {
+		t.Fatalf("query cap bits=%v want %v", sb.QueryCapBits, opts.ROQueryCapBits)
+	}
+	wantCollisionBits := 232.0 - 2*64.0 - math.Log2(5)
+	if math.Abs(sb.CollisionBits-wantCollisionBits) > 1e-9 {
+		t.Fatalf("collision bits=%f want %f", sb.CollisionBits, wantCollisionBits)
+	}
+	if sb.TheoremBits[0] >= math.Inf(1) || sb.TheoremBits[0] <= 0 {
+		t.Fatalf("theorem bits were not charged against log caps: %v", sb.TheoremBits)
+	}
+	if sb.CollisionSpaceBits != 232 || sb.DECSHashBits != 232 || sb.DECSTapeBits != 160 {
+		t.Fatalf("split widths hash=%d tape=%d collision=%d", sb.DECSHashBits, sb.DECSTapeBits, sb.CollisionSpaceBits)
+	}
+}
+
 func TestComposeFullGameSoundness(t *testing.T) {
 	issuance := SoundnessBudget{
 		QueryCaps:          [5]int{1, 2, 3, 4, 5},
@@ -153,6 +179,35 @@ func TestComposeFullGameSoundness(t *testing.T) {
 	}
 	if !closeFloat(got.GlobalCollisionFullGameError, wantGlobal, 1e-18) {
 		t.Fatalf("global full game=%g want %g", got.GlobalCollisionFullGameError, wantGlobal)
+	}
+}
+
+func TestComposeFullGameSoundnessUsesLogQueryCaps(t *testing.T) {
+	capBits := [5]float64{64, 64, 64, 64, 64}
+	issuance := SoundnessBudget{
+		QueryCapBits:       capBits,
+		CollisionSpaceBits: 232,
+		AlgebraicTotal:     math.Exp2(-220),
+		OneProofTotal:      math.Exp2(-220),
+	}
+	showing := SoundnessBudget{
+		QueryCapBits:       capBits,
+		CollisionSpaceBits: 232,
+		AlgebraicTotal:     math.Exp2(-210),
+		OneProofTotal:      math.Exp2(-210),
+	}
+	got := ComposeFullGameSoundness(issuance, showing, 1, 1)
+	for i, bits := range got.GlobalQueryCapBits {
+		if math.Abs(bits-65) > 1e-12 {
+			t.Fatalf("global cap bits[%d]=%f want 65", i, bits)
+		}
+	}
+	wantCollisionBits := 232.0 - 2*65.0 - math.Log2(5)
+	if math.Abs(got.GlobalCollisionBits-wantCollisionBits) > 1e-9 {
+		t.Fatalf("global collision bits=%f want %f", got.GlobalCollisionBits, wantCollisionBits)
+	}
+	if got.IssuanceQueryCapBits != capBits || got.ShowingQueryCapBits != capBits {
+		t.Fatalf("phase cap bits issuance=%v showing=%v", got.IssuanceQueryCapBits, got.ShowingQueryCapBits)
 	}
 }
 

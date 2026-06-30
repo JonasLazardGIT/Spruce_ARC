@@ -9,20 +9,23 @@ import (
 // FullGameSoundnessReport composes issuance/showing one-proof budgets under
 // accepted-proof counts.
 type FullGameSoundnessReport struct {
-	AcceptedIssuance              int     `json:"accepted_issuance"`
-	AcceptedShowing               int     `json:"accepted_showing"`
-	IssuanceQueryCaps             [5]int  `json:"issuance_query_caps"`
-	ShowingQueryCaps              [5]int  `json:"showing_query_caps"`
-	GlobalQueryCaps               [5]int  `json:"global_query_caps"`
-	CollisionSpaceBits            int     `json:"collision_space_bits"`
-	ConservativeFullGameError     float64 `json:"full_game_conservative"`
-	ConservativeFullGameBits      float64 `json:"full_game_conservative_bits"`
-	GlobalCollisionFullGameError  float64 `json:"full_game_global_collision"`
-	GlobalCollisionFullGameBits   float64 `json:"full_game_global_collision_bits"`
-	GlobalCollisionError          float64 `json:"global_collision"`
-	GlobalCollisionBits           float64 `json:"global_collision_bits"`
-	IssuanceAlgebraicContribution float64 `json:"issuance_algebraic_contribution"`
-	ShowingAlgebraicContribution  float64 `json:"showing_algebraic_contribution"`
+	AcceptedIssuance              int        `json:"accepted_issuance"`
+	AcceptedShowing               int        `json:"accepted_showing"`
+	IssuanceQueryCaps             [5]int     `json:"issuance_query_caps"`
+	ShowingQueryCaps              [5]int     `json:"showing_query_caps"`
+	GlobalQueryCaps               [5]int     `json:"global_query_caps"`
+	IssuanceQueryCapBits          [5]float64 `json:"issuance_query_cap_bits,omitempty"`
+	ShowingQueryCapBits           [5]float64 `json:"showing_query_cap_bits,omitempty"`
+	GlobalQueryCapBits            [5]float64 `json:"global_query_cap_bits,omitempty"`
+	CollisionSpaceBits            int        `json:"collision_space_bits"`
+	ConservativeFullGameError     float64    `json:"full_game_conservative"`
+	ConservativeFullGameBits      float64    `json:"full_game_conservative_bits"`
+	GlobalCollisionFullGameError  float64    `json:"full_game_global_collision"`
+	GlobalCollisionFullGameBits   float64    `json:"full_game_global_collision_bits"`
+	GlobalCollisionError          float64    `json:"global_collision"`
+	GlobalCollisionBits           float64    `json:"global_collision_bits"`
+	IssuanceAlgebraicContribution float64    `json:"issuance_algebraic_contribution"`
+	ShowingAlgebraicContribution  float64    `json:"showing_algebraic_contribution"`
 }
 
 func ResolveDECSCollisionBits(bits int) int {
@@ -203,10 +206,14 @@ func ComposeFullGameSoundness(issuance, showing SoundnessBudget, acceptedIssuanc
 		collisionBits = decs.DefaultHashBytes * 8
 	}
 	var globalCaps [5]int
+	issuanceCapBits := soundnessQueryCapBits(issuance)
+	showingCapBits := soundnessQueryCapBits(showing)
+	var globalCapBits [5]float64
 	for i := range globalCaps {
 		globalCaps[i] = acceptedIssuance*issuance.QueryCaps[i] + acceptedShowing*showing.QueryCaps[i]
+		globalCapBits[i] = composeQueryCapLog2(issuanceCapBits[i], showingCapBits[i], acceptedIssuance, acceptedShowing)
 	}
-	globalCollision := collisionError(globalCaps, collisionBits)
+	globalCollision := collisionErrorLog(globalCapBits, collisionBits)
 	issuanceAlgTotal := soundnessAlgebraicTotal(issuance)
 	showingAlgTotal := soundnessAlgebraicTotal(showing)
 	issuanceOneProof := soundnessOneProofTotal(issuance)
@@ -221,6 +228,9 @@ func ComposeFullGameSoundness(issuance, showing SoundnessBudget, acceptedIssuanc
 		IssuanceQueryCaps:             issuance.QueryCaps,
 		ShowingQueryCaps:              showing.QueryCaps,
 		GlobalQueryCaps:               globalCaps,
+		IssuanceQueryCapBits:          issuanceCapBits,
+		ShowingQueryCapBits:           showingCapBits,
+		GlobalQueryCapBits:            globalCapBits,
 		CollisionSpaceBits:            collisionBits,
 		ConservativeFullGameError:     conservative,
 		ConservativeFullGameBits:      probabilityBits(conservative),
@@ -261,19 +271,89 @@ func soundnessOneProofTotal(b SoundnessBudget) float64 {
 }
 
 func collisionError(caps [5]int, collisionSpaceBits int) float64 {
+	return collisionErrorLog(queryCapBitsFromCaps(caps), collisionSpaceBits)
+}
+
+func collisionErrorLog(capBits [5]float64, collisionSpaceBits int) float64 {
 	if collisionSpaceBits <= 0 {
 		return 0
 	}
-	querySquares := 0.0
-	for _, cap := range caps {
-		if cap > 0 {
-			querySquares += float64(cap) * float64(cap)
+	logTerms := make([]float64, 0, len(capBits))
+	for _, bits := range capBits {
+		if !math.IsInf(bits, -1) && bits >= 0 {
+			logTerms = append(logTerms, 2*bits-float64(collisionSpaceBits))
 		}
 	}
-	if querySquares <= 0 {
+	if len(logTerms) == 0 {
 		return 0
 	}
-	return clampProbability(querySquares * math.Pow(2, -float64(collisionSpaceBits)))
+	logProb := log2SumExp(logTerms)
+	if logProb >= 0 {
+		return 1
+	}
+	return clampProbability(math.Exp2(logProb))
+}
+
+func queryCapBitsFromCaps(caps [5]int) [5]float64 {
+	var out [5]float64
+	for i, cap := range caps {
+		if cap > 0 {
+			out[i] = math.Log2(float64(cap))
+		} else {
+			out[i] = -1
+		}
+	}
+	return out
+}
+
+func soundnessQueryCapBits(b SoundnessBudget) [5]float64 {
+	for _, bits := range b.QueryCapBits {
+		if bits > 0 {
+			return b.QueryCapBits
+		}
+	}
+	return queryCapBitsFromCaps(b.QueryCaps)
+}
+
+func queryCapBitsForOpts(opts SimOpts) [5]float64 {
+	if opts.ROQueryCapBitsSet {
+		return opts.ROQueryCapBits
+	}
+	return queryCapBitsFromCaps(opts.ROQueryCaps)
+}
+
+func composeQueryCapLog2(aBits, bBits float64, aCount, bCount int) float64 {
+	logTerms := make([]float64, 0, 2)
+	if aCount > 0 && !math.IsInf(aBits, -1) && aBits >= 0 {
+		logTerms = append(logTerms, math.Log2(float64(aCount))+aBits)
+	}
+	if bCount > 0 && !math.IsInf(bBits, -1) && bBits >= 0 {
+		logTerms = append(logTerms, math.Log2(float64(bCount))+bBits)
+	}
+	if len(logTerms) == 0 {
+		return -1
+	}
+	return log2SumExp(logTerms)
+}
+
+func log2SumExp(vals []float64) float64 {
+	if len(vals) == 0 {
+		return math.Inf(-1)
+	}
+	max := math.Inf(-1)
+	for _, v := range vals {
+		if v > max {
+			max = v
+		}
+	}
+	if math.IsInf(max, -1) {
+		return max
+	}
+	sum := 0.0
+	for _, v := range vals {
+		sum += math.Exp2(v - max)
+	}
+	return max + math.Log2(sum)
 }
 
 func clampProbability(v float64) float64 {
