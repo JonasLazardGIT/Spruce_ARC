@@ -263,6 +263,7 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		paperTranscript.Auth.OptimizedBits += openingRep.AuthBits
 		paperTranscript.Tapes.NaiveBits += openingRep.TapeBits
 		paperTranscript.Tapes.OptimizedBits += openingRep.TapeBits
+		addOpeningPaperAudit(&paperTranscript.Audit, openingRep.Audit)
 		finalizePaperTranscriptReport(&paperTranscript)
 	}
 	return ProofReport{

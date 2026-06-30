@@ -335,10 +335,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 			}
 		}
 		if paperQPayloadOnly {
-			transcript4 = [][]byte{
-				proof.VTargetsBits,
-				proof.BarSetsBits,
-			}
+			transcript4 = smallField2025Round4DirectPayloads(proof)
 		} else {
 			transcript4 = [][]byte{
 				rootBytes,
@@ -388,10 +385,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 			return false, false, false, errors.New("VerifyNIZK: coefficient matrix mismatch")
 		}
 		if paperQPayloadOnly {
-			transcript4 = [][]byte{
-				proof.VTargetsBits,
-				proof.BarSetsBits,
-			}
+			transcript4 = smallField2025Round4DirectPayloads(proof)
 		} else {
 			transcript4 = [][]byte{
 				rootBytes,

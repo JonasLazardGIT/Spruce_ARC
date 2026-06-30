@@ -17,33 +17,50 @@ const (
 	SmallField2025HeadDomainV1       = lvcs.SmallField2025HeadDomainV1
 	SmallField2025StatusLive         = "smallwood_2025_1085_live"
 	SmallField2025StatusRejected     = "smallwood_2025_1085_rejected"
+
+	SmallField2025TranscriptOmissionModeDigestBoundV1 = "digest_bound_payload_v1"
+	smallField2025TranscriptOmissionVersionV1         = 1
 )
+
+// SmallField2025TranscriptOmission describes reconstructible paper-transcript
+// payloads that are bound through the SmallField2025 payload digest. Matrix
+// payload omission is intentionally rejected until a reconstruction theorem
+// exists; the live descriptor is limited to existing DECS opening omissions.
+type SmallField2025TranscriptOmission struct {
+	Version                      int    `json:"version"`
+	Mode                         string `json:"mode"`
+	OmitVTargets                 bool   `json:"omit_vtargets,omitempty"`
+	OmitBarSets                  bool   `json:"omit_barsets,omitempty"`
+	OmitPdecsReconstructibleCols bool   `json:"omit_pdecs_reconstructible_cols,omitempty"`
+	AuthMultiproofCompact        bool   `json:"auth_multiproof_compact,omitempty"`
+}
 
 // SmallField2025LVCSProof binds the paper-shaped small-field LVCS payload
 // metadata. It is intentionally separate from codec metadata: when
 // ReductionEnabled is true, the verifier must use the strict
 // EvalStep2SmallField2025 branch and must not fall back to dense EvalStep2.
 type SmallField2025LVCSProof struct {
-	Version          int    `json:"version"`
-	Mode             string `json:"mode"`
-	Status           string `json:"status"`
-	ReductionEnabled bool   `json:"reduction_enabled"`
-	HeadDomainMode   string `json:"head_domain_mode"`
-	NRows            int    `json:"nrows"`
-	NCols            int    `json:"ncols"`
-	Theta            int    `json:"theta"`
-	WitnessLayers    int    `json:"witness_layers"`
-	MaskRows         int    `json:"mask_rows"`
-	QueryCount       int    `json:"query_count"`
-	VHeadRows        int    `json:"vhead_rows"`
-	VHeadCols        int    `json:"vhead_cols"`
-	VBarRows         int    `json:"vbar_rows"`
-	VBarCols         int    `json:"vbar_cols"`
-	POmitCols        []int  `json:"p_omit_cols,omitempty"`
-	MOmitCols        []int  `json:"m_omit_cols,omitempty"`
-	MatrixDigest     []byte `json:"matrix_digest,omitempty"`
-	PayloadDigest    []byte `json:"payload_digest,omitempty"`
-	Notes            string `json:"notes,omitempty"`
+	Version            int                               `json:"version"`
+	Mode               string                            `json:"mode"`
+	Status             string                            `json:"status"`
+	ReductionEnabled   bool                              `json:"reduction_enabled"`
+	HeadDomainMode     string                            `json:"head_domain_mode"`
+	NRows              int                               `json:"nrows"`
+	NCols              int                               `json:"ncols"`
+	Theta              int                               `json:"theta"`
+	WitnessLayers      int                               `json:"witness_layers"`
+	MaskRows           int                               `json:"mask_rows"`
+	QueryCount         int                               `json:"query_count"`
+	VHeadRows          int                               `json:"vhead_rows"`
+	VHeadCols          int                               `json:"vhead_cols"`
+	VBarRows           int                               `json:"vbar_rows"`
+	VBarCols           int                               `json:"vbar_cols"`
+	POmitCols          []int                             `json:"p_omit_cols,omitempty"`
+	MOmitCols          []int                             `json:"m_omit_cols,omitempty"`
+	MatrixDigest       []byte                            `json:"matrix_digest,omitempty"`
+	PayloadDigest      []byte                            `json:"payload_digest,omitempty"`
+	TranscriptOmission *SmallField2025TranscriptOmission `json:"transcript_omission,omitempty"`
+	Notes              string                            `json:"notes,omitempty"`
 }
 
 type smallField2025CoeffPlan struct {
@@ -189,6 +206,9 @@ func ValidateSmallField2025Proof(proof *Proof) error {
 	if !equalByteSlices(meta.MatrixDigest, smallField2025MatrixDigest(proof.CoeffMatrix)) {
 		return fmt.Errorf("smallfield2025 matrix digest mismatch")
 	}
+	if err := validateSmallField2025TranscriptOmission(proof, meta.TranscriptOmission); err != nil {
+		return err
+	}
 	if !equalByteSlices(meta.PayloadDigest, smallField2025PayloadDigest(proof, meta)) {
 		return fmt.Errorf("smallfield2025 payload digest mismatch")
 	}
@@ -257,7 +277,7 @@ func buildSmallField2025CoeffPlan(
 	}, nil
 }
 
-func attachSmallField2025Proof(proof *Proof, plan smallField2025CoeffPlan, eta int) error {
+func attachSmallField2025Proof(proof *Proof, plan smallField2025CoeffPlan, eta int, transcriptOmissionMode string) error {
 	_ = eta // M omissions are deterministic in strict mode: every M column is omitted.
 	if proof == nil {
 		return fmt.Errorf("nil proof")
@@ -278,24 +298,29 @@ func attachSmallField2025Proof(proof *Proof, plan smallField2025CoeffPlan, eta i
 	if vRows != len(plan.C) || bRows != len(plan.C) {
 		return fmt.Errorf("smallfield2025 payload rows mismatch C=%d VHead=%d VBar=%d", len(plan.C), vRows, bRows)
 	}
+	omission, err := newSmallField2025TranscriptOmission(transcriptOmissionMode)
+	if err != nil {
+		return err
+	}
 	meta := &SmallField2025LVCSProof{
-		Version:          smallField2025LVCSProofVersionV1,
-		Mode:             TranscriptProtocolSmallField2025V1,
-		Status:           SmallField2025StatusLive,
-		ReductionEnabled: true,
-		HeadDomainMode:   SmallField2025HeadDomainV1,
-		NRows:            len(plan.C[0]),
-		NCols:            vCols,
-		Theta:            proof.Theta,
-		WitnessLayers:    plan.WitnessLayers,
-		MaskRows:         bCols,
-		QueryCount:       len(plan.C),
-		VHeadRows:        vRows,
-		VHeadCols:        vCols,
-		VBarRows:         bRows,
-		VBarCols:         bCols,
-		MatrixDigest:     smallField2025MatrixDigest(plan.C),
-		Notes:            "strict paper-shaped small-field LVCS payload",
+		Version:            smallField2025LVCSProofVersionV1,
+		Mode:               TranscriptProtocolSmallField2025V1,
+		Status:             SmallField2025StatusLive,
+		ReductionEnabled:   true,
+		HeadDomainMode:     SmallField2025HeadDomainV1,
+		NRows:              len(plan.C[0]),
+		NCols:              vCols,
+		Theta:              proof.Theta,
+		WitnessLayers:      plan.WitnessLayers,
+		MaskRows:           bCols,
+		QueryCount:         len(plan.C),
+		VHeadRows:          vRows,
+		VHeadCols:          vCols,
+		VBarRows:           bRows,
+		VBarCols:           bCols,
+		MatrixDigest:       smallField2025MatrixDigest(plan.C),
+		TranscriptOmission: omission,
+		Notes:              "strict paper-shaped small-field LVCS payload",
 	}
 	proof.SmallField2025 = meta
 	meta.PayloadDigest = smallField2025PayloadDigest(proof, meta)
@@ -499,6 +524,94 @@ func smallField2025EvalInput(proof *Proof, opening *decs.DECSOpening, coeffMatri
 	}
 }
 
+func newSmallField2025TranscriptOmission(mode string) (*SmallField2025TranscriptOmission, error) {
+	switch mode {
+	case "":
+		return nil, nil
+	case SmallField2025TranscriptOmissionModeDigestBoundV1:
+		return &SmallField2025TranscriptOmission{
+			Version:                      smallField2025TranscriptOmissionVersionV1,
+			Mode:                         SmallField2025TranscriptOmissionModeDigestBoundV1,
+			OmitPdecsReconstructibleCols: true,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown smallfield2025 transcript omission mode %q", mode)
+	}
+}
+
+func validateSmallField2025TranscriptOmission(proof *Proof, desc *SmallField2025TranscriptOmission) error {
+	if desc == nil {
+		return nil
+	}
+	if desc.Version != smallField2025TranscriptOmissionVersionV1 ||
+		desc.Mode != SmallField2025TranscriptOmissionModeDigestBoundV1 {
+		return fmt.Errorf("smallfield2025 transcript omission descriptor mismatch")
+	}
+	if desc.AuthMultiproofCompact {
+		return fmt.Errorf("smallfield2025 auth multiproof compact omission is not implemented")
+	}
+	if !desc.OmitVTargets && !desc.OmitBarSets && !desc.OmitPdecsReconstructibleCols {
+		return fmt.Errorf("smallfield2025 transcript omission descriptor has no supported omission")
+	}
+	if desc.OmitVTargets {
+		return fmt.Errorf("smallfield2025 VTargets omission requires verifier reconstruction theorem support")
+	}
+	if desc.OmitBarSets {
+		return fmt.Errorf("smallfield2025 BarSets omission requires verifier reconstruction theorem support")
+	}
+	if desc.OmitPdecsReconstructibleCols {
+		if proof == nil || proof.SmallField2025 == nil || !proof.SmallField2025.ReductionEnabled {
+			return fmt.Errorf("smallfield2025 Pdecs omission requires live reduction metadata")
+		}
+		open := resolveProofPCSOpening(proof)
+		if open == nil {
+			return fmt.Errorf("smallfield2025 Pdecs omission needs PCS opening")
+		}
+		if open.FormatVersion != decs.OpeningFormatOmitCols && open.FormatVersion != decs.OpeningFormatColumnWidths {
+			return fmt.Errorf("smallfield2025 Pdecs omission needs omitted-column opening")
+		}
+	}
+	return nil
+}
+
+func smallField2025TranscriptOmissionBytes(desc *SmallField2025TranscriptOmission) []byte {
+	if desc == nil {
+		return nil
+	}
+	out := make([]byte, 0, 96)
+	appendString := func(s string) {
+		var lenBuf [8]byte
+		binary.LittleEndian.PutUint64(lenBuf[:], uint64(len(s)))
+		out = append(out, lenBuf[:]...)
+		out = append(out, []byte(s)...)
+	}
+	appendU64 := func(v uint64) {
+		var buf [8]byte
+		binary.LittleEndian.PutUint64(buf[:], v)
+		out = append(out, buf[:]...)
+	}
+	appendString("smallfield_2025_transcript_omission_v1")
+	appendString(desc.Mode)
+	appendU64(uint64(desc.Version))
+	appendU64(boolToUint64(desc.OmitVTargets))
+	appendU64(boolToUint64(desc.OmitBarSets))
+	appendU64(boolToUint64(desc.OmitPdecsReconstructibleCols))
+	appendU64(boolToUint64(desc.AuthMultiproofCompact))
+	return out
+}
+
+func smallField2025Round4DirectPayloads(proof *Proof) [][]byte {
+	if proof == nil {
+		return nil
+	}
+	proof.ensureVTargetsPacked()
+	proof.ensureBarSetsPacked()
+	out := make([][]byte, 0, 2)
+	out = append(out, proof.VTargetsBits)
+	out = append(out, proof.BarSetsBits)
+	return out
+}
+
 func smallField2025TranscriptBytes(meta *SmallField2025LVCSProof) []byte {
 	if meta == nil {
 		return nil
@@ -554,6 +667,7 @@ func smallField2025TranscriptBytes(meta *SmallField2025LVCSProof) []byte {
 	appendInts(meta.POmitCols)
 	appendInts(meta.MOmitCols)
 	appendBytes(meta.MatrixDigest)
+	appendBytes(smallField2025TranscriptOmissionBytes(meta.TranscriptOmission))
 	appendBytes(meta.PayloadDigest)
 	return out
 }
@@ -584,6 +698,9 @@ func smallField2025PayloadDigest(proof *Proof, meta *SmallField2025LVCSProof) []
 		matrix = proof.CoeffMatrix
 	}
 	h.Write(smallField2025MatrixDigest(matrix))
+	if meta != nil {
+		h.Write(smallField2025TranscriptOmissionBytes(meta.TranscriptOmission))
+	}
 	h.Write([]byte("smallfield_deterministic_omit_v1"))
 	return h.Sum(nil)
 }

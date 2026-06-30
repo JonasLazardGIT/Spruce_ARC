@@ -63,6 +63,8 @@ type intGenISISTuning struct {
 	Kappa                  [4]int                `json:"kappa"`
 	ROQueryCaps            [5]int                `json:"ro_query_caps,omitempty"`
 	ROQueryCapsSet         bool                  `json:"-"`
+	ROQueryCapBits         [5]float64            `json:"ro_query_cap_bits,omitempty"`
+	ROQueryCapBitsSet      bool                  `json:"-"`
 	DECSCollisionBits      int                   `json:"decs_collision_bits,omitempty"`
 	DECSHashBits           int                   `json:"decs_hash_bits,omitempty"`
 	DECSTapeBits           int                   `json:"decs_tape_bits,omitempty"`
@@ -78,6 +80,7 @@ type intGenISISTuning struct {
 	CompressedRows         int                   `json:"compressed_rows,omitempty"`
 	ReplayProjection       string                `json:"replay_projection,omitempty"`
 	TranscriptMode         string                `json:"transcript_mode,omitempty"`
+	TranscriptOmissionMode string                `json:"transcript_omission_mode,omitempty"`
 	FixedTranscriptSize    bool                  `json:"fixed_transcript_size,omitempty"`
 	FixedTranscriptSizeSet bool                  `json:"-"`
 }
@@ -126,43 +129,49 @@ type benchmarkIntGenISISE2EArtifacts struct {
 }
 
 type benchmarkIntGenISISE2EReport struct {
-	Version             int                                   `json:"version"`
-	Generated           string                                `json:"generated_at"`
-	Preset              string                                `json:"preset,omitempty"`
-	Profile             string                                `json:"profile"`
-	SecurityProfile     string                                `json:"security_profile,omitempty"`
-	SecurityMode        string                                `json:"security_mode,omitempty"`
-	CompleteSystemClaim bool                                  `json:"complete_system_claim,omitempty"`
-	CoreBitsRequired    float64                               `json:"core_required_bits,omitempty"`
-	CoreAvailableBits   float64                               `json:"core_available_bits,omitempty"`
-	PRFProfile          string                                `json:"prf_profile,omitempty"`
-	PRFParamsPath       string                                `json:"prf_params_path,omitempty"`
-	LedgerStatus        string                                `json:"ledger_status,omitempty"`
-	LedgerReasons       []string                              `json:"ledger_rejection_reasons,omitempty"`
-	LedgerTerms         []credential.SystemSecurityLedgerTerm `json:"ledger_terms,omitempty"`
-	SoundnessBits       float64                               `json:"soundness_bits,omitempty"`
-	UnlinkabilityBits   float64                               `json:"unlinkability_bits,omitempty"`
-	CorrectnessBits     float64                               `json:"correctness_bits,omitempty"`
-	PrimitiveBits       float64                               `json:"primitive_bits,omitempty"`
-	TagCollisionBits    float64                               `json:"tag_collision_bits,omitempty"`
-	SaltCollisionBits   float64                               `json:"salt_collision_bits,omitempty"`
-	TapeGuessingBits    float64                               `json:"tape_guessing_bits,omitempty"`
-	ProgrammingBits     float64                               `json:"programming_conflict_bits,omitempty"`
-	ChallengeBiasBits   float64                               `json:"challenge_bias_bits,omitempty"`
-	Modulus             uint64                                `json:"q,omitempty"`
-	ProfileBound        int64                                 `json:"profile_bound,omitempty"`
-	ArtifactDir         string                                `json:"artifact_dir"`
-	MaxNLeaves          int                                   `json:"max_nleaves,omitempty"`
-	Options             benchmarkIntGenISISE2EOptions         `json:"options"`
-	Environment         benchmarkIntGenISISE2EEnvironment     `json:"environment"`
-	Timings             benchmarkIntGenISISE2ETimings         `json:"timings"`
-	Issuance            benchmarkIntGenISISMetrics            `json:"issuance"`
-	Showing             benchmarkIntGenISISMetrics            `json:"showing"`
-	FullGame            PIOP.FullGameSoundnessReport          `json:"full_game"`
-	SecurityLedger      credential.SystemSecurityLedger       `json:"security_ledger"`
-	Artifacts           benchmarkIntGenISISE2EArtifacts       `json:"artifacts"`
-	ReplayRejected      bool                                  `json:"replay_rejected"`
-	Notes               []string                              `json:"notes"`
+	Version                    int                                   `json:"version"`
+	Generated                  string                                `json:"generated_at"`
+	Preset                     string                                `json:"preset,omitempty"`
+	Profile                    string                                `json:"profile"`
+	SecurityProfile            string                                `json:"security_profile,omitempty"`
+	SecurityMode               string                                `json:"security_mode,omitempty"`
+	CompleteSystemClaim        bool                                  `json:"complete_system_claim,omitempty"`
+	CoreBitsRequired           float64                               `json:"core_required_bits,omitempty"`
+	CoreAvailableBits          float64                               `json:"core_available_bits,omitempty"`
+	PRFProfile                 string                                `json:"prf_profile,omitempty"`
+	PRFParamsPath              string                                `json:"prf_params_path,omitempty"`
+	LedgerStatus               string                                `json:"ledger_status,omitempty"`
+	LedgerReasons              []string                              `json:"ledger_rejection_reasons,omitempty"`
+	LedgerTerms                []credential.SystemSecurityLedgerTerm `json:"ledger_terms,omitempty"`
+	SoundnessBits              float64                               `json:"soundness_bits,omitempty"`
+	UnlinkabilityBits          float64                               `json:"unlinkability_bits,omitempty"`
+	CorrectnessBits            float64                               `json:"correctness_bits,omitempty"`
+	PrimitiveBits              float64                               `json:"primitive_bits,omitempty"`
+	CompositionBits            float64                               `json:"composition_bits,omitempty"`
+	ZeroKnowledgeBits          float64                               `json:"zero_knowledge_bits,omitempty"`
+	RequiredPhaseAlgebraicBits float64                               `json:"required_phase_algebraic_bits,omitempty"`
+	PhaseAlgebraicSlackBits    float64                               `json:"phase_algebraic_slack_bits,omitempty"`
+	DominantSoundnessLimiter   string                                `json:"dominant_soundness_limiter,omitempty"`
+	TagCollisionBits           float64                               `json:"tag_collision_bits,omitempty"`
+	SaltCollisionBits          float64                               `json:"salt_collision_bits,omitempty"`
+	TapeGuessingBits           float64                               `json:"tape_guessing_bits,omitempty"`
+	ProgrammingBits            float64                               `json:"programming_conflict_bits,omitempty"`
+	ChallengeBiasBits          float64                               `json:"challenge_bias_bits,omitempty"`
+	Modulus                    uint64                                `json:"q,omitempty"`
+	ProfileBound               int64                                 `json:"profile_bound,omitempty"`
+	ArtifactDir                string                                `json:"artifact_dir"`
+	MaxNLeaves                 int                                   `json:"max_nleaves,omitempty"`
+	Options                    benchmarkIntGenISISE2EOptions         `json:"options"`
+	Environment                benchmarkIntGenISISE2EEnvironment     `json:"environment"`
+	Timings                    benchmarkIntGenISISE2ETimings         `json:"timings"`
+	Issuance                   benchmarkIntGenISISMetrics            `json:"issuance"`
+	Showing                    benchmarkIntGenISISMetrics            `json:"showing"`
+	FullGame                   PIOP.FullGameSoundnessReport          `json:"full_game"`
+	SecurityLedger             credential.SystemSecurityLedger       `json:"security_ledger"`
+	ValidPrefixCost            credential.ValidPrefixCostReport      `json:"valid_prefix_cost,omitempty"`
+	Artifacts                  benchmarkIntGenISISE2EArtifacts       `json:"artifacts"`
+	ReplayRejected             bool                                  `json:"replay_rejected"`
+	Notes                      []string                              `json:"notes"`
 }
 
 func defaultIntGenISISTuning() intGenISISTuning {
@@ -239,6 +248,10 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		t.ROQueryCaps = fallback.ROQueryCaps
 		t.ROQueryCapsSet = true
 	}
+	if !t.ROQueryCapBitsSet && fallback.ROQueryCapBitsSet {
+		t.ROQueryCapBits = fallback.ROQueryCapBits
+		t.ROQueryCapBitsSet = true
+	}
 	if t.DECSCollisionBits <= 0 {
 		t.DECSCollisionBits = fallback.DECSCollisionBits
 	}
@@ -289,6 +302,9 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		if t.TranscriptMode == "" {
 			t.TranscriptMode = fallback.TranscriptMode
 		}
+		if t.TranscriptOmissionMode == "" {
+			t.TranscriptOmissionMode = fallback.TranscriptOmissionMode
+		}
 		if !t.FixedTranscriptSizeSet && fallback.FixedTranscriptSize {
 			t.FixedTranscriptSize = fallback.FixedTranscriptSize
 			t.FixedTranscriptSizeSet = fallback.FixedTranscriptSizeSet
@@ -302,6 +318,9 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		t.ReplayProjection = ""
 		if t.TranscriptMode == "" {
 			t.TranscriptMode = fallback.TranscriptMode
+		}
+		if t.TranscriptOmissionMode == "" {
+			t.TranscriptOmissionMode = fallback.TranscriptOmissionMode
 		}
 		if !t.FixedTranscriptSizeSet && fallback.FixedTranscriptSize {
 			t.FixedTranscriptSize = fallback.FixedTranscriptSize
@@ -341,6 +360,8 @@ func intGenISISTuningToIssuanceOverrides(t intGenISISTuning, ringDegree int) iss
 		Kappa:               t.Kappa,
 		ROQueryCaps:         t.ROQueryCaps,
 		ROQueryCapsSet:      t.ROQueryCapsSet,
+		ROQueryCapBits:      t.ROQueryCapBits,
+		ROQueryCapBitsSet:   t.ROQueryCapBitsSet,
 		DECSCollisionBits:   t.DECSCollisionBits,
 		DECSHashBits:        t.DECSHashBits,
 		DECSTapeBits:        t.DECSTapeBits,
@@ -374,6 +395,8 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 		Kappa:                      t.Kappa,
 		ROQueryCaps:                t.ROQueryCaps,
 		ROQueryCapsSet:             t.ROQueryCapsSet,
+		ROQueryCapBits:             t.ROQueryCapBits,
+		ROQueryCapBitsSet:          t.ROQueryCapBitsSet,
 		DECSCollisionBits:          t.DECSCollisionBits,
 		DECSHashBits:               t.DECSHashBits,
 		DECSTapeBits:               t.DECSTapeBits,
@@ -389,6 +412,7 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 		IntGenISISMSECompression:   t.CompressedRows,
 		IntGenISISReplayProjection: t.ReplayProjection,
 		TranscriptCodec:            intGenISISLiveTranscriptCodecOrDefault(t.TranscriptMode),
+		TranscriptOmissionMode:     t.TranscriptOmissionMode,
 		TranscriptProtocolMode:     intGenISISLiveTranscriptProtocolOrDefault(t.TranscriptMode),
 		TranscriptVersion:          intGenISISLiveTranscriptVersionOrDefault(t.TranscriptMode),
 		FixedTranscriptSize:        t.FixedTranscriptSize,
@@ -571,47 +595,58 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	}
 	fullGame := PIOP.ComposeFullGameSoundness(issuanceMetrics.Soundness, showingMetrics.Soundness, 1, 1)
 	ledger := benchmarkIntGenISISE2ESecurityLedger(cfg, profile, issuanceMetrics, showingMetrics, fullGame, replayRejected)
+	spec, _ := credential.LookupIntGenISISSecurityProfile(cfg.SecurityProfile)
+	issuanceMetrics.ValidPrefixCost = benchmarkValidPrefixCostReport(spec, issuanceMetrics.PhaseTimings, [4]float64{}, false)
+	showingMetrics.ValidPrefixCost = benchmarkValidPrefixCostReport(spec, showingMetrics.PhaseTimings, [4]float64{}, false)
+	requiredPhaseAlgebraicBits := benchmarkRequiredPhaseAlgebraicBits(ledger.TargetBits, fullGame)
+	phaseAlgebraicSlackBits := minPositiveFloat64Local(issuanceMetrics.AlgebraicTotalBits, showingMetrics.AlgebraicTotalBits) - requiredPhaseAlgebraicBits
 
 	report := benchmarkIntGenISISE2EReport{
-		Version:             benchmarkIntGenISISE2EVersion,
-		Generated:           time.Now().UTC().Format(time.RFC3339),
-		Preset:              cfg.PresetName,
-		Profile:             profile.Name,
-		SecurityProfile:     cfg.SecurityProfile,
-		SecurityMode:        cfg.SecurityMode,
-		CompleteSystemClaim: ledger.CompleteSystemClaim,
-		CoreBitsRequired:    ledger.CoreBitsRequired,
-		CoreAvailableBits:   ledger.CoreAvailableBits,
-		PRFProfile:          cfg.PRFProfile,
-		PRFParamsPath:       cfg.PRFParamsPath,
-		LedgerStatus:        ledger.LedgerStatus,
-		LedgerReasons:       ledger.RejectionReasons,
-		LedgerTerms:         ledger.Terms,
-		SoundnessBits:       ledger.SoundnessBits,
-		UnlinkabilityBits:   ledger.UnlinkabilityBits,
-		CorrectnessBits:     ledger.CorrectnessBits,
-		PrimitiveBits:       ledger.PrimitiveBits,
-		TagCollisionBits:    ledger.TagCollisionBits,
-		SaltCollisionBits:   ledger.SaltCollisionBits,
-		TapeGuessingBits:    ledger.TapeGuessingBits,
-		ProgrammingBits:     ledger.ProgrammingConflictBits,
-		ChallengeBiasBits:   ledger.ChallengeBiasBits,
-		Modulus:             profile.Q,
-		ProfileBound:        credential.IntGenISISLiveBound,
-		ArtifactDir:         artifactDir,
-		MaxNLeaves:          cfg.MaxNLeaves,
+		Version:                    benchmarkIntGenISISE2EVersion,
+		Generated:                  time.Now().UTC().Format(time.RFC3339),
+		Preset:                     cfg.PresetName,
+		Profile:                    profile.Name,
+		SecurityProfile:            cfg.SecurityProfile,
+		SecurityMode:               cfg.SecurityMode,
+		CompleteSystemClaim:        ledger.CompleteSystemClaim,
+		CoreBitsRequired:           ledger.CoreBitsRequired,
+		CoreAvailableBits:          ledger.CoreAvailableBits,
+		PRFProfile:                 cfg.PRFProfile,
+		PRFParamsPath:              cfg.PRFParamsPath,
+		LedgerStatus:               ledger.LedgerStatus,
+		LedgerReasons:              ledger.RejectionReasons,
+		LedgerTerms:                ledger.Terms,
+		SoundnessBits:              ledger.SoundnessBits,
+		UnlinkabilityBits:          ledger.UnlinkabilityBits,
+		CorrectnessBits:            ledger.CorrectnessBits,
+		PrimitiveBits:              ledger.PrimitiveBits,
+		CompositionBits:            ledger.CompositionBits,
+		ZeroKnowledgeBits:          ledger.ZeroKnowledgeBits,
+		RequiredPhaseAlgebraicBits: requiredPhaseAlgebraicBits,
+		PhaseAlgebraicSlackBits:    phaseAlgebraicSlackBits,
+		DominantSoundnessLimiter:   benchmarkDominantLedgerLimiter(ledger.Terms, credential.SystemLedgerTermSoundness),
+		TagCollisionBits:           ledger.TagCollisionBits,
+		SaltCollisionBits:          ledger.SaltCollisionBits,
+		TapeGuessingBits:           ledger.TapeGuessingBits,
+		ProgrammingBits:            ledger.ProgrammingConflictBits,
+		ChallengeBiasBits:          ledger.ChallengeBiasBits,
+		Modulus:                    profile.Q,
+		ProfileBound:               credential.IntGenISISLiveBound,
+		ArtifactDir:                artifactDir,
+		MaxNLeaves:                 cfg.MaxNLeaves,
 		Options: benchmarkIntGenISISE2EOptions{
 			Issuance: cfg.Issuance,
 			Showing:  cfg.Showing,
 		},
-		Environment:    benchmarkIntGenISISE2EEnvironmentSnapshot(),
-		Timings:        timings,
-		Issuance:       issuanceMetrics,
-		Showing:        showingMetrics,
-		FullGame:       fullGame,
-		SecurityLedger: ledger,
-		Artifacts:      paths,
-		ReplayRejected: replayRejected,
+		Environment:     benchmarkIntGenISISE2EEnvironmentSnapshot(),
+		Timings:         timings,
+		Issuance:        issuanceMetrics,
+		Showing:         showingMetrics,
+		FullGame:        fullGame,
+		SecurityLedger:  ledger,
+		ValidPrefixCost: showingMetrics.ValidPrefixCost,
+		Artifacts:       paths,
+		ReplayRejected:  replayRejected,
 		Notes: []string{
 			fmt.Sprintf("semantic layout uses ternary ordinary coefficients [0,N-%d), a reserved-zero tail prefix, and a %d-coefficient B=%d PRF seed packed into %d Poseidon key lanes", credential.IntGenISISPRFSeedTailReserve, credential.IntGenISISPRFSeedLen, credential.IntGenISISPRFSeedBound, credential.IntGenISISPRFPoseidonKeyLen),
 			fmt.Sprintf("live IntGenISIS ordinary M,s,e membership uses public B=%d; only PRF seed-tail rows use B=%d membership", credential.IntGenISISLiveBound, credential.IntGenISISPRFSeedBound),
@@ -673,22 +708,53 @@ func benchmarkIntGenISISE2ESecurityLedger(
 	}
 	scope := credential.DefaultIntGenISISAdversaryScope(spec)
 	budgets := credential.ROBudgetVectorFromCaps(spec.ROQueryCaps)
+	budgetLogs := credential.ROBudgetLogVectorFromProfile(spec)
 	saltBits := cfg.Showing.SaltBits
 	if saltBits <= 0 {
 		saltBits = spec.SaltBits
 	}
-	collisionBits := minPositiveFloat64Local(issuanceMetrics.CollisionBits, showingMetrics.CollisionBits)
+	phaseCollisionBits := minPositiveFloat64Local(issuanceMetrics.CollisionBits, showingMetrics.CollisionBits)
+	globalCollisionBits := fullGame.GlobalCollisionBits
+	if globalCollisionBits <= 0 {
+		globalCollisionBits = phaseCollisionBits
+	}
 	proofBits := minPositiveFloat64Local(issuanceMetrics.TheoremTotalBits, showingMetrics.TheoremTotalBits)
 	fullGameBits := fullGame.GlobalCollisionFullGameBits
+	if fullGameBits <= 0 {
+		fullGameBits = minPositiveFloat64Local(proofBits, globalCollisionBits)
+	}
 	tapeBits := minPositiveIntLocal(issuanceMetrics.DECSTapeBits, showingMetrics.DECSTapeBits, spec.DECSTapeBits)
-	tapeGuessingBits := credential.IntGenISISTapeGuessingBits(tapeBits, budgets.GuessTape)
-	programmingBits := minPositiveFloat64Local(collisionBits, fullGame.GlobalCollisionBits)
-	challengeBiasBits := float64(minPositiveIntLocal(issuanceMetrics.EffectiveLambdaBits, showingMetrics.EffectiveLambdaBits, spec.FSCollisionBits))
+	tapeGuessingBits := credential.IntGenISISTapeGuessingBitsLog(tapeBits, budgetLogs.GuessTapeLog2)
+	if tapeGuessingBits <= 0 {
+		tapeGuessingBits = credential.IntGenISISTapeGuessingBits(tapeBits, budgets.GuessTape)
+	}
+	fsCollisionBits := minPositiveIntLocal(issuanceMetrics.EffectiveLambdaBits, showingMetrics.EffectiveLambdaBits, spec.FSCollisionBits)
+	programmingBits := credential.IntGenISISProgrammingConflictBitsLog(fsCollisionBits, budgetLogs.ProgrammingLog2)
+	if programmingBits <= 0 {
+		programmingBits = credential.IntGenISISProgrammingConflictBits(fsCollisionBits, budgets.Programming)
+	}
+	if programmingBits <= 0 {
+		programmingBits = minPositiveFloat64Local(globalCollisionBits, fullGameBits)
+	}
+	challengeBiasBits := float64(fsCollisionBits)
 	tagCollisionBits := credential.IntGenISISTagCollisionBits(profile.Q, tagElements, scope.TagsPerContext)
 	saltCollisionBits := credential.IntGenISISSaltCollisionBits(saltBits, scope.Proofs)
 	scopeBaseBits := minPositiveFloat64Local(fullGameBits, tagCollisionBits, saltCollisionBits, prfBits, profile.MLWEHidingBits)
 	multiUserBits := credential.IntGenISISMultiScopeBits(scopeBaseBits, scope.Users)
 	multiContextBits := credential.IntGenISISMultiScopeBits(scopeBaseBits, scope.Contexts)
+	multiUserRequired := scope.Users > 1
+	multiContextRequired := scope.Contexts > 1
+	fullGameNote := "exact current-theorem composition of accepted issuance/showing extraction terms and global RO collision; remains a real blocker without a simultaneous-extraction theorem"
+	programmingNote := "separate programming-conflict accounting from the report resource vector; remains conservative until the theorem path is finalized"
+	scopeInactiveNote := "default one-scope accounting has no additional lift; non-default scopes require an explicit theorem/accounting bound"
+	multiUserNote := scopeInactiveNote
+	if multiUserRequired {
+		multiUserNote = "multi-user lift is active for this resource scope and remains conservative until theorem/accounting is finalized"
+	}
+	multiContextNote := scopeInactiveNote
+	if multiContextRequired {
+		multiContextNote = "multi-context lift is active for this resource scope and remains conservative until theorem/accounting is finalized"
+	}
 	return credential.EvaluateIntGenISISSystemSecurityLedger(credential.SystemSecurityLedgerInput{
 		SecurityProfile:     cfg.SecurityProfile,
 		SecurityMode:        cfg.SecurityMode,
@@ -698,7 +764,7 @@ func benchmarkIntGenISISE2ESecurityLedger(
 		CoreAvailableBits:   minPositiveFloat64Local(prfBits, profile.MLWEHidingBits),
 		ProofBits:           proofBits,
 		FullGameBits:        fullGameBits,
-		CollisionBits:       collisionBits,
+		CollisionBits:       globalCollisionBits,
 		TagCollisionBits:    tagCollisionBits,
 		SaltCollisionBits:   saltCollisionBits,
 		TapeGuessingBits:    tapeGuessingBits,
@@ -710,38 +776,59 @@ func benchmarkIntGenISISE2ESecurityLedger(
 		MLWEBits:            profile.MLWEHidingBits,
 		ReplayRejected:      replayRejected,
 		ROBudgets:           budgets,
+		ROBudgetLogs:        budgetLogs,
 		Scope:               scope,
 		Terms: []credential.SystemSecurityLedgerTerm{
-			{
-				Category:     credential.SystemLedgerTermSoundness,
-				Name:         "programming_conflict",
-				Bits:         programmingBits,
-				Required:     true,
-				Conservative: true,
-			},
-			{
-				Category:     credential.SystemLedgerTermSoundness,
-				Name:         "challenge_bias",
-				Bits:         challengeBiasBits,
-				Required:     true,
-				Conservative: true,
-			},
-			{
-				Category:     credential.SystemLedgerTermComposition,
-				Name:         "multi_user",
-				Bits:         multiUserBits,
-				Required:     true,
-				Conservative: true,
-			},
-			{
-				Category:     credential.SystemLedgerTermComposition,
-				Name:         "multi_context",
-				Bits:         multiContextBits,
-				Required:     true,
-				Conservative: true,
-			},
+			credential.ReportOnlyLedgerTerm(credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "proof_theorem", proofBits, true, "proof theorem bits below target")),
+			credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "issuance_smallwood_extraction", issuanceMetrics.AlgebraicTotalBits, true, "issuance SmallWood extraction bits below target"),
+			credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "showing_smallwood_extraction", showingMetrics.AlgebraicTotalBits, true, "showing SmallWood extraction bits below target"),
+			credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "ro_collision", globalCollisionBits, true, "global RO/Merkle collision bits below target"),
+			credential.LedgerTermWithNote(credential.ReportOnlyLedgerTerm(credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "full_game", fullGameBits, true, "full-game bits below target")), fullGameNote),
+			credential.ConservativeLedgerTerm(credential.SystemLedgerTermSoundness, "challenge_bias", challengeBiasBits, true, "challenge-bias bits below target"),
+			credential.ExactLedgerTerm(credential.SystemLedgerTermZeroKnowledge, "tape_guessing", tapeGuessingBits, true, "tape guessing bits below target"),
+			credential.LedgerTermWithNote(credential.ConservativeLedgerTerm(credential.SystemLedgerTermZeroKnowledge, "programming_conflict", programmingBits, true, "programming conflict bits below target"), programmingNote),
+			credential.ExactLedgerTerm(credential.SystemLedgerTermUnlinkability, "tag_collision", tagCollisionBits, true, "tag collision bits below target"),
+			credential.ExactLedgerTerm(credential.SystemLedgerTermCorrectness, "salt_collision", saltCollisionBits, true, "salt collision bits below target"),
+			credential.LedgerTermWithNote(credential.ReportOnlyLedgerTerm(credential.ExactLedgerTerm(credential.SystemLedgerTermComposition, "multi_proof_composition", fullGameBits, true, "multi-proof composition bits below target")), fullGameNote),
+			credential.LedgerTermWithNote(credential.ConservativeLedgerTerm(credential.SystemLedgerTermComposition, "multi_user", multiUserBits, multiUserRequired, "multi-user lift bits below target"), multiUserNote),
+			credential.LedgerTermWithNote(credential.ConservativeLedgerTerm(credential.SystemLedgerTermComposition, "multi_context", multiContextBits, multiContextRequired, "multi-context lift bits below target"), multiContextNote),
 		},
 	})
+}
+
+func benchmarkRequiredPhaseAlgebraicBits(targetBits float64, fullGame PIOP.FullGameSoundnessReport) float64 {
+	if targetBits <= 0 {
+		return 0
+	}
+	accepted := fullGame.AcceptedIssuance + fullGame.AcceptedShowing
+	if accepted <= 0 {
+		return 0
+	}
+	targetProb := math.Pow(2, -targetBits)
+	collisionProb := fullGame.GlobalCollisionError
+	if collisionProb <= 0 && fullGame.GlobalCollisionBits > 0 {
+		collisionProb = math.Pow(2, -fullGame.GlobalCollisionBits)
+	}
+	remaining := targetProb - collisionProb
+	if remaining <= 0 {
+		return 0
+	}
+	return -math.Log2(remaining / float64(accepted))
+}
+
+func benchmarkDominantLedgerLimiter(terms []credential.SystemSecurityLedgerTerm, category string) string {
+	var out string
+	best := math.Inf(1)
+	for _, term := range terms {
+		if term.Category != category || !term.Required || term.Bits <= 0 || math.IsNaN(term.Bits) {
+			continue
+		}
+		if term.Bits < best {
+			best = term.Bits
+			out = term.Name
+		}
+	}
+	return out
 }
 
 func minPositiveFloat64Local(vals ...float64) float64 {
@@ -1047,10 +1134,11 @@ func benchmarkIntGenISISE2EPrintReport(report benchmarkIntGenISISE2EReport, verb
 	log.Printf("[issuance-cli] IntGenISIS e2e artifact_dir=%s profile=%s q=%d", report.ArtifactDir, report.Profile, report.Modulus)
 	benchmarkIntGenISISE2EPrintPhase("issuance", report.Issuance)
 	benchmarkIntGenISISE2EPrintPhase("showing", report.Showing)
-	log.Printf("[issuance-cli] IntGenISIS full_game accepted_issuance=%d accepted_showing=%d conservative_bits=%.2f global_collision_bits=%.2f global_query_caps=%v collision_space_bits=%d",
+	log.Printf("[issuance-cli] IntGenISIS full_game accepted_issuance=%d accepted_showing=%d conservative_bits=%.2f global_collision_bits=%.2f global_collision_full_game_bits=%.2f global_query_caps=%v collision_space_bits=%d",
 		report.FullGame.AcceptedIssuance,
 		report.FullGame.AcceptedShowing,
 		displayBits(report.FullGame.ConservativeFullGameBits),
+		displayBits(report.FullGame.GlobalCollisionBits),
 		displayBits(report.FullGame.GlobalCollisionFullGameBits),
 		report.FullGame.GlobalQueryCaps,
 		report.FullGame.CollisionSpaceBits,

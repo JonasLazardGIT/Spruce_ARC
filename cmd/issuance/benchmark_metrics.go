@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"vSIS-Signature/PIOP"
+	"vSIS-Signature/credential"
 	"vSIS-Signature/prf"
 )
 
@@ -26,6 +27,8 @@ type benchmarkIntGenISISMetrics struct {
 	SigShortnessBytes             int                               `json:"sig_shortness_bytes"`
 	VTargetsBytes                 int                               `json:"vtargets_bytes"`
 	BarSetsBytes                  int                               `json:"barsets_bytes"`
+	TranscriptAudit               PIOP.PaperTranscriptAudit         `json:"transcript_audit,omitempty"`
+	ValidPrefixCost               credential.ValidPrefixCostReport  `json:"valid_prefix_cost,omitempty"`
 	ProvingMS                     float64                           `json:"proving_ms"`
 	VerificationMS                float64                           `json:"verification_ms"`
 	PhaseTimings                  []PIOP.PhaseTiming                `json:"phase_timings,omitempty"`
@@ -73,6 +76,7 @@ type benchmarkIntGenISISMetrics struct {
 	TheoremBits                   [4]float64                        `json:"theorem_bits"`
 	TheoremTotalBits              float64                           `json:"theorem_total_bits"`
 	ROQueryCaps                   [5]int                            `json:"ro_query_caps"`
+	ROQueryCapBits                [5]float64                        `json:"ro_query_cap_bits,omitempty"`
 	CollisionSpaceBits            int                               `json:"collision_space_bits"`
 	FSLambdaBits                  int                               `json:"fs_lambda_bits"`
 	EffectiveLambdaBits           int                               `json:"effective_lambda_bits"`
@@ -93,6 +97,10 @@ type benchmarkIntGenISISMetrics struct {
 	WitnessSupportCols            int                               `json:"witness_support_cols"`
 	CommittedCols                 int                               `json:"committed_cols"`
 	ProofReportBuckets            int                               `json:"proof_report_buckets"`
+	LVCSNCols                     int                               `json:"lvcs_ncols,omitempty"`
+	NLeaves                       int                               `json:"nleaves,omitempty"`
+	Eta                           int                               `json:"eta,omitempty"`
+	Ell                           int                               `json:"ell,omitempty"`
 	Theta                         int                               `json:"theta"`
 	Rho                           int                               `json:"rho"`
 	EllPrime                      int                               `json:"ell_prime"`
@@ -153,6 +161,7 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		SigShortnessBytes:        report.PaperTranscript.SigShortness.OptimizedBytes,
 		VTargetsBytes:            report.PaperTranscript.VTargets.OptimizedBytes,
 		BarSetsBytes:             report.PaperTranscript.BarSets.OptimizedBytes,
+		TranscriptAudit:          report.PaperTranscript.Audit,
 		ProvingMS:                float64(proveDur.Microseconds()) / 1000.0,
 		VerificationMS:           float64(verifyDur.Microseconds()) / 1000.0,
 		PhaseTimings:             nonZeroPhaseTimings(opts.PhaseRecorder.Snapshot()),
@@ -167,6 +176,7 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		TheoremBits:              report.Soundness.TheoremBits,
 		TheoremTotalBits:         report.Soundness.TotalBits,
 		ROQueryCaps:              report.Soundness.QueryCaps,
+		ROQueryCapBits:           report.Soundness.QueryCapBits,
 		CollisionSpaceBits:       report.Soundness.CollisionSpaceBits,
 		FSLambdaBits:             report.Soundness.FSLambdaBits,
 		EffectiveLambdaBits:      report.Soundness.EffectiveLambdaBits,
@@ -187,6 +197,10 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		WitnessSupportCols:       report.Soundness.WitnessSupportCols,
 		CommittedCols:            report.Soundness.CommittedCols,
 		ProofReportBuckets:       intGenISISProofSizeBucketCount(proof),
+		LVCSNCols:                report.LVCSNCols,
+		NLeaves:                  report.NLeaves,
+		Eta:                      report.Eta,
+		Ell:                      report.Ell,
 		PDecsBitWidth:            report.TranscriptFocus.PDecsBitWidth,
 		VTargetsBitWidth:         report.TranscriptFocus.VTargetsBitWidth,
 		FixedTranscriptSize:      opts.FixedTranscriptSize || proof.FixedTranscriptSize,
@@ -198,6 +212,18 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 	metrics.Theta = proof.Theta
 	if metrics.Theta <= 0 {
 		metrics.Theta = 1
+	}
+	if metrics.LVCSNCols <= 0 {
+		metrics.LVCSNCols = opts.LVCSNCols
+	}
+	if metrics.NLeaves <= 0 {
+		metrics.NLeaves = opts.NLeaves
+	}
+	if metrics.Eta <= 0 {
+		metrics.Eta = opts.Eta
+	}
+	if metrics.Ell <= 0 {
+		metrics.Ell = opts.Ell
 	}
 	if proof.Theta > 1 {
 		metrics.Rho = len(proof.GammaPrimeK)

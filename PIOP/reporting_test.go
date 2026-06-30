@@ -226,6 +226,18 @@ func TestBuildOpeningPaperReportCountsCompressedResiduesAuthAndTapes(t *testing.
 	if got.TapeBits != 32 {
 		t.Fatalf("tape bits=%v, want 32", got.TapeBits)
 	}
+	if got.Audit.Pdecs.MetadataBytes != 3 || got.Audit.Pdecs.StreamBytes != 3 || got.Audit.Pdecs.EncodedCols != 2 {
+		t.Fatalf("unexpected Pdecs audit: %+v", got.Audit.Pdecs)
+	}
+	if got.Audit.Mdecs.MetadataBytes != 3 || got.Audit.Mdecs.StreamBytes != 2 || got.Audit.Mdecs.BitWidth != 2 {
+		t.Fatalf("unexpected Mdecs audit: %+v", got.Audit.Mdecs)
+	}
+	if got.Audit.Auth.NodeCount != 2 || got.Audit.Auth.NodeBytes != 5 || got.Audit.Auth.PathIndexBytes != 16 || got.Audit.Auth.TotalBytes != 25 {
+		t.Fatalf("unexpected auth audit: %+v", got.Audit.Auth)
+	}
+	if got.Audit.Tapes.NonceSeedBytes != 3 || got.Audit.Tapes.NonceMetadataBytes != 1 || got.Audit.Tapes.TotalBytes != 4 {
+		t.Fatalf("unexpected tape audit: %+v", got.Audit.Tapes)
+	}
 }
 
 func TestBuildOpeningPaperReportUnpackedUsesPackedFieldWidthNotUint64Limbs(t *testing.T) {

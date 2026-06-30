@@ -716,7 +716,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				if len(strictPlan.C) == 0 {
 					return fmt.Errorf("missing smallfield2025 coefficient plan")
 				}
-				if err := attachSmallField2025Proof(proof, strictPlan, args.decsParams.Eta); err != nil {
+				if err := attachSmallField2025Proof(proof, strictPlan, args.decsParams.Eta, args.opts.TranscriptOmissionMode); err != nil {
 					return err
 				}
 			}
@@ -819,10 +819,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if proof.Theta <= 1 {
 			var transcript4 [][]byte
 			if paperQPayloadOnly {
-				transcript4 = [][]byte{
-					proof.VTargetsBits,
-					proof.BarSetsBits,
-				}
+				transcript4 = smallField2025Round4DirectPayloads(proof)
 			} else {
 				transcript4 = [][]byte{
 					rootBytes,
@@ -903,10 +900,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		}
 		var transcript4 [][]byte
 		if paperQPayloadOnly {
-			transcript4 = [][]byte{
-				proof.VTargetsBits,
-				proof.BarSetsBits,
-			}
+			transcript4 = smallField2025Round4DirectPayloads(proof)
 		} else {
 			transcript4 = [][]byte{
 				rootBytes,
