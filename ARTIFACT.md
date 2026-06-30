@@ -40,9 +40,9 @@ not KiB.
 | `n512-compact96` | profile-B compact 96-bit engineering preset | 22008 |
 | `n1024-compact96` | profile-C compact 96-bit preset | 26136 |
 | `n1024-compact125` | profile-C compact 125+ preset | 35215 |
-| `n1024-q10-128` | profile-C 128-bit preset for `ROQueryCaps=[2^10]*5` | 37266 |
-| `n1024-q16-128` | profile-C 128-bit preset for `ROQueryCaps=[2^16]*5` | 42155 |
-| `n1024-q32-128` | profile-C 128-bit preset for `ROQueryCaps=[2^32]*5` | 48960 |
+| `n1024-q10-128` | profile-C 128-bit preset for `ROQueryCaps=[2^10]*5` | 37085 |
+| `n1024-q16-128` | profile-C 128-bit preset for `ROQueryCaps=[2^16]*5` | 42062 |
+| `n1024-q32-128` | profile-C 128-bit preset for `ROQueryCaps=[2^32]*5` | 48683 |
 | `n1024-q10-96` | profile-C 96-bit preset for `ROQueryCaps=[2^10]*5` | 29645 |
 | `n1024-q16-96` | profile-C 96-bit preset for `ROQueryCaps=[2^16]*5` | 30583 |
 | `n1024-q32-96` | profile-C 96-bit preset for `ROQueryCaps=[2^32]*5` | 37249 |

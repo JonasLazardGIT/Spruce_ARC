@@ -97,8 +97,8 @@ the preset registry.
 | `n1024-compact96` | C | 96 | 43 | 230,208 | 40 | 5 | 1 | 7/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
 | `n1024-compact125` | C | 125+ | 46 | 608,192 | 48 | 7 | 1 | 9/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
 | `n1024-q10-128` | C | 128 | 36 | 983,040 | 44 | 7 | 1 | 9/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
-| `n1024-q16-128` | C | 128 | 37 | 524,288 | 44 | 8 | 1 | 10/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
-| `n1024-q32-128` | C | 128 | 37 | 655,360 | 48 | 9 | 1 | 11/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
+| `n1024-q16-128` | C | 128 | 37 | 524,288 | 43 | 8 | 1 | 10/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
+| `n1024-q32-128` | C | 128 | 37 | 655,360 | 45 | 9 | 1 | 11/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
 | `n1024-q10-96` | C | 96 | 37 | 720,896 | 40 | 6 | 1 | 7/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
 | `n1024-q16-96` | C | 96 | 38 | 393,216 | 40 | 6 | 1 | 8/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
 | `n1024-q32-96` | C | 96 | 37 | 458,752 | 44 | 7 | 1 | 9/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
