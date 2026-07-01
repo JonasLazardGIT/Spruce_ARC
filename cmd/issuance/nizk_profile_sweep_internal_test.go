@@ -715,6 +715,9 @@ func nizkProfileValidPrefixTrailCandidates(presetName string, base intGenISISTun
 	bq128VP64LVCS59 := nizkProfileSmallWoodOnlyCandidateWithLVCS(base, 14, 18, 983040, 1, 59)
 	bq128VP64Ell17 := nizkProfileSmallWoodOnlyCandidateWithLVCS(base, 14, 17, 983040, 1, 48)
 	bq128VP80 := nizkProfileSmallWoodOnlyCandidateWithLVCS(base, 16, 22, 1572864, 1, 59)
+	bq128RawResidualTheta13 := nizkProfileSmallWoodOnlyCandidateWithLVCS(base, 13, 18, 983040, 1, 48)
+	bq128RawResidualTheta13Ell17 := nizkProfileSmallWoodOnlyCandidateWithLVCS(base, 13, 17, 983040, 1, 48)
+	bq128RawResidualTheta14Ell17 := nizkProfileSmallWoodOnlyCandidateWithLVCS(base, 14, 17, 983040, 1, 48)
 	bq128Raw := nizkProfileSmallWoodOnlyCandidateWithLVCS(base, 20, 28, 983040, 1, 59)
 	bq128RawLVCS64 := nizkProfileSmallWoodOnlyCandidateWithLVCS(base, 20, 28, 983040, 1, 64)
 	bq128RawEll27 := nizkProfileSmallWoodOnlyCandidateWithLVCS(base, 20, 27, 983040, 1, 59)
@@ -730,6 +733,16 @@ func nizkProfileValidPrefixTrailCandidates(presetName string, base intGenISISTun
 		}
 		opts.Notes = append([]string{"valid-prefix trail preset candidate; not a live preset and not a maintained gate"}, opts.Notes...)
 		return nizkProfileCandidateFromTuningWithOptions(name, "valid-prefix-"+name, presetName, showing, relation, opts)
+	}
+	mkRawResidual := func(name string, showing intGenISISTuning, opts nizkProfileCandidateOptions) NIZKProfileSearchCandidate {
+		opts.Family = "raw128_residual"
+		opts.TargetProfile = "BQ128-128"
+		opts.LaneOverride = "raw128_residual"
+		opts.CompilerBacked = true
+		opts.PinnedLVCS = true
+		opts.DeriveEtaFloorOnly = true
+		opts.Notes = append([]string{"raw 2^128 query-budget, 128-bit residual algebraic target; no valid-prefix discount"}, opts.Notes...)
+		return nizkProfileCandidateFromTuningWithOptions(name, "raw128-residual-"+name, presetName, showing, relation, opts)
 	}
 	return []NIZKProfileSearchCandidate{
 		mk("bq64-128-vp-lvcs48-h264", "BQ64-128", bq64LVCS48, nizkProfileCandidateOptions{
@@ -979,6 +992,33 @@ func nizkProfileValidPrefixTrailCandidates(presetName string, base intGenISISTun
 			ReconstructionAvailable:     true,
 			OmissionMapFSBound:          true,
 			Notes:                       []string{"BQ128 vp80 serializer search lane; VTargets/BarSets stay explicit pending a reconstruction theorem"},
+		}),
+		mkRawResidual("bq128-128-raw128-residual128-theta13-lvcs48-h512", bq128RawResidualTheta13, nizkProfileCandidateOptions{
+			HashFSBitsOverride:          512,
+			TapeBitsOverride:            256,
+			SaltBitsOverride:            384,
+			TagElementsOverride:         20,
+			NIZKTargetBitsOverride:      128,
+			RawQueryCapExponentOverride: 128,
+			Notes:                       []string{"raw 2^128 query budget with 128-bit residual algebraic target; no valid-prefix discount"},
+		}),
+		mkRawResidual("bq128-128-raw128-residual128-theta13-ell17-lvcs48-h512", bq128RawResidualTheta13Ell17, nizkProfileCandidateOptions{
+			HashFSBitsOverride:          512,
+			TapeBitsOverride:            256,
+			SaltBitsOverride:            384,
+			TagElementsOverride:         20,
+			NIZKTargetBitsOverride:      128,
+			RawQueryCapExponentOverride: 128,
+			Notes:                       []string{"raw 2^128 residual-128 byte probe with theta13 and ell17; expected to classify by eps4/grinding"},
+		}),
+		mkRawResidual("bq128-128-raw128-residual128-theta14-ell17-lvcs48-h512", bq128RawResidualTheta14Ell17, nizkProfileCandidateOptions{
+			HashFSBitsOverride:          512,
+			TapeBitsOverride:            256,
+			SaltBitsOverride:            384,
+			TagElementsOverride:         20,
+			NIZKTargetBitsOverride:      128,
+			RawQueryCapExponentOverride: 128,
+			Notes:                       []string{"raw 2^128 residual-128 fallback with theta14 and ell17; no valid-prefix discount"},
 		}),
 		mk("bq128-128-raw128-control", "BQ128-128", bq128Raw, nizkProfileCandidateOptions{
 			HashFSBitsOverride:          512,
@@ -2889,6 +2929,9 @@ func TestNIZKProfileValidPrefixTrailCandidatesOrderAndCaps(t *testing.T) {
 		"bq128-128-vp64-theta14-ell17-lvcs48-h512",
 		"bq128-128-vp80-search",
 		"bq128-128-vp80-search-vtargets-included-pdecs",
+		"bq128-128-raw128-residual128-theta13-lvcs48-h512",
+		"bq128-128-raw128-residual128-theta13-ell17-lvcs48-h512",
+		"bq128-128-raw128-residual128-theta14-ell17-lvcs48-h512",
 		"bq128-128-raw128-control",
 		"bq128-128-raw128-control-vtargets-included-pdecs",
 		"bq128-128-raw128-lvcs64-h512",
@@ -2901,7 +2944,7 @@ func TestNIZKProfileValidPrefixTrailCandidatesOrderAndCaps(t *testing.T) {
 		if cand.Name != want[i] {
 			t.Fatalf("candidate order[%d]=%q want %q", i, cand.Name, want[i])
 		}
-		if cand.Family != "valid_prefix_trail" {
+		if cand.Family != "valid_prefix_trail" && cand.Family != "raw128_residual" {
 			t.Fatalf("%s family=%q", cand.Name, cand.Family)
 		}
 		if cand.TargetProfile != "BQ64-128" && cand.TargetProfile != "BQ128-128" {
@@ -2957,6 +3000,26 @@ func TestNIZKProfileValidPrefixReportsRemainTheoremBlocked(t *testing.T) {
 	raw := nizkProfileCandidateReport(bq128Target, rawCand)
 	if raw.UsesValidPrefixAccounting || raw.EffectiveAlgebraicCapLog2 != [4]float64{128, 128, 128, 128} {
 		t.Fatalf("raw control should keep raw algebraic caps: %+v", raw)
+	}
+}
+
+func TestNIZKProfileBQ128RawResidual128UsesRawCaps(t *testing.T) {
+	reports := nizkProfileReports(0, "raw128-residual128-theta13-lvcs48")
+	if len(reports) != 1 {
+		t.Fatalf("reports=%d want 1", len(reports))
+	}
+	report := reports[0]
+	if report.SecurityProfile != "BQ128-128" || report.NIZKTargetBits != 128 || report.RawQueryCapLog2 != 128 {
+		t.Fatalf("unexpected residual target report: %+v", report)
+	}
+	if report.UsesValidPrefixAccounting || report.EffectiveAlgebraicCapLog2 != [4]float64{128, 128, 128, 128} {
+		t.Fatalf("residual target should use raw algebraic caps: %+v", report)
+	}
+	if report.SmallWood.Theta != 13 || report.SmallWood.Ell != 18 || report.SmallWood.NLeaves != 983040 {
+		t.Fatalf("unexpected residual target shape: %+v", report.SmallWood)
+	}
+	if report.SmallWood.RequiredKappa[2] > qBudget128MaxSupportedGrinding || report.ShowingAlgebraicBits < 128 {
+		t.Fatalf("theta13 residual target should clear the raw 2^128 residual-128 lane: %+v", report)
 	}
 }
 
@@ -3483,7 +3546,7 @@ func TestNIZKProfileBestPerProfilePrefersConcreteFrontier(t *testing.T) {
 		"BQ32-128":  "r7l5-current-theta10-ell15-n917504-lvcs43",
 		"BQ64-96":   "r7l5-current-theta12-ell16-n983040-lvcs43",
 		"BQ64-128":  "r7l5-current-theta14-ell18-n983040-lvcs43",
-		"BQ128-128": "r7l5-current-theta20-ell28-n983040-lvcs59",
+		"BQ128-128": "bq128-128-raw128-residual128-theta13-lvcs48-h512",
 	}
 	for _, result := range results {
 		if result.Candidate != want[result.SecurityProfile] {
