@@ -18,6 +18,7 @@ type Field struct {
 	Q       uint64
 	Theta   int
 	Chi     []uint64
+	chiNeg  []uint64 // chiNeg[j] = (q - Chi[j]) mod q, for lazy reduction mod chi
 	recip   uint64
 	fastMod bool
 }
@@ -38,31 +39,72 @@ func (f *Field) ensureElem(e *Elem) {
 
 // New constructs an extension field descriptor. chi must be monic irreducible of degree theta.
 func New(q uint64, theta int, chi []uint64) (*Field, error) {
+	f, chiNorm, err := prepareField(q, theta, chi)
+	if err != nil {
+		return nil, err
+	}
+	if !isIrreducible(q, chiNorm) {
+		return nil, fmt.Errorf("kfield: chi is reducible")
+	}
+	return f, nil
+}
+
+// NewUnchecked is New without the (expensive, O(theta^3)) irreducibility test.
+// Callers must guarantee chi is monic irreducible of degree theta — e.g. a chi
+// freshly returned by FindIrreducible. It exists because the prover rebuilds the
+// same trusted field many times per proof; the verifier must use New instead so
+// a malicious prover cannot smuggle in a reducible chi (which would make K not a
+// field and break the soundness argument).
+func NewUnchecked(q uint64, theta int, chi []uint64) (*Field, error) {
+	f, _, err := prepareField(q, theta, chi)
+	return f, err
+}
+
+// prepareField performs all structural validation except the irreducibility test
+// and precomputes the reduction constants.
+func prepareField(q uint64, theta int, chi []uint64) (*Field, []uint64, error) {
 	if q == 0 {
-		return nil, fmt.Errorf("kfield: q must be non-zero")
+		return nil, nil, fmt.Errorf("kfield: q must be non-zero")
 	}
 	if theta <= 0 {
-		return nil, fmt.Errorf("kfield: theta must be positive")
+		return nil, nil, fmt.Errorf("kfield: theta must be positive")
 	}
 	if len(chi) != theta+1 {
-		return nil, fmt.Errorf("kfield: chi must have degree theta")
+		return nil, nil, fmt.Errorf("kfield: chi must have degree theta")
 	}
 	chiNorm := make([]uint64, len(chi))
 	for i := range chi {
 		chiNorm[i] = chi[i] % q
 	}
 	if chiNorm[len(chiNorm)-1] != 1%q {
-		return nil, fmt.Errorf("kfield: chi must be monic")
-	}
-	if !isIrreducible(q, chiNorm) {
-		return nil, fmt.Errorf("kfield: chi is reducible")
+		return nil, nil, fmt.Errorf("kfield: chi must be monic")
 	}
 	f := &Field{Q: q, Theta: theta, Chi: chiNorm}
+	f.chiNeg = make([]uint64, theta)
+	for j := 0; j < theta; j++ {
+		f.chiNeg[j] = (q - chiNorm[j]) % q
+	}
 	if q > 1 && q <= uint64(^uint32(0)) {
 		f.recip, _ = bits.Div64(1, 0, q)
 		f.fastMod = true
 	}
-	return f, nil
+	return f, chiNorm, nil
+}
+
+// reduce returns v mod q for any v < 2^64 (division-free on the fast path).
+func (f *Field) reduce(v uint64) uint64 {
+	if v < f.Q {
+		return v
+	}
+	if f.fastMod {
+		qhat, _ := bits.Mul64(v, f.recip)
+		rem := v - qhat*f.Q
+		for rem >= f.Q {
+			rem -= f.Q
+		}
+		return rem
+	}
+	return v % f.Q
 }
 
 // FindIrreducible samples random monic irreducible polynomials of degree theta over F_q.
@@ -145,42 +187,45 @@ func (f *Field) Sub(a, b Elem) Elem {
 	return out
 }
 
+// mulIntoTmp computes dst = a*b in K. Because q is a ~20-bit prime, a partial
+// product a[i]*b[j] is < 2^40, so O(theta) of them sum in a raw uint64 before
+// overflow: accumulate lazily and reduce once per coefficient, turning the
+// O(theta^2) modular reductions of the naive schoolbook multiply into O(theta).
+// Limbs of a,b are assumed reduced (< q), the invariant Elem maintains. tmp must
+// have length at least 2*deg.
 func (f *Field) mulIntoTmp(dst, tmp []uint64, a, b Elem) {
 	deg := f.Theta
-	q := f.Q
 	for i := 0; i < 2*deg; i++ {
 		tmp[i] = 0
 	}
+	// Phase 1: raw schoolbook product into tmp[0 .. 2*deg-2] (no reductions).
 	for i := 0; i < deg; i++ {
-		ai := a.Limb[i] % q
+		ai := a.Limb[i]
 		if ai == 0 {
 			continue
 		}
+		bl := b.Limb
 		for j := 0; j < deg; j++ {
-			bj := b.Limb[j] % q
-			if bj == 0 {
-				continue
-			}
-			idx := i + j
-			tmp[idx] = f.addReduced(tmp[idx], f.mulReduced(ai, bj))
+			tmp[i+j] += ai * bl[j]
 		}
 	}
-	for k := len(tmp) - 1; k >= deg; k-- {
-		coeff := tmp[k] % q
+	// Phase 2: reduce modulo chi. Using chiNeg[j] = (q - chi[j]) folds the
+	// x^deg = -(sum chi[j] x^j) substitution into a raw multiply-add; each
+	// consumed high coefficient is reduced once, and lower coefficients stay
+	// bounded (< ~2^47 for theta<=~1000) until it is their turn.
+	chiNeg := f.chiNeg
+	for k := 2*deg - 2; k >= deg; k-- {
+		coeff := f.reduce(tmp[k])
 		if coeff == 0 {
-			if k == deg {
-				break
-			}
 			continue
 		}
-		tmp[k] = 0
 		m := k - deg
 		for j := 0; j < deg; j++ {
-			tmp[m+j] = f.subReduced(tmp[m+j], f.mulReduced(coeff, f.Chi[j]%q))
+			tmp[m+j] += coeff * chiNeg[j]
 		}
 	}
 	for i := 0; i < deg; i++ {
-		dst[i] = tmp[i] % q
+		dst[i] = f.reduce(tmp[i])
 	}
 }
 
@@ -227,12 +272,17 @@ func (f *Field) AddMulBaseInto(acc *Elem, src Elem, scalar uint64) {
 	}
 }
 
+// stackMulDeg is the largest theta whose multiply scratch fits on the stack
+// (tmp needs 2*theta words). Covers the maintained presets (theta<=16) and this
+// theta=32 headroom without a per-multiply heap allocation.
+const stackMulDeg = 32
+
 // MulInto sets dst = a * b.
 func (f *Field) MulInto(dst *Elem, a, b Elem) {
 	f.ensureElem(dst)
 	deg := f.Theta
-	if deg <= 8 {
-		var tmp [16]uint64
+	if deg <= stackMulDeg {
+		var tmp [2 * stackMulDeg]uint64
 		f.mulIntoTmp(dst.Limb, tmp[:2*deg], a, b)
 		return
 	}
@@ -244,9 +294,9 @@ func (f *Field) MulInto(dst *Elem, a, b Elem) {
 func (f *Field) AddMulInto(acc *Elem, a, b Elem) {
 	f.ensureElem(acc)
 	deg := f.Theta
-	if deg <= 8 {
-		var tmp [16]uint64
-		var prod [8]uint64
+	if deg <= stackMulDeg {
+		var tmp [2 * stackMulDeg]uint64
+		var prod [stackMulDeg]uint64
 		f.mulIntoTmp(prod[:deg], tmp[:2*deg], a, b)
 		for i := 0; i < deg; i++ {
 			acc.Limb[i] = f.addReduced(acc.Limb[i]%f.Q, prod[i])
@@ -265,9 +315,9 @@ func (f *Field) AddMulInto(acc *Elem, a, b Elem) {
 func (f *Field) SubMulInto(acc *Elem, a, b Elem) {
 	f.ensureElem(acc)
 	deg := f.Theta
-	if deg <= 8 {
-		var tmp [16]uint64
-		var prod [8]uint64
+	if deg <= stackMulDeg {
+		var tmp [2 * stackMulDeg]uint64
+		var prod [stackMulDeg]uint64
 		f.mulIntoTmp(prod[:deg], tmp[:2*deg], a, b)
 		for i := 0; i < deg; i++ {
 			acc.Limb[i] = f.subReduced(acc.Limb[i]%f.Q, prod[i])
