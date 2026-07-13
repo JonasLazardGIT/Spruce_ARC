@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"runtime"
+	"sync"
 	"time"
 
 	decs "vSIS-Signature/DECS"
@@ -387,21 +389,93 @@ func EvalInitManyChecked(
 	ell := prover.TailLen
 	q0 := ringQ.Modulus[0]
 
-	bar := make([][]uint64, m)
 	for k := 0; k < m; k++ {
-		req := reqs[k]
-		if len(req.Coeffs) != nrows {
-			return nil, fmt.Errorf("EvalInitMany: coeff length mismatch (got %d want %d)", len(req.Coeffs), nrows)
-		}
-		bar[k] = make([]uint64, ell)
-		for j := 0; j < nrows; j++ {
-			cij := req.Coeffs[j] % q0
-			row := prover.Rows[j].Tail
-			for i := 0; i < ell; i++ {
-				bar[k][i] = (bar[k][i] + cij*row[i]) % q0
-			}
+		if len(reqs[k].Coeffs) != nrows {
+			return nil, fmt.Errorf("EvalInitMany: coeff length mismatch (got %d want %d)", len(reqs[k].Coeffs), nrows)
 		}
 	}
+
+	// q0 is a ~20-bit prime, so cij*row[i] < 2^40 and many products sum in a raw
+	// uint64 before overflow: accumulate lazily and Barrett-reduce once per output
+	// entry instead of a hardware division per multiply. safeBlock bounds the
+	// product count that is guaranteed to stay below 2^64 (effectively unbounded
+	// for real row counts).
+	red := NewReducer64(q0)
+	safeBlock := m // any large default; recomputed below
+	if q0 > 1 {
+		safeBlock = int((^uint64(0)) / ((q0 - 1) * (q0 - 1)))
+	}
+	if safeBlock < 1 {
+		safeBlock = 1
+	}
+	// One contiguous backing block instead of m separate allocations.
+	backing := make([]uint64, m*ell)
+	bar := make([][]uint64, m)
+	for k := 0; k < m; k++ {
+		bar[k] = backing[k*ell : (k+1)*ell : (k+1)*ell]
+	}
+	compute := func(k int) {
+		acc := bar[k]
+		coeffs := reqs[k].Coeffs
+		sinceReduce := 0
+		for j := 0; j < nrows; j++ {
+			cij := coeffs[j]
+			if cij >= q0 {
+				cij %= q0
+			}
+			if cij == 0 {
+				continue
+			}
+			row := prover.Rows[j].Tail
+			i := 0
+			limit := ell - ell%4
+			for ; i < limit; i += 4 {
+				acc[i] += cij * row[i]
+				acc[i+1] += cij * row[i+1]
+				acc[i+2] += cij * row[i+2]
+				acc[i+3] += cij * row[i+3]
+			}
+			for ; i < ell; i++ {
+				acc[i] += cij * row[i]
+			}
+			if sinceReduce++; sinceReduce == safeBlock {
+				for i := 0; i < ell; i++ {
+					acc[i] = red.Reduce(acc[i])
+				}
+				sinceReduce = 0
+			}
+		}
+		for i := 0; i < ell; i++ {
+			acc[i] = red.Reduce(acc[i])
+		}
+	}
+	// Each request row is independent, so fan out over k; small inputs stay serial.
+	workers := runtime.GOMAXPROCS(0)
+	if workers > m {
+		workers = m
+	}
+	if workers <= 1 || m < 8 || m*ell < 1<<14 {
+		for k := 0; k < m; k++ {
+			compute(k)
+		}
+		return bar, nil
+	}
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		start := worker * m / workers
+		end := (worker + 1) * m / workers
+		if start >= end {
+			continue
+		}
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			for k := start; k < end; k++ {
+				compute(k)
+			}
+		}(start, end)
+	}
+	wg.Wait()
 	return bar, nil
 }
 
