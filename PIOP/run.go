@@ -2017,6 +2017,26 @@ func compressionPivotCols(coeff [][]uint64, colCount int, mod uint64) ([]int, bo
 	// one 64-bit word: use a Barrett reducer instead of a hardware division per
 	// multiply, and subtract without redundant reduction guards.
 	red := lvcs.NewReducer64(mod)
+	// Eliminate rows [rStart,rEnd) against the (read-only) pivot row arow. Rows
+	// are disjoint, so this range can be split across goroutines safely.
+	eliminate := func(rStart, rEnd, col int, arow []uint64) {
+		for r := rStart; r < rEnd; r++ {
+			factor := a[r][col] % mod
+			if factor == 0 {
+				continue
+			}
+			ar := a[r]
+			for c := col; c < colCount; c++ {
+				term := red.MulReduce(factor, arow[c])
+				if av := ar[c]; av >= term {
+					ar[c] = av - term
+				} else {
+					ar[c] = av + mod - term
+				}
+			}
+		}
+	}
+	workers := runtime.GOMAXPROCS(0)
 	pivots := make([]int, 0, rows)
 	row := 0
 	for col := 0; col < colCount && row < rows; col++ {
@@ -2038,20 +2058,26 @@ func compressionPivotCols(coeff [][]uint64, colCount int, mod uint64) ([]int, bo
 		for c := col; c < colCount; c++ {
 			arow[c] = red.MulReduce(arow[c], invPivot)
 		}
-		for r := row + 1; r < rows; r++ {
-			factor := a[r][col] % mod
-			if factor == 0 {
-				continue
-			}
-			ar := a[r]
-			for c := col; c < colCount; c++ {
-				term := red.MulReduce(factor, arow[c])
-				if av := ar[c]; av >= term {
-					ar[c] = av - term
-				} else {
-					ar[c] = av + mod - term
+		// Row elimination is independent per row: fan out when the remaining
+		// submatrix is large enough to amortize the goroutine overhead.
+		nrem := rows - (row + 1)
+		if workers > 1 && nrem >= 2*workers && nrem*(colCount-col) >= 1<<15 {
+			var wg sync.WaitGroup
+			for w := 0; w < workers; w++ {
+				s := row + 1 + w*nrem/workers
+				e := row + 1 + (w+1)*nrem/workers
+				if s >= e {
+					continue
 				}
+				wg.Add(1)
+				go func(s, e int) {
+					defer wg.Done()
+					eliminate(s, e, col, arow)
+				}(s, e)
 			}
+			wg.Wait()
+		} else {
+			eliminate(row+1, rows, col, arow)
 		}
 		pivots = append(pivots, col)
 		row++
