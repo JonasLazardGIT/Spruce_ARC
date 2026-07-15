@@ -146,6 +146,30 @@ func TestSoundnessBudgetLogQueryCapsSupportBQ64(t *testing.T) {
 	}
 }
 
+func TestSoundnessBudgetLogQueryCapsSupportBQ128H512(t *testing.T) {
+	opts := soundnessTestOpts([5]int{})
+	opts.ROQueryCapsSet = false
+	opts.ROQueryCapBits = [5]float64{128, 128, 128, 128, 128}
+	opts.ROQueryCapBitsSet = true
+	opts.DECSCollisionBits = 512
+	opts.DECSHashBits = 512
+	opts.DECSTapeBits = 256
+	opts.FSCollisionBits = 512
+
+	sb := computeSoundnessBudget(opts, 12289, math.Pow(12289, 5), 512, 512, 256, 32, 16, 16, 1, 1, 64, 64, 16)
+	if sb.QueryCapBits != opts.ROQueryCapBits {
+		t.Fatalf("query cap bits=%v want %v", sb.QueryCapBits, opts.ROQueryCapBits)
+	}
+	wantCollisionBits := 512.0 - 2*128.0 - math.Log2(5)
+	if math.Abs(sb.CollisionBits-wantCollisionBits) > 1e-9 {
+		t.Fatalf("collision bits=%f want %f", sb.CollisionBits, wantCollisionBits)
+	}
+	if sb.CollisionSpaceBits != 512 || sb.EffectiveLambdaBits != 512 || sb.DECSHashBits != 512 || sb.DECSTapeBits != 256 {
+		t.Fatalf("split widths hash=%d tape=%d effective_lambda=%d collision=%d",
+			sb.DECSHashBits, sb.DECSTapeBits, sb.EffectiveLambdaBits, sb.CollisionSpaceBits)
+	}
+}
+
 func TestComposeFullGameSoundness(t *testing.T) {
 	issuance := SoundnessBudget{
 		QueryCaps:          [5]int{1, 2, 3, 4, 5},

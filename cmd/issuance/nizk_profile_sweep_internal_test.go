@@ -20,6 +20,8 @@ const (
 	nizkProfileSweepSummaryVersion  = 1
 	nizkProfileSweepSummaryFilename = "nizk-profile-research-summary.json"
 
+	nizkProfileBQ128RawResidualFrontierCandidate = "bq128-128-raw128-residual128-theta13-lvcs48-h512"
+
 	nizkProfileFrontierCandidate              = "nizk_candidate"
 	nizkProfileFrontierHighKResearch          = qBudget128CategoryHighKResearch
 	nizkProfileFrontierRequiresNewPrimitives  = "requires_new_primitives"
@@ -993,7 +995,7 @@ func nizkProfileValidPrefixTrailCandidates(presetName string, base intGenISISTun
 			OmissionMapFSBound:          true,
 			Notes:                       []string{"BQ128 vp80 serializer search lane; VTargets/BarSets stay explicit pending a reconstruction theorem"},
 		}),
-		mkRawResidual("bq128-128-raw128-residual128-theta13-lvcs48-h512", bq128RawResidualTheta13, nizkProfileCandidateOptions{
+		mkRawResidual(nizkProfileBQ128RawResidualFrontierCandidate, bq128RawResidualTheta13, nizkProfileCandidateOptions{
 			HashFSBitsOverride:          512,
 			TapeBitsOverride:            256,
 			SaltBitsOverride:            384,
@@ -2306,6 +2308,7 @@ func nizkProfileBenchmarkConfig(target NIZKProfileSearchTarget, cand NIZKProfile
 	showing.EllPrime = report.SmallWood.EllPrime
 	showing.Kappa = report.SmallWood.Kappa
 	showing = nizkProfileApplyTargetWidths(target, showing)
+	showing = nizkProfileApplyTargetQueryCaps(target, showing)
 	issuance := qBudget128IssuanceFromShowing(showing)
 	name := fmt.Sprintf("%03d-%s-%s", idx, qBudget128SanitizeLabel(target.SecurityProfile), qBudget128SanitizeLabel(cand.Name))
 	maxNLeaves := maxInt(preset.MaxNLeaves, maxInt(issuance.NLeaves, showing.NLeaves))
@@ -2338,6 +2341,15 @@ func nizkProfileApplyTargetWidths(target NIZKProfileSearchTarget, tuning intGenI
 	tuning.DECSTapeBits = target.TapeBitsRange[0]
 	tuning.FSCollisionBits = target.HashFSBitsRange[0]
 	tuning.SaltBits = target.SaltBitsRange[0]
+	return tuning
+}
+
+func nizkProfileApplyTargetQueryCaps(target NIZKProfileSearchTarget, tuning intGenISISTuning) intGenISISTuning {
+	raw := float64(target.QueryCapExponent)
+	tuning.ROQueryCaps = [5]int{}
+	tuning.ROQueryCapsSet = false
+	tuning.ROQueryCapBits = [5]float64{raw, raw, raw, raw, raw}
+	tuning.ROQueryCapBitsSet = true
 	return tuning
 }
 
@@ -2929,7 +2941,7 @@ func TestNIZKProfileValidPrefixTrailCandidatesOrderAndCaps(t *testing.T) {
 		"bq128-128-vp64-theta14-ell17-lvcs48-h512",
 		"bq128-128-vp80-search",
 		"bq128-128-vp80-search-vtargets-included-pdecs",
-		"bq128-128-raw128-residual128-theta13-lvcs48-h512",
+		nizkProfileBQ128RawResidualFrontierCandidate,
 		"bq128-128-raw128-residual128-theta13-ell17-lvcs48-h512",
 		"bq128-128-raw128-residual128-theta14-ell17-lvcs48-h512",
 		"bq128-128-raw128-control",
@@ -3009,8 +3021,17 @@ func TestNIZKProfileBQ128RawResidual128UsesRawCaps(t *testing.T) {
 		t.Fatalf("reports=%d want 1", len(reports))
 	}
 	report := reports[0]
+	if report.Candidate != nizkProfileBQ128RawResidualFrontierCandidate {
+		t.Fatalf("candidate=%q want %q", report.Candidate, nizkProfileBQ128RawResidualFrontierCandidate)
+	}
 	if report.SecurityProfile != "BQ128-128" || report.NIZKTargetBits != 128 || report.RawQueryCapLog2 != 128 {
 		t.Fatalf("unexpected residual target report: %+v", report)
+	}
+	if report.TargetStatus != credential.SecurityProfileRequiresNewPrimitives ||
+		report.LedgerStatus != string(credential.SecurityProfileRequiresNewPrimitives) ||
+		report.CoreBitsRequired != 256 ||
+		report.PrimitiveBlockerReason == "" {
+		t.Fatalf("residual target must remain primitive-blocked: %+v", report)
 	}
 	if report.UsesValidPrefixAccounting || report.EffectiveAlgebraicCapLog2 != [4]float64{128, 128, 128, 128} {
 		t.Fatalf("residual target should use raw algebraic caps: %+v", report)
@@ -3020,6 +3041,39 @@ func TestNIZKProfileBQ128RawResidual128UsesRawCaps(t *testing.T) {
 	}
 	if report.SmallWood.RequiredKappa[2] > qBudget128MaxSupportedGrinding || report.ShowingAlgebraicBits < 128 {
 		t.Fatalf("theta13 residual target should clear the raw 2^128 residual-128 lane: %+v", report)
+	}
+	targets := nizkProfileSearchTargets()
+	candidates := nizkProfileSearchCandidates()
+	var target NIZKProfileSearchTarget
+	for _, candidateTarget := range targets {
+		if candidateTarget.SecurityProfile == "BQ128-128" {
+			target = candidateTarget
+			break
+		}
+	}
+	var cand NIZKProfileSearchCandidate
+	for _, candidate := range candidates {
+		if candidate.Name == nizkProfileBQ128RawResidualFrontierCandidate {
+			cand = candidate
+			break
+		}
+	}
+	if target.SecurityProfile == "" || cand.Name == "" {
+		t.Fatalf("missing BQ128 target/candidate for measured config: target=%+v candidate=%+v", target, cand)
+	}
+	target = nizkProfileTargetForCandidate(target, cand)
+	cfg, err := nizkProfileBenchmarkConfig(target, cand, report, t.TempDir(), 1)
+	if err != nil {
+		t.Fatalf("build measured config: %v", err)
+	}
+	wantCapBits := [5]float64{128, 128, 128, 128, 128}
+	if cfg.Showing.ROQueryCapsSet || cfg.Showing.ROQueryCaps != [5]int{} ||
+		!cfg.Showing.ROQueryCapBitsSet || cfg.Showing.ROQueryCapBits != wantCapBits {
+		t.Fatalf("showing measured query caps should use BQ128 log caps: %+v", cfg.Showing)
+	}
+	if cfg.Issuance.ROQueryCapsSet || cfg.Issuance.ROQueryCaps != [5]int{} ||
+		!cfg.Issuance.ROQueryCapBitsSet || cfg.Issuance.ROQueryCapBits != wantCapBits {
+		t.Fatalf("issuance measured query caps should use BQ128 log caps: %+v", cfg.Issuance)
 	}
 }
 
@@ -3546,7 +3600,7 @@ func TestNIZKProfileBestPerProfilePrefersConcreteFrontier(t *testing.T) {
 		"BQ32-128":  "r7l5-current-theta10-ell15-n917504-lvcs43",
 		"BQ64-96":   "r7l5-current-theta12-ell16-n983040-lvcs43",
 		"BQ64-128":  "r7l5-current-theta14-ell18-n983040-lvcs43",
-		"BQ128-128": "bq128-128-raw128-residual128-theta13-lvcs48-h512",
+		"BQ128-128": nizkProfileBQ128RawResidualFrontierCandidate,
 	}
 	for _, result := range results {
 		if result.Candidate != want[result.SecurityProfile] {

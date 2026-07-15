@@ -187,6 +187,44 @@ func TestBenchmarkIntGenISISE2EPropagatesBQ64LogCapPreset(t *testing.T) {
 	}
 }
 
+func TestBenchmarkIntGenISISE2EPropagatesBQ128NIZKOnlyPreset(t *testing.T) {
+	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
+		"-preset", credential.IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512,
+	})
+	if err != nil {
+		t.Fatalf("parse benchmark bq128 preset: %v", err)
+	}
+	if cfg.SecurityProfile != "BQ128-128" || cfg.SecurityMode != "residual_at_budget" || cfg.CompleteSystemClaim {
+		t.Fatalf("security tuple=(%q,%q,%v)", cfg.SecurityProfile, cfg.SecurityMode, cfg.CompleteSystemClaim)
+	}
+	if cfg.CoreBitsRequired != 256 {
+		t.Fatalf("core bits=%v want 256", cfg.CoreBitsRequired)
+	}
+	if cfg.PRFProfile != credential.IntGenISISPRFProfileTag9 || cfg.PRFParamsPath != credential.IntGenISISPRFParamsTag9 {
+		t.Fatalf("PRF tuple=(%q,%q)", cfg.PRFProfile, cfg.PRFParamsPath)
+	}
+	if cfg.Showing.ROQueryCapsSet || cfg.Showing.ROQueryCaps != [5]int{} {
+		t.Fatalf("showing legacy caps=%v set=%v", cfg.Showing.ROQueryCaps, cfg.Showing.ROQueryCapsSet)
+	}
+	wantCapBits := [5]float64{128, 128, 128, 128, 128}
+	if !cfg.Showing.ROQueryCapBitsSet || cfg.Showing.ROQueryCapBits != wantCapBits {
+		t.Fatalf("showing log caps=%v set=%v", cfg.Showing.ROQueryCapBits, cfg.Showing.ROQueryCapBitsSet)
+	}
+	if !cfg.Issuance.ROQueryCapBitsSet || cfg.Issuance.ROQueryCapBits != wantCapBits {
+		t.Fatalf("issuance log caps=%v set=%v", cfg.Issuance.ROQueryCapBits, cfg.Issuance.ROQueryCapBitsSet)
+	}
+	if cfg.Showing.DECSHashBits != 512 || cfg.Showing.DECSTapeBits != 256 || cfg.Showing.FSCollisionBits != 512 || cfg.Showing.SaltBits != 384 {
+		t.Fatalf("showing width lane=%+v", cfg.Showing)
+	}
+	if cfg.Showing.Theta != 13 || cfg.Showing.Ell != 18 || cfg.Showing.Kappa != [4]int{0, 0, 8, 5} ||
+		cfg.Showing.LVCSNCols != 48 || cfg.Showing.NLeaves != 983040 || cfg.Showing.Eta != 65 || cfg.MaxNLeaves != 983040 {
+		t.Fatalf("showing shape/max leaves=%+v max=%d", cfg.Showing, cfg.MaxNLeaves)
+	}
+	if cfg.Issuance.PRFCompanionMode != "" || cfg.Issuance.SigShortnessRadix != 0 || cfg.Issuance.ReplayProjection != "" {
+		t.Fatalf("issuance retained showing-only fields: %+v", cfg.Issuance)
+	}
+}
+
 func TestBenchmarkRelationReportIncludesDQBranches(t *testing.T) {
 	metrics := benchmarkIntGenISISMetrics{
 		TotalRows:            100,

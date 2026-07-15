@@ -100,6 +100,32 @@ func TestShowingCLIPropagatesBQ64LogCapsAndWidths(t *testing.T) {
 	}
 }
 
+func TestShowingCLIPropagatesBQ128NIZKOnlyPreset(t *testing.T) {
+	cfg, err := parseShowingCLIArgs([]string{
+		"-preset", credential.IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512,
+	})
+	if err != nil {
+		t.Fatalf("parse showing bq128 preset: %v", err)
+	}
+	if cfg.Preset.SecurityProfile != "BQ128-128" || cfg.Preset.CompleteSystemClaim {
+		t.Fatalf("security tuple=(%q,%v)", cfg.Preset.SecurityProfile, cfg.Preset.CompleteSystemClaim)
+	}
+	opts := intGenISISShowingOpts(1024, cfg.Preset.Showing)
+	if opts.ROQueryCapsSet {
+		t.Fatalf("legacy caps unexpectedly set: %v", opts.ROQueryCaps)
+	}
+	if !opts.ROQueryCapBitsSet || opts.ROQueryCapBits != [5]float64{128, 128, 128, 128, 128} {
+		t.Fatalf("log caps=%v set=%v", opts.ROQueryCapBits, opts.ROQueryCapBitsSet)
+	}
+	if opts.DECSHashBits != 512 || opts.DECSTapeBits != 256 || opts.FSCollisionBits != 512 || opts.SaltBits != 384 {
+		t.Fatalf("opts widths hash=%d tape=%d fs=%d salt=%d", opts.DECSHashBits, opts.DECSTapeBits, opts.FSCollisionBits, opts.SaltBits)
+	}
+	if opts.Theta != 13 || opts.Ell != 18 || opts.LVCSNCols != 48 || opts.NLeaves != 983040 || opts.Eta != 65 ||
+		opts.PRFParamsPath != credential.IntGenISISPRFParamsTag9 {
+		t.Fatalf("opts BQ128 shape=%+v", opts)
+	}
+}
+
 func TestShowingVerboseFlagParses(t *testing.T) {
 	cfg, err := parseShowingCLIArgs([]string{
 		"-preset", credential.IntGenISISPresetN512Compact96,

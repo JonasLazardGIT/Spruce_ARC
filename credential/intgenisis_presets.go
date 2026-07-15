@@ -7,18 +7,19 @@ import (
 )
 
 const (
-	IntGenISISPresetN512Compact96            = "n512-compact96"
-	IntGenISISPresetN1024Compact96           = "n1024-compact96"
-	IntGenISISPresetN1024Compact125          = "n1024-compact125"
-	IntGenISISPresetN1024BQ32_96             = "n1024-bq32-96"
-	IntGenISISPresetN1024BQ64_96Theta11      = "n1024-bq64-96-theta11"
-	IntGenISISPresetN1024BQ64_128Theta13H256 = "n1024-bq64-128-theta13-h256"
-	IntGenISISPresetN1024Q10_128             = "n1024-q10-128"
-	IntGenISISPresetN1024Q16_128             = "n1024-q16-128"
-	IntGenISISPresetN1024Q32_128             = "n1024-q32-128"
-	IntGenISISPresetN1024Q10_96              = "n1024-q10-96"
-	IntGenISISPresetN1024Q16_96              = "n1024-q16-96"
-	IntGenISISPresetN1024Q32_96              = "n1024-q32-96"
+	IntGenISISPresetN512Compact96                              = "n512-compact96"
+	IntGenISISPresetN1024Compact96                             = "n1024-compact96"
+	IntGenISISPresetN1024Compact125                            = "n1024-compact125"
+	IntGenISISPresetN1024BQ32_96                               = "n1024-bq32-96"
+	IntGenISISPresetN1024BQ64_96Theta11                        = "n1024-bq64-96-theta11"
+	IntGenISISPresetN1024BQ64_128Theta13H256                   = "n1024-bq64-128-theta13-h256"
+	IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512 = "n1024-bq128-128-raw128-residual128-theta13-lvcs48-h512"
+	IntGenISISPresetN1024Q10_128                               = "n1024-q10-128"
+	IntGenISISPresetN1024Q16_128                               = "n1024-q16-128"
+	IntGenISISPresetN1024Q32_128                               = "n1024-q32-128"
+	IntGenISISPresetN1024Q10_96                                = "n1024-q10-96"
+	IntGenISISPresetN1024Q16_96                                = "n1024-q16-96"
+	IntGenISISPresetN1024Q32_96                                = "n1024-q32-96"
 
 	IntGenISISPRFProfileDefault = "poseidon2-t20-tag7"
 	IntGenISISPRFProfileTag9    = "poseidon2-t20-tag9"
@@ -429,6 +430,39 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	}
 	n1024BQ64Issuance128Theta13H256 := intGenISISIssuanceTuning(n1024BQ64Show128Theta13H256)
 
+	n1024BQ128Show128RawResidualTheta13LVCS48H512 := IntGenISISTuningPreset{
+		NCols:               32,
+		LVCSNCols:           48,
+		NLeaves:             983040,
+		Eta:                 65,
+		Theta:               13,
+		Rho:                 1,
+		Ell:                 18,
+		EllPrime:            1,
+		Kappa:               [4]int{0, 0, 8, 5},
+		ROQueryCapBits:      intGenISISROQueryCapBits(128),
+		ROQueryCapBitsSet:   true,
+		DECSCollisionBits:   512,
+		DECSHashBits:        512,
+		DECSTapeBits:        256,
+		FSCollisionBits:     512,
+		SaltBits:            384,
+		PRFProfile:          IntGenISISPRFProfileTag9,
+		PRFParamsPath:       IntGenISISPRFParamsTag9,
+		PRFCompanionMode:    "direct_full",
+		PRFGroupRounds:      2,
+		CheckpointSamples:   1,
+		SigShortnessRadix:   7,
+		SigShortnessDigits:  5,
+		CompressedRows:      1,
+		ReplayProjection:    "project_u_digits_y_w_residual_v5",
+		TranscriptMode:      "smallfield_2025_1085_v1",
+		FixedTranscriptSize: true,
+		TargetTheoremBits:   128,
+		SoundnessGate:       "smallwood_2025_1085_nizk_q128_live",
+	}
+	n1024BQ128Issuance128RawResidualTheta13LVCS48H512 := intGenISISIssuanceTuning(n1024BQ128Show128RawResidualTheta13LVCS48H512)
+
 	reg := map[string]IntGenISISPreset{
 		IntGenISISPresetN512Compact96: {
 			Name:              IntGenISISPresetN512Compact96,
@@ -521,6 +555,22 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 				"Research-only BQ64-128 theta13+h256 trail with RO query caps represented as log2 caps [64]*5.",
 				"The theta13+h256 shape is justified only by an external theorem/accounting argument that reduces the effective algebraic round-prefix cap while raw collision/programming accounting remains at 2^64.",
 				"Profile remains requires_new_primitives: BQ64-128 needs a 192-bit primitive family and tag-13 PRF lane; tag-9 is only the current executable plumbing.",
+			},
+		},
+		IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512: {
+			Name:              IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512,
+			Description:       "profile-C N=1024 SmallWood NIZK Q128/epsilon128 raw-residual preset",
+			Profile:           ProfileIntGenISISC,
+			TargetTheoremBits: 128,
+			SoundnessGate:     n1024BQ128Show128RawResidualTheta13LVCS48H512.SoundnessGate,
+			LVCSNCols:         n1024BQ128Show128RawResidualTheta13LVCS48H512.LVCSNCols,
+			MaxNLeaves:        n1024BQ128Show128RawResidualTheta13LVCS48H512.NLeaves,
+			Issuance:          n1024BQ128Issuance128RawResidualTheta13LVCS48H512,
+			Showing:           n1024BQ128Show128RawResidualTheta13LVCS48H512,
+			Notes: []string{
+				"SmallWood NIZK-only Q128/epsilon128 preset: proof soundness and zero knowledge target about 128 bits for an adversary making up to 2^128 ROM/Fiat-Shamir queries against the proof system.",
+				"Uses raw log RO caps [128]*5 with no valid-prefix discount, h512 Fiat-Shamir/collision accounting, 256-bit tape, 384-bit salt, theta13, ell18, LVCS48, and measured 89966 paper transcript bytes.",
+				"Not a complete IntGenISIS credential-system claim: the BQ128-128 system profile still requires a 256-bit primitive redesign, and tag-9 remains executable plumbing rather than the claimed primitive lane.",
 			},
 		},
 		IntGenISISPresetN1024Q10_128: {
@@ -620,6 +670,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ32_96, "BQ32-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ64_96Theta11, "BQ64-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ64_128Theta13H256, "BQ64-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512, "BQ128-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_128, "BQ32-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_128, "BQ32-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q32_128, "BQ32-128")
@@ -630,6 +681,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ32_96, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ64_96Theta11, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ64_128Theta13H256, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
+	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
 	return reg
 }
 

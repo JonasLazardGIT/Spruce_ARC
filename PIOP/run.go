@@ -2022,10 +2022,7 @@ func computeSoundnessBudget(
 	if decsTapeBits <= 0 {
 		decsTapeBits = decs.DefaultHashBytes * 8
 	}
-	effectiveLambdaBits := o.Lambda
-	if effectiveLambdaBits <= 0 {
-		effectiveLambdaBits = defaultSimOpts().Lambda
-	}
+	effectiveLambdaBits := fsCollisionSpaceBits(o.Lambda, 0)
 	if decsHashBits < effectiveLambdaBits {
 		effectiveLambdaBits = decsHashBits
 	}

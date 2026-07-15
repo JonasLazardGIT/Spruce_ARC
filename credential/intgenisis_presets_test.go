@@ -7,6 +7,7 @@ import (
 
 func TestIntGenISISPresetRegistryIncludesMaintainedAndResearchPresets(t *testing.T) {
 	want := []string{
+		IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512,
 		IntGenISISPresetN1024BQ32_96,
 		IntGenISISPresetN1024BQ64_128Theta13H256,
 		IntGenISISPresetN1024BQ64_96Theta11,
@@ -38,7 +39,11 @@ func TestIntGenISISPresetRegistryIncludesMaintainedAndResearchPresets(t *testing
 		if p.TargetTheoremBits == 0 {
 			t.Fatalf("preset %s has invalid target: %+v", name, p)
 		}
-		if name == IntGenISISPresetN1024BQ64_96Theta11 || name == IntGenISISPresetN1024BQ64_128Theta13H256 {
+		if name == IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512 {
+			if p.SoundnessGate != "smallwood_2025_1085_nizk_q128_live" {
+				t.Fatalf("BQ128 NIZK preset %s has invalid gate: %+v", name, p)
+			}
+		} else if name == IntGenISISPresetN1024BQ64_96Theta11 || name == IntGenISISPresetN1024BQ64_128Theta13H256 {
 			if p.SoundnessGate != "smallwood_2025_1085_theorem_trail" {
 				t.Fatalf("research preset %s has invalid gate: %+v", name, p)
 			}
@@ -56,18 +61,19 @@ func TestIntGenISISPresetRegistryIncludesMaintainedAndResearchPresets(t *testing
 
 func TestIntGenISISPresetSecurityProfileMetadata(t *testing.T) {
 	wantProfiles := map[string]string{
-		IntGenISISPresetN512Compact96:            "SC-96",
-		IntGenISISPresetN1024Compact96:           "SC-96",
-		IntGenISISPresetN1024Compact125:          "SC-125",
-		IntGenISISPresetN1024BQ32_96:             "BQ32-96",
-		IntGenISISPresetN1024BQ64_96Theta11:      "BQ64-96",
-		IntGenISISPresetN1024BQ64_128Theta13H256: "BQ64-128",
-		IntGenISISPresetN1024Q10_128:             "BQ32-128",
-		IntGenISISPresetN1024Q16_128:             "BQ32-128",
-		IntGenISISPresetN1024Q32_128:             "BQ32-128",
-		IntGenISISPresetN1024Q10_96:              "BQ32-96",
-		IntGenISISPresetN1024Q16_96:              "BQ32-96",
-		IntGenISISPresetN1024Q32_96:              "BQ32-96",
+		IntGenISISPresetN512Compact96:                              "SC-96",
+		IntGenISISPresetN1024Compact96:                             "SC-96",
+		IntGenISISPresetN1024Compact125:                            "SC-125",
+		IntGenISISPresetN1024BQ32_96:                               "BQ32-96",
+		IntGenISISPresetN1024BQ64_96Theta11:                        "BQ64-96",
+		IntGenISISPresetN1024BQ64_128Theta13H256:                   "BQ64-128",
+		IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512: "BQ128-128",
+		IntGenISISPresetN1024Q10_128:                               "BQ32-128",
+		IntGenISISPresetN1024Q16_128:                               "BQ32-128",
+		IntGenISISPresetN1024Q32_128:                               "BQ32-128",
+		IntGenISISPresetN1024Q10_96:                                "BQ32-96",
+		IntGenISISPresetN1024Q16_96:                                "BQ32-96",
+		IntGenISISPresetN1024Q32_96:                                "BQ32-96",
 	}
 	for _, name := range IntGenISISPresetNames() {
 		preset, ok := LookupIntGenISISPreset(name)
@@ -93,6 +99,64 @@ func TestIntGenISISPresetSecurityProfileMetadata(t *testing.T) {
 		}
 		if preset.CompleteSystemClaim != (profile.Status == SecurityProfileCompleteLive) {
 			t.Fatalf("preset %s complete claim=%v profile status=%q", name, preset.CompleteSystemClaim, profile.Status)
+		}
+	}
+}
+
+func TestN1024BQ128RawResidualNIZKOnlyPreset(t *testing.T) {
+	p, ok := LookupIntGenISISPreset(IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512)
+	if !ok {
+		t.Fatal("n1024-bq128 raw-residual NIZK preset missing")
+	}
+	if p.SecurityProfile != "BQ128-128" || p.SecurityMode != string(SecurityModeResidualAtBudget) {
+		t.Fatalf("security tuple=(%q,%q)", p.SecurityProfile, p.SecurityMode)
+	}
+	if p.CoreBitsRequired != 256 || p.CompleteSystemClaim {
+		t.Fatalf("BQ128 preset must stay primitive-blocked at system level: core/claim=(%v,%v)", p.CoreBitsRequired, p.CompleteSystemClaim)
+	}
+	if p.TargetTheoremBits != 128 || p.SoundnessGate != "smallwood_2025_1085_nizk_q128_live" {
+		t.Fatalf("target/gate=(%v,%q)", p.TargetTheoremBits, p.SoundnessGate)
+	}
+	if p.PRFProfile != IntGenISISPRFProfileTag9 || p.PRFParamsPath != IntGenISISPRFParamsTag9 {
+		t.Fatalf("PRF tuple=(%q,%q)", p.PRFProfile, p.PRFParamsPath)
+	}
+	if p.Profile != ProfileIntGenISISC || p.LVCSNCols != 48 || p.MaxNLeaves != 983040 {
+		t.Fatalf("profile/lvcs/max leaves=(%q,%d,%d)", p.Profile, p.LVCSNCols, p.MaxNLeaves)
+	}
+	if p.Showing.ROQueryCapsSet || p.Showing.ROQueryCaps != [5]int{} {
+		t.Fatalf("BQ128 preset must use log caps, not legacy int caps: %+v", p.Showing)
+	}
+	wantCapBits := [5]float64{128, 128, 128, 128, 128}
+	if !p.Showing.ROQueryCapBitsSet || p.Showing.ROQueryCapBits != wantCapBits {
+		t.Fatalf("showing log caps=%v set=%v", p.Showing.ROQueryCapBits, p.Showing.ROQueryCapBitsSet)
+	}
+	if !p.Issuance.ROQueryCapBitsSet || p.Issuance.ROQueryCapBits != wantCapBits {
+		t.Fatalf("issuance log caps=%v set=%v", p.Issuance.ROQueryCapBits, p.Issuance.ROQueryCapBitsSet)
+	}
+	if p.Showing.DECSHashBits != 512 || p.Showing.DECSTapeBits != 256 ||
+		p.Showing.FSCollisionBits != 512 || p.Showing.SaltBits != 384 {
+		t.Fatalf("showing widths hash=%d tape=%d fs=%d salt=%d",
+			p.Showing.DECSHashBits, p.Showing.DECSTapeBits, p.Showing.FSCollisionBits, p.Showing.SaltBits)
+	}
+	if p.Issuance.DECSHashBits != p.Showing.DECSHashBits || p.Issuance.DECSTapeBits != p.Showing.DECSTapeBits ||
+		p.Issuance.FSCollisionBits != p.Showing.FSCollisionBits || p.Issuance.SaltBits != p.Showing.SaltBits {
+		t.Fatalf("issuance/showing width mismatch: issuance=%+v showing=%+v", p.Issuance, p.Showing)
+	}
+	if p.Showing.LVCSNCols != 48 || p.Showing.NLeaves != 983040 || p.Showing.Eta != 65 ||
+		p.Showing.Theta != 13 || p.Showing.Ell != 18 || p.Showing.Kappa != [4]int{0, 0, 8, 5} {
+		t.Fatalf("showing shape=%+v", p.Showing)
+	}
+	if p.Showing.SigShortnessRadix != 7 || p.Showing.SigShortnessDigits != 5 || p.Showing.CompressedRows != 1 ||
+		p.Showing.ReplayProjection != "project_u_digits_y_w_residual_v5" ||
+		p.Showing.TranscriptMode != "smallfield_2025_1085_v1" || !p.Showing.FixedTranscriptSize {
+		t.Fatalf("showing execution tuple=%+v", p.Showing)
+	}
+	if p.Issuance.PRFCompanionMode != "" || p.Issuance.SigShortnessRadix != 0 || p.Issuance.CompressedRows != 0 {
+		t.Fatalf("issuance retained showing-only fields: %+v", p.Issuance)
+	}
+	for _, needle := range []string{"NIZK-only", "2^128", "no valid-prefix discount", "Not a complete IntGenISIS credential-system claim"} {
+		if !intGenISISPresetTestNotesContain(p.Notes, needle) {
+			t.Fatalf("notes missing %q: %v", needle, p.Notes)
 		}
 	}
 }
