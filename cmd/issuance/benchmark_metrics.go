@@ -157,6 +157,7 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		QBytes:                   report.PaperTranscript.Q.OptimizedBytes,
 		RBytes:                   report.PaperTranscript.R.OptimizedBytes,
 		PdecsBytes:               report.PaperTranscript.Pdecs.OptimizedBytes,
+		MdecsBytes:               report.PaperTranscript.Mdecs.OptimizedBytes,
 		AuthBytes:                report.PaperTranscript.Auth.OptimizedBytes,
 		SigShortnessBytes:        report.PaperTranscript.SigShortness.OptimizedBytes,
 		VTargetsBytes:            report.PaperTranscript.VTargets.OptimizedBytes,

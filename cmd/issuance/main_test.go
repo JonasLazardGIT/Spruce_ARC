@@ -422,6 +422,21 @@ func TestBenchmarkMetricsJSONOmitsZeroOnlyFields(t *testing.T) {
 	}
 }
 
+func TestBenchmarkMetricsFromProofIncludesMdecsBytes(t *testing.T) {
+	metrics := intGenISISMetricsFromProof(&PIOP.Proof{}, PIOP.ProofReport{
+		PaperTranscript: PIOP.PaperTranscriptReport{
+			OptimizedBytes: 128,
+			Mdecs:          PIOP.PaperTranscriptBucket{OptimizedBytes: 7},
+		},
+	}, PIOP.PublicInputs{}, PIOP.SimOpts{}, 0, 0, "test")
+	if metrics.PaperTranscriptBytes != 128 {
+		t.Fatalf("paper transcript bytes=%d want 128", metrics.PaperTranscriptBytes)
+	}
+	if metrics.MdecsBytes != 7 {
+		t.Fatalf("mdecs bytes=%d want 7", metrics.MdecsBytes)
+	}
+}
+
 func TestSetupIntGenISISPublicWritesMaintainedProfileParams(t *testing.T) {
 	root := issuanceTestRepoRoot(t)
 	chdirForIssuanceTest(t, root)

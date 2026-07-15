@@ -95,6 +95,44 @@ func TestPaperTranscriptReportIncludesRingDegree(t *testing.T) {
 	}
 }
 
+func TestPaperTranscriptReportOptimizedTotalSumsAllBuckets(t *testing.T) {
+	rep := buildPaperTranscriptReportLeaf(&Proof{
+		VTargetsBits: []byte{1, 2},
+		BarSetsBits:  []byte{3},
+		PCSOpening:   testOpening(),
+	}, 12289, paperTranscriptParams{
+		Lambda:   128,
+		Eta:      3,
+		Ell:      1,
+		EllPrime: 1,
+		Rho:      1,
+		Theta:    1,
+		DQ:       8,
+		DDECS:    4,
+	})
+	if rep.Mdecs.OptimizedBytes == 0 {
+		t.Fatal("test fixture should exercise the Mdecs bucket")
+	}
+	wantBits := rep.Counters.OptimizedBits +
+		rep.SaltRoot.OptimizedBits +
+		rep.ExtraHash.OptimizedBits +
+		rep.R.OptimizedBits +
+		rep.Q.OptimizedBits +
+		rep.SigShortness.OptimizedBits +
+		rep.VTargets.OptimizedBits +
+		rep.BarSets.OptimizedBits +
+		rep.Pdecs.OptimizedBits +
+		rep.Mdecs.OptimizedBits +
+		rep.Auth.OptimizedBits +
+		rep.Tapes.OptimizedBits
+	if math.Abs(rep.OptimizedBits-wantBits) > 1e-9 {
+		t.Fatalf("optimized bits=%v want bucket sum %v", rep.OptimizedBits, wantBits)
+	}
+	if rep.OptimizedBytes != bitsToBytes(wantBits) {
+		t.Fatalf("optimized bytes=%d want rounded bucket sum %d", rep.OptimizedBytes, bitsToBytes(wantBits))
+	}
+}
+
 func TestStrictSmallWoodProofSizeExcludesLegacyQDECS(t *testing.T) {
 	proof := &Proof{
 		TranscriptVersion: TranscriptVersionSmallWood2025,
