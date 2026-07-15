@@ -434,12 +434,12 @@ func TestPrintConciseProofReportOmitsDetailedBreakdown(t *testing.T) {
 	defer func() { cli = old }()
 
 	printConciseProofReport("[showing-cli] ", PIOP.ProofReport{
-		PaperTranscript: PIOP.PaperTranscriptReport{OptimizedBytes: 22008},
+		PaperTranscript: PIOP.PaperTranscriptReport{OptimizedBytes: 22016},
 		Soundness:       PIOP.SoundnessBudget{TotalBits: 96.5},
 	}, 2, 3)
 
 	got := out.String()
-	for _, want := range []string{"paper_transcript_bytes=22008", "paper_transcript_kb=21.49", "theorem_total_bits=96.50", "timing prove=2ns verify=3ns"} {
+	for _, want := range []string{"paper_transcript_bytes=22016", "paper_transcript_kb=21.50", "theorem_total_bits=96.50", "timing prove=2ns verify=3ns"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("concise proof report missing %q: %s", want, got)
 		}

@@ -366,7 +366,7 @@ func TestBenchmarkPrintReportDefaultIsConcise(t *testing.T) {
 			HolderFinalizeMS: 6,
 		},
 		Showing: benchmarkIntGenISISMetrics{
-			PaperTranscriptBytes: 22008,
+			PaperTranscriptBytes: 22016,
 			TheoremTotalBits:     96.5,
 			ProvingMS:            7,
 			VerificationMS:       8,
@@ -378,7 +378,7 @@ func TestBenchmarkPrintReportDefaultIsConcise(t *testing.T) {
 	for _, want := range []string{
 		"status=pass",
 		"preset=n512-compact96",
-		"showing.paper_transcript_bytes=22008",
+		"showing.paper_transcript_bytes=22016",
 		"theorem_total_bits=96.50",
 		"replay_rejected=true",
 	} {
@@ -395,7 +395,7 @@ func TestBenchmarkPrintReportDefaultIsConcise(t *testing.T) {
 
 func TestBenchmarkMetricsJSONOmitsZeroOnlyFields(t *testing.T) {
 	raw, err := json.Marshal(benchmarkIntGenISISMetrics{
-		PaperTranscriptBytes: 22008,
+		PaperTranscriptBytes: 22016,
 		TheoremTotalBits:     96.5,
 		PhaseTimings: nonZeroPhaseTimings([]PIOP.PhaseTiming{
 			{Label: "cached", Milliseconds: 0},
