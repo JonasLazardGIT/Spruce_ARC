@@ -4,15 +4,17 @@ SPRUCE is the maintained ARC-SPRUCE IntGenISIS paper artifact. It implements
 the committed-message issuance flow, final IntGenISIS showing proof, verifier
 path, fixed transcript reporting, and the curated maintained presets.
 
-The public artifact surface is intentionally narrow:
+The maintained artifact surface is intentionally narrow:
 
 - `cmd/issuance`
 - `cmd/showing`
 - the nine maintained IntGenISIS presets
 - Go tests, gates, and benchmark reports for those presets
 
-Removed tuning flags, old preset labels, and non-maintained command surfaces
-are not public interfaces.
+The CLI also exposes explicitly marked candidate/research measurement presets.
+Those labels are not maintained byte gates unless this README and
+[ARTIFACT.md](ARTIFACT.md) list them as such. Removed tuning flags, old preset
+labels, and non-maintained command surfaces are not public interfaces.
 
 ## Reviewer Path
 
@@ -47,6 +49,23 @@ n1024-q32-96
 125+ live preset rather than a 128-bit claim. The `n1024-q*` presets are
 query-budget-specific profile-C presets with fixed random-oracle query caps and
 DECS hash/tape widths baked into the preset registry.
+
+## NIZK-Only Q128 Preset
+
+The promoted SmallWood NIZK-only Q128/epsilon128 preset is:
+
+```text
+n1024-bq128-128-raw128-residual128-theta13-lvcs48-h512
+```
+
+It targets proof soundness and zero knowledge of about 128 bits against an
+adversary making up to `2^128` ROM/Fiat-Shamir queries against the proof
+system. It uses raw log caps `[128]*5`, `h512`, 256-bit tape, 384-bit salt,
+`theta=13`, `ell=18`, `LVCS=48`, and `NLeaves=983040`.
+
+This is not a complete IntGenISIS credential-system claim: the `BQ128-128`
+system profile remains `requires_new_primitives` because the current executable
+primitive core is below the 256-bit core required for that full-system profile.
 
 ## Fast Docker Run
 

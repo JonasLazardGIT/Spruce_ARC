@@ -169,6 +169,14 @@ or modes to `cmd/issuance` or `cmd/showing`.
 - Query-budget presets carry explicit `ROQueryCaps` and DECS hash/tape widths
   in the preset registry; theorem accounting is verified by
   `gate-maintained-presets`.
+- The `n1024-bq128-128-raw128-residual128-theta13-lvcs48-h512` preset is a
+  SmallWood NIZK-only Q128/epsilon128 claim. Its proof-layer accounting uses
+  raw log ROM/Fiat-Shamir caps `[128]*5`, 512-bit hash/FS collision space,
+  256-bit tape guessing, and 384-bit salt; benchmarks measure proof soundness
+  and zero knowledge at about 128 bits for proof-system query attacks.
+- That BQ128 preset is not a complete IntGenISIS credential-system claim:
+  `BQ128-128` remains `requires_new_primitives` until the primitive core is
+  upgraded to the 256-bit requirement for the full profile.
 - Fixed-size transcript byte claims are reproduced by `ARTIFACT.md` commands
   and are not security-estimator outputs.
 
@@ -182,3 +190,6 @@ or modes to `cmd/issuance` or `cmd/showing`.
 - NTRU key generation is randomized; validation may retry setup internally.
 - Sage/Python provenance tooling and external estimator checkouts are
   intentionally excluded from Docker runtime.
+- The BQ128 NIZK-only preset promotes the SmallWood proof claim only. It does
+  not promote PRF, MLWE, tag-collision, multi-user, or full credential-system
+  security beyond the current ledger status.

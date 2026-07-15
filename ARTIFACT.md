@@ -14,8 +14,8 @@ The artifact supports:
 - maintained preset benchmarking and gates
 - Go tests and static checks used by the validation script
 
-The public command surface is limited to `cmd/issuance`, `cmd/showing`, and the
-nine maintained presets:
+The maintained command surface is limited to `cmd/issuance`, `cmd/showing`, and
+the nine maintained presets:
 
 ```text
 n512-compact96
@@ -28,6 +28,9 @@ n1024-q10-96
 n1024-q16-96
 n1024-q32-96
 ```
+
+The CLI may also list explicitly marked candidate/research measurement presets.
+Those labels are outside the maintained byte gate unless listed in this guide.
 
 ## Expected Results
 
@@ -48,6 +51,16 @@ not KiB.
 | `n1024-q32-96` | profile-C 96-bit preset for `ROQueryCaps=[2^32]*5` | 37257 |
 
 The validation scripts fail if these byte counts change.
+
+The promoted SmallWood NIZK-only Q128/epsilon128 measurement preset is:
+
+| Preset | Role | Expected `showing.paper_transcript_bytes` |
+| --- | --- | ---: |
+| `n1024-bq128-128-raw128-residual128-theta13-lvcs48-h512` | proof-only SmallWood NIZK Q128/epsilon128 claim for up to `2^128` ROM/Fiat-Shamir proof-system queries | 89966 |
+
+This BQ128 preset is measured with `benchmark-intgenisis-e2e`, but it is not
+part of `gate-maintained-presets`: the full `BQ128-128` IntGenISIS
+credential-system profile still reports `requires_new_primitives`.
 
 ## Docker Reproduction
 
@@ -192,8 +205,9 @@ The benchmark JSON report records:
 
 | Claim | Reproduction command | Report field or check |
 | --- | --- | --- |
-| Maintained preset list | `go run ./cmd/issuance benchmark-intgenisis-e2e -h` | supported `-preset` names |
-| Paper transcript byte counts | `./scripts/validate-artifact.sh` | `showing.paper_transcript_bytes` equals the table above |
+| Maintained preset gate list | `go run ./cmd/issuance gate-maintained-presets` | all nine maintained presets pass |
+| SmallWood NIZK-only Q128/epsilon128 preset | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset n1024-bq128-128-raw128-residual128-theta13-lvcs48-h512` | `showing.theorem_total_bits >= 128`, `zero_knowledge_bits >= 128`, `security_ledger.complete_system_claim == false`, `ledger_status == "requires_new_primitives"` |
+| Maintained paper transcript byte counts | `./scripts/validate-artifact.sh` | `showing.paper_transcript_bytes` equals the maintained table above |
 | Degree-1024 96-bit theorem accounting | `go run ./cmd/issuance gate-maintained-presets` | `showing.theorem_total_bits >= 96` |
 | Degree-1024 125+ theorem accounting | `go run ./cmd/issuance gate-maintained-presets` | `showing.theorem_total_bits >= 125` |
 | Query-budget 128-bit theorem accounting | `go run ./cmd/issuance gate-maintained-presets` | `showing.theorem_total_bits >= 128` |

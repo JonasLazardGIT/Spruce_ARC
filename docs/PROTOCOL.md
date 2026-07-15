@@ -73,7 +73,7 @@ packed base 9 into eight PRF key lanes.
 
 ## Maintained Presets
 
-The public preset registry contains exactly:
+The maintained preset gate contains exactly:
 
 ```text
 n512-compact96
@@ -107,6 +107,31 @@ Issuance knobs prove the commitment opening and semantic constraints before the
 issuer signs. Showing knobs prove the final credential relation and add PRF
 companion rows, signature shortness rows, replay projection, compression where
 selected, and the maintained SmallWood 2025 transcript mode.
+
+## NIZK-Only Q128 Preset
+
+The CLI-exposed SmallWood NIZK-only Q128/epsilon128 preset is:
+
+```text
+n1024-bq128-128-raw128-residual128-theta13-lvcs48-h512
+```
+
+It is the promoted form of the internal frontier candidate
+`bq128-128-raw128-residual128-theta13-lvcs48-h512`. The claim is limited to the
+SmallWood NIZK proof layer: an adversary may make up to `2^128`
+ROM/Fiat-Shamir queries against the proof system, and the measured proof
+soundness and zero-knowledge terms remain about 128 bits.
+
+| Preset | Profile | Claim | RO caps | Hash/FS | Tape | Salt | LVCS cols | Leaves | eta | theta | ell/ell' | kappa |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| `n1024-bq128-128-raw128-residual128-theta13-lvcs48-h512` | C | NIZK-only Q128/epsilon128 | raw log `[128]*5` | 512 | 256 | 384 | 48 | 983,040 | 65 | 13 | 18/1 | `{0,0,8,5}` |
+
+This preset uses no valid-prefix discount. Its benchmark report currently
+measures `showing.paper_transcript_bytes = 89966` and
+`showing.theorem_total_bits = 129.26` for the proof layer. It remains outside
+the maintained preset gate because the full `BQ128-128` IntGenISIS
+credential-system profile still has `complete_system_claim=false` and
+`ledger_status="requires_new_primitives"` under the current primitive core.
 
 ## Public Setup
 
@@ -166,7 +191,7 @@ parameters, verifier key, and optional persistent verifier-state path.
 | Area | Main Paths | Purpose |
 | --- | --- | --- |
 | CLI workflows | `cmd/issuance`, `cmd/showing` | Operator/reviewer entrypoints |
-| Presets and profiles | `credential/intgenisis_presets.go`, `credential/intgenisis_profile.go` | Maintained public parameter registry |
+| Presets and profiles | `credential/intgenisis_presets.go`, `credential/intgenisis_profile.go` | Maintained and explicitly marked proof/research parameter registry |
 | Public params/state | `credential/` | JSON formats, state, verifier keys, profile metadata |
 | Issuance target | `issuance/intgenisis.go`, `cmd/issuance/flow_helpers.go` | Rational hash target and issuance orchestration |
 | Proof system | `PIOP/` | IntGenISIS pre-sign and showing constraints, proof reports |
@@ -191,5 +216,5 @@ reproduction commands.
 
 Removed preset labels, tuning flags, and non-maintained command surfaces are
 invalid rather than aliases. Preset-dependent material must be generated from a
-maintained preset. Public accounting knobs such as query caps and DECS collision
-widths are selected by the preset registry, not by public CLI flags.
+registered preset. Public accounting knobs such as query caps and DECS
+collision widths are selected by the preset registry, not by public CLI flags.
