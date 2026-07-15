@@ -60,6 +60,7 @@ type intGenISISTuning struct {
 	Rho                    int                   `json:"rho"`
 	Ell                    int                   `json:"ell"`
 	EllPrime               int                   `json:"ell_prime"`
+	DQOverride             int                   `json:"dq_override,omitempty"`
 	Kappa                  [4]int                `json:"kappa"`
 	ROQueryCaps            [5]int                `json:"ro_query_caps,omitempty"`
 	ROQueryCapsSet         bool                  `json:"-"`
@@ -244,6 +245,9 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 	if t.EllPrime <= 0 {
 		t.EllPrime = fallback.EllPrime
 	}
+	if t.DQOverride <= 0 {
+		t.DQOverride = fallback.DQOverride
+	}
 	if !t.ROQueryCapsSet && fallback.ROQueryCapsSet {
 		t.ROQueryCaps = fallback.ROQueryCaps
 		t.ROQueryCapsSet = true
@@ -357,6 +361,7 @@ func intGenISISTuningToIssuanceOverrides(t intGenISISTuning, ringDegree int) iss
 		Eta:                 t.Eta,
 		Theta:               t.Theta,
 		Rho:                 t.Rho,
+		DQOverride:          t.DQOverride,
 		Kappa:               t.Kappa,
 		ROQueryCaps:         t.ROQueryCaps,
 		ROQueryCapsSet:      t.ROQueryCapsSet,
@@ -392,6 +397,7 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 		Eta:                        t.Eta,
 		Rho:                        t.Rho,
 		Theta:                      t.Theta,
+		DQOverride:                 t.DQOverride,
 		Kappa:                      t.Kappa,
 		ROQueryCaps:                t.ROQueryCaps,
 		ROQueryCapsSet:             t.ROQueryCapsSet,

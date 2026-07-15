@@ -360,6 +360,14 @@ func benchmarkIntGenISISRelationReportFromMetrics(proof *PIOP.Proof, metrics ben
 	if dqAggregate > dqParallel {
 		dominantDQ = "aggregate"
 	}
+	if opts.DQOverride > dq {
+		dq = opts.DQOverride
+		dominantDQ = "override"
+	}
+	if metrics.MaskDegreeBound > dq {
+		dq = metrics.MaskDegreeBound
+		dominantDQ = "measured_mask"
+	}
 	rowCounts := map[string]int{
 		"total":            metrics.TotalRows,
 		"coefficient_view": metrics.CoefficientViewRows,

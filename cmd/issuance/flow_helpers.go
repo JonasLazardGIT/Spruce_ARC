@@ -43,6 +43,7 @@ type smallWoodTuningSpec struct {
 	Eta                 int        `json:"eta,omitempty"`
 	Theta               int        `json:"theta,omitempty"`
 	Rho                 int        `json:"rho,omitempty"`
+	DQOverride          int        `json:"dq_override,omitempty"`
 	Kappa               [4]int     `json:"kappa,omitempty"`
 	ROQueryCaps         [5]int     `json:"ro_query_caps,omitempty"`
 	ROQueryCapsSet      bool       `json:"ro_query_caps_set,omitempty"`
@@ -118,6 +119,7 @@ type issuanceRuntimeOverrides struct {
 	Eta                 int
 	Theta               int
 	Rho                 int
+	DQOverride          int
 	Kappa               [4]int
 	ROQueryCaps         [5]int
 	ROQueryCapsSet      bool
@@ -168,6 +170,7 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 		out.Eta = spec.Eta
 		out.Theta = spec.Theta
 		out.Rho = spec.Rho
+		out.DQOverride = spec.DQOverride
 		out.Kappa = spec.Kappa
 		out.ROQueryCaps = spec.ROQueryCaps
 		out.ROQueryCapsSet = spec.ROQueryCapsSet
@@ -198,6 +201,7 @@ func smallWoodTuningSpecFromOpts(opts PIOP.SimOpts) *smallWoodTuningSpec {
 		Eta:                 opts.Eta,
 		Theta:               opts.Theta,
 		Rho:                 opts.Rho,
+		DQOverride:          opts.DQOverride,
 		Kappa:               opts.Kappa,
 		ROQueryCaps:         opts.ROQueryCaps,
 		ROQueryCapsSet:      opts.ROQueryCapsSet,
@@ -241,6 +245,9 @@ func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeO
 	}
 	if overrides.Rho > 0 {
 		opts.Rho = overrides.Rho
+	}
+	if overrides.DQOverride > 0 {
+		opts.DQOverride = overrides.DQOverride
 	}
 	if overrides.Kappa != ([4]int{}) {
 		opts.Kappa = overrides.Kappa

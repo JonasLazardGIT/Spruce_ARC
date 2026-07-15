@@ -595,6 +595,7 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 		DECSTapeBits:        128,
 		FSCollisionBits:     200,
 		SaltBits:            128,
+		DQOverride:          1200,
 		FixedTranscriptSize: true,
 	}
 	opts := applyIssuanceRuntimeOverrides(PIOP.SimOpts{}, overrides)
@@ -615,6 +616,9 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 	if spec.DECSHashBits != 200 || spec.DECSTapeBits != 128 || spec.FSCollisionBits != 200 || spec.SaltBits != 128 {
 		t.Fatalf("persisted split widths hash=%d tape=%d fs=%d salt=%d", spec.DECSHashBits, spec.DECSTapeBits, spec.FSCollisionBits, spec.SaltBits)
 	}
+	if spec.DQOverride != 1200 {
+		t.Fatalf("persisted dQ override=%d", spec.DQOverride)
+	}
 	roundTrip := persistedIssuanceRuntimeOverridesWithSmallWood(spec.NCols, spec.LVCSNCols, spec.NLeaves, nil, spec)
 	if !roundTrip.ROQueryCapsSet || roundTrip.ROQueryCaps != overrides.ROQueryCaps {
 		t.Fatalf("round-trip query caps=%v set=%v", roundTrip.ROQueryCaps, roundTrip.ROQueryCapsSet)
@@ -627,6 +631,9 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 	}
 	if roundTrip.DECSHashBits != 200 || roundTrip.DECSTapeBits != 128 || roundTrip.FSCollisionBits != 200 || roundTrip.SaltBits != 128 {
 		t.Fatalf("round-trip split widths hash=%d tape=%d fs=%d salt=%d", roundTrip.DECSHashBits, roundTrip.DECSTapeBits, roundTrip.FSCollisionBits, roundTrip.SaltBits)
+	}
+	if roundTrip.DQOverride != 1200 {
+		t.Fatalf("round-trip dQ override=%d", roundTrip.DQOverride)
 	}
 }
 
