@@ -139,22 +139,6 @@ func polySubMod(a, b []uint64, q uint64) []uint64 {
 	return trimPoly(out, q)
 }
 
-func coeffsToNTTIfFits(ringQ *ring.Ring, coeffs []uint64) *ring.Poly {
-	if ringQ == nil {
-		return nil
-	}
-	if len(coeffs) == 0 {
-		coeffs = []uint64{0}
-	}
-	if len(coeffs) > int(ringQ.N) {
-		return nil
-	}
-	p := ringQ.NewPoly()
-	copy(p.Coeffs[0], coeffs)
-	ringQ.NTT(p, p)
-	return p
-}
-
 func literalPackedPostSignReplayRowCount(layout RowLayout) int {
 	if layout.SigCount > 0 {
 		return layout.SigCount

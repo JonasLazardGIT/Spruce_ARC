@@ -54,6 +54,37 @@ func evalRowsAt(r *ring.Ring, polys []*ring.Poly, points []uint64) [][]uint64 {
 	return out
 }
 
+func evalRowInputsAt(r *ring.Ring, rows []lvcs.RowInput, points []uint64) [][]uint64 {
+	if r == nil {
+		return nil
+	}
+	q := r.Modulus[0]
+	out := make([][]uint64, len(rows))
+	for i, row := range rows {
+		switch {
+		case len(row.PolyCoeffs) > 0:
+			vals := make([]uint64, len(points))
+			for j, x := range points {
+				vals[j] = EvalPoly(row.PolyCoeffs, x%q, q)
+			}
+			out[i] = vals
+		case row.Poly != nil:
+			coeffs := trimCoeffsCopy(row.Poly.Coeffs[0], q)
+			vals := make([]uint64, len(points))
+			for j, x := range points {
+				vals[j] = EvalPoly(coeffs, x%q, q)
+			}
+			out[i] = vals
+		case len(row.Head) == len(points):
+			out[i] = append([]uint64(nil), row.Head...)
+			for j := range out[i] {
+				out[i][j] %= q
+			}
+		}
+	}
+	return out
+}
+
 // maskFSArgs carries all inputs needed to run the masking/Merkle/FS loop.
 type maskFSArgs struct {
 	ringQ  *ring.Ring
@@ -428,29 +459,29 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	if err := stage("RunMaskFS.BuildQAndMasks", func() error {
 		// Base-field masks (used by Q and the ΣΩ check) must be committed inside the main
 		// oracle so the verifier can read them from RowOpening at tail indices.
-		if len(args.independentMasks) != args.rho {
-			return fmt.Errorf("expected %d committed base-field masks, got %d", args.rho, len(args.independentMasks))
+		if len(args.independentMasks) != args.rho && len(args.independentMaskCoeffs) != args.rho {
+			return fmt.Errorf("expected %d committed base-field masks, got polys=%d coeffs=%d", args.rho, len(args.independentMasks), len(args.independentMaskCoeffs))
 		}
 		out.M = args.independentMasks
 		if len(args.independentMaskCoeffs) > 0 {
 			out.MCoeffs = args.independentMaskCoeffs
 		} else {
-			out.MCoeffs = make([][]uint64, len(out.M))
-			for i := range out.M {
+			out.MCoeffs = make([][]uint64, args.rho)
+			for i := 0; i < args.rho; i++ {
 				coeff := ringQ.NewPoly()
-				if out.M[i] != nil {
+				if i < len(out.M) && out.M[i] != nil {
 					ringQ.InvNTT(out.M[i], coeff)
 					out.MCoeffs[i] = trimCoeffsCopy(coeff.Coeffs[0], q)
 				}
 			}
 		}
 
-		maskCoeffs := make([][]uint64, len(out.M))
-		for i := range out.M {
+		maskCoeffs := make([][]uint64, args.rho)
+		for i := 0; i < args.rho; i++ {
 			switch {
 			case i < len(out.MCoeffs) && len(out.MCoeffs[i]) > 0:
 				maskCoeffs[i] = out.MCoeffs[i]
-			case out.M[i] != nil:
+			case i < len(out.M) && out.M[i] != nil:
 				coeff := ringQ.NewPoly()
 				ringQ.InvNTT(out.M[i], coeff)
 				maskCoeffs[i] = trimCoeffsCopy(coeff.Coeffs[0], q)

@@ -65,8 +65,8 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			if opts.NLeaves <= 0 {
 				opts.NLeaves = int(ringQ.N)
 			}
-			if ncols+opts.Ell > int(ringQ.N) {
-				return nil, fmt.Errorf("explicit domain: need ncols+ell <= ring dimension (ncols=%d ell=%d ringN=%d)", ncols, opts.Ell, ringQ.N)
+			if ncols+opts.Ell > opts.NLeaves {
+				return nil, fmt.Errorf("explicit domain: need ncols+ell <= nleaves (ncols=%d ell=%d nleaves=%d)", ncols, opts.Ell, opts.NLeaves)
 			}
 			var derr error
 			omega, domainPoints, derr = deriveExplicitDomainForRelation(ringQ.Modulus[0], opts.NLeaves, witnessNCols, ncols, opts.Ell, pub.HashRelation)
@@ -720,8 +720,8 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			if nLeaves <= 0 {
 				nLeaves = int(ringQ.N)
 			}
-			if lvcsNCols+ell > int(ringQ.N) {
-				return false, fmt.Errorf("explicit domain: need lvcsNCols+ell <= ring dimension (lvcsNCols=%d ell=%d ringN=%d)", lvcsNCols, ell, ringQ.N)
+			if lvcsNCols+ell > nLeaves {
+				return false, fmt.Errorf("explicit domain: need lvcsNCols+ell <= nleaves (lvcsNCols=%d ell=%d nleaves=%d)", lvcsNCols, ell, nLeaves)
 			}
 			var derr error
 			omega, domainPoints, derr = deriveExplicitDomainForRelation(ringQ.Modulus[0], nLeaves, witnessNCols, lvcsNCols, ell, pub.HashRelation)

@@ -75,13 +75,6 @@ func prepareMaskSubsetRowRecovery(
 	if err != nil {
 		return nil, err
 	}
-	rPolys := make([]*ring.Poly, len(proof.R))
-	for i := range proof.R {
-		rPolys[i] = coeffsToNTTIfFits(ringQ, proof.R[i])
-		if rPolys[i] == nil {
-			return nil, fmt.Errorf("r polynomial %d too large to materialize", i)
-		}
-	}
 	coeffMatrix := proof.CoeffMatrix
 	if len(coeffMatrix) == 0 {
 		return nil, fmt.Errorf("missing coefficient matrix for subset-row verification")
@@ -94,11 +87,11 @@ func prepareMaskSubsetRowRecovery(
 	if len(vTargets) == 0 {
 		return nil, fmt.Errorf("missing vtargets for subset-row verification")
 	}
-	qVals, err := interpolateReplayQRows(ringQ, vTargets, barSets, ncols)
+	qVals, err := interpolateReplayQRows(ringQ, vTargets, barSets, ncols, domainPoints)
 	if err != nil {
 		return nil, fmt.Errorf("replay Q rows for subset-row verification: %w", err)
 	}
-	opening, err := prepareRowOpeningForVerify(baseOpening, gamma, rPolys, coeffMatrix, qVals, barSets, maskIdx, proof.Tail, ncols, domainPoints, ringQ)
+	opening, err := prepareRowOpeningForVerify(baseOpening, gamma, proof.R, coeffMatrix, qVals, barSets, maskIdx, proof.Tail, ncols, domainPoints, ringQ)
 	if err != nil {
 		return nil, err
 	}

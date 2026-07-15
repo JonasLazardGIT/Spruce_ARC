@@ -59,16 +59,32 @@ func BuildQCoeffsChecked(
 		return nil, fmt.Errorf("BuildQ: inconsistent mask layout lengths")
 	}
 
-	Fpar := append(append([]*ring.Poly{}, FparInt...), FparNorm...)
-	Fagg := append(append([]*ring.Poly{}, FaggInt...), FaggNorm...)
-	alignOverrides := func(polys []*ring.Poly, overrides [][]uint64) [][]uint64 {
-		if len(polys) == 0 {
+	alignPolys := func(polys []*ring.Poly, overrides [][]uint64) []*ring.Poly {
+		width := len(polys)
+		if len(overrides) > width {
+			width = len(overrides)
+		}
+		if width == 0 {
 			return nil
 		}
-		out := make([][]uint64, len(polys))
+		out := make([]*ring.Poly, width)
+		copy(out, polys)
+		return out
+	}
+	Fpar := append(alignPolys(FparInt, FparIntCoeffs), alignPolys(FparNorm, FparNormCoeffs)...)
+	Fagg := append(alignPolys(FaggInt, FaggIntCoeffs), alignPolys(FaggNorm, FaggNormCoeffs)...)
+	alignOverrides := func(polys []*ring.Poly, overrides [][]uint64) [][]uint64 {
+		width := len(polys)
+		if len(overrides) > width {
+			width = len(overrides)
+		}
+		if width == 0 {
+			return nil
+		}
+		out := make([][]uint64, width)
 		limit := len(overrides)
-		if limit > len(polys) {
-			limit = len(polys)
+		if limit > width {
+			limit = width
 		}
 		for i := 0; i < limit; i++ {
 			if len(overrides[i]) == 0 {

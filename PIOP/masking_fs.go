@@ -130,13 +130,17 @@ type MaskingFSInput struct {
 }
 
 func alignConstraintCoeffOverrides(polys []*ring.Poly, coeffs [][]uint64) [][]uint64 {
-	if len(polys) == 0 {
+	width := len(polys)
+	if len(coeffs) > width {
+		width = len(coeffs)
+	}
+	if width == 0 {
 		return nil
 	}
-	out := make([][]uint64, len(polys))
+	out := make([][]uint64, width)
 	limit := len(coeffs)
-	if limit > len(polys) {
-		limit = len(polys)
+	if limit > width {
+		limit = width
 	}
 	for i := 0; i < limit; i++ {
 		if len(coeffs[i]) == 0 {
@@ -144,6 +148,19 @@ func alignConstraintCoeffOverrides(polys []*ring.Poly, coeffs [][]uint64) [][]ui
 		}
 		out[i] = append([]uint64(nil), coeffs[i]...)
 	}
+	return out
+}
+
+func alignConstraintPolysWithCoeffs(polys []*ring.Poly, coeffs [][]uint64) []*ring.Poly {
+	width := len(polys)
+	if len(coeffs) > width {
+		width = len(coeffs)
+	}
+	if width == 0 {
+		return nil
+	}
+	out := make([]*ring.Poly, width)
+	copy(out, polys)
 	return out
 }
 
@@ -201,8 +218,14 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		prfTagPublic:       copyInt64Matrix(in.PRFTagPublic),
 		prfNoncePublic:     copyInt64Matrix(in.PRFNoncePublic),
 		hashRelation:       in.HashRelation,
-		FparAll:            append(append([]*ring.Poly{}, in.FparInt...), in.FparNorm...),
-		FaggAll:            append(append([]*ring.Poly{}, in.FaggInt...), in.FaggNorm...),
+		FparAll: append(
+			alignConstraintPolysWithCoeffs(in.FparInt, in.FparIntCoeffs),
+			alignConstraintPolysWithCoeffs(in.FparNorm, in.FparNormCoeffs)...,
+		),
+		FaggAll: append(
+			alignConstraintPolysWithCoeffs(in.FaggInt, in.FaggIntCoeffs),
+			alignConstraintPolysWithCoeffs(in.FaggNorm, in.FaggNormCoeffs)...,
+		),
 		FparAllCoeffs: append(
 			alignConstraintCoeffOverrides(in.FparInt, in.FparIntCoeffs),
 			alignConstraintCoeffOverrides(in.FparNorm, in.FparNormCoeffs)...,
@@ -304,7 +327,19 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		}
 		args.omega = in.Omega
 	} else {
-		args.rows = evalRowsAt(in.RingQ, in.WitnessPolys, in.Omega)
+		witnessRowCount := in.MaskRowOffset
+		if witnessRowCount <= 0 {
+			witnessRowCount = len(in.WitnessPolys)
+		}
+		if witnessRowCount > len(in.RowInputs) {
+			return nil, fmt.Errorf("mask row offset=%d exceeds row inputs=%d", witnessRowCount, len(in.RowInputs))
+		}
+		if witnessRowCount > 0 {
+			args.rows = evalRowInputsAt(in.RingQ, in.RowInputs[:witnessRowCount], in.Omega)
+		}
+		if len(args.rows) == 0 && len(in.WitnessPolys) > 0 {
+			args.rows = evalRowsAt(in.RingQ, in.WitnessPolys, in.Omega)
+		}
 		// Keep the witness packing support separate from the larger LVCS/PCS domain.
 		// The companion and transform-bridge builders are keyed to \Omega_s, not the
 		// full oracle domain.

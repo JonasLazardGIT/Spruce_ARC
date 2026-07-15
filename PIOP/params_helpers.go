@@ -318,8 +318,8 @@ func loadParamsAndOmegaForRelation(opts SimOpts, relation string) (*ring.Ring, [
 	if ell < 0 {
 		ell = 0
 	}
-	if ncols+ell > int(ringQ.N) {
-		return nil, nil, 0, fmt.Errorf("explicit domain: need lvcsNCols+ell <= ring dimension (lvcsNCols=%d, ell=%d, ringN=%d)", ncols, ell, ringQ.N)
+	if ncols+ell > nLeaves {
+		return nil, nil, 0, fmt.Errorf("explicit domain: need lvcsNCols+ell <= nleaves (lvcsNCols=%d, ell=%d, nleaves=%d)", ncols, ell, nLeaves)
 	}
 	omega, _, derr := deriveExplicitDomainForRelation(q, nLeaves, sWitness, ncols, ell, relation)
 	if derr != nil {

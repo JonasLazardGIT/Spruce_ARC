@@ -94,8 +94,8 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if nLeaves <= 0 {
 		nLeaves = int(ringQ.N)
 	}
-	if pcsNCols+ell > int(ringQ.N) {
-		return false, false, false, fmt.Errorf("VerifyNIZK: explicit domain requires pcs_ncols+ell <= ring dimension (pcs_ncols=%d, ell=%d, ringN=%d)", pcsNCols, ell, ringQ.N)
+	if pcsNCols+ell > nLeaves {
+		return false, false, false, fmt.Errorf("VerifyNIZK: explicit domain requires pcs_ncols+ell <= nleaves (pcs_ncols=%d, ell=%d, nleaves=%d)", pcsNCols, ell, nLeaves)
 	}
 	omega, domainPoints, derr := deriveExplicitDomainForRelation(q, nLeaves, witnessNCols, pcsNCols, ell, proof.HashRelation)
 	if derr != nil {
@@ -447,18 +447,11 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		for i := 0; i < ell; i++ {
 			maskIdx[i] = ncols + i
 		}
-		Qvals, qErr := interpolateReplayQRows(ringQ, vTargets, barSets, ncols)
+		Qvals, qErr := interpolateReplayQRows(ringQ, vTargets, barSets, ncols, domainPoints)
 		if qErr != nil {
 			return false, false, false, fmt.Errorf("VerifyNIZK: replay Q rows for subset opening: %w", qErr)
 		}
-		rPolys := make([]*ring.Poly, len(proof.R))
-		for i := range proof.R {
-			rPolys[i] = coeffsToNTTIfFits(ringQ, proof.R[i])
-			if rPolys[i] == nil {
-				return false, false, false, fmt.Errorf("VerifyNIZK: R polynomial %d too large to materialize", i)
-			}
-		}
-		preparedBase, prepErr := prepareRowOpeningForVerify(opening, Gamma, rPolys, coeffMatrix, Qvals, barSets, maskIdx, proof.Tail, ncols, domainPoints, ringQ)
+		preparedBase, prepErr := prepareRowOpeningForVerify(opening, Gamma, proof.R, coeffMatrix, Qvals, barSets, maskIdx, proof.Tail, ncols, domainPoints, ringQ)
 		if prepErr != nil {
 			return false, false, false, fmt.Errorf("VerifyNIZK: prepare subset row opening: %w", prepErr)
 		}
@@ -1016,7 +1009,7 @@ func prepareQOpeningForVerify(open *decs.DECSOpening, gammaQ, qr [][]uint64, poi
 	return open, nil
 }
 
-func interpolateReplayQRows(ringQ *ring.Ring, vTargets, barSets [][]uint64, ncols int) ([]*ring.Poly, error) {
+func interpolateReplayQRows(ringQ *ring.Ring, vTargets, barSets [][]uint64, ncols int, domainPoints []uint64) ([][]uint64, error) {
 	if ringQ == nil {
 		return nil, errors.New("nil ring")
 	}
@@ -1027,14 +1020,13 @@ func interpolateReplayQRows(ringQ *ring.Ring, vTargets, barSets [][]uint64, ncol
 		return nil, fmt.Errorf("VTargets rows=%d != BarSets rows=%d", len(vTargets), len(barSets))
 	}
 	ell := len(barSets[0])
-	qVals := make([]*ring.Poly, len(barSets))
+	qVals := make([][]uint64, len(barSets))
 	for k := 0; k < len(barSets); k++ {
-		poly, interpErr := interpolateRowLocal(ringQ, vTargets[k], barSets[k], ncols, ell)
+		coeffs, interpErr := interpolateRowCoeffsLocal(ringQ, vTargets[k], barSets[k], ncols, ell, domainPoints)
 		if interpErr != nil {
 			return nil, fmt.Errorf("interpolateRow(%d): %w", k, interpErr)
 		}
-		qVals[k] = ringQ.NewPoly()
-		ringQ.NTT(poly, qVals[k])
+		qVals[k] = coeffs
 	}
 	return qVals, nil
 }
@@ -1042,9 +1034,9 @@ func interpolateReplayQRows(ringQ *ring.Ring, vTargets, barSets [][]uint64, ncol
 func prepareRowOpeningForVerify(
 	base *decs.DECSOpening,
 	gamma [][]uint64,
-	rPolys []*ring.Poly,
+	rCoeffRows [][]uint64,
 	coeffMatrix [][]uint64,
-	qVals []*ring.Poly,
+	qVals [][]uint64,
 	barSets [][]uint64,
 	maskIdx []int,
 	tail []int,
@@ -1079,7 +1071,7 @@ func prepareRowOpeningForVerify(
 		}
 	}
 	if len(open.MOmitCols) > 0 {
-		if err := reconstructRowOpeningMvals(open, gamma, rPolys, domainPoints, ringQ); err != nil {
+		if err := reconstructRowOpeningMvalsFormal(open, gamma, rCoeffRows, domainPoints, ringQ.Modulus[0]); err != nil {
 			return nil, err
 		}
 	}
@@ -1089,7 +1081,7 @@ func prepareRowOpeningForVerify(
 func reconstructRowOpeningPvals(
 	open *decs.DECSOpening,
 	coeffMatrix [][]uint64,
-	qVals []*ring.Poly,
+	qVals [][]uint64,
 	barSets [][]uint64,
 	maskIdx []int,
 	tail []int,
@@ -1143,13 +1135,11 @@ func reconstructRowOpeningPvals(
 		return fmt.Errorf("compressed row opening Q row count=%d < coeff rows=%d", len(qVals), len(coeffMatrix))
 	}
 	qCoeffRows := make([][]uint64, len(qVals))
-	tmp := ringQ.NewPoly()
 	for k := 0; k < len(qVals); k++ {
-		if qVals[k] == nil {
+		if len(qVals[k]) == 0 {
 			return fmt.Errorf("missing replay Q row %d", k)
 		}
-		ringQ.InvNTT(qVals[k], tmp)
-		qCoeffRows[k] = append([]uint64(nil), tmp.Coeffs[0]...)
+		qCoeffRows[k] = trimPoly(append([]uint64(nil), qVals[k]...), q)
 	}
 	if len(barSets) < len(coeffMatrix) {
 		return fmt.Errorf("compressed row opening BarSets rows=%d < coeff rows=%d", len(barSets), len(coeffMatrix))
@@ -1210,28 +1200,6 @@ func reconstructRowOpeningPvals(
 	open.PColsEncoded = 0
 	open.POmitCols = nil
 	return nil
-}
-
-func reconstructRowOpeningMvals(open *decs.DECSOpening, gamma [][]uint64, rPolys []*ring.Poly, domainPoints []uint64, ringQ *ring.Ring) error {
-	if open == nil {
-		return errors.New("nil opening")
-	}
-	if ringQ == nil {
-		return errors.New("nil ring")
-	}
-	if len(rPolys) < open.Eta {
-		return fmt.Errorf("row polynomial count=%d < eta=%d", len(rPolys), open.Eta)
-	}
-	rCoeffRows := make([][]uint64, open.Eta)
-	tmp := ringQ.NewPoly()
-	for k := 0; k < open.Eta; k++ {
-		if rPolys[k] == nil {
-			return fmt.Errorf("missing row polynomial %d", k)
-		}
-		ringQ.InvNTT(rPolys[k], tmp)
-		rCoeffRows[k] = trimPoly(append([]uint64(nil), tmp.Coeffs[0]...), ringQ.Modulus[0])
-	}
-	return reconstructRowOpeningMvalsFormal(open, gamma, rCoeffRows, domainPoints, ringQ.Modulus[0])
 }
 
 func reconstructRowOpeningMvalsFormal(open *decs.DECSOpening, gamma [][]uint64, rCoeffRows [][]uint64, domainPoints []uint64, q uint64) error {
@@ -1651,18 +1619,22 @@ func buildSubsetOpening(base *decs.DECSOpening, indices []int, rowCount, eta int
 	return sub, nil
 }
 
-func interpolateRowLocal(ringQ *ring.Ring, row []uint64, mask []uint64, ncols, ell int) (*ring.Poly, error) {
+func interpolateRowCoeffsLocal(ringQ *ring.Ring, row []uint64, mask []uint64, ncols, ell int, domainPoints []uint64) ([]uint64, error) {
 	mod := ringQ.Modulus[0]
-	N := ringQ.N
 	m := ncols + ell
-	if m > int(N) {
-		return nil, errors.New("interpolateRow: degree exceed ring.N")
+	if m <= 0 {
+		return nil, errors.New("interpolateRow: empty interpolation domain")
 	}
-	px := ringQ.NewPoly()
-	px.Coeffs[0][1] = 1
-	pvs := ringQ.NewPoly()
-	ringQ.NTT(px, pvs)
-	xs := append([]uint64(nil), pvs.Coeffs[0][:m]...)
+	if len(row) < ncols {
+		return nil, fmt.Errorf("interpolateRow: row len=%d < ncols=%d", len(row), ncols)
+	}
+	if len(mask) < ell {
+		return nil, fmt.Errorf("interpolateRow: mask len=%d < ell=%d", len(mask), ell)
+	}
+	if len(domainPoints) < m {
+		return nil, fmt.Errorf("interpolateRow: domain points len=%d < ncols+ell=%d", len(domainPoints), m)
+	}
+	xs := append([]uint64(nil), domainPoints[:m]...)
 	ys := make([]uint64, m)
 	copy(ys[:ncols], row)
 	copy(ys[ncols:], mask)
@@ -1698,12 +1670,7 @@ func interpolateRowLocal(ringQ *ring.Ring, row []uint64, mask []uint64, ncols, e
 			Pcoefs[k] = (Pcoefs[k] + tmp[k]*scale) % mod
 		}
 	}
-	P := ringQ.NewPoly()
-	copy(P.Coeffs[0][:m], Pcoefs)
-	for k := m; k < int(N); k++ {
-		P.Coeffs[0][k] = 0
-	}
-	return P, nil
+	return trimPoly(Pcoefs, mod), nil
 }
 
 func extractPathNodes(open *decs.DECSOpening, t int) ([][]byte, error) {

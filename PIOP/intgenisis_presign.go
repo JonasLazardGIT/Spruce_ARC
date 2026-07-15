@@ -80,8 +80,8 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 		if nLeaves <= 0 {
 			nLeaves = int(ringQ.N)
 		}
-		if lvcsNCols+opts.Ell > int(ringQ.N) {
-			return nil, fmt.Errorf("explicit domain: need lvcs_ncols+ell <= ring dimension (lvcs_ncols=%d ell=%d ringN=%d)", lvcsNCols, opts.Ell, ringQ.N)
+		if lvcsNCols+opts.Ell > nLeaves {
+			return nil, fmt.Errorf("explicit domain: need lvcs_ncols+ell <= nleaves (lvcs_ncols=%d ell=%d nleaves=%d)", lvcsNCols, opts.Ell, nLeaves)
 		}
 		var derr error
 		omega, domainPoints, derr = deriveExplicitDomainForRelation(ringQ.Modulus[0], nLeaves, ncols, lvcsNCols, opts.Ell, pub.HashRelation)
