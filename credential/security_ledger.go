@@ -458,40 +458,6 @@ func IntGenISISMultiScopeBits(bits float64, count uint64) float64 {
 	return bits - math.Log2(float64(count))
 }
 
-func IntGenISISBudgetCollisionBits(widthBits int, caps []uint64) float64 {
-	if widthBits <= 0 {
-		return 0
-	}
-	logTerms := make([]float64, 0, len(caps))
-	for _, cap := range caps {
-		if cap < 2 {
-			continue
-		}
-		logTerms = append(logTerms, Log2Binom(cap, 2)-float64(widthBits))
-	}
-	if len(logTerms) == 0 {
-		return 0
-	}
-	return BitsFromLog2Prob(Log2SumExp(logTerms))
-}
-
-func IntGenISISBudgetCollisionBitsLog(widthBits int, capLogs []float64) float64 {
-	if widthBits <= 0 {
-		return 0
-	}
-	logTerms := make([]float64, 0, len(capLogs))
-	for _, capLog2 := range capLogs {
-		if capLog2 <= 0 {
-			continue
-		}
-		logTerms = append(logTerms, log2Binom2FromLog2Count(capLog2)-float64(widthBits))
-	}
-	if len(logTerms) == 0 {
-		return 0
-	}
-	return BitsFromLog2Prob(Log2SumExp(logTerms))
-}
-
 func ExactLedgerTerm(category, name string, bits float64, required bool, reason string) SystemSecurityLedgerTerm {
 	return SystemSecurityLedgerTerm{
 		Category:         category,
@@ -519,11 +485,6 @@ func ConservativeLedgerTerm(category, name string, bits float64, required bool, 
 
 func LedgerTermWithNote(term SystemSecurityLedgerTerm, note string) SystemSecurityLedgerTerm {
 	term.Note = note
-	return term
-}
-
-func LedgerTermWithAccountingStatus(term SystemSecurityLedgerTerm, status string) SystemSecurityLedgerTerm {
-	term.AccountingStatus = status
 	return term
 }
 
@@ -702,24 +663,6 @@ func isZeroROBudgetLogVector(v ROBudgetLogVector) bool {
 	return true
 }
 
-func hasValidPrefixCaps(v ROBudgetVector) bool {
-	for _, cap := range v.ValidPrefixes {
-		if cap > 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func hasValidPrefixLogCaps(v ROBudgetLogVector) bool {
-	for _, cap := range v.ValidPrefixLog2 {
-		if cap > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 func maxUint64Slice(vals []uint64) uint64 {
 	var out uint64
 	for _, v := range vals {
@@ -748,20 +691,6 @@ func maxPositiveFloat64Slice(vals []float64) float64 {
 		}
 	}
 	return out
-}
-
-func log2Binom2FromLog2Count(logCount float64) float64 {
-	if logCount < 1 {
-		return math.Inf(-1)
-	}
-	if logCount <= 52 {
-		n := uint64(math.Round(math.Exp2(logCount)))
-		if n < 2 {
-			return math.Inf(-1)
-		}
-		return Log2Binom(n, 2)
-	}
-	return 2*logCount - 1
 }
 
 func uniqueStrings(vals []string) []string {

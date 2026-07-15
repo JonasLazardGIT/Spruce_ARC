@@ -1,6 +1,9 @@
 package credential
 
-import "testing"
+import (
+	"sort"
+	"testing"
+)
 
 func TestIntGenISISSecurityProfileRegistryLabels(t *testing.T) {
 	want := []string{
@@ -13,7 +16,7 @@ func TestIntGenISISSecurityProfileRegistryLabels(t *testing.T) {
 		"SC-96",
 		"WF-128",
 	}
-	profiles := IntGenISISSecurityProfiles()
+	profiles := testIntGenISISSecurityProfiles()
 	if len(profiles) != len(want) {
 		t.Fatalf("profiles=%v want exactly %v", intGenISISSecurityProfileTestLabels(profiles), want)
 	}
@@ -33,7 +36,7 @@ func TestIntGenISISSecurityProfileRegistryLabels(t *testing.T) {
 }
 
 func TestIntGenISISSecurityProfileSpecsArePopulated(t *testing.T) {
-	for _, profile := range IntGenISISSecurityProfiles() {
+	for _, profile := range testIntGenISISSecurityProfiles() {
 		if profile.Label == "" || profile.Mode == "" || profile.ROM == "" || profile.Status == "" {
 			t.Fatalf("profile has empty required field: %+v", profile)
 		}
@@ -114,9 +117,21 @@ func TestLookupIntGenISISSecurityProfileNormalizesLabels(t *testing.T) {
 	if profile.Label != "SC-96" || profile.Mode != SecurityModeSingleCandidate {
 		t.Fatalf("normalized lookup profile=%+v", profile)
 	}
-	if _, err := MustIntGenISISSecurityProfile("missing"); err == nil {
+	if _, ok := LookupIntGenISISSecurityProfile("missing"); ok {
 		t.Fatal("missing security profile lookup should fail")
 	}
+}
+
+func testIntGenISISSecurityProfiles() []IntGenISISSecurityProfileSpec {
+	profiles := intGenISISSecurityProfileSpecs()
+	out := make([]IntGenISISSecurityProfileSpec, 0, len(profiles))
+	for _, profile := range profiles {
+		out = append(out, cloneIntGenISISSecurityProfileSpec(profile))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Label < out[j].Label
+	})
+	return out
 }
 
 func intGenISISSecurityProfileTestLabels(profiles []IntGenISISSecurityProfileSpec) []string {

@@ -270,10 +270,6 @@ func soundnessOneProofTotal(b SoundnessBudget) float64 {
 	return clampProbability(b.Collision + soundnessAlgebraicTotal(b))
 }
 
-func collisionError(caps [5]int, collisionSpaceBits int) float64 {
-	return collisionErrorLog(queryCapBitsFromCaps(caps), collisionSpaceBits)
-}
-
 func collisionErrorLog(capBits [5]float64, collisionSpaceBits int) float64 {
 	if collisionSpaceBits <= 0 {
 		return 0

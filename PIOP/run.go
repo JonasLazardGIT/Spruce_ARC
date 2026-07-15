@@ -1961,13 +1961,6 @@ func clampBitsToProbability(rawBits float64) (float64, float64) {
 	return bits, math.Pow(2, -bits)
 }
 
-func theoremTerm(queryCap int, eps float64, kappa int) (float64, float64) {
-	if queryCap <= 0 {
-		return 0, math.Inf(1)
-	}
-	return theoremTermLog2Cap(math.Log2(float64(queryCap)), eps, kappa)
-}
-
 func theoremTermLog2Cap(queryCapBits float64, eps float64, kappa int) (float64, float64) {
 	if math.IsInf(queryCapBits, -1) || queryCapBits < 0 || eps <= 0 {
 		return 0, math.Inf(1)

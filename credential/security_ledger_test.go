@@ -168,9 +168,6 @@ func TestIntGenISISProgrammingConflictBitsUsesSeparateResourceBound(t *testing.T
 	if got := IntGenISISProgrammingConflictBits(168, [4]uint64{}); got != 0 {
 		t.Fatalf("empty programming caps bits=%f want 0", got)
 	}
-	if got := IntGenISISBudgetCollisionBits(168, nil); got != 0 {
-		t.Fatalf("empty collision caps bits=%f want 0", got)
-	}
 	logCaps := [4]float64{32, 32, 32, 32}
 	if got := IntGenISISProgrammingConflictBitsLog(168, logCaps); math.Abs(got-want) > 1e-9 {
 		t.Fatalf("log programming conflict bits=%f want %f", got, want)
@@ -320,11 +317,6 @@ func TestIntGenISISLogResourceCapsRepresentBQ128RawBudget(t *testing.T) {
 
 func TestValidPrefixLogCapsRequireExplicitTheoremMode(t *testing.T) {
 	input := bq32LedgerInputForTagElements(9)
-	rawCollision := IntGenISISBudgetCollisionBitsLog(168, []float64{32, 32, 32, 32, 32})
-	withValid := IntGenISISBudgetCollisionBitsLog(168, []float64{32, 32, 32, 32, 32})
-	if math.Abs(rawCollision-withValid) > 1e-9 {
-		t.Fatalf("valid-prefix caps should not affect raw collision bits: raw=%f valid=%f", rawCollision, withValid)
-	}
 	input.ROBudgetLogs = ROBudgetLogVectorFromProfile(IntGenISISSecurityProfileSpec{ROQueryCapBits: []float64{32, 32, 32, 32, 32}})
 	input.ROBudgetLogs.ValidPrefixLog2 = [4]float64{20, 20, 20, 20}
 	ledger := EvaluateIntGenISISSystemSecurityLedger(input)

@@ -196,7 +196,7 @@ func TestComposeFullGameSoundness(t *testing.T) {
 	if !closeFloat(got.ConservativeFullGameError, wantConservative, 1e-18) {
 		t.Fatalf("conservative=%g want %g", got.ConservativeFullGameError, wantConservative)
 	}
-	wantGlobalCollision := collisionError(wantCaps, 96)
+	wantGlobalCollision := collisionErrorLog(queryCapBitsFromCaps(wantCaps), 96)
 	wantGlobal := wantGlobalCollision + 2*issuance.AlgebraicTotal + 3*showing.AlgebraicTotal
 	if !closeFloat(got.GlobalCollisionError, wantGlobalCollision, 1e-18) {
 		t.Fatalf("global collision=%g want %g", got.GlobalCollisionError, wantGlobalCollision)

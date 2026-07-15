@@ -1184,27 +1184,11 @@ func nizkProfileSplitShortnessCandidate(base intGenISISTuning) intGenISISTuning 
 	return out
 }
 
-func nizkProfileCompression2Candidate(base intGenISISTuning) intGenISISTuning {
-	out := base
-	out.CompressedRows = 2
-	out.ReplayProjection = qBudget128ProjectionProjectUDigitsYWResidual
-	return out
-}
-
 func nizkProfileFullR2Candidate(base intGenISISTuning) intGenISISTuning {
 	out := base
 	out.SigShortnessRadix = 2
 	out.SigShortnessDigits = 13
 	out.CompressedRows = 0
-	out.ReplayProjection = qBudget128ProjectionProjectUDigitsYWResidual
-	return out
-}
-
-func nizkProfileR121L2Candidate(base intGenISISTuning) intGenISISTuning {
-	out := base
-	out.SigShortnessRadix = 121
-	out.SigShortnessDigits = 2
-	out.CompressedRows = 1
 	out.ReplayProjection = qBudget128ProjectionProjectUDigitsYWResidual
 	return out
 }
@@ -1317,36 +1301,6 @@ func nizkProfileRelationSplitShortness() benchmarkIntGenISISRelationReport {
 	}
 }
 
-func nizkProfileRelationCompression2() benchmarkIntGenISISRelationReport {
-	dqParallel, dqAggregate, dq := PIOP.ComputeDQBranchBounds(13, 10, 32, 9)
-	return benchmarkIntGenISISRelationReport{
-		LogicalRows:      376,
-		ParallelDegree:   13,
-		AggregatedDegree: 10,
-		DQParallel:       dqParallel,
-		DQAggregate:      dqAggregate,
-		DQ:               dq,
-		MaskDegreeBound:  dq,
-		RowCounts: map[string]int{
-			"total":     376,
-			"bound":     49,
-			"mask":      70,
-			"prf":       7,
-			"shortness": 224,
-		},
-		ConstraintCounts: map[string]int{
-			"fpar_int":            32,
-			"prf_key_bridge":      8,
-			"projected_signature": 1024,
-			"range":               49,
-			"shortness":           224,
-			"source_bridge":       1024,
-		},
-		DominantDegreeSource: "compression",
-		DominantDQBranch:     "parallel",
-	}
-}
-
 func nizkProfileRelationR11L4TopCap() benchmarkIntGenISISRelationReport {
 	dqParallel, dqAggregate, dq := PIOP.ComputeDQBranchBounds(11, 8, 32, 9)
 	return benchmarkIntGenISISRelationReport{
@@ -1403,36 +1357,6 @@ func nizkProfileRelationFullR2() benchmarkIntGenISISRelationReport {
 			"source_bridge":       1024,
 		},
 		DominantDegreeSource: "full_r2_row_explosion",
-		DominantDQBranch:     "parallel",
-	}
-}
-
-func nizkProfileRelationR121L2() benchmarkIntGenISISRelationReport {
-	dqParallel, dqAggregate, dq := PIOP.ComputeDQBranchBounds(121, 64, 32, 9)
-	return benchmarkIntGenISISRelationReport{
-		LogicalRows:      280,
-		ParallelDegree:   121,
-		AggregatedDegree: 64,
-		DQParallel:       dqParallel,
-		DQAggregate:      dqAggregate,
-		DQ:               dq,
-		MaskDegreeBound:  dq,
-		RowCounts: map[string]int{
-			"total":     280,
-			"bound":     49,
-			"mask":      70,
-			"prf":       7,
-			"shortness": 128,
-		},
-		ConstraintCounts: map[string]int{
-			"fpar_int":            32,
-			"prf_key_bridge":      8,
-			"projected_signature": 1024,
-			"range":               49,
-			"shortness":           128,
-			"source_bridge":       1024,
-		},
-		DominantDegreeSource: "unsupported_r121_lookup_shortness",
 		DominantDQBranch:     "parallel",
 	}
 }
@@ -1626,10 +1550,6 @@ func nizkProfileAlgebraicAccounting(target NIZKProfileSearchTarget, cand NIZKPro
 	return credential.SmallWoodValidPrefixAccounting(nizkProfileROBudgetLogs(target, cand), cand.ValidPrefixResearch)
 }
 
-func nizkProfileEffectiveQueryCapLog2(target NIZKProfileSearchTarget, cand NIZKProfileSearchCandidate) [4]float64 {
-	return nizkProfileAlgebraicAccounting(target, cand).EffectiveAlgebraicCapLog2
-}
-
 func nizkProfileSmallWoodQueryCapLog2(target NIZKProfileSearchTarget, sw NIZKProfileSmallWoodReport) [4]float64 {
 	if hasPositiveFloat64Array(sw.EffectiveQueryCapLog2) {
 		return sw.EffectiveQueryCapLog2
@@ -1704,10 +1624,6 @@ func deriveNIZKProfileSmallWoodReportWithCaps(target NIZKProfileSearchTarget, re
 		}
 	}
 	return out
-}
-
-func nizkProfileEtaFloor(target NIZKProfileSearchTarget, relation benchmarkIntGenISISRelationReport, base intGenISISTuning, lvcs int) int {
-	return nizkProfileEtaFloorWithCaps(target, relation, base, lvcs, nizkProfileRawQueryCapLog2(target))
 }
 
 func nizkProfileEtaFloorWithCaps(target NIZKProfileSearchTarget, relation benchmarkIntGenISISRelationReport, base intGenISISTuning, lvcs int, queryCapLog2 [4]float64) int {

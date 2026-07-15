@@ -99,12 +99,11 @@ func TestVerifierRejectsExplicitHashAndTapeWidthMismatch(t *testing.T) {
 		t.Fatalf("commit init: %v", err)
 	}
 	rootHash := pr.RootHash()
-	gamma := DeriveGamma([16]byte{}, pr.params.Eta, pr.rowCount(), pr.ringQ.Modulus[0])
 	// Recompute gamma from the legacy root prefix so CommitStep2Formal matches
 	// the verifier path used by low-level DECS callers.
 	copyRoot := [16]byte{}
 	copy(copyRoot[:], rootHash)
-	gamma = DeriveGamma(copyRoot, pr.params.Eta, pr.rowCount(), pr.ringQ.Modulus[0])
+	gamma := DeriveGamma(copyRoot, pr.params.Eta, pr.rowCount(), pr.ringQ.Modulus[0])
 	rFormal := pr.CommitStep2Formal(gamma)
 	open := pr.EvalOpen([]int{3, 17, 42})
 

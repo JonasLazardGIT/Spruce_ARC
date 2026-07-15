@@ -1,10 +1,6 @@
 package credential
 
-import (
-	"fmt"
-	"sort"
-	"strings"
-)
+import "strings"
 
 type SecurityMode string
 
@@ -49,18 +45,6 @@ type IntGenISISSecurityProfileSpec struct {
 	Notes            string                `json:"notes,omitempty"`
 }
 
-func IntGenISISSecurityProfiles() []IntGenISISSecurityProfileSpec {
-	profiles := intGenISISSecurityProfileSpecs()
-	out := make([]IntGenISISSecurityProfileSpec, 0, len(profiles))
-	for _, profile := range profiles {
-		out = append(out, cloneIntGenISISSecurityProfileSpec(profile))
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Label < out[j].Label
-	})
-	return out
-}
-
 func LookupIntGenISISSecurityProfile(label string) (IntGenISISSecurityProfileSpec, bool) {
 	profile, ok := intGenISISSecurityProfileRegistry()[normalizeIntGenISISSecurityProfileLabel(label)]
 	if !ok {
@@ -69,25 +53,8 @@ func LookupIntGenISISSecurityProfile(label string) (IntGenISISSecurityProfileSpe
 	return cloneIntGenISISSecurityProfileSpec(profile), true
 }
 
-func MustIntGenISISSecurityProfile(label string) (IntGenISISSecurityProfileSpec, error) {
-	profile, ok := LookupIntGenISISSecurityProfile(label)
-	if !ok {
-		return IntGenISISSecurityProfileSpec{}, fmt.Errorf("unknown IntGenISIS security profile %q (supported: %s)", label, strings.Join(intGenISISSecurityProfileLabels(), ", "))
-	}
-	return profile, nil
-}
-
 func normalizeIntGenISISSecurityProfileLabel(label string) string {
 	return strings.ToUpper(strings.TrimSpace(label))
-}
-
-func intGenISISSecurityProfileLabels() []string {
-	profiles := IntGenISISSecurityProfiles()
-	labels := make([]string, 0, len(profiles))
-	for _, profile := range profiles {
-		labels = append(labels, profile.Label)
-	}
-	return labels
 }
 
 func intGenISISSecurityProfileRegistry() map[string]IntGenISISSecurityProfileSpec {
