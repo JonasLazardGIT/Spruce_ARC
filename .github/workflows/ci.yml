@@ -18,17 +18,27 @@ jobs:
 
   docker-release-gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Docker build
-        run: docker build -t spruce-artifact .
-      - name: Docker help
-        run: docker run --rm spruce-artifact help
-      - name: Docker test
-        run: docker run --rm spruce-artifact test
-      - name: Docker benchmark smoke
-        run: docker run --rm spruce-artifact bench n1024-compact125
-      - name: Docker maintained gate
-        run: docker run --rm spruce-artifact gate
-      - name: Docker full validation
-        run: docker run --rm spruce-artifact validate
+        run: docker build -t spruce-poc .
+      - name: Prepare writable artifact directory
+        run: mkdir -p artifacts/docker && chmod 0777 artifacts/docker
+      - name: Docker preset list
+        run: docker run --rm spruce-poc list
+      - name: Docker WF-128 benchmark
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)"
+          -v "$PWD/artifacts/docker:/artifacts"
+          spruce-poc bench system-n1024-wf128-crom-v1
+      - name: Docker functional gate
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)"
+          -v "$PWD/artifacts/docker:/artifacts"
+          spruce-poc gate
+      - name: Docker historical artifact gate
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)"
+          -v "$PWD/artifacts/docker:/artifacts"
+          spruce-poc artifact-gate
