@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"runtime"
 	"strings"
+	"sync"
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
@@ -1292,17 +1294,91 @@ func computeVTargets(mod uint64, rows [][]uint64, C [][]uint64) [][]uint64 {
 	}
 	ncols := len(rows[0])
 	m := len(C)
+	rowsN := len(rows)
+	red := lvcs.NewReducer64(mod)
+
+	// Small-field lazy accumulation: rows[j][i], C[k][j] < mod (a ~20-bit
+	// prime), so every product is < mod^2 and we can sum many of them in a raw
+	// uint64 before a single Barrett reduction. safeBlock is the largest number
+	// of products whose sum is guaranteed to stay below 2^64; for realistic row
+	// counts the whole inner sum fits, so no intermediate reduction is needed.
+	var safeBlock int
+	if mod > 1 {
+		safeBlock = int((^uint64(0)) / ((mod - 1) * (mod - 1)))
+	}
+	if safeBlock < 1 {
+		safeBlock = 1
+	}
+
+	// One contiguous backing block for all output rows instead of m separate
+	// allocations (cuts GC pressure; rows are capped so appends can't overrun).
+	backing := make([]uint64, m*ncols)
 	res := make([][]uint64, m)
 	for k := 0; k < m; k++ {
-		res[k] = make([]uint64, ncols)
-		for i := 0; i < ncols; i++ {
-			sum := uint64(0)
-			for j := 0; j < len(rows); j++ {
-				sum = lvcs.MulAddMod64(sum, C[k][j], rows[j][i], mod)
+		res[k] = backing[k*ncols : (k+1)*ncols : (k+1)*ncols]
+	}
+	compute := func(k int) {
+		acc := res[k]
+		Ck := C[k]
+		sinceReduce := 0
+		for j := 0; j < rowsN; j++ {
+			c := Ck[j]
+			if c >= mod {
+				c %= mod
 			}
-			res[k][i] = sum
+			if c == 0 {
+				continue
+			}
+			row := rows[j]
+			jj := 0
+			limit := ncols - ncols%4
+			for ; jj < limit; jj += 4 {
+				acc[jj] += c * row[jj]
+				acc[jj+1] += c * row[jj+1]
+				acc[jj+2] += c * row[jj+2]
+				acc[jj+3] += c * row[jj+3]
+			}
+			for ; jj < ncols; jj++ {
+				acc[jj] += c * row[jj]
+			}
+			// Defensive: only relevant for pathologically large row counts;
+			// safeBlock ~1.7e7 here so this branch is effectively never taken.
+			if sinceReduce++; sinceReduce == safeBlock {
+				for i := 0; i < ncols; i++ {
+					acc[i] = red.Reduce(acc[i])
+				}
+				sinceReduce = 0
+			}
+		}
+		for i := 0; i < ncols; i++ {
+			acc[i] = red.Reduce(acc[i])
 		}
 	}
+	// Each output row is independent (disjoint writes, read-only inputs), so fan
+	// out over rows. Small inputs stay sequential to avoid goroutine overhead.
+	workers := minInt(runtime.GOMAXPROCS(0), m)
+	if workers <= 1 || m < 8 || m*ncols < 1<<14 {
+		for k := 0; k < m; k++ {
+			compute(k)
+		}
+		return res
+	}
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		start := worker * m / workers
+		end := (worker + 1) * m / workers
+		if start >= end {
+			continue
+		}
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			for k := start; k < end; k++ {
+				compute(k)
+			}
+		}(start, end)
+	}
+	wg.Wait()
 	return res
 }
 
@@ -1806,6 +1882,30 @@ func compressionPivotCols(coeff [][]uint64, colCount int, mod uint64) ([]int, bo
 			a[i][j] = coeff[i][j] % mod
 		}
 	}
+	// mod is a ~20-bit prime, so entries stay < mod and every product fits in
+	// one 64-bit word: use a Barrett reducer instead of a hardware division per
+	// multiply, and subtract without redundant reduction guards.
+	red := lvcs.NewReducer64(mod)
+	// Eliminate rows [rStart,rEnd) against the (read-only) pivot row arow. Rows
+	// are disjoint, so this range can be split across goroutines safely.
+	eliminate := func(rStart, rEnd, col int, arow []uint64) {
+		for r := rStart; r < rEnd; r++ {
+			factor := a[r][col] % mod
+			if factor == 0 {
+				continue
+			}
+			ar := a[r]
+			for c := col; c < colCount; c++ {
+				term := red.MulReduce(factor, arow[c])
+				if av := ar[c]; av >= term {
+					ar[c] = av - term
+				} else {
+					ar[c] = av + mod - term
+				}
+			}
+		}
+	}
+	workers := runtime.GOMAXPROCS(0)
 	pivots := make([]int, 0, rows)
 	row := 0
 	for col := 0; col < colCount && row < rows; col++ {
@@ -1822,37 +1922,36 @@ func compressionPivotCols(coeff [][]uint64, colCount int, mod uint64) ([]int, bo
 		if pivot != row {
 			a[row], a[pivot] = a[pivot], a[row]
 		}
-		invPivot := ring.ModExp(a[row][col]%mod, mod-2, mod)
+		arow := a[row]
+		invPivot := ring.ModExp(arow[col]%mod, mod-2, mod)
 		for c := col; c < colCount; c++ {
-			a[row][c] = lvcs.MulMod64(a[row][c], invPivot, mod)
+			arow[c] = red.MulReduce(arow[c], invPivot)
 		}
-		for r := row + 1; r < rows; r++ {
-			factor := a[r][col] % mod
-			if factor == 0 {
-				continue
+		// Row elimination is independent per row: fan out when the remaining
+		// submatrix is large enough to amortize the goroutine overhead.
+		nrem := rows - (row + 1)
+		if workers > 1 && nrem >= 2*workers && nrem*(colCount-col) >= 1<<15 {
+			var wg sync.WaitGroup
+			for w := 0; w < workers; w++ {
+				s := row + 1 + w*nrem/workers
+				e := row + 1 + (w+1)*nrem/workers
+				if s >= e {
+					continue
+				}
+				wg.Add(1)
+				go func(s, e int) {
+					defer wg.Done()
+					eliminate(s, e, col, arow)
+				}(s, e)
 			}
-			for c := col; c < colCount; c++ {
-				term := lvcs.MulMod64(factor, a[row][c], mod)
-				a[r][c] = compressionSubMod(a[r][c], term, mod)
-			}
+			wg.Wait()
+		} else {
+			eliminate(row+1, rows, col, arow)
 		}
 		pivots = append(pivots, col)
 		row++
 	}
 	return pivots, row == rows
-}
-
-func compressionSubMod(a, b, mod uint64) uint64 {
-	if a >= mod {
-		a %= mod
-	}
-	if b >= mod {
-		b %= mod
-	}
-	if a >= b {
-		return a - b
-	}
-	return a + mod - b
 }
 
 func bytesFromUint64Matrix(mat [][]uint64) []byte {

@@ -8,6 +8,7 @@ import (
 	"math/bits"
 
 	kf "vSIS-Signature/internal/kfield"
+	lvcs "vSIS-Signature/LVCS"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -1116,6 +1117,9 @@ func addMulModXN1Power2Into(dst, a, b []uint64, scale, q uint64) {
 	if n == 0 || scale == 0 {
 		return
 	}
+	// q is a ~20-bit prime, so products fit in a single 64-bit word: reduce with
+	// one Barrett multiply instead of a hardware division per coefficient.
+	red := lvcs.NewReducer64(q)
 	for i, av := range a {
 		if av >= q {
 			av %= q
@@ -1123,7 +1127,7 @@ func addMulModXN1Power2Into(dst, a, b []uint64, scale, q uint64) {
 		if av == 0 {
 			continue
 		}
-		av = modMulReduced(av, scale, q)
+		av = red.MulReduce(av, scale)
 		if av == 0 {
 			continue
 		}
@@ -1139,7 +1143,7 @@ func addMulModXN1Power2Into(dst, a, b []uint64, scale, q uint64) {
 			if bv == 0 {
 				continue
 			}
-			dst[i+j] = modAddReduced(dst[i+j], modMulReduced(av, bv, q), q)
+			dst[i+j] = modAddReduced(dst[i+j], red.MulReduce(av, bv), q)
 		}
 		for j := positive; j < len(b); j++ {
 			bv := b[j]
@@ -1149,7 +1153,7 @@ func addMulModXN1Power2Into(dst, a, b []uint64, scale, q uint64) {
 			if bv == 0 {
 				continue
 			}
-			dst[i+j-n] = modSubReduced(dst[i+j-n], modMulReduced(av, bv, q), q)
+			dst[i+j-n] = modSubReduced(dst[i+j-n], red.MulReduce(av, bv), q)
 		}
 	}
 }
@@ -1291,6 +1295,37 @@ func addMulNTTIntoAccumulator(ringQ *ring.Ring, acc, aNTT, bNTT *ring.Poly, scal
 		scale %= q
 	}
 	if scale == 0 {
+		return true
+	}
+	// Small-field fused multiply-add: NTT-domain coeffs and scale are all < q.
+	// When q^3 fits in 64 bits we can form scale*a[i]*b[i] in a single word,
+	// Barrett-reduce it once, and add straight into the (reduced) accumulator —
+	// one pass and one reduction per coefficient instead of MulCoeffs+MulScalar+
+	// Add (three passes, two reductions). acc stays reduced mod q, so the flush
+	// path and every caller are unaffected. Falls back to the generic ring ops
+	// when the modulus is too large for the product to fit.
+	if q > 1 && q <= (uint64(1)<<21) {
+		red := lvcs.NewReducer64(q)
+		a := aNTT.Coeffs[0]
+		b := bNTT.Coeffs[0]
+		ac := acc.Coeffs[0]
+		if scale == 1 {
+			for i := range ac {
+				s := ac[i] + red.Reduce(a[i]*b[i])
+				if s >= q {
+					s -= q
+				}
+				ac[i] = s
+			}
+		} else {
+			for i := range ac {
+				s := ac[i] + red.Reduce(a[i]*b[i]*scale)
+				if s >= q {
+					s -= q
+				}
+				ac[i] = s
+			}
+		}
 		return true
 	}
 	ringQ.MulCoeffs(aNTT, bNTT, scratch.out)

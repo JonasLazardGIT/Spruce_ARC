@@ -244,9 +244,11 @@ func deriveSmallFieldParamsNoRows(ringQ *ring.Ring, omega []uint64, theta int) (
 	if chiErr != nil {
 		return out, fmt.Errorf("FindIrreducible: %w", chiErr)
 	}
-	K, kErr := kf.New(q, theta, chi)
+	// chi is guaranteed irreducible by FindIrreducible, so skip the redundant
+	// O(theta^3) re-test in New (matters at high theta).
+	K, kErr := kf.NewUnchecked(q, theta, chi)
 	if kErr != nil {
-		return out, fmt.Errorf("kfield.New: %w", kErr)
+		return out, fmt.Errorf("kfield.NewUnchecked: %w", kErr)
 	}
 	var omegaS1 kf.Elem
 	var muDenomInv kf.Elem
