@@ -63,3 +63,43 @@ func TestIntGenISISStateRoundTripOmitsOldRandomness(t *testing.T) {
 		t.Fatalf("state mismatch: %+v", got)
 	}
 }
+
+func TestIntGenISISStateRejectsTamperedPresetBinding(t *testing.T) {
+	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPoCN512SC96V1)
+	profile, _ := LookupIntGenISISProfile(preset.Profile)
+	row := func() []int64 { return make([]int64, profile.N) }
+	layout, err := DefaultSemanticMessageLayout(profile, IntGenISISPRFPoseidonKeyLen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	semantic, err := EncodeSemanticMessage(layout, [][]int64{row()}, makeSeedForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := IntGenISISState{
+		Version:              IntGenISISStateVersion,
+		Profile:              preset.Profile,
+		PresetID:             preset.CanonicalID,
+		PresetVersion:        preset.PresetVersion,
+		PrimitiveProfileID:   preset.PrimitiveProfileID,
+		PRFProfile:           preset.PRFProfile,
+		TranscriptMode:       preset.Showing.TranscriptMode,
+		PresetManifestDigest: IntGenISISPresetManifestDigest(preset),
+		M:                    semantic.M,
+		MAttr:                semantic.MAttr,
+		K:                    semantic.K,
+		S:                    [][]int64{row(), row()},
+		E:                    [][]int64{row()},
+		MuSig:                [][]int64{row()},
+		X0:                   [][]int64{row(), row()},
+		X1:                   [][]int64{row()},
+		RingDegree:           profile.N,
+	}
+	if err := state.Validate(); err != nil {
+		t.Fatalf("valid bound state rejected: %v", err)
+	}
+	state.PresetManifestDigest = "tampered"
+	if err := state.Validate(); err == nil {
+		t.Fatal("tampered state preset binding accepted")
+	}
+}

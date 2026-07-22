@@ -12,7 +12,7 @@ import (
 )
 
 const DefaultPublicParamsPath = "internal/source_data/credential_public.intgenisis_profile_b.json"
-const PublicParamsVersion = 6
+const PublicParamsVersion = 7
 const MuLayoutFullCapacityHalvesV1 = "full_capacity_halves_v1"
 
 // PublicParams captures the stable credential-side public parameters used by
@@ -20,6 +20,12 @@ const MuLayoutFullCapacityHalvesV1 = "full_capacity_halves_v1"
 type PublicParams struct {
 	Version              int                           `json:"version,omitempty"`
 	Profile              string                        `json:"profile,omitempty"`
+	PresetID             string                        `json:"preset_id,omitempty"`
+	PresetVersion        int                           `json:"preset_version,omitempty"`
+	PrimitiveProfileID   string                        `json:"primitive_profile_id,omitempty"`
+	PRFProfile           string                        `json:"prf_profile,omitempty"`
+	TranscriptMode       string                        `json:"transcript_mode,omitempty"`
+	PresetManifestDigest string                        `json:"preset_manifest_digest,omitempty"`
 	Modulus              uint64                        `json:"q,omitempty"`
 	HashRelation         string                        `json:"hash_relation"`
 	Ac                   commitment.CoeffMatrix        `json:"Ac"`
@@ -200,6 +206,9 @@ func (pp *PublicParams) Validate() error {
 		}
 	}
 	if pp.UsesIntGenISIS() {
+		if err := pp.validatePresetBinding(); err != nil {
+			return err
+		}
 		return pp.validateIntGenISIS()
 	}
 	if len(pp.Ac) == 0 {
@@ -240,6 +249,84 @@ func (pp *PublicParams) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (pp PublicParams) HasPresetBinding() bool {
+	return pp.PresetID != "" || pp.PresetVersion != 0 || pp.PrimitiveProfileID != "" || pp.PRFProfile != "" || pp.TranscriptMode != "" || pp.PresetManifestDigest != ""
+}
+
+func (pp *PublicParams) BindIntGenISISPreset(preset IntGenISISPreset) error {
+	if preset.CanonicalID == "" || preset.PresetVersion <= 0 {
+		return fmt.Errorf("preset %q is missing canonical manifest metadata", preset.Name)
+	}
+	if pp.Profile != "" && pp.Profile != preset.Profile {
+		return fmt.Errorf("public parameter profile %q does not match preset primitive profile %q", pp.Profile, preset.Profile)
+	}
+	pp.PresetID = preset.CanonicalID
+	pp.PresetVersion = preset.PresetVersion
+	pp.PrimitiveProfileID = preset.PrimitiveProfileID
+	pp.PRFProfile = preset.PRFProfile
+	pp.TranscriptMode = preset.Showing.TranscriptMode
+	pp.PresetManifestDigest = IntGenISISPresetManifestDigest(preset)
+	return pp.validatePresetBinding()
+}
+
+func (pp PublicParams) ValidateIntGenISISPreset(preset IntGenISISPreset) error {
+	if !pp.HasPresetBinding() {
+		return fmt.Errorf("public parameters are not bound to a canonical preset manifest")
+	}
+	if pp.PresetID != preset.CanonicalID {
+		return fmt.Errorf("public parameter preset_id=%q does not match selected preset %q", pp.PresetID, preset.CanonicalID)
+	}
+	if pp.PresetVersion != preset.PresetVersion {
+		return fmt.Errorf("public parameter preset_version=%d does not match selected preset version %d", pp.PresetVersion, preset.PresetVersion)
+	}
+	wantDigest := IntGenISISPresetManifestDigest(preset)
+	if pp.PresetManifestDigest != wantDigest {
+		return fmt.Errorf("public parameter preset manifest digest mismatch")
+	}
+	return nil
+}
+
+// PresetTranscriptExtras returns canonical byte values suitable for PIOP's
+// public-input Fiat-Shamir binding. Existing entries are copied.
+func (pp PublicParams) PresetTranscriptExtras(existing map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(existing)+6)
+	for key, value := range existing {
+		out[key] = value
+	}
+	if !pp.HasPresetBinding() {
+		return out
+	}
+	out["IntGenISIS.preset_id"] = []byte(pp.PresetID)
+	out["IntGenISIS.preset_version"] = []byte(fmt.Sprintf("%d", pp.PresetVersion))
+	out["IntGenISIS.primitive_profile_id"] = []byte(pp.PrimitiveProfileID)
+	out["IntGenISIS.prf_profile"] = []byte(pp.PRFProfile)
+	out["IntGenISIS.transcript_mode"] = []byte(pp.TranscriptMode)
+	out["IntGenISIS.preset_manifest_digest"] = []byte(pp.PresetManifestDigest)
+	return out
+}
+
+func (pp *PublicParams) validatePresetBinding() error {
+	if !pp.HasPresetBinding() {
+		// Version-6 and earlier artifact files remain readable for reproduction,
+		// but CLI issuance/showing rejects them when a selected preset is required.
+		return nil
+	}
+	if pp.PresetID == "" || pp.PresetVersion <= 0 || pp.PrimitiveProfileID == "" || pp.PRFProfile == "" || pp.TranscriptMode == "" || pp.PresetManifestDigest == "" {
+		return fmt.Errorf("incomplete IntGenISIS preset binding")
+	}
+	preset, ok := LookupIntGenISISPreset(pp.PresetID)
+	if !ok {
+		return fmt.Errorf("unknown bound IntGenISIS preset %q", pp.PresetID)
+	}
+	if pp.Profile != preset.Profile || pp.PrimitiveProfileID != preset.PrimitiveProfileID {
+		return fmt.Errorf("bound primitive profile mismatch")
+	}
+	if pp.PRFProfile != preset.PRFProfile || pp.TranscriptMode != preset.Showing.TranscriptMode {
+		return fmt.Errorf("bound PRF/transcript profile mismatch")
+	}
+	return pp.ValidateIntGenISISPreset(preset)
 }
 
 func (pp *PublicParams) validateIntGenISIS() error {

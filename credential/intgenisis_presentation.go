@@ -15,12 +15,15 @@ const (
 )
 
 type IntGenISISPresentation struct {
-	Version            int             `json:"version"`
-	Profile            string          `json:"profile"`
-	PublicParamsDigest string          `json:"public_params_digest"`
-	Nonce              [][]int64       `json:"nonce"`
-	Tag                [][]int64       `json:"tag"`
-	Proof              json.RawMessage `json:"proof"`
+	Version              int             `json:"version"`
+	Profile              string          `json:"profile"`
+	PresetID             string          `json:"preset_id,omitempty"`
+	PresetVersion        int             `json:"preset_version,omitempty"`
+	PresetManifestDigest string          `json:"preset_manifest_digest,omitempty"`
+	PublicParamsDigest   string          `json:"public_params_digest"`
+	Nonce                [][]int64       `json:"nonce"`
+	Tag                  [][]int64       `json:"tag"`
+	Proof                json.RawMessage `json:"proof"`
 }
 
 type IntGenISISVerifierState struct {
@@ -84,6 +87,15 @@ func (pres IntGenISISPresentation) Validate() error {
 	}
 	if pres.PublicParamsDigest == "" {
 		return fmt.Errorf("presentation missing public params digest")
+	}
+	if pres.PresetID != "" || pres.PresetVersion != 0 || pres.PresetManifestDigest != "" {
+		if pres.PresetID == "" || pres.PresetVersion <= 0 || pres.PresetManifestDigest == "" {
+			return fmt.Errorf("presentation has incomplete preset binding")
+		}
+		preset, ok := LookupIntGenISISPreset(pres.PresetID)
+		if !ok || preset.Profile != pres.Profile || preset.PresetVersion != pres.PresetVersion || IntGenISISPresetManifestDigest(preset) != pres.PresetManifestDigest {
+			return fmt.Errorf("presentation preset manifest mismatch")
+		}
 	}
 	if len(pres.Nonce) == 0 {
 		return fmt.Errorf("presentation missing nonce")
@@ -150,15 +162,19 @@ func NewIntGenISISVerifierState() IntGenISISVerifierState {
 
 func (st IntGenISISVerifierState) ReplayKey(pres IntGenISISPresentation) string {
 	data, _ := json.Marshal(struct {
-		Profile string    `json:"profile"`
-		Digest  string    `json:"digest"`
-		Nonce   [][]int64 `json:"nonce"`
-		Tag     [][]int64 `json:"tag"`
+		Profile  string    `json:"profile"`
+		Preset   string    `json:"preset"`
+		Manifest string    `json:"manifest"`
+		Digest   string    `json:"digest"`
+		Nonce    [][]int64 `json:"nonce"`
+		Tag      [][]int64 `json:"tag"`
 	}{
-		Profile: pres.Profile,
-		Digest:  pres.PublicParamsDigest,
-		Nonce:   pres.Nonce,
-		Tag:     pres.Tag,
+		Profile:  pres.Profile,
+		Preset:   pres.PresetID,
+		Manifest: pres.PresetManifestDigest,
+		Digest:   pres.PublicParamsDigest,
+		Nonce:    pres.Nonce,
+		Tag:      pres.Tag,
 	})
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])

@@ -14,6 +14,12 @@ const IntGenISISStateVersion = 6
 type IntGenISISState struct {
 	Version              int       `json:"version"`
 	Profile              string    `json:"profile"`
+	PresetID             string    `json:"preset_id,omitempty"`
+	PresetVersion        int       `json:"preset_version,omitempty"`
+	PrimitiveProfileID   string    `json:"primitive_profile_id,omitempty"`
+	PRFProfile           string    `json:"prf_profile,omitempty"`
+	TranscriptMode       string    `json:"transcript_mode,omitempty"`
+	PresetManifestDigest string    `json:"preset_manifest_digest,omitempty"`
 	M                    [][]int64 `json:"M"`
 	MAttr                [][]int64 `json:"m,omitempty"`
 	K                    [][]int64 `json:"k,omitempty"`
@@ -77,6 +83,18 @@ func (st IntGenISISState) Validate() error {
 	if st.RingDegree != profile.N {
 		return fmt.Errorf("ring_degree=%d want %d", st.RingDegree, profile.N)
 	}
+	if st.HasPresetBinding() {
+		if st.PresetID == "" || st.PresetVersion <= 0 || st.PrimitiveProfileID == "" || st.PRFProfile == "" || st.TranscriptMode == "" || st.PresetManifestDigest == "" {
+			return fmt.Errorf("incomplete IntGenISIS state preset binding")
+		}
+		preset, ok := LookupIntGenISISPreset(st.PresetID)
+		if !ok {
+			return fmt.Errorf("unknown state preset_id %q", st.PresetID)
+		}
+		if st.Profile != preset.Profile || st.PrimitiveProfileID != preset.PrimitiveProfileID || st.PRFProfile != preset.PRFProfile || st.TranscriptMode != preset.Showing.TranscriptMode || st.PresetVersion != preset.PresetVersion || st.PresetManifestDigest != IntGenISISPresetManifestDigest(preset) {
+			return fmt.Errorf("IntGenISIS state preset manifest mismatch")
+		}
+	}
 	if len(st.M) != profile.EllM {
 		return fmt.Errorf("m rows=%d want ell_M=%d", len(st.M), profile.EllM)
 	}
@@ -138,6 +156,23 @@ func (st IntGenISISState) Validate() error {
 	}
 	if st.SignatureBound < 0 {
 		return fmt.Errorf("signature_bound=%d", st.SignatureBound)
+	}
+	return nil
+}
+
+func (st IntGenISISState) HasPresetBinding() bool {
+	return st.PresetID != "" || st.PresetVersion != 0 || st.PrimitiveProfileID != "" || st.PRFProfile != "" || st.TranscriptMode != "" || st.PresetManifestDigest != ""
+}
+
+func (st IntGenISISState) ValidateIntGenISISPreset(public PublicParams, preset IntGenISISPreset) error {
+	if !st.HasPresetBinding() {
+		return fmt.Errorf("credential state is not bound to a canonical preset manifest")
+	}
+	if err := public.ValidateIntGenISISPreset(preset); err != nil {
+		return err
+	}
+	if st.PresetID != public.PresetID || st.PresetVersion != public.PresetVersion || st.PresetManifestDigest != public.PresetManifestDigest {
+		return fmt.Errorf("credential state and public parameter preset bindings differ")
 	}
 	return nil
 }

@@ -39,3 +39,25 @@ func TestIntGenISISPresentationPrivacyAndReplayState(t *testing.T) {
 		t.Fatal("replayed presentation accepted")
 	}
 }
+
+func TestIntGenISISPresentationRejectsTamperedPresetBinding(t *testing.T) {
+	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPoCN512SC96V1)
+	pres := IntGenISISPresentation{
+		Version:              IntGenISISPresentationVersion,
+		Profile:              preset.Profile,
+		PresetID:             preset.CanonicalID,
+		PresetVersion:        preset.PresetVersion,
+		PresetManifestDigest: IntGenISISPresetManifestDigest(preset),
+		PublicParamsDigest:   "digest",
+		Nonce:                [][]int64{{1}},
+		Tag:                  [][]int64{{2}},
+		Proof:                json.RawMessage(`{"proof":true}`),
+	}
+	if err := pres.Validate(); err != nil {
+		t.Fatalf("valid bound presentation rejected: %v", err)
+	}
+	pres.PresetID = IntGenISISPresetArtifactN1024SC96V1
+	if err := pres.Validate(); err == nil {
+		t.Fatal("tampered presentation preset binding accepted")
+	}
+}

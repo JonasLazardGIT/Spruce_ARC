@@ -205,6 +205,9 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 		if !publicParams.UsesIntGenISIS() {
 			return fmt.Errorf("standalone verifier public params are not IntGenISIS")
 		}
+		if err := publicParams.ValidateIntGenISISPreset(preset); err != nil {
+			return err
+		}
 		verifierKey, err := credential.LoadIntGenISISVerifierKey(verifierKeyPath)
 		if err != nil {
 			return err
@@ -218,6 +221,9 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 		}
 		if verifierKey.PublicParamsDigest != digest {
 			return fmt.Errorf("verifier key public params digest mismatch")
+		}
+		if verifierKey.PresetID != publicParams.PresetID || verifierKey.PresetVersion != publicParams.PresetVersion || verifierKey.PresetManifestDigest != publicParams.PresetManifestDigest {
+			return fmt.Errorf("verifier key preset binding mismatch")
 		}
 		ringQ, err := credential.LoadRingWithDegree(publicParams.RingDegree)
 		if err != nil {
@@ -237,6 +243,9 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 	if !publicParams.UsesIntGenISIS() {
 		return fmt.Errorf("state references non-IntGenISIS public params")
 	}
+	if err := st.ValidateIntGenISISPreset(publicParams, preset); err != nil {
+		return err
+	}
 	profile, ok := credential.LookupIntGenISISProfile(st.Profile)
 	if !ok {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", st.Profile)
@@ -248,9 +257,16 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 	if err != nil {
 		return fmt.Errorf("load ring: %w", err)
 	}
-	params, err := loadPRFParamsFromIntGenISISState(st)
+	params, actualPRFParamsDigest, err := loadPRFParamsFromIntGenISISState(st)
 	if err != nil {
 		return fmt.Errorf("load prf params: %w", err)
+	}
+	if actualPRFParamsDigest != preset.PRFParamsDigest {
+		return fmt.Errorf("loaded PRF parameter digest does not match bound profile %s", preset.PRFProfile)
+	}
+	wantTag, ok := credential.IntGenISISPRFProfileTagElements(preset.PRFProfile)
+	if !ok || params.LenTag != wantTag {
+		return fmt.Errorf("loaded PRF tag elements=%d do not match bound profile %s (%d)", params.LenTag, preset.PRFProfile, wantTag)
 	}
 	opts := intGenISISShowingOpts(st.RingDegree, preset.Showing)
 	if st.PRFParamsPath != "" {
@@ -314,7 +330,7 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 		RingDegree:   int(ringQ.N),
 		HashRelation: publicParams.HashRelation,
 		IntGenISIS:   true,
-		Extras:       intGenISISSignatureBoundExtras(st.SignatureBound),
+		Extras:       publicParams.PresetTranscriptExtras(intGenISISSignatureBoundExtras(st.SignatureBound)),
 	}
 	proofStart := time.Now()
 	proof, err := PIOP.BuildIntGenISISShowingCombined(pub, wit, opts)
@@ -338,12 +354,15 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 			return fmt.Errorf("digest IntGenISIS public params: %w", err)
 		}
 		pres := credential.IntGenISISPresentation{
-			Version:            credential.IntGenISISPresentationVersion,
-			Profile:            profile.Name,
-			PublicParamsDigest: digest,
-			Nonce:              noncePublic,
-			Tag:                lanesFromElems(tag, opts.NCols),
-			Proof:              proofRaw,
+			Version:              credential.IntGenISISPresentationVersion,
+			Profile:              profile.Name,
+			PresetID:             publicParams.PresetID,
+			PresetVersion:        publicParams.PresetVersion,
+			PresetManifestDigest: publicParams.PresetManifestDigest,
+			PublicParamsDigest:   digest,
+			Nonce:                noncePublic,
+			Tag:                  lanesFromElems(tag, opts.NCols),
+			Proof:                proofRaw,
 		}
 		if err := credential.SaveIntGenISISPresentation(presentationOut, pres); err != nil {
 			return fmt.Errorf("save IntGenISIS presentation: %w", err)
@@ -417,6 +436,12 @@ func verifyIntGenISISPresentationCLI(path, verifierStatePath string, verifierKey
 	if pres.Profile != verifierKey.Profile {
 		return fmt.Errorf("presentation profile=%q verifier key profile=%q", pres.Profile, verifierKey.Profile)
 	}
+	if pres.PresetID != publicParams.PresetID || pres.PresetVersion != publicParams.PresetVersion || pres.PresetManifestDigest != publicParams.PresetManifestDigest {
+		return fmt.Errorf("presentation preset binding mismatch")
+	}
+	if verifierKey.PresetID != publicParams.PresetID || verifierKey.PresetVersion != publicParams.PresetVersion || verifierKey.PresetManifestDigest != publicParams.PresetManifestDigest {
+		return fmt.Errorf("verifier key preset binding mismatch")
+	}
 	var proof PIOP.Proof
 	if err := json.Unmarshal(pres.Proof, &proof); err != nil {
 		return fmt.Errorf("unmarshal presentation proof: %w", err)
@@ -449,7 +474,7 @@ func verifyIntGenISISPresentationCLI(path, verifierStatePath string, verifierKey
 		RingDegree:   int(ringQ.N),
 		HashRelation: publicParams.HashRelation,
 		IntGenISIS:   true,
-		Extras:       intGenISISSignatureBoundExtras(verifierKey.SignatureBound),
+		Extras:       publicParams.PresetTranscriptExtras(intGenISISSignatureBoundExtras(verifierKey.SignatureBound)),
 	}
 	ok, err := PIOP.VerifyIntGenISISShowing(pub, &proof, opts)
 	if err != nil || !ok {
@@ -491,11 +516,11 @@ func intGenISISFieldElemFromSigned(v int64, q uint64) prf.Elem {
 	return prf.Elem((q - neg) % q)
 }
 
-func loadPRFParamsFromIntGenISISState(st credential.IntGenISISState) (*prf.Params, error) {
+func loadPRFParamsFromIntGenISISState(st credential.IntGenISISState) (*prf.Params, string, error) {
 	if st.PRFParamsPath != "" {
-		return prf.LoadLocalOrBundledParams(st.PRFParamsPath)
+		return prf.LoadLocalOrBundledParamsWithDigest(st.PRFParamsPath)
 	}
-	return prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params.json"))
+	return prf.LoadLocalOrBundledParamsWithDigest(filepath.Join("prf", "prf_params.json"))
 }
 
 func loadBForIntGenISISShowing(r *ring.Ring, public credential.PublicParams) ([]*ring.Poly, error) {

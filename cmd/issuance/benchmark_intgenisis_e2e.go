@@ -601,7 +601,11 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 
 	var timings benchmarkIntGenISISE2ETimings
 	t0 := time.Now()
-	if err := setupIntGenISISPublicForProfile(paths.PublicParams, cfg.Force, profile, paths.BMatrix); err != nil {
+	var selectedPreset *credential.IntGenISISPreset
+	if preset, ok := credential.LookupIntGenISISPreset(cfg.PresetName); ok {
+		selectedPreset = &preset
+	}
+	if err := setupIntGenISISPublicForPreset(paths.PublicParams, cfg.Force, profile, paths.BMatrix, selectedPreset); err != nil {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("setup IntGenISIS public params: %w", err)
 	}
 	timings.SetupPublicMS = millisSince(t0)
@@ -1084,6 +1088,7 @@ func benchmarkIntGenISISE2EPreSignMetrics(holderSecretPath, commitRequestPath, s
 		RingDegree:   int(rt.ringQ.N),
 		HashRelation: rt.public.HashRelation,
 		IntGenISIS:   true,
+		Extras:       rt.public.PresetTranscriptExtras(nil),
 	}
 	verifyStart := time.Now()
 	ok, err := PIOP.VerifyIntGenISISPreSign(pub, sub.Proof, rt.opts)
@@ -1114,13 +1119,27 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, err
 	}
+	if preset, ok := credential.LookupIntGenISISPreset(cfg.PresetName); ok {
+		if err := st.ValidateIntGenISISPreset(publicParams, preset); err != nil {
+			return benchmarkIntGenISISMetrics{}, false, err
+		}
+	}
+	if verifierKey.PresetID != publicParams.PresetID || verifierKey.PresetVersion != publicParams.PresetVersion || verifierKey.PresetManifestDigest != publicParams.PresetManifestDigest {
+		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("verifier key preset binding mismatch")
+	}
 	ringQ, err := credential.LoadRingWithDegree(st.RingDegree)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("load ring: %w", err)
 	}
-	params, err := prf.LoadLocalOrDefaultParams(cfg.PRFParamsPath)
+	params, actualPRFParamsDigest, err := prf.LoadLocalOrBundledParamsWithDigest(st.PRFParamsPath)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("load prf params: %w", err)
+	}
+	if publicParams.HasPresetBinding() {
+		preset, ok := credential.LookupIntGenISISPreset(publicParams.PresetID)
+		if !ok || actualPRFParamsDigest != preset.PRFParamsDigest {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("showing PRF parameter digest does not match bound preset")
+		}
 	}
 	opts := benchmarkIntGenISISE2EShowingOpts(st.RingDegree, cfg)
 	if st.PRFParamsPath != "" {
@@ -1183,7 +1202,7 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 		RingDegree:   int(ringQ.N),
 		HashRelation: publicParams.HashRelation,
 		IntGenISIS:   true,
-		Extras:       benchmarkIntGenISISE2ESignatureBoundExtras(st.SignatureBound),
+		Extras:       publicParams.PresetTranscriptExtras(benchmarkIntGenISISE2ESignatureBoundExtras(st.SignatureBound)),
 	}
 	proveStart := time.Now()
 	proof, err := PIOP.BuildIntGenISISShowingCombined(pub, wit, opts)
@@ -1197,7 +1216,7 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, err
 	}
-	verifyPub.Extras = benchmarkIntGenISISE2ESignatureBoundExtras(verifierKey.SignatureBound)
+	verifyPub.Extras = publicParams.PresetTranscriptExtras(benchmarkIntGenISISE2ESignatureBoundExtras(verifierKey.SignatureBound))
 	verifyStart := time.Now()
 	ok, err = PIOP.VerifyIntGenISISShowing(verifyPub, proof, opts)
 	verifyDur := time.Since(verifyStart)
@@ -1220,12 +1239,15 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("digest IntGenISIS public params: %w", err)
 	}
 	pres := credential.IntGenISISPresentation{
-		Version:            credential.IntGenISISPresentationVersion,
-		Profile:            st.Profile,
-		PublicParamsDigest: digest,
-		Nonce:              noncePublic,
-		Tag:                intGenISISBenchmarkLanesFromElems(tag, opts.NCols),
-		Proof:              proofRaw,
+		Version:              credential.IntGenISISPresentationVersion,
+		Profile:              st.Profile,
+		PresetID:             publicParams.PresetID,
+		PresetVersion:        publicParams.PresetVersion,
+		PresetManifestDigest: publicParams.PresetManifestDigest,
+		PublicParamsDigest:   digest,
+		Nonce:                noncePublic,
+		Tag:                  intGenISISBenchmarkLanesFromElems(tag, opts.NCols),
+		Proof:                proofRaw,
 	}
 	if err := credential.SaveIntGenISISPresentation(paths.Presentation, pres); err != nil {
 		return benchmarkIntGenISISMetrics{}, false, err

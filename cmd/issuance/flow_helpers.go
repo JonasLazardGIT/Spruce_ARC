@@ -290,15 +290,7 @@ func credentialPublicPathDefault() string {
 	return credential.DefaultPublicParamsPath
 }
 
-func setupIntGenISISPublic(outPath string, force bool, profileName, bPath string) error {
-	profile, ok := credential.LookupIntGenISISProfile(profileName)
-	if !ok {
-		return fmt.Errorf("unsupported IntGenISIS profile %q", profileName)
-	}
-	return setupIntGenISISPublicForProfile(outPath, force, profile, bPath)
-}
-
-func setupIntGenISISPublicForProfile(outPath string, force bool, profile credential.IntGenISISProfile, bPath string) error {
+func setupIntGenISISPublicForPreset(outPath string, force bool, profile credential.IntGenISISProfile, bPath string, preset *credential.IntGenISISPreset) error {
 	ringQ, err := credential.LoadRingWithDegree(profile.N)
 	if err != nil {
 		return fmt.Errorf("load ring: %w", err)
@@ -367,6 +359,11 @@ func setupIntGenISISPublicForProfile(outPath string, force bool, profile credent
 		CommitmentSecurity:   profile.CommitmentSecurity.ClonePtr(),
 		TargetDim:            profile.NC,
 		X0Len:                profile.EllX0,
+	}
+	if preset != nil {
+		if err := params.BindIntGenISISPreset(*preset); err != nil {
+			return fmt.Errorf("bind public params to preset: %w", err)
+		}
 	}
 	if err := credential.SavePublicParams(outPath, params); err != nil {
 		return err
@@ -625,6 +622,7 @@ func holderProveIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, submiss
 		RingDegree:   int(rt.ringQ.N),
 		HashRelation: rt.public.HashRelation,
 		IntGenISIS:   true,
+		Extras:       rt.public.PresetTranscriptExtras(nil),
 	}
 	proof, err := PIOP.BuildIntGenISISPreSign(rt.ringQ, pub, PIOP.WitnessInputs{
 		M:     inputs.M,
@@ -663,7 +661,19 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 	if submission.Version != issuanceArtifactVersion {
 		return fmt.Errorf("unsupported pre-sign submission version %d", submission.Version)
 	}
-	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, defaultPRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(req.PackedNCols, req.LVCSNCols, req.NLeaves, req.Omega, req.SmallWood))
+	prfPath := defaultPRFParamsPath
+	public, err := credential.LoadPublicParams(req.CredentialPublicPath)
+	if err != nil {
+		return err
+	}
+	if public.HasPresetBinding() {
+		preset, ok := credential.LookupIntGenISISPreset(public.PresetID)
+		if !ok {
+			return fmt.Errorf("unknown bound IntGenISIS preset %q", public.PresetID)
+		}
+		prfPath = preset.PRFParamsPath
+	}
+	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, prfPath, persistedIssuanceRuntimeOverridesWithSmallWood(req.PackedNCols, req.LVCSNCols, req.NLeaves, req.Omega, req.SmallWood))
 	if err != nil {
 		return err
 	}
@@ -695,6 +705,7 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 		RingDegree:   int(rt.ringQ.N),
 		HashRelation: rt.public.HashRelation,
 		IntGenISIS:   true,
+		Extras:       rt.public.PresetTranscriptExtras(nil),
 	}
 	ok, err := PIOP.VerifyIntGenISISPreSign(pub, submission.Proof, rt.opts)
 	if err != nil {
@@ -756,12 +767,15 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 			return fmt.Errorf("digest IntGenISIS public params: %w", err)
 		}
 		key := credential.IntGenISISVerifierKey{
-			Version:            credential.IntGenISISVerifierKeyVersion,
-			Profile:            rt.public.Profile,
-			RingDegree:         int(rt.ringQ.N),
-			PublicParamsDigest: digest,
-			NTRUPublic:         [][]int64{append([]int64(nil), ntruPub.HCoeffs...)},
-			SignatureBound:     int64(ntruParams.Beta),
+			Version:              credential.IntGenISISVerifierKeyVersion,
+			Profile:              rt.public.Profile,
+			PresetID:             rt.public.PresetID,
+			PresetVersion:        rt.public.PresetVersion,
+			PresetManifestDigest: rt.public.PresetManifestDigest,
+			RingDegree:           int(rt.ringQ.N),
+			PublicParamsDigest:   digest,
+			NTRUPublic:           [][]int64{append([]int64(nil), ntruPub.HCoeffs...)},
+			SignatureBound:       int64(ntruParams.Beta),
 		}
 		if err := credential.SaveIntGenISISVerifierKey(verifierKeyOut, key); err != nil {
 			return err
@@ -834,6 +848,12 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 	state := credential.IntGenISISState{
 		Version:              credential.IntGenISISStateVersion,
 		Profile:              profile.Name,
+		PresetID:             rt.public.PresetID,
+		PresetVersion:        rt.public.PresetVersion,
+		PrimitiveProfileID:   rt.public.PrimitiveProfileID,
+		PRFProfile:           rt.public.PRFProfile,
+		TranscriptMode:       rt.public.TranscriptMode,
+		PresetManifestDigest: rt.public.PresetManifestDigest,
 		M:                    polyVecToInt64(rt.ringQ, inputs.M, false),
 		MAttr:                polyVecToInt64(rt.ringQ, inputs.MAttr, false),
 		K:                    polyVecToInt64(rt.ringQ, inputs.K, false),
@@ -935,9 +955,37 @@ func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOv
 	if err != nil {
 		return nil, err
 	}
-	prfParams, err := prf.LoadLocalOrDefaultParams(prfPath)
+	if prfPath == "" {
+		prfPath = defaultPRFParamsPath
+	}
+	expectedPRFParamsDigest := ""
+	var boundPreset *credential.IntGenISISPreset
+	if public.HasPresetBinding() {
+		preset, ok := credential.LookupIntGenISISPreset(public.PresetID)
+		if !ok {
+			return nil, fmt.Errorf("unknown bound IntGenISIS preset %q", public.PresetID)
+		}
+		if err := public.ValidateIntGenISISPreset(preset); err != nil {
+			return nil, err
+		}
+		expectedPRFParamsDigest = preset.PRFParamsDigest
+		boundPreset = &preset
+	}
+	prfParams, actualPRFParamsDigest, err := prf.LoadLocalOrBundledParamsWithDigest(prfPath)
 	if err != nil {
 		return nil, fmt.Errorf("load prf params: %w", err)
+	}
+	if expectedPRFParamsDigest != "" && actualPRFParamsDigest != expectedPRFParamsDigest {
+		return nil, fmt.Errorf("loaded PRF parameter digest does not match bound profile %s", public.PRFProfile)
+	}
+	if public.PRFProfile != "" {
+		wantTag, ok := credential.IntGenISISPRFProfileTagElements(public.PRFProfile)
+		if !ok {
+			return nil, fmt.Errorf("unknown bound PRF profile %q", public.PRFProfile)
+		}
+		if prfParams.LenTag != wantTag {
+			return nil, fmt.Errorf("loaded PRF tag elements=%d do not match bound profile %s (%d)", prfParams.LenTag, public.PRFProfile, wantTag)
+		}
 	}
 	opts := defaultIssuanceOpts(prfParams)
 	opts.PRFParamsPath = prfPath
@@ -947,6 +995,11 @@ func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOv
 	}
 	opts = applyIssuanceRuntimeOverrides(opts, overrides)
 	opts = defaultIssuanceOptsResolved(prfParams, opts)
+	if boundPreset != nil {
+		if err := validateBoundIssuanceOptions(opts, *boundPreset, prfParams, int(ringQ.N)); err != nil {
+			return nil, err
+		}
+	}
 	omega, err := deriveOmegaForIssuanceOpts(ringQ, public.HashRelation, opts)
 	if err != nil {
 		return nil, fmt.Errorf("derive omega: %w", err)
@@ -961,6 +1014,20 @@ func loadIssuanceRuntime(publicPath, prfPath string, overrides issuanceRuntimeOv
 		opts:       opts,
 		omega:      omega,
 	}, nil
+}
+
+func validateBoundIssuanceOptions(actual PIOP.SimOpts, preset credential.IntGenISISPreset, prfParams *prf.Params, ringDegree int) error {
+	expected := defaultIssuanceOpts(prfParams)
+	expected.PRFParamsPath = preset.PRFParamsPath
+	expected.RingDegree = ringDegree
+	expected = applyIssuanceRuntimeOverrides(expected, intGenISISTuningToIssuanceOverrides(intGenISISTuningFromPresetSpec(preset.Issuance), ringDegree))
+	expected = defaultIssuanceOptsResolved(prfParams, expected)
+	want := *smallWoodTuningSpecFromOpts(expected)
+	got := *smallWoodTuningSpecFromOpts(actual)
+	if got != want {
+		return fmt.Errorf("executed issuance options do not match bound preset manifest: actual=%+v required=%+v", got, want)
+	}
+	return nil
 }
 
 func intGenISISInputsFromSecret(ringQ *ring.Ring, secret holderSecretFile) (issuance.IntGenISISInputs, error) {

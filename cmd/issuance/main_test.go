@@ -14,6 +14,7 @@ import (
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
 	ntrurio "vSIS-Signature/ntru/io"
+	"vSIS-Signature/prf"
 )
 
 func issuanceTestRepoRoot(t *testing.T) string {
@@ -771,6 +772,30 @@ func ledgerTermByName(ledger credential.SystemSecurityLedger, category, name str
 		}
 	}
 	return credential.SystemSecurityLedgerTerm{}
+}
+
+func TestBoundIssuanceOptionsRejectManifestMismatch(t *testing.T) {
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetArtifactN1024SC96V1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, err := prf.LoadLocalOrBundledParams(preset.PRFParamsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ringDegree := credential.Ternary1024IntGenISISProfile().N
+	opts := defaultIssuanceOpts(params)
+	opts.PRFParamsPath = preset.PRFParamsPath
+	opts.RingDegree = ringDegree
+	opts = applyIssuanceRuntimeOverrides(opts, intGenISISTuningToIssuanceOverrides(intGenISISTuningFromPresetSpec(preset.Issuance), ringDegree))
+	opts = defaultIssuanceOptsResolved(params, opts)
+	if err := validateBoundIssuanceOptions(opts, preset, params, ringDegree); err != nil {
+		t.Fatalf("matching bound options rejected: %v", err)
+	}
+	opts.SaltBits++
+	if err := validateBoundIssuanceOptions(opts, preset, params, ringDegree); err == nil {
+		t.Fatal("modified salt width accepted under bound preset manifest")
+	}
 }
 
 func containsStringLocal(vals []string, want string) bool {

@@ -185,7 +185,11 @@ func runSetupIntGenISISPublic(args []string) error {
 	if strings.TrimSpace(*outPath) == "" {
 		*outPath = filepath.Join("internal", "source_data", fmt.Sprintf("credential_public.%s.json", preset.Profile))
 	}
-	return setupIntGenISISPublic(*outPath, *force, preset.Profile, "")
+	profile, ok := credential.LookupIntGenISISProfile(preset.Profile)
+	if !ok {
+		return fmt.Errorf("unsupported IntGenISIS profile %q", preset.Profile)
+	}
+	return setupIntGenISISPublicForPreset(*outPath, *force, profile, "", &preset)
 }
 
 func runSetupNTRUKeys(args []string) error {
@@ -241,6 +245,13 @@ func runHolderCommit(args []string) error {
 	}
 	if *publicPath == credentialPublicPathDefault() && preset.Profile != credential.ProfileIntGenISISB {
 		*publicPath = filepath.Join("internal", "source_data", fmt.Sprintf("credential_public.%s.json", preset.Profile))
+	}
+	publicParams, err := credential.LoadPublicParams(*publicPath)
+	if err != nil {
+		return fmt.Errorf("load IntGenISIS public params: %w", err)
+	}
+	if err := publicParams.ValidateIntGenISISPreset(preset); err != nil {
+		return err
 	}
 	profile, ok := credential.LookupIntGenISISProfile(preset.Profile)
 	if !ok {

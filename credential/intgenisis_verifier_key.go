@@ -12,12 +12,15 @@ import (
 const IntGenISISVerifierKeyVersion = 1
 
 type IntGenISISVerifierKey struct {
-	Version            int       `json:"version"`
-	Profile            string    `json:"profile"`
-	RingDegree         int       `json:"ring_degree"`
-	PublicParamsDigest string    `json:"public_params_digest"`
-	NTRUPublic         [][]int64 `json:"ntru_public"`
-	SignatureBound     int64     `json:"signature_bound,omitempty"`
+	Version              int       `json:"version"`
+	Profile              string    `json:"profile"`
+	PresetID             string    `json:"preset_id,omitempty"`
+	PresetVersion        int       `json:"preset_version,omitempty"`
+	PresetManifestDigest string    `json:"preset_manifest_digest,omitempty"`
+	RingDegree           int       `json:"ring_degree"`
+	PublicParamsDigest   string    `json:"public_params_digest"`
+	NTRUPublic           [][]int64 `json:"ntru_public"`
+	SignatureBound       int64     `json:"signature_bound,omitempty"`
 }
 
 func SaveIntGenISISVerifierKey(path string, key IntGenISISVerifierKey) error {
@@ -68,6 +71,15 @@ func (key IntGenISISVerifierKey) Validate() error {
 	}
 	if key.PublicParamsDigest == "" {
 		return fmt.Errorf("missing public params digest")
+	}
+	if key.PresetID != "" || key.PresetVersion != 0 || key.PresetManifestDigest != "" {
+		if key.PresetID == "" || key.PresetVersion <= 0 || key.PresetManifestDigest == "" {
+			return fmt.Errorf("incomplete verifier-key preset binding")
+		}
+		preset, ok := LookupIntGenISISPreset(key.PresetID)
+		if !ok || preset.Profile != key.Profile || preset.PresetVersion != key.PresetVersion || IntGenISISPresetManifestDigest(preset) != key.PresetManifestDigest {
+			return fmt.Errorf("verifier-key preset manifest mismatch")
+		}
 	}
 	if len(key.NTRUPublic) != 1 || len(key.NTRUPublic[0]) != profile.N {
 		return fmt.Errorf("ntru_public dimensions=%dx? want 1x%d", len(key.NTRUPublic), profile.N)
