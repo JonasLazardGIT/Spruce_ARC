@@ -246,7 +246,7 @@ The benchmark JSON report records:
 | --- | --- | --- |
 | Every listed preset is executable | `go run ./cmd/issuance gate-functional-presets` | every registry entry reports `functional=pass` |
 | Historical artifact byte list | `go run ./cmd/issuance gate-artifact-presets` | all nine exact-byte aliases pass |
-| BQ32 controlled-pilot candidate | `go run ./cmd/issuance gate-candidate-presets` | actual parameters pass their profile requirements; ledger remains explicitly blocked |
+| BQ32 controlled-pilot candidate | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset pilot-n1024-bq32-r96-v1` | actual parameters pass their profile requirements; ledger remains explicitly blocked |
 | WF-128 PoC shape | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset system-n1024-wf128-crom-v1` | parameter audit passes, tag length is 13, bounded-query caps are unset, and `complete_system_claim == false` |
 | SmallWood NIZK-only Q128/epsilon128 preset | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset research-n1024-bq128-r128-v1` | `showing.theorem_total_bits >= 128`, `zero_knowledge_bits >= 128`, `security_ledger.complete_system_claim == false`, `ledger_status == "requires_new_primitives"` |
 | Maintained paper transcript byte counts | `./scripts/validate-artifact.sh` | `showing.paper_transcript_bytes` equals the maintained table above |

@@ -281,8 +281,8 @@ or modes to `cmd/issuance` or `cmd/showing`.
   whose structural parameter audit passes; its ledger is diagnostic and it
   makes no complete-system claim.
 - Query-budget presets carry explicit `ROQueryCaps` and DECS hash/tape widths
-  in the preset registry; theorem accounting is verified by
-  `gate-artifact-presets` and `gate-proof-profiles` as appropriate.
+  in the preset registry; theorem accounting is recorded by each benchmark and
+  historical byte results are verified by `gate-artifact-presets`.
 - The `research-n1024-bq128-r128-v1` preset is a
   SmallWood NIZK-only Q128/epsilon128 claim. Its proof-layer accounting uses
   raw log ROM/Fiat-Shamir caps `[128]*5`, 512-bit hash/FS collision space,

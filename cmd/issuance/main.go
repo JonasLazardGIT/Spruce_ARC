@@ -32,23 +32,23 @@ func intGenISISPresetHelp() string {
 }
 
 func usage() {
-	fmt.Println(`usage: issuance <list-presets|setup-intgenisis-public|setup-ntru-keys|holder-commit|holder-prove|issuer-verify-sign|holder-finalize|benchmark-intgenisis-e2e|gate-functional-presets|gate-artifact-presets|gate-proof-profiles|gate-candidate-presets|gate-complete-system-presets> [options]
+	fmt.Println(`usage: issuance <command> [options]
 
-Subcommands:
-	  list-presets       List purpose-oriented public presets and their claim status
-  setup-intgenisis-public Generate IntGenISIS MLWE-hiding credential public parameters
-  setup-ntru-keys    Generate separate NTRU params and key material
-  holder-commit      Sample holder witness rows and write holder_secret/commit_request artifacts
-  holder-prove       Build the IntGenISIS pre-sign proof from holder secret
-  issuer-verify-sign Verify the pre-sign proof and sign the public target T
-  holder-finalize    Verify and persist the final credential state
-  benchmark-intgenisis-e2e Run IntGenISIS issuance + showing and print paper transcript sizes
-	  gate-functional-presets Prove, verify, serialize, and reject replay for public executable presets
-	  gate-artifact-presets Reproduce historical exact-byte artifact results
-	  gate-proof-profiles Check executable proof-layer profile claims
-	  gate-candidate-presets Measure candidates and report their blockers
-	  gate-complete-system-presets Require a completely passing deployment ledger
-	  gate-maintained-presets Deprecated alias for gate-artifact-presets
+Primary commands:
+  list-presets                  List every executable PoC preset
+  benchmark-intgenisis-e2e      Run issuance and showing for one preset
+  gate-functional-presets       Functionally validate every executable preset
+
+Manual protocol stages:
+  setup-intgenisis-public       Generate IntGenISIS credential public parameters
+  setup-ntru-keys               Generate separate NTRU params and key material
+  holder-commit                 Write holder secret and commitment artifacts
+  holder-prove                  Build the IntGenISIS pre-sign proof
+  issuer-verify-sign            Verify the pre-sign proof and sign its target
+  holder-finalize               Verify and persist the credential state
+
+Reproduction command:
+  gate-artifact-presets         Reproduce historical exact-byte results
 
 All configurations are experimental PoC presets. Security metadata is
 informational and does not constitute a deployment claim.`)
@@ -91,10 +91,6 @@ func run(args []string) error {
 		return runGateFunctionalPresets(args[1:])
 	case "gate-artifact-presets":
 		return runGateArtifactPresets(args[1:])
-	case "gate-proof-profiles":
-		return runGateProofProfiles(args[1:])
-	case "gate-candidate-presets":
-		return runGateCandidatePresets(args[1:])
 	case "gate-complete-system-presets":
 		return runGateCompleteSystemPresets(args[1:])
 	case "-h", "--help", "help":
