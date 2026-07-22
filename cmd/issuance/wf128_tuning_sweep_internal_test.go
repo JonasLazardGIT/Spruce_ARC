@@ -20,6 +20,7 @@ func nizkProfileWF128TuningCandidates() []NIZKProfileSearchCandidate {
 		name        string
 		lvcs        int
 		nleaves     int
+		eta         int
 		theta       int
 		ell         int
 		tapeBits    int
@@ -28,8 +29,8 @@ func nizkProfileWF128TuningCandidates() []NIZKProfileSearchCandidate {
 	}
 	shapes := []shape{
 		{
-			name: "wf128-current-lvcs36-n983040-theta7-ell9-tape128", lvcs: 36, nleaves: 983040, theta: 7, ell: 9, tapeBits: 128, pinnedEta: true,
-			description: "exact executable WF-128 transcript geometry used as the projection and measurement control; grinding is retargeted to the sweep margin",
+			name: "wf128-baseline-v1-lvcs36-n983040-eta44-theta7-ell9-tape128", lvcs: 36, nleaves: 983040, eta: 44, theta: 7, ell: 9, tapeBits: 128, pinnedEta: true,
+			description: "pre-retune WF-128 transcript geometry retained as the projection and measurement control; grinding is retargeted to the sweep margin",
 		},
 		{
 			name: "wf128-tape136-lvcs36-n983040-theta7-ell9", lvcs: 36, nleaves: 983040, theta: 7, ell: 9, tapeBits: 136,
@@ -118,6 +119,9 @@ func nizkProfileWF128TuningCandidates() []NIZKProfileSearchCandidate {
 		showing := base
 		showing.LVCSNCols = candidateShape.lvcs
 		showing.NLeaves = candidateShape.nleaves
+		if candidateShape.eta > 0 {
+			showing.Eta = candidateShape.eta
+		}
 		showing.Theta = candidateShape.theta
 		showing.Ell = candidateShape.ell
 		showing.Kappa = [4]int{}
@@ -247,7 +251,7 @@ func TestNIZKProfileWF128CandidatesStayExecutableAndUnbounded(t *testing.T) {
 }
 
 func TestNIZKProfileWF128MeasuredConfigUsesTag13AndNoQueryCap(t *testing.T) {
-	reports := nizkProfileReports(0, "wf128-current-lvcs36")
+	reports := nizkProfileReports(0, "wf128-baseline-v1-lvcs36")
 	if len(reports) != 1 {
 		t.Fatalf("WF-128 control reports=%d", len(reports))
 	}

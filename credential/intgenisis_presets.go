@@ -262,6 +262,10 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	}
 	n1024Q10Issuance128 := intGenISISIssuanceTuning(n1024Q10Show128)
 	n1024WF128Show := n1024Q10Show128
+	n1024WF128Show.LVCSNCols = 43
+	n1024WF128Show.NLeaves = 524288
+	n1024WF128Show.Eta = 46
+	n1024WF128Show.Kappa = [4]int{0, 0, 4, 13}
 	n1024WF128Show.ROQueryCaps = [5]int{}
 	n1024WF128Show.ROQueryCapsSet = false
 	n1024WF128Show.ROQueryCapBits = [5]float64{}
@@ -579,8 +583,8 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Showing:           n1024WF128Show,
 			Notes: []string{
 				"Experimental PoC shape for the 128-bit CROM work-factor profile; not a complete-system deployment claim.",
-				"Uses the live Q10-128 SmallWood geometry without bounded-query caps, 264-bit hash/Fiat-Shamir output, 128-bit tape, 256-bit salt, and tag-13 PRF parameters.",
-				"The initial measured run reports 139.12/138.98 issuance/showing theorem bits and 27124/39547 paper transcript bytes.",
+				"Uses a measured R11/L4 SmallWood retune without bounded-query caps, 264-bit hash/Fiat-Shamir output, 128-bit tape, 256-bit salt, and tag-13 PRF parameters.",
+				"Three repeated runs report 133.44/133.35 issuance/showing theorem bits and 26758/38092 paper transcript bytes.",
 				"Primitive and complete-game ledger terms remain diagnostic under the repository-wide PoC assumption.",
 			},
 		},

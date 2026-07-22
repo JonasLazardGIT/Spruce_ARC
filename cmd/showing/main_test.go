@@ -98,7 +98,7 @@ func TestShowingCLIPropagatesWF128PoCPreset(t *testing.T) {
 	if opts.DECSCollisionBits != 264 || opts.DECSHashBits != 264 || opts.DECSTapeBits != 128 || opts.FSCollisionBits != 264 || opts.SaltBits != 256 {
 		t.Fatalf("WF-128 widths=%+v", opts)
 	}
-	if opts.LVCSNCols != 36 || opts.NLeaves != 983040 || opts.Eta != 44 || opts.Theta != 7 || opts.Ell != 9 || opts.PRFParamsPath != credential.IntGenISISPRFParamsTag13 {
+	if opts.LVCSNCols != 43 || opts.NLeaves != 524288 || opts.Eta != 46 || opts.Theta != 7 || opts.Ell != 9 || opts.Kappa != [4]int{0, 0, 4, 13} || opts.PRFParamsPath != credential.IntGenISISPRFParamsTag13 {
 		t.Fatalf("WF-128 shape=%+v", opts)
 	}
 }

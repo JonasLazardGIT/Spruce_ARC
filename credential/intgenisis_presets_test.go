@@ -119,7 +119,7 @@ func TestN1024WF128CROMPresetIsExecutableCandidate(t *testing.T) {
 	if p.Showing.ROQueryCapsSet || p.Showing.ROQueryCaps != [5]int{} || p.Showing.ROQueryCapBitsSet || p.Showing.ROQueryCapBits != [5]float64{} {
 		t.Fatalf("WF-128 must not carry bounded-query caps: %+v", p.Showing)
 	}
-	if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 36 || p.Showing.NLeaves != 983040 || p.Showing.Eta != 44 || p.Showing.Theta != 7 || p.Showing.Rho != 1 || p.Showing.Ell != 9 || p.Showing.EllPrime != 1 || p.Showing.Kappa != [4]int{0, 4, 9, 9} {
+	if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 43 || p.Showing.NLeaves != 524288 || p.Showing.Eta != 46 || p.Showing.Theta != 7 || p.Showing.Rho != 1 || p.Showing.Ell != 9 || p.Showing.EllPrime != 1 || p.Showing.Kappa != [4]int{0, 0, 4, 13} {
 		t.Fatalf("WF-128 showing geometry=%+v", p.Showing)
 	}
 	if p.Showing.DECSCollisionBits != 264 || p.Showing.DECSHashBits != 264 || p.Showing.DECSTapeBits != 128 || p.Showing.FSCollisionBits != 264 || p.Showing.SaltBits != 256 {

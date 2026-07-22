@@ -180,7 +180,7 @@ func TestBenchmarkIntGenISISE2EPropagatesWF128PoCPreset(t *testing.T) {
 	if cfg.Showing.DECSCollisionBits != 264 || cfg.Showing.DECSHashBits != 264 || cfg.Showing.DECSTapeBits != 128 || cfg.Showing.FSCollisionBits != 264 || cfg.Showing.SaltBits != 256 {
 		t.Fatalf("WF-128 widths=%+v", cfg.Showing)
 	}
-	if cfg.Showing.NCols != 32 || cfg.Showing.LVCSNCols != 36 || cfg.Showing.NLeaves != 983040 || cfg.Showing.Eta != 44 || cfg.Showing.Theta != 7 || cfg.Showing.Ell != 9 || cfg.Showing.Kappa != [4]int{0, 4, 9, 9} {
+	if cfg.Showing.NCols != 32 || cfg.Showing.LVCSNCols != 43 || cfg.Showing.NLeaves != 524288 || cfg.Showing.Eta != 46 || cfg.Showing.Theta != 7 || cfg.Showing.Ell != 9 || cfg.Showing.Kappa != [4]int{0, 0, 4, 13} {
 		t.Fatalf("WF-128 showing geometry=%+v", cfg.Showing)
 	}
 }
