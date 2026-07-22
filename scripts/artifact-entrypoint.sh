@@ -6,22 +6,13 @@ show_help() {
 use: spruce-artifact <command> [args]
 
 commands:
-  help                  show this help
-  test                  run go test ./...
-  bench <preset>        run historical exact-byte E2E benchmark
-  gate                  run historical exact-byte artifact gate
-  validate              run tests, vet, staticcheck, deadcode, and all E2E checks
-
-exact-byte artifact selectors:
-  n512-compact96
-  n1024-compact96
-  n1024-compact125
-  n1024-q10-128
-  n1024-q16-128
-  n1024-q32-128
-  n1024-q10-96
-  n1024-q16-96
-  n1024-q32-96
+	  help                  show this help
+	  test                  run go test ./...
+	  list                  list every executable PoC preset
+	  bench <preset>        run an E2E preset benchmark
+	  gate                  functionally validate every executable preset
+	  artifact-gate         reproduce historical exact-byte results
+	  validate              run tests, vet, staticcheck, deadcode, and all E2E checks
 EOF
 }
 
@@ -35,11 +26,20 @@ test)
 	shift
 	exec ./scripts/artifact-test.sh "$@"
 	;;
+list)
+	shift
+	exec issuance list-presets "$@"
+	;;
 bench)
 	shift
 	exec ./scripts/artifact-bench.sh "$@"
 	;;
 gate)
+	shift
+	gate_root="${ARTIFACT_ROOT:-/artifacts}/functional-gate"
+	exec issuance gate-functional-presets -artifact-dir "$gate_root" "$@"
+	;;
+artifact-gate)
 	shift
 	exec ./scripts/artifact-gate.sh "$@"
 	;;

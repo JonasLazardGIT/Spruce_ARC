@@ -2,7 +2,7 @@
 set -eu
 
 if [ "$#" -ne 0 ]; then
-	echo "use: spruce-artifact gate" >&2
+	echo "use: spruce-artifact artifact-gate" >&2
 	exit 2
 fi
 
