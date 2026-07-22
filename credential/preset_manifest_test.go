@@ -13,6 +13,7 @@ func TestCanonicalPresetAliasesResolveToOneManifest(t *testing.T) {
 		IntGenISISPresetPilotN1024BQ32R96V1:      IntGenISISPresetN1024BQ32_96,
 		IntGenISISPresetResearchN1024BQ32R128V1:  IntGenISISPresetN1024Q32_128,
 		IntGenISISPresetResearchN1024BQ128R128V1: IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512,
+		IntGenISISPresetSystemN1024WF128CROMV1:   IntGenISISPresetSystemN1024WF128CROMV1,
 	}
 	for alias, legacy := range tests {
 		fromAlias, ok := LookupIntGenISISPreset(alias)

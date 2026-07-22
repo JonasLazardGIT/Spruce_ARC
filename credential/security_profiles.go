@@ -169,7 +169,7 @@ func intGenISISSecurityProfileSpecs() []IntGenISISSecurityProfileSpec {
 			SeedSlots:          IntGenISISPRFSeedLen,
 			PackedKeyCoords:    IntGenISISPRFPoseidonKeyLen,
 			Status:             SecurityProfileCandidate,
-			Notes:              "CROM work-factor candidate; the executable preset remains unavailable until a matching primitive/PRF family and complete ledger exist.",
+			Notes:              "Executable CROM work-factor PoC candidate with tag-13; the complete-system ledger remains diagnostic and unpromoted.",
 		},
 		{
 			Label:              "WF-128-ENG",

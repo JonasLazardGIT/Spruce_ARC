@@ -102,6 +102,10 @@ func intGenISISPresetMetadataRegistry() map[string]intGenISISPresetMetadata {
 			canonicalID: IntGenISISPresetArtifactN1024SC125V1, purpose: "reproduction",
 			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
 		},
+		IntGenISISPresetSystemN1024WF128CROMV1: {
+			canonicalID: IntGenISISPresetSystemN1024WF128CROMV1, purpose: "WF-128 PoC",
+			lifecycle: PresetCandidate, claimScope: ClaimCompleteSystem,
+		},
 		IntGenISISPresetN1024Q10_96: {
 			canonicalID: "artifact-n1024-bq10-r96-historical-v1", purpose: "historical reproduction",
 			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,

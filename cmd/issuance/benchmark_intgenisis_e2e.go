@@ -782,7 +782,7 @@ func benchmarkIntGenISISE2ESecurityLedger(
 		}
 	}
 	scope, scopeLogs := credential.AdversaryScopesFromThreatModel(cfg.ThreatModel)
-	queryCapBits, queryCapsKnown, queryMismatches := benchmarkActualROQueryCaps(issuanceMetrics, showingMetrics)
+	queryCapBits, queryCapsKnown, queryMismatches := benchmarkActualROQueryCaps(spec.Mode, issuanceMetrics, showingMetrics)
 	budgetLogs := credential.ROBudgetLogVectorFromCapBits(queryCapBits[:])
 	var capValues []uint64
 	if queryCapsKnown {
@@ -849,6 +849,9 @@ func benchmarkIntGenISISE2ESecurityLedger(
 			"prf_profile":       credential.SecurityEvidenceLoadedParams,
 			"transcript_mode":   credential.SecurityEvidenceMeasured,
 		},
+	}
+	if !queryCapsKnown {
+		delete(actual.Evidence, "ro_query_cap_log2")
 	}
 	parameterAudit := credential.AuditIntGenISISSecurityParameters(spec, actual)
 	parameterAudit.Mismatches = append(parameterAudit.Mismatches, queryMismatches...)
@@ -937,9 +940,17 @@ func benchmarkIntGenISISE2ESecurityLedger(
 	})
 }
 
-func benchmarkActualROQueryCaps(issuance, showing benchmarkIntGenISISMetrics) ([5]float64, bool, []credential.IntGenISISSecurityParameterMismatch) {
+func benchmarkActualROQueryCaps(mode credential.SecurityMode, issuance, showing benchmarkIntGenISISMetrics) ([5]float64, bool, []credential.IntGenISISSecurityParameterMismatch) {
 	issuanceBits, issuanceKnown := benchmarkMetricsROQueryCapLog2(issuance)
 	showingBits, showingKnown := benchmarkMetricsROQueryCapLog2(showing)
+	if mode == credential.SecurityModeSingleCandidate {
+		if !issuanceKnown {
+			issuanceBits, issuanceKnown = benchmarkMetricsImplicitSingleCandidate(issuance)
+		}
+		if !showingKnown {
+			showingBits, showingKnown = benchmarkMetricsImplicitSingleCandidate(showing)
+		}
+	}
 	var actual [5]float64
 	for i := range actual {
 		actual[i] = math.Max(issuanceBits[i], showingBits[i])
@@ -961,21 +972,28 @@ func benchmarkActualROQueryCaps(issuance, showing benchmarkIntGenISISMetrics) ([
 	return actual, issuanceKnown && showingKnown, mismatches
 }
 
+func benchmarkMetricsImplicitSingleCandidate(metrics benchmarkIntGenISISMetrics) ([5]float64, bool) {
+	if metrics.ROQueryCapsSet || metrics.ROQueryCapBitsSet || metrics.ROQueryCapBits != [5]float64{} {
+		return [5]float64{}, false
+	}
+	if metrics.ROQueryCaps != [5]int{1, 1, 1, 1, 1} {
+		return [5]float64{}, false
+	}
+	return [5]float64{}, true
+}
+
 func benchmarkMetricsROQueryCapLog2(metrics benchmarkIntGenISISMetrics) ([5]float64, bool) {
 	bits := metrics.ROQueryCapBits
-	bitsSet := false
-	for _, bit := range bits {
-		if bit > 0 {
-			bitsSet = true
-		}
-	}
-	if bitsSet {
+	if metrics.ROQueryCapBitsSet {
 		for _, bit := range bits {
-			if bit <= 0 {
+			if bit < 0 || math.IsNaN(bit) || math.IsInf(bit, 0) {
 				return [5]float64{}, false
 			}
 		}
 		return bits, true
+	}
+	if !metrics.ROQueryCapsSet {
+		return [5]float64{}, false
 	}
 	for i, cap := range metrics.ROQueryCaps {
 		if cap <= 0 {

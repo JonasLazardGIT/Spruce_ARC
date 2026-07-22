@@ -50,6 +50,23 @@ func TestSecurityParameterAuditAcceptsHardenedBQ32Pilot(t *testing.T) {
 	}
 }
 
+func TestSecurityParameterAuditAcceptsUnsetWorkFactorQueryScope(t *testing.T) {
+	spec, _ := LookupIntGenISISSecurityProfile("WF-128")
+	actual := completeSecurityParameterActuals([5]float64{})
+	actual.ROQueryCapLog2Set = false
+	actual.DECSHashBits = 264
+	actual.DECSTapeBits = 128
+	actual.FSCollisionBits = 264
+	actual.SaltBits = 256
+	actual.PRFTagElements = 13
+	actual.PRFProfile = IntGenISISPRFProfileTag13
+	delete(actual.Evidence, "ro_query_cap_log2")
+	audit := AuditIntGenISISSecurityParameters(spec, actual)
+	if audit.Status != "pass" || audit.Required.ROQueryCapLog2Set || audit.Actual.ROQueryCapLog2Set {
+		t.Fatalf("unbounded WF-128 audit=%+v", audit)
+	}
+}
+
 func TestSecurityParameterAuditRejectsMissingActualMetadata(t *testing.T) {
 	spec, _ := LookupIntGenISISSecurityProfile("SC-96")
 	audit := AuditIntGenISISSecurityParameters(spec, IntGenISISSecurityParameterActuals{})

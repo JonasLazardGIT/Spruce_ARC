@@ -261,6 +261,19 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		SoundnessGate:       "smallwood_2025_1085_live",
 	}
 	n1024Q10Issuance128 := intGenISISIssuanceTuning(n1024Q10Show128)
+	n1024WF128Show := n1024Q10Show128
+	n1024WF128Show.ROQueryCaps = [5]int{}
+	n1024WF128Show.ROQueryCapsSet = false
+	n1024WF128Show.ROQueryCapBits = [5]float64{}
+	n1024WF128Show.ROQueryCapBitsSet = false
+	n1024WF128Show.DECSCollisionBits = 264
+	n1024WF128Show.DECSHashBits = 264
+	n1024WF128Show.DECSTapeBits = 128
+	n1024WF128Show.FSCollisionBits = 264
+	n1024WF128Show.SaltBits = 256
+	n1024WF128Show.PRFProfile = IntGenISISPRFProfileTag13
+	n1024WF128Show.PRFParamsPath = IntGenISISPRFParamsTag13
+	n1024WF128Issuance := intGenISISIssuanceTuning(n1024WF128Show)
 
 	n1024Q16Show128 := IntGenISISTuningPreset{
 		NCols:               32,
@@ -554,6 +567,23 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 				"This is a 125+ live preset optimized for execution time with less than 6 grinding bits per round; it is not a 128-bit live preset.",
 			},
 		},
+		IntGenISISPresetSystemN1024WF128CROMV1: {
+			Name:              IntGenISISPresetSystemN1024WF128CROMV1,
+			Description:       "profile-C N=1024 executable WF-128 CROM PoC with tag-13 PRF",
+			Profile:           ProfileIntGenISISC,
+			TargetTheoremBits: 128,
+			SoundnessGate:     n1024WF128Show.SoundnessGate,
+			LVCSNCols:         n1024WF128Show.LVCSNCols,
+			MaxNLeaves:        n1024WF128Show.NLeaves,
+			Issuance:          n1024WF128Issuance,
+			Showing:           n1024WF128Show,
+			Notes: []string{
+				"Experimental PoC shape for the 128-bit CROM work-factor profile; not a complete-system deployment claim.",
+				"Uses the live Q10-128 SmallWood geometry without bounded-query caps, 264-bit hash/Fiat-Shamir output, 128-bit tape, 256-bit salt, and tag-13 PRF parameters.",
+				"The initial measured run reports 139.12/138.98 issuance/showing theorem bits and 27124/39547 paper transcript bytes.",
+				"Primitive and complete-game ledger terms remain diagnostic under the repository-wide PoC assumption.",
+			},
+		},
 		IntGenISISPresetN1024BQ32_96: {
 			Name:              IntGenISISPresetN1024BQ32_96,
 			Description:       "profile-C N=1024 BQ32-96 candidate with split DECS widths and tag-9 PRF",
@@ -709,6 +739,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN512Compact96, "SC-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Compact96, "SC-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Compact125, "SC-125")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetSystemN1024WF128CROMV1, "WF-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ32_96, "BQ32-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ64_96Theta11, "BQ64-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ64_128Theta13H256, "BQ64-128")
@@ -724,6 +755,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ64_96Theta11, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ64_128Theta13H256, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
+	intGenISISPresetApplyPRF(reg, IntGenISISPresetSystemN1024WF128CROMV1, IntGenISISPRFProfileTag13, IntGenISISPRFParamsTag13)
 	intGenISISPresetApplyMetadata(reg)
 	return reg
 }

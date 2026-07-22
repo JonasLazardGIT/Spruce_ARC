@@ -76,7 +76,9 @@ type benchmarkIntGenISISMetrics struct {
 	TheoremBits                   [4]float64                        `json:"theorem_bits"`
 	TheoremTotalBits              float64                           `json:"theorem_total_bits"`
 	ROQueryCaps                   [5]int                            `json:"ro_query_caps"`
+	ROQueryCapsSet                bool                              `json:"-"`
 	ROQueryCapBits                [5]float64                        `json:"ro_query_cap_bits,omitempty"`
+	ROQueryCapBitsSet             bool                              `json:"-"`
 	CollisionSpaceBits            int                               `json:"collision_space_bits"`
 	FSLambdaBits                  int                               `json:"fs_lambda_bits"`
 	EffectiveLambdaBits           int                               `json:"effective_lambda_bits"`
@@ -179,7 +181,9 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		TheoremBits:              report.Soundness.TheoremBits,
 		TheoremTotalBits:         report.Soundness.TotalBits,
 		ROQueryCaps:              report.Soundness.QueryCaps,
+		ROQueryCapsSet:           opts.ROQueryCapsSet,
 		ROQueryCapBits:           report.Soundness.QueryCapBits,
+		ROQueryCapBitsSet:        opts.ROQueryCapBitsSet,
 		CollisionSpaceBits:       report.Soundness.CollisionSpaceBits,
 		FSLambdaBits:             report.Soundness.FSLambdaBits,
 		EffectiveLambdaBits:      report.Soundness.EffectiveLambdaBits,

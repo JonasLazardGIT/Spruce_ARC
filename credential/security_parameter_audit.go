@@ -99,7 +99,9 @@ func AuditIntGenISISSecurityParameters(spec IntGenISISSecurityProfileSpec, actua
 			audit.MissingEvidence = append(audit.MissingEvidence, name)
 		}
 	}
-	requireActual("ro_query_cap_log2", actual.ROQueryCapLog2Set)
+	if spec.Mode != SecurityModeQueryWorkFactor || audit.Required.ROQueryCapLog2Set {
+		requireActual("ro_query_cap_log2", actual.ROQueryCapLog2Set)
+	}
 	requireActual("decs_hash_bits", actual.DECSHashBits > 0)
 	requireActual("decs_tape_bits", actual.DECSTapeBits > 0)
 	requireActual("fs_collision_bits", actual.FSCollisionBits > 0)

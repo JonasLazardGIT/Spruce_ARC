@@ -78,6 +78,31 @@ func TestShowingCLIPropagatesBQ32SplitWidthsAndPRFPath(t *testing.T) {
 	}
 }
 
+func TestShowingCLIPropagatesWF128PoCPreset(t *testing.T) {
+	cfg, err := parseShowingCLIArgs([]string{
+		"-preset", credential.IntGenISISPresetSystemN1024WF128CROMV1,
+	})
+	if err != nil {
+		t.Fatalf("parse showing WF-128 preset: %v", err)
+	}
+	if cfg.Preset.SecurityProfile != "WF-128" || cfg.Preset.CompleteSystemClaim {
+		t.Fatalf("security tuple=(%q,%v)", cfg.Preset.SecurityProfile, cfg.Preset.CompleteSystemClaim)
+	}
+	opts := intGenISISShowingOpts(1024, cfg.Preset.Showing)
+	if opts.ROQueryCapsSet || opts.ROQueryCapBitsSet || opts.ROQueryCapBits != [5]float64{} {
+		t.Fatalf("WF-128 bounded-query caps=%+v", opts)
+	}
+	if opts.ROQueryCaps != [5]int{1, 1, 1, 1, 1} {
+		t.Fatalf("WF-128 unresolved one-candidate defaults=%v", opts.ROQueryCaps)
+	}
+	if opts.DECSCollisionBits != 264 || opts.DECSHashBits != 264 || opts.DECSTapeBits != 128 || opts.FSCollisionBits != 264 || opts.SaltBits != 256 {
+		t.Fatalf("WF-128 widths=%+v", opts)
+	}
+	if opts.LVCSNCols != 36 || opts.NLeaves != 983040 || opts.Eta != 44 || opts.Theta != 7 || opts.Ell != 9 || opts.PRFParamsPath != credential.IntGenISISPRFParamsTag13 {
+		t.Fatalf("WF-128 shape=%+v", opts)
+	}
+}
+
 func TestRandElemRejectsZeroModulus(t *testing.T) {
 	if _, err := randElem(0); err == nil {
 		t.Fatal("zero modulus accepted by presentation nonce sampler")

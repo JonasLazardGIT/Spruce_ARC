@@ -20,6 +20,7 @@ func TestIntGenISISPresetRegistryIncludesMaintainedAndResearchPresets(t *testing
 		IntGenISISPresetN1024Q32_128,
 		IntGenISISPresetN1024Q32_96,
 		IntGenISISPresetN512Compact96,
+		IntGenISISPresetSystemN1024WF128CROMV1,
 	}
 	names := IntGenISISPresetNames()
 	if len(names) != len(want) {
@@ -74,6 +75,7 @@ func TestIntGenISISPresetSecurityProfileMetadata(t *testing.T) {
 		IntGenISISPresetN1024Q10_96:                                "BQ10-96",
 		IntGenISISPresetN1024Q16_96:                                "BQ16-96",
 		IntGenISISPresetN1024Q32_96:                                "BQ32-96",
+		IntGenISISPresetSystemN1024WF128CROMV1:                     "WF-128",
 	}
 	for _, name := range IntGenISISPresetNames() {
 		preset, ok := LookupIntGenISISPreset(name)
@@ -100,6 +102,37 @@ func TestIntGenISISPresetSecurityProfileMetadata(t *testing.T) {
 		if preset.CompleteSystemClaim != (profile.Status == SecurityProfileCompleteLive) {
 			t.Fatalf("preset %s complete claim=%v profile status=%q", name, preset.CompleteSystemClaim, profile.Status)
 		}
+	}
+}
+
+func TestN1024WF128CROMPresetIsExecutableCandidate(t *testing.T) {
+	p, ok := LookupIntGenISISPreset(IntGenISISPresetSystemN1024WF128CROMV1)
+	if !ok {
+		t.Fatal("system-n1024-wf128-crom-v1 missing")
+	}
+	if p.Name != IntGenISISPresetSystemN1024WF128CROMV1 || p.Profile != ProfileIntGenISISC || p.SecurityProfile != "WF-128" || p.SecurityMode != string(SecurityModeQueryWorkFactor) {
+		t.Fatalf("WF-128 identity/profile=%+v", p)
+	}
+	if p.Lifecycle != PresetCandidate || p.ClaimScope != ClaimCompleteSystem || p.CompleteSystemClaim {
+		t.Fatalf("WF-128 claim classification lifecycle=%q scope=%q complete=%v", p.Lifecycle, p.ClaimScope, p.CompleteSystemClaim)
+	}
+	if p.Showing.ROQueryCapsSet || p.Showing.ROQueryCaps != [5]int{} || p.Showing.ROQueryCapBitsSet || p.Showing.ROQueryCapBits != [5]float64{} {
+		t.Fatalf("WF-128 must not carry bounded-query caps: %+v", p.Showing)
+	}
+	if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 36 || p.Showing.NLeaves != 983040 || p.Showing.Eta != 44 || p.Showing.Theta != 7 || p.Showing.Rho != 1 || p.Showing.Ell != 9 || p.Showing.EllPrime != 1 || p.Showing.Kappa != [4]int{0, 4, 9, 9} {
+		t.Fatalf("WF-128 showing geometry=%+v", p.Showing)
+	}
+	if p.Showing.DECSCollisionBits != 264 || p.Showing.DECSHashBits != 264 || p.Showing.DECSTapeBits != 128 || p.Showing.FSCollisionBits != 264 || p.Showing.SaltBits != 256 {
+		t.Fatalf("WF-128 widths=%+v", p.Showing)
+	}
+	if p.PRFProfile != IntGenISISPRFProfileTag13 || p.PRFParamsPath != IntGenISISPRFParamsTag13 || p.PRFParamsDigest != IntGenISISPRFParamsTag13Digest {
+		t.Fatalf("WF-128 PRF binding=(%q,%q,%q)", p.PRFProfile, p.PRFParamsPath, p.PRFParamsDigest)
+	}
+	if p.Issuance.PRFCompanionMode != "" || p.Issuance.SigShortnessRadix != 0 || p.Issuance.CompressedRows != 0 || p.Issuance.DECSHashBits != p.Showing.DECSHashBits || p.Issuance.PRFProfile != p.PRFProfile {
+		t.Fatalf("WF-128 issuance tuple=%+v", p.Issuance)
+	}
+	if p.ThreatModel.TargetWorkFactorBits != 128 || p.ThreatModel.ROQueryCapLog2 != [5]float64{} || p.ThreatModel.AcceptedIssuance != 1 || p.ThreatModel.AcceptedShowing != 1 {
+		t.Fatalf("WF-128 threat model=%+v", p.ThreatModel)
 	}
 }
 

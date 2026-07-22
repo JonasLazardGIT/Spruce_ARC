@@ -161,6 +161,88 @@ func TestBenchmarkIntGenISISE2EPropagatesBQ32ProfileMetadata(t *testing.T) {
 	}
 }
 
+func TestBenchmarkIntGenISISE2EPropagatesWF128PoCPreset(t *testing.T) {
+	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
+		"-preset", credential.IntGenISISPresetSystemN1024WF128CROMV1,
+	})
+	if err != nil {
+		t.Fatalf("parse benchmark WF-128 preset: %v", err)
+	}
+	if cfg.SecurityProfile != "WF-128" || cfg.SecurityMode != "query_work_factor" || cfg.CompleteSystemClaim {
+		t.Fatalf("security tuple=(%q,%q,%v)", cfg.SecurityProfile, cfg.SecurityMode, cfg.CompleteSystemClaim)
+	}
+	if cfg.PRFProfile != credential.IntGenISISPRFProfileTag13 || cfg.PRFParamsPath != credential.IntGenISISPRFParamsTag13 || cfg.PRFParamsDigest != credential.IntGenISISPRFParamsTag13Digest {
+		t.Fatalf("PRF tuple=(%q,%q,%q)", cfg.PRFProfile, cfg.PRFParamsPath, cfg.PRFParamsDigest)
+	}
+	if cfg.Showing.ROQueryCapsSet || cfg.Showing.ROQueryCaps != [5]int{} || cfg.Showing.ROQueryCapBitsSet || cfg.Showing.ROQueryCapBits != [5]float64{} {
+		t.Fatalf("WF-128 bounded-query caps=%+v", cfg.Showing)
+	}
+	if cfg.Showing.DECSCollisionBits != 264 || cfg.Showing.DECSHashBits != 264 || cfg.Showing.DECSTapeBits != 128 || cfg.Showing.FSCollisionBits != 264 || cfg.Showing.SaltBits != 256 {
+		t.Fatalf("WF-128 widths=%+v", cfg.Showing)
+	}
+	if cfg.Showing.NCols != 32 || cfg.Showing.LVCSNCols != 36 || cfg.Showing.NLeaves != 983040 || cfg.Showing.Eta != 44 || cfg.Showing.Theta != 7 || cfg.Showing.Ell != 9 || cfg.Showing.Kappa != [4]int{0, 4, 9, 9} {
+		t.Fatalf("WF-128 showing geometry=%+v", cfg.Showing)
+	}
+}
+
+func TestWF128PoCPresetParameterAuditMatchesBindings(t *testing.T) {
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetSystemN1024WF128CROMV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, ok := credential.LookupIntGenISISSecurityProfile(preset.SecurityProfile)
+	if !ok {
+		t.Fatalf("missing security profile %q", preset.SecurityProfile)
+	}
+	params, digest, err := prf.LoadLocalOrBundledParamsWithDigest(preset.PRFParamsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != preset.PRFParamsDigest {
+		t.Fatalf("loaded PRF digest=%s want %s", digest, preset.PRFParamsDigest)
+	}
+	audit := credential.AuditIntGenISISSecurityParameters(profile, credential.IntGenISISSecurityParameterActuals{
+		DECSHashBits:    preset.Showing.DECSHashBits,
+		DECSTapeBits:    preset.Showing.DECSTapeBits,
+		FSCollisionBits: preset.Showing.FSCollisionBits,
+		SaltBits:        preset.Showing.SaltBits,
+		PRFTagElements:  params.LenTag,
+		PRFProfile:      preset.PRFProfile,
+		TranscriptMode:  preset.Showing.TranscriptMode,
+		Evidence: map[string]string{
+			"decs_hash_bits":    credential.SecurityEvidenceMeasured,
+			"decs_tape_bits":    credential.SecurityEvidenceMeasured,
+			"fs_collision_bits": credential.SecurityEvidenceMeasured,
+			"salt_bits":         credential.SecurityEvidenceMeasured,
+			"prf_tag_elements":  credential.SecurityEvidenceLoadedParams,
+			"prf_profile":       credential.SecurityEvidenceLoadedParams,
+			"transcript_mode":   credential.SecurityEvidenceMeasured,
+		},
+	})
+	if audit.Status != "pass" || len(audit.MissingActual) != 0 || len(audit.MissingEvidence) != 0 || len(audit.Mismatches) != 0 {
+		t.Fatalf("WF-128 parameter audit=%+v", audit)
+	}
+	if audit.Required.ROQueryCapLog2Set || audit.Actual.ROQueryCapLog2Set {
+		t.Fatalf("WF-128 audit must preserve unset bounded-query scope: %+v", audit)
+	}
+}
+
+func TestBenchmarkActualROQueryCapsPreservesUnsetScope(t *testing.T) {
+	metrics := benchmarkIntGenISISMetrics{ROQueryCaps: [5]int{1, 1, 1, 1, 1}}
+	bits, set, mismatches := benchmarkActualROQueryCaps(credential.SecurityModeQueryWorkFactor, metrics, metrics)
+	if set || bits != [5]float64{} || len(mismatches) != 0 {
+		t.Fatalf("unset query scope=(%v,%v,%+v)", bits, set, mismatches)
+	}
+}
+
+func TestBenchmarkActualROQueryCapsRecognizesSingleCandidateDefault(t *testing.T) {
+	metrics := benchmarkIntGenISISMetrics{ROQueryCaps: [5]int{1, 1, 1, 1, 1}}
+	bits, set, mismatches := benchmarkActualROQueryCaps(credential.SecurityModeSingleCandidate, metrics, metrics)
+	if !set || bits != [5]float64{} || len(mismatches) != 0 {
+		t.Fatalf("single-candidate query scope=(%v,%v,%+v)", bits, set, mismatches)
+	}
+}
+
 func TestBenchmarkIntGenISISE2EPropagatesBQ64LogCapPreset(t *testing.T) {
 	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
 		"-preset", credential.IntGenISISPresetN1024BQ64_128Theta13H256,
@@ -315,6 +397,7 @@ func TestBenchmarkSecurityLedgerExplainsBQ32FullGameComponents(t *testing.T) {
 		AlgebraicTotalBits:  96.03,
 		CollisionBits:       101.68,
 		ROQueryCaps:         [5]int{1 << 32, 1 << 32, 1 << 32, 1 << 32, 1 << 32},
+		ROQueryCapsSet:      true,
 		DECSHashBits:        168,
 		DECSTapeBits:        136,
 		SaltBits:            168,
