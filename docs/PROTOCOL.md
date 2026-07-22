@@ -152,18 +152,20 @@ proof-accounting results, not a complete-system promotion.
 ## WF-128 PoC Preset
 
 `system-n1024-wf128-crom-v1` is an executable CROM work-factor configuration,
-not a deployment claim. It starts from the live Q10-128 proof geometry but
-unsets all bounded-query caps and executes 264-bit DECS/hash and Fiat-Shamir
+not a deployment claim. It uses the compiled R11/L4 relation, leaves all
+bounded-query caps unset, and executes 264-bit DECS/hash and Fiat-Shamir
 outputs, a 128-bit tape, a 256-bit salt, and the tag-13 PRF relation.
 
 | Security profile | RO caps | Hash/FS bits | Tape bits | Salt bits | Actual tag elements | `n_cols` | `N_DECS` | eta | theta | ell |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| WF-128 candidate | unset | 264 | 128 | 256 | 13 | 36 | 983,040 | 44 | 7 | 9 |
+| WF-128 candidate | unset | 264 | 128 | 256 | 13 | 43 | 524,288 | 46 | 7 | 9 |
 
-The initial end-to-end measurement reports 27,124 issuance bytes, 39,547
-showing bytes, and 139.12/138.98 issuance/showing theorem bits. The structural
-parameter audit passes. The ledger remains diagnostic and the preset has
-`complete_system_claim=false`.
+The selected shape also uses grinding vector `[0,0,4,13]`. Three repeated
+end-to-end measurements report 26,758 issuance bytes, 38,092 showing bytes,
+and 133.44/133.35 issuance/showing theorem bits. Relative to the initial
+66,671-byte combined control, this reduces the combined paper transcript by
+1,821 bytes. The structural parameter audit passes. The ledger remains
+diagnostic and the preset has `complete_system_claim=false`.
 
 ## NIZK-Only Q128 Preset
 

@@ -87,10 +87,11 @@ primitive core is below the 256-bit core required for that full-system profile.
 `system-n1024-wf128-crom-v1` exercises the intended unbounded CROM work-factor
 shape with 264-bit DECS/hash and Fiat-Shamir outputs, a 128-bit tape, a 256-bit
 salt, and the bundled tag-13 PRF profile. Its bounded-query caps are unset. The
-initial measured run reports 27,124 issuance bytes, 39,547 showing bytes, and
-139.12/138.98 issuance/showing theorem bits. Its structural parameter audit
-passes; its security ledger remains diagnostic and makes no complete-system
-claim.
+retuned shape uses polynomial block width 43, `N_DECS=524288`, `eta=46`, and
+grinding vector `[0,0,4,13]`. Three repeated runs report 26,758 issuance bytes,
+38,092 showing bytes, and 133.44/133.35 issuance/showing theorem bits. Its
+structural parameter audit passes; its security ledger remains diagnostic and
+makes no complete-system claim.
 
 ## Fast Docker Run
 

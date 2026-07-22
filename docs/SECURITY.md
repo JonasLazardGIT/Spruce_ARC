@@ -240,13 +240,19 @@ not residual security at a fixed query budget.
 | Tape width | 128 bits | 128 minimum |
 | Salt width | 256 bits | 256 minimum |
 | PRF tag | 13 field elements | 13 minimum |
-| Issuance/showing theorem result | 139.12 / 138.98 bits | above 128 proof target |
-| Paper transcript | 27,124 / 39,547 bytes | issuance / showing; not artifact-gated |
+| SmallWood geometry | block width 43, `N_DECS=524288`, `eta=46`, `theta=7`, `ell=9` | measured R11/L4 retune |
+| Grinding vector | `[0,0,4,13]` | supported live path |
+| Issuance/showing theorem result | 133.44 / 133.35 bits | above 128 proof target |
+| Paper transcript | 26,758 / 38,092 bytes | issuance / showing; not artifact-gated |
 
-The structural parameter audit passes. Primitive estimates and unresolved
-full-game terms remain diagnostic, so the lifecycle is `candidate` and
-`complete_system_claim=false`. The 272/136/264/tag-14 engineering lane remains
-a design point without an executable preset.
+The final geometry was selected by projection followed by measured
+issuance/showing comparison. Wider committed rows alone reduced showing bytes
+but increased issuance; the selected domain/block-width pair reduced the
+combined transcript from 66,671 to 64,850 bytes and reproduced exactly across
+three runs. The structural parameter audit passes. Primitive estimates and
+unresolved full-game terms remain diagnostic, so the lifecycle is `candidate`
+and `complete_system_claim=false`. The 272/136/264/tag-14 engineering lane
+remains a design point without an executable preset.
 
 ## Reproducing Estimator Outputs
 

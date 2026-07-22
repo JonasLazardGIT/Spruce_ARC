@@ -75,9 +75,10 @@ Neither row is an artifact byte gate. The BQ32 executed-parameter audit passes,
 but its complete ledger remains blocked. The BQ128 row is proof-only and the
 full `BQ128-128` profile still reports `requires_new_primitives`.
 
-The executable `system-n1024-wf128-crom-v1` PoC currently measures 39,547
-showing paper-transcript bytes. This value is diagnostic and is intentionally
-not part of the maintained artifact byte table or gate.
+The executable `system-n1024-wf128-crom-v1` PoC currently measures 26,758
+issuance and 38,092 showing paper-transcript bytes. Three tuning-confirmation
+runs produced identical byte counts. These values are diagnostic and are
+intentionally not part of the maintained artifact byte table or gate.
 
 ## Docker Reproduction
 
