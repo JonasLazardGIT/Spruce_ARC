@@ -69,7 +69,7 @@ Additional measured, non-artifact points are:
 | Preset | Role | Expected `showing.paper_transcript_bytes` |
 | --- | --- | ---: |
 | `pilot-n1024-bq32-r96-v1` | bounded CROM candidate; actual tag-9; raw `[2^32]*5` caps per phase | 36887 |
-| `research-n1024-bq128-r128-v1` | proof-only SmallWood NIZK Q128/epsilon128 claim for up to `2^128` proof-system queries | 89966 |
+| `research-n1024-bq128-r128-v1` | proof-only SmallWood NIZK Q128/epsilon128 claim for up to `2^128` proof-system queries | 89950 |
 
 Neither row is an artifact byte gate. The BQ32 executed-parameter audit passes,
 but its complete ledger remains blocked. The BQ128 row is proof-only and the

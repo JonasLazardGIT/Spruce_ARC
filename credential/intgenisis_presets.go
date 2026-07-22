@@ -611,7 +611,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Showing:           n1024BQ128Show128RawResidualTheta13LVCS48H512,
 			Notes: []string{
 				"SmallWood NIZK-only Q128/epsilon128 preset: proof soundness and zero knowledge target about 128 bits for an adversary making up to 2^128 ROM/Fiat-Shamir queries against the proof system.",
-				"Uses raw log RO caps [128]*5 with no valid-prefix discount, h512 Fiat-Shamir/collision accounting, 256-bit tape, 384-bit salt, theta13, ell18, LVCS48, and measured 89966 paper transcript bytes.",
+				"Uses raw log RO caps [128]*5 with no valid-prefix discount, h512 Fiat-Shamir/collision accounting, 256-bit tape, 384-bit salt, theta13, ell18, LVCS48, and measured 89950 paper transcript bytes.",
 				"Not a complete IntGenISIS credential-system claim: the BQ128-128 system profile still requires a 256-bit primitive redesign, and tag-9 remains executable plumbing rather than the claimed primitive lane.",
 			},
 		},

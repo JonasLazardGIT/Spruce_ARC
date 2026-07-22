@@ -164,7 +164,7 @@ soundness and zero-knowledge terms remain about 128 bits.
 | `research-n1024-bq128-r128-v1` | C | NIZK-only Q128/epsilon128 | raw log `[128]*5` | 512 | 256 | 384 | 48 | 983,040 | 65 | 13 | 18/1 | `{0,0,8,5}` |
 
 This preset uses no valid-prefix discount. Its benchmark report currently
-measures `showing.paper_transcript_bytes = 89966` and
+measures `showing.paper_transcript_bytes = 89950` and
 `showing.theorem_total_bits = 129.26` for the proof layer. It remains outside
 the artifact preset gate because the full `BQ128-128` IntGenISIS
 credential-system profile still has `complete_system_claim=false` and
