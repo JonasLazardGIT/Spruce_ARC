@@ -1,15 +1,15 @@
 # SPRUCE
 
-SPRUCE is the maintained ARC-SPRUCE IntGenISIS paper artifact. It implements
+SPRUCE is the ARC-SPRUCE IntGenISIS paper artifact. It implements
 the committed-message issuance flow, final IntGenISIS showing proof, verifier
-path, fixed transcript reporting, and the curated maintained presets.
+path, fixed transcript reporting, and a purpose-oriented preset registry.
 
 The maintained artifact surface is intentionally narrow:
 
 - `cmd/issuance`
 - `cmd/showing`
-- the nine maintained IntGenISIS presets
-- Go tests, gates, and benchmark reports for those presets
+- the public PoC, artifact, pilot, and research preset portfolio
+- Go tests, separate artifact/proof/candidate gates, and benchmark reports
 
 The CLI also exposes explicitly marked candidate/research measurement presets.
 Those labels are not maintained byte gates unless this README and
@@ -30,38 +30,55 @@ This README is the first reviewer document. Then read:
 Package-level READMEs remain available for code navigation, but the files above
 are the canonical reviewer-facing docs.
 
-## Maintained Presets
+## Preset Portfolio
 
 ```text
-n512-compact96
-n1024-compact96
-n1024-compact125
-n1024-q10-128
-n1024-q16-128
-n1024-q32-128
-n1024-q10-96
-n1024-q16-96
-n1024-q32-96
+poc-n512-sc96-v1
+artifact-n1024-sc96-v1
+artifact-n1024-sc125-v1
+pilot-n1024-bq32-r96-v1
+system-n1024-wf128-crom-v1       (unavailable)
 ```
 
-`n512-compact96` is the profile-B engineering preset. `n1024-compact96` and
-`n1024-compact125` are compact profile-C presets, where `n1024-compact125` is a
-125+ live preset rather than a 128-bit claim. The `n1024-q*` presets are
-query-budget-specific profile-C presets with fixed random-oracle query caps and
-DECS hash/tape widths baked into the preset registry.
+Run `go run ./cmd/issuance list-presets` for the default portfolio,
+`list-presets -research` for public research points, or `list-presets -all`
+for historical selectors. Lifecycle and claim scope are independent: an
+executable or byte-gated artifact is not thereby deployable.
+
+The old `n512-*` and `n1024-*` names remain accepted aliases for artifact
+reproduction. They resolve to the same canonical manifest and do not create a
+second wire identity. The Q10/Q16/Q32 aliases are hidden from the default list.
+
+No complete-system deployment preset is currently available.
+
+## BQ32 Controlled Pilot
+
+`pilot-n1024-bq32-r96-v1` is a CROM candidate, not a deployment preset. Its
+immutable scope uses raw query caps `[2^32]*5` within each proof-system phase,
+at most `2^32` honest proof transcripts and tags per domain-separated context,
+and the actual tag-9 PRF relation. One issuance plus one showing composes to
+`[2^33]*5`. It executes 168-bit DECS/hash and Fiat-Shamir outputs, 136-bit tapes,
+and a 168-bit salt.
+
+The current live measurement is 25,844 issuance bytes, 36,887 showing bytes,
+99.98 one-proof theorem bits, and 98.59 bits after the current one-issuance /
+one-showing global-collision composition. The executed-parameter audit passes,
+but complete-system promotion remains blocked by missing or unreviewed
+primitive and full-game ledger terms.
 
 ## NIZK-Only Q128 Preset
 
-The promoted SmallWood NIZK-only Q128/epsilon128 preset is:
+The public SmallWood NIZK-only Q128/epsilon128 research preset is:
 
 ```text
-n1024-bq128-128-raw128-residual128-theta13-lvcs48-h512
+research-n1024-bq128-r128-v1
 ```
 
 It targets proof soundness and zero knowledge of about 128 bits against an
 adversary making up to `2^128` ROM/Fiat-Shamir queries against the proof
-system. It uses raw log caps `[128]*5`, `h512`, 256-bit tape, 384-bit salt,
-`theta=13`, `ell=18`, `LVCS=48`, and `NLeaves=983040`.
+system. It uses raw log caps `[128]*5`, 512-bit hash/Fiat-Shamir output,
+256-bit tape, 384-bit salt, `theta=13`, `ell=18`, polynomial block width
+`n_cols=48`, and degree-enforcing domain size `N_DECS=983040`.
 
 This is not a complete IntGenISIS credential-system claim: the `BQ128-128`
 system profile remains `requires_new_primitives` because the current executable
@@ -93,12 +110,14 @@ checkout documented in [docs/SECURITY.md](docs/SECURITY.md).
 ```bash
 go test ./...
 go build ./cmd/issuance ./cmd/showing
-go run ./cmd/issuance benchmark-intgenisis-e2e -preset n1024-compact125
-go run ./cmd/issuance gate-maintained-presets
+go run ./cmd/issuance benchmark-intgenisis-e2e -preset artifact-n1024-sc125-v1
+go run ./cmd/issuance gate-artifact-presets
+go run ./cmd/issuance gate-proof-profiles
+go run ./cmd/issuance gate-candidate-presets
 ```
 
 The full native validation script runs formatting, tests, vet, staticcheck,
-strict deadcode, CLI builds, and all maintained preset byte gates:
+strict deadcode, CLI builds, and all historical exact-byte artifact gates:
 
 ```bash
 ./scripts/validate-artifact.sh
@@ -116,15 +135,16 @@ The end-to-end benchmark above is the main reviewer command. The individual
 issuance/showing commands are also available:
 
 ```bash
-go run ./cmd/issuance setup-intgenisis-public -preset n1024-compact125
-go run ./cmd/issuance setup-ntru-keys -preset n1024-compact125
-go run ./cmd/issuance holder-commit -preset n1024-compact125
+go run ./cmd/issuance setup-intgenisis-public -preset artifact-n1024-sc125-v1
+go run ./cmd/issuance setup-ntru-keys -preset artifact-n1024-sc125-v1
+go run ./cmd/issuance holder-commit -preset artifact-n1024-sc125-v1
 go run ./cmd/issuance holder-prove
 go run ./cmd/issuance issuer-verify-sign
 go run ./cmd/issuance holder-finalize
-go run ./cmd/showing -preset n1024-compact125
+go run ./cmd/showing -preset artifact-n1024-sc125-v1
 ```
 
 Commands that create preset-dependent material require `-preset`. Accounting
-parameters are not exposed as public flags; they come from the maintained
-preset registry.
+parameters are not exposed as public flags; they come from the canonical
+preset manifest. Public parameters, credential state, verifier keys,
+presentations, and Fiat-Shamir public inputs bind that manifest.

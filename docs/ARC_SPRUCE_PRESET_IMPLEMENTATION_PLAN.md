@@ -1,5 +1,10 @@
 # ARC-SPRUCE Preset Implementation Plan
 
+> Historical design record. The implemented preset registry, threat manifests,
+> measured values, and claim statuses are documented in `docs/SECURITY.md` and
+> `docs/PROTOCOL.md`; where this plan differs, those documents and executable
+> reports are authoritative.
+
 This plan turns the ARC-SPRUCE adversary and parameterization report into a
 repo-fitted implementation path. It is a plan only: no preset should be
 promoted, renamed, or treated as a complete system-security claim until the
