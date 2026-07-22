@@ -648,6 +648,9 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 	if proof == nil {
 		return false, fmt.Errorf("nil proof")
 	}
+	if opts.SaltBits > 0 && len(proof.Salt) != fsSaltBytesForOpts(opts) {
+		return false, fmt.Errorf("proof salt length=%d bytes, want %d for salt_bits=%d", len(proof.Salt), fsSaltBytesForOpts(opts), opts.SaltBits)
+	}
 	if personalization == "" {
 		personalization = FSModeCredential
 	}

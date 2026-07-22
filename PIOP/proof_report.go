@@ -242,16 +242,18 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 	}
 	sigShortness := buildSigShortnessReport(proof)
 	paperTranscript := buildPaperTranscriptReportLeaf(proof, q, paperTranscriptParams{
-		Lambda:     reportOpts.Lambda,
-		RingDegree: int(ringQ.N),
-		X0Len:      x0Len,
-		Eta:        eta,
-		Ell:        ell,
-		EllPrime:   ellPrime,
-		Rho:        rho,
-		Theta:      theta,
-		DQ:         dQ,
-		DDECS:      lvcsNCols + ell - 1,
+		Lambda:       reportOpts.Lambda,
+		SaltBits:     reportOpts.SaltBits,
+		DECSHashBits: decsHashBits,
+		RingDegree:   int(ringQ.N),
+		X0Len:        x0Len,
+		Eta:          eta,
+		Ell:          ell,
+		EllPrime:     ellPrime,
+		Rho:          rho,
+		Theta:        theta,
+		DQ:           dQ,
+		DDECS:        lvcsNCols + ell - 1,
 	})
 	if proof.SourceProductBridge != nil {
 		openingRep := BuildOpeningPaperReport(proof.SourceProductBridge.RowsOpening)

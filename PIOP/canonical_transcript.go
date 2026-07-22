@@ -112,16 +112,18 @@ type openingPaperReport struct {
 }
 
 type paperTranscriptParams struct {
-	Lambda     int
-	RingDegree int
-	X0Len      int
-	Eta        int
-	Ell        int
-	EllPrime   int
-	Rho        int
-	Theta      int
-	DQ         int
-	DDECS      int
+	Lambda       int
+	SaltBits     int
+	DECSHashBits int
+	RingDegree   int
+	X0Len        int
+	Eta          int
+	Ell          int
+	EllPrime     int
+	Rho          int
+	Theta        int
+	DQ           int
+	DDECS        int
 }
 
 func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptParams) PaperTranscriptReport {
@@ -165,11 +167,15 @@ func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptPar
 	vTargetsBits := bitsForPackedMatrixPayload(proof.VTargetsBits, proof.VTargets)
 	barSetsBits := bitsForPackedMatrixPayload(proof.BarSetsBits, proof.BarSets)
 
+	saltRootBits := float64(4 * p.Lambda)
+	if p.SaltBits > 0 && p.DECSHashBits > 0 {
+		saltRootBits = float64(p.SaltBits + p.DECSHashBits)
+	}
 	out := PaperTranscriptReport{
 		RingDegree: p.RingDegree,
 		X0Len:      p.X0Len,
 		Counters:   newPaperBucket(128, 128),
-		SaltRoot:   newPaperBucket(float64(4*p.Lambda), float64(4*p.Lambda)),
+		SaltRoot:   newPaperBucket(saltRootBits, saltRootBits),
 		ExtraHash:  newPaperBucket(extraMetadataBits, float64(2*p.Lambda)+extraMetadataBits),
 		R: newPaperBucket(
 			float64(p.Eta)*float64(maxInt(p.DDECS+1, 0))*logQ,

@@ -249,7 +249,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	baseXOF := NewShake256XOF(fsDigestBytes)
 	salt := append([]byte(nil), args.salt...)
 	if len(salt) == 0 {
-		salt = make([]byte, fsSaltBytes(o.Lambda))
+		salt = make([]byte, fsSaltBytesForOpts(o))
 		if _, err := cryptoRand.Read(salt); err != nil {
 			return out, fmt.Errorf("rand salt: %w", err)
 		}

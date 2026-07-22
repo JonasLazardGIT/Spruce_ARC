@@ -35,6 +35,13 @@ func fsSaltBytes(lambda int) int {
 	return (bits + 7) / 8
 }
 
+func fsSaltBytesForOpts(opts SimOpts) int {
+	if opts.SaltBits > 0 {
+		return (opts.SaltBits + 7) / 8
+	}
+	return fsSaltBytes(opts.Lambda)
+}
+
 func fsCollisionSpaceBits(lambda int, saltLen int) int {
 	if lambda <= 0 {
 		lambda = defaultSimOpts().Lambda
