@@ -22,6 +22,7 @@ const (
 
 	nizkProfileBQ128RawResidualFrontierCandidate = "bq128-128-raw128-residual128-theta13-lvcs48-h512"
 	nizkProfileFormalBackendFamily               = "formal_backend_sweep"
+	nizkProfileWF128TuningFamily                 = "wf128_poc_tuning"
 
 	nizkProfileFrontierCandidate              = "nizk_candidate"
 	nizkProfileFrontierHighKResearch          = qBudget128CategoryHighKResearch
@@ -301,6 +302,39 @@ func nizkProfileSearchTargets() []NIZKProfileSearchTarget {
 	}
 }
 
+func nizkProfileSearchTargetsForFilter(filter string) []NIZKProfileSearchTarget {
+	if nizkProfileWF128SweepEnabled(filter) {
+		return []NIZKProfileSearchTarget{nizkProfileWF128SearchTarget()}
+	}
+	return nizkProfileSearchTargets()
+}
+
+func nizkProfileSearchTargetsForReports(reports []NIZKProfileCandidateReport) []NIZKProfileSearchTarget {
+	for _, report := range reports {
+		if report.SecurityProfile == "WF-128" {
+			return []NIZKProfileSearchTarget{nizkProfileWF128SearchTarget()}
+		}
+	}
+	return nizkProfileSearchTargets()
+}
+
+func nizkProfileWF128SearchTarget() NIZKProfileSearchTarget {
+	target := nizkProfileSearchTargetFromRegistry(
+		"WF-128",
+		"poc_engineering",
+		132,
+		0,
+		[2]int{264, 264},
+		[2]int{128, 136},
+		[2]int{256, 256},
+		[2]int{13, 13},
+		256,
+		256,
+	)
+	target.PrimitiveBlockerReason = "WF-128 remains an executable PoC candidate; primitive and complete-game ledger terms are diagnostic"
+	return target
+}
+
 func nizkProfileSearchTargetFromRegistry(label, lane string, targetBits float64, queryCapExponent int, hashFS, tape, salt, tag [2]int, bareSalt, engineeringSalt int) NIZKProfileSearchTarget {
 	spec, ok := credential.LookupIntGenISISSecurityProfile(label)
 	if !ok {
@@ -351,6 +385,9 @@ func nizkProfileSearchCandidates() []NIZKProfileSearchCandidate {
 }
 
 func nizkProfileSearchCandidatesForFilter(filter string) []NIZKProfileSearchCandidate {
+	if nizkProfileWF128SweepEnabled(filter) {
+		return nizkProfileWF128TuningCandidates()
+	}
 	candidates := nizkProfileSearchCandidates()
 	if !nizkProfileFormalSweepEnabled(filter) {
 		return candidates
@@ -365,6 +402,9 @@ func nizkProfileSearchCandidatesForFilter(filter string) []NIZKProfileSearchCand
 
 func nizkProfileSearchCandidatesForReports(reports []NIZKProfileCandidateReport) []NIZKProfileSearchCandidate {
 	for _, report := range reports {
+		if report.SecurityProfile == "WF-128" {
+			return nizkProfileSearchCandidatesForFilter("wf128")
+		}
 		if report.FormalBackendCandidate {
 			return nizkProfileSearchCandidatesForFilter("formal")
 		}
@@ -375,6 +415,11 @@ func nizkProfileSearchCandidatesForReports(reports []NIZKProfileCandidateReport)
 func nizkProfileFormalSweepEnabled(filter string) bool {
 	lower := strings.ToLower(strings.TrimSpace(filter))
 	return strings.Contains(lower, "formal") || qBudget128EnvBool("SPRUCE_FORMAL_BACKEND_SWEEP")
+}
+
+func nizkProfileWF128SweepEnabled(filter string) bool {
+	lower := strings.ToLower(strings.TrimSpace(filter))
+	return strings.Contains(lower, "wf128") || strings.Contains(lower, "wf-128") || qBudget128EnvBool("SPRUCE_WF128_TUNING_SWEEP")
 }
 
 func nizkProfileCandidateFromTuning(name, relationEncoding, preset string, showing intGenISISTuning, relation benchmarkIntGenISISRelationReport) NIZKProfileSearchCandidate {
@@ -1554,7 +1599,11 @@ func nizkProfileRelationWithDQOverride(relation benchmarkIntGenISISRelationRepor
 }
 
 func nizkProfileRelationSafety(cand NIZKProfileSearchCandidate, relation benchmarkIntGenISISRelationReport, ell int) NIZKProfileRelationSafetyReport {
-	baseline := nizkProfileRelationForEll(nizkProfileRelationCurrentBQ32(), ell)
+	baselineRelation := nizkProfileRelationCurrentBQ32()
+	if cand.Family == nizkProfileWF128TuningFamily {
+		baselineRelation = nizkProfileRelationWF128()
+	}
+	baseline := nizkProfileRelationForEll(baselineRelation, ell)
 	out := NIZKProfileRelationSafetyReport{
 		CertificateStatus:         "current_theorem_safe",
 		CurrentTheoremSafe:        true,
@@ -1604,7 +1653,7 @@ func nizkProfileCandidateReport(target NIZKProfileSearchTarget, cand NIZKProfile
 	paperTranscriptBytes := buckets.Q + buckets.R + buckets.Pdecs + buckets.Auth + buckets.Tapes + buckets.VTargets + buckets.BarSets + buckets.SigShortness
 	formalDiagnostics := nizkProfileFormalBackendDiagnostics(target, cand, relation, smallwood, paperTranscriptBytes)
 	lvcsAboveRing := formalDiagnostics != nil && formalDiagnostics.LVCSAboveRing
-	ledgerStatus := string(credential.SecurityProfileRequiresNewPrimitives)
+	ledgerStatus := string(target.TargetStatus)
 	ledgerReasons := []string{target.PrimitiveBlockerReason}
 	if cand.ValidPrefixResearch {
 		ledgerStatus = string(credential.SecurityProfileRequiresTheory)
@@ -1699,9 +1748,13 @@ func nizkProfileTargetForCandidate(target NIZKProfileSearchTarget, cand NIZKProf
 }
 
 func nizkProfileForcedBySecurity(target NIZKProfileSearchTarget) []string {
+	queryScope := fmt.Sprintf("query semantics reserve a 2^%d random-oracle/adversary budget", target.QueryCapExponent)
+	if target.SecurityMode == string(credential.SecurityModeQueryWorkFactor) {
+		queryScope = "work-factor accounting leaves bounded random-oracle query caps unset"
+	}
 	return []string{
 		fmt.Sprintf("core primitive family must support %.0f-bit lattice/PRF/key security", target.CoreBitsRequired),
-		fmt.Sprintf("query semantics reserve a 2^%d random-oracle/adversary budget", target.QueryCapExponent),
+		queryScope,
 		fmt.Sprintf("hash/FS width lane is %d..%d bits", target.HashFSBitsRange[0], target.HashFSBitsRange[1]),
 		fmt.Sprintf("DECS tape width lane is %d..%d bits", target.TapeBitsRange[0], target.TapeBitsRange[1]),
 		fmt.Sprintf("salt width lane is %d..%d bits", target.SaltBitsRange[0], target.SaltBitsRange[1]),
@@ -2312,7 +2365,7 @@ func nizkProfileFrontierClass(report NIZKProfileCandidateReport) string {
 }
 
 func nizkProfileReports(maxPerProfile int, filter string) []NIZKProfileCandidateReport {
-	targets := nizkProfileSearchTargets()
+	targets := nizkProfileSearchTargetsForFilter(filter)
 	candidates := nizkProfileSearchCandidatesForFilter(filter)
 	filter = strings.TrimSpace(filter)
 	validPrefixEnabled := qBudget128EnvBool("SPRUCE_VALID_PREFIX_SWEEP") || strings.Contains(strings.ToLower(filter), "vp") || strings.Contains(strings.ToLower(filter), "valid-prefix") || strings.Contains(strings.ToLower(filter), "valid_prefix")
@@ -2320,6 +2373,12 @@ func nizkProfileReports(maxPerProfile int, filter string) []NIZKProfileCandidate
 	for _, target := range targets {
 		perTarget := make([]NIZKProfileCandidateReport, 0, len(candidates))
 		for _, cand := range candidates {
+			if target.SecurityProfile == "WF-128" && cand.Family != nizkProfileWF128TuningFamily {
+				continue
+			}
+			if cand.Family == nizkProfileWF128TuningFamily && target.SecurityProfile != "WF-128" {
+				continue
+			}
 			if cand.TargetProfile != "" && cand.TargetProfile != target.SecurityProfile {
 				continue
 			}
@@ -2365,7 +2424,7 @@ func nizkProfileReportsWithMeasurements(t *testing.T, reports []NIZKProfileCandi
 	}
 	nizkProfileChdirRepoRoot(t)
 	targets := make(map[string]NIZKProfileSearchTarget)
-	for _, target := range nizkProfileSearchTargets() {
+	for _, target := range nizkProfileSearchTargetsForReports(reports) {
 		targets[target.SecurityProfile] = target
 	}
 	candidates := make(map[string]NIZKProfileSearchCandidate)
@@ -2481,7 +2540,11 @@ func nizkProfileChdirRepoRoot(t *testing.T) {
 }
 
 func nizkProfileBenchmarkConfig(target NIZKProfileSearchTarget, cand NIZKProfileSearchCandidate, report NIZKProfileCandidateReport, root string, idx int) (benchmarkIntGenISISE2EConfig, error) {
-	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetN1024BQ32_96)
+	controlPreset := cand.ControlPreset
+	if controlPreset == "" {
+		controlPreset = credential.IntGenISISPresetN1024BQ32_96
+	}
+	preset, err := credential.MustLookupIntGenISISPreset(controlPreset)
 	if err != nil {
 		return benchmarkIntGenISISE2EConfig{}, err
 	}
@@ -2499,7 +2562,7 @@ func nizkProfileBenchmarkConfig(target NIZKProfileSearchTarget, cand NIZKProfile
 	issuance := qBudget128IssuanceFromShowing(showing)
 	name := fmt.Sprintf("%03d-%s-%s", idx, qBudget128SanitizeLabel(target.SecurityProfile), qBudget128SanitizeLabel(cand.Name))
 	maxNLeaves := maxInt(preset.MaxNLeaves, maxInt(issuance.NLeaves, showing.NLeaves))
-	return benchmarkIntGenISISE2EConfig{
+	cfg := benchmarkIntGenISISE2EConfig{
 		ArtifactDir:         filepath.Join(root, name),
 		PresetName:          fmt.Sprintf("%s:%s:%s", preset.Name, target.SecurityProfile, cand.Name),
 		Profile:             preset.Profile,
@@ -2509,6 +2572,7 @@ func nizkProfileBenchmarkConfig(target NIZKProfileSearchTarget, cand NIZKProfile
 		CompleteSystemClaim: false,
 		PRFProfile:          preset.PRFProfile,
 		PRFParamsPath:       preset.PRFParamsPath,
+		PRFParamsDigest:     preset.PRFParamsDigest,
 		JSONOut:             filepath.Join(root, name+".json"),
 		Force:               true,
 		Issuance:            issuance,
@@ -2518,7 +2582,11 @@ func nizkProfileBenchmarkConfig(target NIZKProfileSearchTarget, cand NIZKProfile
 		NTRUBeta:            preset.NTRUBeta,
 		MaxTrials:           2048,
 		MaxNLeaves:          maxNLeaves,
-	}, nil
+	}
+	if preset.SecurityProfile == target.SecurityProfile {
+		cfg.ThreatModel = preset.ThreatModel
+	}
+	return cfg, nil
 }
 
 func nizkProfileApplyTargetWidths(target NIZKProfileSearchTarget, tuning intGenISISTuning) intGenISISTuning {
@@ -2531,9 +2599,14 @@ func nizkProfileApplyTargetWidths(target NIZKProfileSearchTarget, tuning intGenI
 }
 
 func nizkProfileApplyTargetQueryCaps(target NIZKProfileSearchTarget, tuning intGenISISTuning) intGenISISTuning {
-	raw := float64(target.QueryCapExponent)
 	tuning.ROQueryCaps = [5]int{}
 	tuning.ROQueryCapsSet = false
+	if target.SecurityMode == string(credential.SecurityModeQueryWorkFactor) {
+		tuning.ROQueryCapBits = [5]float64{}
+		tuning.ROQueryCapBitsSet = false
+		return tuning
+	}
+	raw := float64(target.QueryCapExponent)
 	tuning.ROQueryCapBits = [5]float64{raw, raw, raw, raw, raw}
 	tuning.ROQueryCapBitsSet = true
 	return tuning
@@ -2781,8 +2854,10 @@ func nizkProfileFamilyRank(family string) int {
 		return 8
 	case "valid_prefix_trail":
 		return 9
-	default:
+	case nizkProfileWF128TuningFamily:
 		return 10
+	default:
+		return 11
 	}
 }
 
@@ -2850,6 +2925,8 @@ func nizkProfileTargetOrder(label string) int {
 		return 2
 	case "BQ128-128":
 		return 3
+	case "WF-128":
+		return 4
 	default:
 		return 99
 	}
@@ -4020,6 +4097,7 @@ func TestInternalNIZKProfileSweep(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatalf("create artifact root: %v", err)
 	}
+	targets := nizkProfileSearchTargetsForFilter(filter)
 	results := nizkProfileReports(maxPerProfile, filter)
 	candidates := nizkProfileSearchCandidatesForFilter(filter)
 	if qBudget128EnvBool("SPRUCE_NIZK_PROFILE_SWEEP_MEASURED") {
@@ -4029,9 +4107,9 @@ func TestInternalNIZKProfileSweep(t *testing.T) {
 	summary := NIZKProfileSweepSummary{
 		Version:        nizkProfileSweepSummaryVersion,
 		GeneratedAt:    time.Now().UTC().Format(time.RFC3339),
-		CandidateCount: len(nizkProfileSearchTargets()) * len(candidates),
+		CandidateCount: len(targets) * len(candidates),
 		RunCount:       len(results),
-		Targets:        nizkProfileSearchTargets(),
+		Targets:        targets,
 		Results:        results,
 		Frontiers:      nizkProfileFrontiers(results, 5),
 	}
