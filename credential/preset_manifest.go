@@ -77,45 +77,30 @@ type PresetThreatModel struct {
 	AcceptedShowing           int              `json:"accepted_showing"`
 }
 
-type IntGenISISPresetPortfolioEntry struct {
-	CanonicalID       string            `json:"canonical_id"`
-	LegacySelector    string            `json:"legacy_selector,omitempty"`
-	Purpose           string            `json:"purpose"`
-	Lifecycle         PresetLifecycle   `json:"lifecycle"`
-	ClaimScope        ClaimScope        `json:"claim_scope"`
-	Status            string            `json:"status"`
-	Available         bool              `json:"available"`
-	SecurityProfile   string            `json:"security_profile,omitempty"`
-	SecurityStatement string            `json:"security_statement"`
-	ThreatModel       PresetThreatModel `json:"threat_model"`
-	Blockers          []string          `json:"blockers,omitempty"`
-}
-
 type intGenISISPresetMetadata struct {
-	canonicalID      string
-	purpose          string
-	lifecycle        PresetLifecycle
-	claimScope       ClaimScope
-	visibleByDefault bool
-	proofsLog2       float64
-	issuanceLog2     float64
-	showingLog2      float64
-	tagsLog2         float64
+	canonicalID  string
+	purpose      string
+	lifecycle    PresetLifecycle
+	claimScope   ClaimScope
+	proofsLog2   float64
+	issuanceLog2 float64
+	showingLog2  float64
+	tagsLog2     float64
 }
 
 func intGenISISPresetMetadataRegistry() map[string]intGenISISPresetMetadata {
 	return map[string]intGenISISPresetMetadata{
 		IntGenISISPresetN512Compact96: {
 			canonicalID: IntGenISISPresetPoCN512SC96V1, purpose: "demonstration",
-			lifecycle: PresetPoC, claimScope: ClaimProofOnly, visibleByDefault: true,
+			lifecycle: PresetPoC, claimScope: ClaimProofOnly,
 		},
 		IntGenISISPresetN1024Compact96: {
 			canonicalID: IntGenISISPresetArtifactN1024SC96V1, purpose: "reproduction",
-			lifecycle: PresetArtifact, claimScope: ClaimProofOnly, visibleByDefault: true,
+			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
 		},
 		IntGenISISPresetN1024Compact125: {
 			canonicalID: IntGenISISPresetArtifactN1024SC125V1, purpose: "reproduction",
-			lifecycle: PresetArtifact, claimScope: ClaimProofOnly, visibleByDefault: true,
+			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
 		},
 		IntGenISISPresetN1024Q10_96: {
 			canonicalID: "artifact-n1024-bq10-r96-historical-v1", purpose: "historical reproduction",
@@ -143,7 +128,7 @@ func intGenISISPresetMetadataRegistry() map[string]intGenISISPresetMetadata {
 		},
 		IntGenISISPresetN1024BQ32_96: {
 			canonicalID: IntGenISISPresetPilotN1024BQ32R96V1, purpose: "controlled pilot",
-			lifecycle: PresetCandidate, claimScope: ClaimCompleteSystem, visibleByDefault: true,
+			lifecycle: PresetCandidate, claimScope: ClaimCompleteSystem,
 			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31, tagsLog2: 32,
 		},
 		IntGenISISPresetN1024BQ64_96Theta11: {
@@ -193,7 +178,6 @@ func intGenISISPresetApplyMetadata(reg map[string]IntGenISISPreset) {
 		preset.Purpose = meta.purpose
 		preset.Lifecycle = meta.lifecycle
 		preset.ClaimScope = meta.claimScope
-		preset.VisibleByDefault = meta.visibleByDefault
 		preset.PrimitiveProfileID = preset.Profile
 		preset.ThreatModel = intGenISISPresetThreatModel(preset, meta)
 		if err := ValidatePresetThreatModel(preset.ThreatModel); err != nil {
@@ -408,135 +392,13 @@ func log2SumCounts(a, b float64) float64 {
 }
 
 func IntGenISISDefaultPresetNames() []string {
-	entries := IntGenISISPresetPortfolio(false, false)
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		names = append(names, entry.CanonicalID)
-	}
-	return names
-}
-
-func IntGenISISPresetPortfolio(includeResearch, includeAll bool) []IntGenISISPresetPortfolioEntry {
 	reg := intGenISISPresetRegistry()
-	ordered := []string{
-		IntGenISISPresetN512Compact96,
-		IntGenISISPresetN1024Compact96,
-		IntGenISISPresetN1024Compact125,
-		IntGenISISPresetN1024BQ32_96,
+	names := make([]string, 0, len(reg))
+	for _, preset := range reg {
+		names = append(names, preset.CanonicalID)
 	}
-	entries := make([]IntGenISISPresetPortfolioEntry, 0, len(reg)+1)
-	seen := make(map[string]bool)
-	for _, name := range ordered {
-		preset := reg[name]
-		if !preset.VisibleByDefault {
-			continue
-		}
-		entry := intGenISISPortfolioEntryFromPreset(preset)
-		entries = append(entries, entry)
-		seen[name] = true
-	}
-	entries = append(entries, intGenISISUnavailableWF128Entry())
-	if includeResearch || includeAll {
-		for _, name := range []string{IntGenISISPresetN1024Q32_128, IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512} {
-			entries = append(entries, intGenISISPortfolioEntryFromPreset(reg[name]))
-			seen[name] = true
-		}
-	}
-	if includeAll {
-		names := make([]string, 0, len(reg))
-		for name := range reg {
-			if !seen[name] {
-				names = append(names, name)
-			}
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			entries = append(entries, intGenISISPortfolioEntryFromPreset(reg[name]))
-		}
-	}
-	return entries
-}
-
-func LookupIntGenISISPresetPortfolioEntry(selector string) (IntGenISISPresetPortfolioEntry, bool) {
-	normalized := normalizeIntGenISISPresetName(selector)
-	for _, entry := range IntGenISISPresetPortfolio(true, true) {
-		if normalized == normalizeIntGenISISPresetName(entry.CanonicalID) || normalized == normalizeIntGenISISPresetName(entry.LegacySelector) {
-			return entry, true
-		}
-	}
-	return IntGenISISPresetPortfolioEntry{}, false
-}
-
-func intGenISISPortfolioEntryFromPreset(preset IntGenISISPreset) IntGenISISPresetPortfolioEntry {
-	status := "available"
-	blockers := []string(nil)
-	if preset.Lifecycle == PresetCandidate {
-		status = "candidate"
-		blockers = []string{"complete security ledger has not passed", "full-game simultaneous extraction remains report-only"}
-	} else if preset.Lifecycle == PresetResearch || preset.Lifecycle == PresetInternal {
-		status = "research"
-	}
-	statement := preset.SecurityProfile + " proof-system profile"
-	switch preset.CanonicalID {
-	case IntGenISISPresetPoCN512SC96V1:
-		statement = "approximately 96 one-candidate SmallWood bits; no full-game claim"
-	case IntGenISISPresetArtifactN1024SC96V1:
-		statement = "SC-96 proof-only paper reproduction"
-	case IntGenISISPresetArtifactN1024SC125V1:
-		statement = "SC-125 proof-only paper reproduction"
-	case IntGenISISPresetPilotN1024BQ32R96V1:
-		statement = "candidate for at least 96 residual bits under raw 2^32 CROM caps and the declared pilot volume"
-	case IntGenISISPresetResearchN1024BQ32R128V1:
-		statement = "proof-only bounded-query experiment; complete use requires a stronger primitive and PRF family"
-	case IntGenISISPresetResearchN1024BQ128R128V1:
-		statement = "128 residual proof-system bits after raw 2^128 CROM queries; complete use requires a 256-bit redesign"
-	}
-	return IntGenISISPresetPortfolioEntry{
-		CanonicalID:       preset.CanonicalID,
-		LegacySelector:    preset.Name,
-		Purpose:           preset.Purpose,
-		Lifecycle:         preset.Lifecycle,
-		ClaimScope:        preset.ClaimScope,
-		Status:            status,
-		Available:         true,
-		SecurityProfile:   preset.SecurityProfile,
-		SecurityStatement: statement,
-		ThreatModel:       preset.ThreatModel,
-		Blockers:          blockers,
-	}
-}
-
-func intGenISISUnavailableWF128Entry() IntGenISISPresetPortfolioEntry {
-	model := PresetThreatModel{
-		ROM:                     ROMModelCROM,
-		SecurityMode:            SecurityModeQueryWorkFactor,
-		TargetWorkFactorBits:    128,
-		ROQueryCapScope:         ROQueryCapPerPhaseGlobal,
-		MaxProofsLog2:           1,
-		DomainSeparatedContexts: true,
-		ProofVolumeScope:        ProofVolumeHonestTranscripts,
-		AcceptedIssuance:        1,
-		AcceptedShowing:         1,
-	}
-	if err := ValidatePresetThreatModel(model); err != nil {
-		panic("invalid unavailable WF-128 threat model: " + err.Error())
-	}
-	return IntGenISISPresetPortfolioEntry{
-		CanonicalID:       IntGenISISPresetSystemN1024WF128CROMV1,
-		Purpose:           "deployment",
-		Lifecycle:         PresetCandidate,
-		ClaimScope:        ClaimCompleteSystem,
-		Status:            "unavailable",
-		Available:         false,
-		SecurityProfile:   "WF-128",
-		SecurityStatement: "128-bit complete-system CROM work factor once every measured, theorem, and primitive gate passes",
-		ThreatModel:       model,
-		Blockers: []string{
-			"no executable tag-13 or tag-14 PRF parameter family",
-			"full-game simultaneous extraction remains report-only",
-			"complete-system composition and estimator provenance are not approved",
-		},
-	}
+	sort.Strings(names)
+	return names
 }
 
 type intGenISISCanonicalManifest struct {

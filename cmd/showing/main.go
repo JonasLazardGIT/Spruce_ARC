@@ -125,14 +125,7 @@ type showingCLIConfig struct {
 }
 
 func intGenISISPresetHelp() string {
-	entries := credential.IntGenISISPresetPortfolio(false, false)
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.Available {
-			names = append(names, entry.CanonicalID)
-		}
-	}
-	return strings.Join(names, ", ")
+	return strings.Join(credential.IntGenISISDefaultPresetNames(), ", ")
 }
 
 func parseShowingCLIArgs(args []string) (showingCLIConfig, error) {
@@ -155,7 +148,7 @@ func parseShowingCLIArgs(args []string) (showingCLIConfig, error) {
 	}
 	*intGenISISPreset = selectedIntGenISISPreset
 	if strings.TrimSpace(*intGenISISPreset) == "" {
-		return showingCLIConfig{}, fmt.Errorf("missing -preset (public presets: %s; use issuance list-presets -all for aliases)", intGenISISPresetHelp())
+		return showingCLIConfig{}, fmt.Errorf("missing -preset (available: %s; run issuance list-presets for descriptions)", intGenISISPresetHelp())
 	}
 	preset, err := credential.MustLookupIntGenISISPreset(*intGenISISPreset)
 	if err != nil {

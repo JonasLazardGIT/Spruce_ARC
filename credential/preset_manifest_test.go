@@ -117,33 +117,23 @@ func TestPresetManifestRejectsDivergentTargetsAndQueryScopes(t *testing.T) {
 	}
 }
 
-func TestDefaultPresetPortfolioHidesHistoricalAndResearchSelectors(t *testing.T) {
-	entries := IntGenISISPresetPortfolio(false, false)
-	want := []string{
-		IntGenISISPresetPoCN512SC96V1,
-		IntGenISISPresetArtifactN1024SC96V1,
-		IntGenISISPresetArtifactN1024SC125V1,
-		IntGenISISPresetPilotN1024BQ32R96V1,
-		IntGenISISPresetSystemN1024WF128CROMV1,
+func TestDefaultPresetNamesContainEveryExecutablePreset(t *testing.T) {
+	names := IntGenISISDefaultPresetNames()
+	if len(names) != len(IntGenISISPresetNames()) {
+		t.Fatalf("canonical names=%d registry entries=%d", len(names), len(IntGenISISPresetNames()))
 	}
-	if len(entries) != len(want) {
-		t.Fatalf("default portfolio=%+v", entries)
-	}
-	for i := range want {
-		if entries[i].CanonicalID != want[i] {
-			t.Fatalf("default portfolio[%d]=%s want %s", i, entries[i].CanonicalID, want[i])
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		preset, ok := LookupIntGenISISPreset(name)
+		if !ok {
+			t.Fatalf("listed canonical ID %q did not resolve", name)
 		}
-		if entries[i].Available {
-			preset, ok := LookupIntGenISISPreset(entries[i].CanonicalID)
-			if !ok || !preset.VisibleByDefault {
-				t.Fatalf("default portfolio entry %s is not marked visible", entries[i].CanonicalID)
-			}
+		if preset.CanonicalID != name {
+			t.Fatalf("listed canonical ID %q resolved to %q", name, preset.CanonicalID)
 		}
-	}
-	if entries[len(entries)-1].Available || entries[len(entries)-1].ClaimScope != ClaimCompleteSystem {
-		t.Fatalf("WF-128 portfolio entry=%+v", entries[len(entries)-1])
-	}
-	if _, err := MustLookupIntGenISISPreset(IntGenISISPresetSystemN1024WF128CROMV1); err == nil {
-		t.Fatal("unavailable WF-128 preset unexpectedly resolved as executable")
+		if seen[name] {
+			t.Fatalf("duplicate canonical ID %q", name)
+		}
+		seen[name] = true
 	}
 }

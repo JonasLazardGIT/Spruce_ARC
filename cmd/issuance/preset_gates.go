@@ -14,11 +14,11 @@ import (
 type presetReportValidator func(credential.IntGenISISPreset, benchmarkIntGenISISE2EReport) error
 
 func runGateFunctionalPresets(args []string) error {
-	names := make([]string, 0)
-	for _, entry := range credential.IntGenISISPresetPortfolio(false, false) {
-		if entry.Available {
-			names = append(names, entry.CanonicalID)
-		}
+	names := []string{
+		credential.IntGenISISPresetPoCN512SC96V1,
+		credential.IntGenISISPresetArtifactN1024SC96V1,
+		credential.IntGenISISPresetArtifactN1024SC125V1,
+		credential.IntGenISISPresetPilotN1024BQ32R96V1,
 	}
 	return runPresetReportGateCommand("gate-functional-presets", args, names, func(preset credential.IntGenISISPreset, report benchmarkIntGenISISE2EReport) error {
 		return validateFunctionalPresetReport(report)

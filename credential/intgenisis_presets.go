@@ -97,7 +97,6 @@ type IntGenISISPreset struct {
 	Purpose             string                 `json:"purpose"`
 	Lifecycle           PresetLifecycle        `json:"lifecycle"`
 	ClaimScope          ClaimScope             `json:"claim_scope"`
-	VisibleByDefault    bool                   `json:"visible_by_default,omitempty"`
 	Profile             string                 `json:"profile"`
 	PrimitiveProfileID  string                 `json:"primitive_profile_id"`
 	SecurityProfile     string                 `json:"security_profile,omitempty"`
@@ -131,10 +130,7 @@ func LookupIntGenISISPreset(name string) (IntGenISISPreset, bool) {
 func MustLookupIntGenISISPreset(name string) (IntGenISISPreset, error) {
 	p, ok := LookupIntGenISISPreset(name)
 	if !ok {
-		if entry, found := LookupIntGenISISPresetPortfolioEntry(name); found && !entry.Available {
-			return IntGenISISPreset{}, fmt.Errorf("IntGenISIS preset %q is unavailable: %s", name, strings.Join(entry.Blockers, "; "))
-		}
-		return IntGenISISPreset{}, fmt.Errorf("unknown IntGenISIS preset %q (public: %s; use list-presets -all for legacy selectors)", name, strings.Join(IntGenISISDefaultPresetNames(), ", "))
+		return IntGenISISPreset{}, fmt.Errorf("unknown IntGenISIS preset %q (available: %s)", name, strings.Join(IntGenISISDefaultPresetNames(), ", "))
 	}
 	return p, nil
 }

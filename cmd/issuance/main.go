@@ -28,14 +28,7 @@ const (
 )
 
 func intGenISISPresetHelp() string {
-	entries := credential.IntGenISISPresetPortfolio(false, false)
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.Available {
-			names = append(names, entry.CanonicalID)
-		}
-	}
-	return strings.Join(names, ", ")
+	return strings.Join(credential.IntGenISISDefaultPresetNames(), ", ")
 }
 
 func usage() {
@@ -55,7 +48,10 @@ Subcommands:
 	  gate-proof-profiles Check executable proof-layer profile claims
 	  gate-candidate-presets Measure candidates and report their blockers
 	  gate-complete-system-presets Require a completely passing deployment ledger
-	  gate-maintained-presets Deprecated alias for gate-artifact-presets`)
+	  gate-maintained-presets Deprecated alias for gate-artifact-presets
+
+All configurations are experimental PoC presets. Security metadata is
+informational and does not constitute a deployment claim.`)
 }
 
 func main() {
@@ -113,29 +109,22 @@ func run(args []string) error {
 func runListIntGenISISPresets(args []string) error {
 	fs := flag.NewFlagSet("list-presets", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	includeResearch := fs.Bool("research", false, "include public research presets")
-	includeAll := fs.Bool("all", false, "include internal, historical, and deprecated selectors")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	entries := credential.IntGenISISPresetPortfolio(*includeResearch || *includeAll, *includeAll)
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "PRESET\tPURPOSE\tCLAIM\tSTATUS")
-	for _, entry := range entries {
-		claim := string(entry.ClaimScope)
-		if entry.CanonicalID == credential.IntGenISISPresetPilotN1024BQ32R96V1 {
-			claim = "complete*"
+	fmt.Fprintln(w, "PRESET\tPROFILE\tDESCRIPTION")
+	for _, name := range credential.IntGenISISDefaultPresetNames() {
+		preset, err := credential.MustLookupIntGenISISPreset(name)
+		if err != nil {
+			return err
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", entry.CanonicalID, entry.Purpose, claim, entry.Status)
-		if *includeAll && entry.LegacySelector != "" {
-			fmt.Fprintf(w, "  alias: %s\t\t\t\n", entry.LegacySelector)
-		}
+		fmt.Fprintf(w, "%s\t%s\t%s\n", preset.CanonicalID, preset.SecurityProfile, preset.Description)
 	}
 	if err := w.Flush(); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stdout, "* Bounded CROM candidate: raw caps [2^32]^5 per proof-system phase ([2^33]^5 after one issuance plus one showing), at most 2^32 honest transcripts, and 2^32 tags per context.")
-	fmt.Fprintln(os.Stdout, "No complete-system deployment preset is currently available.")
+	fmt.Fprintln(os.Stdout, "All configurations are experimental PoC presets. Security metadata is informational and does not constitute a deployment claim.")
 	return nil
 }
 
@@ -189,7 +178,7 @@ func parseBenchmarkIntGenISISE2EConfig(args []string) (benchmarkIntGenISISE2ECon
 		return benchmarkIntGenISISE2EConfig{}, err
 	}
 	if selectedPresetName == "" {
-		return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("missing -preset (public presets: %s; use list-presets -all for aliases)", intGenISISPresetHelp())
+		return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("missing -preset (available: %s; run list-presets for descriptions)", intGenISISPresetHelp())
 	}
 	preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
 	if err != nil {
