@@ -21,6 +21,7 @@ type Field struct {
 	chiNeg  []uint64 // chiNeg[j] = (q - Chi[j]) mod q, for lazy reduction mod chi
 	recip   uint64
 	fastMod bool
+	lazyMul bool
 }
 
 // Elem is a K element represented by its theta limbs in the power basis.
@@ -88,7 +89,20 @@ func prepareField(q uint64, theta int, chi []uint64) (*Field, []uint64, error) {
 		f.recip, _ = bits.Div64(1, 0, q)
 		f.fastMod = true
 	}
+	f.lazyMul = supportsLazyMul(q, theta)
 	return f, chiNorm, nil
+}
+
+// supportsLazyMul checks the conservative bound used by mulIntoTmp. Before a
+// coefficient is reduced it receives at most theta schoolbook products and at
+// most theta products from reduction modulo chi, each bounded by (q-1)^2.
+func supportsLazyMul(q uint64, theta int) bool {
+	if q <= 1 || q > uint64(^uint32(0)) || theta <= 0 {
+		return false
+	}
+	maxProduct := (q - 1) * (q - 1)
+	maxTerms := ^uint64(0) / maxProduct
+	return uint64(theta) <= maxTerms/2
 }
 
 // reduce returns v mod q for any v < 2^64 (division-free on the fast path).
@@ -187,26 +201,35 @@ func (f *Field) Sub(a, b Elem) Elem {
 	return out
 }
 
-// mulIntoTmp computes dst = a*b in K. Because q is a ~20-bit prime, a partial
-// product a[i]*b[j] is < 2^40, so O(theta) of them sum in a raw uint64 before
-// overflow: accumulate lazily and reduce once per coefficient, turning the
-// O(theta^2) modular reductions of the naive schoolbook multiply into O(theta).
-// Limbs of a,b are assumed reduced (< q), the invariant Elem maintains. tmp must
-// have length at least 2*deg.
+// mulIntoTmp computes dst = a*b in K. The maintained ~20-bit field satisfies
+// supportsLazyMul, allowing O(theta) reductions instead of one per schoolbook
+// product. Other supported dimensions and moduli retain the fully reduced
+// implementation. tmp must have length at least 2*deg.
 func (f *Field) mulIntoTmp(dst, tmp []uint64, a, b Elem) {
 	deg := f.Theta
 	for i := 0; i < 2*deg; i++ {
 		tmp[i] = 0
 	}
+	if !f.lazyMul {
+		f.mulIntoTmpReduced(dst, tmp, a, b)
+		return
+	}
 	// Phase 1: raw schoolbook product into tmp[0 .. 2*deg-2] (no reductions).
 	for i := 0; i < deg; i++ {
 		ai := a.Limb[i]
+		if ai >= f.Q {
+			ai = f.reduce(ai)
+		}
 		if ai == 0 {
 			continue
 		}
 		bl := b.Limb
 		for j := 0; j < deg; j++ {
-			tmp[i+j] += ai * bl[j]
+			bj := bl[j]
+			if bj >= f.Q {
+				bj = f.reduce(bj)
+			}
+			tmp[i+j] += ai * bj
 		}
 	}
 	// Phase 2: reduce modulo chi. Using chiNeg[j] = (q - chi[j]) folds the
@@ -227,6 +250,36 @@ func (f *Field) mulIntoTmp(dst, tmp []uint64, a, b Elem) {
 	for i := 0; i < deg; i++ {
 		dst[i] = f.reduce(tmp[i])
 	}
+}
+
+func (f *Field) mulIntoTmpReduced(dst, tmp []uint64, a, b Elem) {
+	deg := f.Theta
+	for i := 0; i < deg; i++ {
+		ai := a.Limb[i] % f.Q
+		if ai == 0 {
+			continue
+		}
+		for j := 0; j < deg; j++ {
+			bj := b.Limb[j] % f.Q
+			if bj == 0 {
+				continue
+			}
+			idx := i + j
+			tmp[idx] = f.addReduced(tmp[idx], f.mulReduced(ai, bj))
+		}
+	}
+	for k := 2*deg - 2; k >= deg; k-- {
+		coeff := tmp[k]
+		if coeff == 0 {
+			continue
+		}
+		tmp[k] = 0
+		m := k - deg
+		for j := 0; j < deg; j++ {
+			tmp[m+j] = f.subReduced(tmp[m+j], f.mulReduced(coeff, f.Chi[j]))
+		}
+	}
+	copy(dst[:deg], tmp[:deg])
 }
 
 // AddInto sets dst = a + b.

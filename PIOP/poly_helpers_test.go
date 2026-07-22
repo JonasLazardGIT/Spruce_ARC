@@ -159,6 +159,44 @@ func TestAddMulNTTIntoAccumulatorMatchesPower2(t *testing.T) {
 	}
 }
 
+func TestAddMulNTTIntoAccumulatorWideModulusFallback(t *testing.T) {
+	primes := ring.GenerateNTTPrimes(23, 2048, 1)
+	if len(primes) != 1 || primes[0] <= 1<<21 {
+		t.Fatalf("unexpected generated primes: %v", primes)
+	}
+	q := primes[0]
+	ringQ, err := ring.NewRing(1024, primes)
+	if err != nil {
+		t.Fatalf("NewRing: %v", err)
+	}
+	rng := rand.New(rand.NewSource(3301))
+	for iter := 0; iter < 10; iter++ {
+		scale := uint64(rng.Int63n(int64(q)))
+		a := randomPolyCoeffs(rng, 128, q)
+		b := randomPolyCoeffs(rng, 512, q)
+		aNTT, ok := nttPolyFromModXN1Coeffs(ringQ, a)
+		if !ok {
+			t.Fatal("precompute a NTT failed")
+		}
+		bNTT := ringQ.NewPoly()
+		if !coeffsToNTTPolyInto(ringQ, bNTT, b) {
+			t.Fatal("precompute b NTT failed")
+		}
+		scratch := newNegacyclicProductScratch(ringQ)
+		resetRingPolyCoeffs(scratch.acc)
+		if !addMulNTTIntoAccumulator(ringQ, scratch.acc, aNTT, bNTT, scale, scratch) {
+			t.Fatal("accumulator declined wide-modulus product")
+		}
+		got := make([]uint64, int(ringQ.N))
+		if !flushNTTAccumulatorInto(ringQ, got, scratch.acc, scratch) {
+			t.Fatal("accumulator flush failed")
+		}
+		want := make([]uint64, int(ringQ.N))
+		addMulModXN1Power2Into(want, a, b, scale, q)
+		assertPaddedPolyEqual(t, got, want, q)
+	}
+}
+
 func TestAddScaledAndSubInto(t *testing.T) {
 	q := uint64(1054721)
 	rng := rand.New(rand.NewSource(13))

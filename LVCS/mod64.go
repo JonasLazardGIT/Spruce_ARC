@@ -39,6 +39,17 @@ func (r Reducer64) Reduce(v uint64) uint64 {
 	return v % r.mod
 }
 
+// MaxLazyAccumulationTerms returns the number of products of two reduced field
+// elements that can be added to an already reduced accumulator without uint64
+// overflow. A zero result means callers must reduce every product.
+func (r Reducer64) MaxLazyAccumulationTerms() uint64 {
+	if !r.fast || r.mod <= 1 {
+		return 0
+	}
+	maxProduct := (r.mod - 1) * (r.mod - 1)
+	return (^uint64(0) - (r.mod - 1)) / maxProduct
+}
+
 // MulReduce returns (a*b) mod r.mod for reduced inputs a,b < r.mod. On the
 // small-modulus fast path (mod <= 2^32) the product fits in one 64-bit word, so
 // it uses the division-free Barrett reduction; otherwise it falls back to a

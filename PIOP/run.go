@@ -1297,17 +1297,14 @@ func computeVTargets(mod uint64, rows [][]uint64, C [][]uint64) [][]uint64 {
 	rowsN := len(rows)
 	red := lvcs.NewReducer64(mod)
 
-	// Small-field lazy accumulation: rows[j][i], C[k][j] < mod (a ~20-bit
-	// prime), so every product is < mod^2 and we can sum many of them in a raw
-	// uint64 before a single Barrett reduction. safeBlock is the largest number
-	// of products whose sum is guaranteed to stay below 2^64; for realistic row
-	// counts the whole inner sum fits, so no intermediate reduction is needed.
-	var safeBlock int
-	if mod > 1 {
-		safeBlock = int((^uint64(0)) / ((mod - 1) * (mod - 1)))
-	}
-	if safeBlock < 1 {
-		safeBlock = 1
+	// The maintained modulus is small enough for lazy accumulation. Wider
+	// moduli retain the generic 128-bit reduction path, and the block limit
+	// leaves room for the reduced accumulator carried between blocks.
+	maxLazyTerms := red.MaxLazyAccumulationTerms()
+	lazy := maxLazyTerms > 0
+	safeBlock := rowsN
+	if lazy && maxLazyTerms < uint64(safeBlock) {
+		safeBlock = int(maxLazyTerms)
 	}
 
 	// One contiguous backing block for all output rows instead of m separate
@@ -1320,6 +1317,14 @@ func computeVTargets(mod uint64, rows [][]uint64, C [][]uint64) [][]uint64 {
 	compute := func(k int) {
 		acc := res[k]
 		Ck := C[k]
+		if !lazy {
+			for i := 0; i < ncols; i++ {
+				for j := 0; j < rowsN; j++ {
+					acc[i] = lvcs.MulAddMod64(acc[i], Ck[j], rows[j][i], mod)
+				}
+			}
+			return
+		}
 		sinceReduce := 0
 		for j := 0; j < rowsN; j++ {
 			c := Ck[j]
@@ -1333,13 +1338,31 @@ func computeVTargets(mod uint64, rows [][]uint64, C [][]uint64) [][]uint64 {
 			jj := 0
 			limit := ncols - ncols%4
 			for ; jj < limit; jj += 4 {
-				acc[jj] += c * row[jj]
-				acc[jj+1] += c * row[jj+1]
-				acc[jj+2] += c * row[jj+2]
-				acc[jj+3] += c * row[jj+3]
+				r0, r1 := row[jj], row[jj+1]
+				r2, r3 := row[jj+2], row[jj+3]
+				if r0 >= mod {
+					r0 %= mod
+				}
+				if r1 >= mod {
+					r1 %= mod
+				}
+				if r2 >= mod {
+					r2 %= mod
+				}
+				if r3 >= mod {
+					r3 %= mod
+				}
+				acc[jj] += c * r0
+				acc[jj+1] += c * r1
+				acc[jj+2] += c * r2
+				acc[jj+3] += c * r3
 			}
 			for ; jj < ncols; jj++ {
-				acc[jj] += c * row[jj]
+				r := row[jj]
+				if r >= mod {
+					r %= mod
+				}
+				acc[jj] += c * r
 			}
 			// Defensive: only relevant for pathologically large row counts;
 			// safeBlock ~1.7e7 here so this branch is effectively never taken.

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"math/bits"
 
-	kf "vSIS-Signature/internal/kfield"
 	lvcs "vSIS-Signature/LVCS"
+	kf "vSIS-Signature/internal/kfield"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )

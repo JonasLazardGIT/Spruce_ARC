@@ -382,18 +382,16 @@ func EvalInitManyChecked(
 		}
 	}
 
-	// q0 is a ~20-bit prime, so cij*row[i] < 2^40 and many products sum in a raw
-	// uint64 before overflow: accumulate lazily and Barrett-reduce once per output
-	// entry instead of a hardware division per multiply. safeBlock bounds the
-	// product count that is guaranteed to stay below 2^64 (effectively unbounded
-	// for real row counts).
+	// The maintained q0 is a ~20-bit prime, so many reduced products can be
+	// accumulated before a Barrett reduction. Keep the generic reduction path
+	// for wider moduli, and derive the block size with room for the reduced value
+	// carried from the previous block.
 	red := NewReducer64(q0)
-	safeBlock := m // any large default; recomputed below
-	if q0 > 1 {
-		safeBlock = int((^uint64(0)) / ((q0 - 1) * (q0 - 1)))
-	}
-	if safeBlock < 1 {
-		safeBlock = 1
+	maxLazyTerms := red.MaxLazyAccumulationTerms()
+	lazy := maxLazyTerms > 0
+	safeBlock := nrows
+	if lazy && maxLazyTerms < uint64(safeBlock) {
+		safeBlock = int(maxLazyTerms)
 	}
 	// One contiguous backing block instead of m separate allocations.
 	backing := make([]uint64, m*ell)
@@ -404,6 +402,15 @@ func EvalInitManyChecked(
 	compute := func(k int) {
 		acc := bar[k]
 		coeffs := reqs[k].Coeffs
+		if !lazy {
+			for j := 0; j < nrows; j++ {
+				row := prover.Rows[j].Tail
+				for i := 0; i < ell; i++ {
+					acc[i] = MulAddMod64(acc[i], coeffs[j], row[i], q0)
+				}
+			}
+			return
+		}
 		sinceReduce := 0
 		for j := 0; j < nrows; j++ {
 			cij := coeffs[j]
@@ -417,13 +424,31 @@ func EvalInitManyChecked(
 			i := 0
 			limit := ell - ell%4
 			for ; i < limit; i += 4 {
-				acc[i] += cij * row[i]
-				acc[i+1] += cij * row[i+1]
-				acc[i+2] += cij * row[i+2]
-				acc[i+3] += cij * row[i+3]
+				r0, r1 := row[i], row[i+1]
+				r2, r3 := row[i+2], row[i+3]
+				if r0 >= q0 {
+					r0 %= q0
+				}
+				if r1 >= q0 {
+					r1 %= q0
+				}
+				if r2 >= q0 {
+					r2 %= q0
+				}
+				if r3 >= q0 {
+					r3 %= q0
+				}
+				acc[i] += cij * r0
+				acc[i+1] += cij * r1
+				acc[i+2] += cij * r2
+				acc[i+3] += cij * r3
 			}
 			for ; i < ell; i++ {
-				acc[i] += cij * row[i]
+				r := row[i]
+				if r >= q0 {
+					r %= q0
+				}
+				acc[i] += cij * r
 			}
 			if sinceReduce++; sinceReduce == safeBlock {
 				for i := 0; i < ell; i++ {

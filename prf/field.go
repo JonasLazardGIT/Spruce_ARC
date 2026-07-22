@@ -43,7 +43,9 @@ func (f Field) mul(a, b Elem) Elem {
 		}
 		return Elem(rem)
 	}
-	return Elem((uint64(a) * uint64(b)) % f.q)
+	hi, lo := bits.Mul64(uint64(a), uint64(b))
+	_, rem := bits.Div64(hi, lo, f.q)
+	return Elem(rem)
 }
 
 // powSmall raises a to the small exponent d (suitable for Poseidon S-box).
