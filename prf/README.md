@@ -36,8 +36,9 @@ target relation.
   `PRFGroupRounds = 2`.
 - Maintained compact presets use `PRFCompanionMode=direct_full`.
 - The PRF key comes from the stored signed message field `k`.
-- `prf_params.json` is the source parameter file used by Go tests and
-  commands.
+- `prf_params.json`, `prf_params_tag9.json`, and `prf_params_tag13.json` share
+  one permutation parameter set and provide 7-, 9-, and 13-element tag
+  profiles used by Go tests and commands.
 - Sage parameter scripts are retained as source-tree provenance, excluded from
   Docker, and documented in `docs/SECURITY.md`.
 

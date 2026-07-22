@@ -77,18 +77,22 @@ Lifecycle describes maintenance purpose; claim scope describes security
 meaning. Neither executability nor an artifact byte gate implies deployment
 readiness.
 
+Every registry entry is executable and distributed as an experimental PoC.
+Security metadata is informational and does not constitute a deployment claim.
+
 | Canonical preset | Purpose | Lifecycle | Claim | Availability |
 | --- | --- | --- | --- | --- |
 | `poc-n512-sc96-v1` | integration/demo | `poc` | SC-96 proof-only | available |
 | `artifact-n1024-sc96-v1` | paper reproduction | `artifact` | SC-96 proof-only | available |
 | `artifact-n1024-sc125-v1` | paper reproduction | `artifact` | SC-125 proof-only | available |
 | `pilot-n1024-bq32-r96-v1` | controlled pilot | `candidate` | bounded complete-system candidate | available, not promoted |
-| `system-n1024-wf128-crom-v1` | general deployment | `candidate` | complete system | unavailable |
-| `research-n1024-bq32-r128-v1` | strong bounded-query experiment | `research` | proof-only | `-research` |
-| `research-n1024-bq128-r128-v1` | extreme proof-layer experiment | `research` | proof-only | `-research` |
+| `system-n1024-wf128-crom-v1` | WF-128 PoC shape | `candidate` | complete-system target | available PoC; no claim |
+| `research-n1024-bq32-r128-v1` | strong bounded-query experiment | `research` | proof-only | available PoC |
+| `research-n1024-bq128-r128-v1` | extreme proof-layer experiment | `research` | proof-only | available PoC |
 
-The CLI default list contains the first five rows and states explicitly that no
-complete-system deployment preset is currently available.
+This table highlights named use cases. `list-presets` prints every registry
+entry, including historical and internal theorem points, without visibility
+flags. No complete-system deployment preset is currently available.
 
 ## Historical Artifact Parameters
 
@@ -108,7 +112,7 @@ n1024-q32-96
 
 They remain aliases for reproducibility and resolve to canonical manifests.
 Q10/Q16/Q32 entries carry exact query scopes; they do not inherit BQ32
-metadata and are hidden from the default list.
+metadata.
 
 | Preset | Profile | Proof target | `n_cols` | `N_DECS` | eta | theta | rho | ell/ell' | Showing shortness | Compression | Projection |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | --- |
@@ -144,6 +148,22 @@ Measured paper transcripts are 25,844 bytes for issuance and 36,887 bytes for
 showing. The one-proof theorem result is 99.98 bits and the current
 one-issuance/one-showing global-collision composition is 98.59 bits. These are
 proof-accounting results, not a complete-system promotion.
+
+## WF-128 PoC Preset
+
+`system-n1024-wf128-crom-v1` is an executable CROM work-factor configuration,
+not a deployment claim. It starts from the live Q10-128 proof geometry but
+unsets all bounded-query caps and executes 264-bit DECS/hash and Fiat-Shamir
+outputs, a 128-bit tape, a 256-bit salt, and the tag-13 PRF relation.
+
+| Security profile | RO caps | Hash/FS bits | Tape bits | Salt bits | Actual tag elements | `n_cols` | `N_DECS` | eta | theta | ell |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| WF-128 candidate | unset | 264 | 128 | 256 | 13 | 36 | 983,040 | 44 | 7 | 9 |
+
+The initial end-to-end measurement reports 27,124 issuance bytes, 39,547
+showing bytes, and 139.12/138.98 issuance/showing theorem bits. The structural
+parameter audit passes. The ledger remains diagnostic and the preset has
+`complete_system_claim=false`.
 
 ## NIZK-Only Q128 Preset
 

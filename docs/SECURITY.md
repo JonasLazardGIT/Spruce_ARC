@@ -20,6 +20,9 @@ outside the Docker runtime:
 The estimator outputs are rough estimates and model evidence, not
 unconditional reductions.
 
+All executable configurations are experimental PoC presets. Security metadata
+is informational and does not constitute a deployment claim.
+
 The reporting invariant is:
 
 > Benchmark reports measure executed parameters. Security profiles supply
@@ -53,7 +56,7 @@ separate from claim scope (`proof_only` or `complete_system`).
 | `SC-96` | one candidate | 96 | - | - | - | 7 | 96 | proof-only |
 | `SC-125` | one candidate | 125 | - | - | - | 7 | 125 | proof-only |
 | `BQ32-96` | raw `[2^32]*5` CROM caps | 96 residual | 168 | 136 | 168 | 9 | 128 | candidate |
-| `WF-128` | global CROM work factor | 128 | 264 | 128 | 256 | 13 | 128 | unavailable candidate |
+| `WF-128` | global CROM work factor | 128 | 264 | 128 | 256 | 13 | 128 | executable PoC candidate |
 | `WF-128-ENG` | engineering work-factor lane | 128 | 272 | 136 | 264 | 14 | 128 | unavailable candidate |
 | `BQ32-128` | raw `[2^32]*5` CROM caps | 128 residual | 200 | 160 | 192 | 10 | 160 | new primitives required |
 | `BQ128-128` | raw `[2^128]*5` CROM caps | 128 residual | 512 | 256 | 384 | 20 | 256 | new primitives required |
@@ -192,11 +195,14 @@ sage prf/generate_params.sage 1 0 20 20 3 128 0xf8801 8 12 7 nochecks
 The generated file is `prf/prf_params.json`. Go tests and artifact commands
 load this file directly; Docker validation does not run Sage.
 
-The controlled BQ32 pilot loads `prf/prf_params_tag9.json`, which uses the same
-permutation family with `LenTag=9`. The canonical preset binds both the PRF
-profile and the exact parameter-file SHA-256 digest; runtime loading rejects a
-digest or tag-width mismatch. No analyzed tag-10, tag-13, or tag-14 executable
-family is currently registered.
+The controlled BQ32 pilot loads `prf/prf_params_tag9.json` with `LenTag=9`.
+The WF-128 PoC loads `prf/prf_params_tag13.json` with `LenTag=13`; both retain
+the default permutation matrices, constants, rounds, key length, and nonce
+length. The tag-13 file has SHA-256 digest
+`94462038554d296342ed088fcbbecd03165a8f1705fdf64346551a4eabe6b5dd`.
+The canonical preset binds both the PRF profile and exact parameter-file
+digest, and runtime loading rejects a digest or tag-width mismatch. Tag-10 and
+tag-14 profiles remain unregistered.
 
 ## BQ32-R96 Pilot Measurement
 
@@ -221,14 +227,26 @@ The parameter audit passes. Promotion does not: simultaneous extraction remains
 report-only, challenge-bias/programming terms need reviewed theorem accounting,
 and MSIS binding plus the lattice-signature term are not complete-grade.
 
-## WF-128 Design Lanes
+## WF-128 PoC Measurement
 
-`system-n1024-wf128-crom-v1` is intentionally unavailable. The bare lane uses
-264-bit hash/Fiat-Shamir output, 128-bit tape, 256-bit salt, and tag-13. The
-engineering lane uses 272, 136, 264, and tag-14 respectively. Neither has a
-registered executable PRF family or a fully passing primitive/composition
-ledger. If those gates cannot be met, the repository publishes no complete
-128-bit deployment preset.
+`system-n1024-wf128-crom-v1` executes the bare WF-128 lane with 264-bit
+DECS/hash and Fiat-Shamir output, a 128-bit tape, a 256-bit salt, and tag-13.
+It has no bounded-query caps: `WF-128` is a global CROM work-factor profile,
+not residual security at a fixed query budget.
+
+| Item | Actual | Requirement/result |
+| --- | ---: | --- |
+| DECS/hash and Fiat-Shamir width | 264 bits | 264 minimum |
+| Tape width | 128 bits | 128 minimum |
+| Salt width | 256 bits | 256 minimum |
+| PRF tag | 13 field elements | 13 minimum |
+| Issuance/showing theorem result | 139.12 / 138.98 bits | above 128 proof target |
+| Paper transcript | 27,124 / 39,547 bytes | issuance / showing; not artifact-gated |
+
+The structural parameter audit passes. Primitive estimates and unresolved
+full-game terms remain diagnostic, so the lifecycle is `candidate` and
+`complete_system_claim=false`. The 272/136/264/tag-14 engineering lane remains
+a design point without an executable preset.
 
 ## Reproducing Estimator Outputs
 
@@ -259,6 +277,9 @@ or modes to `cmd/issuance` or `cmd/showing`.
   single-candidate proof measurements; they are not complete-system profiles.
 - `pilot-n1024-bq32-r96-v1` is a bounded candidate whose executed-parameter
   audit passes but whose complete ledger does not.
+- `system-n1024-wf128-crom-v1` is an executable unbounded CROM work-factor PoC
+  whose structural parameter audit passes; its ledger is diagnostic and it
+  makes no complete-system claim.
 - Query-budget presets carry explicit `ROQueryCaps` and DECS hash/tape widths
   in the preset registry; theorem accounting is verified by
   `gate-artifact-presets` and `gate-proof-profiles` as appropriate.

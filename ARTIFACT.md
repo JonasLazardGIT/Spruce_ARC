@@ -11,19 +11,19 @@ The artifact supports:
 - committed-message IntGenISIS issuance
 - IntGenISIS showing and verification
 - fixed-size paper transcript reporting
-- purpose-specific preset benchmarking and gates
+- executable preset benchmarking and an all-preset functional gate
 - Go tests and static checks used by the validation script
 
-The command surface is limited to `cmd/issuance` and `cmd/showing`. The default
-preset list is purpose-oriented:
+The command surface is limited to `cmd/issuance` and `cmd/showing`. List the
+executable registry with:
 
-```text
-poc-n512-sc96-v1
-artifact-n1024-sc96-v1
-artifact-n1024-sc125-v1
-pilot-n1024-bq32-r96-v1
-system-n1024-wf128-crom-v1       (unavailable)
+```bash
+go run ./cmd/issuance list-presets
 ```
+
+Every listed preset is executable and distributed for experimental PoC use.
+Security reports are diagnostic; no listed preset makes a complete-system
+deployment claim.
 
 The exact-byte artifact gate retains these nine historical selectors:
 
@@ -40,9 +40,9 @@ n1024-q32-96
 ```
 
 These selectors remain aliases so historical commands and byte tables continue
-to reproduce. They are not nine equivalent security/deployment profiles. Use
-`list-presets -all` to display them and `list-presets -research` for public
-proof-only research points.
+to reproduce. They are not nine equivalent security/deployment profiles. The
+listing command prints their canonical registry identities alongside every
+other executable preset.
 
 ## Expected Results
 
@@ -55,11 +55,11 @@ not KiB.
 | `n512-compact96` | PoC alias; SC-96 proof-only | 22016 |
 | `n1024-compact96` | paper artifact; SC-96 proof-only | 26144 |
 | `n1024-compact125` | paper artifact; SC-125 proof-only | 35223 |
-| `n1024-q10-128` | hidden historical proof artifact, raw `2^10` caps | 37093 |
-| `n1024-q16-128` | hidden historical proof artifact, raw `2^16` caps | 42070 |
+| `n1024-q10-128` | historical proof artifact, raw `2^10` caps | 37093 |
+| `n1024-q16-128` | historical proof artifact, raw `2^16` caps | 42070 |
 | `n1024-q32-128` | BQ32-R128 proof-theorem research point | 48691 |
-| `n1024-q10-96` | hidden historical proof artifact, raw `2^10` caps | 29653 |
-| `n1024-q16-96` | hidden historical proof artifact, raw `2^16` caps | 30591 |
+| `n1024-q10-96` | historical proof artifact, raw `2^10` caps | 29653 |
+| `n1024-q16-96` | historical proof artifact, raw `2^16` caps | 30591 |
 | `n1024-q32-96` | superseded historical BQ32-R96 proof artifact | 37257 |
 
 The validation scripts fail if these byte counts change.
@@ -75,6 +75,10 @@ Neither row is an artifact byte gate. The BQ32 executed-parameter audit passes,
 but its complete ledger remains blocked. The BQ128 row is proof-only and the
 full `BQ128-128` profile still reports `requires_new_primitives`.
 
+The executable `system-n1024-wf128-crom-v1` PoC currently measures 39,547
+showing paper-transcript bytes. This value is diagnostic and is intentionally
+not part of the maintained artifact byte table or gate.
+
 ## Docker Reproduction
 
 Build the Go-only artifact image:
@@ -83,17 +87,19 @@ Build the Go-only artifact image:
 docker build -t spruce-artifact .
 ```
 
-Run the smoke test and one benchmark:
+List the registry and run one benchmark:
 
 ```bash
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact test
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench n1024-compact125
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact list
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench system-n1024-wf128-crom-v1
 ```
 
-Run the exact-byte artifact gate:
+Run the all-preset functional gate, or reproduce the historical exact-byte
+gate separately:
 
 ```bash
 docker run --rm --user "$(id -u):$(id -g)" spruce-artifact gate
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact artifact-gate
 ```
 
 Run the full validation path and keep artifacts on the host:
@@ -140,6 +146,12 @@ and then fails on any reported unreachable code.
 
 ## Main Commands
 
+List every executable preset:
+
+```bash
+go run ./cmd/issuance list-presets
+```
+
 Benchmark one preset and write a JSON report:
 
 ```bash
@@ -162,12 +174,11 @@ Run only the degree-1024 gates:
 go run ./cmd/issuance gate-degree1024-maintained-presets -artifact-root "$(mktemp -d)"
 ```
 
-Run the separated functional, proof, and candidate gates:
+Run setup, issuance, showing, serialization, replay, manifest-binding, and
+nonzero-transcript checks for every executable preset:
 
 ```bash
 go run ./cmd/issuance gate-functional-presets
-go run ./cmd/issuance gate-proof-profiles
-go run ./cmd/issuance gate-candidate-presets
 ```
 
 `gate-maintained-presets` remains a deprecated alias for
@@ -233,11 +244,12 @@ The benchmark JSON report records:
 
 | Claim | Reproduction command | Report field or check |
 | --- | --- | --- |
+| Every listed preset is executable | `go run ./cmd/issuance gate-functional-presets` | every registry entry reports `functional=pass` |
 | Historical artifact byte list | `go run ./cmd/issuance gate-artifact-presets` | all nine exact-byte aliases pass |
 | BQ32 controlled-pilot candidate | `go run ./cmd/issuance gate-candidate-presets` | actual parameters pass their profile requirements; ledger remains explicitly blocked |
+| WF-128 PoC shape | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset system-n1024-wf128-crom-v1` | parameter audit passes, tag length is 13, bounded-query caps are unset, and `complete_system_claim == false` |
 | SmallWood NIZK-only Q128/epsilon128 preset | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset research-n1024-bq128-r128-v1` | `showing.theorem_total_bits >= 128`, `zero_knowledge_bits >= 128`, `security_ledger.complete_system_claim == false`, `ledger_status == "requires_new_primitives"` |
 | Maintained paper transcript byte counts | `./scripts/validate-artifact.sh` | `showing.paper_transcript_bytes` equals the maintained table above |
-| Public proof-profile accounting | `go run ./cmd/issuance gate-proof-profiles` | executable proof-layer targets pass |
 | SmallWood 2025 transcript mode | any benchmark JSON report | `showing.transcript_security_status == "smallwood_2025_1085_live"` |
 | Fixed-size transcript stability | repeat benchmark for same preset | `showing.paper_transcript_bytes` unchanged |
 | Replay protection | any benchmark JSON report | `replay_rejected == true` |

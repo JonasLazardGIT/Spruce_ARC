@@ -2,19 +2,20 @@
 
 SPRUCE is the ARC-SPRUCE IntGenISIS paper artifact. It implements
 the committed-message issuance flow, final IntGenISIS showing proof, verifier
-path, fixed transcript reporting, and a purpose-oriented preset registry.
+path, fixed transcript reporting, and one executable preset registry.
 
 The maintained artifact surface is intentionally narrow:
 
 - `cmd/issuance`
 - `cmd/showing`
-- the public PoC, artifact, pilot, and research preset portfolio
-- Go tests, separate artifact/proof/candidate gates, and benchmark reports
+- every preset in the executable registry
+- Go tests, one all-preset functional gate, the historical artifact gate, and
+  benchmark reports
 
-The CLI also exposes explicitly marked candidate/research measurement presets.
-Those labels are not maintained byte gates unless this README and
-[ARTIFACT.md](ARTIFACT.md) list them as such. Removed tuning flags, old preset
-labels, and non-maintained command surfaces are not public interfaces.
+All configurations are experimental PoC presets. Security metadata is
+informational and does not constitute a deployment claim. Lifecycle and claim
+scope remain in reports so a run can be identified precisely, but they do not
+restrict execution.
 
 ## Reviewer Path
 
@@ -30,26 +31,23 @@ This README is the first reviewer document. Then read:
 Package-level READMEs remain available for code navigation, but the files above
 are the canonical reviewer-facing docs.
 
-## Preset Portfolio
+## Executable Presets
 
-```text
-poc-n512-sc96-v1
-artifact-n1024-sc96-v1
-artifact-n1024-sc125-v1
-pilot-n1024-bq32-r96-v1
-system-n1024-wf128-crom-v1       (unavailable)
+```bash
+go run ./cmd/issuance list-presets
 ```
 
-Run `go run ./cmd/issuance list-presets` for the default portfolio,
-`list-presets -research` for public research points, or `list-presets -all`
-for historical selectors. Lifecycle and claim scope are independent: an
-executable or byte-gated artifact is not thereby deployable.
+The command prints every canonical registry entry. Every listed preset can be
+run by `benchmark-intgenisis-e2e`; there are no visibility flags or unavailable
+placeholder entries.
 
 The old `n512-*` and `n1024-*` names remain accepted aliases for artifact
 reproduction. They resolve to the same canonical manifest and do not create a
-second wire identity. The Q10/Q16/Q32 aliases are hidden from the default list.
+second wire identity.
 
-No complete-system deployment preset is currently available.
+`system-n1024-wf128-crom-v1` is executable, but remains a candidate with
+`CompleteSystemClaim=false`. No complete-system deployment preset is currently
+available.
 
 ## BQ32 Controlled Pilot
 
@@ -84,13 +82,24 @@ This is not a complete IntGenISIS credential-system claim: the `BQ128-128`
 system profile remains `requires_new_primitives` because the current executable
 primitive core is below the 256-bit core required for that full-system profile.
 
+## WF-128 PoC Preset
+
+`system-n1024-wf128-crom-v1` exercises the intended unbounded CROM work-factor
+shape with 264-bit DECS/hash and Fiat-Shamir outputs, a 128-bit tape, a 256-bit
+salt, and the bundled tag-13 PRF profile. Its bounded-query caps are unset. The
+initial measured run reports 27,124 issuance bytes, 39,547 showing bytes, and
+139.12/138.98 issuance/showing theorem bits. Its structural parameter audit
+passes; its security ledger remains diagnostic and makes no complete-system
+claim.
+
 ## Fast Docker Run
 
 ```bash
 docker build -t spruce-artifact .
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact test
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench n1024-compact125
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact list
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench system-n1024-wf128-crom-v1
 docker run --rm --user "$(id -u):$(id -g)" spruce-artifact gate
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact artifact-gate
 ```
 
 To keep generated reports:
@@ -110,10 +119,10 @@ checkout documented in [docs/SECURITY.md](docs/SECURITY.md).
 ```bash
 go test ./...
 go build ./cmd/issuance ./cmd/showing
-go run ./cmd/issuance benchmark-intgenisis-e2e -preset artifact-n1024-sc125-v1
+go run ./cmd/issuance list-presets
+go run ./cmd/issuance benchmark-intgenisis-e2e -preset system-n1024-wf128-crom-v1
+go run ./cmd/issuance gate-functional-presets
 go run ./cmd/issuance gate-artifact-presets
-go run ./cmd/issuance gate-proof-profiles
-go run ./cmd/issuance gate-candidate-presets
 ```
 
 The full native validation script runs formatting, tests, vet, staticcheck,
