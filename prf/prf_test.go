@@ -3,6 +3,7 @@ package prf
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -107,6 +108,49 @@ func TestTag9ParamsFileLoadsSameStateWidth(t *testing.T) {
 	}
 }
 
+func TestTag13ParamsFileLoadsAndProducesWiderTag(t *testing.T) {
+	base, err := LoadBundledParams("prf_params_tag9.json")
+	if err != nil {
+		t.Fatalf("load tag9 params: %v", err)
+	}
+	tag13, err := LoadBundledParams("prf_params_tag13.json")
+	if err != nil {
+		t.Fatalf("load tag13 params: %v", err)
+	}
+	if tag13.LenTag != 13 {
+		t.Fatalf("tag13 LenTag=%d want 13", tag13.LenTag)
+	}
+	tag13Shape := *tag13
+	tag13Shape.LenTag = base.LenTag
+	if !reflect.DeepEqual(*base, tag13Shape) {
+		t.Fatalf("tag13 changed non-tag shape: tag9=%+v tag13=%+v", base, tag13)
+	}
+	key := make([]Elem, tag13.LenKey)
+	nonce := make([]Elem, tag13.LenNonce)
+	for i := range key {
+		key[i] = Elem(i + 1)
+	}
+	for i := range nonce {
+		nonce[i] = Elem(100 + i)
+	}
+	wider, err := Tag(key, nonce, tag13)
+	if err != nil {
+		t.Fatalf("tag13: %v", err)
+	}
+	prefix, err := Tag(key, nonce, base)
+	if err != nil {
+		t.Fatalf("tag9: %v", err)
+	}
+	if len(wider) != 13 {
+		t.Fatalf("tag13 output length=%d want 13", len(wider))
+	}
+	for i := range prefix {
+		if wider[i] != prefix[i] {
+			t.Fatalf("tag13 output differs from the shared permutation at %d", i)
+		}
+	}
+}
+
 func TestLoadLocalOrBundledParamsKeepsRequestedTagWidth(t *testing.T) {
 	params, digest, err := LoadLocalOrBundledParamsWithDigest(filepath.Join("missing", "prf_params_tag9.json"))
 	if err != nil {
@@ -117,6 +161,19 @@ func TestLoadLocalOrBundledParamsKeepsRequestedTagWidth(t *testing.T) {
 	}
 	if digest != "552f38ceaddf0ba0ddfc919602fcd7abfd85430f808bd1b1cf731bcd95ba438f" {
 		t.Fatalf("tag9 parameter digest=%s", digest)
+	}
+}
+
+func TestLoadLocalOrBundledTag13ParamsKeepsDigest(t *testing.T) {
+	params, digest, err := LoadLocalOrBundledParamsWithDigest(filepath.Join("missing", "prf_params_tag13.json"))
+	if err != nil {
+		t.Fatalf("load tag13 params by basename fallback: %v", err)
+	}
+	if params.LenTag != 13 {
+		t.Fatalf("LenTag=%d want 13", params.LenTag)
+	}
+	if digest != "94462038554d296342ed088fcbbecd03165a8f1705fdf64346551a4eabe6b5dd" {
+		t.Fatalf("tag13 parameter digest=%s", digest)
 	}
 }
 

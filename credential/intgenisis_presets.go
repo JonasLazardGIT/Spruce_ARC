@@ -23,10 +23,13 @@ const (
 
 	IntGenISISPRFProfileDefault      = "poseidon2-t20-tag7"
 	IntGenISISPRFProfileTag9         = "poseidon2-t20-tag9"
+	IntGenISISPRFProfileTag13        = "poseidon2-t20-tag13"
 	IntGenISISPRFParamsDefault       = "prf/prf_params.json"
 	IntGenISISPRFParamsTag9          = "prf/prf_params_tag9.json"
+	IntGenISISPRFParamsTag13         = "prf/prf_params_tag13.json"
 	IntGenISISPRFParamsDefaultDigest = "1b4258504c486507dc067ce0c6d6649820ab3b55bb3edeaf40afa8d2ea68de94"
 	IntGenISISPRFParamsTag9Digest    = "552f38ceaddf0ba0ddfc919602fcd7abfd85430f808bd1b1cf731bcd95ba438f"
+	IntGenISISPRFParamsTag13Digest   = "94462038554d296342ed088fcbbecd03165a8f1705fdf64346551a4eabe6b5dd"
 )
 
 func IntGenISISPRFProfileTagElements(profile string) (int, bool) {
@@ -35,6 +38,8 @@ func IntGenISISPRFProfileTagElements(profile string) (int, bool) {
 		return 7, true
 	case IntGenISISPRFProfileTag9:
 		return 9, true
+	case IntGenISISPRFProfileTag13:
+		return 13, true
 	default:
 		return 0, false
 	}
@@ -46,6 +51,8 @@ func IntGenISISPRFProfileParamsDigest(profile string) (string, bool) {
 		return IntGenISISPRFParamsDefaultDigest, true
 	case IntGenISISPRFProfileTag9:
 		return IntGenISISPRFParamsTag9Digest, true
+	case IntGenISISPRFProfileTag13:
+		return IntGenISISPRFParamsTag13Digest, true
 	default:
 		return "", false
 	}

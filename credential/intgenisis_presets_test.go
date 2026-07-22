@@ -556,6 +556,7 @@ func TestRegisteredPRFProfilesExposeExecutedTagWidths(t *testing.T) {
 	for profile, want := range map[string]int{
 		IntGenISISPRFProfileDefault: 7,
 		IntGenISISPRFProfileTag9:    9,
+		IntGenISISPRFProfileTag13:   13,
 	} {
 		got, ok := IntGenISISPRFProfileTagElements(profile)
 		if !ok || got != want {
@@ -565,14 +566,12 @@ func TestRegisteredPRFProfilesExposeExecutedTagWidths(t *testing.T) {
 	for profile, want := range map[string]string{
 		IntGenISISPRFProfileDefault: IntGenISISPRFParamsDefaultDigest,
 		IntGenISISPRFProfileTag9:    IntGenISISPRFParamsTag9Digest,
+		IntGenISISPRFProfileTag13:   IntGenISISPRFParamsTag13Digest,
 	} {
 		got, ok := IntGenISISPRFProfileParamsDigest(profile)
 		if !ok || got != want {
 			t.Fatalf("profile %s parameter digest=(%s,%v), want (%s,true)", profile, got, ok, want)
 		}
-	}
-	if _, ok := IntGenISISPRFProfileTagElements("poseidon2-t20-tag13"); ok {
-		t.Fatal("unimplemented tag-13 profile reported as executable")
 	}
 	if got := IntGenISISPRFSeedEntropyBits(); got <= 152 || got >= 153 {
 		t.Fatalf("executed PRF seed entropy=%f, want between 152 and 153 bits", got)
