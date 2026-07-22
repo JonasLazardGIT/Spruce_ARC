@@ -1,20 +1,22 @@
 package main
 
 import (
+	"bufio"
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"math/big"
-	"math/rand"
 	"os"
 	"path/filepath"
-	"time"
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
 	vsishash "vSIS-Signature/internal/hash"
+	"vSIS-Signature/internal/sampling"
 	"vSIS-Signature/issuance"
 	"vSIS-Signature/ntru"
 	ntrurio "vSIS-Signature/ntru/io"
@@ -485,7 +487,7 @@ func generateIssuanceNTRUKeypairWithRetry(par ntru.Params, kg ntru.KeygenOpts, a
 	return nil, nil, fmt.Errorf("annulus keygen failed after %d attempts with max_trials=%d: %w", attempts, kg.MaxTrials, lastErr)
 }
 
-func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath string, seed int64, overrides issuanceRuntimeOverrides) error {
+func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath string, overrides issuanceRuntimeOverrides) error {
 	rt, err := loadIssuanceRuntime(publicPath, prfPath, overrides)
 	if err != nil {
 		return err
@@ -493,10 +495,10 @@ func holderCommit(publicPath, prfPath, holderSecretPath, commitRequestPath, expe
 	if !rt.public.UsesIntGenISIS() {
 		return fmt.Errorf("holder-commit supports only IntGenISIS public params")
 	}
-	return holderCommitIntGenISIS(rt, publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath, seed)
+	return holderCommitIntGenISIS(rt, publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath)
 }
 
-func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath string, seed int64) error {
+func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecretPath, commitRequestPath, expertInputPath string) error {
 	if expertInputPath != "" {
 		return fmt.Errorf("IntGenISIS holder-commit does not accept expert-input artifacts")
 	}
@@ -504,24 +506,24 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 	if !ok {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", rt.public.Profile)
 	}
-	rng := newLocalRNG(seed)
+	random := newLocalEntropyReader()
 	layout, err := credential.DefaultSemanticMessageLayout(profile, rt.prfParams.LenKey)
 	if err != nil {
 		return err
 	}
-	sampleLive := func(bound int64) int64 {
-		return rng.Int63n(2*bound+1) - bound
-	}
-	sampleSeed := func() int64 {
-		return rng.Int63n(2*layout.SeedBound+1) - layout.SeedBound
-	}
 	key := make([]int64, len(layout.Key))
 	for i := range key {
-		key[i] = sampleSeed()
+		key[i], err = sampling.CenteredInt64(random, layout.SeedBound)
+		if err != nil {
+			return fmt.Errorf("sample semantic PRF seed coefficient %d: %w", i, err)
+		}
 	}
 	attrs := credential.ZeroSemanticAttributes(layout)
 	for _, slot := range layout.Attribute {
-		attrs[slot.Poly][slot.Coeff] = sampleLive(layout.Bound)
+		attrs[slot.Poly][slot.Coeff], err = sampling.CenteredInt64(random, layout.Bound)
+		if err != nil {
+			return fmt.Errorf("sample semantic attribute [%d][%d]: %w", slot.Poly, slot.Coeff, err)
+		}
 	}
 	semantic, err := credential.EncodeSemanticMessage(layout, attrs, key)
 	if err != nil {
@@ -530,7 +532,7 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 	M := polysFromInt64(rt.ringQ, semantic.M)[0]
 	MAttr := polysFromInt64(rt.ringQ, semantic.MAttr)[0]
 	K := polysFromInt64(rt.ringQ, semantic.K)[0]
-	s, e, err := issuance.SampleIntGenISISCommitmentRandomness(rt.params, rng)
+	s, e, err := issuance.SampleIntGenISISCommitmentRandomness(rt.params, random)
 	if err != nil {
 		return fmt.Errorf("sample IntGenISIS commitment randomness: %w", err)
 	}
@@ -705,7 +707,7 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 	if err != nil {
 		return err
 	}
-	data, err := issuance.SampleSignatureHashData(rt.ringQ, B, rt.public.EllMuSig, rt.public.EllX0, newLocalRNG(0))
+	data, err := issuance.SampleSignatureHashData(rt.ringQ, B, rt.public.EllMuSig, rt.public.EllX0, newLocalEntropyReader())
 	if err != nil {
 		return fmt.Errorf("sample IntGenISIS signature hash data: %w", err)
 	}
@@ -1138,11 +1140,8 @@ func deriveOmegaForIssuanceOpts(ringQ *ring.Ring, relation string, opts PIOP.Sim
 	return append([]uint64(nil), omegaWitness[:ncols]...), nil
 }
 
-func newLocalRNG(seed int64) *rand.Rand {
-	if seed == 0 {
-		seed = time.Now().UnixNano()
-	}
-	return rand.New(rand.NewSource(seed))
+func newLocalEntropyReader() io.Reader {
+	return bufio.NewReaderSize(cryptorand.Reader, 64*1024)
 }
 
 func loadBAsNTT(r *ring.Ring, path string) ([]*ring.Poly, error) {

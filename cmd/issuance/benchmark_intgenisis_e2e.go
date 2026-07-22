@@ -566,7 +566,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 
 	overrides := intGenISISTuningToIssuanceOverrides(cfg.Issuance, profile.N)
 	t0 = time.Now()
-	if err := holderCommit(paths.PublicParams, cfg.PRFParamsPath, paths.HolderSecret, paths.CommitRequest, "", cfg.Seed, overrides); err != nil {
+	if err := holderCommit(paths.PublicParams, cfg.PRFParamsPath, paths.HolderSecret, paths.CommitRequest, "", overrides); err != nil {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("holder commit: %w", err)
 	}
 	timings.HolderCommitMS = millisSince(t0)

@@ -282,7 +282,10 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 	if err != nil {
 		return fmt.Errorf("lift A_s: %w", err)
 	}
-	nonce, noncePublic := sampleNonce(params.LenNonce, opts.NCols, ringQ.Modulus[0])
+	nonce, noncePublic, err := sampleNonce(params.LenNonce, opts.NCols, ringQ.Modulus[0])
+	if err != nil {
+		return fmt.Errorf("sample presentation nonce: %w", err)
+	}
 	layout, err := credential.DefaultSemanticMessageLayout(profile, params.LenKey)
 	if err != nil {
 		return err
@@ -579,23 +582,29 @@ func buildIntGenISISWitnessFromState(r *ring.Ring, st credential.IntGenISISState
 	return PIOP.WitnessInputs{CoeffNativeShowing: cn}, nil
 }
 
-func sampleNonce(lennonce, ncols int, q uint64) ([]prf.Elem, [][]int64) {
+func sampleNonce(lennonce, ncols int, q uint64) ([]prf.Elem, [][]int64, error) {
 	nonce := make([]prf.Elem, lennonce)
 	public := make([][]int64, lennonce)
 	for i := 0; i < lennonce; i++ {
-		v := randElem(q)
+		v, err := randElem(q)
+		if err != nil {
+			return nil, nil, fmt.Errorf("nonce element %d: %w", i, err)
+		}
 		nonce[i] = prf.Elem(v)
 		public[i] = buildConstLane(ncols, int64(v))
 	}
-	return nonce, public
+	return nonce, public, nil
 }
 
-func randElem(q uint64) uint64 {
+func randElem(q uint64) (uint64, error) {
+	if q == 0 {
+		return 0, fmt.Errorf("zero modulus")
+	}
 	n, err := rand.Int(rand.Reader, new(big.Int).SetUint64(q))
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return n.Uint64()
+	return n.Uint64(), nil
 }
 
 func lanesFromElems(vals []prf.Elem, ncols int) [][]int64 {

@@ -243,7 +243,7 @@ func runHolderCommit(args []string) error {
 	if *prfPath == defaultPRFParamsPath && preset.PRFParamsPath != "" {
 		*prfPath = preset.PRFParamsPath
 	}
-	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, "", 0, intGenISISTuningToIssuanceOverrides(tuning, profile.N))
+	return holderCommit(*publicPath, *prfPath, *holderSecretPath, *commitRequestPath, "", intGenISISTuningToIssuanceOverrides(tuning, profile.N))
 }
 
 func runHolderProve(args []string) error {

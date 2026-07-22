@@ -78,6 +78,12 @@ func TestShowingCLIPropagatesBQ32SplitWidthsAndPRFPath(t *testing.T) {
 	}
 }
 
+func TestRandElemRejectsZeroModulus(t *testing.T) {
+	if _, err := randElem(0); err == nil {
+		t.Fatal("zero modulus accepted by presentation nonce sampler")
+	}
+}
+
 func TestShowingCLIPropagatesBQ64LogCapsAndWidths(t *testing.T) {
 	cfg, err := parseShowingCLIArgs([]string{
 		"-preset", credential.IntGenISISPresetN1024BQ64_96Theta11,
