@@ -578,6 +578,22 @@ func TestCompleteSystemGateReportsUnavailableBeforeRunning(t *testing.T) {
 	}
 }
 
+func TestFunctionalGateIncludesEveryExecutablePreset(t *testing.T) {
+	got := functionalPresetNames()
+	want := credential.IntGenISISDefaultPresetNames()
+	if len(got) != len(want) {
+		t.Fatalf("functional presets=%v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("functional presets=%v want %v", got, want)
+		}
+		if _, err := credential.MustLookupIntGenISISPreset(got[i]); err != nil {
+			t.Fatalf("functional preset %q does not resolve: %v", got[i], err)
+		}
+	}
+}
+
 func TestProofProfileGateAllowsOnlyProofOnlyTagRequirementMismatch(t *testing.T) {
 	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetResearchN1024BQ128R128V1)
 	if err != nil {

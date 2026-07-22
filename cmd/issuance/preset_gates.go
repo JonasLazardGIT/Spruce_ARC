@@ -14,15 +14,18 @@ import (
 type presetReportValidator func(credential.IntGenISISPreset, benchmarkIntGenISISE2EReport) error
 
 func runGateFunctionalPresets(args []string) error {
-	names := []string{
-		credential.IntGenISISPresetPoCN512SC96V1,
-		credential.IntGenISISPresetArtifactN1024SC96V1,
-		credential.IntGenISISPresetArtifactN1024SC125V1,
-		credential.IntGenISISPresetPilotN1024BQ32R96V1,
-	}
+	names := functionalPresetNames()
 	return runPresetReportGateCommand("gate-functional-presets", args, names, func(preset credential.IntGenISISPreset, report benchmarkIntGenISISE2EReport) error {
-		return validateFunctionalPresetReport(report)
+		if err := validateFunctionalPresetReport(report); err != nil {
+			return err
+		}
+		fmt.Printf("%s functional=pass parameter_audit=%s ledger=%s\n", preset.CanonicalID, report.ParameterAudit.Status, report.SecurityLedger.LedgerStatus)
+		return nil
 	})
+}
+
+func functionalPresetNames() []string {
+	return credential.IntGenISISDefaultPresetNames()
 }
 
 func validateFunctionalPresetReport(report benchmarkIntGenISISE2EReport) error {
