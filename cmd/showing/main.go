@@ -125,14 +125,21 @@ type showingCLIConfig struct {
 }
 
 func intGenISISPresetHelp() string {
-	return strings.Join(credential.IntGenISISPresetNames(), ", ")
+	entries := credential.IntGenISISPresetPortfolio(false, false)
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Available {
+			names = append(names, entry.CanonicalID)
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 func parseShowingCLIArgs(args []string) (showingCLIConfig, error) {
 	fs := flag.NewFlagSet("showing", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	intGenISISPreset := fs.String("preset", "", "named IntGenISIS preset: "+intGenISISPresetHelp())
-	statePathFlag := fs.String("state-path", "", "credential state path for showing; defaults to the selected maintained profile artifact")
+	statePathFlag := fs.String("state-path", "", "credential state path for showing; defaults to the selected preset artifact")
 	intGenISISPublicParamsPath := fs.String("public-params", "", "IntGenISIS public params path for standalone presentation verification")
 	intGenISISVerifierKeyPath := fs.String("verifier-key", "", "IntGenISIS verifier key path for standalone presentation verification")
 	presentationOut := fs.String("presentation-out", "", "IntGenISIS presentation output path")
@@ -148,7 +155,7 @@ func parseShowingCLIArgs(args []string) (showingCLIConfig, error) {
 	}
 	*intGenISISPreset = selectedIntGenISISPreset
 	if strings.TrimSpace(*intGenISISPreset) == "" {
-		return showingCLIConfig{}, fmt.Errorf("missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
+		return showingCLIConfig{}, fmt.Errorf("missing -preset (public presets: %s; use issuance list-presets -all for aliases)", intGenISISPresetHelp())
 	}
 	preset, err := credential.MustLookupIntGenISISPreset(*intGenISISPreset)
 	if err != nil {
@@ -190,7 +197,10 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 	presentationOut := cfg.PresentationOut
 	verifyPresentationPath := cfg.VerifyPresentation
 	verifierStatePath := cfg.VerifierStatePath
-	cli.printf(categoryStatus, "[showing-cli] ", "starting IntGenISIS showing preset=%s state=%s", preset.Name, statePath)
+	cli.printf(categoryStatus, "[showing-cli] ", "starting IntGenISIS showing preset=%s state=%s", preset.CanonicalID, statePath)
+	if preset.Lifecycle != credential.PresetComplete || preset.ClaimScope != credential.ClaimCompleteSystem || !preset.CompleteSystemClaim {
+		cli.errorf("[showing-cli] ", "warning: preset %s is %s/%s (%s), not a complete-system deployment preset", preset.CanonicalID, preset.Lifecycle, preset.ClaimScope, preset.SecurityProfile)
+	}
 	if verifyPresentationPath != "" {
 		if publicParamsPath == "" {
 			return fmt.Errorf("IntGenISIS presentation verification requires -public-params")

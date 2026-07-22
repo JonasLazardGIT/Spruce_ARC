@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
 	"vSIS-Signature/credential"
 )
@@ -27,13 +28,21 @@ const (
 )
 
 func intGenISISPresetHelp() string {
-	return strings.Join(credential.IntGenISISPresetNames(), ", ")
+	entries := credential.IntGenISISPresetPortfolio(false, false)
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Available {
+			names = append(names, entry.CanonicalID)
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 func usage() {
-	fmt.Println(`usage: issuance <setup-intgenisis-public|setup-ntru-keys|holder-commit|holder-prove|issuer-verify-sign|holder-finalize|benchmark-intgenisis-e2e|gate-maintained-presets|gate-degree1024-maintained-presets> [options]
+	fmt.Println(`usage: issuance <list-presets|setup-intgenisis-public|setup-ntru-keys|holder-commit|holder-prove|issuer-verify-sign|holder-finalize|benchmark-intgenisis-e2e|gate-functional-presets|gate-artifact-presets|gate-proof-profiles|gate-candidate-presets|gate-complete-system-presets> [options]
 
 Subcommands:
+	  list-presets       List purpose-oriented public presets and their claim status
   setup-intgenisis-public Generate IntGenISIS MLWE-hiding credential public parameters
   setup-ntru-keys    Generate separate NTRU params and key material
   holder-commit      Sample holder witness rows and write holder_secret/commit_request artifacts
@@ -41,8 +50,12 @@ Subcommands:
   issuer-verify-sign Verify the pre-sign proof and sign the public target T
   holder-finalize    Verify and persist the final credential state
   benchmark-intgenisis-e2e Run IntGenISIS issuance + showing and print paper transcript sizes
-  gate-maintained-presets Run live exact-byte gates for all maintained presets
-  gate-degree1024-maintained-presets Run live gates for promoted degree-1024 maintained presets`)
+	  gate-functional-presets Prove, verify, serialize, and reject replay for public executable presets
+	  gate-artifact-presets Reproduce historical exact-byte artifact results
+	  gate-proof-profiles Check executable proof-layer profile claims
+	  gate-candidate-presets Measure candidates and report their blockers
+	  gate-complete-system-presets Require a completely passing deployment ledger
+	  gate-maintained-presets Deprecated alias for gate-artifact-presets`)
 }
 
 func main() {
@@ -58,6 +71,8 @@ func run(args []string) error {
 		return fmt.Errorf("missing subcommand")
 	}
 	switch args[0] {
+	case "list-presets":
+		return runListIntGenISISPresets(args[1:])
 	case "setup-intgenisis-public":
 		return runSetupIntGenISISPublic(args[1:])
 	case "setup-ntru-keys":
@@ -76,6 +91,16 @@ func run(args []string) error {
 		return runGateMaintainedPresets(args[1:])
 	case "gate-degree1024-maintained-presets":
 		return runGateDegree1024MaintainedPresets(args[1:])
+	case "gate-functional-presets":
+		return runGateFunctionalPresets(args[1:])
+	case "gate-artifact-presets":
+		return runGateArtifactPresets(args[1:])
+	case "gate-proof-profiles":
+		return runGateProofProfiles(args[1:])
+	case "gate-candidate-presets":
+		return runGateCandidatePresets(args[1:])
+	case "gate-complete-system-presets":
+		return runGateCompleteSystemPresets(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -85,10 +110,49 @@ func run(args []string) error {
 	}
 }
 
+func runListIntGenISISPresets(args []string) error {
+	fs := flag.NewFlagSet("list-presets", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	includeResearch := fs.Bool("research", false, "include public research presets")
+	includeAll := fs.Bool("all", false, "include internal, historical, and deprecated selectors")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	entries := credential.IntGenISISPresetPortfolio(*includeResearch || *includeAll, *includeAll)
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "PRESET\tPURPOSE\tCLAIM\tSTATUS")
+	for _, entry := range entries {
+		claim := string(entry.ClaimScope)
+		if entry.CanonicalID == credential.IntGenISISPresetPilotN1024BQ32R96V1 {
+			claim = "complete*"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", entry.CanonicalID, entry.Purpose, claim, entry.Status)
+		if *includeAll && entry.LegacySelector != "" {
+			fmt.Fprintf(w, "  alias: %s\t\t\t\n", entry.LegacySelector)
+		}
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stdout, "* Bounded CROM candidate: raw caps [2^32]^5 per proof-system phase ([2^33]^5 after one issuance plus one showing), at most 2^32 honest transcripts, and 2^32 tags per context.")
+	fmt.Fprintln(os.Stdout, "No complete-system deployment preset is currently available.")
+	return nil
+}
+
+func warnIntGenISISPreset(preset credential.IntGenISISPreset) {
+	if preset.Lifecycle == credential.PresetComplete && preset.ClaimScope == credential.ClaimCompleteSystem && preset.CompleteSystemClaim {
+		return
+	}
+	log.Printf("[issuance-cli] warning: preset %s is %s/%s (%s), not a complete-system deployment preset", preset.CanonicalID, preset.Lifecycle, preset.ClaimScope, preset.SecurityProfile)
+}
+
 func runBenchmarkIntGenISISE2E(args []string) error {
 	cfg, err := parseBenchmarkIntGenISISE2EConfig(args)
 	if err != nil {
 		return err
+	}
+	if preset, ok := credential.LookupIntGenISISPreset(cfg.PresetName); ok {
+		warnIntGenISISPreset(preset)
 	}
 	if cfg.Verbose {
 		report, err := benchmarkIntGenISISE2E(cfg)
@@ -125,7 +189,7 @@ func parseBenchmarkIntGenISISE2EConfig(args []string) (benchmarkIntGenISISE2ECon
 		return benchmarkIntGenISISE2EConfig{}, err
 	}
 	if selectedPresetName == "" {
-		return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("missing -preset (supported: %s)", strings.Join(credential.IntGenISISPresetNames(), ", "))
+		return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("missing -preset (public presets: %s; use list-presets -all for aliases)", intGenISISPresetHelp())
 	}
 	preset, err := credential.MustLookupIntGenISISPreset(selectedPresetName)
 	if err != nil {
@@ -182,6 +246,7 @@ func runSetupIntGenISISPublic(args []string) error {
 	if err != nil {
 		return err
 	}
+	warnIntGenISISPreset(preset)
 	if strings.TrimSpace(*outPath) == "" {
 		*outPath = filepath.Join("internal", "source_data", fmt.Sprintf("credential_public.%s.json", preset.Profile))
 	}
@@ -214,6 +279,7 @@ func runSetupNTRUKeys(args []string) error {
 	if err != nil {
 		return err
 	}
+	warnIntGenISISPreset(preset)
 	profile, ok := credential.LookupIntGenISISProfile(preset.Profile)
 	if !ok {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", preset.Profile)
@@ -243,6 +309,7 @@ func runHolderCommit(args []string) error {
 	if err != nil {
 		return err
 	}
+	warnIntGenISISPreset(preset)
 	if *publicPath == credentialPublicPathDefault() && preset.Profile != credential.ProfileIntGenISISB {
 		*publicPath = filepath.Join("internal", "source_data", fmt.Sprintf("credential_public.%s.json", preset.Profile))
 	}

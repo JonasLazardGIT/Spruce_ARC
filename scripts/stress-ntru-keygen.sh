@@ -11,7 +11,7 @@ case "$preset" in
 n512-compact96|n1024-compact96|n1024-compact125|n1024-q10-128|n1024-q16-128|n1024-q32-128|n1024-q10-96|n1024-q16-96|n1024-q32-96)
 	;;
 *)
-	echo "unknown maintained preset: $preset" >&2
+	echo "unknown artifact preset: $preset" >&2
 	exit 2
 	;;
 esac

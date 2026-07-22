@@ -488,6 +488,37 @@ func TestBenchmarkMetricsFromProofIncludesMdecsBytes(t *testing.T) {
 	}
 }
 
+func TestCompleteSystemGateReportsUnavailableBeforeRunning(t *testing.T) {
+	err := runGateCompleteSystemPresets([]string{"-artifact-dir", t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "no complete-system deployment preset") {
+		t.Fatalf("complete-system gate error=%v", err)
+	}
+}
+
+func TestProofProfileGateAllowsOnlyProofOnlyTagRequirementMismatch(t *testing.T) {
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetResearchN1024BQ128R128V1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := credential.IntGenISISSecurityParameterAudit{
+		Mismatches: []credential.IntGenISISSecurityParameterMismatch{{Parameter: "prf_tag_elements"}},
+	}
+	if err := validateProofProfileParameterAudit(preset, audit); err != nil {
+		t.Fatalf("proof-only primitive-width blocker rejected proof gate: %v", err)
+	}
+	artifact, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetArtifactN1024SC96V1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateProofProfileParameterAudit(artifact, audit); err == nil {
+		t.Fatal("artifact preset accepted an executed PRF tag-width mismatch")
+	}
+	audit.Mismatches[0].Parameter = "decs_hash_bits"
+	if err := validateProofProfileParameterAudit(preset, audit); err == nil {
+		t.Fatal("proof-layer hash mismatch accepted by proof gate")
+	}
+}
+
 func TestSetupIntGenISISPublicWritesMaintainedProfileParams(t *testing.T) {
 	root := issuanceTestRepoRoot(t)
 	chdirForIssuanceTest(t, root)

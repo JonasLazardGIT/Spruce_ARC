@@ -7,8 +7,8 @@ if [ "$#" -ne 0 ]; then
 fi
 
 artifact_root="${ARTIFACT_ROOT:-/artifacts}"
-gate_root="$artifact_root/maintained-gate"
+gate_root="$artifact_root/artifact-gate"
 
 mkdir -p "$gate_root"
 
-exec issuance gate-maintained-presets -artifact-root "$gate_root"
+exec issuance gate-artifact-presets -artifact-dir "$gate_root"

@@ -8,11 +8,11 @@ use: spruce-artifact <command> [args]
 commands:
   help                  show this help
   test                  run go test ./...
-  bench <preset>        run maintained IntGenISIS E2E benchmark
-  gate                  run maintained exact-byte gate
+  bench <preset>        run historical exact-byte E2E benchmark
+  gate                  run historical exact-byte artifact gate
   validate              run tests, vet, staticcheck, deadcode, and all E2E checks
 
-maintained presets:
+exact-byte artifact selectors:
   n512-compact96
   n1024-compact96
   n1024-compact125

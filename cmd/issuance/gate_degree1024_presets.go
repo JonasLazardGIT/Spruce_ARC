@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -18,7 +19,12 @@ type maintainedPresetGate struct {
 }
 
 func runGateMaintainedPresets(args []string) error {
+	log.Printf("[issuance-cli] gate-maintained-presets is deprecated; running gate-artifact-presets")
 	return runMaintainedPresetGateCommand("gate-maintained-presets", args, allMaintainedPresetGates())
+}
+
+func runGateArtifactPresets(args []string) error {
+	return runMaintainedPresetGateCommand("gate-artifact-presets", args, allMaintainedPresetGates())
 }
 
 func runGateDegree1024MaintainedPresets(args []string) error {
