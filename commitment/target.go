@@ -2,7 +2,10 @@ package commitment
 
 import (
 	"fmt"
-	"math/rand"
+	"io"
+	"math"
+
+	"vSIS-Signature/internal/sampling"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -61,37 +64,48 @@ func validateMatrixShape(name string, mat Matrix, rows, cols int) error {
 }
 
 // SampleCommitmentRandomness samples s and e coefficient-wise from [-B,B].
-func SampleCommitmentRandomness(params TargetParams, rng *rand.Rand) (s []*ring.Poly, e []*ring.Poly, err error) {
+func SampleCommitmentRandomness(params TargetParams, random io.Reader) (s []*ring.Poly, e []*ring.Poly, err error) {
 	if err := params.Validate(); err != nil {
 		return nil, nil, err
 	}
-	if rng == nil {
-		return nil, nil, fmt.Errorf("nil rng")
+	if random == nil {
+		return nil, nil, fmt.Errorf("nil randomness reader")
 	}
 	s = make([]*ring.Poly, params.KS)
 	for i := range s {
-		s[i] = sampleBoundedCoeffPoly(params.RingQ, params.Bound, rng)
+		s[i], err = sampleBoundedCoeffPoly(params.RingQ, params.Bound, random)
+		if err != nil {
+			return nil, nil, fmt.Errorf("sample s[%d]: %w", i, err)
+		}
 	}
 	e = make([]*ring.Poly, params.NC)
 	for i := range e {
-		e[i] = sampleBoundedCoeffPoly(params.RingQ, params.Bound, rng)
+		e[i], err = sampleBoundedCoeffPoly(params.RingQ, params.Bound, random)
+		if err != nil {
+			return nil, nil, fmt.Errorf("sample e[%d]: %w", i, err)
+		}
 	}
 	return s, e, nil
 }
 
-func sampleBoundedCoeffPoly(ringQ *ring.Ring, bound int64, rng *rand.Rand) *ring.Poly {
+func sampleBoundedCoeffPoly(ringQ *ring.Ring, bound int64, random io.Reader) (*ring.Poly, error) {
+	if ringQ.Modulus[0] > math.MaxInt64 {
+		return nil, fmt.Errorf("ring modulus %d exceeds int64 sampler range", ringQ.Modulus[0])
+	}
 	p := ringQ.NewPoly()
 	q := int64(ringQ.Modulus[0])
-	width := 2*bound + 1
 	for i := 0; i < ringQ.N; i++ {
-		v := rng.Int63n(width) - bound
+		v, err := sampling.CenteredInt64(random, bound)
+		if err != nil {
+			return nil, fmt.Errorf("coefficient %d: %w", i, err)
+		}
 		if v < 0 {
 			p.Coeffs[0][i] = uint64(v + q)
 		} else {
 			p.Coeffs[0][i] = uint64(v)
 		}
 	}
-	return p
+	return p, nil
 }
 
 // CommitMessage computes c = C_M M + A_s s + e and returns c in the NTT domain.

@@ -43,7 +43,11 @@ func testTargetParams(t *testing.T) TargetParams {
 func TestTargetCommitmentOpeningRoundTrip(t *testing.T) {
 	params := testTargetParams(t)
 	rng := rand.New(rand.NewSource(7))
-	M := []*ring.Poly{sampleBoundedCoeffPoly(params.RingQ, params.Bound, rng)}
+	message, err := sampleBoundedCoeffPoly(params.RingQ, params.Bound, rng)
+	if err != nil {
+		t.Fatalf("sample message: %v", err)
+	}
+	M := []*ring.Poly{message}
 	s, e, err := SampleCommitmentRandomness(params, rng)
 	if err != nil {
 		t.Fatalf("sample randomness: %v", err)
@@ -64,7 +68,11 @@ func TestTargetCommitmentOpeningRoundTrip(t *testing.T) {
 func TestTargetCommitmentRejectsModifiedOpening(t *testing.T) {
 	params := testTargetParams(t)
 	rng := rand.New(rand.NewSource(11))
-	M := []*ring.Poly{sampleBoundedCoeffPoly(params.RingQ, params.Bound, rng)}
+	message, err := sampleBoundedCoeffPoly(params.RingQ, params.Bound, rng)
+	if err != nil {
+		t.Fatalf("sample message: %v", err)
+	}
+	M := []*ring.Poly{message}
 	s, e, err := SampleCommitmentRandomness(params, rng)
 	if err != nil {
 		t.Fatalf("sample randomness: %v", err)
@@ -88,7 +96,11 @@ func TestTargetCommitmentRejectsModifiedOpening(t *testing.T) {
 func TestTargetCommitmentRejectsOutOfBoundOpening(t *testing.T) {
 	params := testTargetParams(t)
 	rng := rand.New(rand.NewSource(13))
-	M := []*ring.Poly{sampleBoundedCoeffPoly(params.RingQ, params.Bound, rng)}
+	message, err := sampleBoundedCoeffPoly(params.RingQ, params.Bound, rng)
+	if err != nil {
+		t.Fatalf("sample message: %v", err)
+	}
+	M := []*ring.Poly{message}
 	s, e, err := SampleCommitmentRandomness(params, rng)
 	if err != nil {
 		t.Fatalf("sample randomness: %v", err)

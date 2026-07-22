@@ -2,11 +2,13 @@ package issuance
 
 import (
 	"fmt"
-	"math/rand"
+	"io"
+	"math"
 
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
 	vsishash "vSIS-Signature/internal/hash"
+	"vSIS-Signature/internal/sampling"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -68,18 +70,18 @@ func commitmentParamsFromIssuance(params *credential.Params) (commitment.TargetP
 
 // SampleIntGenISISCommitmentRandomness samples live IntGenISIS s and e from
 // the public bounded range [-B,B]. The proof relation enforces the same bound.
-func SampleIntGenISISCommitmentRandomness(params *credential.Params, rng *rand.Rand) (s, e []*ring.Poly, err error) {
+func SampleIntGenISISCommitmentRandomness(params *credential.Params, random io.Reader) (s, e []*ring.Poly, err error) {
 	targetParams, err := commitmentParamsFromIssuance(params)
 	if err != nil {
 		return nil, nil, err
 	}
-	return commitment.SampleCommitmentRandomness(targetParams, rng)
+	return commitment.SampleCommitmentRandomness(targetParams, random)
 }
 
 // SampleSignatureHashData samples issuer-side mu_sig, x0, and x1. The current
 // implementation uses uniform R_q sampling for these DKLW/BB-tran values and
 // resamples x1 until B3-x1 is invertible.
-func SampleSignatureHashData(ringQ *ring.Ring, B []*ring.Poly, ellMuSig, ellX0 int, rng *rand.Rand) (SignatureHashData, error) {
+func SampleSignatureHashData(ringQ *ring.Ring, B []*ring.Poly, ellMuSig, ellX0 int, random io.Reader) (SignatureHashData, error) {
 	if ringQ == nil {
 		return SignatureHashData{}, fmt.Errorf("nil ring")
 	}
@@ -92,18 +94,28 @@ func SampleSignatureHashData(ringQ *ring.Ring, B []*ring.Poly, ellMuSig, ellX0 i
 	if ellX0 <= 0 {
 		return SignatureHashData{}, fmt.Errorf("invalid ell_x0=%d", ellX0)
 	}
-	if rng == nil {
-		return SignatureHashData{}, fmt.Errorf("nil rng")
+	if random == nil {
+		return SignatureHashData{}, fmt.Errorf("nil randomness reader")
 	}
-	muSig := []*ring.Poly{sampleUniformCoeffPoly(ringQ, rng)}
+	muSigPoly, err := sampleUniformCoeffPoly(ringQ, random)
+	if err != nil {
+		return SignatureHashData{}, fmt.Errorf("sample mu_sig: %w", err)
+	}
+	muSig := []*ring.Poly{muSigPoly}
 	x0 := make([]*ring.Poly, ellX0)
 	for i := range x0 {
-		x0[i] = sampleUniformCoeffPoly(ringQ, rng)
+		x0[i], err = sampleUniformCoeffPoly(ringQ, random)
+		if err != nil {
+			return SignatureHashData{}, fmt.Errorf("sample x0[%d]: %w", i, err)
+		}
 	}
 	var x1 *ring.Poly
 	var zCoeff *ring.Poly
 	for attempts := 0; attempts < 1024; attempts++ {
-		candidate := sampleUniformCoeffPoly(ringQ, rng)
+		candidate, err := sampleUniformCoeffPoly(ringQ, random)
+		if err != nil {
+			return SignatureHashData{}, fmt.Errorf("sample x1 candidate %d: %w", attempts, err)
+		}
 		zNTT, err := computeInverseNoMutate(ringQ, B[len(B)-1], candidate)
 		if err == nil {
 			x1 = candidate
@@ -124,13 +136,20 @@ func SampleSignatureHashData(ringQ *ring.Ring, B []*ring.Poly, ellMuSig, ellX0 i
 	}, nil
 }
 
-func sampleUniformCoeffPoly(ringQ *ring.Ring, rng *rand.Rand) *ring.Poly {
+func sampleUniformCoeffPoly(ringQ *ring.Ring, random io.Reader) (*ring.Poly, error) {
+	if ringQ.Modulus[0] > math.MaxInt64 {
+		return nil, fmt.Errorf("ring modulus %d exceeds int64 sampler range", ringQ.Modulus[0])
+	}
 	p := ringQ.NewPoly()
 	q := int64(ringQ.Modulus[0])
 	for i := 0; i < ringQ.N; i++ {
-		p.Coeffs[0][i] = uint64(rng.Int63n(q))
+		value, err := sampling.Int64n(random, q)
+		if err != nil {
+			return nil, fmt.Errorf("coefficient %d: %w", i, err)
+		}
+		p.Coeffs[0][i] = uint64(value)
 	}
-	return p
+	return p, nil
 }
 
 // ComputeIntGenISISTarget computes
