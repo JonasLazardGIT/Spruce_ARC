@@ -1,7 +1,9 @@
 package credential
 
 import (
+	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -65,6 +67,13 @@ func TestSecurityParameterAuditAcceptsUnsetWorkFactorQueryScope(t *testing.T) {
 	if audit.Status != "pass" || audit.Required.ROQueryCapLog2Set || audit.Actual.ROQueryCapLog2Set {
 		t.Fatalf("unbounded WF-128 audit=%+v", audit)
 	}
+	raw, err := json.Marshal(audit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "ro_query_cap_log2\"") {
+		t.Fatalf("unbounded WF-128 audit serialized a query-cap vector: %s", raw)
+	}
 }
 
 func TestSecurityParameterAuditRejectsMissingActualMetadata(t *testing.T) {
@@ -98,7 +107,7 @@ func TestSecurityParameterAuditRejectsInvalidActualQueryScope(t *testing.T) {
 func completeSecurityParameterActuals(caps [5]float64) IntGenISISSecurityParameterActuals {
 	return IntGenISISSecurityParameterActuals{
 		ROQueryCapLog2Set: true,
-		ROQueryCapLog2:    caps,
+		ROQueryCapLog2:    append([]float64(nil), caps[:]...),
 		DECSHashBits:      168,
 		DECSTapeBits:      136,
 		FSCollisionBits:   168,

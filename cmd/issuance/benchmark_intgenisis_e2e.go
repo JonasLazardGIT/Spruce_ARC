@@ -829,9 +829,13 @@ func benchmarkIntGenISISE2ESecurityLedger(
 	multiUserRequired := scopeLogs.UsersLog2 > 0
 	multiContextRequired := scopeLogs.ContextsLog2 > 0
 	actualTranscriptMode := benchmarkActualTranscriptMode(issuanceMetrics.TranscriptMode, showingMetrics.TranscriptMode)
+	var actualQueryCapBits []float64
+	if queryCapsKnown {
+		actualQueryCapBits = append(actualQueryCapBits, queryCapBits[:]...)
+	}
 	actual := credential.IntGenISISSecurityParameterActuals{
 		ROQueryCapLog2Set: queryCapsKnown,
-		ROQueryCapLog2:    queryCapBits,
+		ROQueryCapLog2:    actualQueryCapBits,
 		DECSHashBits:      minPositiveIntLocal(issuanceMetrics.DECSHashBits, showingMetrics.DECSHashBits),
 		DECSTapeBits:      tapeBits,
 		FSCollisionBits:   fsCollisionBits,

@@ -13,18 +13,18 @@ const (
 )
 
 type IntGenISISSecurityParameterRequirements struct {
-	ROQueryCapLog2Set bool       `json:"ro_query_cap_log2_set,omitempty"`
-	ROQueryCapLog2    [5]float64 `json:"ro_query_cap_log2,omitempty"`
-	DECSHashBits      int        `json:"decs_hash_bits,omitempty"`
-	DECSTapeBits      int        `json:"decs_tape_bits,omitempty"`
-	FSCollisionBits   int        `json:"fs_collision_bits,omitempty"`
-	SaltBits          int        `json:"salt_bits,omitempty"`
-	PRFTagElements    int        `json:"prf_tag_elements,omitempty"`
+	ROQueryCapLog2Set bool      `json:"ro_query_cap_log2_set,omitempty"`
+	ROQueryCapLog2    []float64 `json:"ro_query_cap_log2,omitempty"`
+	DECSHashBits      int       `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits      int       `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits   int       `json:"fs_collision_bits,omitempty"`
+	SaltBits          int       `json:"salt_bits,omitempty"`
+	PRFTagElements    int       `json:"prf_tag_elements,omitempty"`
 }
 
 type IntGenISISSecurityParameterActuals struct {
 	ROQueryCapLog2Set bool              `json:"ro_query_cap_log2_set"`
-	ROQueryCapLog2    [5]float64        `json:"ro_query_cap_log2"`
+	ROQueryCapLog2    []float64         `json:"ro_query_cap_log2,omitempty"`
 	DECSHashBits      int               `json:"decs_hash_bits"`
 	DECSTapeBits      int               `json:"decs_tape_bits"`
 	FSCollisionBits   int               `json:"fs_collision_bits"`
@@ -62,13 +62,11 @@ func IntGenISISSecurityRequirements(spec IntGenISISSecurityProfileSpec) IntGenIS
 	}
 	if len(spec.ROQueryCapBits) > 0 {
 		required.ROQueryCapLog2Set = true
-		copy(required.ROQueryCapLog2[:], spec.ROQueryCapBits)
+		required.ROQueryCapLog2 = append([]float64(nil), spec.ROQueryCapBits...)
 	} else if len(spec.ROQueryCaps) > 0 {
 		required.ROQueryCapLog2Set = true
+		required.ROQueryCapLog2 = make([]float64, len(spec.ROQueryCaps))
 		for i, cap := range spec.ROQueryCaps {
-			if i >= len(required.ROQueryCapLog2) {
-				break
-			}
 			if cap > 0 {
 				required.ROQueryCapLog2[i] = math.Log2(float64(cap))
 			}
@@ -82,6 +80,9 @@ func IntGenISISSecurityRequirements(spec IntGenISISSecurityProfileSpec) IntGenIS
 func AuditIntGenISISSecurityParameters(spec IntGenISISSecurityProfileSpec, actual IntGenISISSecurityParameterActuals) IntGenISISSecurityParameterAudit {
 	if actual.Evidence == nil {
 		actual.Evidence = make(map[string]string)
+	}
+	if !actual.ROQueryCapLog2Set {
+		actual.ROQueryCapLog2 = nil
 	}
 	audit := IntGenISISSecurityParameterAudit{
 		SecurityProfile: spec.Label,
@@ -110,6 +111,14 @@ func AuditIntGenISISSecurityParameters(spec IntGenISISSecurityProfileSpec, actua
 	requireActual("prf_profile", actual.PRFProfile != "")
 	requireActual("transcript_mode", actual.TranscriptMode != "")
 	if actual.ROQueryCapLog2Set {
+		if len(actual.ROQueryCapLog2) != 5 {
+			audit.Mismatches = append(audit.Mismatches, IntGenISISSecurityParameterMismatch{
+				Parameter:   "ro_query_cap_log2",
+				Required:    "five phase values",
+				Actual:      fmt.Sprintf("%d values", len(actual.ROQueryCapLog2)),
+				Explanation: "the executed bounded-query scope is incomplete",
+			})
+		}
 		for i, value := range actual.ROQueryCapLog2 {
 			if value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0) {
 				continue
@@ -142,6 +151,9 @@ func AuditIntGenISISSecurityParameters(spec IntGenISISSecurityProfileSpec, actua
 
 	if audit.Required.ROQueryCapLog2Set && actual.ROQueryCapLog2Set {
 		for i := range audit.Required.ROQueryCapLog2 {
+			if i >= len(actual.ROQueryCapLog2) {
+				break
+			}
 			if math.Abs(audit.Required.ROQueryCapLog2[i]-actual.ROQueryCapLog2[i]) <= 1e-9 {
 				continue
 			}
