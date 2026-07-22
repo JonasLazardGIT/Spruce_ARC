@@ -1,9 +1,13 @@
 package prf
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -113,16 +117,23 @@ func LoadParamsFromFile(path string) (*Params, error) {
 
 // LoadBundledParams loads a params file from the prf package directory.
 func LoadBundledParams(name string) (*Params, error) {
+	path, err := bundledParamsPath(name)
+	if err != nil {
+		return nil, err
+	}
+	return LoadParamsFromFile(path)
+}
+
+func bundledParamsPath(name string) (string, error) {
 	if name == "" || filepath.Base(name) != name {
-		return nil, fmt.Errorf("bundled params name must be a filename")
+		return "", fmt.Errorf("bundled params name must be a filename")
 	}
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
-		return nil, fmt.Errorf("runtime.Caller failed")
+		return "", fmt.Errorf("runtime.Caller failed")
 	}
 	dir := filepath.Dir(file)
-	path := filepath.Join(dir, name)
-	return LoadParamsFromFile(path)
+	return filepath.Join(dir, name), nil
 }
 
 // LoadDefaultParams loads prf_params.json from the prf package directory.
@@ -144,15 +155,47 @@ func LoadLocalOrDefaultParams(path string) (*Params, error) {
 // LoadLocalOrBundledParams prefers a caller-provided local params file and
 // falls back only to a bundled file with the same basename.
 func LoadLocalOrBundledParams(path string) (*Params, error) {
+	params, _, err := LoadLocalOrBundledParamsWithDigest(path)
+	return params, err
+}
+
+// LoadLocalOrBundledParamsWithDigest returns the SHA-256 digest of the exact
+// parameter file that was decoded. The fallback is restricted to a bundled
+// file with the same basename.
+func LoadLocalOrBundledParamsWithDigest(path string) (*Params, string, error) {
 	if path == "" {
-		return LoadDefaultParams()
+		var err error
+		path, err = bundledParamsPath("prf_params.json")
+		if err != nil {
+			return nil, "", err
+		}
+		return loadParamsFromFileWithDigest(path)
 	}
-	if params, err := LoadParamsFromFile(path); err == nil {
-		return params, nil
+	if params, digest, err := loadParamsFromFileWithDigest(path); err == nil {
+		return params, digest, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, "", fmt.Errorf("load params %q: %w", path, err)
 	}
-	params, err := LoadBundledParams(filepath.Base(path))
+	bundledPath, err := bundledParamsPath(filepath.Base(path))
 	if err != nil {
-		return nil, fmt.Errorf("load params %q: %w", path, err)
+		return nil, "", fmt.Errorf("load params %q: %w", path, err)
 	}
-	return params, nil
+	params, digest, err := loadParamsFromFileWithDigest(bundledPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("load params %q: %w", path, err)
+	}
+	return params, digest, nil
+}
+
+func loadParamsFromFileWithDigest(path string) (*Params, string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, "", fmt.Errorf("read params file: %w", err)
+	}
+	params, err := LoadParams(bytes.NewReader(raw))
+	if err != nil {
+		return nil, "", err
+	}
+	digest := sha256.Sum256(raw)
+	return params, fmt.Sprintf("%x", digest[:]), nil
 }

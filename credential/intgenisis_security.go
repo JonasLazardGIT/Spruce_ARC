@@ -84,6 +84,11 @@ func ternary1024IntGenISISCommitmentSecurity() IntGenISISCommitmentSecurity {
 	return intGenISISCommitmentSecurity(1024, IntGenISISSharedModulusQ, 1, 1, 1, IntGenISISLiveBound, IntGenISISPRFSeedBound, IntGenISISLiveBound, IntGenISISPRFSeedLen, IntGenISISPRFSeedTailReserve, 131.113, "dual_hybrid", 0, true)
 }
 
+func IntGenISISPRFSeedEntropyBits() float64 {
+	alphabet := float64(2*IntGenISISPRFSeedBound + 1)
+	return float64(IntGenISISPRFSeedLen) * math.Log2(alphabet)
+}
+
 func intGenISISStatisticalHidingSlackBits(n int, q uint64, kS, nC int, b int64) float64 {
 	randomness := float64(n*(kS+nC)) * math.Log2(float64(2*b+1))
 	required := float64(n*nC)*math.Log2(float64(q)) + 2*float64(intGenISISCommitmentSecurityLambda)

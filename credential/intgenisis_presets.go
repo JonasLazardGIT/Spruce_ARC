@@ -21,11 +21,35 @@ const (
 	IntGenISISPresetN1024Q16_96                                = "n1024-q16-96"
 	IntGenISISPresetN1024Q32_96                                = "n1024-q32-96"
 
-	IntGenISISPRFProfileDefault = "poseidon2-t20-tag7"
-	IntGenISISPRFProfileTag9    = "poseidon2-t20-tag9"
-	IntGenISISPRFParamsDefault  = "prf/prf_params.json"
-	IntGenISISPRFParamsTag9     = "prf/prf_params_tag9.json"
+	IntGenISISPRFProfileDefault      = "poseidon2-t20-tag7"
+	IntGenISISPRFProfileTag9         = "poseidon2-t20-tag9"
+	IntGenISISPRFParamsDefault       = "prf/prf_params.json"
+	IntGenISISPRFParamsTag9          = "prf/prf_params_tag9.json"
+	IntGenISISPRFParamsDefaultDigest = "1b4258504c486507dc067ce0c6d6649820ab3b55bb3edeaf40afa8d2ea68de94"
+	IntGenISISPRFParamsTag9Digest    = "552f38ceaddf0ba0ddfc919602fcd7abfd85430f808bd1b1cf731bcd95ba438f"
 )
+
+func IntGenISISPRFProfileTagElements(profile string) (int, bool) {
+	switch strings.TrimSpace(strings.ToLower(profile)) {
+	case IntGenISISPRFProfileDefault:
+		return 7, true
+	case IntGenISISPRFProfileTag9:
+		return 9, true
+	default:
+		return 0, false
+	}
+}
+
+func IntGenISISPRFProfileParamsDigest(profile string) (string, bool) {
+	switch strings.TrimSpace(strings.ToLower(profile)) {
+	case IntGenISISPRFProfileDefault:
+		return IntGenISISPRFParamsDefaultDigest, true
+	case IntGenISISPRFProfileTag9:
+		return IntGenISISPRFParamsTag9Digest, true
+	default:
+		return "", false
+	}
+}
 
 // IntGenISISTuningPreset is the CLI-stable, package-neutral representation of
 // the SmallWood knobs used by maintained IntGenISIS issuance and showing presets.
@@ -67,14 +91,22 @@ type IntGenISISTuningPreset struct {
 // IntGenISISPreset describes a maintained issuance/showing parameter set.
 type IntGenISISPreset struct {
 	Name                string                 `json:"name"`
+	CanonicalID         string                 `json:"canonical_id"`
+	PresetVersion       int                    `json:"preset_version"`
 	Description         string                 `json:"description"`
+	Purpose             string                 `json:"purpose"`
+	Lifecycle           PresetLifecycle        `json:"lifecycle"`
+	ClaimScope          ClaimScope             `json:"claim_scope"`
+	VisibleByDefault    bool                   `json:"visible_by_default,omitempty"`
 	Profile             string                 `json:"profile"`
+	PrimitiveProfileID  string                 `json:"primitive_profile_id"`
 	SecurityProfile     string                 `json:"security_profile,omitempty"`
 	SecurityMode        string                 `json:"security_mode,omitempty"`
 	CoreBitsRequired    float64                `json:"core_bits_required,omitempty"`
 	CompleteSystemClaim bool                   `json:"complete_system_claim,omitempty"`
 	PRFProfile          string                 `json:"prf_profile,omitempty"`
 	PRFParamsPath       string                 `json:"prf_params_path,omitempty"`
+	PRFParamsDigest     string                 `json:"prf_params_digest,omitempty"`
 	TargetEq8Bits       float64                `json:"target_eq8_bits"`
 	TargetTheoremBits   float64                `json:"target_theorem_bits,omitempty"`
 	SoundnessGate       string                 `json:"soundness_gate,omitempty"`
@@ -83,18 +115,26 @@ type IntGenISISPreset struct {
 	MaxNLeaves          int                    `json:"max_nleaves,omitempty"`
 	Issuance            IntGenISISTuningPreset `json:"issuance"`
 	Showing             IntGenISISTuningPreset `json:"showing"`
+	ThreatModel         PresetThreatModel      `json:"threat_model"`
 	Notes               []string               `json:"notes,omitempty"`
 }
 
 func LookupIntGenISISPreset(name string) (IntGenISISPreset, bool) {
-	p, ok := intGenISISPresetRegistry()[normalizeIntGenISISPresetName(name)]
+	selector := normalizeIntGenISISPresetName(name)
+	if target, ok := intGenISISPresetAliases()[selector]; ok {
+		selector = target
+	}
+	p, ok := intGenISISPresetRegistry()[selector]
 	return p, ok
 }
 
 func MustLookupIntGenISISPreset(name string) (IntGenISISPreset, error) {
 	p, ok := LookupIntGenISISPreset(name)
 	if !ok {
-		return IntGenISISPreset{}, fmt.Errorf("unknown IntGenISIS preset %q (supported: %s)", name, strings.Join(IntGenISISPresetNames(), ", "))
+		if entry, found := LookupIntGenISISPresetPortfolioEntry(name); found && !entry.Available {
+			return IntGenISISPreset{}, fmt.Errorf("IntGenISIS preset %q is unavailable: %s", name, strings.Join(entry.Blockers, "; "))
+		}
+		return IntGenISISPreset{}, fmt.Errorf("unknown IntGenISIS preset %q (public: %s; use list-presets -all for legacy selectors)", name, strings.Join(IntGenISISDefaultPresetNames(), ", "))
 	}
 	return p, nil
 }
@@ -355,13 +395,14 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	n1024Q32Issuance96 := intGenISISIssuanceTuning(n1024Q32Show96)
 	n1024BQ32Show96 := n1024Q32Show96
 	n1024BQ32Show96.LVCSNCols = 40
-	n1024BQ32Show96.NLeaves = 557056
-	n1024BQ32Show96.Eta = 44
+	n1024BQ32Show96.NLeaves = 786432
+	n1024BQ32Show96.Eta = 46
 	n1024BQ32Show96.Ell = 9
 	n1024BQ32Show96.DECSHashBits = 168
-	n1024BQ32Show96.DECSTapeBits = 128
+	n1024BQ32Show96.DECSTapeBits = 136
 	n1024BQ32Show96.FSCollisionBits = 168
-	n1024BQ32Show96.SaltBits = 128
+	n1024BQ32Show96.SaltBits = 168
+	n1024BQ32Show96.TargetTheoremBits = 99.5
 	n1024BQ32Show96.PRFProfile = IntGenISISPRFProfileTag9
 	n1024BQ32Show96.PRFParamsPath = IntGenISISPRFParamsTag9
 	n1024BQ32Issuance96 := intGenISISIssuanceTuning(n1024BQ32Show96)
@@ -514,7 +555,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Name:              IntGenISISPresetN1024BQ32_96,
 			Description:       "profile-C N=1024 BQ32-96 candidate with split DECS widths and tag-9 PRF",
 			Profile:           ProfileIntGenISISC,
-			TargetTheoremBits: 96,
+			TargetTheoremBits: 99.5,
 			SoundnessGate:     n1024BQ32Show96.SoundnessGate,
 			LVCSNCols:         n1024BQ32Show96.LVCSNCols,
 			MaxNLeaves:        n1024BQ32Show96.NLeaves,
@@ -522,7 +563,8 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Showing:           n1024BQ32Show96,
 			Notes: []string{
 				"BQ32-96 candidate preset for equal ROQueryCaps=[2^32]*5.",
-				"Uses split DECS hash/tape metadata and tag-9 PRF params; complete-system promotion remains gated by the security ledger.",
+				"The retuned n=786432, eta=46 shape measures 99.98 one-proof theorem bits and 98.59 bits after the current one-issuance/one-showing global-collision composition.",
+				"Uses 168-bit hash/Fiat-Shamir output, 136-bit tapes, 168-bit salts, and actual tag-9 PRF params; complete-system promotion remains gated by the security ledger.",
 			},
 		},
 		IntGenISISPresetN1024BQ64_96Theta11: {
@@ -575,7 +617,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		},
 		IntGenISISPresetN1024Q10_128: {
 			Name:              IntGenISISPresetN1024Q10_128,
-			Description:       "profile-C N=1024 128-bit showing preset for 2^10 ROM query budgets",
+			Description:       "historical profile-C N=1024 proof-theorem artifact for 2^10 ROM query budgets",
 			Profile:           ProfileIntGenISISC,
 			TargetTheoremBits: 128,
 			SoundnessGate:     n1024Q10Show128.SoundnessGate,
@@ -584,13 +626,13 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Issuance:          n1024Q10Issuance128,
 			Showing:           n1024Q10Show128,
 			Notes: []string{
-				"Query-budget-specific 128-bit live preset for ROQueryCaps=[2^10]*5.",
-				"Updated from repeat-confirmed sweetspot live run on 2026-06-12.",
+				"Hidden historical artifact for ROQueryCaps=[2^10]*5; not a complete-system claim.",
+				"The executable tag-7 primitive does not meet the BQ10-128 profile requirement.",
 			},
 		},
 		IntGenISISPresetN1024Q16_128: {
 			Name:              IntGenISISPresetN1024Q16_128,
-			Description:       "profile-C N=1024 128-bit showing preset for 2^16 ROM query budgets",
+			Description:       "historical profile-C N=1024 proof-theorem artifact for 2^16 ROM query budgets",
 			Profile:           ProfileIntGenISISC,
 			TargetTheoremBits: 128,
 			SoundnessGate:     n1024Q16Show128.SoundnessGate,
@@ -599,13 +641,13 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Issuance:          n1024Q16Issuance128,
 			Showing:           n1024Q16Show128,
 			Notes: []string{
-				"Query-budget-specific 128-bit live preset for ROQueryCaps=[2^16]*5.",
-				"Updated from repeat-confirmed sweetspot live run on 2026-06-12.",
+				"Hidden historical artifact for ROQueryCaps=[2^16]*5; not a complete-system claim.",
+				"The executable tag-7 primitive does not meet the BQ16-128 profile requirement.",
 			},
 		},
 		IntGenISISPresetN1024Q32_128: {
 			Name:              IntGenISISPresetN1024Q32_128,
-			Description:       "profile-C N=1024 128-bit showing preset for 2^32 ROM query budgets",
+			Description:       "profile-C N=1024 BQ32-128 proof-theorem research point",
 			Profile:           ProfileIntGenISISC,
 			TargetTheoremBits: 128,
 			SoundnessGate:     n1024Q32Show128.SoundnessGate,
@@ -614,13 +656,13 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Issuance:          n1024Q32Issuance128,
 			Showing:           n1024Q32Show128,
 			Notes: []string{
-				"Query-budget-specific 128-bit live preset for ROQueryCaps=[2^32]*5.",
-				"Updated from repeat-confirmed sweetspot live run on 2026-06-12.",
+				"Proof-only research point for ROQueryCaps=[2^32]*5; not a complete-system claim.",
+				"The executable tag-7 primitive does not meet the required tag-10 and 160-bit primitive lane.",
 			},
 		},
 		IntGenISISPresetN1024Q10_96: {
 			Name:              IntGenISISPresetN1024Q10_96,
-			Description:       "profile-C N=1024 96-bit showing preset for 2^10 ROM query budgets",
+			Description:       "historical profile-C N=1024 proof artifact for 2^10 ROM query budgets",
 			Profile:           ProfileIntGenISISC,
 			TargetTheoremBits: 96,
 			SoundnessGate:     n1024Q10Show96.SoundnessGate,
@@ -629,13 +671,12 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Issuance:          n1024Q10Issuance96,
 			Showing:           n1024Q10Show96,
 			Notes: []string{
-				"Query-budget-specific 96-bit live preset for ROQueryCaps=[2^10]*5.",
-				"Promoted from repeat-confirmed sweetspot96 live run on 2026-06-12.",
+				"Hidden historical artifact for ROQueryCaps=[2^10]*5; retained for byte reproduction.",
 			},
 		},
 		IntGenISISPresetN1024Q16_96: {
 			Name:              IntGenISISPresetN1024Q16_96,
-			Description:       "profile-C N=1024 96-bit showing preset for 2^16 ROM query budgets",
+			Description:       "historical profile-C N=1024 proof artifact for 2^16 ROM query budgets",
 			Profile:           ProfileIntGenISISC,
 			TargetTheoremBits: 96,
 			SoundnessGate:     n1024Q16Show96.SoundnessGate,
@@ -644,13 +685,12 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Issuance:          n1024Q16Issuance96,
 			Showing:           n1024Q16Show96,
 			Notes: []string{
-				"Query-budget-specific 96-bit live preset for ROQueryCaps=[2^16]*5.",
-				"Promoted from repeat-confirmed sweetspot96 live run on 2026-06-12.",
+				"Hidden historical artifact for ROQueryCaps=[2^16]*5; retained for byte reproduction.",
 			},
 		},
 		IntGenISISPresetN1024Q32_96: {
 			Name:              IntGenISISPresetN1024Q32_96,
-			Description:       "profile-C N=1024 96-bit showing preset for 2^32 ROM query budgets",
+			Description:       "superseded profile-C N=1024 proof artifact for 2^32 ROM query budgets",
 			Profile:           ProfileIntGenISISC,
 			TargetTheoremBits: 96,
 			SoundnessGate:     n1024Q32Show96.SoundnessGate,
@@ -659,8 +699,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Issuance:          n1024Q32Issuance96,
 			Showing:           n1024Q32Show96,
 			Notes: []string{
-				"Query-budget-specific 96-bit live preset for ROQueryCaps=[2^32]*5.",
-				"Promoted from repeat-confirmed sweetspot96 live run on 2026-06-12.",
+				"Historical byte artifact for ROQueryCaps=[2^32]*5; superseded by the actual tag-9 BQ32 pilot candidate.",
 			},
 		},
 	}
@@ -671,17 +710,18 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ64_96Theta11, "BQ64-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ64_128Theta13H256, "BQ64-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512, "BQ128-128")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_128, "BQ32-128")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_128, "BQ32-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_128, "BQ10-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_128, "BQ16-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q32_128, "BQ32-128")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_96, "BQ32-96")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_96, "BQ32-96")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_96, "BQ10-96")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_96, "BQ16-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q32_96, "BQ32-96")
 	intGenISISPresetApplyDefaultPRF(reg)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ32_96, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ64_96Theta11, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ64_128Theta13H256, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
+	intGenISISPresetApplyMetadata(reg)
 	return reg
 }
 
@@ -712,8 +752,13 @@ func intGenISISPresetApplyPRF(reg map[string]IntGenISISPreset, name, profile, pa
 	if !ok {
 		panic(fmt.Sprintf("missing IntGenISIS preset %s for PRF profile %q", name, profile))
 	}
+	digest, ok := IntGenISISPRFProfileParamsDigest(profile)
+	if !ok {
+		panic(fmt.Sprintf("unknown IntGenISIS PRF profile %q", profile))
+	}
 	preset.PRFProfile = profile
 	preset.PRFParamsPath = paramsPath
+	preset.PRFParamsDigest = digest
 	preset.Issuance.PRFProfile = profile
 	preset.Issuance.PRFParamsPath = paramsPath
 	preset.Showing.PRFProfile = profile

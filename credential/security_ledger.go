@@ -12,10 +12,14 @@ const (
 	SystemLedgerTermPrimitive     = "primitive"
 	SystemLedgerTermComposition   = "composition"
 	SystemLedgerTermZeroKnowledge = "zero_knowledge"
+	SystemLedgerTermModelScope    = "model_scope"
 
-	SystemLedgerTermSourceExact        = "exact"
+	SystemLedgerTermSourceMeasured     = "measured"
+	SystemLedgerTermSourceExactTheorem = "exact_theorem"
+	SystemLedgerTermSourceEstimator    = "estimator"
 	SystemLedgerTermSourceConservative = "conservative"
 	SystemLedgerTermSourceMissing      = "missing"
+	SystemLedgerTermSourceExact        = SystemLedgerTermSourceExactTheorem
 
 	SystemLedgerTermAccountingCurrentTheorem = "current_theorem_accounting"
 	SystemLedgerTermAccountingRequiresTheory = "requires_theorem_accounting"
@@ -52,23 +56,41 @@ type AdversaryScope struct {
 	Proofs          uint64 `json:"proofs,omitempty"`
 }
 
+type AdversaryScopeLog2 struct {
+	IssuanceQueriesLog2 float64 `json:"issuance_queries_log2"`
+	PresentationsLog2   float64 `json:"presentations_log2"`
+	VerificationsLog2   float64 `json:"verifications_log2"`
+	PRFAttemptsLog2     float64 `json:"prf_attempts_log2"`
+	UsersLog2           float64 `json:"users_log2"`
+	ContextsLog2        float64 `json:"contexts_log2"`
+	TagsPerContextLog2  float64 `json:"tags_per_context_log2"`
+	ProofsLog2          float64 `json:"proofs_log2"`
+}
+
 type SystemSecurityLedgerTerm struct {
-	Category         string  `json:"category"`
-	Name             string  `json:"name"`
-	Bits             float64 `json:"bits,omitempty"`
-	Required         bool    `json:"required,omitempty"`
-	Conservative     bool    `json:"conservative,omitempty"`
-	ReportOnly       bool    `json:"report_only,omitempty"`
-	Source           string  `json:"source,omitempty"`
-	AccountingStatus string  `json:"accounting_status,omitempty"`
-	Status           string  `json:"status,omitempty"`
-	RejectionReason  string  `json:"rejection_reason,omitempty"`
-	Note             string  `json:"note,omitempty"`
+	Category          string  `json:"category"`
+	Name              string  `json:"name"`
+	Bits              float64 `json:"bits,omitempty"`
+	ActualBits        float64 `json:"actual_bits"`
+	RequiredBits      float64 `json:"required_bits"`
+	ActualValue       string  `json:"actual_value,omitempty"`
+	RequiredValue     string  `json:"required_value,omitempty"`
+	Required          bool    `json:"required,omitempty"`
+	Conservative      bool    `json:"conservative,omitempty"`
+	ReportOnly        bool    `json:"report_only,omitempty"`
+	Source            string  `json:"source,omitempty"`
+	AccountingStatus  string  `json:"accounting_status,omitempty"`
+	Status            string  `json:"status,omitempty"`
+	RejectionReason   string  `json:"rejection_reason,omitempty"`
+	EvidenceReference string  `json:"evidence_reference,omitempty"`
+	Scope             string  `json:"scope,omitempty"`
+	Note              string  `json:"note,omitempty"`
 }
 
 type SystemSecurityLedgerInput struct {
 	SecurityProfile             string
 	SecurityMode                string
+	ROMModel                    ROMModel
 	CompleteSystemClaim         bool
 	TargetBits                  float64
 	CoreBitsRequired            float64
@@ -85,47 +107,58 @@ type SystemSecurityLedgerInput struct {
 	MultiContextBits            float64
 	PRFBits                     float64
 	MLWEBits                    float64
+	MSISBindingBits             float64
+	SignatureBits               float64
+	SeedEntropyBits             float64
 	ReplayRejected              bool
 	ROBudgets                   ROBudgetVector
 	ROBudgetLogs                ROBudgetLogVector
 	UseValidPrefixAlgebraicCaps bool
 	Scope                       AdversaryScope
+	ScopeLog2                   AdversaryScopeLog2
+	ParameterAudit              IntGenISISSecurityParameterAudit
 	Terms                       []SystemSecurityLedgerTerm
 }
 
 type SystemSecurityLedger struct {
-	SecurityProfile         string                         `json:"security_profile"`
-	SecurityMode            string                         `json:"security_mode"`
-	CompleteSystemClaim     bool                           `json:"complete_system_claim"`
-	TargetBits              float64                        `json:"target_bits"`
-	CoreBitsRequired        float64                        `json:"core_required_bits"`
-	CoreAvailableBits       float64                        `json:"core_available_bits"`
-	ProofBits               float64                        `json:"proof_bits"`
-	FullGameBits            float64                        `json:"full_game_bits"`
-	CollisionBits           float64                        `json:"collision_bits"`
-	TagCollisionBits        float64                        `json:"tag_collision_bits"`
-	SaltCollisionBits       float64                        `json:"salt_collision_bits"`
-	TapeGuessingBits        float64                        `json:"tape_guessing_bits,omitempty"`
-	ProgrammingConflictBits float64                        `json:"programming_conflict_bits,omitempty"`
-	ChallengeBiasBits       float64                        `json:"challenge_bias_bits,omitempty"`
-	MultiUserLossBits       float64                        `json:"multi_user_loss_bits,omitempty"`
-	MultiContextLossBits    float64                        `json:"multi_context_loss_bits,omitempty"`
-	SoundnessBits           float64                        `json:"soundness_bits,omitempty"`
-	UnlinkabilityBits       float64                        `json:"unlinkability_bits,omitempty"`
-	CorrectnessBits         float64                        `json:"correctness_bits,omitempty"`
-	PrimitiveBits           float64                        `json:"primitive_bits,omitempty"`
-	CompositionBits         float64                        `json:"composition_bits,omitempty"`
-	ZeroKnowledgeBits       float64                        `json:"zero_knowledge_bits,omitempty"`
-	PRFBits                 float64                        `json:"prf_bits"`
-	MLWEBits                float64                        `json:"mlwe_bits"`
-	ROBudgets               ROBudgetVector                 `json:"ro_budgets,omitempty"`
-	ROBudgetLogs            ROBudgetLogVector              `json:"ro_budget_logs,omitempty"`
-	AdversaryScope          AdversaryScope                 `json:"adversary_scope,omitempty"`
-	ValidPrefixConservative bool                           `json:"valid_prefix_conservative,omitempty"`
-	ValidPrefixAccounting   ValidPrefixAlgebraicAccounting `json:"valid_prefix_accounting,omitempty"`
-	Terms                   []SystemSecurityLedgerTerm     `json:"ledger_terms,omitempty"`
-	LedgerStatus            string                         `json:"ledger_status"`
-	RejectionReasons        []string                       `json:"ledger_rejection_reasons,omitempty"`
+	SecurityProfile         string                           `json:"security_profile"`
+	SecurityMode            string                           `json:"security_mode"`
+	ROMModel                ROMModel                         `json:"rom_model,omitempty"`
+	CompleteSystemClaim     bool                             `json:"complete_system_claim"`
+	TargetBits              float64                          `json:"target_bits"`
+	CoreBitsRequired        float64                          `json:"core_required_bits"`
+	CoreAvailableBits       float64                          `json:"core_available_bits"`
+	ProofBits               float64                          `json:"proof_bits"`
+	FullGameBits            float64                          `json:"full_game_bits"`
+	CollisionBits           float64                          `json:"collision_bits"`
+	TagCollisionBits        float64                          `json:"tag_collision_bits"`
+	SaltCollisionBits       float64                          `json:"salt_collision_bits"`
+	TapeGuessingBits        float64                          `json:"tape_guessing_bits,omitempty"`
+	ProgrammingConflictBits float64                          `json:"programming_conflict_bits,omitempty"`
+	ChallengeBiasBits       float64                          `json:"challenge_bias_bits,omitempty"`
+	MultiUserLossBits       float64                          `json:"multi_user_loss_bits,omitempty"`
+	MultiContextLossBits    float64                          `json:"multi_context_loss_bits,omitempty"`
+	SoundnessBits           float64                          `json:"soundness_bits,omitempty"`
+	UnlinkabilityBits       float64                          `json:"unlinkability_bits,omitempty"`
+	CorrectnessBits         float64                          `json:"correctness_bits,omitempty"`
+	PrimitiveBits           float64                          `json:"primitive_bits,omitempty"`
+	CompositionBits         float64                          `json:"composition_bits,omitempty"`
+	ZeroKnowledgeBits       float64                          `json:"zero_knowledge_bits,omitempty"`
+	PRFBits                 float64                          `json:"prf_bits"`
+	MLWEBits                float64                          `json:"mlwe_bits"`
+	MSISBindingBits         float64                          `json:"msis_binding_bits,omitempty"`
+	SignatureBits           float64                          `json:"signature_bits,omitempty"`
+	SeedEntropyBits         float64                          `json:"seed_entropy_bits,omitempty"`
+	ROBudgets               ROBudgetVector                   `json:"ro_budgets,omitempty"`
+	ROBudgetLogs            ROBudgetLogVector                `json:"ro_budget_logs,omitempty"`
+	AdversaryScope          AdversaryScope                   `json:"adversary_scope,omitempty"`
+	AdversaryScopeLog2      AdversaryScopeLog2               `json:"adversary_scope_log2,omitempty"`
+	ParameterAudit          IntGenISISSecurityParameterAudit `json:"parameter_audit"`
+	ValidPrefixConservative bool                             `json:"valid_prefix_conservative,omitempty"`
+	ValidPrefixAccounting   ValidPrefixAlgebraicAccounting   `json:"valid_prefix_accounting,omitempty"`
+	Terms                   []SystemSecurityLedgerTerm       `json:"ledger_terms,omitempty"`
+	LedgerStatus            string                           `json:"ledger_status"`
+	RejectionReasons        []string                         `json:"ledger_rejection_reasons,omitempty"`
 }
 
 func EvaluateIntGenISISSystemSecurityLedger(input SystemSecurityLedgerInput) SystemSecurityLedger {
@@ -150,15 +183,9 @@ func EvaluateIntGenISISSystemSecurityLedger(input SystemSecurityLedgerInput) Sys
 	if mode == "" {
 		mode = string(spec.Mode)
 	}
-	scope := normalizeAdversaryScope(input.Scope, spec)
+	scope := normalizeAdversaryScope(input.Scope)
 	budgets := input.ROBudgets
-	if isZeroROBudgetVector(budgets) {
-		budgets = ROBudgetVectorFromCaps(spec.ROQueryCaps)
-	}
 	budgetLogs := input.ROBudgetLogs
-	if isZeroROBudgetLogVector(budgetLogs) {
-		budgetLogs = ROBudgetLogVectorFromProfile(spec)
-	}
 	if isZeroROBudgetLogVector(budgetLogs) && !isZeroROBudgetVector(budgets) {
 		budgetLogs = ROBudgetLogVectorFromBudgetVector(budgets)
 	}
@@ -166,6 +193,7 @@ func EvaluateIntGenISISSystemSecurityLedger(input SystemSecurityLedgerInput) Sys
 	ledger := SystemSecurityLedger{
 		SecurityProfile:         input.SecurityProfile,
 		SecurityMode:            mode,
+		ROMModel:                input.ROMModel,
 		CompleteSystemClaim:     false,
 		TargetBits:              targetBits,
 		CoreBitsRequired:        coreRequired,
@@ -182,9 +210,14 @@ func EvaluateIntGenISISSystemSecurityLedger(input SystemSecurityLedgerInput) Sys
 		MultiContextLossBits:    input.MultiContextBits,
 		PRFBits:                 input.PRFBits,
 		MLWEBits:                input.MLWEBits,
+		MSISBindingBits:         input.MSISBindingBits,
+		SignatureBits:           input.SignatureBits,
+		SeedEntropyBits:         input.SeedEntropyBits,
 		ROBudgets:               budgets,
 		ROBudgetLogs:            budgetLogs,
 		AdversaryScope:          scope,
+		AdversaryScopeLog2:      input.ScopeLog2,
+		ParameterAudit:          input.ParameterAudit,
 		ValidPrefixConservative: validPrefixAccounting.ConservativeRawFallback,
 		ValidPrefixAccounting:   validPrefixAccounting,
 		LedgerStatus:            string(spec.Status),
@@ -195,7 +228,7 @@ func EvaluateIntGenISISSystemSecurityLedger(input SystemSecurityLedgerInput) Sys
 		return ledger
 	}
 
-	ledger.Terms = finalizeLedgerTerms(systemSecurityLedgerTerms(input, coreAvailable))
+	ledger.Terms = finalizeLedgerTerms(systemSecurityLedgerTerms(input, coreAvailable, spec), targetBits, coreRequired)
 	ledger.SoundnessBits = ledgerCategoryBits(ledger.Terms, SystemLedgerTermSoundness)
 	ledger.UnlinkabilityBits = ledgerCategoryBits(ledger.Terms, SystemLedgerTermUnlinkability)
 	ledger.CorrectnessBits = ledgerCategoryBits(ledger.Terms, SystemLedgerTermCorrectness)
@@ -205,6 +238,14 @@ func EvaluateIntGenISISSystemSecurityLedger(input SystemSecurityLedgerInput) Sys
 
 	if spec.Status != SecurityProfileCompleteLive {
 		ledger.RejectionReasons = append(ledger.RejectionReasons, "profile status is "+string(spec.Status))
+	}
+	if input.ParameterAudit.SecurityProfile != "" {
+		ledger.RejectionReasons = append(ledger.RejectionReasons, SecurityParameterAuditRejectionReasons(input.ParameterAudit)...)
+	} else if input.CompleteSystemClaim {
+		ledger.RejectionReasons = append(ledger.RejectionReasons, "missing executed-parameter audit")
+	}
+	if (len(spec.ROQueryCaps) > 0 || len(spec.ROQueryCapBits) > 0) && isZeroROBudgetVector(budgets) && isZeroROBudgetLogVector(budgetLogs) {
+		ledger.RejectionReasons = append(ledger.RejectionReasons, "missing actual RO query budget metadata")
 	}
 	if targetBits <= 0 {
 		ledger.RejectionReasons = append(ledger.RejectionReasons, "missing target bits")
@@ -227,7 +268,8 @@ func EvaluateIntGenISISSystemSecurityLedger(input SystemSecurityLedgerInput) Sys
 	if validPrefixAccounting.RequiresTheoremAccounting {
 		ledger.RejectionReasons = append(ledger.RejectionReasons, validPrefixAccounting.RejectionReason)
 	}
-	ledger.RejectionReasons = append(ledger.RejectionReasons, ledgerTermRejectionReasons(ledger.Terms, targetBits)...)
+	ledger.RejectionReasons = append(ledger.RejectionReasons, ledgerTermRejectionReasons(ledger.Terms)...)
+	ledger.RejectionReasons = append(ledger.RejectionReasons, ledgerTermReadinessReasons(ledger.Terms)...)
 	if targetBits > 0 {
 		for _, category := range []struct {
 			name string
@@ -272,13 +314,6 @@ func ROBudgetVectorFromCaps(caps []uint64) ROBudgetVector {
 	return out
 }
 
-func ROBudgetLogVectorFromProfile(spec IntGenISISSecurityProfileSpec) ROBudgetLogVector {
-	if len(spec.ROQueryCapBits) > 0 {
-		return ROBudgetLogVectorFromCapBits(spec.ROQueryCapBits)
-	}
-	return ROBudgetLogVectorFromCaps(spec.ROQueryCaps)
-}
-
 func ROBudgetLogVectorFromCapBits(capBits []float64) ROBudgetLogVector {
 	var out ROBudgetLogVector
 	if len(capBits) > 0 {
@@ -305,18 +340,6 @@ func ROBudgetLogVectorFromCapBits(capBits []float64) ROBudgetLogVector {
 		out.CollisionLog2 = out.RawLog2
 	}
 	return out
-}
-
-func ROBudgetLogVectorFromCaps(caps []uint64) ROBudgetLogVector {
-	capBits := make([]float64, 0, len(caps))
-	for _, cap := range caps {
-		if cap == 0 {
-			capBits = append(capBits, 0)
-			continue
-		}
-		capBits = append(capBits, math.Log2(float64(cap)))
-	}
-	return ROBudgetLogVectorFromCapBits(capBits)
 }
 
 func ROBudgetLogVectorFromBudgetVector(v ROBudgetVector) ROBudgetLogVector {
@@ -354,44 +377,19 @@ func ROBudgetLogVectorFromBudgetVector(v ROBudgetVector) ROBudgetLogVector {
 	return out
 }
 
-func DefaultIntGenISISAdversaryScope(spec IntGenISISSecurityProfileSpec) AdversaryScope {
-	tagsPerContext := uint64(1)
-	for _, cap := range spec.ROQueryCaps {
-		if cap > tagsPerContext {
-			tagsPerContext = cap
-		}
-	}
-	return AdversaryScope{
-		IssuanceQueries: 1,
-		Presentations:   1,
-		Verifications:   1,
-		PRFAttempts:     tagsPerContext,
-		Users:           1,
-		Contexts:        1,
-		TagsPerContext:  tagsPerContext,
-		Proofs:          2,
-	}
-}
-
-func IntGenISISTagCollisionBits(q uint64, tagElements int, tagsPerContext uint64) float64 {
+func IntGenISISTagCollisionBitsLog(q uint64, tagElements int, tagsPerContextLog2 float64) float64 {
 	if q <= 1 || tagElements <= 0 {
 		return 0
 	}
 	spaceBits := float64(tagElements) * math.Log2(float64(q))
-	if tagsPerContext < 2 {
-		return spaceBits
-	}
-	return spaceBits - Log2Binom(tagsPerContext, 2)
+	return spaceBits - log2BinomFromCountLog2(tagsPerContextLog2)
 }
 
-func IntGenISISSaltCollisionBits(saltBits int, proofs uint64) float64 {
+func IntGenISISSaltCollisionBitsLog(saltBits int, proofsLog2 float64) float64 {
 	if saltBits <= 0 {
 		return 0
 	}
-	if proofs < 2 {
-		return float64(saltBits)
-	}
-	return float64(saltBits) - Log2Binom(proofs, 2)
+	return float64(saltBits) - log2BinomFromCountLog2(proofsLog2)
 }
 
 func IntGenISISTapeGuessingBits(tapeBits int, guesses uint64) float64 {
@@ -412,6 +410,55 @@ func IntGenISISTapeGuessingBitsLog(tapeBits int, guessLog2 float64) float64 {
 		return float64(tapeBits)
 	}
 	return float64(tapeBits) - guessLog2
+}
+
+func AdversaryScopesFromThreatModel(model PresetThreatModel) (AdversaryScope, AdversaryScopeLog2) {
+	logs := AdversaryScopeLog2{
+		IssuanceQueriesLog2: model.MaxIssuanceProofsLog2,
+		PresentationsLog2:   model.MaxShowingProofsLog2,
+		VerificationsLog2:   model.MaxProofsLog2,
+		PRFAttemptsLog2:     model.MaxTagsPerContextLog2,
+		UsersLog2:           model.MaxUsersLog2,
+		ContextsLog2:        model.MaxContextsLog2,
+		TagsPerContextLog2:  model.MaxTagsPerContextLog2,
+		ProofsLog2:          model.MaxProofsLog2,
+	}
+	scope := AdversaryScope{
+		IssuanceQueries: countFromLog2(model.MaxIssuanceProofsLog2),
+		Presentations:   countFromLog2(model.MaxShowingProofsLog2),
+		Verifications:   countFromLog2(model.MaxProofsLog2),
+		PRFAttempts:     countFromLog2(model.MaxTagsPerContextLog2),
+		Users:           countFromLog2(model.MaxUsersLog2),
+		Contexts:        countFromLog2(model.MaxContextsLog2),
+		TagsPerContext:  countFromLog2(model.MaxTagsPerContextLog2),
+		Proofs:          countFromLog2(model.MaxProofsLog2),
+	}
+	return scope, logs
+}
+
+func log2BinomFromCountLog2(countLog2 float64) float64 {
+	if countLog2 <= 0 {
+		return 0
+	}
+	if countLog2 <= 52 {
+		count := uint64(math.Round(math.Exp2(countLog2)))
+		if count < 2 {
+			return 0
+		}
+		return Log2Binom(count, 2)
+	}
+	// log2(n(n-1)/2), evaluated without materializing n.
+	return 2*countLog2 - 1 + math.Log2(1-math.Exp2(-countLog2))
+}
+
+func countFromLog2(countLog2 float64) uint64 {
+	if countLog2 <= 0 {
+		return 1
+	}
+	if countLog2 >= 63 {
+		return 0
+	}
+	return uint64(math.Round(math.Exp2(countLog2)))
 }
 
 func IntGenISISProgrammingConflictBits(widthBits int, caps [4]uint64) float64 {
@@ -448,14 +495,14 @@ func IntGenISISProgrammingConflictBitsLog(widthBits int, caps [4]float64) float6
 	return BitsFromLog2Prob(Log2SumExp(logTerms))
 }
 
-func IntGenISISMultiScopeBits(bits float64, count uint64) float64 {
+func IntGenISISMultiScopeBitsLog(bits, countLog2 float64) float64 {
 	if bits <= 0 {
 		return 0
 	}
-	if count <= 1 {
+	if countLog2 <= 0 {
 		return bits
 	}
-	return bits - math.Log2(float64(count))
+	return bits - countLog2
 }
 
 func ExactLedgerTerm(category, name string, bits float64, required bool, reason string) SystemSecurityLedgerTerm {
@@ -463,6 +510,7 @@ func ExactLedgerTerm(category, name string, bits float64, required bool, reason 
 		Category:         category,
 		Name:             name,
 		Bits:             bits,
+		ActualBits:       bits,
 		Required:         required,
 		Source:           SystemLedgerTermSourceExact,
 		AccountingStatus: SystemLedgerTermAccountingCurrentTheorem,
@@ -475,10 +523,24 @@ func ConservativeLedgerTerm(category, name string, bits float64, required bool, 
 		Category:         category,
 		Name:             name,
 		Bits:             bits,
+		ActualBits:       bits,
 		Required:         required,
 		Conservative:     true,
 		Source:           SystemLedgerTermSourceConservative,
 		AccountingStatus: SystemLedgerTermAccountingRequiresTheory,
+		RejectionReason:  reason,
+	}
+}
+
+func EstimatorLedgerTerm(category, name string, bits float64, required bool, reason string) SystemSecurityLedgerTerm {
+	return SystemSecurityLedgerTerm{
+		Category:         category,
+		Name:             name,
+		Bits:             bits,
+		ActualBits:       bits,
+		Required:         required,
+		Source:           SystemLedgerTermSourceEstimator,
+		AccountingStatus: SystemLedgerTermAccountingCurrentTheorem,
 		RejectionReason:  reason,
 	}
 }
@@ -488,12 +550,18 @@ func LedgerTermWithNote(term SystemSecurityLedgerTerm, note string) SystemSecuri
 	return term
 }
 
+func LedgerTermWithEvidence(term SystemSecurityLedgerTerm, reference, scope string) SystemSecurityLedgerTerm {
+	term.EvidenceReference = reference
+	term.Scope = scope
+	return term
+}
+
 func ReportOnlyLedgerTerm(term SystemSecurityLedgerTerm) SystemSecurityLedgerTerm {
 	term.ReportOnly = true
 	return term
 }
 
-func systemSecurityLedgerTerms(input SystemSecurityLedgerInput, coreAvailable float64) []SystemSecurityLedgerTerm {
+func systemSecurityLedgerTerms(input SystemSecurityLedgerInput, coreAvailable float64, spec IntGenISISSecurityProfileSpec) []SystemSecurityLedgerTerm {
 	terms := append([]SystemSecurityLedgerTerm(nil), input.Terms...)
 	add := func(category, name string, bits float64, required bool, reason string) {
 		key := ledgerTermKey(category, name)
@@ -520,15 +588,40 @@ func systemSecurityLedgerTerms(input SystemSecurityLedgerInput, coreAvailable fl
 	add(SystemLedgerTermZeroKnowledge, "programming_conflict", input.ProgrammingBits, true, "programming conflict bits below target")
 	add(SystemLedgerTermUnlinkability, "tag_collision", input.TagCollisionBits, true, "tag collision bits below target")
 	add(SystemLedgerTermCorrectness, "salt_collision", input.SaltCollisionBits, true, "salt collision bits below target")
-	add(SystemLedgerTermPrimitive, "prf_security", input.PRFBits, true, "PRF bits below target")
-	add(SystemLedgerTermPrimitive, "mlwe_hiding", input.MLWEBits, true, "MLWE bits below target")
-	add(SystemLedgerTermPrimitive, "core_available", coreAvailable, true, "primitive core below target")
+	add(SystemLedgerTermPrimitive, "prf_security", input.PRFBits, true, "PRF bits below primitive requirement")
+	add(SystemLedgerTermPrimitive, "mlwe_hiding", input.MLWEBits, true, "MLWE bits below primitive requirement")
+	add(SystemLedgerTermPrimitive, "msis_binding", input.MSISBindingBits, true, "MSIS binding bits below primitive requirement")
+	add(SystemLedgerTermPrimitive, "lattice_signature", input.SignatureBits, true, "lattice signature bits below primitive requirement")
+	add(SystemLedgerTermPrimitive, "seed_entropy", input.SeedEntropyBits, true, "seed entropy bits below primitive requirement")
+	add(SystemLedgerTermPrimitive, "core_available", coreAvailable, false, "primitive core below target")
 	add(SystemLedgerTermComposition, "multi_user", input.MultiUserBits, true, "multi-user lift bits below target")
 	add(SystemLedgerTermComposition, "multi_context", input.MultiContextBits, true, "multi-context lift bits below target")
+	modelKey := ledgerTermKey(SystemLedgerTermModelScope, "random_oracle_model")
+	modelPresent := false
+	for _, term := range terms {
+		if ledgerTermKey(term.Category, term.Name) == modelKey {
+			modelPresent = true
+			break
+		}
+	}
+	if !modelPresent {
+		terms = append(terms, SystemSecurityLedgerTerm{
+			Category:          SystemLedgerTermModelScope,
+			Name:              "random_oracle_model",
+			ActualValue:       string(input.ROMModel),
+			RequiredValue:     string(spec.ROM),
+			Required:          true,
+			Source:            SystemLedgerTermSourceExact,
+			AccountingStatus:  SystemLedgerTermAccountingCurrentTheorem,
+			RejectionReason:   "random-oracle model does not match security profile",
+			EvidenceReference: "preset.threat_model.rom",
+			Scope:             "proof system",
+		})
+	}
 	return terms
 }
 
-func finalizeLedgerTerms(terms []SystemSecurityLedgerTerm) []SystemSecurityLedgerTerm {
+func finalizeLedgerTerms(terms []SystemSecurityLedgerTerm, targetBits, coreRequiredBits float64) []SystemSecurityLedgerTerm {
 	out := append([]SystemSecurityLedgerTerm(nil), terms...)
 	for i := range out {
 		if out[i].Category == "" {
@@ -537,9 +630,21 @@ func finalizeLedgerTerms(terms []SystemSecurityLedgerTerm) []SystemSecurityLedge
 		if out[i].Name == "" {
 			out[i].Name = "unnamed"
 		}
+		if out[i].ActualBits == 0 && out[i].Bits > 0 {
+			out[i].ActualBits = out[i].Bits
+		}
+		if out[i].Bits == 0 && out[i].ActualBits > 0 {
+			out[i].Bits = out[i].ActualBits
+		}
+		if out[i].Required && out[i].RequiredBits == 0 && out[i].RequiredValue == "" {
+			out[i].RequiredBits = targetBits
+			if out[i].Category == SystemLedgerTermPrimitive && coreRequiredBits > 0 {
+				out[i].RequiredBits = coreRequiredBits
+			}
+		}
 		if out[i].Source == "" {
 			switch {
-			case out[i].Bits <= 0 || math.IsNaN(out[i].Bits):
+			case out[i].ActualValue == "" && (out[i].ActualBits <= 0 || math.IsNaN(out[i].ActualBits)):
 				out[i].Source = SystemLedgerTermSourceMissing
 			case out[i].Conservative:
 				out[i].Source = SystemLedgerTermSourceConservative
@@ -558,7 +663,7 @@ func finalizeLedgerTerms(terms []SystemSecurityLedgerTerm) []SystemSecurityLedge
 	return out
 }
 
-func ledgerTermRejectionReasons(terms []SystemSecurityLedgerTerm, targetBits float64) []string {
+func ledgerTermRejectionReasons(terms []SystemSecurityLedgerTerm) []string {
 	reasons := make([]string, 0)
 	for i := range terms {
 		if !terms[i].Required {
@@ -568,12 +673,30 @@ func ledgerTermRejectionReasons(terms []SystemSecurityLedgerTerm, targetBits flo
 			continue
 		}
 		key := ledgerTermKey(terms[i].Category, terms[i].Name)
+		if terms[i].RequiredValue != "" || terms[i].ActualValue != "" {
+			switch {
+			case terms[i].ActualValue == "":
+				terms[i].Status = "missing"
+				terms[i].Source = SystemLedgerTermSourceMissing
+				reasons = append(reasons, "missing required ledger term "+key)
+			case terms[i].ActualValue != terms[i].RequiredValue:
+				terms[i].Status = "mismatch"
+				if terms[i].RejectionReason != "" {
+					reasons = append(reasons, terms[i].RejectionReason)
+				} else {
+					reasons = append(reasons, key+" value mismatch")
+				}
+			default:
+				terms[i].Status = "pass"
+			}
+			continue
+		}
 		switch {
-		case terms[i].Bits <= 0 || math.IsNaN(terms[i].Bits):
+		case terms[i].ActualBits <= 0 || math.IsNaN(terms[i].ActualBits):
 			terms[i].Status = "missing"
 			terms[i].Source = SystemLedgerTermSourceMissing
 			reasons = append(reasons, "missing required ledger term "+key)
-		case targetBits > 0 && ledgerBitsBelowTarget(terms[i].Bits, targetBits):
+		case terms[i].RequiredBits > 0 && ledgerBitsBelowTarget(terms[i].ActualBits, terms[i].RequiredBits):
 			terms[i].Status = "below_target"
 			if terms[i].RejectionReason != "" {
 				reasons = append(reasons, terms[i].RejectionReason)
@@ -587,13 +710,40 @@ func ledgerTermRejectionReasons(terms []SystemSecurityLedgerTerm, targetBits flo
 	return reasons
 }
 
+func ledgerTermReadinessReasons(terms []SystemSecurityLedgerTerm) []string {
+	reasons := make([]string, 0)
+	for _, term := range terms {
+		if !term.Required {
+			continue
+		}
+		key := ledgerTermKey(term.Category, term.Name)
+		if term.ReportOnly {
+			reasons = append(reasons, "required ledger term "+key+" is report_only")
+		}
+		if term.Source == SystemLedgerTermSourceConservative || term.AccountingStatus == SystemLedgerTermAccountingRequiresTheory {
+			reasons = append(reasons, "required ledger term "+key+" requires reviewed theorem accounting")
+		}
+		if term.EvidenceReference == "" {
+			if term.Source == SystemLedgerTermSourceEstimator {
+				reasons = append(reasons, "required ledger term "+key+" is missing estimator provenance")
+			} else {
+				reasons = append(reasons, "required ledger term "+key+" is missing evidence")
+			}
+		}
+		if term.Scope == "" {
+			reasons = append(reasons, "required ledger term "+key+" is missing scope")
+		}
+	}
+	return reasons
+}
+
 func ledgerCategoryBits(terms []SystemSecurityLedgerTerm, category string) float64 {
 	logTerms := make([]float64, 0)
 	for _, term := range terms {
-		if term.Category != category || !term.Required || term.ReportOnly || term.Bits <= 0 || math.IsNaN(term.Bits) {
+		if term.Category != category || !term.Required || term.ReportOnly || term.ActualBits <= 0 || math.IsNaN(term.ActualBits) {
 			continue
 		}
-		logTerms = append(logTerms, -term.Bits)
+		logTerms = append(logTerms, -term.ActualBits)
 	}
 	if len(logTerms) == 0 {
 		return 0
@@ -610,8 +760,17 @@ func ledgerBitsBelowTarget(bits, target float64) bool {
 	return bits+tolerance < target
 }
 
-func normalizeAdversaryScope(scope AdversaryScope, spec IntGenISISSecurityProfileSpec) AdversaryScope {
-	def := DefaultIntGenISISAdversaryScope(spec)
+func normalizeAdversaryScope(scope AdversaryScope) AdversaryScope {
+	def := AdversaryScope{
+		IssuanceQueries: 1,
+		Presentations:   1,
+		Verifications:   1,
+		PRFAttempts:     1,
+		Users:           1,
+		Contexts:        1,
+		TagsPerContext:  1,
+		Proofs:          1,
+	}
 	if scope.IssuanceQueries == 0 {
 		scope.IssuanceQueries = def.IssuanceQueries
 	}

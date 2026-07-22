@@ -68,11 +68,11 @@ func TestIntGenISISPresetSecurityProfileMetadata(t *testing.T) {
 		IntGenISISPresetN1024BQ64_96Theta11:                        "BQ64-96",
 		IntGenISISPresetN1024BQ64_128Theta13H256:                   "BQ64-128",
 		IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512: "BQ128-128",
-		IntGenISISPresetN1024Q10_128:                               "BQ32-128",
-		IntGenISISPresetN1024Q16_128:                               "BQ32-128",
+		IntGenISISPresetN1024Q10_128:                               "BQ10-128",
+		IntGenISISPresetN1024Q16_128:                               "BQ16-128",
 		IntGenISISPresetN1024Q32_128:                               "BQ32-128",
-		IntGenISISPresetN1024Q10_96:                                "BQ32-96",
-		IntGenISISPresetN1024Q16_96:                                "BQ32-96",
+		IntGenISISPresetN1024Q10_96:                                "BQ10-96",
+		IntGenISISPresetN1024Q16_96:                                "BQ16-96",
 		IntGenISISPresetN1024Q32_96:                                "BQ32-96",
 	}
 	for _, name := range IntGenISISPresetNames() {
@@ -175,10 +175,13 @@ func TestN1024BQ32_96PresetIsCandidateWithSplitWidthsAndTag9(t *testing.T) {
 	if p.PRFProfile != IntGenISISPRFProfileTag9 || p.PRFParamsPath != IntGenISISPRFParamsTag9 {
 		t.Fatalf("bq32 PRF tuple=(%q,%q)", p.PRFProfile, p.PRFParamsPath)
 	}
-	if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 40 || p.Showing.NLeaves != 557056 || p.Showing.Eta != 44 {
+	if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 40 || p.Showing.NLeaves != 786432 || p.Showing.Eta != 46 {
 		t.Fatalf("bq32 tuned geometry=%+v", p.Showing)
 	}
-	if p.MaxNLeaves != 557056 || p.Issuance.LVCSNCols != 40 || p.Issuance.NLeaves != 557056 || p.Issuance.Eta != 44 {
+	if p.TargetTheoremBits != 99.5 || p.Showing.TargetTheoremBits != 99.5 || p.Issuance.TargetTheoremBits != 99.5 {
+		t.Fatalf("bq32 engineering theorem target=(preset=%v issuance=%v showing=%v)", p.TargetTheoremBits, p.Issuance.TargetTheoremBits, p.Showing.TargetTheoremBits)
+	}
+	if p.MaxNLeaves != 786432 || p.Issuance.LVCSNCols != 40 || p.Issuance.NLeaves != 786432 || p.Issuance.Eta != 46 {
 		t.Fatalf("bq32 issuance/max leaves geometry=(max=%d issuance=%+v)", p.MaxNLeaves, p.Issuance)
 	}
 	if p.Showing.Theta != 7 || p.Showing.Rho != 1 || p.Showing.Ell != 9 || p.Showing.EllPrime != 1 {
@@ -187,7 +190,7 @@ func TestN1024BQ32_96PresetIsCandidateWithSplitWidthsAndTag9(t *testing.T) {
 	if p.Showing.Kappa != [4]int{0, 0, 2, 7} {
 		t.Fatalf("bq32 kappa=%+v", p.Showing.Kappa)
 	}
-	if p.Showing.DECSHashBits != 168 || p.Showing.DECSTapeBits != 128 || p.Showing.FSCollisionBits != 168 || p.Showing.SaltBits != 128 {
+	if p.Showing.DECSHashBits != 168 || p.Showing.DECSTapeBits != 136 || p.Showing.FSCollisionBits != 168 || p.Showing.SaltBits != 168 {
 		t.Fatalf("bq32 split widths showing=%+v", p.Showing)
 	}
 	if p.Issuance.DECSHashBits != p.Showing.DECSHashBits || p.Issuance.DECSTapeBits != p.Showing.DECSTapeBits || p.Issuance.FSCollisionBits != p.Showing.FSCollisionBits {
@@ -295,17 +298,17 @@ func TestN1024BQ64TheoremTrailPresetsUseLogCapsAndRemainNonLive(t *testing.T) {
 }
 
 func TestCurrentQBudget128PresetsAreNotCompleteSystemClaims(t *testing.T) {
-	for _, name := range []string{
-		IntGenISISPresetN1024Q10_128,
-		IntGenISISPresetN1024Q16_128,
-		IntGenISISPresetN1024Q32_128,
+	for name, wantProfile := range map[string]string{
+		IntGenISISPresetN1024Q10_128: "BQ10-128",
+		IntGenISISPresetN1024Q16_128: "BQ16-128",
+		IntGenISISPresetN1024Q32_128: "BQ32-128",
 	} {
 		preset, ok := LookupIntGenISISPreset(name)
 		if !ok {
 			t.Fatalf("preset %s missing", name)
 		}
-		if preset.SecurityProfile != "BQ32-128" {
-			t.Fatalf("preset %s security profile=%q want BQ32-128", name, preset.SecurityProfile)
+		if preset.SecurityProfile != wantProfile {
+			t.Fatalf("preset %s security profile=%q want %s", name, preset.SecurityProfile, wantProfile)
 		}
 		if preset.CompleteSystemClaim {
 			t.Fatalf("preset %s must remain proof/q-budget only", name)
@@ -546,5 +549,32 @@ func TestHistoricalPresetSelectorsAreRemoved(t *testing.T) {
 	}
 	if _, err := ResolveIntGenISISPresetSelector("", true); err == nil {
 		t.Fatal("-96bit compatibility flag should be rejected")
+	}
+}
+
+func TestRegisteredPRFProfilesExposeExecutedTagWidths(t *testing.T) {
+	for profile, want := range map[string]int{
+		IntGenISISPRFProfileDefault: 7,
+		IntGenISISPRFProfileTag9:    9,
+	} {
+		got, ok := IntGenISISPRFProfileTagElements(profile)
+		if !ok || got != want {
+			t.Fatalf("profile %s tag width=(%d,%v), want (%d,true)", profile, got, ok, want)
+		}
+	}
+	for profile, want := range map[string]string{
+		IntGenISISPRFProfileDefault: IntGenISISPRFParamsDefaultDigest,
+		IntGenISISPRFProfileTag9:    IntGenISISPRFParamsTag9Digest,
+	} {
+		got, ok := IntGenISISPRFProfileParamsDigest(profile)
+		if !ok || got != want {
+			t.Fatalf("profile %s parameter digest=(%s,%v), want (%s,true)", profile, got, ok, want)
+		}
+	}
+	if _, ok := IntGenISISPRFProfileTagElements("poseidon2-t20-tag13"); ok {
+		t.Fatal("unimplemented tag-13 profile reported as executable")
+	}
+	if got := IntGenISISPRFSeedEntropyBits(); got <= 152 || got >= 153 {
+		t.Fatalf("executed PRF seed entropy=%f, want between 152 and 153 bits", got)
 	}
 }

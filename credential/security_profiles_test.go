@@ -1,13 +1,18 @@
 package credential
 
 import (
+	"math"
 	"sort"
 	"testing"
 )
 
 func TestIntGenISISSecurityProfileRegistryLabels(t *testing.T) {
 	want := []string{
+		"BQ10-128",
+		"BQ10-96",
 		"BQ128-128",
+		"BQ16-128",
+		"BQ16-96",
 		"BQ32-128",
 		"BQ32-96",
 		"BQ64-128",
@@ -15,6 +20,7 @@ func TestIntGenISISSecurityProfileRegistryLabels(t *testing.T) {
 		"SC-125",
 		"SC-96",
 		"WF-128",
+		"WF-128-ENG",
 	}
 	profiles := testIntGenISISSecurityProfiles()
 	if len(profiles) != len(want) {
@@ -58,7 +64,7 @@ func TestIntGenISISSecurityProfileSpecsArePopulated(t *testing.T) {
 }
 
 func TestIntGenISISSecurityProfilesRequireNewPrimitives(t *testing.T) {
-	for _, label := range []string{"BQ32-128", "BQ64-96", "BQ64-128", "BQ128-128"} {
+	for _, label := range []string{"BQ10-128", "BQ16-128", "BQ32-128", "BQ64-96", "BQ64-128", "BQ128-128"} {
 		profile, ok := LookupIntGenISISSecurityProfile(label)
 		if !ok {
 			t.Fatalf("missing security profile %s", label)
@@ -74,8 +80,8 @@ func TestBQ6496SaltBitsMatchPDFBareTarget(t *testing.T) {
 	if !ok {
 		t.Fatal("missing BQ64-96 profile")
 	}
-	if profile.SaltBits != 224 {
-		t.Fatalf("BQ64-96 salt bits=%d want 224 bare PDF target", profile.SaltBits)
+	if profile.MinSaltBits != 224 {
+		t.Fatalf("BQ64-96 minimum salt bits=%d want 224 bare PDF target", profile.MinSaltBits)
 	}
 	if profile.Status != SecurityProfileRequiresNewPrimitives {
 		t.Fatalf("BQ64-96 status=%q want %q", profile.Status, SecurityProfileRequiresNewPrimitives)
@@ -84,6 +90,10 @@ func TestBQ6496SaltBitsMatchPDFBareTarget(t *testing.T) {
 
 func TestResidualBudgetProfilesExposeLogCaps(t *testing.T) {
 	tests := map[string]float64{
+		"BQ10-96":   10,
+		"BQ10-128":  10,
+		"BQ16-96":   16,
+		"BQ16-128":  16,
 		"BQ32-96":   32,
 		"BQ32-128":  32,
 		"BQ64-96":   64,
@@ -119,6 +129,19 @@ func TestLookupIntGenISISSecurityProfileNormalizesLabels(t *testing.T) {
 	}
 	if _, ok := LookupIntGenISISSecurityProfile("missing"); ok {
 		t.Fatal("missing security profile lookup should fail")
+	}
+}
+
+func TestSecurityProfileValidationRejectsNonFiniteTargets(t *testing.T) {
+	profile, _ := LookupIntGenISISSecurityProfile("SC-96")
+	profile.TargetBits = math.NaN()
+	if err := validateIntGenISISSecurityProfileSpec(profile); err == nil {
+		t.Fatal("NaN security target accepted")
+	}
+	profile, _ = LookupIntGenISISSecurityProfile("SC-96")
+	profile.CoreBitsRequired = math.Inf(1)
+	if err := validateIntGenISISSecurityProfileSpec(profile); err == nil {
+		t.Fatal("infinite primitive requirement accepted")
 	}
 }
 

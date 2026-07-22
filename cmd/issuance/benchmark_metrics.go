@@ -82,6 +82,8 @@ type benchmarkIntGenISISMetrics struct {
 	EffectiveLambdaBits           int                               `json:"effective_lambda_bits"`
 	DECSHashBits                  int                               `json:"decs_hash_bits"`
 	DECSTapeBits                  int                               `json:"decs_tape_bits"`
+	SaltBits                      int                               `json:"salt_bits"`
+	TranscriptMode                string                            `json:"transcript_mode,omitempty"`
 	AlgebraicTerms                [4]float64                        `json:"algebraic_terms"`
 	AlgebraicBits                 [4]float64                        `json:"algebraic_bits"`
 	AlgebraicTotal                float64                           `json:"algebraic_total"`
@@ -183,6 +185,8 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		EffectiveLambdaBits:      report.Soundness.EffectiveLambdaBits,
 		DECSHashBits:             report.Soundness.DECSHashBits,
 		DECSTapeBits:             report.Soundness.DECSTapeBits,
+		SaltBits:                 len(proof.Salt) * 8,
+		TranscriptMode:           benchmarkTranscriptModeFromProof(proof),
 		AlgebraicTerms:           report.Soundness.AlgebraicTerms,
 		AlgebraicBits:            report.Soundness.AlgebraicBits,
 		AlgebraicTotal:           report.Soundness.AlgebraicTotal,
@@ -352,6 +356,16 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		metrics.RelationCandidate = benchmarkIntGenISISRelationReportFromMetrics(proof, metrics, opts)
 	}
 	return metrics
+}
+
+func benchmarkTranscriptModeFromProof(proof *PIOP.Proof) string {
+	if proof == nil {
+		return ""
+	}
+	if proof.TranscriptVersion == PIOP.TranscriptVersionSmallWood2025 {
+		return intGenISISTranscriptModeSmallField2025
+	}
+	return ""
 }
 
 func benchmarkIntGenISISRelationReportFromMetrics(proof *PIOP.Proof, metrics benchmarkIntGenISISMetrics, opts PIOP.SimOpts) benchmarkIntGenISISRelationReport {

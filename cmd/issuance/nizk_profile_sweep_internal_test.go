@@ -36,6 +36,10 @@ const (
 	bq64128ReductionBaselineBytes             = 83223
 )
 
+func benchmarkValidPrefixCostReport(spec credential.IntGenISISSecurityProfileSpec, timings []PIOP.PhaseTiming, explicitValidPrefixCaps [4]float64, researchAccounting bool) credential.ValidPrefixCostReport {
+	return benchmarkValidPrefixCostReportFromBudget(credential.ROBudgetLogVectorFromCapBits(spec.ROQueryCapBits), timings, explicitValidPrefixCaps, researchAccounting)
+}
+
 type NIZKProfileSearchTarget struct {
 	SecurityProfile        string                           `json:"security_profile"`
 	Lane                   string                           `json:"lane"`
@@ -2507,7 +2511,6 @@ func nizkProfileBenchmarkConfig(target NIZKProfileSearchTarget, cand NIZKProfile
 		PRFParamsPath:       preset.PRFParamsPath,
 		JSONOut:             filepath.Join(root, name+".json"),
 		Force:               true,
-		Seed:                29,
 		Issuance:            issuance,
 		Showing:             showing,
 		KeygenTrials:        10000,
@@ -3981,7 +3984,7 @@ func TestNIZKProfileSearchKeepsBQ3296PresetUnchanged(t *testing.T) {
 	if preset.SecurityProfile != "BQ32-96" || preset.CompleteSystemClaim {
 		t.Fatalf("BQ32-96 security classification changed: %+v", preset)
 	}
-	if preset.Showing.LVCSNCols != 40 || preset.Showing.NLeaves != 557056 || preset.Showing.Eta != 44 || preset.Showing.Ell != 9 {
+	if preset.Showing.LVCSNCols != 40 || preset.Showing.NLeaves != 786432 || preset.Showing.Eta != 46 || preset.Showing.Ell != 9 {
 		t.Fatalf("BQ32-96 tuning changed: %+v", preset.Showing)
 	}
 }

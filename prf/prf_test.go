@@ -1,6 +1,7 @@
 package prf
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -107,11 +108,24 @@ func TestTag9ParamsFileLoadsSameStateWidth(t *testing.T) {
 }
 
 func TestLoadLocalOrBundledParamsKeepsRequestedTagWidth(t *testing.T) {
-	params, err := LoadLocalOrBundledParams(filepath.Join("missing", "prf_params_tag9.json"))
+	params, digest, err := LoadLocalOrBundledParamsWithDigest(filepath.Join("missing", "prf_params_tag9.json"))
 	if err != nil {
 		t.Fatalf("load tag9 params by basename fallback: %v", err)
 	}
 	if params.LenTag != 9 {
 		t.Fatalf("LenTag=%d want 9", params.LenTag)
+	}
+	if digest != "552f38ceaddf0ba0ddfc919602fcd7abfd85430f808bd1b1cf731bcd95ba438f" {
+		t.Fatalf("tag9 parameter digest=%s", digest)
+	}
+}
+
+func TestLoadLocalOrBundledParamsDoesNotHideInvalidLocalFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prf_params_tag9.json")
+	if err := os.WriteFile(path, []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadLocalOrBundledParamsWithDigest(path); err == nil {
+		t.Fatal("invalid local parameter file silently fell back to bundled parameters")
 	}
 }

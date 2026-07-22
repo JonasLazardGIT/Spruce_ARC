@@ -209,7 +209,7 @@ func TestSecurityProfileSweepCandidateGeneration(t *testing.T) {
 			if cand.TargetStatus != credential.SecurityProfileCandidate {
 				t.Fatalf("BQ32 target status=%q", cand.TargetStatus)
 			}
-			if cand.Showing.DECSHashBits != 168 || cand.Showing.DECSTapeBits != 128 || cand.Showing.PRFParamsPath != credential.IntGenISISPRFParamsTag9 {
+			if cand.Showing.DECSHashBits != 168 || cand.Showing.DECSTapeBits != 136 || cand.Showing.SaltBits != 168 || cand.Showing.PRFParamsPath != credential.IntGenISISPRFParamsTag9 {
 				t.Fatalf("BQ32 candidate did not carry split/tag9 metadata: %+v", cand.Showing)
 			}
 		}
@@ -1177,7 +1177,6 @@ func qBudget128BenchmarkConfig(preset credential.IntGenISISPreset, cand qBudget1
 		PRFParamsPath:       preset.PRFParamsPath,
 		JSONOut:             filepath.Join(root, name+".json"),
 		Force:               true,
-		Seed:                11,
 		Issuance:            cand.Issuance,
 		Showing:             cand.Showing,
 		KeygenTrials:        10000,

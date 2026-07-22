@@ -7,8 +7,7 @@ import (
 	"vSIS-Signature/credential"
 )
 
-func benchmarkValidPrefixCostReport(spec credential.IntGenISISSecurityProfileSpec, timings []PIOP.PhaseTiming, explicitValidPrefixCaps [4]float64, researchAccounting bool) credential.ValidPrefixCostReport {
-	logs := credential.ROBudgetLogVectorFromProfile(spec)
+func benchmarkValidPrefixCostReportFromBudget(logs credential.ROBudgetLogVector, timings []PIOP.PhaseTiming, explicitValidPrefixCaps [4]float64, researchAccounting bool) credential.ValidPrefixCostReport {
 	rawCap := logs.RawLog2
 	if rawCap <= 0 {
 		rawCap = maxFloat64Array(logs.FSLog2)

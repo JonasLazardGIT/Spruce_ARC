@@ -7,9 +7,8 @@ import (
 
 func TestIntGenISISTagCollisionBitsShowsTag9BQ32Margin(t *testing.T) {
 	q := uint64(IntGenISISSharedModulusQ)
-	q32 := uint64(1) << 32
-	tag7 := IntGenISISTagCollisionBits(q, 7, q32)
-	tag9 := IntGenISISTagCollisionBits(q, 9, q32)
+	tag7 := IntGenISISTagCollisionBitsLog(q, 7, 32)
+	tag9 := IntGenISISTagCollisionBitsLog(q, 9, 32)
 	if tag7 >= 96 {
 		t.Fatalf("tag7 collision bits=%f should not clear BQ32-96", tag7)
 	}
@@ -67,6 +66,7 @@ func TestIntGenISISSystemSecurityLedgerRejectsNewPrimitiveProfiles(t *testing.T)
 func TestIntGenISISSystemSecurityLedgerPromotesBQ128NIZKProofOnlyClaim(t *testing.T) {
 	ledger := EvaluateIntGenISISSystemSecurityLedger(SystemSecurityLedgerInput{
 		SecurityProfile:     "BQ128-128",
+		ROMModel:            ROMModelCROM,
 		FullGameBits:        128.25624780465486,
 		ProofBits:           129.25624780465486,
 		CollisionBits:       253.67807190511263,
@@ -210,6 +210,32 @@ func TestLedgerTermsAnnotateSourceAndReportOnlyDoesNotCompose(t *testing.T) {
 	}
 }
 
+func TestRequiredLedgerTermsNeedEvidenceAndScope(t *testing.T) {
+	input := bq32LedgerInputForTagElements(9)
+	ledger := EvaluateIntGenISISSystemSecurityLedger(input)
+	if !containsString(ledger.RejectionReasons, "required ledger term soundness/proof_theorem is missing evidence") {
+		t.Fatalf("missing evidence was not rejected: %+v", ledger.RejectionReasons)
+	}
+	if !containsString(ledger.RejectionReasons, "required ledger term soundness/proof_theorem is missing scope") {
+		t.Fatalf("missing scope was not rejected: %+v", ledger.RejectionReasons)
+	}
+}
+
+func TestPrimitiveLedgerTermsUseCoreRequirement(t *testing.T) {
+	input := bq32LedgerInputForTagElements(9)
+	input.MSISBindingBits = 127
+	input.SignatureBits = 130
+	input.SeedEntropyBits = 152
+	ledger := EvaluateIntGenISISSystemSecurityLedger(input)
+	term := ledgerTermByCategoryName(ledger, SystemLedgerTermPrimitive, "msis_binding")
+	if term.ActualBits != 127 || term.RequiredBits != 128 || term.Status != "below_target" {
+		t.Fatalf("MSIS requirement was not evaluated against the primitive target: %+v", term)
+	}
+	if !containsString(ledger.RejectionReasons, "MSIS binding bits below primitive requirement") {
+		t.Fatalf("missing primitive-target rejection: %+v", ledger.RejectionReasons)
+	}
+}
+
 func TestLedgerClassifiesTapeAndProgrammingAsZeroKnowledge(t *testing.T) {
 	input := bq32LedgerInputForTagElements(9)
 	input.FullGameBits = 94.97315413067203
@@ -263,16 +289,19 @@ func TestLogMathHelpersComposeProbabilities(t *testing.T) {
 	}
 }
 
-func TestIntGenISISResourceDefaultsUseRawROCapsConservatively(t *testing.T) {
-	spec, ok := LookupIntGenISISSecurityProfile("BQ32-96")
+func TestIntGenISISPresetThreatModelUsesRawROCapsConservatively(t *testing.T) {
+	preset, ok := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V1)
 	if !ok {
-		t.Fatal("missing BQ32-96 profile")
+		t.Fatal("missing BQ32-96 pilot")
 	}
-	scope := DefaultIntGenISISAdversaryScope(spec)
+	scope, scopeLogs := AdversaryScopesFromThreatModel(preset.ThreatModel)
 	if scope.TagsPerContext != 1<<32 || scope.PRFAttempts != 1<<32 || scope.Users != 1 || scope.Contexts != 1 {
 		t.Fatalf("scope defaults=%+v", scope)
 	}
-	budgets := ROBudgetVectorFromCaps(spec.ROQueryCaps)
+	if scopeLogs.ProofsLog2 != 32 || scopeLogs.TagsPerContextLog2 != 32 {
+		t.Fatalf("scope logs=%+v", scopeLogs)
+	}
+	budgets := ROBudgetVectorFromCaps(testROQueryCapsFromPreset(preset.Showing.ROQueryCaps))
 	if budgets.Merkle != 1<<32 || budgets.FS[0] != 1<<32 || budgets.GuessTape != 1<<32 {
 		t.Fatalf("budget defaults=%+v", budgets)
 	}
@@ -290,11 +319,11 @@ func TestIntGenISISLogResourceCapsRepresentBQ128RawBudget(t *testing.T) {
 	if len(spec.ROQueryCaps) != 0 {
 		t.Fatalf("BQ128 uint64 caps should be empty, got %v", spec.ROQueryCaps)
 	}
-	logs := ROBudgetLogVectorFromProfile(spec)
+	logs := ROBudgetLogVectorFromCapBits(spec.ROQueryCapBits)
 	if logs.RawLog2 != 128 || logs.FSLog2 != [4]float64{128, 128, 128, 128} || logs.CollisionLog2 != 128 {
 		t.Fatalf("BQ128 log caps=%+v", logs)
 	}
-	ledger := EvaluateIntGenISISSystemSecurityLedger(SystemSecurityLedgerInput{
+	input := SystemSecurityLedgerInput{
 		SecurityProfile:   "BQ128-128",
 		FullGameBits:      300,
 		ProofBits:         300,
@@ -309,7 +338,13 @@ func TestIntGenISISLogResourceCapsRepresentBQ128RawBudget(t *testing.T) {
 		PRFBits:           133,
 		MLWEBits:          131,
 		ReplayRejected:    true,
-	})
+	}
+	missing := EvaluateIntGenISISSystemSecurityLedger(input)
+	if missing.ROBudgetLogs.RawLog2 != 0 || !containsString(missing.RejectionReasons, "missing actual RO query budget metadata") {
+		t.Fatalf("ledger substituted profile query caps for missing actual metadata: %+v", missing)
+	}
+	input.ROBudgetLogs = logs
+	ledger := EvaluateIntGenISISSystemSecurityLedger(input)
 	if ledger.ROBudgetLogs.RawLog2 != 128 || ledger.ROBudgetLogs.FSLog2[0] != 128 {
 		t.Fatalf("ledger did not retain BQ128 log caps: %+v", ledger.ROBudgetLogs)
 	}
@@ -317,7 +352,7 @@ func TestIntGenISISLogResourceCapsRepresentBQ128RawBudget(t *testing.T) {
 
 func TestValidPrefixLogCapsRequireExplicitTheoremMode(t *testing.T) {
 	input := bq32LedgerInputForTagElements(9)
-	input.ROBudgetLogs = ROBudgetLogVectorFromProfile(IntGenISISSecurityProfileSpec{ROQueryCapBits: []float64{32, 32, 32, 32, 32}})
+	input.ROBudgetLogs = ROBudgetLogVectorFromCapBits([]float64{32, 32, 32, 32, 32})
 	input.ROBudgetLogs.ValidPrefixLog2 = [4]float64{20, 20, 20, 20}
 	ledger := EvaluateIntGenISISSystemSecurityLedger(input)
 	if !ledger.ValidPrefixConservative {
@@ -347,17 +382,18 @@ func TestValidPrefixLogCapsRequireExplicitTheoremMode(t *testing.T) {
 }
 
 func bq32LedgerInputForTagElements(tagElements int) SystemSecurityLedgerInput {
-	spec, _ := LookupIntGenISISSecurityProfile("BQ32-96")
-	scope := DefaultIntGenISISAdversaryScope(spec)
-	tagBits := IntGenISISTagCollisionBits(IntGenISISSharedModulusQ, tagElements, scope.TagsPerContext)
+	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V1)
+	scope, scopeLogs := AdversaryScopesFromThreatModel(preset.ThreatModel)
+	tagBits := IntGenISISTagCollisionBitsLog(IntGenISISSharedModulusQ, tagElements, scopeLogs.TagsPerContextLog2)
 	return SystemSecurityLedgerInput{
 		SecurityProfile:   "BQ32-96",
+		ROMModel:          ROMModelCROM,
 		FullGameBits:      130,
 		ProofBits:         130,
 		CollisionBits:     130,
 		TagCollisionBits:  tagBits,
-		SaltCollisionBits: IntGenISISSaltCollisionBits(128, scope.Proofs),
-		TapeGuessingBits:  IntGenISISTapeGuessingBits(128, scope.TagsPerContext),
+		SaltCollisionBits: IntGenISISSaltCollisionBitsLog(128, scopeLogs.ProofsLog2),
+		TapeGuessingBits:  IntGenISISTapeGuessingBitsLog(128, scopeLogs.TagsPerContextLog2),
 		ProgrammingBits:   130,
 		ChallengeBiasBits: 130,
 		MultiUserBits:     130,
@@ -366,8 +402,33 @@ func bq32LedgerInputForTagElements(tagElements int) SystemSecurityLedgerInput {
 		MLWEBits:          131,
 		ReplayRejected:    true,
 		Scope:             scope,
-		ROBudgets:         ROBudgetVectorFromCaps(spec.ROQueryCaps),
+		ScopeLog2:         scopeLogs,
+		ROBudgets:         ROBudgetVectorFromCaps(testROQueryCapsFromPreset(preset.Showing.ROQueryCaps)),
 	}
+}
+
+func TestSecurityLedgerRejectsMissingOrWrongROMModel(t *testing.T) {
+	input := bq32LedgerInputForTagElements(9)
+	input.ROMModel = ""
+	missing := EvaluateIntGenISISSystemSecurityLedger(input)
+	if term := ledgerTermByCategoryName(missing, SystemLedgerTermModelScope, "random_oracle_model"); term.Status != "missing" {
+		t.Fatalf("missing ROM term=%+v", term)
+	}
+	input.ROMModel = ROMModel("qrom")
+	mismatch := EvaluateIntGenISISSystemSecurityLedger(input)
+	if term := ledgerTermByCategoryName(mismatch, SystemLedgerTermModelScope, "random_oracle_model"); term.Status != "mismatch" || term.RequiredValue != string(ROMModelCROM) {
+		t.Fatalf("mismatched ROM term=%+v", term)
+	}
+}
+
+func testROQueryCapsFromPreset(caps [5]int) []uint64 {
+	out := make([]uint64, len(caps))
+	for i, cap := range caps {
+		if cap > 0 {
+			out[i] = uint64(cap)
+		}
+	}
+	return out
 }
 
 func termStatus(ledger SystemSecurityLedger, category, name string) string {

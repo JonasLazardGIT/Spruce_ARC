@@ -155,7 +155,7 @@ func TestBenchmarkIntGenISISE2EPropagatesBQ32ProfileMetadata(t *testing.T) {
 	if cfg.PRFProfile != credential.IntGenISISPRFProfileTag9 || cfg.PRFParamsPath != credential.IntGenISISPRFParamsTag9 {
 		t.Fatalf("PRF tuple=(%q,%q)", cfg.PRFProfile, cfg.PRFParamsPath)
 	}
-	if cfg.Showing.DECSHashBits != 168 || cfg.Showing.DECSTapeBits != 128 || cfg.Showing.FSCollisionBits != 168 {
+	if cfg.Showing.DECSHashBits != 168 || cfg.Showing.DECSTapeBits != 136 || cfg.Showing.FSCollisionBits != 168 || cfg.Showing.SaltBits != 168 {
 		t.Fatalf("showing split widths=%+v", cfg.Showing)
 	}
 }
@@ -294,18 +294,30 @@ func TestBenchmarkRequiredPhaseAlgebraicBitsForBQ32Current(t *testing.T) {
 }
 
 func TestBenchmarkSecurityLedgerExplainsBQ32FullGameComponents(t *testing.T) {
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetPilotN1024BQ32R96V1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := benchmarkIntGenISISE2EConfig{
+		PresetName:       preset.Name,
 		SecurityProfile:  "BQ32-96",
 		SecurityMode:     string(credential.SecurityModeResidualAtBudget),
 		CoreBitsRequired: 128,
+		PRFProfile:       preset.PRFProfile,
 		PRFParamsPath:    credential.IntGenISISPRFParamsTag9,
-		Showing:          intGenISISTuning{SaltBits: 128},
+		ThreatModel:      preset.ThreatModel,
+		Issuance:         intGenISISTuning{TranscriptMode: intGenISISTranscriptModeSmallField2025},
+		Showing:          intGenISISTuning{TranscriptMode: intGenISISTranscriptModeSmallField2025},
 	}
 	m := benchmarkIntGenISISMetrics{
 		TheoremTotalBits:    96.00,
 		AlgebraicTotalBits:  96.03,
 		CollisionBits:       101.68,
-		DECSTapeBits:        128,
+		ROQueryCaps:         [5]int{1 << 32, 1 << 32, 1 << 32, 1 << 32, 1 << 32},
+		DECSHashBits:        168,
+		DECSTapeBits:        136,
+		SaltBits:            168,
+		TranscriptMode:      intGenISISTranscriptModeSmallField2025,
 		EffectiveLambdaBits: 168,
 	}
 	ledger := benchmarkIntGenISISE2ESecurityLedger(

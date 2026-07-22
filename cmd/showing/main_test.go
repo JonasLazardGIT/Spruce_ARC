@@ -70,7 +70,7 @@ func TestShowingCLIPropagatesBQ32SplitWidthsAndPRFPath(t *testing.T) {
 		t.Fatalf("parse showing bq32 preset: %v", err)
 	}
 	opts := intGenISISShowingOpts(1024, cfg.Preset.Showing)
-	if opts.DECSHashBits != 168 || opts.DECSTapeBits != 128 || opts.FSCollisionBits != 168 || opts.SaltBits != 128 {
+	if opts.DECSHashBits != 168 || opts.DECSTapeBits != 136 || opts.FSCollisionBits != 168 || opts.SaltBits != 168 {
 		t.Fatalf("opts split widths hash=%d tape=%d fs=%d salt=%d", opts.DECSHashBits, opts.DECSTapeBits, opts.FSCollisionBits, opts.SaltBits)
 	}
 	if opts.PRFParamsPath != credential.IntGenISISPRFParamsTag9 {
