@@ -104,14 +104,11 @@ run_deadcode ./...
 run go build ./cmd/issuance ./cmd/showing
 
 check_preset n512-compact96 22016
-check_preset n1024-compact96 26144
 check_preset n1024-compact125 35223
-check_preset n1024-q10-128 37093
-check_preset n1024-q16-128 42070
-check_preset n1024-q32-128 48691
 check_preset n1024-q10-96 29653
 check_preset n1024-q16-96 30591
-check_preset n1024-q32-96 37257
+check_preset pilot-n1024-bq32-r96-v1 36887
+check_preset system-n1024-wf128-crom-v1 38092
 
 if [ "$cleanup_artifacts" -eq 1 ]; then
 	echo "artifact validation passed; temporary artifacts removed"

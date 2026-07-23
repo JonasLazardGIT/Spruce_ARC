@@ -3,7 +3,7 @@ package credential
 import "testing"
 
 func TestPublicParamsPresetBindingRejectsManifestMismatch(t *testing.T) {
-	preset, _ := LookupIntGenISISPreset(IntGenISISPresetArtifactN1024SC96V1)
+	preset, _ := LookupIntGenISISPreset(IntGenISISPresetArtifactN1024SC125V1)
 	public := PublicParams{Profile: preset.Profile}
 	if err := public.BindIntGenISISPreset(preset); err != nil {
 		t.Fatal(err)

@@ -45,13 +45,10 @@ const (
 )
 
 const (
-	IntGenISISPresetPoCN512SC96V1            = "poc-n512-sc96-v1"
-	IntGenISISPresetArtifactN1024SC96V1      = "artifact-n1024-sc96-v1"
-	IntGenISISPresetArtifactN1024SC125V1     = "artifact-n1024-sc125-v1"
-	IntGenISISPresetPilotN1024BQ32R96V1      = "pilot-n1024-bq32-r96-v1"
-	IntGenISISPresetSystemN1024WF128CROMV1   = "system-n1024-wf128-crom-v1"
-	IntGenISISPresetResearchN1024BQ32R128V1  = "research-n1024-bq32-r128-v1"
-	IntGenISISPresetResearchN1024BQ128R128V1 = "research-n1024-bq128-r128-v1"
+	IntGenISISPresetPoCN512SC96V1          = "poc-n512-sc96-v1"
+	IntGenISISPresetArtifactN1024SC125V1   = "artifact-n1024-sc125-v1"
+	IntGenISISPresetPilotN1024BQ32R96V1    = "pilot-n1024-bq32-r96-v1"
+	IntGenISISPresetSystemN1024WF128CROMV1 = "system-n1024-wf128-crom-v1"
 )
 
 // PresetThreatModel records the resource scope to which a preset's security
@@ -94,10 +91,6 @@ func intGenISISPresetMetadataRegistry() map[string]intGenISISPresetMetadata {
 			canonicalID: IntGenISISPresetPoCN512SC96V1, purpose: "demonstration",
 			lifecycle: PresetPoC, claimScope: ClaimProofOnly,
 		},
-		IntGenISISPresetN1024Compact96: {
-			canonicalID: IntGenISISPresetArtifactN1024SC96V1, purpose: "reproduction",
-			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
-		},
 		IntGenISISPresetN1024Compact125: {
 			canonicalID: IntGenISISPresetArtifactN1024SC125V1, purpose: "reproduction",
 			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
@@ -114,38 +107,10 @@ func intGenISISPresetMetadataRegistry() map[string]intGenISISPresetMetadata {
 			canonicalID: "artifact-n1024-bq16-r96-historical-v1", purpose: "historical reproduction",
 			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
 		},
-		IntGenISISPresetN1024Q32_96: {
-			canonicalID: "artifact-n1024-bq32-r96-historical-v1", purpose: "historical reproduction",
-			lifecycle: PresetDeprecated, claimScope: ClaimProofOnly,
-		},
-		IntGenISISPresetN1024Q10_128: {
-			canonicalID: "artifact-n1024-bq10-r128-historical-v1", purpose: "historical reproduction",
-			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
-		},
-		IntGenISISPresetN1024Q16_128: {
-			canonicalID: "artifact-n1024-bq16-r128-historical-v1", purpose: "historical reproduction",
-			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
-		},
-		IntGenISISPresetN1024Q32_128: {
-			canonicalID: IntGenISISPresetResearchN1024BQ32R128V1, purpose: "strong bounded-query experiment",
-			lifecycle: PresetResearch, claimScope: ClaimProofOnly,
-		},
 		IntGenISISPresetN1024BQ32_96: {
 			canonicalID: IntGenISISPresetPilotN1024BQ32R96V1, purpose: "controlled pilot",
 			lifecycle: PresetCandidate, claimScope: ClaimCompleteSystem,
 			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31, tagsLog2: 32,
-		},
-		IntGenISISPresetN1024BQ64_96Theta11: {
-			canonicalID: "internal-n1024-bq64-r96-theta11-v1", purpose: "theorem trail",
-			lifecycle: PresetInternal, claimScope: ClaimNone,
-		},
-		IntGenISISPresetN1024BQ64_128Theta13H256: {
-			canonicalID: "internal-n1024-bq64-r128-theta13-h256-v1", purpose: "theorem trail",
-			lifecycle: PresetInternal, claimScope: ClaimNone,
-		},
-		IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512: {
-			canonicalID: IntGenISISPresetResearchN1024BQ128R128V1, purpose: "extreme proof-layer experiment",
-			lifecycle: PresetResearch, claimScope: ClaimProofOnly,
 		},
 	}
 }

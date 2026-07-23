@@ -7,19 +7,11 @@ import (
 )
 
 const (
-	IntGenISISPresetN512Compact96                              = "n512-compact96"
-	IntGenISISPresetN1024Compact96                             = "n1024-compact96"
-	IntGenISISPresetN1024Compact125                            = "n1024-compact125"
-	IntGenISISPresetN1024BQ32_96                               = "n1024-bq32-96"
-	IntGenISISPresetN1024BQ64_96Theta11                        = "n1024-bq64-96-theta11"
-	IntGenISISPresetN1024BQ64_128Theta13H256                   = "n1024-bq64-128-theta13-h256"
-	IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512 = "n1024-bq128-128-raw128-residual128-theta13-lvcs48-h512"
-	IntGenISISPresetN1024Q10_128                               = "n1024-q10-128"
-	IntGenISISPresetN1024Q16_128                               = "n1024-q16-128"
-	IntGenISISPresetN1024Q32_128                               = "n1024-q32-128"
-	IntGenISISPresetN1024Q10_96                                = "n1024-q10-96"
-	IntGenISISPresetN1024Q16_96                                = "n1024-q16-96"
-	IntGenISISPresetN1024Q32_96                                = "n1024-q32-96"
+	IntGenISISPresetN512Compact96   = "n512-compact96"
+	IntGenISISPresetN1024Compact125 = "n1024-compact125"
+	IntGenISISPresetN1024BQ32_96    = "n1024-bq32-96"
+	IntGenISISPresetN1024Q10_96     = "n1024-q10-96"
+	IntGenISISPresetN1024Q16_96     = "n1024-q16-96"
 
 	IntGenISISPRFProfileDefault      = "poseidon2-t20-tag7"
 	IntGenISISPRFProfileTag9         = "poseidon2-t20-tag9"
@@ -144,7 +136,7 @@ func MustLookupIntGenISISPreset(name string) (IntGenISISPreset, error) {
 
 func ResolveIntGenISISPresetSelector(name string, use96Bit bool) (string, error) {
 	if use96Bit {
-		return "", fmt.Errorf("-96bit was removed; use -preset %s or -preset %s", IntGenISISPresetN512Compact96, IntGenISISPresetN1024Compact96)
+		return "", fmt.Errorf("-96bit was removed; use -preset %s", IntGenISISPresetN512Compact96)
 	}
 	return normalizeIntGenISISPresetName(name), nil
 }
@@ -187,30 +179,6 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	}
 	n512Issuance96 := intGenISISIssuanceTuning(n512Show96)
 
-	n1024Show96 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           43,
-		NLeaves:             230208,
-		Eta:                 40,
-		Theta:               5,
-		Rho:                 1,
-		Ell:                 7,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 0, 6, 11},
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   7,
-		SigShortnessDigits:  5,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   96,
-		SoundnessGate:       "smallwood_2025_1085_live",
-	}
-	n1024Issuance96 := intGenISISIssuanceTuning(n1024Show96)
-
 	n1024Show125 := IntGenISISTuningPreset{
 		NCols:               32,
 		LVCSNCols:           46,
@@ -235,19 +203,23 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	}
 	n1024Issuance125 := intGenISISIssuanceTuning(n1024Show125)
 
-	n1024Q10Show128 := IntGenISISTuningPreset{
+	n1024WF128Show := IntGenISISTuningPreset{
 		NCols:               32,
-		LVCSNCols:           36,
-		NLeaves:             983040,
-		Eta:                 44,
+		LVCSNCols:           43,
+		NLeaves:             524288,
+		Eta:                 46,
 		Theta:               7,
 		Rho:                 1,
 		Ell:                 9,
 		EllPrime:            1,
-		Kappa:               [4]int{0, 4, 9, 9},
-		ROQueryCaps:         intGenISISROQueryCaps(intGenISISPow2QueryCap(10)),
-		ROQueryCapsSet:      true,
-		DECSCollisionBits:   152,
+		Kappa:               [4]int{0, 0, 4, 13},
+		DECSCollisionBits:   264,
+		DECSHashBits:        264,
+		DECSTapeBits:        128,
+		FSCollisionBits:     264,
+		SaltBits:            256,
+		PRFProfile:          IntGenISISPRFProfileTag13,
+		PRFParamsPath:       IntGenISISPRFParamsTag13,
 		PRFCompanionMode:    "direct_full",
 		PRFGroupRounds:      2,
 		CheckpointSamples:   1,
@@ -260,78 +232,7 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		TargetTheoremBits:   128,
 		SoundnessGate:       "smallwood_2025_1085_live",
 	}
-	n1024Q10Issuance128 := intGenISISIssuanceTuning(n1024Q10Show128)
-	n1024WF128Show := n1024Q10Show128
-	n1024WF128Show.LVCSNCols = 43
-	n1024WF128Show.NLeaves = 524288
-	n1024WF128Show.Eta = 46
-	n1024WF128Show.Kappa = [4]int{0, 0, 4, 13}
-	n1024WF128Show.ROQueryCaps = [5]int{}
-	n1024WF128Show.ROQueryCapsSet = false
-	n1024WF128Show.ROQueryCapBits = [5]float64{}
-	n1024WF128Show.ROQueryCapBitsSet = false
-	n1024WF128Show.DECSCollisionBits = 264
-	n1024WF128Show.DECSHashBits = 264
-	n1024WF128Show.DECSTapeBits = 128
-	n1024WF128Show.FSCollisionBits = 264
-	n1024WF128Show.SaltBits = 256
-	n1024WF128Show.PRFProfile = IntGenISISPRFProfileTag13
-	n1024WF128Show.PRFParamsPath = IntGenISISPRFParamsTag13
 	n1024WF128Issuance := intGenISISIssuanceTuning(n1024WF128Show)
-
-	n1024Q16Show128 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           37,
-		NLeaves:             524288,
-		Eta:                 43,
-		Theta:               8,
-		Rho:                 1,
-		Ell:                 10,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 0, 0, 8},
-		ROQueryCaps:         intGenISISROQueryCaps(intGenISISPow2QueryCap(16)),
-		ROQueryCapsSet:      true,
-		DECSCollisionBits:   168,
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   7,
-		SigShortnessDigits:  5,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   128,
-		SoundnessGate:       "smallwood_2025_1085_live",
-	}
-	n1024Q16Issuance128 := intGenISISIssuanceTuning(n1024Q16Show128)
-
-	n1024Q32Show128 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           37,
-		NLeaves:             655360,
-		Eta:                 45,
-		Theta:               9,
-		Rho:                 1,
-		Ell:                 11,
-		EllPrime:            1,
-		Kappa:               [4]int{1, 0, 0, 8},
-		ROQueryCaps:         intGenISISROQueryCaps(intGenISISPow2QueryCap(32)),
-		ROQueryCapsSet:      true,
-		DECSCollisionBits:   200,
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   7,
-		SigShortnessDigits:  5,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   128,
-		SoundnessGate:       "smallwood_2025_1085_live",
-	}
-	n1024Q32Issuance128 := intGenISISIssuanceTuning(n1024Q32Show128)
 
 	n1024Q10Show96 := IntGenISISTuningPreset{
 		NCols:               32,
@@ -387,11 +288,11 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	}
 	n1024Q16Issuance96 := intGenISISIssuanceTuning(n1024Q16Show96)
 
-	n1024Q32Show96 := IntGenISISTuningPreset{
+	n1024BQ32Show96 := IntGenISISTuningPreset{
 		NCols:               32,
-		LVCSNCols:           37,
-		NLeaves:             458752,
-		Eta:                 44,
+		LVCSNCols:           40,
+		NLeaves:             786432,
+		Eta:                 46,
 		Theta:               7,
 		Rho:                 1,
 		Ell:                 9,
@@ -400,6 +301,12 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		ROQueryCaps:         intGenISISROQueryCaps(intGenISISPow2QueryCap(32)),
 		ROQueryCapsSet:      true,
 		DECSCollisionBits:   168,
+		DECSHashBits:        168,
+		DECSTapeBits:        136,
+		FSCollisionBits:     168,
+		SaltBits:            168,
+		PRFProfile:          IntGenISISPRFProfileTag9,
+		PRFParamsPath:       IntGenISISPRFParamsTag9,
 		PRFCompanionMode:    "direct_full",
 		PRFGroupRounds:      2,
 		CheckpointSamples:   1,
@@ -409,120 +316,10 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		ReplayProjection:    "project_u_digits_y_w_residual_v5",
 		TranscriptMode:      "smallfield_2025_1085_v1",
 		FixedTranscriptSize: true,
-		TargetTheoremBits:   96,
+		TargetTheoremBits:   99.5,
 		SoundnessGate:       "smallwood_2025_1085_live",
 	}
-	n1024Q32Issuance96 := intGenISISIssuanceTuning(n1024Q32Show96)
-	n1024BQ32Show96 := n1024Q32Show96
-	n1024BQ32Show96.LVCSNCols = 40
-	n1024BQ32Show96.NLeaves = 786432
-	n1024BQ32Show96.Eta = 46
-	n1024BQ32Show96.Ell = 9
-	n1024BQ32Show96.DECSHashBits = 168
-	n1024BQ32Show96.DECSTapeBits = 136
-	n1024BQ32Show96.FSCollisionBits = 168
-	n1024BQ32Show96.SaltBits = 168
-	n1024BQ32Show96.TargetTheoremBits = 99.5
-	n1024BQ32Show96.PRFProfile = IntGenISISPRFProfileTag9
-	n1024BQ32Show96.PRFParamsPath = IntGenISISPRFParamsTag9
 	n1024BQ32Issuance96 := intGenISISIssuanceTuning(n1024BQ32Show96)
-
-	n1024BQ64Show96Theta11 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           43,
-		NLeaves:             983040,
-		Eta:                 58,
-		Theta:               11,
-		Rho:                 1,
-		Ell:                 16,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 11, 13, 2},
-		ROQueryCapBits:      intGenISISROQueryCapBits(64),
-		ROQueryCapBitsSet:   true,
-		DECSHashBits:        232,
-		DECSTapeBits:        160,
-		FSCollisionBits:     232,
-		SaltBits:            224,
-		PRFProfile:          IntGenISISPRFProfileTag9,
-		PRFParamsPath:       IntGenISISPRFParamsTag9,
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   7,
-		SigShortnessDigits:  5,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   164,
-		SoundnessGate:       "smallwood_2025_1085_theorem_trail",
-	}
-	n1024BQ64Issuance96Theta11 := intGenISISIssuanceTuning(n1024BQ64Show96Theta11)
-
-	n1024BQ64Show128Theta13H256 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           48,
-		NLeaves:             983040,
-		Eta:                 65,
-		Theta:               13,
-		Rho:                 1,
-		Ell:                 18,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 7, 13, 13},
-		ROQueryCapBits:      intGenISISROQueryCapBits(64),
-		ROQueryCapBitsSet:   true,
-		DECSHashBits:        256,
-		DECSTapeBits:        192,
-		FSCollisionBits:     256,
-		SaltBits:            256,
-		PRFProfile:          IntGenISISPRFProfileTag9,
-		PRFParamsPath:       IntGenISISPRFParamsTag9,
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   7,
-		SigShortnessDigits:  5,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   200,
-		SoundnessGate:       "smallwood_2025_1085_theorem_trail",
-	}
-	n1024BQ64Issuance128Theta13H256 := intGenISISIssuanceTuning(n1024BQ64Show128Theta13H256)
-
-	n1024BQ128Show128RawResidualTheta13LVCS48H512 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           48,
-		NLeaves:             983040,
-		Eta:                 65,
-		Theta:               13,
-		Rho:                 1,
-		Ell:                 18,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 0, 8, 5},
-		ROQueryCapBits:      intGenISISROQueryCapBits(128),
-		ROQueryCapBitsSet:   true,
-		DECSCollisionBits:   512,
-		DECSHashBits:        512,
-		DECSTapeBits:        256,
-		FSCollisionBits:     512,
-		SaltBits:            384,
-		PRFProfile:          IntGenISISPRFProfileTag9,
-		PRFParamsPath:       IntGenISISPRFParamsTag9,
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   7,
-		SigShortnessDigits:  5,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   128,
-		SoundnessGate:       "smallwood_2025_1085_nizk_q128_live",
-	}
-	n1024BQ128Issuance128RawResidualTheta13LVCS48H512 := intGenISISIssuanceTuning(n1024BQ128Show128RawResidualTheta13LVCS48H512)
 
 	reg := map[string]IntGenISISPreset{
 		IntGenISISPresetN512Compact96: {
@@ -539,21 +336,6 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			Notes: []string{
 				"N=512 is maintained only as the compact 96-bit engineering preset.",
 				"NTRU beta is calibrated to 6002 for the R7/L5 top-digit-capped signature shortness proof.",
-			},
-		},
-		IntGenISISPresetN1024Compact96: {
-			Name:              IntGenISISPresetN1024Compact96,
-			Description:       "profile-C N=1024 compact 96-bit strict-smallfield preset",
-			Profile:           ProfileIntGenISISC,
-			TargetTheoremBits: 96,
-			SoundnessGate:     n1024Show96.SoundnessGate,
-			LVCSNCols:         n1024Show96.LVCSNCols,
-			MaxNLeaves:        n1024Show96.NLeaves,
-			Issuance:          n1024Issuance96,
-			Showing:           n1024Show96,
-			Notes: []string{
-				"Maintained degree-1024 compact 96-bit preset.",
-				"Uses smallfield_2025_1085_v1 for issuance and showing while sharing the security tuple.",
 			},
 		},
 		IntGenISISPresetN1024Compact125: {
@@ -604,99 +386,6 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 				"Uses 168-bit hash/Fiat-Shamir output, 136-bit tapes, 168-bit salts, and actual tag-9 PRF params; complete-system promotion remains gated by the security ledger.",
 			},
 		},
-		IntGenISISPresetN1024BQ64_96Theta11: {
-			Name:              IntGenISISPresetN1024BQ64_96Theta11,
-			Description:       "profile-C N=1024 BQ64-96 theta11 theorem-trail preset",
-			Profile:           ProfileIntGenISISC,
-			TargetTheoremBits: 164,
-			SoundnessGate:     n1024BQ64Show96Theta11.SoundnessGate,
-			LVCSNCols:         n1024BQ64Show96Theta11.LVCSNCols,
-			MaxNLeaves:        n1024BQ64Show96Theta11.NLeaves,
-			Issuance:          n1024BQ64Issuance96Theta11,
-			Showing:           n1024BQ64Show96Theta11,
-			Notes: []string{
-				"Research-only BQ64-96 theta11 trail with RO query caps represented as log2 caps [64]*5.",
-				"The theta11 shape requires an external valid-prefix/similar theorem argument before it can be used as current-theorem security.",
-				"Profile remains requires_new_primitives: BQ64-96 needs a 160-bit primitive family and tag-12 PRF lane; tag-9 is only the current executable plumbing.",
-			},
-		},
-		IntGenISISPresetN1024BQ64_128Theta13H256: {
-			Name:              IntGenISISPresetN1024BQ64_128Theta13H256,
-			Description:       "profile-C N=1024 BQ64-128 theta13 h256 theorem-trail preset",
-			Profile:           ProfileIntGenISISC,
-			TargetTheoremBits: 200,
-			SoundnessGate:     n1024BQ64Show128Theta13H256.SoundnessGate,
-			LVCSNCols:         n1024BQ64Show128Theta13H256.LVCSNCols,
-			MaxNLeaves:        n1024BQ64Show128Theta13H256.NLeaves,
-			Issuance:          n1024BQ64Issuance128Theta13H256,
-			Showing:           n1024BQ64Show128Theta13H256,
-			Notes: []string{
-				"Research-only BQ64-128 theta13+h256 trail with RO query caps represented as log2 caps [64]*5.",
-				"The theta13+h256 shape is justified only by an external theorem/accounting argument that reduces the effective algebraic round-prefix cap while raw collision/programming accounting remains at 2^64.",
-				"Profile remains requires_new_primitives: BQ64-128 needs a 192-bit primitive family and tag-13 PRF lane; tag-9 is only the current executable plumbing.",
-			},
-		},
-		IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512: {
-			Name:              IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512,
-			Description:       "profile-C N=1024 SmallWood NIZK Q128/epsilon128 raw-residual preset",
-			Profile:           ProfileIntGenISISC,
-			TargetTheoremBits: 128,
-			SoundnessGate:     n1024BQ128Show128RawResidualTheta13LVCS48H512.SoundnessGate,
-			LVCSNCols:         n1024BQ128Show128RawResidualTheta13LVCS48H512.LVCSNCols,
-			MaxNLeaves:        n1024BQ128Show128RawResidualTheta13LVCS48H512.NLeaves,
-			Issuance:          n1024BQ128Issuance128RawResidualTheta13LVCS48H512,
-			Showing:           n1024BQ128Show128RawResidualTheta13LVCS48H512,
-			Notes: []string{
-				"SmallWood NIZK-only Q128/epsilon128 preset: proof soundness and zero knowledge target about 128 bits for an adversary making up to 2^128 ROM/Fiat-Shamir queries against the proof system.",
-				"Uses raw log RO caps [128]*5 with no valid-prefix discount, h512 Fiat-Shamir/collision accounting, 256-bit tape, 384-bit salt, theta13, ell18, LVCS48, and measured 89950 paper transcript bytes.",
-				"Not a complete IntGenISIS credential-system claim: the BQ128-128 system profile still requires a 256-bit primitive redesign, and tag-9 remains executable plumbing rather than the claimed primitive lane.",
-			},
-		},
-		IntGenISISPresetN1024Q10_128: {
-			Name:              IntGenISISPresetN1024Q10_128,
-			Description:       "historical profile-C N=1024 proof-theorem artifact for 2^10 ROM query budgets",
-			Profile:           ProfileIntGenISISC,
-			TargetTheoremBits: 128,
-			SoundnessGate:     n1024Q10Show128.SoundnessGate,
-			LVCSNCols:         n1024Q10Show128.LVCSNCols,
-			MaxNLeaves:        n1024Q10Show128.NLeaves,
-			Issuance:          n1024Q10Issuance128,
-			Showing:           n1024Q10Show128,
-			Notes: []string{
-				"Hidden historical artifact for ROQueryCaps=[2^10]*5; not a complete-system claim.",
-				"The executable tag-7 primitive does not meet the BQ10-128 profile requirement.",
-			},
-		},
-		IntGenISISPresetN1024Q16_128: {
-			Name:              IntGenISISPresetN1024Q16_128,
-			Description:       "historical profile-C N=1024 proof-theorem artifact for 2^16 ROM query budgets",
-			Profile:           ProfileIntGenISISC,
-			TargetTheoremBits: 128,
-			SoundnessGate:     n1024Q16Show128.SoundnessGate,
-			LVCSNCols:         n1024Q16Show128.LVCSNCols,
-			MaxNLeaves:        n1024Q16Show128.NLeaves,
-			Issuance:          n1024Q16Issuance128,
-			Showing:           n1024Q16Show128,
-			Notes: []string{
-				"Hidden historical artifact for ROQueryCaps=[2^16]*5; not a complete-system claim.",
-				"The executable tag-7 primitive does not meet the BQ16-128 profile requirement.",
-			},
-		},
-		IntGenISISPresetN1024Q32_128: {
-			Name:              IntGenISISPresetN1024Q32_128,
-			Description:       "profile-C N=1024 BQ32-128 proof-theorem research point",
-			Profile:           ProfileIntGenISISC,
-			TargetTheoremBits: 128,
-			SoundnessGate:     n1024Q32Show128.SoundnessGate,
-			LVCSNCols:         n1024Q32Show128.LVCSNCols,
-			MaxNLeaves:        n1024Q32Show128.NLeaves,
-			Issuance:          n1024Q32Issuance128,
-			Showing:           n1024Q32Show128,
-			Notes: []string{
-				"Proof-only research point for ROQueryCaps=[2^32]*5; not a complete-system claim.",
-				"The executable tag-7 primitive does not meet the required tag-10 and 160-bit primitive lane.",
-			},
-		},
 		IntGenISISPresetN1024Q10_96: {
 			Name:              IntGenISISPresetN1024Q10_96,
 			Description:       "historical profile-C N=1024 proof artifact for 2^10 ROM query budgets",
@@ -725,43 +414,65 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 				"Hidden historical artifact for ROQueryCaps=[2^16]*5; retained for byte reproduction.",
 			},
 		},
-		IntGenISISPresetN1024Q32_96: {
-			Name:              IntGenISISPresetN1024Q32_96,
-			Description:       "superseded profile-C N=1024 proof artifact for 2^32 ROM query budgets",
-			Profile:           ProfileIntGenISISC,
-			TargetTheoremBits: 96,
-			SoundnessGate:     n1024Q32Show96.SoundnessGate,
-			LVCSNCols:         n1024Q32Show96.LVCSNCols,
-			MaxNLeaves:        n1024Q32Show96.NLeaves,
-			Issuance:          n1024Q32Issuance96,
-			Showing:           n1024Q32Show96,
-			Notes: []string{
-				"Historical byte artifact for ROQueryCaps=[2^32]*5; superseded by the actual tag-9 BQ32 pilot candidate.",
-			},
-		},
 	}
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN512Compact96, "SC-96")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Compact96, "SC-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Compact125, "SC-125")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetSystemN1024WF128CROMV1, "WF-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ32_96, "BQ32-96")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ64_96Theta11, "BQ64-96")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ64_128Theta13H256, "BQ64-128")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512, "BQ128-128")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_128, "BQ10-128")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_128, "BQ16-128")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q32_128, "BQ32-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_96, "BQ10-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_96, "BQ16-96")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q32_96, "BQ32-96")
 	intGenISISPresetApplyDefaultPRF(reg)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ32_96, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
-	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ64_96Theta11, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
-	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ64_128Theta13H256, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
-	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetSystemN1024WF128CROMV1, IntGenISISPRFProfileTag13, IntGenISISPRFParamsTag13)
 	intGenISISPresetApplyMetadata(reg)
+	if err := validateIntGenISISPresetSecurityTupleUniqueness(reg); err != nil {
+		panic(err)
+	}
 	return reg
+}
+
+type intGenISISPresetSecurityTuple struct {
+	ROM        ROMModel
+	Mode       SecurityMode
+	TargetBits float64
+	QueryCaps  [5]float64
+}
+
+func validateIntGenISISPresetSecurityTupleUniqueness(reg map[string]IntGenISISPreset) error {
+	seen := make(map[intGenISISPresetSecurityTuple]string, len(reg))
+	for name, preset := range reg {
+		tuple, err := intGenISISPresetSecurityTupleFor(preset)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		if previous, ok := seen[tuple]; ok {
+			return fmt.Errorf("duplicate IntGenISIS security tuple for presets %s and %s", previous, name)
+		}
+		seen[tuple] = name
+	}
+	return nil
+}
+
+func intGenISISPresetSecurityTupleFor(preset IntGenISISPreset) (intGenISISPresetSecurityTuple, error) {
+	tuple := intGenISISPresetSecurityTuple{
+		ROM:       preset.ThreatModel.ROM,
+		Mode:      preset.ThreatModel.SecurityMode,
+		QueryCaps: preset.ThreatModel.ROQueryCapLog2,
+	}
+	switch tuple.Mode {
+	case SecurityModeSingleCandidate:
+		tuple.TargetBits = preset.ThreatModel.TargetSingleCandidateBits
+	case SecurityModeQueryWorkFactor:
+		tuple.TargetBits = preset.ThreatModel.TargetWorkFactorBits
+	case SecurityModeResidualAtBudget:
+		tuple.TargetBits = preset.ThreatModel.TargetResidualBits
+	default:
+		return intGenISISPresetSecurityTuple{}, fmt.Errorf("unsupported security mode %q", tuple.Mode)
+	}
+	if tuple.ROM == "" || !finitePositive(tuple.TargetBits) {
+		return intGenISISPresetSecurityTuple{}, fmt.Errorf("incomplete security tuple")
+	}
+	return tuple, nil
 }
 
 func intGenISISPresetApplySecurityProfile(reg map[string]IntGenISISPreset, name, label string) {
@@ -823,8 +534,4 @@ func intGenISISPow2QueryCap(exp uint) int {
 
 func intGenISISROQueryCaps(cap int) [5]int {
 	return [5]int{cap, cap, cap, cap, cap}
-}
-
-func intGenISISROQueryCapBits(bits float64) [5]float64 {
-	return [5]float64{bits, bits, bits, bits, bits}
 }

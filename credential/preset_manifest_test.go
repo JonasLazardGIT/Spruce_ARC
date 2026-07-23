@@ -7,13 +7,10 @@ import (
 
 func TestCanonicalPresetAliasesResolveToOneManifest(t *testing.T) {
 	tests := map[string]string{
-		IntGenISISPresetPoCN512SC96V1:            IntGenISISPresetN512Compact96,
-		IntGenISISPresetArtifactN1024SC96V1:      IntGenISISPresetN1024Compact96,
-		IntGenISISPresetArtifactN1024SC125V1:     IntGenISISPresetN1024Compact125,
-		IntGenISISPresetPilotN1024BQ32R96V1:      IntGenISISPresetN1024BQ32_96,
-		IntGenISISPresetResearchN1024BQ32R128V1:  IntGenISISPresetN1024Q32_128,
-		IntGenISISPresetResearchN1024BQ128R128V1: IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512,
-		IntGenISISPresetSystemN1024WF128CROMV1:   IntGenISISPresetSystemN1024WF128CROMV1,
+		IntGenISISPresetPoCN512SC96V1:          IntGenISISPresetN512Compact96,
+		IntGenISISPresetArtifactN1024SC125V1:   IntGenISISPresetN1024Compact125,
+		IntGenISISPresetPilotN1024BQ32R96V1:    IntGenISISPresetN1024BQ32_96,
+		IntGenISISPresetSystemN1024WF128CROMV1: IntGenISISPresetSystemN1024WF128CROMV1,
 	}
 	for alias, legacy := range tests {
 		fromAlias, ok := LookupIntGenISISPreset(alias)
@@ -94,9 +91,9 @@ func TestPresetThreatModelsSeparatePerPhaseOracleCapsFromHonestVolume(t *testing
 	if pilot.ThreatModel.ROQueryCapScope != ROQueryCapPerPhaseGlobal || pilot.ThreatModel.AcceptedIssuance != 1 || pilot.ThreatModel.AcceptedShowing != 1 {
 		t.Fatalf("pilot adversarial composition=%+v", pilot.ThreatModel)
 	}
-	artifact, _ := LookupIntGenISISPreset(IntGenISISPresetArtifactN1024SC96V1)
-	if artifact.ThreatModel.TargetSingleCandidateBits != 96 || artifact.ThreatModel.TargetResidualBits != 0 || artifact.ThreatModel.TargetWorkFactorBits != 0 {
-		t.Fatalf("single-candidate target encoded under the wrong semantics: %+v", artifact.ThreatModel)
+	poc, _ := LookupIntGenISISPreset(IntGenISISPresetPoCN512SC96V1)
+	if poc.ThreatModel.TargetSingleCandidateBits != 96 || poc.ThreatModel.TargetResidualBits != 0 || poc.ThreatModel.TargetWorkFactorBits != 0 {
+		t.Fatalf("single-candidate target encoded under the wrong semantics: %+v", poc.ThreatModel)
 	}
 }
 

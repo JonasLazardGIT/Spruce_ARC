@@ -120,22 +120,22 @@ func TestBenchmarkRemovedTuningAndAccountingFlagsAreUnknown(t *testing.T) {
 
 func TestBenchmarkIntGenISISE2EPropagatesPresetAccounting(t *testing.T) {
 	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
-		"-preset", credential.IntGenISISPresetN1024Q32_128,
+		"-preset", credential.IntGenISISPresetN1024Q16_96,
 	})
 	if err != nil {
 		t.Fatalf("parse benchmark query-budget preset: %v", err)
 	}
-	wantCaps := [5]int{int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32), int(uint64(1) << 32)}
+	wantCaps := [5]int{65536, 65536, 65536, 65536, 65536}
 	if !cfg.Showing.ROQueryCapsSet || cfg.Showing.ROQueryCaps != wantCaps {
 		t.Fatalf("showing query caps=%v set=%v", cfg.Showing.ROQueryCaps, cfg.Showing.ROQueryCapsSet)
 	}
-	if cfg.Showing.DECSCollisionBits != 200 {
+	if cfg.Showing.DECSCollisionBits != 136 {
 		t.Fatalf("showing decs collision bits=%d", cfg.Showing.DECSCollisionBits)
 	}
 	if !cfg.Issuance.ROQueryCapsSet || cfg.Issuance.ROQueryCaps != cfg.Showing.ROQueryCaps {
 		t.Fatalf("issuance query caps=%v set=%v", cfg.Issuance.ROQueryCaps, cfg.Issuance.ROQueryCapsSet)
 	}
-	if cfg.Issuance.DECSCollisionBits != 200 {
+	if cfg.Issuance.DECSCollisionBits != 136 {
 		t.Fatalf("issuance decs collision bits=%d", cfg.Issuance.DECSCollisionBits)
 	}
 }
@@ -243,68 +243,21 @@ func TestBenchmarkActualROQueryCapsRecognizesSingleCandidateDefault(t *testing.T
 	}
 }
 
-func TestBenchmarkIntGenISISE2EPropagatesBQ64LogCapPreset(t *testing.T) {
-	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
-		"-preset", credential.IntGenISISPresetN1024BQ64_128Theta13H256,
-	})
-	if err != nil {
-		t.Fatalf("parse benchmark bq64 preset: %v", err)
+func TestIntGenISISTuningFromPresetSpecPropagatesLogCaps(t *testing.T) {
+	spec := credential.IntGenISISTuningPreset{
+		ROQueryCapBits:    [5]float64{128, 128, 128, 128, 128},
+		ROQueryCapBitsSet: true,
+		DECSHashBits:      512,
+		DECSTapeBits:      256,
+		FSCollisionBits:   512,
+		SaltBits:          384,
 	}
-	if cfg.SecurityProfile != "BQ64-128" || cfg.SecurityMode != "residual_at_budget" || cfg.CompleteSystemClaim {
-		t.Fatalf("security tuple=(%q,%q,%v)", cfg.SecurityProfile, cfg.SecurityMode, cfg.CompleteSystemClaim)
+	got := intGenISISTuningFromPresetSpec(spec)
+	if got.ROQueryCapsSet || !got.ROQueryCapBitsSet || got.ROQueryCapBits != spec.ROQueryCapBits {
+		t.Fatalf("log query caps were not preserved: %+v", got)
 	}
-	if cfg.Showing.ROQueryCapsSet || cfg.Showing.ROQueryCaps != [5]int{} {
-		t.Fatalf("showing legacy caps=%v set=%v", cfg.Showing.ROQueryCaps, cfg.Showing.ROQueryCapsSet)
-	}
-	if !cfg.Showing.ROQueryCapBitsSet || cfg.Showing.ROQueryCapBits != [5]float64{64, 64, 64, 64, 64} {
-		t.Fatalf("showing log caps=%v set=%v", cfg.Showing.ROQueryCapBits, cfg.Showing.ROQueryCapBitsSet)
-	}
-	if !cfg.Issuance.ROQueryCapBitsSet || cfg.Issuance.ROQueryCapBits != cfg.Showing.ROQueryCapBits {
-		t.Fatalf("issuance log caps=%v set=%v", cfg.Issuance.ROQueryCapBits, cfg.Issuance.ROQueryCapBitsSet)
-	}
-	if cfg.Showing.DECSHashBits != 256 || cfg.Showing.DECSTapeBits != 192 || cfg.Showing.FSCollisionBits != 256 || cfg.Showing.SaltBits != 256 {
-		t.Fatalf("showing width lane=%+v", cfg.Showing)
-	}
-	if cfg.Showing.Theta != 13 || cfg.Showing.Ell != 18 || cfg.Showing.LVCSNCols != 48 || cfg.MaxNLeaves != 983040 {
-		t.Fatalf("showing shape/max leaves=%+v max=%d", cfg.Showing, cfg.MaxNLeaves)
-	}
-}
-
-func TestBenchmarkIntGenISISE2EPropagatesBQ128NIZKOnlyPreset(t *testing.T) {
-	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
-		"-preset", credential.IntGenISISPresetN1024BQ128_128RawResidualTheta13LVCS48H512,
-	})
-	if err != nil {
-		t.Fatalf("parse benchmark bq128 preset: %v", err)
-	}
-	if cfg.SecurityProfile != "BQ128-128" || cfg.SecurityMode != "residual_at_budget" || cfg.CompleteSystemClaim {
-		t.Fatalf("security tuple=(%q,%q,%v)", cfg.SecurityProfile, cfg.SecurityMode, cfg.CompleteSystemClaim)
-	}
-	if cfg.CoreBitsRequired != 256 {
-		t.Fatalf("core bits=%v want 256", cfg.CoreBitsRequired)
-	}
-	if cfg.PRFProfile != credential.IntGenISISPRFProfileTag9 || cfg.PRFParamsPath != credential.IntGenISISPRFParamsTag9 {
-		t.Fatalf("PRF tuple=(%q,%q)", cfg.PRFProfile, cfg.PRFParamsPath)
-	}
-	if cfg.Showing.ROQueryCapsSet || cfg.Showing.ROQueryCaps != [5]int{} {
-		t.Fatalf("showing legacy caps=%v set=%v", cfg.Showing.ROQueryCaps, cfg.Showing.ROQueryCapsSet)
-	}
-	wantCapBits := [5]float64{128, 128, 128, 128, 128}
-	if !cfg.Showing.ROQueryCapBitsSet || cfg.Showing.ROQueryCapBits != wantCapBits {
-		t.Fatalf("showing log caps=%v set=%v", cfg.Showing.ROQueryCapBits, cfg.Showing.ROQueryCapBitsSet)
-	}
-	if !cfg.Issuance.ROQueryCapBitsSet || cfg.Issuance.ROQueryCapBits != wantCapBits {
-		t.Fatalf("issuance log caps=%v set=%v", cfg.Issuance.ROQueryCapBits, cfg.Issuance.ROQueryCapBitsSet)
-	}
-	if cfg.Showing.DECSHashBits != 512 || cfg.Showing.DECSTapeBits != 256 || cfg.Showing.FSCollisionBits != 512 || cfg.Showing.SaltBits != 384 {
-		t.Fatalf("showing width lane=%+v", cfg.Showing)
-	}
-	if cfg.Showing.Theta != 13 || cfg.Showing.Ell != 18 || cfg.Showing.Kappa != [4]int{0, 0, 8, 5} ||
-		cfg.Showing.LVCSNCols != 48 || cfg.Showing.NLeaves != 983040 || cfg.Showing.Eta != 65 || cfg.MaxNLeaves != 983040 {
-		t.Fatalf("showing shape/max leaves=%+v max=%d", cfg.Showing, cfg.MaxNLeaves)
-	}
-	if cfg.Issuance.PRFCompanionMode != "" || cfg.Issuance.SigShortnessRadix != 0 || cfg.Issuance.ReplayProjection != "" {
-		t.Fatalf("issuance retained showing-only fields: %+v", cfg.Issuance)
+	if got.DECSHashBits != 512 || got.DECSTapeBits != 256 || got.FSCollisionBits != 512 || got.SaltBits != 384 {
+		t.Fatalf("security widths were not preserved: %+v", got)
 	}
 }
 
@@ -608,7 +561,7 @@ func TestSetupIntGenISISPublicWritesMaintainedProfileParams(t *testing.T) {
 
 	for _, presetName := range []string{
 		credential.IntGenISISPresetN512Compact96,
-		credential.IntGenISISPresetN1024Compact96,
+		credential.IntGenISISPresetN1024Compact125,
 	} {
 		t.Run(presetName, func(t *testing.T) {
 			preset, err := credential.MustLookupIntGenISISPreset(presetName)
@@ -889,7 +842,7 @@ func ledgerTermByName(ledger credential.SystemSecurityLedger, category, name str
 }
 
 func TestBoundIssuanceOptionsRejectManifestMismatch(t *testing.T) {
-	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetArtifactN1024SC96V1)
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetArtifactN1024SC125V1)
 	if err != nil {
 		t.Fatal(err)
 	}

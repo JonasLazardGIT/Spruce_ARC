@@ -329,25 +329,38 @@ func nizkProfileSearchCandidates() []NIZKProfileSearchCandidate {
 	if err != nil {
 		return nil
 	}
-	q32Preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetN1024Q32_128)
-	if err != nil {
-		return nil
-	}
 	bq32Base := intGenISISTuningFromPresetSpec(bq32Preset.Showing)
-	q32Base := intGenISISTuningFromPresetSpec(q32Preset.Showing)
+	q32Base := nizkProfileArchivedQ32R128Base(bq32Base)
 	candidates := []NIZKProfileSearchCandidate{
 		nizkProfileCandidateFromTuning("control-bq32-96-current-relation", "bq32-96-current-relation", bq32Preset.Name, bq32Base, nizkProfileRelationCurrentBQ32()),
-		nizkProfileCandidateFromTuning("control-q32-128-high-soundness", "q32-128-current-relation", q32Preset.Name, q32Base, nizkProfileRelationCurrentBQ32()),
+		nizkProfileCandidateFromTuning("control-q32-128-high-soundness", "q32-128-current-relation", bq32Preset.Name, q32Base, nizkProfileRelationCurrentBQ32()),
 		nizkProfileCandidateFromTuning("bq32-nizk164-theta10-ell16-n1048576", "bq32-current-theta10-ell16", bq32Preset.Name, nizkProfileSmallWoodOnlyCandidate(bq32Base, 10, 16, 1048576, 44), nizkProfileRelationCurrentBQ32()),
 		nizkProfileCandidateFromTuning("bq64-nizk164-theta12-ell16-n1048576", "bq32-current-theta12-ell16", bq32Preset.Name, nizkProfileSmallWoodOnlyCandidate(bq32Base, 12, 16, 1048576, 44), nizkProfileRelationCurrentBQ32()),
 		nizkProfileCandidateFromTuning("bq64-128-theta14-ell20-n1048576", "bq32-current-theta14-ell20", bq32Preset.Name, nizkProfileSmallWoodOnlyCandidate(bq32Base, 14, 20, 1048576, 48), nizkProfileRelationCurrentBQ32()),
 		nizkProfileCandidateFromTuning("bq64-128-theta16-ell24-n1048576-lvcs48", "bq32-current-theta16-ell24", bq32Preset.Name, nizkProfileSmallWoodOnlyCandidateWithLVCS(bq32Base, 16, 24, 1048576, 48, 48), nizkProfileRelationCurrentBQ32()),
 	}
-	candidates = append(candidates, nizkProfileGeneratedSearchCandidates(bq32Preset.Name, bq32Base, q32Preset.Name, q32Base)...)
+	candidates = append(candidates, nizkProfileGeneratedSearchCandidates(bq32Preset.Name, bq32Base, bq32Preset.Name, q32Base)...)
 	candidates = append(candidates, nizkProfileBQ6496ReductionCandidates(bq32Preset.Name, bq32Base)...)
 	candidates = append(candidates, nizkProfileBQ64128ReductionCandidates(bq32Preset.Name, bq32Base)...)
 	candidates = append(candidates, nizkProfileValidPrefixTrailCandidates(bq32Preset.Name, bq32Base)...)
 	return nizkProfileDeduplicateCandidates(candidates)
+}
+
+func nizkProfileArchivedQ32R128Base(base intGenISISTuning) intGenISISTuning {
+	base.LVCSNCols = 37
+	base.NLeaves = 655360
+	base.Eta = 45
+	base.Theta = 9
+	base.Ell = 11
+	base.Kappa = [4]int{1, 0, 0, 8}
+	base.DECSCollisionBits = 200
+	base.DECSHashBits = 0
+	base.DECSTapeBits = 0
+	base.FSCollisionBits = 0
+	base.SaltBits = 0
+	base.PRFProfile = credential.IntGenISISPRFProfileDefault
+	base.PRFParamsPath = credential.IntGenISISPRFParamsDefault
+	return base
 }
 
 func nizkProfileSearchCandidatesForFilter(filter string) []NIZKProfileSearchCandidate {
@@ -3692,15 +3705,12 @@ func TestNIZKProfileFormalRhoEllPrimeProbeFailsClosed(t *testing.T) {
 
 func TestNIZKProfileMaintainedByteGateBaselineLocked(t *testing.T) {
 	want := map[string]int{
-		credential.IntGenISISPresetN512Compact96:   22016,
-		credential.IntGenISISPresetN1024Compact96:  26144,
-		credential.IntGenISISPresetN1024Compact125: 35223,
-		credential.IntGenISISPresetN1024Q10_128:    37093,
-		credential.IntGenISISPresetN1024Q16_128:    42070,
-		credential.IntGenISISPresetN1024Q32_128:    48691,
-		credential.IntGenISISPresetN1024Q10_96:     29653,
-		credential.IntGenISISPresetN1024Q16_96:     30591,
-		credential.IntGenISISPresetN1024Q32_96:     37257,
+		credential.IntGenISISPresetN512Compact96:          22016,
+		credential.IntGenISISPresetN1024Compact125:        35223,
+		credential.IntGenISISPresetN1024Q10_96:            29653,
+		credential.IntGenISISPresetN1024Q16_96:            30591,
+		credential.IntGenISISPresetN1024BQ32_96:           36887,
+		credential.IntGenISISPresetSystemN1024WF128CROMV1: 38092,
 	}
 	gates := allMaintainedPresetGates()
 	if len(gates) != len(want) {

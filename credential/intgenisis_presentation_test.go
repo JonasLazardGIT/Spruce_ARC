@@ -56,7 +56,7 @@ func TestIntGenISISPresentationRejectsTamperedPresetBinding(t *testing.T) {
 	if err := pres.Validate(); err != nil {
 		t.Fatalf("valid bound presentation rejected: %v", err)
 	}
-	pres.PresetID = IntGenISISPresetArtifactN1024SC96V1
+	pres.PresetID = IntGenISISPresetArtifactN1024SC125V1
 	if err := pres.Validate(); err == nil {
 		t.Fatal("tampered presentation preset binding accepted")
 	}
