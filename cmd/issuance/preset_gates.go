@@ -16,12 +16,22 @@ type presetReportValidator func(credential.IntGenISISPreset, benchmarkIntGenISIS
 func runGateFunctionalPresets(args []string) error {
 	names := functionalPresetNames()
 	return runPresetReportGateCommand("gate-functional-presets", args, names, func(preset credential.IntGenISISPreset, report benchmarkIntGenISISE2EReport) error {
-		if err := validateFunctionalPresetReport(report); err != nil {
+		if err := validateExecutablePresetReport(preset, report); err != nil {
 			return err
 		}
 		fmt.Printf("%s functional=pass parameter_audit=%s ledger=%s\n", preset.CanonicalID, report.ParameterAudit.Status, report.SecurityLedger.LedgerStatus)
 		return nil
 	})
+}
+
+func validateExecutablePresetReport(preset credential.IntGenISISPreset, report benchmarkIntGenISISE2EReport) error {
+	if err := validateFunctionalPresetReport(report); err != nil {
+		return err
+	}
+	if report.ParameterAudit.Status != "pass" {
+		return fmt.Errorf("parameter audit rejected: %s", strings.Join(credential.SecurityParameterAuditRejectionReasons(report.ParameterAudit), "; "))
+	}
+	return validatePresetTheoremTarget(preset, report)
 }
 
 func functionalPresetNames() []string {
