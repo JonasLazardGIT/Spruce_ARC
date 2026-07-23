@@ -83,48 +83,39 @@ Security metadata is informational and does not constitute a deployment claim.
 | Canonical preset | Purpose | Lifecycle | Claim | Availability |
 | --- | --- | --- | --- | --- |
 | `poc-n512-sc96-v1` | integration/demo | `poc` | SC-96 proof-only | available |
-| `artifact-n1024-sc96-v1` | paper reproduction | `artifact` | SC-96 proof-only | available |
 | `artifact-n1024-sc125-v1` | paper reproduction | `artifact` | SC-125 proof-only | available |
+| `artifact-n1024-bq10-r96-historical-v1` | bounded-query reproduction | `artifact` | BQ10-R96 proof-only | available |
+| `artifact-n1024-bq16-r96-historical-v1` | bounded-query reproduction | `artifact` | BQ16-R96 proof-only | available |
 | `pilot-n1024-bq32-r96-v1` | controlled pilot | `candidate` | bounded complete-system candidate | available, not promoted |
 | `system-n1024-wf128-crom-v1` | WF-128 PoC shape | `candidate` | complete-system target | available PoC; no claim |
-| `research-n1024-bq32-r128-v1` | strong bounded-query experiment | `research` | proof-only | available PoC |
-| `research-n1024-bq128-r128-v1` | extreme proof-layer experiment | `research` | proof-only | available PoC |
 
-This table highlights named use cases. `list-presets` prints every registry
-entry, including historical and internal theorem points, without visibility
-flags. No complete-system deployment preset is currently available.
+`list-presets` prints exactly these six unique security-target/query-budget
+tuples. No complete-system deployment preset is currently available.
 
-## Historical Artifact Parameters
+## Executable Preset Parameters
 
-The artifact byte gate contains exactly these legacy selectors:
+The executable registry accepts these selectors:
 
 ```text
 n512-compact96
-n1024-compact96
 n1024-compact125
-n1024-q10-128
-n1024-q16-128
-n1024-q32-128
 n1024-q10-96
 n1024-q16-96
-n1024-q32-96
+n1024-bq32-96
+system-n1024-wf128-crom-v1
 ```
 
-They remain aliases for reproducibility and resolve to canonical manifests.
-Q10/Q16/Q32 entries carry exact query scopes; they do not inherit BQ32
-metadata.
+Legacy selectors resolve to their canonical manifests. Removed selectors are
+archived rather than redirected to different parameters.
 
 | Preset | Profile | Proof target | `n_cols` | `N_DECS` | eta | theta | rho | ell/ell' | Showing shortness | Compression | Projection |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | --- |
 | `n512-compact96` | B | 96 | 36 | 262,144 | 36 | 5 | 1 | 7/1 | R7/L5 | 0 | `project_u_digits_and_y_view_v3` |
-| `n1024-compact96` | C | 96 | 43 | 230,208 | 40 | 5 | 1 | 7/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
 | `n1024-compact125` | C | 125+ | 46 | 608,192 | 48 | 7 | 1 | 9/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
-| `n1024-q10-128` | C | 128 | 36 | 983,040 | 44 | 7 | 1 | 9/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
-| `n1024-q16-128` | C | 128 | 37 | 524,288 | 43 | 8 | 1 | 10/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
-| `n1024-q32-128` | C | 128 | 37 | 655,360 | 45 | 9 | 1 | 11/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
 | `n1024-q10-96` | C | 96 | 37 | 720,896 | 40 | 6 | 1 | 7/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
 | `n1024-q16-96` | C | 96 | 38 | 393,216 | 40 | 6 | 1 | 8/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
-| `n1024-q32-96` | C | 96 | 37 | 458,752 | 44 | 7 | 1 | 9/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
+| `n1024-bq32-96` | C | 99.5 | 40 | 786,432 | 46 | 7 | 1 | 9/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
+| `system-n1024-wf128-crom-v1` | C | 128 | 43 | 524,288 | 46 | 7 | 1 | 9/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
 
 Issuance knobs prove the commitment opening and semantic constraints before the
 issuer signs. Showing knobs prove the final credential relation and add PRF
@@ -167,30 +158,13 @@ and 133.44/133.35 issuance/showing theorem bits. Relative to the initial
 1,821 bytes. The structural parameter audit passes. The ledger remains
 diagnostic and the preset has `complete_system_claim=false`.
 
-## NIZK-Only Q128 Preset
+## Archived Research Measurements
 
-The CLI-exposed SmallWood NIZK-only Q128/epsilon128 preset is:
-
-```text
-research-n1024-bq128-r128-v1
-```
-
-It is the promoted form of the internal frontier candidate
-`bq128-128-raw128-residual128-theta13-lvcs48-h512`. The claim is limited to the
-SmallWood NIZK proof layer: an adversary may make up to `2^128`
-ROM/Fiat-Shamir queries against the proof system, and the measured proof
-soundness and zero-knowledge terms remain about 128 bits.
-
-| Preset | Profile | Claim | RO caps | Hash/FS | Tape | Salt | `n_cols` | `N_DECS` | eta | theta | ell/ell' | kappa |
-| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| `research-n1024-bq128-r128-v1` | C | NIZK-only Q128/epsilon128 | raw log `[128]*5` | 512 | 256 | 384 | 48 | 983,040 | 65 | 13 | 18/1 | `{0,0,8,5}` |
-
-This preset uses no valid-prefix discount. Its benchmark report currently
-measures `showing.paper_transcript_bytes = 89950` and
-`showing.theorem_total_bits = 129.26` for the proof layer. It remains outside
-the artifact preset gate because the full `BQ128-128` IntGenISIS
-credential-system profile still has `complete_system_claim=false` and
-`ledger_status="requires_new_primitives"` under the current primitive core.
+Removed Q128, BQ64, R128, duplicate SC-96, and historical BQ32 configurations
+are recorded in `credential/testdata/removed_intgenisis_presets.json`. The
+archive preserves selectors, measured transcript sizes, theorem bits, audit
+status, and the required correction without exposing incoherent configurations
+through the CLI.
 
 ## Public Setup
 

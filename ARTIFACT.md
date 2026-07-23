@@ -25,24 +25,20 @@ Every listed preset is executable and distributed for experimental PoC use.
 Security reports are diagnostic; no listed preset makes a complete-system
 deployment claim.
 
-The exact-byte artifact gate retains these nine historical selectors:
+The exact-byte gate covers the six executable selectors:
 
 ```text
 n512-compact96
-n1024-compact96
 n1024-compact125
-n1024-q10-128
-n1024-q16-128
-n1024-q32-128
 n1024-q10-96
 n1024-q16-96
-n1024-q32-96
+pilot-n1024-bq32-r96-v1
+system-n1024-wf128-crom-v1
 ```
 
-These selectors remain aliases so historical commands and byte tables continue
-to reproduce. They are not nine equivalent security/deployment profiles. The
-listing command prints their canonical registry identities alongside every
-other executable preset.
+The four legacy selectors resolve to canonical manifests. Removed selectors are
+not redirected to new parameters. Their last measured results and disposition
+are archived in `credential/testdata/removed_intgenisis_presets.json`.
 
 ## Expected Results
 
@@ -53,32 +49,17 @@ not KiB.
 | Preset | Role | Expected `showing.paper_transcript_bytes` |
 | --- | --- | ---: |
 | `n512-compact96` | PoC alias; SC-96 proof-only | 22016 |
-| `n1024-compact96` | paper artifact; SC-96 proof-only | 26144 |
 | `n1024-compact125` | paper artifact; SC-125 proof-only | 35223 |
-| `n1024-q10-128` | historical proof artifact, raw `2^10` caps | 37093 |
-| `n1024-q16-128` | historical proof artifact, raw `2^16` caps | 42070 |
-| `n1024-q32-128` | BQ32-R128 proof-theorem research point | 48691 |
 | `n1024-q10-96` | historical proof artifact, raw `2^10` caps | 29653 |
 | `n1024-q16-96` | historical proof artifact, raw `2^16` caps | 30591 |
-| `n1024-q32-96` | superseded historical BQ32-R96 proof artifact | 37257 |
+| `pilot-n1024-bq32-r96-v1` | BQ32-R96 candidate with actual tag-9 | 36887 |
+| `system-n1024-wf128-crom-v1` | unbounded CROM work-factor PoC | 38092 |
 
 The validation scripts fail if these byte counts change.
 
-Additional measured, non-artifact points are:
-
-| Preset | Role | Expected `showing.paper_transcript_bytes` |
-| --- | --- | ---: |
-| `pilot-n1024-bq32-r96-v1` | bounded CROM candidate; actual tag-9; raw `[2^32]*5` caps per phase | 36887 |
-| `research-n1024-bq128-r128-v1` | proof-only SmallWood NIZK Q128/epsilon128 claim for up to `2^128` proof-system queries | 89950 |
-
-Neither row is an artifact byte gate. The BQ32 executed-parameter audit passes,
-but its complete ledger remains blocked. The BQ128 row is proof-only and the
-full `BQ128-128` profile still reports `requires_new_primitives`.
-
 The executable `system-n1024-wf128-crom-v1` PoC currently measures 26,758
 issuance and 38,092 showing paper-transcript bytes. Three tuning-confirmation
-runs produced identical byte counts. These values are diagnostic and are
-intentionally not part of the maintained artifact byte table or gate.
+runs produced identical byte counts. These values are diagnostic.
 
 ## Docker Reproduction
 
@@ -95,7 +76,7 @@ docker run --rm --user "$(id -u):$(id -g)" spruce-artifact list
 docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench system-n1024-wf128-crom-v1
 ```
 
-Run the all-preset functional gate, or reproduce the historical exact-byte
+Run the all-preset functional gate, or reproduce the executable-preset exact-byte
 gate separately:
 
 ```bash
@@ -138,7 +119,7 @@ staticcheck ./...
 deadcode -test ./... with no output allowed
 deadcode ./... with no output allowed
 go build ./cmd/issuance ./cmd/showing
-benchmark-intgenisis-e2e for all nine historical exact-byte selectors
+benchmark-intgenisis-e2e for all six executable presets
 ```
 
 If `staticcheck` is not installed, the script runs the pinned tool through
@@ -163,7 +144,7 @@ go run ./cmd/issuance benchmark-intgenisis-e2e \
   -force
 ```
 
-Run the historical exact-byte gate:
+Run the executable-preset exact-byte gate:
 
 ```bash
 go run ./cmd/issuance gate-artifact-presets -artifact-dir "$(mktemp -d)"
@@ -246,10 +227,10 @@ The benchmark JSON report records:
 | Claim | Reproduction command | Report field or check |
 | --- | --- | --- |
 | Every listed preset is executable | `go run ./cmd/issuance gate-functional-presets` | every registry entry reports `functional=pass` |
-| Historical artifact byte list | `go run ./cmd/issuance gate-artifact-presets` | all nine exact-byte aliases pass |
+| Executable preset byte list | `go run ./cmd/issuance gate-artifact-presets` | all six exact-byte checks pass |
 | BQ32 controlled-pilot candidate | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset pilot-n1024-bq32-r96-v1` | actual parameters pass their profile requirements; ledger remains explicitly blocked |
 | WF-128 PoC shape | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset system-n1024-wf128-crom-v1` | parameter audit passes, tag length is 13, bounded-query caps are unset, and `complete_system_claim == false` |
-| SmallWood NIZK-only Q128/epsilon128 preset | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset research-n1024-bq128-r128-v1` | `showing.theorem_total_bits >= 128`, `zero_knowledge_bits >= 128`, `security_ledger.complete_system_claim == false`, `ledger_status == "requires_new_primitives"` |
+| Removed research measurements | inspect `credential/testdata/removed_intgenisis_presets.json` | archived selectors, measured bytes, theorem bits, audit status, and removal reason |
 | Maintained paper transcript byte counts | `./scripts/validate-artifact.sh` | `showing.paper_transcript_bytes` equals the maintained table above |
 | SmallWood 2025 transcript mode | any benchmark JSON report | `showing.transcript_security_status == "smallwood_2025_1085_live"` |
 | Fixed-size transcript stability | repeat benchmark for same preset | `showing.paper_transcript_bytes` unchanged |
@@ -286,7 +267,7 @@ as an external pinned checkout.
 ## Runtime And Failure Modes
 
 Runtime varies by CPU and scheduler. The `n512` preset is normally a short
-smoke run. Query-budget-specific degree-1024 128-bit artifacts are the slowest
+smoke run. The BQ32 and WF-128 configurations are the slowest retained
 exact-byte runs.
 
 NTRU key generation is randomized and can internally retry if the numerical

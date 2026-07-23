@@ -9,7 +9,7 @@ The maintained artifact surface is intentionally narrow:
 - `cmd/issuance`
 - `cmd/showing`
 - every preset in the executable registry
-- Go tests, one all-preset functional gate, the historical artifact gate, and
+- Go tests, one all-preset functional gate, the executable-preset byte gate, and
   benchmark reports
 
 All configurations are experimental PoC presets. Security metadata is
@@ -41,9 +41,9 @@ The command prints every canonical registry entry. Every listed preset can be
 run by `benchmark-intgenisis-e2e`; there are no visibility flags or unavailable
 placeholder entries.
 
-The old `n512-*` and `n1024-*` names remain accepted aliases for artifact
-reproduction. They resolve to the same canonical manifest and do not create a
-second wire identity.
+The retained `n512-*` and `n1024-*` selectors remain accepted aliases for their
+canonical manifests. Removed duplicate or structurally rejected selectors do
+not resolve to a different preset.
 
 `system-n1024-wf128-crom-v1` is executable, but remains a candidate with
 `CompleteSystemClaim=false`. No complete-system deployment preset is currently
@@ -64,23 +64,10 @@ one-showing global-collision composition. The executed-parameter audit passes,
 but complete-system promotion remains blocked by missing or unreviewed
 primitive and full-game ledger terms.
 
-## NIZK-Only Q128 Preset
-
-The public SmallWood NIZK-only Q128/epsilon128 research preset is:
-
-```text
-research-n1024-bq128-r128-v1
-```
-
-It targets proof soundness and zero knowledge of about 128 bits against an
-adversary making up to `2^128` ROM/Fiat-Shamir queries against the proof
-system. It uses raw log caps `[128]*5`, 512-bit hash/Fiat-Shamir output,
-256-bit tape, 384-bit salt, `theta=13`, `ell=18`, polynomial block width
-`n_cols=48`, and degree-enforcing domain size `N_DECS=983040`.
-
-This is not a complete IntGenISIS credential-system claim: the `BQ128-128`
-system profile remains `requires_new_primitives` because the current executable
-primitive core is below the 256-bit core required for that full-system profile.
+Removed duplicate, historical, and research measurements remain recorded in
+`credential/testdata/removed_intgenisis_presets.json`. They are not executable
+presets because their parameter audit failed or a smaller preset implements the
+same security target and adversary budget.
 
 ## WF-128 PoC Preset
 
@@ -127,7 +114,8 @@ go run ./cmd/issuance gate-artifact-presets
 ```
 
 The full native validation script runs formatting, tests, vet, staticcheck,
-strict deadcode, CLI builds, and all historical exact-byte artifact gates:
+strict deadcode, CLI builds, and exact-byte gates for all six executable
+presets:
 
 ```bash
 ./scripts/validate-artifact.sh

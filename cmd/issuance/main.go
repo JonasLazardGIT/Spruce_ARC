@@ -48,7 +48,7 @@ Manual protocol stages:
   holder-finalize               Verify and persist the credential state
 
 Reproduction command:
-  gate-artifact-presets         Reproduce historical exact-byte results
+  gate-artifact-presets         Reproduce executable-preset exact-byte results
 
 All configurations are experimental PoC presets. Security metadata is
 informational and does not constitute a deployment claim.`)

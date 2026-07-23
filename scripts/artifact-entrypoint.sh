@@ -11,7 +11,7 @@ commands:
 	  list                  list every executable PoC preset
 	  bench <preset>        run an E2E preset benchmark
 	  gate                  functionally validate every executable preset
-	  artifact-gate         reproduce historical exact-byte results
+	  artifact-gate         reproduce executable-preset exact-byte results
 	  validate              run tests, vet, staticcheck, deadcode, and all E2E checks
 EOF
 }

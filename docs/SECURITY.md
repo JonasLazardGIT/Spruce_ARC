@@ -55,16 +55,16 @@ separate from claim scope (`proof_only` or `complete_system`).
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | `SC-96` | one candidate | 96 | - | - | - | 7 | 96 | proof-only |
 | `SC-125` | one candidate | 125 | - | - | - | 7 | 125 | proof-only |
+| `BQ10-96` | raw `[2^10]*5` CROM caps | 96 residual | 120 | 106 | 120 | 7 | 106 | proof-only |
+| `BQ16-96` | raw `[2^16]*5` CROM caps | 96 residual | 136 | 112 | 136 | 7 | 112 | proof-only |
 | `BQ32-96` | raw `[2^32]*5` CROM caps | 96 residual | 168 | 136 | 168 | 9 | 128 | candidate |
 | `WF-128` | global CROM work factor | 128 | 264 | 128 | 256 | 13 | 128 | executable PoC candidate |
-| `WF-128-ENG` | engineering work-factor lane | 128 | 272 | 136 | 264 | 14 | 128 | unavailable candidate |
-| `BQ32-128` | raw `[2^32]*5` CROM caps | 128 residual | 200 | 160 | 192 | 10 | 160 | new primitives required |
-| `BQ128-128` | raw `[2^128]*5` CROM caps | 128 residual | 512 | 256 | 384 | 20 | 256 | new primitives required |
 
-Historical Q10 and Q16 presets have exact `BQ10-*` and `BQ16-*` profiles. They
-do not borrow BQ32 query metadata. Legacy Q32-R128 executes tag-7 and therefore
-fails the tag-10 requirement; the public BQ32-R96 pilot executes tag-9 and
-passes its parameter audit.
+Q10 and Q16 have exact profiles and do not borrow BQ32 query metadata. The
+BQ32-R96 pilot executes tag-9 and passes its parameter audit. Higher-budget and
+R128 target specifications remain available to the internal tuning sweep, but
+their rejected executable configurations were archived and removed from the
+CLI registry.
 
 ## Ledger Structure
 
@@ -243,7 +243,7 @@ not residual security at a fixed query budget.
 | SmallWood geometry | block width 43, `N_DECS=524288`, `eta=46`, `theta=7`, `ell=9` | measured R11/L4 retune |
 | Grinding vector | `[0,0,4,13]` | supported live path |
 | Issuance/showing theorem result | 133.44 / 133.35 bits | above 128 proof target |
-| Paper transcript | 26,758 / 38,092 bytes | issuance / showing; not artifact-gated |
+| Paper transcript | 26,758 / 38,092 bytes | issuance / showing; exact-byte gated |
 
 The final geometry was selected by projection followed by measured
 issuance/showing comparison. Wider committed rows alone reduced showing bytes
@@ -279,24 +279,20 @@ or modes to `cmd/issuance` or `cmd/showing`.
 ## Mapping To Artifact Claims
 
 - `poc-n512-sc96-v1` is a PoC with an SC-96 proof-only statement.
-- `artifact-n1024-sc96-v1` and `artifact-n1024-sc125-v1` reproduce the paper's
-  single-candidate proof measurements; they are not complete-system profiles.
+- `artifact-n1024-sc125-v1` reproduces the paper's higher single-candidate
+  proof measurement; it is not a complete-system profile.
+- The BQ10-R96 and BQ16-R96 artifacts preserve their exact per-phase query
+  budgets and pass their structural parameter audits.
 - `pilot-n1024-bq32-r96-v1` is a bounded candidate whose executed-parameter
   audit passes but whose complete ledger does not.
 - `system-n1024-wf128-crom-v1` is an executable unbounded CROM work-factor PoC
   whose structural parameter audit passes; its ledger is diagnostic and it
   makes no complete-system claim.
 - Query-budget presets carry explicit `ROQueryCaps` and DECS hash/tape widths
-  in the preset registry; theorem accounting is recorded by each benchmark and
-  historical byte results are verified by `gate-artifact-presets`.
-- The `research-n1024-bq128-r128-v1` preset is a
-  SmallWood NIZK-only Q128/epsilon128 claim. Its proof-layer accounting uses
-  raw log ROM/Fiat-Shamir caps `[128]*5`, 512-bit hash/FS collision space,
-  256-bit tape guessing, and 384-bit salt; benchmarks measure proof soundness
-  and zero knowledge at about 128 bits for proof-system query attacks.
-- That BQ128 preset is not a complete IntGenISIS credential-system claim:
-  `BQ128-128` remains `requires_new_primitives` until the primitive core is
-  upgraded to the 256-bit requirement for the full profile.
+  in the preset registry; theorem accounting is recorded by each benchmark.
+- Removed duplicate and rejected research measurements are preserved in
+  `credential/testdata/removed_intgenisis_presets.json`; they are not
+  executable presets.
 - Fixed-size transcript byte claims are reproduced by `ARTIFACT.md` commands
   and are not security-estimator outputs.
 - No complete-system deployment preset is currently available.
