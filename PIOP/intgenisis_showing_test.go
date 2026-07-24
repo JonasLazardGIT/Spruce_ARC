@@ -127,7 +127,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("debug omega: %v", err)
 	}
-	debugSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, rowsNTT, debugOmega[:builtNCols], debugCompanion, nil)
+	debugSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, rowsNTT, debugOmega[:builtNCols], debugCompanion, nil, SimOpts{})
 	if err != nil {
 		t.Fatalf("debug constraints: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		return out
 	}
 	expectFaggFailure := func(name string, rowIdx int) {
-		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, mutatedRowsNTT(rowIdx), debugOmega[:builtNCols], debugCompanion, nil)
+		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, mutatedRowsNTT(rowIdx), debugOmega[:builtNCols], debugCompanion, nil, SimOpts{})
 		if err != nil {
 			t.Fatalf("%s constraints: %v", name, err)
 		}
@@ -161,7 +161,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		}
 	}
 	expectFparFailure := func(name string, rowIdx int, fparNorm bool) {
-		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, mutatedRowsNTT(rowIdx), debugOmega[:builtNCols], debugCompanion, nil)
+		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, mutatedRowsNTT(rowIdx), debugOmega[:builtNCols], debugCompanion, nil, SimOpts{})
 		if err != nil {
 			t.Fatalf("%s constraints: %v", name, err)
 		}
@@ -274,7 +274,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("direct_full omega: %v", err)
 	}
-	fullSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, fullDebugPub, fullDebugLayout, fullRowsNTT, fullOmega[:fullBuiltNCols], fullDebugCompanion, nil)
+	fullSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, fullDebugPub, fullDebugLayout, fullRowsNTT, fullOmega[:fullBuiltNCols], fullDebugCompanion, nil, SimOpts{})
 	if err != nil {
 		t.Fatalf("direct_full constraints: %v", err)
 	}
@@ -349,6 +349,42 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err == nil && ok {
 		t.Fatal("direct_full verifier accepted tampered public nonce")
 	}
+	tag10Params, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params_tag10.json"))
+	if err != nil {
+		t.Fatalf("load tag10 params: %v", err)
+	}
+	tag10, err := prf.Tag(key, nonce, tag10Params)
+	if err != nil {
+		t.Fatalf("tag10: %v", err)
+	}
+	tag10Pub := pub
+	tag10Pub.Tag = lanesFromElemsTest(tag10, opts.NCols)
+	tag10Opts := fullOpts
+	tag10Opts.PRFParamsPath = filepath.Join("prf", "prf_params_tag10.json")
+	tag10Proof, err := BuildIntGenISISShowingCombined(tag10Pub, WitnessInputs{CoeffNativeShowing: cn}, tag10Opts)
+	if err != nil {
+		t.Fatalf("build tag10 direct_full showing: %v", err)
+	}
+	if tag10Proof.PRFCompanion == nil || tag10Proof.PRFCompanion.Layout == nil ||
+		len(tag10Proof.PRFCompanion.Layout.FinalTagSlots) != tag10Params.LenTag {
+		t.Fatalf("tag10 proof missing final tag relation: %+v", tag10Proof.PRFCompanion)
+	}
+	ok, err = VerifyIntGenISISShowing(tag10Pub, tag10Proof, tag10Opts)
+	if err != nil || !ok {
+		t.Fatalf("verify tag10 direct_full showing: ok=%v err=%v", ok, err)
+	}
+	for _, coord := range []int{8, 9} {
+		tampered := tag10Pub
+		tampered.Tag = make([][]int64, len(tag10Pub.Tag))
+		for i := range tag10Pub.Tag {
+			tampered.Tag[i] = append([]int64(nil), tag10Pub.Tag[i]...)
+		}
+		tampered.Tag[coord][0]++
+		ok, err = VerifyIntGenISISShowing(tampered, tag10Proof, tag10Opts)
+		if err == nil && ok {
+			t.Fatalf("tag10 verifier accepted tampered nonce-feed-forward coordinate %d", coord)
+		}
+	}
 	if proof.QOpening == nil || proof.QRoot == ([16]byte{}) || len(proof.QRBits) == 0 {
 		t.Fatal("showing proof did not carry Q DECS material")
 	}
@@ -393,7 +429,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("projection v3 debug omega: %v", err)
 	}
-	v3Set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v3DebugPub, v3DebugLayout, v3RowsNTT, v3Omega[:v3BuiltNCols], v3DebugCompanion, nil)
+	v3Set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v3DebugPub, v3DebugLayout, v3RowsNTT, v3Omega[:v3BuiltNCols], v3DebugCompanion, nil, SimOpts{})
 	if err != nil {
 		t.Fatalf("projection v3 constraints: %v", err)
 	}
@@ -484,7 +520,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("projection v5 debug omega: %v", err)
 	}
-	v5Set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v5DebugPub, v5DebugLayout, v5RowsNTT, v5Omega[:v5BuiltNCols], v5DebugCompanion, nil)
+	v5Set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v5DebugPub, v5DebugLayout, v5RowsNTT, v5Omega[:v5BuiltNCols], v5DebugCompanion, nil, SimOpts{})
 	if err != nil {
 		t.Fatalf("projection v5 constraints: %v", err)
 	}
@@ -503,7 +539,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		}
 		return out
 	}
-	set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v5DebugPub, v5DebugLayout, v5MutatedRowsNTT(v5Layout.WHatStart), v5Omega[:v5BuiltNCols], v5DebugCompanion, nil)
+	set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v5DebugPub, v5DebugLayout, v5MutatedRowsNTT(v5Layout.WHatStart), v5Omega[:v5BuiltNCols], v5DebugCompanion, nil, SimOpts{})
 	if err != nil {
 		t.Fatalf("projection v5 tampered W constraints: %v", err)
 	}
@@ -538,7 +574,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		}
 		return out
 	}
-	set, err = buildIntGenISISShowingConstraintSetFromRows(ringQ, v3DebugPub, v3DebugLayout, v3MutatedRowsNTT(v3Layout.UShortnessStart), v3Omega[:v3BuiltNCols], v3DebugCompanion, nil)
+	set, err = buildIntGenISISShowingConstraintSetFromRows(ringQ, v3DebugPub, v3DebugLayout, v3MutatedRowsNTT(v3Layout.UShortnessStart), v3Omega[:v3BuiltNCols], v3DebugCompanion, nil, SimOpts{})
 	if err != nil {
 		t.Fatalf("projection v3 tampered digit constraints: %v", err)
 	}
@@ -838,7 +874,7 @@ func assertIntGenISISShowingPreparedConstraintsMatchRebuild(t *testing.T, ringQ 
 	}
 	omegaWitness := omega[:builtNCols]
 	preparedRowsNTT := nttRowsForIntGenISISTest(ringQ, rows)
-	preparedSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, layout, preparedRowsNTT, omegaWitness, companion, nil)
+	preparedSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, layout, preparedRowsNTT, omegaWitness, companion, nil, SimOpts{})
 	if err != nil {
 		t.Fatalf("strict showing prepared constraints: %v", err)
 	}
@@ -851,7 +887,7 @@ func assertIntGenISISShowingPreparedConstraintsMatchRebuild(t *testing.T, ringQ 
 		rebuiltRows = logical.Rows
 	}
 	rebuiltRowsNTT := nttRowsForIntGenISISTest(ringQ, rebuiltRows)
-	rebuiltSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, layout, rebuiltRowsNTT, omegaWitness, companion, nil)
+	rebuiltSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, layout, rebuiltRowsNTT, omegaWitness, companion, nil, SimOpts{})
 	if err != nil {
 		t.Fatalf("strict showing rebuilt constraints: %v", err)
 	}

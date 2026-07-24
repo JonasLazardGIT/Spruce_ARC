@@ -2366,8 +2366,13 @@ func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowC
 	return nil
 }
 
-func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout, phase *PhaseRecorder) (ConstraintSet, error) {
-	return buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ, pub, layout, rowsNTT, omega, prfCompanionLayout, phase, nil)
+func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout, phase *PhaseRecorder, opts SimOpts) (ConstraintSet, error) {
+	params, err := loadPRFParamsForOpts(opts)
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("load prf params: %w", err)
+	}
+	prepared := &IntGenISISShowingPreparedContext{prfParams: params}
+	return buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ, pub, layout, rowsNTT, omega, prfCompanionLayout, phase, prepared)
 }
 
 func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout, phase *PhaseRecorder, prepared *IntGenISISShowingPreparedContext) (ConstraintSet, error) {

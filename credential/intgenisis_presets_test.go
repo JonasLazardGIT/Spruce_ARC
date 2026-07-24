@@ -319,6 +319,7 @@ func TestRegisteredPRFProfilesExposeExecutedTagWidths(t *testing.T) {
 	for profile, want := range map[string]int{
 		IntGenISISPRFProfileDefault: 7,
 		IntGenISISPRFProfileTag9:    9,
+		IntGenISISPRFProfileTag10:   10,
 		IntGenISISPRFProfileTag13:   13,
 	} {
 		got, ok := IntGenISISPRFProfileTagElements(profile)
@@ -329,6 +330,7 @@ func TestRegisteredPRFProfilesExposeExecutedTagWidths(t *testing.T) {
 	for profile, want := range map[string]string{
 		IntGenISISPRFProfileDefault: IntGenISISPRFParamsDefaultDigest,
 		IntGenISISPRFProfileTag9:    IntGenISISPRFParamsTag9Digest,
+		IntGenISISPRFProfileTag10:   IntGenISISPRFParamsTag10Digest,
 		IntGenISISPRFProfileTag13:   IntGenISISPRFParamsTag13Digest,
 	} {
 		got, ok := IntGenISISPRFProfileParamsDigest(profile)
