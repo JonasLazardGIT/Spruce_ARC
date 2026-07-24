@@ -49,8 +49,8 @@ func validateFunctionalPresetReport(report benchmarkIntGenISISE2EReport) error {
 }
 
 func validatePresetTheoremTarget(preset credential.IntGenISISPreset, report benchmarkIntGenISISE2EReport) error {
-	if report.Issuance.TheoremTotalBits < preset.TargetTheoremBits || report.Showing.TheoremTotalBits < preset.TargetTheoremBits {
-		return fmt.Errorf("measured theorem bits issuance=%.2f showing=%.2f below %.2f", report.Issuance.TheoremTotalBits, report.Showing.TheoremTotalBits, preset.TargetTheoremBits)
+	if report.Issuance.AlgebraicTotalBits < preset.TargetTheoremBits || report.Showing.AlgebraicTotalBits < preset.TargetTheoremBits {
+		return fmt.Errorf("measured algebraic theorem bits issuance=%.2f showing=%.2f below %.2f", report.Issuance.AlgebraicTotalBits, report.Showing.AlgebraicTotalBits, preset.TargetTheoremBits)
 	}
 	return nil
 }

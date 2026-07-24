@@ -15,12 +15,14 @@ func TestExecutablePresetReportRequiresPassingAuditAndTheoremTarget(t *testing.T
 	report := benchmarkIntGenISISE2EReport{
 		ReplayRejected: true,
 		Issuance: benchmarkIntGenISISMetrics{
-			ProofSizeBytes:   1,
-			TheoremTotalBits: preset.TargetTheoremBits,
+			ProofSizeBytes:     1,
+			TheoremTotalBits:   preset.TargetTheoremBits - 1,
+			AlgebraicTotalBits: preset.TargetTheoremBits,
 		},
 		Showing: benchmarkIntGenISISMetrics{
-			ProofSizeBytes:   1,
-			TheoremTotalBits: preset.TargetTheoremBits,
+			ProofSizeBytes:     1,
+			TheoremTotalBits:   preset.TargetTheoremBits - 1,
+			AlgebraicTotalBits: preset.TargetTheoremBits,
 		},
 		ParameterAudit: credential.IntGenISISSecurityParameterAudit{Status: "pass"},
 	}
@@ -39,7 +41,7 @@ func TestExecutablePresetReportRequiresPassingAuditAndTheoremTarget(t *testing.T
 		t.Fatalf("rejected parameter audit error=%v", err)
 	}
 	report.ParameterAudit = credential.IntGenISISSecurityParameterAudit{Status: "pass"}
-	report.Showing.TheoremTotalBits--
+	report.Showing.AlgebraicTotalBits--
 	if err := validateExecutablePresetReport(preset, report); err == nil || !strings.Contains(err.Error(), "below") {
 		t.Fatalf("under-target theorem report error=%v", err)
 	}

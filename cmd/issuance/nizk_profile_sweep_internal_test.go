@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	nizkProfileSweepSummaryVersion  = 1
+	nizkProfileSweepSummaryVersion  = 2
 	nizkProfileSweepSummaryFilename = "nizk-profile-research-summary.json"
 
 	nizkProfileBQ128RawResidualFrontierCandidate = "bq128-128-raw128-residual128-theta13-lvcs48-h512"
 	nizkProfileFormalBackendFamily               = "formal_backend_sweep"
+	nizkProfileScopedR128Family                  = "nizk_scoped_r128"
 
 	nizkProfileFrontierCandidate              = "nizk_candidate"
 	nizkProfileFrontierHighKResearch          = "high_k_research"
@@ -32,8 +33,10 @@ const (
 	nizkProfileFrontierSerializerModelBlocked = "serializer_model_blocked"
 	nizkProfileFrontierRejected               = "rejected"
 	nizkProfileDefaultEngineeringTargetMargin = 2.0
+	nizkProfileScopedR128FullGameTargetBits   = 130.0
+	nizkProfileMinReplacementImprovementPct   = 2.0
+	nizkProfileMaxReplacementProvingRatio     = 2.0
 	bq6496ReductionBaselineBytes              = 69768
-	bq64128ReductionBaselineBytes             = 83223
 )
 
 func benchmarkValidPrefixCostReport(spec credential.IntGenISISSecurityProfileSpec, timings []PIOP.PhaseTiming, explicitValidPrefixCaps [4]float64, researchAccounting bool) credential.ValidPrefixCostReport {
@@ -47,6 +50,7 @@ type NIZKProfileSearchTarget struct {
 	SecurityMode           string                           `json:"security_mode"`
 	CoreBitsRequired       float64                          `json:"core_bits_required"`
 	NIZKTargetBits         float64                          `json:"nizk_target_bits"`
+	FullGameTargetBits     float64                          `json:"full_game_target_bits,omitempty"`
 	QueryCapExponent       int                              `json:"query_cap_exponent"`
 	HashFSBitsRange        [2]int                           `json:"hash_fs_bits_range"`
 	TapeBitsRange          [2]int                           `json:"tape_bits_range"`
@@ -106,11 +110,47 @@ type NIZKProfileSmallWoodReport struct {
 	RawQueryCapLog2           float64    `json:"raw_query_cap_log2,omitempty"`
 	EffectiveQueryCapLog2     [4]float64 `json:"effective_query_cap_log2,omitempty"`
 	UsesValidPrefixAccounting bool       `json:"uses_valid_prefix_accounting,omitempty"`
+	AggregateOptimized        bool       `json:"aggregate_optimized,omitempty"`
+	ExpectedGrindingWork      float64    `json:"expected_grinding_work,omitempty"`
+	ExpectedGrindingWorkLog2  float64    `json:"expected_grinding_work_log2,omitempty"`
 	LVCSWindow                []int      `json:"lvcs_window,omitempty"`
 	EtaWindow                 []int      `json:"eta_window,omitempty"`
 	ThetaWindow               []int      `json:"theta_window,omitempty"`
 	EllWindow                 []int      `json:"ell_window,omitempty"`
 	Notes                     []string   `json:"notes,omitempty"`
+}
+
+type NIZKProfilePhaseProjection struct {
+	LogicalRows       int                        `json:"logical_rows"`
+	DQ                int                        `json:"dq"`
+	WitnessLayers     int                        `json:"witness_layers"`
+	ReplayWitnessRows int                        `json:"replay_witness_rows"`
+	MaskRows          int                        `json:"mask_rows"`
+	OpeningRows       int                        `json:"opening_rows"`
+	QueryCount        int                        `json:"query_count"`
+	PColsEncoded      int                        `json:"p_cols_encoded"`
+	ProverWorkUnits   uint64                     `json:"prover_work_units"`
+	Transcript        PIOP.PaperTranscriptReport `json:"transcript"`
+}
+
+type NIZKProfileMeasurementSummary struct {
+	Runs                         int     `json:"runs"`
+	IssuanceBytes                int     `json:"issuance_bytes"`
+	ShowingBytes                 int     `json:"showing_bytes"`
+	CombinedBytes                int     `json:"combined_bytes"`
+	MedianIssuanceProvingMS      float64 `json:"median_issuance_proving_ms"`
+	MedianIssuanceVerificationMS float64 `json:"median_issuance_verification_ms"`
+	MedianShowingProvingMS       float64 `json:"median_showing_proving_ms"`
+	MedianShowingVerificationMS  float64 `json:"median_showing_verification_ms"`
+	MedianCombinedProvingMS      float64 `json:"median_combined_proving_ms"`
+	MedianCombinedVerificationMS float64 `json:"median_combined_verification_ms"`
+	ExpectedGrindingWork         float64 `json:"expected_grinding_work"`
+	ExpectedGrindingWorkLog2     float64 `json:"expected_grinding_work_log2"`
+	IncumbentCombinedBytes       int     `json:"incumbent_combined_bytes,omitempty"`
+	IncumbentMedianProvingMS     float64 `json:"incumbent_median_proving_ms,omitempty"`
+	CombinedImprovementPercent   float64 `json:"combined_improvement_percent,omitempty"`
+	ProvingTimeRatio             float64 `json:"proving_time_ratio,omitempty"`
+	MeaningfulReplacement        bool    `json:"meaningful_replacement"`
 }
 
 type NIZKProfileFormalBackendDiagnostics struct {
@@ -156,11 +196,15 @@ type NIZKProfileCandidateReport struct {
 	MeasurementStatus         string                                    `json:"measurement_status"`
 	MeasurementSource         string                                    `json:"measurement_source,omitempty"`
 	MeasurementError          string                                    `json:"measurement_error,omitempty"`
+	IncumbentControl          bool                                      `json:"incumbent_control,omitempty"`
 	MeasuredArtifactDir       string                                    `json:"measured_artifact_dir,omitempty"`
 	MeasuredJSON              string                                    `json:"measured_json,omitempty"`
 	LedgerStatus              string                                    `json:"ledger_status"`
 	LedgerReasons             []string                                  `json:"ledger_rejection_reasons,omitempty"`
 	NIZKTargetBits            float64                                   `json:"nizk_target_bits"`
+	FullGameTargetBits        float64                                   `json:"full_game_target_bits,omitempty"`
+	FullGameBits              float64                                   `json:"full_game_bits,omitempty"`
+	GlobalCollisionBits       float64                                   `json:"global_collision_bits,omitempty"`
 	CoreBitsRequired          float64                                   `json:"core_bits_required"`
 	RawQueryCapLog2           float64                                   `json:"raw_query_cap_log2,omitempty"`
 	EffectiveAlgebraicCapLog2 [4]float64                                `json:"effective_algebraic_cap_log2,omitempty"`
@@ -177,13 +221,19 @@ type NIZKProfileCandidateReport struct {
 	AlgebraicRoundBits        [4]float64                                `json:"algebraic_round_bits"`
 	TranscriptBuckets         nizkProfileBucketDigest                   `json:"transcript_buckets"`
 	PaperTranscriptBytes      int                                       `json:"paper_transcript_bytes"`
+	IssuanceProjection        *NIZKProfilePhaseProjection               `json:"issuance_projection,omitempty"`
+	ShowingProjection         *NIZKProfilePhaseProjection               `json:"showing_projection,omitempty"`
+	CombinedPaperBytes        int                                       `json:"combined_paper_transcript_bytes,omitempty"`
+	ProjectedProverWorkUnits  uint64                                    `json:"projected_prover_work_units,omitempty"`
+	ExpectedGrindingWork      float64                                   `json:"expected_grinding_work,omitempty"`
+	ExpectedGrindingWorkLog2  float64                                   `json:"expected_grinding_work_log2,omitempty"`
 	TranscriptDrivers         []NIZKProfileTranscriptDriver             `json:"transcript_drivers,omitempty"`
 	OptimizationLevers        []NIZKProfileOptimizationLever            `json:"optimization_levers,omitempty"`
 	FormalBackendDiagnostics  *NIZKProfileFormalBackendDiagnostics      `json:"formal_backend_diagnostics,omitempty"`
 	MeasuredIssuance          *nizkProfileMetricDigest                  `json:"measured_issuance,omitempty"`
 	MeasuredShowing           *nizkProfileMetricDigest                  `json:"measured_showing,omitempty"`
+	MeasurementSummary        *NIZKProfileMeasurementSummary            `json:"measurement_summary,omitempty"`
 	BQ64Reduction             *BQ64ReductionReport                      `json:"bq64_reduction,omitempty"`
-	BQ64128Reduction          *BQ64128ReductionReport                   `json:"bq64_128_reduction,omitempty"`
 	ValidPrefixCost           credential.ValidPrefixCostReport          `json:"valid_prefix_cost,omitempty"`
 	Notes                     []string                                  `json:"notes,omitempty"`
 }
@@ -202,22 +252,20 @@ type NIZKProfileRelationSafetyReport struct {
 }
 
 type BQ64ReductionReport struct {
-	Candidate            string                     `json:"candidate"`
-	Profile              string                     `json:"profile"`
-	Lane                 string                     `json:"lane"`
-	Model                string                     `json:"model"`
-	BaselineBytes        int                        `json:"baseline_bytes"`
-	TranscriptDeltaBytes int                        `json:"transcript_delta_bytes,omitempty"`
-	AcceptanceStatus     string                     `json:"acceptance_status"`
-	AcceptanceReasons    []string                   `json:"acceptance_reasons,omitempty"`
-	Width                BQ64128WidthModel          `json:"width"`
-	Serializer           BQ64128SerializerModel     `json:"serializer"`
-	MeasuredAudit        *PIOP.PaperTranscriptAudit `json:"measured_audit,omitempty"`
+	Candidate            string                       `json:"candidate"`
+	Profile              string                       `json:"profile"`
+	Lane                 string                       `json:"lane"`
+	Model                string                       `json:"model"`
+	BaselineBytes        int                          `json:"baseline_bytes"`
+	TranscriptDeltaBytes int                          `json:"transcript_delta_bytes,omitempty"`
+	AcceptanceStatus     string                       `json:"acceptance_status"`
+	AcceptanceReasons    []string                     `json:"acceptance_reasons,omitempty"`
+	Width                BQ64ReductionWidthModel      `json:"width"`
+	Serializer           BQ64ReductionSerializerModel `json:"serializer"`
+	MeasuredAudit        *PIOP.PaperTranscriptAudit   `json:"measured_audit,omitempty"`
 }
 
-type BQ64128ReductionReport = BQ64ReductionReport
-
-type BQ64128WidthModel struct {
+type BQ64ReductionWidthModel struct {
 	HashFSBits     int    `json:"hash_fs_bits"`
 	TapeBits       int    `json:"tape_bits"`
 	SaltBits       int    `json:"salt_bits"`
@@ -227,7 +275,7 @@ type BQ64128WidthModel struct {
 	Reason         string `json:"reason,omitempty"`
 }
 
-type BQ64128SerializerModel struct {
+type BQ64ReductionSerializerModel struct {
 	OmitPdecs               bool   `json:"omit_pdecs,omitempty"`
 	OmitVTargets            bool   `json:"omit_vtargets,omitempty"`
 	OmitBarSets             bool   `json:"omit_barsets,omitempty"`
@@ -264,6 +312,11 @@ type NIZKProfileFrontierEntry struct {
 	RelationFirstScore        float64                        `json:"relation_first_score,omitempty"`
 	AlgebraicBits             float64                        `json:"algebraic_bits"`
 	PaperTranscriptBytes      int                            `json:"paper_transcript_bytes"`
+	CombinedPaperBytes        int                            `json:"combined_paper_transcript_bytes,omitempty"`
+	ProjectedProverWorkUnits  uint64                         `json:"projected_prover_work_units,omitempty"`
+	ExpectedGrindingWork      float64                        `json:"expected_grinding_work,omitempty"`
+	ExpectedGrindingWorkLog2  float64                        `json:"expected_grinding_work_log2,omitempty"`
+	MeasurementSummary        *NIZKProfileMeasurementSummary `json:"measurement_summary,omitempty"`
 	RequiredKappa             [4]int                         `json:"required_kappa"`
 	Eta                       int                            `json:"eta"`
 	Theta                     int                            `json:"theta"`
@@ -296,8 +349,9 @@ func nizkProfileSearchTargets() []NIZKProfileSearchTarget {
 	return []NIZKProfileSearchTarget{
 		nizkProfileSearchTargetFromRegistry("BQ32-128", "engineering", 164, 32, [2]int{200, 256}, [2]int{160, 192}, [2]int{192, 256}, [2]int{10, 11}, 192, 256),
 		nizkProfileSearchTargetFromRegistry("BQ64-96", "engineering", 164, 64, [2]int{232, 256}, [2]int{160, 192}, [2]int{224, 256}, [2]int{12, 13}, 224, 256),
-		nizkProfileSearchTargetFromRegistry("BQ64-128", "engineering", 200, 64, [2]int{264, 320}, [2]int{192, 256}, [2]int{256, 320}, [2]int{13, 14}, 256, 320),
-		nizkProfileSearchTargetFromRegistry("BQ128-128", "engineering", 264, 128, [2]int{512, 512}, [2]int{256, 320}, [2]int{384, 512}, [2]int{20, 22}, 384, 512),
+		nizkProfileScopedR128SearchTarget("BQ64-128", 64),
+		nizkProfileScopedR128SearchTarget("BQ96-128", 96),
+		nizkProfileScopedR128SearchTarget("BQ128-128", 128),
 	}
 }
 
@@ -341,7 +395,7 @@ func nizkProfileSearchCandidates() []NIZKProfileSearchCandidate {
 	}
 	candidates = append(candidates, nizkProfileGeneratedSearchCandidates(bq32Preset.Name, bq32Base, bq32Preset.Name, q32Base)...)
 	candidates = append(candidates, nizkProfileBQ6496ReductionCandidates(bq32Preset.Name, bq32Base)...)
-	candidates = append(candidates, nizkProfileBQ64128ReductionCandidates(bq32Preset.Name, bq32Base)...)
+	candidates = append(candidates, nizkProfileScopedR128Candidates(bq32Preset.Name, bq32Base)...)
 	candidates = append(candidates, nizkProfileValidPrefixTrailCandidates(bq32Preset.Name, bq32Base)...)
 	return nizkProfileDeduplicateCandidates(candidates)
 }
@@ -733,137 +787,6 @@ func nizkProfileBQ6496ReductionCandidates(presetName string, base intGenISISTuni
 		out = append(out, mk(audit.name, "radix_audit", audit.model, audit.showing, audit.relation, opts))
 	}
 	return out
-}
-
-func nizkProfileBQ64128ReductionCandidates(presetName string, base intGenISISTuning) []NIZKProfileSearchCandidate {
-	relation := nizkProfileRelationCurrentBQ32()
-	baseline := nizkProfileSmallWoodOnlyCandidateWithLVCS(base, 14, 18, 983040, 1, 43)
-	mk := func(name, lane, model string, showing intGenISISTuning, opts nizkProfileCandidateOptions) NIZKProfileSearchCandidate {
-		opts.Family = "bq64_128_reduction"
-		opts.CompilerBacked = true
-		opts.PinnedLVCS = true
-		opts.DeriveEtaFloorOnly = true
-		opts.ReductionLane = lane
-		opts.ReductionModel = model
-		if opts.TapeBitsOverride == 0 {
-			opts.TapeBitsOverride = 192
-		}
-		if opts.SaltBitsOverride == 0 {
-			opts.SaltBitsOverride = 256
-		}
-		if opts.TagElementsOverride == 0 {
-			opts.TagElementsOverride = 13
-		}
-		opts.Notes = append([]string{"BQ64-128 transcript-reduction research lane; profile remains requires_new_primitives"}, opts.Notes...)
-		return nizkProfileCandidateFromTuningWithOptions(name, "bq64-128-reduction-"+name, presetName, showing, relation, opts)
-	}
-	theta13 := baseline
-	theta13.Theta = 13
-	ell17 := baseline
-	ell17.Ell = 17
-	lvcsBreakpoint := baseline
-	lvcsBreakpoint.LVCSNCols = 48
-	lvcs49 := baseline
-	lvcs49.LVCSNCols = 49
-	lvcs50 := baseline
-	lvcs50.LVCSNCols = 50
-	lvcs51 := baseline
-	lvcs51.LVCSNCols = 51
-	lvcs52 := baseline
-	lvcs52.LVCSNCols = 52
-	theta13LVCS49 := theta13
-	theta13LVCS49.LVCSNCols = 49
-	theta13LVCS50 := theta13
-	theta13LVCS50.LVCSNCols = 50
-	theta13LVCS51 := theta13
-	theta13LVCS51.LVCSNCols = 51
-	theta13LVCS52 := theta13
-	theta13LVCS52.LVCSNCols = 52
-	split := baseline
-	return []NIZKProfileSearchCandidate{
-		mk("baseline", "baseline", "measured_control", baseline, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 264,
-			Notes:              []string{fmt.Sprintf("measured baseline is %d bytes for r7l5-current-theta14-ell18-n983040-lvcs43", bq64128ReductionBaselineBytes)},
-		}),
-		mk("bare-hash256", "width_model", "hash_fs_width", baseline, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 256,
-			Notes:              []string{"tests the bare hash/Fiat-Shamir width model; tape remains 192 bits"},
-		}),
-		mk("bare-hash264", "width_model", "hash_fs_width", baseline, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 264,
-			Notes:              []string{"tests the PDF-aligned engineering bare width; tape remains 192 bits"},
-		}),
-		mk("engineering-hash320", "width_model", "hash_fs_width", baseline, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 320,
-			Notes:              []string{"tests the conservative engineering hash/Fiat-Shamir width lane; tape remains 192 bits"},
-		}),
-		mk("pdecs-dedup", "serializer_model", "pdecs_reconstructible_opening", baseline, nizkProfileCandidateOptions{
-			HashFSBitsOverride:      264,
-			SerializerOmission:      "pdecs",
-			ReconstructionAvailable: true,
-			OmissionMapFSBound:      true,
-			Notes:                   []string{"uses the existing smallfield2025 omitted-column reconstruction model only; no new omission is live"},
-		}),
-		mk("vtargets-dedup", "serializer_model", "vtargets_reconstruction_required", baseline, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 264,
-			SerializerOmission: "vtargets",
-			Notes:              []string{"blocked until verifier can reconstruct VTargets byte-for-byte before DECS verification"},
-		}),
-		mk("auth-multiproof-audit", "serializer_model", "auth_multiproof_audit", baseline, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 264,
-			Notes:              []string{"report-only audit of node count, depth, path bits, and index bytes"},
-		}),
-		mk("theta13", "smallwood_retune", "theta13", theta13, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 264,
-			Notes:              []string{"tests whether one theta unit can be removed while keeping 200.25 showing algebraic bits"},
-		}),
-		mk("ell17", "smallwood_retune", "ell17", ell17, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 264,
-			Notes:              []string{"tests whether one opening layer can be removed while preserving eps4"},
-		}),
-		mk("lvcs-breakpoint", "smallwood_retune", "lvcs_breakpoint_48", lvcsBreakpoint, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 264,
-			Notes:              []string{"tests the next LVCS row-block breakpoint without changing the safe relation"},
-		}),
-		mk("lvcs49-h256", "smallwood_retune", "lvcs_breakpoint_49", lvcs49, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 256,
-			Notes:              []string{"dense LVCS probe below the known LVCS53 high-k cliff; VTargets and BarSets remain explicit"},
-		}),
-		mk("lvcs50-h256", "smallwood_retune", "lvcs_breakpoint_50", lvcs50, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 256,
-			Notes:              []string{"dense LVCS probe below the known LVCS53 high-k cliff; VTargets and BarSets remain explicit"},
-		}),
-		mk("lvcs51-h256", "smallwood_retune", "lvcs_breakpoint_51", lvcs51, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 256,
-			Notes:              []string{"dense LVCS probe below the known LVCS53 high-k cliff; VTargets and BarSets remain explicit"},
-		}),
-		mk("lvcs52-h256", "smallwood_retune", "lvcs_breakpoint_52", lvcs52, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 256,
-			Notes:              []string{"dense LVCS probe below the known LVCS53 high-k cliff; VTargets and BarSets remain explicit"},
-		}),
-		mk("theta13-lvcs49-h256", "smallwood_retune", "theta13_lvcs49", theta13LVCS49, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 256,
-			Notes:              []string{"byte-aggressive theta13 dense LVCS probe; expected to classify by exact grinding requirement"},
-		}),
-		mk("theta13-lvcs50-h256", "smallwood_retune", "theta13_lvcs50", theta13LVCS50, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 256,
-			Notes:              []string{"byte-aggressive theta13 dense LVCS probe; expected to classify by exact grinding requirement"},
-		}),
-		mk("theta13-lvcs51-h256", "smallwood_retune", "theta13_lvcs51", theta13LVCS51, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 256,
-			Notes:              []string{"byte-aggressive theta13 dense LVCS probe; expected to classify by exact grinding requirement"},
-		}),
-		mk("theta13-lvcs52-h256", "smallwood_retune", "theta13_lvcs52", theta13LVCS52, nizkProfileCandidateOptions{
-			HashFSBitsOverride: 256,
-			Notes:              []string{"byte-aggressive theta13 dense LVCS probe; expected to classify by exact grinding requirement"},
-		}),
-		mk("split-shortness-research", "split_theorem", "split_shortness", split, nizkProfileCandidateOptions{
-			HashFSBitsOverride:        264,
-			RequiresTheoremAccounting: true,
-			RequiresSplitTheorem:      true,
-			Notes:                     []string{"separates high-degree shortness only as theorem research; never selected as a theorem-valid reduction"},
-		}),
-	}
 }
 
 func nizkProfileValidPrefixTrailCandidates(presetName string, base intGenISISTuning) []NIZKProfileSearchCandidate {
@@ -1589,11 +1512,13 @@ func nizkProfileRelationSafety(cand NIZKProfileSearchCandidate, relation benchma
 	if cand.RequiresSplitTheorem {
 		out.RejectionReasons = append(out.RejectionReasons, "split relation requires a separate composition theorem")
 	}
-	if relation.DQ > baseline.DQ {
-		out.RejectionReasons = append(out.RejectionReasons, fmt.Sprintf("candidate dQ %d exceeds current safe dQ %d", relation.DQ, baseline.DQ))
-	}
-	if relation.LogicalRows > baseline.LogicalRows && relation.DQ >= baseline.DQ {
-		out.RejectionReasons = append(out.RejectionReasons, fmt.Sprintf("candidate rows %d exceed current safe rows %d without a dQ reduction", relation.LogicalRows, baseline.LogicalRows))
+	if cand.Family != nizkProfileScopedR128Family {
+		if relation.DQ > baseline.DQ {
+			out.RejectionReasons = append(out.RejectionReasons, fmt.Sprintf("candidate dQ %d exceeds current safe dQ %d", relation.DQ, baseline.DQ))
+		}
+		if relation.LogicalRows > baseline.LogicalRows && relation.DQ >= baseline.DQ {
+			out.RejectionReasons = append(out.RejectionReasons, fmt.Sprintf("candidate rows %d exceed current safe rows %d without a dQ reduction", relation.LogicalRows, baseline.LogicalRows))
+		}
 	}
 	if len(out.RejectionReasons) > 0 {
 		out.CurrentTheoremSafe = false
@@ -1611,11 +1536,37 @@ func nizkProfileCandidateReport(target NIZKProfileSearchTarget, cand NIZKProfile
 	smallwood := deriveNIZKProfileSmallWoodReportWithCaps(target, relation, showing, cand.PinnedLVCS, cand.DeriveEtaFloorOnly, effectiveCaps, cand.ValidPrefixResearch)
 	relation = nizkProfileRelationWithDQOverride(nizkProfileRelationForEll(cand.Relation, smallwood.Ell), showing.DQOverride)
 	relationSafety := nizkProfileRelationSafety(cand, relation, smallwood.Ell)
-	roundBits := nizkProfileProjectedRoundBits(target, relation, smallwood)
-	algebraicBits := nizkProfileAggregateBits(roundBits)
+	issuanceRelation := nizkProfileRelationWithDQOverride(nizkProfileIssuanceRelationForEll(smallwood.Ell), showing.DQOverride)
+	issuanceRoundBits := nizkProfileProjectedRoundBits(target, issuanceRelation, smallwood)
+	showingRoundBits := nizkProfileProjectedRoundBits(target, relation, smallwood)
+	issuanceAlgebraicBits := nizkProfileAggregateBits(issuanceRoundBits)
+	showingAlgebraicBits := nizkProfileAggregateBits(showingRoundBits)
+	fullGame := nizkProfileProjectedFullGame(target, issuanceAlgebraicBits, showingAlgebraicBits)
 	buckets := nizkProfileProjectedBuckets(target, relation, smallwood)
 	buckets = nizkProfileApplyProjectedSerializerOmission(cand, buckets)
 	paperTranscriptBytes := buckets.Q + buckets.R + buckets.Pdecs + buckets.Auth + buckets.Tapes + buckets.VTargets + buckets.BarSets + buckets.SigShortness
+	combinedPaperBytes := 0
+	projectedProverWorkUnits := uint64(0)
+	var issuanceProjection, showingProjection NIZKProfilePhaseProjection
+	var issuanceProjectionErr, showingProjectionErr error
+	exactTwoPhaseProjection := target.FullGameTargetBits > 0 && cand.Family == nizkProfileScopedR128Family
+	if exactTwoPhaseProjection {
+		issuanceProjection, issuanceProjectionErr = nizkProfileProjectPhase(target, cand, issuanceRelation, smallwood)
+		showingProjection, showingProjectionErr = nizkProfileProjectPhase(target, cand, relation, smallwood)
+		if showingProjectionErr == nil {
+			buckets = nizkProfileBucketDigestFromPaperTranscript(showingProjection.Transcript)
+			buckets = nizkProfileApplyProjectedSerializerOmission(cand, buckets)
+			paperTranscriptBytes = showingProjection.Transcript.OptimizedBytes
+			projectedProverWorkUnits += showingProjection.ProverWorkUnits
+		}
+		if issuanceProjectionErr == nil {
+			combinedPaperBytes += issuanceProjection.Transcript.OptimizedBytes
+			projectedProverWorkUnits += issuanceProjection.ProverWorkUnits
+		}
+		if showingProjectionErr == nil {
+			combinedPaperBytes += showingProjection.Transcript.OptimizedBytes
+		}
+	}
 	formalDiagnostics := nizkProfileFormalBackendDiagnostics(target, cand, relation, smallwood, paperTranscriptBytes)
 	lvcsAboveRing := formalDiagnostics != nil && formalDiagnostics.LVCSAboveRing
 	ledgerStatus := string(target.TargetStatus)
@@ -1646,6 +1597,9 @@ func nizkProfileCandidateReport(target NIZKProfileSearchTarget, cand NIZKProfile
 		LedgerStatus:              ledgerStatus,
 		LedgerReasons:             ledgerReasons,
 		NIZKTargetBits:            target.NIZKTargetBits,
+		FullGameTargetBits:        target.FullGameTargetBits,
+		FullGameBits:              fullGame.GlobalCollisionFullGameBits,
+		GlobalCollisionBits:       fullGame.GlobalCollisionBits,
 		CoreBitsRequired:          target.CoreBitsRequired,
 		RawQueryCapLog2:           float64(target.QueryCapExponent),
 		EffectiveAlgebraicCapLog2: effectiveCaps,
@@ -1657,20 +1611,41 @@ func nizkProfileCandidateReport(target NIZKProfileSearchTarget, cand NIZKProfile
 		Relation:                  relation,
 		RelationSafety:            relationSafety,
 		SmallWood:                 smallwood,
-		IssuanceAlgebraicBits:     algebraicBits,
-		ShowingAlgebraicBits:      algebraicBits,
-		AlgebraicRoundBits:        roundBits,
+		IssuanceAlgebraicBits:     issuanceAlgebraicBits,
+		ShowingAlgebraicBits:      showingAlgebraicBits,
+		AlgebraicRoundBits:        showingRoundBits,
 		TranscriptBuckets:         buckets,
 		PaperTranscriptBytes:      paperTranscriptBytes,
+		CombinedPaperBytes:        combinedPaperBytes,
+		ProjectedProverWorkUnits:  projectedProverWorkUnits,
+		ExpectedGrindingWork:      smallwood.ExpectedGrindingWork,
+		ExpectedGrindingWorkLog2:  smallwood.ExpectedGrindingWorkLog2,
 		ValidPrefixCost:           nizkProfileValidPrefixCostReport(target, cand, nil),
 		Notes:                     append([]string(nil), cand.Notes...),
 		FormalBackendDiagnostics:  formalDiagnostics,
 	}
+	if exactTwoPhaseProjection {
+		if issuanceProjectionErr == nil {
+			report.IssuanceProjection = &issuanceProjection
+		} else {
+			report.MeasurementStatus = "projection_failed"
+			report.MeasurementError = fmt.Sprintf("issuance projection: %v", issuanceProjectionErr)
+		}
+		if showingProjectionErr == nil {
+			report.ShowingProjection = &showingProjection
+		} else {
+			report.MeasurementStatus = "projection_failed"
+			if report.MeasurementError != "" {
+				report.MeasurementError += "; "
+			}
+			report.MeasurementError += fmt.Sprintf("showing projection: %v", showingProjectionErr)
+		}
+	}
 	report.BQ64Reduction = bq64ReductionReport(target, cand, report, nil)
-	report.BQ64128Reduction = bq64128ReductionReport(target, cand, report, nil)
 	report.TranscriptDrivers = nizkProfileTranscriptDrivers(report.TranscriptBuckets, report.PaperTranscriptBytes)
 	report.OptimizationLevers = nizkProfileOptimizationLevers(target, relation, report.SmallWood, report.TranscriptBuckets)
 	report.FrontierClass = nizkProfileFrontierClass(report)
+	report.IncumbentControl = nizkProfileIsIncumbentGeometry(report)
 	return report
 }
 
@@ -1784,11 +1759,21 @@ func deriveNIZKProfileSmallWoodReportWithCaps(target NIZKProfileSearchTarget, re
 	}
 	lvcs = maxInt(lvcs, base.NCols)
 	etaFloor := nizkProfileEtaFloorWithCaps(target, relation, base, lvcs, queryCapLog2)
+	aggregatePlan := nizkProfileGrindingPlan{}
+	if target.FullGameTargetBits > 0 {
+		aggregatePlan = nizkProfileOptimizeAggregateGrinding(target, relation, base, lvcs, queryCapLog2)
+		if aggregatePlan.Eta > 0 {
+			etaFloor = aggregatePlan.Eta
+		}
+	}
 	eta := maxInt(base.Eta, etaFloor)
 	if deriveEtaFloorOnly {
 		eta = etaFloor
 	}
-	notes := []string{"eta is derived from the NIZK target term and kept as a floor; no wide eta sweep"}
+	notes := []string{"eta is derived from the NIZK target and kept as a floor; no wide eta sweep"}
+	if target.FullGameTargetBits > 0 {
+		notes = append(notes, "grinding is optimized against the aggregate four-term error instead of assigning equal slack to each term")
+	}
 	if maxInt(base.Rho, 1) == 1 && maxInt(base.EllPrime, 1) == 1 {
 		notes = append(notes, "rho=1 and ell_prime=1 are fixed for the small-field research lane")
 	} else {
@@ -1814,7 +1799,17 @@ func deriveNIZKProfileSmallWoodReportWithCaps(target NIZKProfileSearchTarget, re
 		EllWindow:   positiveWindow(maxInt(base.Ell, 1), 1),
 		Notes:       notes,
 	}
-	out.RequiredKappa = nizkProfileRequiredKappa(target, relation, out)
+	if target.FullGameTargetBits > 0 {
+		if eta != aggregatePlan.Eta {
+			aggregatePlan = nizkProfileOptimizeGrindingAtEta(target, relation, out, eta)
+		}
+		out.AggregateOptimized = aggregatePlan.Feasible
+		out.ExpectedGrindingWork = aggregatePlan.ExpectedWork
+		out.ExpectedGrindingWorkLog2 = aggregatePlan.ExpectedWorkLog2
+		out.RequiredKappa = aggregatePlan.Kappa
+	} else {
+		out.RequiredKappa = nizkProfileRequiredKappa(target, relation, out)
+	}
 	for i := range out.RequiredKappa {
 		out.Kappa[i] = out.RequiredKappa[i]
 		if out.Kappa[i] > nizkProfileMaxSupportedGrinding {
@@ -1822,6 +1817,15 @@ func deriveNIZKProfileSmallWoodReportWithCaps(target NIZKProfileSearchTarget, re
 		}
 	}
 	return out
+}
+
+type nizkProfileGrindingPlan struct {
+	Eta              int
+	Kappa            [4]int
+	AggregateBits    float64
+	ExpectedWork     float64
+	ExpectedWorkLog2 float64
+	Feasible         bool
 }
 
 func nizkProfileEtaFloorWithCaps(target NIZKProfileSearchTarget, relation benchmarkIntGenISISRelationReport, base intGenISISTuning, lvcs int, queryCapLog2 [4]float64) int {
@@ -1834,6 +1838,9 @@ func nizkProfileEtaFloorWithCaps(target NIZKProfileSearchTarget, relation benchm
 }
 
 func nizkProfileRequiredKappa(target NIZKProfileSearchTarget, relation benchmarkIntGenISISRelationReport, sw NIZKProfileSmallWoodReport) [4]int {
+	if target.FullGameTargetBits > 0 {
+		return nizkProfileOptimizeGrindingAtEta(target, relation, sw, sw.Eta).Kappa
+	}
 	raw := nizkProfileRawRoundBits(relation, sw)
 	perRoundTarget := target.NIZKTargetBits + nizkProfileDefaultEngineeringTargetMargin
 	queryCapLog2 := nizkProfileSmallWoodQueryCapLog2(target, sw)
@@ -1996,19 +2003,12 @@ func nizkProfileCandidateRingDegree(cand NIZKProfileSearchCandidate) int {
 	return credential.Ternary1024IntGenISISProfile().N
 }
 
-func bq64128ReductionReport(target NIZKProfileSearchTarget, cand NIZKProfileSearchCandidate, report NIZKProfileCandidateReport, measured *PIOP.PaperTranscriptAudit) *BQ64128ReductionReport {
-	if target.SecurityProfile != "BQ64-128" {
-		return nil
-	}
-	return bq64ReductionReport(target, cand, report, measured)
-}
-
 func bq64ReductionReport(target NIZKProfileSearchTarget, cand NIZKProfileSearchCandidate, report NIZKProfileCandidateReport, measured *PIOP.PaperTranscriptAudit) *BQ64ReductionReport {
 	if !bq64ReductionCandidateApplies(target, cand) {
 		return nil
 	}
 	width := bq64ReductionWidthModel(target)
-	serializer := bq64128SerializerModel(cand)
+	serializer := bq64ReductionSerializerModel(cand)
 	baseline := bq64ReductionBaselineBytes(target.SecurityProfile)
 	out := &BQ64ReductionReport{
 		Candidate:            cand.Name,
@@ -2034,48 +2034,32 @@ func bq64ReductionReport(target NIZKProfileSearchTarget, cand NIZKProfileSearchC
 }
 
 func bq64ReductionCandidateApplies(target NIZKProfileSearchTarget, cand NIZKProfileSearchCandidate) bool {
-	switch target.SecurityProfile {
-	case "BQ64-96":
-		return cand.Family == "bq64_96_reduction"
-	case "BQ64-128":
-		return cand.Family == "bq64_128_reduction" || cand.TargetProfile == "BQ64-128"
-	default:
-		return false
-	}
+	return target.SecurityProfile == "BQ64-96" && cand.Family == "bq64_96_reduction"
 }
 
 func bq64ReductionBaselineBytes(profile string) int {
-	switch profile {
-	case "BQ64-96":
+	if profile == "BQ64-96" {
 		return bq6496ReductionBaselineBytes
-	case "BQ64-128":
-		return bq64128ReductionBaselineBytes
-	default:
-		return 0
 	}
+	return 0
 }
 
 func bq64ReductionTargetBits(profile string) float64 {
-	switch profile {
-	case "BQ64-96":
+	if profile == "BQ64-96" {
 		return 164.25
-	case "BQ64-128":
-		return 200.25
-	default:
-		return math.Inf(1)
 	}
+	return math.Inf(1)
 }
 
-func bq64ReductionWidthModel(target NIZKProfileSearchTarget) BQ64128WidthModel {
-	width := BQ64128WidthModel{
+func bq64ReductionWidthModel(target NIZKProfileSearchTarget) BQ64ReductionWidthModel {
+	width := BQ64ReductionWidthModel{
 		HashFSBits:  target.HashFSBitsRange[0],
 		TapeBits:    target.TapeBitsRange[0],
 		SaltBits:    target.SaltBitsRange[0],
 		TagElements: target.TagElementsRange[0],
 		Status:      "pass",
 	}
-	switch target.SecurityProfile {
-	case "BQ64-96":
+	if target.SecurityProfile == "BQ64-96" {
 		width.Classification = "bare"
 		width.Reason = "BQ64-96 width candidate keeps hash/FS>=232, tape>=160, salt>=224, and tag lane>=12"
 		if width.SaltBits >= 256 {
@@ -2097,45 +2081,15 @@ func bq64ReductionWidthModel(target NIZKProfileSearchTarget) BQ64128WidthModel {
 			width.Status = "fail_closed"
 			width.Reason = "BQ64-96 tag lane below 12 is outside the profile target"
 		}
-	case "BQ64-128":
-		width.Classification = "bare"
-		width.Reason = "BQ64-128 width candidate keeps tape=192, salt=256, and tag lane=13"
-		switch width.HashFSBits {
-		case 320:
-			width.Classification = "engineering"
-		case 256:
-			width.Classification = "measured_research"
-			width.Reason = "BQ64-128 256-bit hash/FS lane is measured research and must pass ledger width review"
-		case 264:
-			width.Classification = "bare"
-		default:
-			width.Classification = "custom_research"
-		}
-		if width.HashFSBits < 256 {
-			width.Status = "fail_closed"
-			width.Reason = "BQ64-128 hash/FS width below 256 is outside the accepted research lanes"
-		}
-		if width.TapeBits < 192 {
-			width.Status = "fail_closed"
-			width.Reason = "BQ64-128 tape width below 192 would lose the 2^64 residual tape-guessing margin"
-		}
-		if width.SaltBits < 256 {
-			width.Status = "fail_closed"
-			width.Reason = "BQ64-128 salt width below 256 is outside the profile target"
-		}
-		if width.TagElements < 13 {
-			width.Status = "fail_closed"
-			width.Reason = "BQ64-128 tag lane below 13 is outside the profile target"
-		}
-	default:
+	} else {
 		width.Status = "fail_closed"
-		width.Reason = "not a BQ64 reduction profile"
+		width.Reason = "not the BQ64-96 reduction profile"
 	}
 	return width
 }
 
-func bq64128SerializerModel(cand NIZKProfileSearchCandidate) BQ64128SerializerModel {
-	model := BQ64128SerializerModel{
+func bq64ReductionSerializerModel(cand NIZKProfileSearchCandidate) BQ64ReductionSerializerModel {
+	model := BQ64ReductionSerializerModel{
 		ReconstructionAvailable: cand.ReconstructionAvailable,
 		OmissionMapFSBound:      cand.OmissionMapFSBound,
 		Status:                  "not_applicable",
@@ -2177,8 +2131,8 @@ func bq64ReductionAcceptanceReasons(report NIZKProfileCandidateReport, reduction
 	var reasons []string
 	targetBits := bq64ReductionTargetBits(report.SecurityProfile)
 	baselineBytes := bq64ReductionBaselineBytes(report.SecurityProfile)
-	if report.SecurityProfile != "BQ64-96" && report.SecurityProfile != "BQ64-128" {
-		reasons = append(reasons, "not a BQ64 reduction profile")
+	if report.SecurityProfile != "BQ64-96" {
+		reasons = append(reasons, "not the BQ64-96 reduction profile")
 	}
 	if report.ShowingAlgebraicBits+1e-9 < targetBits {
 		reasons = append(reasons, fmt.Sprintf("showing algebraic bits %.2f < %.2f", report.ShowingAlgebraicBits, targetBits))
@@ -2300,6 +2254,9 @@ func nizkProfileOptimizationLevers(target NIZKProfileSearchTarget, relation benc
 }
 
 func nizkProfileFrontierClass(report NIZKProfileCandidateReport) string {
+	if report.MeasurementStatus == "projection_failed" {
+		return nizkProfileFrontierRejected
+	}
 	if report.RequiresSplitTheorem {
 		return nizkProfileFrontierRequiresSplitTheorem
 	}
@@ -2312,7 +2269,7 @@ func nizkProfileFrontierClass(report NIZKProfileCandidateReport) string {
 		}
 	}
 	if report.UsesValidPrefixAccounting {
-		if report.IssuanceAlgebraicBits >= report.NIZKTargetBits && report.ShowingAlgebraicBits >= report.NIZKTargetBits {
+		if nizkProfileMeetsSecurityTarget(report) {
 			return nizkProfileFrontierValidPrefixResearch
 		}
 		return nizkProfileFrontierRequiresTheoremWork
@@ -2320,13 +2277,21 @@ func nizkProfileFrontierClass(report NIZKProfileCandidateReport) string {
 	if report.RequiresTheoremWork {
 		return nizkProfileFrontierRequiresTheoremWork
 	}
-	if report.IssuanceAlgebraicBits >= report.NIZKTargetBits && report.ShowingAlgebraicBits >= report.NIZKTargetBits {
+	if nizkProfileMeetsSecurityTarget(report) {
 		return nizkProfileFrontierCandidate
 	}
 	if report.TargetStatus == credential.SecurityProfileRequiresNewPrimitives {
 		return nizkProfileFrontierRequiresNewPrimitives
 	}
 	return nizkProfileFrontierRejected
+}
+
+func nizkProfileMeetsSecurityTarget(report NIZKProfileCandidateReport) bool {
+	if report.IssuanceAlgebraicBits+1e-9 < report.NIZKTargetBits ||
+		report.ShowingAlgebraicBits+1e-9 < report.NIZKTargetBits {
+		return false
+	}
+	return report.FullGameTargetBits <= 0 || report.FullGameBits+1e-9 >= report.FullGameTargetBits
 }
 
 func nizkProfileReports(maxPerProfile int, filter string) []NIZKProfileCandidateReport {
@@ -2344,15 +2309,11 @@ func nizkProfileReports(maxPerProfile int, filter string) []NIZKProfileCandidate
 			if cand.Family == "valid_prefix_trail" && !validPrefixEnabled {
 				continue
 			}
-			if cand.Family == "bq64_96_reduction" || cand.Family == "bq64_128_reduction" {
-				wantProfile := "BQ64-128"
-				if cand.Family == "bq64_96_reduction" {
-					wantProfile = "BQ64-96"
-				}
-				if target.SecurityProfile != wantProfile {
+			if cand.Family == "bq64_96_reduction" {
+				if target.SecurityProfile != "BQ64-96" {
 					continue
 				}
-				if filter == "" || (!strings.Contains(wantProfile, filter) && !strings.Contains(cand.Name, filter) && !strings.Contains(cand.RelationEncoding, filter)) {
+				if filter == "" || (!strings.Contains("BQ64-96", filter) && !strings.Contains(cand.Name, filter) && !strings.Contains(cand.RelationEncoding, filter)) {
 					continue
 				}
 			}
@@ -2376,67 +2337,46 @@ func nizkProfileReports(maxPerProfile int, filter string) []NIZKProfileCandidate
 	return out
 }
 
-func nizkProfileReportsWithMeasurements(t *testing.T, reports []NIZKProfileCandidateReport, root string, maxE2E int) []NIZKProfileCandidateReport {
-	t.Helper()
-	if maxE2E <= 0 || len(reports) == 0 {
-		return reports
+func nizkProfileReportForCandidate(profile, candidateName string) (NIZKProfileCandidateReport, bool) {
+	var target NIZKProfileSearchTarget
+	for _, candidateTarget := range nizkProfileSearchTargets() {
+		if candidateTarget.SecurityProfile == profile {
+			target = candidateTarget
+			break
+		}
 	}
-	nizkProfileChdirRepoRoot(t)
+	if target.SecurityProfile == "" {
+		return NIZKProfileCandidateReport{}, false
+	}
+	for _, candidate := range nizkProfileSearchCandidatesForFilter(candidateName) {
+		if candidate.Name != candidateName {
+			continue
+		}
+		if candidate.TargetProfile != "" && candidate.TargetProfile != profile {
+			return NIZKProfileCandidateReport{}, false
+		}
+		return nizkProfileCandidateReport(target, candidate), true
+	}
+	return NIZKProfileCandidateReport{}, false
+}
+
+func nizkProfileReportsForCandidateSet(candidates []NIZKProfileSearchCandidate) []NIZKProfileCandidateReport {
 	targets := make(map[string]NIZKProfileSearchTarget)
 	for _, target := range nizkProfileSearchTargets() {
 		targets[target.SecurityProfile] = target
 	}
-	candidates := make(map[string]NIZKProfileSearchCandidate)
-	for _, cand := range nizkProfileSearchCandidatesForReports(reports) {
-		candidates[cand.Name] = cand
-	}
-	out := append([]NIZKProfileCandidateReport(nil), reports...)
-	runCount := 0
-	for i, report := range out {
-		if runCount >= maxE2E {
-			break
-		}
-		if !nizkProfileShouldMeasureReport(report) {
-			continue
-		}
-		if ok, reason := nizkProfileReportMeasurable(report); !ok {
-			out[i].MeasurementStatus = "measurement_domain_blocked"
-			out[i].MeasurementError = reason
-			continue
-		}
-		target, ok := targets[report.SecurityProfile]
+	reports := make([]NIZKProfileCandidateReport, 0, len(candidates))
+	for _, candidate := range candidates {
+		target, ok := targets[candidate.TargetProfile]
 		if !ok {
-			out[i].MeasurementStatus = "measurement_failed"
-			out[i].MeasurementError = "missing search target"
 			continue
 		}
-		cand, ok := candidates[report.Candidate]
-		if !ok {
-			out[i].MeasurementStatus = "measurement_failed"
-			out[i].MeasurementError = "missing search candidate"
-			continue
-		}
-		target = nizkProfileTargetForCandidate(target, cand)
-		cfg, err := nizkProfileBenchmarkConfig(target, cand, report, root, runCount+1)
-		if err != nil {
-			out[i].MeasurementStatus = "measurement_failed"
-			out[i].MeasurementError = err.Error()
-			continue
-		}
-		runCount++
-		bench, err := benchmarkIntGenISISE2E(cfg)
-		if err != nil {
-			out[i].MeasurementStatus = "measurement_failed"
-			out[i].MeasurementError = err.Error()
-			out[i].MeasuredArtifactDir = cfg.ArtifactDir
-			out[i].MeasuredJSON = cfg.JSONOut
-			t.Logf("NIZK measured benchmark failed for %s/%s: %v", report.SecurityProfile, report.Candidate, err)
-			continue
-		}
-		out[i] = nizkProfileReportWithMeasuredBenchmark(target, cand, report, bench, cfg.JSONOut)
-		t.Logf("NIZK measured benchmark %s/%s paper_bytes=%d relation_rows=%d dQ=%d", report.SecurityProfile, report.Candidate, out[i].PaperTranscriptBytes, out[i].Relation.LogicalRows, out[i].Relation.DQ)
+		reports = append(reports, nizkProfileCandidateReport(target, candidate))
 	}
-	return out
+	sort.SliceStable(reports, func(i, j int) bool {
+		return nizkProfileReportLess(reports[i], reports[j])
+	})
+	return reports
 }
 
 func nizkProfileShouldMeasureReport(report NIZKProfileCandidateReport) bool {
@@ -2518,6 +2458,20 @@ func nizkProfileBenchmarkConfig(target NIZKProfileSearchTarget, cand NIZKProfile
 	showing.Kappa = report.SmallWood.Kappa
 	showing = nizkProfileApplyTargetWidths(target, showing)
 	showing = nizkProfileApplyTargetQueryCaps(target, showing)
+	prfProfile := preset.PRFProfile
+	prfParamsPath := preset.PRFParamsPath
+	prfParamsDigest := preset.PRFParamsDigest
+	if target.FullGameTargetBits > 0 {
+		prfProfile = credential.IntGenISISPRFProfileTag10
+		prfParamsPath = credential.IntGenISISPRFParamsTag10
+		var ok bool
+		prfParamsDigest, ok = credential.IntGenISISPRFProfileParamsDigest(prfProfile)
+		if !ok {
+			return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("missing digest for PRF profile %s", prfProfile)
+		}
+		showing.PRFProfile = prfProfile
+		showing.PRFParamsPath = prfParamsPath
+	}
 	issuance := nizkProfileIssuanceFromShowing(showing)
 	name := fmt.Sprintf("%03d-%s-%s", idx, nizkProfileSanitizeLabel(target.SecurityProfile), nizkProfileSanitizeLabel(cand.Name))
 	maxNLeaves := maxInt(preset.MaxNLeaves, maxInt(issuance.NLeaves, showing.NLeaves))
@@ -2529,9 +2483,9 @@ func nizkProfileBenchmarkConfig(target NIZKProfileSearchTarget, cand NIZKProfile
 		SecurityMode:        target.SecurityMode,
 		CoreBitsRequired:    target.CoreBitsRequired,
 		CompleteSystemClaim: false,
-		PRFProfile:          preset.PRFProfile,
-		PRFParamsPath:       preset.PRFParamsPath,
-		PRFParamsDigest:     preset.PRFParamsDigest,
+		PRFProfile:          prfProfile,
+		PRFParamsPath:       prfParamsPath,
+		PRFParamsDigest:     prfParamsDigest,
 		JSONOut:             filepath.Join(root, name+".json"),
 		Force:               true,
 		Issuance:            issuance,
@@ -2544,6 +2498,8 @@ func nizkProfileBenchmarkConfig(target NIZKProfileSearchTarget, cand NIZKProfile
 	}
 	if preset.SecurityProfile == target.SecurityProfile {
 		cfg.ThreatModel = preset.ThreatModel
+	} else if target.FullGameTargetBits > 0 {
+		cfg.ThreatModel = nizkProfileScopedR128ThreatModel(target)
 	}
 	return cfg, nil
 }
@@ -2592,15 +2548,23 @@ func nizkProfileReportWithMeasuredBenchmark(target NIZKProfileSearchTarget, cand
 	out.SmallWood.Rho = firstPositiveInt(bench.Showing.Rho, out.SmallWood.Rho)
 	out.SmallWood.EllPrime = firstPositiveInt(bench.Showing.EllPrime, out.SmallWood.EllPrime)
 	out.SmallWood.RequiredKappa = nizkProfileRequiredKappa(target, relation, out.SmallWood)
-	for i := range out.SmallWood.RequiredKappa {
-		out.SmallWood.Kappa[i] = out.SmallWood.RequiredKappa[i]
-		if out.SmallWood.Kappa[i] > nizkProfileMaxSupportedGrinding {
-			out.SmallWood.Kappa[i] = nizkProfileMaxSupportedGrinding
-		}
+	actualKappa := bench.Options.Showing.Kappa
+	if actualKappa == [4]int{} && report.SmallWood.Kappa != [4]int{} {
+		actualKappa = report.SmallWood.Kappa
 	}
-	out.AlgebraicRoundBits = nizkProfileProjectedRoundBits(target, relation, out.SmallWood)
-	out.IssuanceAlgebraicBits = nizkProfileAggregateBits(out.AlgebraicRoundBits)
-	out.ShowingAlgebraicBits = out.IssuanceAlgebraicBits
+	out.SmallWood.Kappa = actualKappa
+	out.SmallWood.ExpectedGrindingWork = nizkProfileExpectedGrindingWork(out.SmallWood.Kappa)
+	out.SmallWood.ExpectedGrindingWorkLog2 = math.Log2(out.SmallWood.ExpectedGrindingWork)
+	out.ExpectedGrindingWork = out.SmallWood.ExpectedGrindingWork
+	out.ExpectedGrindingWorkLog2 = out.SmallWood.ExpectedGrindingWorkLog2
+	if out.SmallWood.ExpectedGrindingWork > 0 {
+		out.SmallWood.AggregateOptimized = out.SmallWood.Kappa == out.SmallWood.RequiredKappa
+	}
+	out.AlgebraicRoundBits = bench.Showing.AlgebraicBits
+	out.IssuanceAlgebraicBits = bench.Issuance.AlgebraicTotalBits
+	out.ShowingAlgebraicBits = bench.Showing.AlgebraicTotalBits
+	out.FullGameBits = bench.FullGame.GlobalCollisionFullGameBits
+	out.GlobalCollisionBits = bench.FullGame.GlobalCollisionBits
 	out.RelationSafety = nizkProfileRelationSafety(cand, relation, out.SmallWood.Ell)
 	out.TranscriptBuckets = nizkProfileBucketDigest{
 		Q:            bench.Showing.QBytes,
@@ -2614,6 +2578,7 @@ func nizkProfileReportWithMeasuredBenchmark(target NIZKProfileSearchTarget, cand
 		BarSets:      bench.Showing.BarSetsBytes,
 	}
 	out.PaperTranscriptBytes = bench.Showing.PaperTranscriptBytes
+	out.CombinedPaperBytes = bench.Issuance.PaperTranscriptBytes + bench.Showing.PaperTranscriptBytes
 	out.FormalBackendCandidate = cand.FormalBackendCandidate
 	out.FormalBackendDiagnostics = nizkProfileFormalBackendDiagnostics(target, cand, relation, out.SmallWood, out.PaperTranscriptBytes)
 	out.LVCSAboveRing = out.FormalBackendDiagnostics != nil && out.FormalBackendDiagnostics.LVCSAboveRing
@@ -2623,7 +2588,6 @@ func nizkProfileReportWithMeasuredBenchmark(target NIZKProfileSearchTarget, cand
 	out.MeasuredShowing = &showing
 	out.ValidPrefixCost = nizkProfileValidPrefixCostReport(target, cand, bench.Showing.PhaseTimings)
 	out.BQ64Reduction = bq64ReductionReport(target, cand, out, &bench.Showing.TranscriptAudit)
-	out.BQ64128Reduction = bq64128ReductionReport(target, cand, out, &bench.Showing.TranscriptAudit)
 	out.TranscriptDrivers = nizkProfileTranscriptDrivers(out.TranscriptBuckets, out.PaperTranscriptBytes)
 	out.OptimizationLevers = nizkProfileOptimizationLevers(target, relation, out.SmallWood, out.TranscriptBuckets)
 	out.FrontierClass = nizkProfileFrontierClass(out)
@@ -2645,16 +2609,16 @@ func nizkProfileReportLess(a, b NIZKProfileCandidateReport) bool {
 	if a.SecurityProfile != b.SecurityProfile {
 		return nizkProfileTargetOrder(a.SecurityProfile) < nizkProfileTargetOrder(b.SecurityProfile)
 	}
-	if (a.Family == "bq64_96_reduction" || a.Family == "bq64_128_reduction" || b.Family == "bq64_96_reduction" || b.Family == "bq64_128_reduction") && a.SecurityProfile == b.SecurityProfile {
+	if nizkProfileIsBQ64ReductionFamily(a.Family) && nizkProfileIsBQ64ReductionFamily(b.Family) && a.SecurityProfile == b.SecurityProfile {
 		if a.Family != b.Family {
 			if nizkProfileIsBQ64ReductionFamily(a.Family) != nizkProfileIsBQ64ReductionFamily(b.Family) {
 				return nizkProfileIsBQ64ReductionFamily(a.Family)
 			}
 			return nizkProfileFamilyRank(a.Family) < nizkProfileFamilyRank(b.Family)
 		}
-		if a.Family == "bq64_96_reduction" || a.Family == "bq64_128_reduction" {
-			if bq64ReductionCandidateRank(a.SecurityProfile, a.Candidate) != bq64ReductionCandidateRank(b.SecurityProfile, b.Candidate) {
-				return bq64ReductionCandidateRank(a.SecurityProfile, a.Candidate) < bq64ReductionCandidateRank(b.SecurityProfile, b.Candidate)
+		if a.Family == "bq64_96_reduction" {
+			if bq64ReductionCandidateRank(a.Candidate) != bq64ReductionCandidateRank(b.Candidate) {
+				return bq64ReductionCandidateRank(a.Candidate) < bq64ReductionCandidateRank(b.Candidate)
 			}
 			return a.Candidate < b.Candidate
 		}
@@ -2663,8 +2627,19 @@ func nizkProfileReportLess(a, b NIZKProfileCandidateReport) bool {
 		return nizkProfileFrontierRank(a.FrontierClass) < nizkProfileFrontierRank(b.FrontierClass)
 	}
 	if a.FrontierClass == nizkProfileFrontierCandidate {
+		aHasCombinedProjection := a.CombinedPaperBytes > 0
+		bHasCombinedProjection := b.CombinedPaperBytes > 0
+		if aHasCombinedProjection != bHasCombinedProjection {
+			return aHasCombinedProjection
+		}
+		if aHasCombinedProjection && a.CombinedPaperBytes != b.CombinedPaperBytes {
+			return a.CombinedPaperBytes < b.CombinedPaperBytes
+		}
 		if a.PaperTranscriptBytes != b.PaperTranscriptBytes {
 			return a.PaperTranscriptBytes < b.PaperTranscriptBytes
+		}
+		if a.ExpectedGrindingWork != b.ExpectedGrindingWork {
+			return a.ExpectedGrindingWork < b.ExpectedGrindingWork
 		}
 		if a.ShowingAlgebraicBits != b.ShowingAlgebraicBits {
 			return a.ShowingAlgebraicBits > b.ShowingAlgebraicBits
@@ -2675,6 +2650,9 @@ func nizkProfileReportLess(a, b NIZKProfileCandidateReport) bool {
 		return a.Candidate < b.Candidate
 	}
 	if a.FrontierClass == nizkProfileFrontierValidPrefixResearch {
+		if a.CombinedPaperBytes != b.CombinedPaperBytes {
+			return a.CombinedPaperBytes < b.CombinedPaperBytes
+		}
 		if a.PaperTranscriptBytes != b.PaperTranscriptBytes {
 			return a.PaperTranscriptBytes < b.PaperTranscriptBytes
 		}
@@ -2693,99 +2671,55 @@ func nizkProfileReportLess(a, b NIZKProfileCandidateReport) bool {
 }
 
 func nizkProfileIsBQ64ReductionFamily(family string) bool {
-	return family == "bq64_96_reduction" || family == "bq64_128_reduction"
+	return family == "bq64_96_reduction"
 }
 
-func bq64ReductionCandidateRank(profile, name string) int {
-	if profile == "BQ64-96" {
-		switch name {
-		case "baseline-h232-s224":
-			return 0
-		case "engineering-salt256":
-			return 1
-		case "lvcs44-h232":
-			return 2
-		case "lvcs45-h232":
-			return 3
-		case "lvcs46-h232":
-			return 4
-		case "lvcs47-h232":
-			return 5
-		case "lvcs48-h232":
-			return 6
-		case "lvcs49-h232":
-			return 7
-		case "lvcs50-h232":
-			return 8
-		case "lvcs51-h232":
-			return 9
-		case "lvcs52-h232":
-			return 10
-		case "theta11-lvcs43-h232":
-			return 11
-		case "theta11-lvcs48-h232":
-			return 12
-		case "theta11-lvcs52-h232":
-			return 13
-		case "ell15-lvcs43-h232":
-			return 14
-		case "ell15-lvcs48-h232":
-			return 15
-		case "theta11-ell15-lvcs48-h232":
-			return 16
-		case "theta12-ell17-lvcs48-h232":
-			return 17
-		case "bq64-96-r11-l4-theorem-research":
-			return 18
-		case "bq64-96-mixed-radix-theorem-research":
-			return 19
-		case "bq64-96-full-r2-theorem-research":
-			return 20
-		case "bq64-96-split-shortness-research":
-			return 21
-		default:
-			return 100
-		}
-	}
+func bq64ReductionCandidateRank(name string) int {
 	switch name {
-	case "baseline":
+	case "baseline-h232-s224":
 		return 0
-	case "bare-hash256":
+	case "engineering-salt256":
 		return 1
-	case "bare-hash264":
+	case "lvcs44-h232":
 		return 2
-	case "engineering-hash320":
+	case "lvcs45-h232":
 		return 3
-	case "pdecs-dedup":
+	case "lvcs46-h232":
 		return 4
-	case "vtargets-dedup":
+	case "lvcs47-h232":
 		return 5
-	case "auth-multiproof-audit":
+	case "lvcs48-h232":
 		return 6
-	case "theta13":
+	case "lvcs49-h232":
 		return 7
-	case "ell17":
+	case "lvcs50-h232":
 		return 8
-	case "lvcs-breakpoint":
+	case "lvcs51-h232":
 		return 9
-	case "lvcs49-h256":
+	case "lvcs52-h232":
 		return 10
-	case "lvcs50-h256":
+	case "theta11-lvcs43-h232":
 		return 11
-	case "lvcs51-h256":
+	case "theta11-lvcs48-h232":
 		return 12
-	case "lvcs52-h256":
+	case "theta11-lvcs52-h232":
 		return 13
-	case "theta13-lvcs49-h256":
+	case "ell15-lvcs43-h232":
 		return 14
-	case "theta13-lvcs50-h256":
+	case "ell15-lvcs48-h232":
 		return 15
-	case "theta13-lvcs51-h256":
+	case "theta11-ell15-lvcs48-h232":
 		return 16
-	case "theta13-lvcs52-h256":
+	case "theta12-ell17-lvcs48-h232":
 		return 17
-	case "split-shortness-research":
+	case "bq64-96-r11-l4-theorem-research":
 		return 18
+	case "bq64-96-mixed-radix-theorem-research":
+		return 19
+	case "bq64-96-full-r2-theorem-research":
+		return 20
+	case "bq64-96-split-shortness-research":
+		return 21
 	default:
 		return 100
 	}
@@ -2793,23 +2727,23 @@ func bq64ReductionCandidateRank(profile, name string) int {
 
 func nizkProfileFamilyRank(family string) int {
 	switch family {
-	case "current_r7_l5":
+	case nizkProfileScopedR128Family:
 		return 0
-	case "mixed_radix_topcap":
+	case "current_r7_l5":
 		return 1
-	case "r11_l4_topcap":
+	case "mixed_radix_topcap":
 		return 2
-	case "q32_control":
+	case "r11_l4_topcap":
 		return 3
-	case "row_compression_high_degree":
+	case "q32_control":
 		return 4
-	case "full_r2_decomposition":
+	case "row_compression_high_degree":
 		return 5
-	case "split_shortness_theorem_track", "r121_l2_lookup_theorem_track":
+	case "full_r2_decomposition":
 		return 6
-	case "bq64_96_reduction":
+	case "split_shortness_theorem_track", "r121_l2_lookup_theorem_track":
 		return 7
-	case "bq64_128_reduction":
+	case "bq64_96_reduction":
 		return 8
 	case "valid_prefix_trail":
 		return 9
@@ -2828,11 +2762,21 @@ func nizkProfileFrontiers(results []NIZKProfileCandidateReport, limit int) map[s
 	}
 	out := make(map[string][]NIZKProfileFrontierEntry, len(grouped))
 	for profile, entries := range grouped {
+		scoped := false
+		for _, entry := range entries {
+			if entry.Family == nizkProfileScopedR128Family {
+				scoped = true
+				break
+			}
+		}
+		if scoped {
+			entries = nizkProfileParetoFrontier(entries)
+		}
 		sort.SliceStable(entries, func(i, j int) bool {
 			return nizkProfileReportLess(entries[i], entries[j])
 		})
 		for i, result := range entries {
-			if i >= limit {
+			if !scoped && i >= limit {
 				break
 			}
 			out[profile] = append(out[profile], nizkProfileFrontierEntryFromReport(result))
@@ -2853,6 +2797,11 @@ func nizkProfileFrontierEntryFromReport(report NIZKProfileCandidateReport) NIZKP
 		RelationFirstScore:        report.RelationFirstScore,
 		AlgebraicBits:             report.ShowingAlgebraicBits,
 		PaperTranscriptBytes:      report.PaperTranscriptBytes,
+		CombinedPaperBytes:        report.CombinedPaperBytes,
+		ProjectedProverWorkUnits:  report.ProjectedProverWorkUnits,
+		ExpectedGrindingWork:      report.ExpectedGrindingWork,
+		ExpectedGrindingWorkLog2:  report.ExpectedGrindingWorkLog2,
+		MeasurementSummary:        report.MeasurementSummary,
 		RequiredKappa:             report.SmallWood.RequiredKappa,
 		Eta:                       report.SmallWood.Eta,
 		Theta:                     report.SmallWood.Theta,
@@ -2880,10 +2829,12 @@ func nizkProfileTargetOrder(label string) int {
 		return 1
 	case "BQ64-128":
 		return 2
-	case "BQ128-128":
+	case "BQ96-128":
 		return 3
-	case "WF-128":
+	case "BQ128-128":
 		return 4
+	case "WF-128":
+		return 5
 	default:
 		return 99
 	}
@@ -2912,7 +2863,7 @@ func nizkProfileFrontierRank(class string) int {
 
 func TestNIZKProfileSearchTargetsOrderAndStatuses(t *testing.T) {
 	targets := nizkProfileSearchTargets()
-	want := []string{"BQ32-128", "BQ64-96", "BQ64-128", "BQ128-128"}
+	want := []string{"BQ32-128", "BQ64-96", "BQ64-128", "BQ96-128", "BQ128-128"}
 	if len(targets) != len(want) {
 		t.Fatalf("targets=%v want %v", targets, want)
 	}
@@ -2920,11 +2871,20 @@ func TestNIZKProfileSearchTargetsOrderAndStatuses(t *testing.T) {
 		if target.SecurityProfile != want[i] {
 			t.Fatalf("target order=%v want %v", targets, want)
 		}
-		if target.TargetStatus != credential.SecurityProfileRequiresNewPrimitives {
-			t.Fatalf("%s status=%q want %q", target.SecurityProfile, target.TargetStatus, credential.SecurityProfileRequiresNewPrimitives)
-		}
 		if target.PrimitiveBlockerReason == "" || target.NIZKTargetBits <= 0 || target.CoreBitsRequired <= 0 {
 			t.Fatalf("incomplete target: %+v", target)
+		}
+		if i < 2 {
+			if target.TargetStatus != credential.SecurityProfileRequiresNewPrimitives {
+				t.Fatalf("%s status=%q want %q", target.SecurityProfile, target.TargetStatus, credential.SecurityProfileRequiresNewPrimitives)
+			}
+			continue
+		}
+		if target.TargetStatus != credential.SecurityProfileProofOnly ||
+			target.CoreBitsRequired != 128 ||
+			target.FullGameTargetBits != nizkProfileScopedR128FullGameTargetBits ||
+			math.Abs(target.NIZKTargetBits-131.5405683813627) > 1e-9 {
+			t.Fatalf("incorrect NIZK-scoped R128 target: %+v", target)
 		}
 	}
 }
@@ -2998,7 +2958,13 @@ func TestNIZKProfileBQ6496ReductionCandidatesOrderAndWidthModel(t *testing.T) {
 }
 
 func TestNIZKProfileBQ6496ReductionReportsFailClosed(t *testing.T) {
-	reports := nizkProfileReports(0, "BQ64-96")
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetN1024BQ32_96)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reports := nizkProfileReportsForCandidateSet(
+		nizkProfileBQ6496ReductionCandidates(preset.Name, intGenISISTuningFromPresetSpec(preset.Showing)),
+	)
 	seen := map[string]NIZKProfileCandidateReport{}
 	for _, report := range reports {
 		if report.Family == "bq64_96_reduction" {
@@ -3036,101 +3002,6 @@ func TestNIZKProfileBQ6496ReductionReportsFailClosed(t *testing.T) {
 	}
 	if seen["bq64-96-split-shortness-research"].FrontierClass != nizkProfileFrontierRequiresSplitTheorem {
 		t.Fatalf("split frontier=%q want %q", seen["bq64-96-split-shortness-research"].FrontierClass, nizkProfileFrontierRequiresSplitTheorem)
-	}
-}
-
-func TestNIZKProfileBQ64128ReductionCandidatesOrderAndWidthModel(t *testing.T) {
-	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetN1024BQ32_96)
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidates := nizkProfileBQ64128ReductionCandidates(preset.Name, intGenISISTuningFromPresetSpec(preset.Showing))
-	want := []string{
-		"baseline",
-		"bare-hash256",
-		"bare-hash264",
-		"engineering-hash320",
-		"pdecs-dedup",
-		"vtargets-dedup",
-		"auth-multiproof-audit",
-		"theta13",
-		"ell17",
-		"lvcs-breakpoint",
-		"lvcs49-h256",
-		"lvcs50-h256",
-		"lvcs51-h256",
-		"lvcs52-h256",
-		"theta13-lvcs49-h256",
-		"theta13-lvcs50-h256",
-		"theta13-lvcs51-h256",
-		"theta13-lvcs52-h256",
-		"split-shortness-research",
-	}
-	if len(candidates) != len(want) {
-		t.Fatalf("candidates=%d want %d", len(candidates), len(want))
-	}
-	for i, cand := range candidates {
-		if cand.Name != want[i] {
-			t.Fatalf("candidate order[%d]=%q want %q", i, cand.Name, want[i])
-		}
-		if cand.Family != "bq64_128_reduction" {
-			t.Fatalf("%s family=%q", cand.Name, cand.Family)
-		}
-		if cand.TapeBitsOverride != 192 {
-			t.Fatalf("%s tape override=%d want 192", cand.Name, cand.TapeBitsOverride)
-		}
-		if cand.SaltBitsOverride != 256 || cand.TagElementsOverride != 13 {
-			t.Fatalf("%s width overrides salt=%d tag=%d", cand.Name, cand.SaltBitsOverride, cand.TagElementsOverride)
-		}
-	}
-}
-
-func TestNIZKProfileBQ64128ReductionReportsFailClosed(t *testing.T) {
-	reports := nizkProfileReports(0, "BQ64-128")
-	seen := map[string]NIZKProfileCandidateReport{}
-	for _, report := range reports {
-		if report.Family == "bq64_128_reduction" {
-			seen[report.Candidate] = report
-		}
-	}
-	for _, want := range []string{"baseline", "bare-hash256", "bare-hash264", "engineering-hash320", "pdecs-dedup", "vtargets-dedup", "auth-multiproof-audit", "theta13", "ell17", "lvcs-breakpoint", "lvcs49-h256", "lvcs50-h256", "lvcs51-h256", "lvcs52-h256", "theta13-lvcs49-h256", "theta13-lvcs50-h256", "theta13-lvcs51-h256", "theta13-lvcs52-h256", "split-shortness-research"} {
-		report, ok := seen[want]
-		if !ok {
-			t.Fatalf("missing BQ64-128 reduction report %q", want)
-		}
-		if report.BQ64Reduction == nil {
-			t.Fatalf("%s missing generic BQ64 reduction report", want)
-		}
-		if report.BQ64128Reduction == nil {
-			t.Fatalf("%s missing reduction report", want)
-		}
-		if report.BQ64128Reduction.Width.TapeBits != 192 {
-			t.Fatalf("%s tape bits=%d want 192", want, report.BQ64128Reduction.Width.TapeBits)
-		}
-	}
-	if got := seen["bare-hash256"].BQ64128Reduction.Width.HashFSBits; got != 256 {
-		t.Fatalf("bare-hash256 hash width=%d want 256", got)
-	}
-	if got := seen["bare-hash264"].BQ64128Reduction.Width.HashFSBits; got != 264 {
-		t.Fatalf("bare-hash264 hash width=%d want 264", got)
-	}
-	if got := seen["engineering-hash320"].BQ64128Reduction.Width.Classification; got != "engineering" {
-		t.Fatalf("engineering-hash320 classification=%q want engineering", got)
-	}
-	if got := seen["bare-hash256"].BQ64128Reduction.Width.Classification; got != "measured_research" {
-		t.Fatalf("bare-hash256 classification=%q want measured_research", got)
-	}
-	if seen["vtargets-dedup"].FrontierClass != nizkProfileFrontierSerializerModelBlocked {
-		t.Fatalf("vtargets-dedup frontier=%q want %q", seen["vtargets-dedup"].FrontierClass, nizkProfileFrontierSerializerModelBlocked)
-	}
-	if seen["vtargets-dedup"].BQ64128Reduction.Serializer.ReconstructionAvailable || seen["vtargets-dedup"].BQ64128Reduction.Serializer.OmissionMapFSBound {
-		t.Fatalf("vtargets-dedup should remain blocked without reconstruction: %+v", seen["vtargets-dedup"].BQ64128Reduction.Serializer)
-	}
-	if got := seen["pdecs-dedup"].BQ64128Reduction.Serializer.Status; got != "serializer_safe_existing_path" {
-		t.Fatalf("pdecs-dedup serializer status=%q", got)
-	}
-	if seen["split-shortness-research"].FrontierClass != nizkProfileFrontierRequiresSplitTheorem {
-		t.Fatalf("split frontier=%q want %q", seen["split-shortness-research"].FrontierClass, nizkProfileFrontierRequiresSplitTheorem)
 	}
 }
 
@@ -3197,7 +3068,13 @@ func TestNIZKProfileValidPrefixTrailCandidatesOrderAndCaps(t *testing.T) {
 }
 
 func TestNIZKProfileValidPrefixReportsRemainTheoremBlocked(t *testing.T) {
-	reports := nizkProfileReports(0, "vp")
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetN1024BQ32_96)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reports := nizkProfileReportsForCandidateSet(
+		nizkProfileValidPrefixTrailCandidates(preset.Name, intGenISISTuningFromPresetSpec(preset.Showing)),
+	)
 	seen := map[string]NIZKProfileCandidateReport{}
 	for _, report := range reports {
 		if report.Family == "valid_prefix_trail" {
@@ -3225,7 +3102,7 @@ func TestNIZKProfileValidPrefixReportsRemainTheoremBlocked(t *testing.T) {
 		}
 	}
 	var rawCand NIZKProfileSearchCandidate
-	for _, cand := range nizkProfileSearchCandidates() {
+	for _, cand := range nizkProfileValidPrefixTrailCandidates(preset.Name, intGenISISTuningFromPresetSpec(preset.Showing)) {
 		if cand.Name == "bq128-128-raw128-control" {
 			rawCand = cand
 			break
@@ -3240,23 +3117,19 @@ func TestNIZKProfileValidPrefixReportsRemainTheoremBlocked(t *testing.T) {
 	}
 }
 
-func TestNIZKProfileBQ128RawResidual128UsesRawCaps(t *testing.T) {
-	reports := nizkProfileReports(0, "raw128-residual128-theta13-lvcs48")
-	if len(reports) != 1 {
-		t.Fatalf("reports=%d want 1", len(reports))
-	}
-	report := reports[0]
-	if report.Candidate != nizkProfileBQ128RawResidualFrontierCandidate {
-		t.Fatalf("candidate=%q want %q", report.Candidate, nizkProfileBQ128RawResidualFrontierCandidate)
+func TestNIZKProfileLegacyBQ128RawResidualUsesRawCapsButMissesEngineeringTarget(t *testing.T) {
+	report, ok := nizkProfileReportForCandidate("BQ128-128", nizkProfileBQ128RawResidualFrontierCandidate)
+	if !ok {
+		t.Fatalf("missing candidate %q", nizkProfileBQ128RawResidualFrontierCandidate)
 	}
 	if report.SecurityProfile != "BQ128-128" || report.NIZKTargetBits != 128 || report.RawQueryCapLog2 != 128 {
 		t.Fatalf("unexpected residual target report: %+v", report)
 	}
-	if report.TargetStatus != credential.SecurityProfileRequiresNewPrimitives ||
-		report.LedgerStatus != string(credential.SecurityProfileRequiresNewPrimitives) ||
-		report.CoreBitsRequired != 256 ||
+	if report.TargetStatus != credential.SecurityProfileProofOnly ||
+		report.LedgerStatus != string(credential.SecurityProfileProofOnly) ||
+		report.CoreBitsRequired != 128 ||
 		report.PrimitiveBlockerReason == "" {
-		t.Fatalf("residual target must remain primitive-blocked: %+v", report)
+		t.Fatalf("legacy residual target has incorrect proof-only classification: %+v", report)
 	}
 	if report.UsesValidPrefixAccounting || report.EffectiveAlgebraicCapLog2 != [4]float64{128, 128, 128, 128} {
 		t.Fatalf("residual target should use raw algebraic caps: %+v", report)
@@ -3266,6 +3139,9 @@ func TestNIZKProfileBQ128RawResidual128UsesRawCaps(t *testing.T) {
 	}
 	if report.SmallWood.RequiredKappa[2] > nizkProfileMaxSupportedGrinding || report.ShowingAlgebraicBits < 128 {
 		t.Fatalf("theta13 residual target should clear the raw 2^128 residual-128 lane: %+v", report)
+	}
+	if report.FullGameBits >= report.FullGameTargetBits || report.FrontierClass != nizkProfileFrontierRejected {
+		t.Fatalf("legacy residual-128 point should miss the 130-bit engineering target: %+v", report)
 	}
 	targets := nizkProfileSearchTargets()
 	candidates := nizkProfileSearchCandidates()
@@ -3302,31 +3178,20 @@ func TestNIZKProfileBQ128RawResidual128UsesRawCaps(t *testing.T) {
 	}
 }
 
-func TestNIZKProfileTheta13EligibleOnlyWithExplicitValidPrefixCap(t *testing.T) {
-	rawReports := nizkProfileReports(0, "BQ64-128")
-	var rawTheta13 NIZKProfileCandidateReport
-	for _, report := range rawReports {
-		if report.Family == "bq64_128_reduction" && report.Candidate == "theta13" {
-			rawTheta13 = report
-			break
-		}
+func TestNIZKProfileScopedR128UsesRawCapsWithoutValidPrefixDiscount(t *testing.T) {
+	raw, ok := nizkProfileReportForCandidate("BQ64-128", "bq64-128-r7l5-theta10-ell13-n917504-lvcs43")
+	if !ok {
+		t.Fatal("missing scoped BQ64 candidate")
 	}
-	if rawTheta13.Candidate == "" {
-		t.Fatal("missing raw theta13 report")
+	if raw.UsesValidPrefixAccounting ||
+		raw.EffectiveAlgebraicCapLog2 != [4]float64{64, 64, 64, 64} ||
+		raw.FrontierClass != nizkProfileFrontierCandidate ||
+		raw.FullGameBits < raw.FullGameTargetBits {
+		t.Fatalf("scoped BQ64 candidate should satisfy the corrected target under raw caps: %+v", raw)
 	}
-	if rawTheta13.SmallWood.RequiredKappa[2] <= nizkProfileMaxSupportedGrinding || rawTheta13.FrontierClass != nizkProfileFrontierHighKResearch {
-		t.Fatalf("raw theta13 should exceed grinding under raw caps: %+v", rawTheta13)
-	}
-	vpReports := nizkProfileReports(0, "bq64-128-vp-theta13")
-	var vpTheta13 NIZKProfileCandidateReport
-	for _, report := range vpReports {
-		if report.Candidate == "bq64-128-vp-theta13-h256" {
-			vpTheta13 = report
-			break
-		}
-	}
-	if vpTheta13.Candidate == "" {
-		t.Fatalf("missing non-serializer vp theta13 report in %d reports", len(vpReports))
+	vpTheta13, ok := nizkProfileReportForCandidate("BQ64-128", "bq64-128-vp-theta13-h256")
+	if !ok {
+		t.Fatal("missing non-serializer valid-prefix theta13 report")
 	}
 	if !vpTheta13.UsesValidPrefixAccounting || vpTheta13.EffectiveAlgebraicCapLog2[2] != 61 {
 		t.Fatalf("vp theta13 missing explicit round-3 cap: %+v", vpTheta13)
@@ -3334,8 +3199,8 @@ func TestNIZKProfileTheta13EligibleOnlyWithExplicitValidPrefixCap(t *testing.T) 
 	if vpTheta13.SmallWood.RequiredKappa[2] > nizkProfileMaxSupportedGrinding {
 		t.Fatalf("vp theta13 should be within supported grinding: %+v", vpTheta13.SmallWood.RequiredKappa)
 	}
-	if vpTheta13.FrontierClass != nizkProfileFrontierValidPrefixResearch {
-		t.Fatalf("vp theta13 frontier=%q want %q", vpTheta13.FrontierClass, nizkProfileFrontierValidPrefixResearch)
+	if vpTheta13.FrontierClass != nizkProfileFrontierRequiresTheoremWork {
+		t.Fatalf("vp theta13 frontier=%q want %q", vpTheta13.FrontierClass, nizkProfileFrontierRequiresTheoremWork)
 	}
 	if vpTheta13.AlgebraicAccounting.TheoremMode != credential.ValidPrefixTheoremModeCandidate || !vpTheta13.AlgebraicAccounting.RequiresTheoremAccounting {
 		t.Fatalf("vp theta13 should expose theorem-candidate accounting: %+v", vpTheta13.AlgebraicAccounting)
@@ -3349,11 +3214,10 @@ func TestNIZKProfileTheta13EligibleOnlyWithExplicitValidPrefixCap(t *testing.T) 
 }
 
 func TestNIZKProfileBQ6496Theta11RemainsRejectedWithoutNewAccounting(t *testing.T) {
-	reports := nizkProfileReports(0, "theta11-lvcs43-h232")
-	if len(reports) != 1 {
-		t.Fatalf("theta11 reports=%d want 1", len(reports))
+	report, ok := nizkProfileReportForCandidate("BQ64-96", "theta11-lvcs43-h232")
+	if !ok {
+		t.Fatal("missing BQ64-96 theta11 candidate")
 	}
-	report := reports[0]
 	if report.SecurityProfile != "BQ64-96" || report.Candidate != "theta11-lvcs43-h232" {
 		t.Fatalf("unexpected report selected: %+v", report)
 	}
@@ -3369,23 +3233,16 @@ func TestNIZKProfileBQ6496Theta11RemainsRejectedWithoutNewAccounting(t *testing.
 }
 
 func TestNIZKProfileRelationSafetyCertificatesCurrentTheoremBoundary(t *testing.T) {
-	reports := nizkProfileReports(0, "BQ64-128")
-	seen := map[string]NIZKProfileCandidateReport{}
-	for _, report := range reports {
-		if report.Family == "bq64_128_reduction" {
-			seen[report.Candidate] = report
-		}
-	}
-	lvcs := seen["lvcs-breakpoint"]
-	if lvcs.Candidate == "" {
-		t.Fatal("missing lvcs-breakpoint report")
+	lvcs, ok := nizkProfileReportForCandidate("BQ64-96", "lvcs48-h232")
+	if !ok {
+		t.Fatal("missing safe BQ64-96 LVCS candidate")
 	}
 	if !lvcs.RelationSafety.CurrentTheoremSafe || lvcs.RelationSafety.CertificateStatus != "current_theorem_safe" {
 		t.Fatalf("safe LVCS relation should have a current-theorem certificate: %+v", lvcs.RelationSafety)
 	}
-	split := seen["split-shortness-research"]
-	if split.Candidate == "" {
-		t.Fatal("missing split-shortness report")
+	split, ok := nizkProfileReportForCandidate("BQ64-96", "bq64-96-split-shortness-research")
+	if !ok {
+		t.Fatal("missing split-shortness research candidate")
 	}
 	if split.RelationSafety.CurrentTheoremSafe || split.RelationSafety.CertificateStatus != "relation_theorem_blocked" {
 		t.Fatalf("split relation should be theorem-blocked: %+v", split.RelationSafety)
@@ -3398,37 +3255,38 @@ func TestNIZKProfileRelationSafetyCertificatesCurrentTheoremBoundary(t *testing.
 
 func TestNIZKProfileOptimizedSerializerTrailCandidates(t *testing.T) {
 	t.Setenv("SPRUCE_VALID_PREFIX_SWEEP", "1")
-	reports := nizkProfileReports(0, "vtargets-included")
-	seen := map[string]NIZKProfileCandidateReport{}
-	for _, report := range reports {
-		seen[report.Candidate] = report
+	want := map[string]string{
+		"bq64-128-vp-theta13-h256-vtargets-included-pdecs":   "BQ64-128",
+		"bq128-128-vp64-lvcs48-h512-vtargets-included-pdecs": "BQ128-128",
+		"bq128-128-vp80-search-vtargets-included-pdecs":      "BQ128-128",
 	}
-	want := []string{
-		"bq64-128-vp-theta13-h256-vtargets-included-pdecs",
-		"bq128-128-vp64-lvcs48-h512-vtargets-included-pdecs",
-		"bq128-128-vp80-search-vtargets-included-pdecs",
-	}
-	for _, name := range want {
-		report, ok := seen[name]
+	var bq64 NIZKProfileCandidateReport
+	for name, profile := range want {
+		report, ok := nizkProfileReportForCandidate(profile, name)
 		if !ok {
 			t.Fatalf("missing optimized serializer candidate %q", name)
 		}
 		if report.TranscriptBuckets.VTargets == 0 || report.TranscriptBuckets.BarSets == 0 {
 			t.Fatalf("%s incorrectly omitted matrix payloads: %+v", name, report.TranscriptBuckets)
 		}
-		if report.FrontierClass != nizkProfileFrontierValidPrefixResearch {
-			t.Fatalf("%s frontier=%q want %q", name, report.FrontierClass, nizkProfileFrontierValidPrefixResearch)
+		if !report.UsesValidPrefixAccounting || !report.RequiresTheoremWork {
+			t.Fatalf("%s should remain explicitly valid-prefix/theorem research: %+v", name, report)
+		}
+		if report.FrontierClass != nizkProfileFrontierValidPrefixResearch &&
+			report.FrontierClass != nizkProfileFrontierRequiresTheoremWork {
+			t.Fatalf("%s unexpected valid-prefix frontier=%q", name, report.FrontierClass)
+		}
+		if profile == "BQ64-128" {
+			bq64 = report
 		}
 	}
-	bq64 := seen["bq64-128-vp-theta13-h256-vtargets-included-pdecs"]
 	if bq64.PaperTranscriptBytes < 70000 {
 		t.Fatalf("BQ64 corrected serializer target projected bytes=%d should include VTargets/BarSets", bq64.PaperTranscriptBytes)
 	}
-	rawReports := nizkProfileReports(0, "raw128-control-vtargets-included-pdecs")
-	if len(rawReports) != 1 {
-		t.Fatalf("raw serializer reports=%d want 1", len(rawReports))
+	raw, ok := nizkProfileReportForCandidate("BQ128-128", "bq128-128-raw128-control-vtargets-included-pdecs")
+	if !ok {
+		t.Fatal("missing raw serializer control")
 	}
-	raw := rawReports[0]
 	if raw.UsesValidPrefixAccounting || raw.EffectiveAlgebraicCapLog2 != [4]float64{128, 128, 128, 128} {
 		t.Fatalf("raw serializer control should preserve raw caps: %+v", raw)
 	}
@@ -3499,34 +3357,38 @@ func TestNIZKProfileCandidateOverGrindingLimitClassifiedHighK(t *testing.T) {
 	}
 }
 
-func TestNIZKProfileCandidatesRemainResearchOnly(t *testing.T) {
-	for _, report := range nizkProfileReports(0, "") {
-		if report.LedgerStatus != string(credential.SecurityProfileRequiresNewPrimitives) {
-			t.Fatalf("%s ledger status=%q", report.SecurityProfile, report.LedgerStatus)
+func TestNIZKProfileSweepIntegrationSummary(t *testing.T) {
+	all := nizkProfileReports(0, "")
+	best := make([]NIZKProfileCandidateReport, 0, len(nizkProfileSearchTargets()))
+	seenProfiles := make(map[string]bool)
+	for _, report := range all {
+		if report.LedgerStatus != string(report.TargetStatus) {
+			t.Fatalf("%s ledger status=%q target status=%q", report.SecurityProfile, report.LedgerStatus, report.TargetStatus)
 		}
 		if report.PrimitiveBlockerReason == "" || len(report.LedgerReasons) == 0 {
 			t.Fatalf("missing blocker reason: %+v", report)
 		}
-		if report.FrontierClass == nizkProfileFrontierCandidate && report.TargetStatus != credential.SecurityProfileRequiresNewPrimitives {
-			t.Fatalf("unexpected live-style candidate: %+v", report)
+		if report.TargetStatus != credential.SecurityProfileRequiresNewPrimitives &&
+			report.TargetStatus != credential.SecurityProfileProofOnly {
+			t.Fatalf("unexpected promoted target status: %+v", report)
+		}
+		if !seenProfiles[report.SecurityProfile] {
+			best = append(best, report)
+			seenProfiles[report.SecurityProfile] = true
 		}
 	}
-}
-
-func TestNIZKProfileSweepSummaryIncludesRequiredFields(t *testing.T) {
-	results := nizkProfileReports(1, "")
 	candidates := nizkProfileSearchCandidates()
-	if len(results) != 4 {
-		t.Fatalf("results=%d want one per profile", len(results))
+	if len(best) != len(nizkProfileSearchTargets()) {
+		t.Fatalf("best reports=%d want one per profile", len(best))
 	}
 	summary := NIZKProfileSweepSummary{
 		Version:        nizkProfileSweepSummaryVersion,
 		GeneratedAt:    time.Now().UTC().Format(time.RFC3339),
 		CandidateCount: len(nizkProfileSearchTargets()) * len(candidates),
-		RunCount:       len(results),
+		RunCount:       len(best),
 		Targets:        nizkProfileSearchTargets(),
-		Results:        results,
-		Frontiers:      nizkProfileFrontiers(results, 3),
+		Results:        best,
+		Frontiers:      nizkProfileFrontiers(best, 3),
 	}
 	data, err := json.Marshal(summary)
 	if err != nil {
@@ -3535,6 +3397,63 @@ func TestNIZKProfileSweepSummaryIncludesRequiredFields(t *testing.T) {
 	for _, want := range []string{"relation", "relation_safety", "algebraic_accounting", "theorem_mode", "raw_collision_unaffected", "smallwood", "ledger_status", "primitive_blocker_reason", "forced_by_security", "compiler_backed", "formal_backend_candidate", "measurement_status", "transcript_buckets", "transcript_drivers", "optimization_levers", "frontiers", "pdecs", "vtargets", "barsets"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("summary missing %s: %s", want, data)
+		}
+	}
+	wantBest := map[string]string{
+		"BQ32-128":  "r7l5-current-theta10-ell15-n917504-lvcs43",
+		"BQ64-96":   "r7l5-current-theta12-ell16-n983040-lvcs43",
+		"BQ64-128":  "bq64-128-r7l5-theta10-ell13-n917504-lvcs43",
+		"BQ96-128":  "bq96-128-r11l4-theta12-ell15-n983040-lvcs41",
+		"BQ128-128": "bq128-128-r7l5-theta13-ell18-n917504-lvcs55",
+	}
+	for _, result := range best {
+		if result.Candidate != wantBest[result.SecurityProfile] {
+			t.Fatalf("%s best candidate=%q want %q", result.SecurityProfile, result.Candidate, wantBest[result.SecurityProfile])
+		}
+		if result.FrontierClass != nizkProfileFrontierCandidate || !nizkProfileMeetsSecurityTarget(result) {
+			t.Fatalf("best result did not meet the concrete NIZK frontier: %+v", result)
+		}
+		for _, kappa := range result.SmallWood.RequiredKappa {
+			if kappa > nizkProfileMaxSupportedGrinding {
+				t.Fatalf("best result exceeds grinding limit: %+v", result)
+			}
+		}
+		if len(result.TranscriptDrivers) == 0 {
+			t.Fatalf("%s missing transcript drivers", result.SecurityProfile)
+		}
+		wantDriver := "vtargets"
+		if result.SecurityProfile == "BQ64-128" || result.SecurityProfile == "BQ96-128" {
+			wantDriver = "pdecs"
+		}
+		if result.TranscriptDrivers[0].Component != wantDriver || result.TranscriptDrivers[0].Percent <= 20 {
+			t.Fatalf("%s dominant transcript driver mismatch: %+v", result.SecurityProfile, result.TranscriptDrivers)
+		}
+		leverNames := make(map[string]bool)
+		for _, lever := range result.OptimizationLevers {
+			if lever.EstimatedSavingsBytes < 0 {
+				t.Fatalf("negative estimated savings: %+v", lever)
+			}
+			leverNames[lever.Name] = true
+		}
+		for _, want := range []string{"compiler_backed_safe_relation_measurement", "lvcs_rowblock_breakpoint_sweep", "auth_multiproof_path_audit", "pdecs_vtargets_barsets_serializer_dedup", "avoid_eta_theta_growth"} {
+			if !leverNames[want] {
+				t.Fatalf("%s missing optimization lever %q: %+v", result.SecurityProfile, want, result.OptimizationLevers)
+			}
+		}
+		if result.SecurityProfile == "BQ64-128" {
+			if result.IssuanceProjection == nil || result.ShowingProjection == nil {
+				t.Fatalf("BQ64-128 missing exact phase projections: %+v", result)
+			}
+			if result.IssuanceProjection.Transcript.OptimizedBytes != 39504 ||
+				result.ShowingProjection.Transcript.OptimizedBytes != 56584 ||
+				result.CombinedPaperBytes != 96088 {
+				t.Fatalf("BQ64-128 exact projection mismatch: %+v", result)
+			}
+			if result.SmallWood.Kappa != [4]int{13, 2, 8, 13} ||
+				result.ExpectedGrindingWork != 16644 ||
+				!result.SmallWood.AggregateOptimized {
+				t.Fatalf("BQ64-128 aggregate grinding mismatch: %+v", result.SmallWood)
+			}
 		}
 	}
 }
@@ -3618,17 +3537,16 @@ func TestNIZKProfileFormalBackendCandidatesAreFilterGatedAndDiagnosed(t *testing
 			t.Fatalf("default candidate set included formal sweep candidate: %+v", cand)
 		}
 	}
-	reports := nizkProfileReports(0, "formal-bq64-128-current-lvcs1025")
-	if len(reports) != 1 {
-		t.Fatalf("formal reports=%d want 1", len(reports))
+	report, ok := nizkProfileReportForCandidate("BQ64-128", "formal-bq64-128-current-lvcs1025")
+	if !ok {
+		t.Fatal("missing formal LVCS candidate")
 	}
-	report := reports[0]
 	diag := report.FormalBackendDiagnostics
 	if !report.FormalBackendCandidate || report.Family != nizkProfileFormalBackendFamily || diag == nil {
 		t.Fatalf("missing formal diagnostics: %+v", report)
 	}
-	if report.SecurityProfile != "BQ64-128" || report.LedgerStatus != string(credential.SecurityProfileRequiresNewPrimitives) {
-		t.Fatalf("formal candidate must remain proof-only and primitive-blocked: %+v", report)
+	if report.SecurityProfile != "BQ64-128" || report.LedgerStatus != string(credential.SecurityProfileProofOnly) {
+		t.Fatalf("formal candidate must remain proof-only: %+v", report)
 	}
 	if !report.LVCSAboveRing || !diag.LVCSAboveRing || report.SmallWood.LVCSNCols <= diag.RingDegree {
 		t.Fatalf("formal LVCS width not above ring: report=%+v diag=%+v", report.SmallWood, diag)
@@ -3648,11 +3566,10 @@ func TestNIZKProfileFormalBackendCandidatesAreFilterGatedAndDiagnosed(t *testing
 }
 
 func TestNIZKProfileFormalDQOverridePropagatesToMeasuredConfig(t *testing.T) {
-	reports := nizkProfileReports(0, "formal-bq64-128-dq1152-lvcs1152")
-	if len(reports) != 1 {
-		t.Fatalf("formal dQ reports=%d want 1", len(reports))
+	report, ok := nizkProfileReportForCandidate("BQ64-128", "formal-bq64-128-dq1152-lvcs1152")
+	if !ok {
+		t.Fatal("missing formal dQ candidate")
 	}
-	report := reports[0]
 	if report.Relation.DQ != 1152 || report.Relation.MaskDegreeBound != 1152 || report.Relation.DominantDQBranch != "override" {
 		t.Fatalf("dQ override not reflected in projection relation: %+v", report.Relation)
 	}
@@ -3686,11 +3603,10 @@ func TestNIZKProfileFormalDQOverridePropagatesToMeasuredConfig(t *testing.T) {
 }
 
 func TestNIZKProfileFormalRhoEllPrimeProbeFailsClosed(t *testing.T) {
-	reports := nizkProfileReports(0, "formal-bq64-128-rho2-ellprime2-lvcs1152")
-	if len(reports) != 1 {
-		t.Fatalf("formal rho reports=%d want 1", len(reports))
+	report, ok := nizkProfileReportForCandidate("BQ64-128", "formal-bq64-128-rho2-ellprime2-lvcs1152")
+	if !ok {
+		t.Fatal("missing formal rho/ell-prime candidate")
 	}
-	report := reports[0]
 	if report.SmallWood.Rho != 2 || report.SmallWood.EllPrime != 2 {
 		t.Fatalf("rho/ell_prime probe did not retain non-default values: %+v", report.SmallWood)
 	}
@@ -3724,7 +3640,10 @@ func TestNIZKProfileMaintainedByteGateBaselineLocked(t *testing.T) {
 }
 
 func TestNIZKProfileCandidateDQFollowsCandidateEll(t *testing.T) {
-	report := nizkProfileReports(1, "BQ64-128")[0]
+	report, ok := nizkProfileReportForCandidate("BQ64-128", "bq64-128-r7l5-theta10-ell13-n917504-lvcs43")
+	if !ok {
+		t.Fatal("missing BQ64-R128 frontier candidate")
+	}
 	wantParallel, wantAggregate, wantDQ := PIOP.ComputeDQBranchBounds(report.Relation.ParallelDegree, report.Relation.AggregatedDegree, 32, report.SmallWood.Ell)
 	if report.Relation.DQParallel != wantParallel || report.Relation.DQAggregate != wantAggregate || report.Relation.DQ != wantDQ {
 		t.Fatalf("dQ branches=%d/%d/%d want %d/%d/%d", report.Relation.DQParallel, report.Relation.DQAggregate, report.Relation.DQ, wantParallel, wantAggregate, wantDQ)
@@ -3736,7 +3655,10 @@ func TestNIZKProfileCandidateDQFollowsCandidateEll(t *testing.T) {
 
 func TestNIZKProfileMeasuredBenchmarkReplacesProjectedBucketsAndRelation(t *testing.T) {
 	target := nizkProfileSearchTargets()[0]
-	report := nizkProfileReports(1, "BQ32-128")[0]
+	report, ok := nizkProfileReportForCandidate("BQ32-128", "r7l5-current-theta10-ell15-n917504-lvcs43")
+	if !ok {
+		t.Fatal("missing BQ32-R128 frontier candidate")
+	}
 	var cand NIZKProfileSearchCandidate
 	for _, candidate := range nizkProfileSearchCandidates() {
 		if candidate.Name == report.Candidate {
@@ -3797,73 +3719,6 @@ func TestNIZKProfileMeasuredBenchmarkReplacesProjectedBucketsAndRelation(t *test
 	}
 }
 
-func TestNIZKProfileBQ64128MeasuredReportCarriesTranscriptAudit(t *testing.T) {
-	targets := nizkProfileSearchTargets()
-	var target NIZKProfileSearchTarget
-	for _, candidate := range targets {
-		if candidate.SecurityProfile == "BQ64-128" {
-			target = candidate
-			break
-		}
-	}
-	if target.SecurityProfile == "" {
-		t.Fatal("missing BQ64-128 target")
-	}
-	var cand NIZKProfileSearchCandidate
-	for _, candidate := range nizkProfileSearchCandidates() {
-		if candidate.Family == "bq64_128_reduction" && candidate.Name == "baseline" {
-			cand = candidate
-			break
-		}
-	}
-	if cand.Name == "" {
-		t.Fatal("missing BQ64-128 baseline reduction candidate")
-	}
-	target = nizkProfileTargetForCandidate(target, cand)
-	report := nizkProfileCandidateReport(target, cand)
-	bench := benchmarkIntGenISISE2EReport{
-		ArtifactDir: "/tmp/spruce-bq64-reduction-measured-test",
-		Issuance:    benchmarkIntGenISISMetrics{PaperTranscriptBytes: 100},
-		Showing: benchmarkIntGenISISMetrics{
-			PaperTranscriptBytes: 82000,
-			QBytes:               101,
-			RBytes:               202,
-			PdecsBytes:           303,
-			AuthBytes:            404,
-			TapesBytes:           505,
-			VTargetsBytes:        606,
-			BarSetsBytes:         707,
-			LVCSNCols:            report.SmallWood.LVCSNCols,
-			NLeaves:              report.SmallWood.NLeaves,
-			Eta:                  report.SmallWood.Eta,
-			Theta:                report.SmallWood.Theta,
-			Ell:                  report.SmallWood.Ell,
-			Rho:                  report.SmallWood.Rho,
-			EllPrime:             report.SmallWood.EllPrime,
-			TranscriptAudit: PIOP.PaperTranscriptAudit{
-				Pdecs:    PIOP.OpeningResiduePaperAudit{EncodedCols: 17, OmittedCols: []int{1, 2}, StreamBytes: 300},
-				Auth:     PIOP.OpeningAuthPaperAudit{NodeCount: 128, PathDepth: 19, PathBitsBytes: 20, IndexBytes: 3, TotalBytes: 404},
-				VTargets: PIOP.MatrixPayloadPaperAudit{Rows: 64, Cols: 43, BitWidth: 20, Bytes: 606},
-				BarSets:  PIOP.MatrixPayloadPaperAudit{Rows: 12, Cols: 43, BitWidth: 20, Bytes: 707},
-			},
-			RelationCandidate: report.Relation,
-		},
-	}
-	measured := nizkProfileReportWithMeasuredBenchmark(target, cand, report, bench, "/tmp/spruce-bq64-reduction-measured-test.json")
-	if measured.MeasuredShowing == nil || measured.MeasuredShowing.TranscriptAudit.Auth.NodeCount != 128 {
-		t.Fatalf("measured digest missing transcript audit: %+v", measured.MeasuredShowing)
-	}
-	if measured.BQ64Reduction == nil || measured.BQ64Reduction.MeasuredAudit == nil {
-		t.Fatalf("missing generic BQ64 measured reduction audit: %+v", measured.BQ64Reduction)
-	}
-	if measured.BQ64128Reduction == nil || measured.BQ64128Reduction.MeasuredAudit == nil {
-		t.Fatalf("missing BQ64-128 measured reduction audit: %+v", measured.BQ64128Reduction)
-	}
-	if measured.BQ64128Reduction.MeasuredAudit.Pdecs.EncodedCols != 17 || measured.BQ64128Reduction.MeasuredAudit.Auth.PathDepth != 19 {
-		t.Fatalf("unexpected measured audit: %+v", measured.BQ64128Reduction.MeasuredAudit)
-	}
-}
-
 func TestNIZKProfileBQ6496MeasuredReportCarriesTranscriptAudit(t *testing.T) {
 	targets := nizkProfileSearchTargets()
 	var target NIZKProfileSearchTarget
@@ -3920,48 +3775,16 @@ func TestNIZKProfileBQ6496MeasuredReportCarriesTranscriptAudit(t *testing.T) {
 	if measured.BQ64Reduction == nil || measured.BQ64Reduction.Profile != "BQ64-96" || measured.BQ64Reduction.MeasuredAudit == nil {
 		t.Fatalf("missing BQ64-96 measured reduction audit: %+v", measured.BQ64Reduction)
 	}
-	if measured.BQ64128Reduction != nil {
-		t.Fatalf("BQ64-96 should not populate BQ64-128 compatibility report: %+v", measured.BQ64128Reduction)
-	}
 	if measured.BQ64Reduction.Width.HashFSBits != 232 || measured.BQ64Reduction.Width.TapeBits != 160 {
 		t.Fatalf("unexpected BQ64-96 width model: %+v", measured.BQ64Reduction.Width)
 	}
 }
 
-func TestNIZKProfileBestPerProfilePrefersConcreteFrontier(t *testing.T) {
-	results := nizkProfileReports(1, "")
-	if len(results) != len(nizkProfileSearchTargets()) {
-		t.Fatalf("results=%d want one best per target", len(results))
-	}
-	want := map[string]string{
-		"BQ32-128":  "r7l5-current-theta10-ell15-n917504-lvcs43",
-		"BQ64-96":   "r7l5-current-theta12-ell16-n983040-lvcs43",
-		"BQ64-128":  "r7l5-current-theta14-ell18-n983040-lvcs43",
-		"BQ128-128": nizkProfileBQ128RawResidualFrontierCandidate,
-	}
-	for _, result := range results {
-		if result.Candidate != want[result.SecurityProfile] {
-			t.Fatalf("%s best candidate=%q want %q", result.SecurityProfile, result.Candidate, want[result.SecurityProfile])
-		}
-		if result.FrontierClass != nizkProfileFrontierCandidate {
-			t.Fatalf("best result did not reach the NIZK research frontier: %+v", result)
-		}
-		if result.TargetStatus != credential.SecurityProfileRequiresNewPrimitives || result.LedgerStatus != string(credential.SecurityProfileRequiresNewPrimitives) {
-			t.Fatalf("best result must remain primitive-blocked: %+v", result)
-		}
-		if result.ShowingAlgebraicBits < result.NIZKTargetBits {
-			t.Fatalf("best result below NIZK target: %+v", result)
-		}
-		for _, kappa := range result.SmallWood.RequiredKappa {
-			if kappa > nizkProfileMaxSupportedGrinding {
-				t.Fatalf("best result exceeds grinding limit: %+v", result)
-			}
-		}
-	}
-}
-
 func TestNIZKProfileLargeNLeavesRemainProjectionOnlyUnderCurrentQ(t *testing.T) {
-	report := nizkProfileReports(0, "n1048576")[0]
+	report, ok := nizkProfileReportForCandidate("BQ32-128", "bq32-nizk164-theta10-ell16-n1048576")
+	if !ok {
+		t.Fatal("missing large authentication-domain candidate")
+	}
 	if report.SmallWood.NLeaves < 1048576 {
 		t.Fatalf("test selected small domain candidate: %+v", report)
 	}
@@ -3974,36 +3797,6 @@ func TestNIZKProfileLargeNLeavesRemainProjectionOnlyUnderCurrentQ(t *testing.T) 
 	}
 	if !strings.Contains(reason, "larger/extension-domain primitive lane") {
 		t.Fatalf("unexpected unmeasurable reason: %q", reason)
-	}
-}
-
-func TestNIZKProfileTranscriptDiagnosisIdentifiesDominantBucketsAndLevers(t *testing.T) {
-	results := nizkProfileReports(1, "")
-	if len(results) == 0 {
-		t.Fatal("missing NIZK profile reports")
-	}
-	for _, result := range results {
-		if len(result.TranscriptDrivers) == 0 {
-			t.Fatalf("%s missing transcript drivers", result.SecurityProfile)
-		}
-		if result.TranscriptDrivers[0].Component != "vtargets" {
-			t.Fatalf("%s dominant driver=%q want vtargets: %+v", result.SecurityProfile, result.TranscriptDrivers[0].Component, result.TranscriptDrivers)
-		}
-		if result.TranscriptDrivers[0].Percent <= 20 {
-			t.Fatalf("%s dominant driver percent too small: %+v", result.SecurityProfile, result.TranscriptDrivers[0])
-		}
-		leverNames := map[string]bool{}
-		for _, lever := range result.OptimizationLevers {
-			if lever.EstimatedSavingsBytes < 0 {
-				t.Fatalf("negative estimated savings: %+v", lever)
-			}
-			leverNames[lever.Name] = true
-		}
-		for _, want := range []string{"compiler_backed_safe_relation_measurement", "lvcs_rowblock_breakpoint_sweep", "auth_multiproof_path_audit", "pdecs_vtargets_barsets_serializer_dedup", "avoid_eta_theta_growth"} {
-			if !leverNames[want] {
-				t.Fatalf("%s missing optimization lever %q: %+v", result.SecurityProfile, want, result.OptimizationLevers)
-			}
-		}
 	}
 }
 
@@ -4041,7 +3834,9 @@ func TestInternalNIZKProfileSweep(t *testing.T) {
 	if validPrefixSweep && strings.TrimSpace(filter) == "" {
 		filter = "vp"
 	}
-	if !maxPerProfileExplicit && nizkProfileEnvBool("SPRUCE_NIZK_PROFILE_SWEEP_MEASURED") && (strings.Contains(filter, "BQ64-96") || strings.Contains(filter, "BQ64-128")) {
+	if !maxPerProfileExplicit &&
+		(strings.Contains(filter, "BQ64-128") || strings.Contains(filter, "BQ96-128") || strings.Contains(filter, "BQ128-128") ||
+			(nizkProfileEnvBool("SPRUCE_NIZK_PROFILE_SWEEP_MEASURED") && strings.Contains(filter, "BQ64-96"))) {
 		maxPerProfile = 0
 	}
 	root := strings.TrimSpace(os.Getenv("SPRUCE_NIZK_PROFILE_SWEEP_ARTIFACT_ROOT"))
@@ -4055,7 +3850,11 @@ func TestInternalNIZKProfileSweep(t *testing.T) {
 	results := nizkProfileReports(maxPerProfile, filter)
 	candidates := nizkProfileSearchCandidatesForFilter(filter)
 	if nizkProfileEnvBool("SPRUCE_NIZK_PROFILE_SWEEP_MEASURED") {
-		maxE2E := nizkProfileEnvInt("SPRUCE_NIZK_PROFILE_SWEEP_MAX_E2E", 1)
+		defaultMaxE2E := 1
+		if strings.Contains(filter, "BQ64-128") || strings.Contains(filter, "BQ96-128") || strings.Contains(filter, "BQ128-128") {
+			defaultMaxE2E = 0
+		}
+		maxE2E := nizkProfileEnvInt("SPRUCE_NIZK_PROFILE_SWEEP_MAX_E2E", defaultMaxE2E)
 		results = nizkProfileReportsWithMeasurements(t, results, root, maxE2E)
 	}
 	summary := NIZKProfileSweepSummary{
