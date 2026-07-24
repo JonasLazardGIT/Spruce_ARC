@@ -509,11 +509,12 @@ func TestBenchmarkMetricsJSONOmitsZeroOnlyFields(t *testing.T) {
 	}
 }
 
-func TestBenchmarkMetricsFromProofIncludesMdecsBytes(t *testing.T) {
+func TestBenchmarkMetricsFromProofIncludesPaperBuckets(t *testing.T) {
 	metrics := intGenISISMetricsFromProof(&PIOP.Proof{}, PIOP.ProofReport{
 		PaperTranscript: PIOP.PaperTranscriptReport{
 			OptimizedBytes: 128,
 			Mdecs:          PIOP.PaperTranscriptBucket{OptimizedBytes: 7},
+			Tapes:          PIOP.PaperTranscriptBucket{OptimizedBytes: 11},
 		},
 	}, PIOP.PublicInputs{}, PIOP.SimOpts{}, 0, 0, "test")
 	if metrics.PaperTranscriptBytes != 128 {
@@ -521,6 +522,9 @@ func TestBenchmarkMetricsFromProofIncludesMdecsBytes(t *testing.T) {
 	}
 	if metrics.MdecsBytes != 7 {
 		t.Fatalf("mdecs bytes=%d want 7", metrics.MdecsBytes)
+	}
+	if metrics.TapesBytes != 11 {
+		t.Fatalf("tapes bytes=%d want 11", metrics.TapesBytes)
 	}
 }
 
