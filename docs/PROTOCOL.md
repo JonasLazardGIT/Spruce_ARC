@@ -87,9 +87,12 @@ Security metadata is informational and does not constitute a deployment claim.
 | `artifact-n1024-bq10-r96-historical-v1` | bounded-query reproduction | `artifact` | BQ10-R96 proof-only | available |
 | `artifact-n1024-bq16-r96-historical-v1` | bounded-query reproduction | `artifact` | BQ16-R96 proof-only | available |
 | `pilot-n1024-bq32-r96-v1` | controlled pilot | `candidate` | bounded complete-system candidate | available, not promoted |
+| `poc-n1024-bq64-r128-v1` | bounded-query experiment | `poc` | BQ64-R128 proof-only | available |
+| `poc-n1024-bq96-r128-v1` | bounded-query experiment | `poc` | BQ96-R128 proof-only | available |
+| `poc-n1024-bq128-r128-v2` | bounded-query experiment | `poc` | BQ128-R128 proof-only | available |
 | `system-n1024-wf128-crom-v1` | WF-128 PoC shape | `candidate` | complete-system target | available PoC; no claim |
 
-`list-presets` prints exactly these six unique security-target/query-budget
+`list-presets` prints exactly these nine unique security-target/query-budget
 tuples. No complete-system deployment preset is currently available.
 
 ## Executable Preset Parameters
@@ -102,6 +105,9 @@ n1024-compact125
 n1024-q10-96
 n1024-q16-96
 n1024-bq32-96
+poc-n1024-bq64-r128-v1
+poc-n1024-bq96-r128-v1
+poc-n1024-bq128-r128-v2
 system-n1024-wf128-crom-v1
 ```
 
@@ -115,6 +121,9 @@ archived rather than redirected to different parameters.
 | `n1024-q10-96` | C | 96 | 37 | 720,896 | 40 | 6 | 1 | 7/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
 | `n1024-q16-96` | C | 96 | 38 | 393,216 | 40 | 6 | 1 | 8/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
 | `n1024-bq32-96` | C | 99.5 | 40 | 786,432 | 46 | 7 | 1 | 9/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
+| `poc-n1024-bq64-r128-v1` | C | 131.54 | 43 | 917,504 | 53 | 10 | 1 | 13/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
+| `poc-n1024-bq96-r128-v1` | C | 131.54 | 43 | 786,432 | 57 | 12 | 1 | 16/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
+| `poc-n1024-bq128-r128-v2` | C | 131.54 | 43 | 786,432 | 60 | 13 | 1 | 18/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
 | `system-n1024-wf128-crom-v1` | C | 128 | 43 | 524,288 | 46 | 7 | 1 | 9/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
 
 Issuance knobs prove the commitment opening and semantic constraints before the
@@ -140,6 +149,24 @@ showing. The one-proof theorem result is 99.98 bits and the current
 one-issuance/one-showing global-collision composition is 98.59 bits. These are
 proof-accounting results, not a complete-system promotion.
 
+## NIZK-Scoped R128 PoC Presets
+
+The BQ64, BQ96, and BQ128 PoCs apply their raw query caps only to the five
+SmallWood/Fiat-Shamir oracle domains. The unchanged profile-C primitive family
+is assumed independently at 128 bits. Honest transcript and tag volumes are
+separately bounded by `2^32` per domain-separated context.
+
+| Preset | Raw caps per phase | Hash/FS | Tape | Salt | Tag | eta/theta/ell | Grinding | Issuance/showing bytes | Composed proof bits |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: |
+| `poc-n1024-bq64-r128-v1` | `[2^64]*5` | 264 | 200 | 200 | 10 | 53/10/13 | `[13,2,8,13]` | 39,504 / 56,584 | 130.00 |
+| `poc-n1024-bq96-r128-v1` | `[2^96]*5` | 328 | 232 | 200 | 10 | 57/12/16 | `[0,0,0,7]` | 52,106 / 73,456 | 130.92 |
+| `poc-n1024-bq128-r128-v2` | `[2^128]*5` | 392 | 264 | 200 | 10 | 60/13/18 | `[0,3,11,12]` | 61,429 / 85,386 | 130.56 |
+
+All three use the current raw-cap theorem, block width 43, and the measured
+R7/L5 relation. BQ64 uses a `917504`-point authentication domain; BQ96 and
+BQ128 use `786432`. Their structural parameter audits pass, but their claim
+scope remains proof-only.
+
 ## WF-128 PoC Preset
 
 `system-n1024-wf128-crom-v1` is an executable CROM work-factor configuration,
@@ -160,11 +187,12 @@ diagnostic and the preset has `complete_system_claim=false`.
 
 ## Archived Research Measurements
 
-Removed Q128, BQ64, R128, duplicate SC-96, and historical BQ32 configurations
-are recorded in `credential/testdata/removed_intgenisis_presets.json`. The
-archive preserves selectors, measured transcript sizes, theorem bits, audit
-status, and the required correction without exposing incoherent configurations
-through the CLI.
+Superseded and structurally rejected Q128, BQ64, R128, duplicate SC-96, and
+historical BQ32 configurations are recorded in
+`credential/testdata/removed_intgenisis_presets.json`. The corrected BQ64,
+BQ96, and BQ128 PoCs above are distinct executable manifests. The archive
+preserves old selectors, measurements, and rejection reasons without
+redirecting them to the new parameters.
 
 ## Public Setup
 

@@ -25,7 +25,7 @@ Every listed preset is executable and distributed for experimental PoC use.
 Security reports are diagnostic; no listed preset makes a complete-system
 deployment claim.
 
-The exact-byte gate covers the six executable selectors:
+The historical exact-byte gate covers these six selectors:
 
 ```text
 n512-compact96
@@ -119,7 +119,7 @@ staticcheck ./...
 deadcode -test ./... with no output allowed
 deadcode ./... with no output allowed
 go build ./cmd/issuance ./cmd/showing
-benchmark-intgenisis-e2e for all six executable presets
+benchmark-intgenisis-e2e for all six exact-byte-gated presets
 ```
 
 If `staticcheck` is not installed, the script runs the pinned tool through
@@ -227,7 +227,7 @@ The benchmark JSON report records:
 | Claim | Reproduction command | Report field or check |
 | --- | --- | --- |
 | Every listed preset is executable | `go run ./cmd/issuance gate-functional-presets` | every registry entry reports `functional=pass` |
-| Executable preset byte list | `go run ./cmd/issuance gate-artifact-presets` | all six exact-byte checks pass |
+| Historical preset byte list | `go run ./cmd/issuance gate-artifact-presets` | all six exact-byte checks pass |
 | BQ32 controlled-pilot candidate | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset pilot-n1024-bq32-r96-v1` | actual parameters pass their profile requirements; ledger remains explicitly blocked |
 | WF-128 PoC shape | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset system-n1024-wf128-crom-v1` | parameter audit passes, tag length is 13, bounded-query caps are unset, and `complete_system_claim == false` |
 | Removed research measurements | inspect `credential/testdata/removed_intgenisis_presets.json` | archived selectors, measured bytes, theorem bits, audit status, and removal reason |

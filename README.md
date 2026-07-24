@@ -114,8 +114,8 @@ go run ./cmd/issuance gate-artifact-presets
 ```
 
 The full native validation script runs formatting, tests, vet, staticcheck,
-strict deadcode, CLI builds, and exact-byte gates for all six executable
-presets:
+strict deadcode, CLI builds, and the six maintained historical exact-byte
+gates. `gate-functional-presets` separately exercises every executable preset:
 
 ```bash
 ./scripts/validate-artifact.sh

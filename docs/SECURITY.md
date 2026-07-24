@@ -58,13 +58,16 @@ separate from claim scope (`proof_only` or `complete_system`).
 | `BQ10-96` | raw `[2^10]*5` CROM caps | 96 residual | 120 | 106 | 120 | 7 | 106 | proof-only |
 | `BQ16-96` | raw `[2^16]*5` CROM caps | 96 residual | 136 | 112 | 136 | 7 | 112 | proof-only |
 | `BQ32-96` | raw `[2^32]*5` CROM caps | 96 residual | 168 | 136 | 168 | 9 | 128 | candidate |
+| `BQ64-128` | raw `[2^64]*5` NIZK CROM caps | 128 residual | 264 | 200 | 200 | 10 | 128 | proof-only |
+| `BQ96-128` | raw `[2^96]*5` NIZK CROM caps | 128 residual | 328 | 232 | 200 | 10 | 128 | proof-only |
+| `BQ128-128` | raw `[2^128]*5` NIZK CROM caps | 128 residual | 392 | 264 | 200 | 10 | 128 | proof-only |
 | `WF-128` | global CROM work factor | 128 | 264 | 128 | 256 | 13 | 128 | executable PoC candidate |
 
 Q10 and Q16 have exact profiles and do not borrow BQ32 query metadata. The
-BQ32-R96 pilot executes tag-9 and passes its parameter audit. Higher-budget and
-R128 target specifications remain available to the internal tuning sweep, but
-their rejected executable configurations were archived and removed from the
-CLI registry.
+BQ32-R96 pilot executes tag-9 and passes its parameter audit. BQ64/BQ96/BQ128
+apply their query caps only to the five NIZK oracle domains; they do not grant
+the same budget to attacks on the independently assumed 128-bit primitive
+family.
 
 ## Ledger Structure
 
@@ -196,13 +199,17 @@ The generated file is `prf/prf_params.json`. Go tests and artifact commands
 load this file directly; Docker validation does not run Sage.
 
 The controlled BQ32 pilot loads `prf/prf_params_tag9.json` with `LenTag=9`.
-The WF-128 PoC loads `prf/prf_params_tag13.json` with `LenTag=13`; both retain
-the default permutation matrices, constants, rounds, key length, and nonce
-length. The tag-13 file has SHA-256 digest
+The NIZK-scoped R128 PoCs load `prf/prf_params_tag10.json` with `LenTag=10`,
+and the WF-128 PoC loads `prf/prf_params_tag13.json` with `LenTag=13`. All
+retain the default permutation matrices, constants, rounds, key length, and
+nonce length. The tag-10 and tag-13 files have SHA-256 digests
+`93c97ee27c14f468250c3d249d8c98733ed1dee3aceeaffdfdafce5b220b8e48` and
 `94462038554d296342ed088fcbbecd03165a8f1705fdf64346551a4eabe6b5dd`.
 The canonical preset binds both the PRF profile and exact parameter-file
-digest, and runtime loading rejects a digest or tag-width mismatch. Tag-10 and
-tag-14 profiles remain unregistered.
+digest, and runtime loading rejects a digest or tag-width mismatch. The
+direct-full relation tests also tamper-check tag coordinates 8 and 9, where
+feed-forward changes from key coordinates to nonce coordinates. Tag-14 remains
+unregistered.
 
 ## BQ32-R96 Pilot Measurement
 
@@ -226,6 +233,26 @@ is distinct from the adversarial random-oracle budget.
 The parameter audit passes. Promotion does not: simultaneous extraction remains
 report-only, challenge-bias/programming terms need reviewed theorem accounting,
 and MSIS binding plus the lattice-signature term are not complete-grade.
+
+## NIZK-Scoped R128 PoC Measurements
+
+For one accepted issuance and one accepted showing, the global collision term
+uses five domains with combined caps `2^(b+1)`. The byte-aligned widths below
+leave 131.68 global-collision bits. Requiring about 131.54 algebraic bits in
+each phase then leaves at least 130 composed proof-system bits.
+
+| Preset | Raw cap | Hash/FS | Tape | Salt | Tag elements | Phase algebraic bits | Composed bits | Issuance/showing bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `poc-n1024-bq64-r128-v1` | `2^64` | 264 | 200 | 200 | 10 | 131.54 | 130.00 | 39,504 / 56,584 |
+| `poc-n1024-bq96-r128-v1` | `2^96` | 328 | 232 | 200 | 10 | 133.21 | 130.92 | 52,106 / 73,456 |
+| `poc-n1024-bq128-r128-v2` | `2^128` | 392 | 264 | 200 | 10 | 132.45 | 130.56 | 61,429 / 85,386 |
+
+The threat manifests independently cap honest proofs and tags at `2^32` per
+domain-separated context. At that volume, the 200-bit salt has about 137
+collision bits, and the ten-element tag has about 136.57 collision bits. The
+query budget is not reused as a tag-volume bound. All three parameter audits
+pass and all three ledgers report `proof_only`; they make no complete-system
+claim and do not alter the profile-C lattice parameters or estimator evidence.
 
 ## WF-128 PoC Measurement
 
@@ -285,6 +312,9 @@ or modes to `cmd/issuance` or `cmd/showing`.
   budgets and pass their structural parameter audits.
 - `pilot-n1024-bq32-r96-v1` is a bounded candidate whose executed-parameter
   audit passes but whose complete ledger does not.
+- `poc-n1024-bq64-r128-v1`, `poc-n1024-bq96-r128-v1`, and
+  `poc-n1024-bq128-r128-v2` are NIZK-scoped proof-only PoCs. Their raw oracle
+  caps do not strengthen the independently assumed 128-bit primitive profile.
 - `system-n1024-wf128-crom-v1` is an executable unbounded CROM work-factor PoC
   whose structural parameter audit passes; its ledger is diagnostic and it
   makes no complete-system claim.
