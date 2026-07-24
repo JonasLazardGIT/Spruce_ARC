@@ -9,6 +9,9 @@ func TestIntGenISISPresetRegistryContainsOnlyCoherentUniquePresets(t *testing.T)
 		IntGenISISPresetN1024Q10_96,
 		IntGenISISPresetN1024Q16_96,
 		IntGenISISPresetN512Compact96,
+		IntGenISISPresetPoCN1024BQ128R128V2,
+		IntGenISISPresetPoCN1024BQ64R128V1,
+		IntGenISISPresetPoCN1024BQ96R128V1,
 		IntGenISISPresetSystemN1024WF128CROMV1,
 	}
 	names := IntGenISISPresetNames()
@@ -48,6 +51,9 @@ func TestIntGenISISPresetSecurityProfileMetadata(t *testing.T) {
 		IntGenISISPresetN1024BQ32_96:           "BQ32-96",
 		IntGenISISPresetN1024Q10_96:            "BQ10-96",
 		IntGenISISPresetN1024Q16_96:            "BQ16-96",
+		IntGenISISPresetPoCN1024BQ64R128V1:     "BQ64-128",
+		IntGenISISPresetPoCN1024BQ96R128V1:     "BQ96-128",
+		IntGenISISPresetPoCN1024BQ128R128V2:    "BQ128-128",
 		IntGenISISPresetSystemN1024WF128CROMV1: "WF-128",
 	}
 	for _, name := range IntGenISISPresetNames() {
@@ -106,6 +112,79 @@ func TestN1024WF128CROMPresetIsExecutableCandidate(t *testing.T) {
 	}
 	if p.ThreatModel.TargetWorkFactorBits != 128 || p.ThreatModel.ROQueryCapLog2 != [5]float64{} || p.ThreatModel.AcceptedIssuance != 1 || p.ThreatModel.AcceptedShowing != 1 {
 		t.Fatalf("WF-128 threat model=%+v", p.ThreatModel)
+	}
+}
+
+func TestN1024NIZKScopedR128Presets(t *testing.T) {
+	tests := []struct {
+		name     string
+		profile  string
+		queryLog float64
+		hashBits int
+		tapeBits int
+		nLeaves  int
+		eta      int
+		theta    int
+		ell      int
+		kappa    [4]int
+	}{
+		{IntGenISISPresetPoCN1024BQ64R128V1, "BQ64-128", 64, 264, 200, 917504, 53, 10, 13, [4]int{13, 2, 8, 13}},
+		{IntGenISISPresetPoCN1024BQ96R128V1, "BQ96-128", 96, 328, 232, 786432, 57, 12, 16, [4]int{0, 0, 0, 7}},
+		{IntGenISISPresetPoCN1024BQ128R128V2, "BQ128-128", 128, 392, 264, 786432, 60, 13, 18, [4]int{0, 3, 11, 12}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			preset, ok := LookupIntGenISISPreset(tc.name)
+			if !ok {
+				t.Fatalf("missing preset %s", tc.name)
+			}
+			if preset.Profile != ProfileIntGenISISC || preset.SecurityProfile != tc.profile ||
+				preset.Lifecycle != PresetPoC || preset.ClaimScope != ClaimProofOnly ||
+				preset.CompleteSystemClaim {
+				t.Fatalf("incorrect identity or claim classification: %+v", preset)
+			}
+			if preset.CoreBitsRequired != 128 ||
+				preset.TargetTheoremBits != 131.5405683813627 ||
+				preset.Showing.TargetTheoremBits != preset.TargetTheoremBits {
+				t.Fatalf("incorrect primitive or theorem target: %+v", preset)
+			}
+			wantCaps := [5]float64{tc.queryLog, tc.queryLog, tc.queryLog, tc.queryLog, tc.queryLog}
+			if !preset.Showing.ROQueryCapBitsSet || preset.Showing.ROQueryCapsSet ||
+				preset.Showing.ROQueryCapBits != wantCaps ||
+				preset.ThreatModel.ROQueryCapLog2 != wantCaps {
+				t.Fatalf("incorrect logarithmic NIZK query scope: %+v", preset)
+			}
+			if preset.ThreatModel.MaxProofsLog2 != 32 ||
+				preset.ThreatModel.MaxIssuanceProofsLog2 != 31 ||
+				preset.ThreatModel.MaxShowingProofsLog2 != 31 ||
+				preset.ThreatModel.MaxTagsPerContextLog2 != 32 ||
+				preset.ThreatModel.AcceptedIssuance != 1 ||
+				preset.ThreatModel.AcceptedShowing != 1 {
+				t.Fatalf("incorrect independent proof/tag volume: %+v", preset.ThreatModel)
+			}
+			showing := preset.Showing
+			if showing.NCols != 32 || showing.LVCSNCols != 43 || showing.NLeaves != tc.nLeaves ||
+				showing.Eta != tc.eta || showing.Theta != tc.theta || showing.Ell != tc.ell ||
+				showing.Rho != 1 || showing.EllPrime != 1 || showing.Kappa != tc.kappa {
+				t.Fatalf("incorrect measured SmallWood geometry: %+v", showing)
+			}
+			if showing.DECSCollisionBits != tc.hashBits || showing.DECSHashBits != tc.hashBits ||
+				showing.FSCollisionBits != tc.hashBits || showing.DECSTapeBits != tc.tapeBits ||
+				showing.SaltBits != 200 {
+				t.Fatalf("incorrect transcript widths: %+v", showing)
+			}
+			if preset.PRFProfile != IntGenISISPRFProfileTag10 ||
+				preset.PRFParamsPath != IntGenISISPRFParamsTag10 ||
+				preset.PRFParamsDigest != IntGenISISPRFParamsTag10Digest {
+				t.Fatalf("incorrect tag-10 binding: %+v", preset)
+			}
+			if preset.Issuance.PRFCompanionMode != "" ||
+				preset.Issuance.SigShortnessRadix != 0 ||
+				preset.Issuance.ROQueryCapBits != wantCaps ||
+				preset.Issuance.PRFProfile != IntGenISISPRFProfileTag10 {
+				t.Fatalf("incorrect derived issuance geometry: %+v", preset.Issuance)
+			}
+		})
 	}
 }
 

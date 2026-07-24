@@ -48,6 +48,9 @@ const (
 	IntGenISISPresetPoCN512SC96V1          = "poc-n512-sc96-v1"
 	IntGenISISPresetArtifactN1024SC125V1   = "artifact-n1024-sc125-v1"
 	IntGenISISPresetPilotN1024BQ32R96V1    = "pilot-n1024-bq32-r96-v1"
+	IntGenISISPresetPoCN1024BQ64R128V1     = "poc-n1024-bq64-r128-v1"
+	IntGenISISPresetPoCN1024BQ96R128V1     = "poc-n1024-bq96-r128-v1"
+	IntGenISISPresetPoCN1024BQ128R128V2    = "poc-n1024-bq128-r128-v2"
 	IntGenISISPresetSystemN1024WF128CROMV1 = "system-n1024-wf128-crom-v1"
 )
 
@@ -110,6 +113,21 @@ func intGenISISPresetMetadataRegistry() map[string]intGenISISPresetMetadata {
 		IntGenISISPresetN1024BQ32_96: {
 			canonicalID: IntGenISISPresetPilotN1024BQ32R96V1, purpose: "controlled pilot",
 			lifecycle: PresetCandidate, claimScope: ClaimCompleteSystem,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31, tagsLog2: 32,
+		},
+		IntGenISISPresetPoCN1024BQ64R128V1: {
+			canonicalID: IntGenISISPresetPoCN1024BQ64R128V1, purpose: "bounded-query PoC",
+			lifecycle: PresetPoC, claimScope: ClaimProofOnly,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31, tagsLog2: 32,
+		},
+		IntGenISISPresetPoCN1024BQ96R128V1: {
+			canonicalID: IntGenISISPresetPoCN1024BQ96R128V1, purpose: "bounded-query PoC",
+			lifecycle: PresetPoC, claimScope: ClaimProofOnly,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31, tagsLog2: 32,
+		},
+		IntGenISISPresetPoCN1024BQ128R128V2: {
+			canonicalID: IntGenISISPresetPoCN1024BQ128R128V2, purpose: "bounded-query PoC",
+			lifecycle: PresetPoC, claimScope: ClaimProofOnly,
 			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31, tagsLog2: 32,
 		},
 	}

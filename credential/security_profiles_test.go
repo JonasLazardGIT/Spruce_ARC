@@ -17,6 +17,7 @@ func TestIntGenISISSecurityProfileRegistryLabels(t *testing.T) {
 		"BQ32-96",
 		"BQ64-128",
 		"BQ64-96",
+		"BQ96-128",
 		"SC-125",
 		"SC-96",
 		"WF-128",
@@ -64,13 +65,46 @@ func TestIntGenISISSecurityProfileSpecsArePopulated(t *testing.T) {
 }
 
 func TestIntGenISISSecurityProfilesRequireNewPrimitives(t *testing.T) {
-	for _, label := range []string{"BQ10-128", "BQ16-128", "BQ32-128", "BQ64-96", "BQ64-128", "BQ128-128"} {
+	for _, label := range []string{"BQ10-128", "BQ16-128", "BQ32-128", "BQ64-96"} {
 		profile, ok := LookupIntGenISISSecurityProfile(label)
 		if !ok {
 			t.Fatalf("missing security profile %s", label)
 		}
 		if profile.Status != SecurityProfileRequiresNewPrimitives {
 			t.Fatalf("profile %s status=%q want %q", label, profile.Status, SecurityProfileRequiresNewPrimitives)
+		}
+	}
+}
+
+func TestNIZKScopedR128Profiles(t *testing.T) {
+	tests := map[string]struct {
+		capBits  float64
+		hashBits int
+		tapeBits int
+	}{
+		"BQ64-128":  {capBits: 64, hashBits: 264, tapeBits: 200},
+		"BQ96-128":  {capBits: 96, hashBits: 328, tapeBits: 232},
+		"BQ128-128": {capBits: 128, hashBits: 392, tapeBits: 264},
+	}
+	for label, want := range tests {
+		profile, ok := LookupIntGenISISSecurityProfile(label)
+		if !ok {
+			t.Fatalf("missing security profile %s", label)
+		}
+		if profile.Status != SecurityProfileProofOnly || profile.TargetBits != 128 || profile.CoreBitsRequired != 128 {
+			t.Fatalf("%s classification=%+v", label, profile)
+		}
+		if profile.MinDECSHashBits != want.hashBits || profile.MinFSCollisionBits != want.hashBits ||
+			profile.MinDECSTapeBits != want.tapeBits || profile.MinSaltBits != 200 || profile.MinPRFTagElements != 10 {
+			t.Fatalf("%s requirements=%+v", label, profile)
+		}
+		if len(profile.ROQueryCapBits) != 5 {
+			t.Fatalf("%s query caps=%v", label, profile.ROQueryCapBits)
+		}
+		for _, got := range profile.ROQueryCapBits {
+			if got != want.capBits {
+				t.Fatalf("%s query cap=%v want %.0f", label, got, want.capBits)
+			}
 		}
 	}
 }
@@ -98,6 +132,7 @@ func TestResidualBudgetProfilesExposeLogCaps(t *testing.T) {
 		"BQ32-128":  32,
 		"BQ64-96":   64,
 		"BQ64-128":  64,
+		"BQ96-128":  96,
 		"BQ128-128": 128,
 	}
 	for label, want := range tests {

@@ -67,34 +67,34 @@ func TestIntGenISISSystemSecurityLedgerPromotesBQ128NIZKProofOnlyClaim(t *testin
 	ledger := EvaluateIntGenISISSystemSecurityLedger(SystemSecurityLedgerInput{
 		SecurityProfile:     "BQ128-128",
 		ROMModel:            ROMModelCROM,
-		FullGameBits:        128.25624780465486,
-		ProofBits:           129.25624780465486,
-		CollisionBits:       253.67807190511263,
-		TagCollisionBits:    300,
-		SaltCollisionBits:   384,
-		TapeGuessingBits:    128,
-		ProgrammingBits:     382,
-		ChallengeBiasBits:   512,
+		FullGameBits:        130.55909075954432,
+		ProofBits:           132.44917894715786,
+		CollisionBits:       131.67807190511263,
+		TagCollisionBits:    136.57103458981373,
+		SaltCollisionBits:   137,
+		TapeGuessingBits:    136,
+		ProgrammingBits:     136,
+		ChallengeBiasBits:   133,
 		MultiUserBits:       300,
 		MultiContextBits:    300,
 		PRFBits:             133,
 		MLWEBits:            131.113,
 		ReplayRejected:      true,
 		ROBudgetLogs:        ROBudgetLogVectorFromCapBits([]float64{128, 128, 128, 128, 128}),
-		CoreBitsRequired:    256,
+		CoreBitsRequired:    128,
 		CoreAvailableBits:   131.113,
 		CompleteSystemClaim: false,
 		Terms: []SystemSecurityLedgerTerm{
-			ReportOnlyLedgerTerm(ExactLedgerTerm(SystemLedgerTermSoundness, "proof_theorem", 129.25624780465486, true, "proof theorem bits below target")),
-			ExactLedgerTerm(SystemLedgerTermSoundness, "issuance_smallwood_extraction", 129.25624780465486, true, "issuance SmallWood extraction bits below target"),
-			ExactLedgerTerm(SystemLedgerTermSoundness, "showing_smallwood_extraction", 129.25624780465486, true, "showing SmallWood extraction bits below target"),
-			ReportOnlyLedgerTerm(ExactLedgerTerm(SystemLedgerTermSoundness, "full_game", 128.25624780465486, true, "full-game bits below target")),
-			ExactLedgerTerm(SystemLedgerTermZeroKnowledge, "tape_guessing", 128, true, "tape guessing bits below target"),
-			ConservativeLedgerTerm(SystemLedgerTermZeroKnowledge, "programming_conflict", 382, true, "programming conflict bits below target"),
+			ReportOnlyLedgerTerm(ExactLedgerTerm(SystemLedgerTermSoundness, "proof_theorem", 132.44917894715786, true, "proof theorem bits below target")),
+			ExactLedgerTerm(SystemLedgerTermSoundness, "issuance_smallwood_extraction", 132.44917894715786, true, "issuance SmallWood extraction bits below target"),
+			ExactLedgerTerm(SystemLedgerTermSoundness, "showing_smallwood_extraction", 132.44917894715786, true, "showing SmallWood extraction bits below target"),
+			ReportOnlyLedgerTerm(ExactLedgerTerm(SystemLedgerTermSoundness, "full_game", 130.55909075954432, true, "full-game bits below target")),
+			ExactLedgerTerm(SystemLedgerTermZeroKnowledge, "tape_guessing", 136, true, "tape guessing bits below target"),
+			ConservativeLedgerTerm(SystemLedgerTermZeroKnowledge, "programming_conflict", 136, true, "programming conflict bits below target"),
 		},
 	})
-	if ledger.LedgerStatus != string(SecurityProfileRequiresNewPrimitives) || ledger.CompleteSystemClaim {
-		t.Fatalf("ledger status/claim=(%q,%v), want primitive-blocked proof-only claim", ledger.LedgerStatus, ledger.CompleteSystemClaim)
+	if ledger.LedgerStatus != string(SecurityProfileProofOnly) || ledger.CompleteSystemClaim {
+		t.Fatalf("ledger status/claim=(%q,%v), want proof-only claim", ledger.LedgerStatus, ledger.CompleteSystemClaim)
 	}
 	if ledger.SoundnessBits < 128 || ledger.ZeroKnowledgeBits < 128 {
 		t.Fatalf("BQ128 proof terms should clear target: soundness=%f zk=%f", ledger.SoundnessBits, ledger.ZeroKnowledgeBits)
@@ -102,11 +102,11 @@ func TestIntGenISISSystemSecurityLedgerPromotesBQ128NIZKProofOnlyClaim(t *testin
 	if ledger.ROBudgetLogs.RawLog2 != 128 || ledger.ROBudgetLogs.FSLog2 != [4]float64{128, 128, 128, 128} {
 		t.Fatalf("BQ128 proof claim should retain raw log caps: %+v", ledger.ROBudgetLogs)
 	}
-	if !containsString(ledger.RejectionReasons, "profile status is requires_new_primitives") {
+	if !containsString(ledger.RejectionReasons, "profile status is proof_only") {
 		t.Fatalf("missing profile-status blocker: %+v", ledger.RejectionReasons)
 	}
-	if !containsString(ledger.RejectionReasons, "primitive core below required bits") {
-		t.Fatalf("missing primitive-core blocker: %+v", ledger.RejectionReasons)
+	if containsString(ledger.RejectionReasons, "primitive core below required bits") {
+		t.Fatalf("NIZK query budget incorrectly strengthened the primitive requirement: %+v", ledger.RejectionReasons)
 	}
 	for _, unwanted := range []string{
 		"full-game bits below target",

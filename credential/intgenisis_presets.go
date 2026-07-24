@@ -94,6 +94,61 @@ type IntGenISISTuningPreset struct {
 	SoundnessGate       string     `json:"soundness_gate,omitempty"`
 }
 
+type intGenISISScopedR128Tuning struct {
+	LVCSNCols       int
+	NLeaves         int
+	Eta             int
+	Theta           int
+	Ell             int
+	Kappa           [4]int
+	QueryCapBits    float64
+	HashBits        int
+	TapeBits        int
+	SignatureRadix  int
+	SignatureDigits int
+}
+
+func intGenISISScopedR128ShowingTuning(cfg intGenISISScopedR128Tuning) IntGenISISTuningPreset {
+	queryCaps := [5]float64{
+		cfg.QueryCapBits,
+		cfg.QueryCapBits,
+		cfg.QueryCapBits,
+		cfg.QueryCapBits,
+		cfg.QueryCapBits,
+	}
+	return IntGenISISTuningPreset{
+		NCols:               32,
+		LVCSNCols:           cfg.LVCSNCols,
+		NLeaves:             cfg.NLeaves,
+		Eta:                 cfg.Eta,
+		Theta:               cfg.Theta,
+		Rho:                 1,
+		Ell:                 cfg.Ell,
+		EllPrime:            1,
+		Kappa:               cfg.Kappa,
+		ROQueryCapBits:      queryCaps,
+		ROQueryCapBitsSet:   true,
+		DECSCollisionBits:   cfg.HashBits,
+		DECSHashBits:        cfg.HashBits,
+		DECSTapeBits:        cfg.TapeBits,
+		FSCollisionBits:     cfg.HashBits,
+		SaltBits:            200,
+		PRFProfile:          IntGenISISPRFProfileTag10,
+		PRFParamsPath:       IntGenISISPRFParamsTag10,
+		PRFCompanionMode:    "direct_full",
+		PRFGroupRounds:      2,
+		CheckpointSamples:   1,
+		SigShortnessRadix:   cfg.SignatureRadix,
+		SigShortnessDigits:  cfg.SignatureDigits,
+		CompressedRows:      1,
+		ReplayProjection:    "project_u_digits_y_w_residual_v5",
+		TranscriptMode:      "smallfield_2025_1085_v1",
+		FixedTranscriptSize: true,
+		TargetTheoremBits:   131.5405683813627,
+		SoundnessGate:       "smallwood_2025_1085_live",
+	}
+}
+
 // IntGenISISPreset describes a maintained issuance/showing parameter set.
 type IntGenISISPreset struct {
 	Name                string                 `json:"name"`
@@ -328,6 +383,51 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	}
 	n1024BQ32Issuance96 := intGenISISIssuanceTuning(n1024BQ32Show96)
 
+	n1024BQ64Show128 := intGenISISScopedR128ShowingTuning(intGenISISScopedR128Tuning{
+		LVCSNCols:       43,
+		NLeaves:         917504,
+		Eta:             53,
+		Theta:           10,
+		Ell:             13,
+		Kappa:           [4]int{13, 2, 8, 13},
+		QueryCapBits:    64,
+		HashBits:        264,
+		TapeBits:        200,
+		SignatureRadix:  7,
+		SignatureDigits: 5,
+	})
+	n1024BQ64Issuance128 := intGenISISIssuanceTuning(n1024BQ64Show128)
+
+	n1024BQ96Show128 := intGenISISScopedR128ShowingTuning(intGenISISScopedR128Tuning{
+		LVCSNCols:       43,
+		NLeaves:         786432,
+		Eta:             57,
+		Theta:           12,
+		Ell:             16,
+		Kappa:           [4]int{0, 0, 0, 7},
+		QueryCapBits:    96,
+		HashBits:        328,
+		TapeBits:        232,
+		SignatureRadix:  7,
+		SignatureDigits: 5,
+	})
+	n1024BQ96Issuance128 := intGenISISIssuanceTuning(n1024BQ96Show128)
+
+	n1024BQ128Show128 := intGenISISScopedR128ShowingTuning(intGenISISScopedR128Tuning{
+		LVCSNCols:       43,
+		NLeaves:         786432,
+		Eta:             60,
+		Theta:           13,
+		Ell:             18,
+		Kappa:           [4]int{0, 3, 11, 12},
+		QueryCapBits:    128,
+		HashBits:        392,
+		TapeBits:        264,
+		SignatureRadix:  7,
+		SignatureDigits: 5,
+	})
+	n1024BQ128Issuance128 := intGenISISIssuanceTuning(n1024BQ128Show128)
+
 	reg := map[string]IntGenISISPreset{
 		IntGenISISPresetN512Compact96: {
 			Name:              IntGenISISPresetN512Compact96,
@@ -393,6 +493,54 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 				"Uses 168-bit hash/Fiat-Shamir output, 136-bit tapes, 168-bit salts, and actual tag-9 PRF params; complete-system promotion remains gated by the security ledger.",
 			},
 		},
+		IntGenISISPresetPoCN1024BQ64R128V1: {
+			Name:              IntGenISISPresetPoCN1024BQ64R128V1,
+			Description:       "profile-C N=1024 proof-only PoC for raw 2^64 NIZK oracle caps",
+			Profile:           ProfileIntGenISISC,
+			TargetTheoremBits: n1024BQ64Show128.TargetTheoremBits,
+			SoundnessGate:     n1024BQ64Show128.SoundnessGate,
+			LVCSNCols:         n1024BQ64Show128.LVCSNCols,
+			MaxNLeaves:        n1024BQ64Show128.NLeaves,
+			Issuance:          n1024BQ64Issuance128,
+			Showing:           n1024BQ64Show128,
+			Notes: []string{
+				"Proof-only PoC with raw [2^64]*5 NIZK oracle caps and an independent 2^32 honest-proof/tag scope.",
+				"Measured at 39,504 issuance bytes, 56,584 showing bytes, and 130.00 composed proof-system bits.",
+				"The unchanged profile-C primitive family is assumed independently at 128 bits.",
+			},
+		},
+		IntGenISISPresetPoCN1024BQ96R128V1: {
+			Name:              IntGenISISPresetPoCN1024BQ96R128V1,
+			Description:       "profile-C N=1024 proof-only PoC for raw 2^96 NIZK oracle caps",
+			Profile:           ProfileIntGenISISC,
+			TargetTheoremBits: n1024BQ96Show128.TargetTheoremBits,
+			SoundnessGate:     n1024BQ96Show128.SoundnessGate,
+			LVCSNCols:         n1024BQ96Show128.LVCSNCols,
+			MaxNLeaves:        n1024BQ96Show128.NLeaves,
+			Issuance:          n1024BQ96Issuance128,
+			Showing:           n1024BQ96Show128,
+			Notes: []string{
+				"Proof-only PoC with raw [2^96]*5 NIZK oracle caps and an independent 2^32 honest-proof/tag scope.",
+				"Measured at 52,106 issuance bytes, 73,456 showing bytes, and 130.92 composed proof-system bits.",
+				"The unchanged profile-C primitive family is assumed independently at 128 bits.",
+			},
+		},
+		IntGenISISPresetPoCN1024BQ128R128V2: {
+			Name:              IntGenISISPresetPoCN1024BQ128R128V2,
+			Description:       "profile-C N=1024 proof-only PoC for raw 2^128 NIZK oracle caps",
+			Profile:           ProfileIntGenISISC,
+			TargetTheoremBits: n1024BQ128Show128.TargetTheoremBits,
+			SoundnessGate:     n1024BQ128Show128.SoundnessGate,
+			LVCSNCols:         n1024BQ128Show128.LVCSNCols,
+			MaxNLeaves:        n1024BQ128Show128.NLeaves,
+			Issuance:          n1024BQ128Issuance128,
+			Showing:           n1024BQ128Show128,
+			Notes: []string{
+				"Proof-only PoC with raw [2^128]*5 NIZK oracle caps and an independent 2^32 honest-proof/tag scope.",
+				"Measured at 61,429 issuance bytes, 85,386 showing bytes, and 130.56 composed proof-system bits.",
+				"The unchanged profile-C primitive family is assumed independently at 128 bits.",
+			},
+		},
 		IntGenISISPresetN1024Q10_96: {
 			Name:              IntGenISISPresetN1024Q10_96,
 			Description:       "historical profile-C N=1024 proof artifact for 2^10 ROM query budgets",
@@ -426,10 +574,16 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Compact125, "SC-125")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetSystemN1024WF128CROMV1, "WF-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ32_96, "BQ32-96")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetPoCN1024BQ64R128V1, "BQ64-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetPoCN1024BQ96R128V1, "BQ96-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetPoCN1024BQ128R128V2, "BQ128-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_96, "BQ10-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_96, "BQ16-96")
 	intGenISISPresetApplyDefaultPRF(reg)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ32_96, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
+	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ64R128V1, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
+	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ96R128V1, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
+	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ128R128V2, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetSystemN1024WF128CROMV1, IntGenISISPRFProfileTag13, IntGenISISPRFParamsTag13)
 	intGenISISPresetApplyMetadata(reg)
 	if err := validateIntGenISISPresetSecurityTupleUniqueness(reg); err != nil {
