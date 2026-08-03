@@ -3,10 +3,10 @@ package ntru
 import (
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"math/cmplx"
-	mrand "math/rand"
 	"os"
 
 	ps "vSIS-Signature/ntru/internal/preimage"
@@ -49,6 +49,8 @@ type Sampler struct {
 	Opts   SamplerOpts
 
 	Prec uint
+
+	entropy io.Reader
 }
 
 // LastS2 returns the most recent centered residual captured by Option B.
@@ -61,6 +63,13 @@ func (S *Sampler) LastS2() []int64 {
 
 // NewSampler builds a sampler from a valid NTRU trapdoor.
 func NewSampler(f, g, F, G []int64, par Params, prec uint) (*Sampler, error) {
+	return NewSamplerWithReader(f, g, F, G, par, prec, nil)
+}
+
+// NewSamplerWithReader builds a sampler with a caller-provided entropy source.
+// A nil reader selects crypto/rand.Reader. The reader is kept on this sampler
+// instance and is never shared through package-global state.
+func NewSamplerWithReader(f, g, F, G []int64, par Params, prec uint, entropy io.Reader) (*Sampler, error) {
 	if len(f) != par.N || len(g) != par.N || len(F) != par.N || len(G) != par.N {
 		return nil, errors.New("dimension mismatch")
 	}
@@ -68,14 +77,16 @@ func NewSampler(f, g, F, G []int64, par Params, prec uint) (*Sampler, error) {
 		prec = 256
 	}
 	s := &Sampler{
-		Par:  par,
-		EPar: EmbedParams{Prec: prec},
-		f:    append([]int64(nil), f...),
-		g:    append([]int64(nil), g...),
-		F:    append([]int64(nil), F...),
-		G:    append([]int64(nil), G...),
-		Prec: prec,
+		Par:     par,
+		EPar:    EmbedParams{Prec: prec},
+		f:       append([]int64(nil), f...),
+		g:       append([]int64(nil), g...),
+		F:       append([]int64(nil), F...),
+		G:       append([]int64(nil), G...),
+		Prec:    prec,
+		entropy: defaultEntropyReader(entropy),
 	}
+	s.Opts.Entropy = entropy
 	dbg(os.Stderr, "[Sampler] NewSampler N=%d Q=%s Prec=%d\n", par.N, par.Q.String(), prec)
 	s.Opts.Prec = prec
 	if s.Opts.SigmaScale == 0 {
@@ -330,41 +341,28 @@ func (S *Sampler) BuildGram() error {
 }
 
 // sampleEvalGaussian builds an Eval-domain element with per-slot complex Gaussian N(0, σ_i^2).
-func (S *Sampler) sampleEvalGaussian(sigmas []float64) *ps.CyclotomicFieldElem {
-	if S.Opts.UseCNormalDist {
-		return S.sampleEvalGaussianC(sigmas)
-	}
-	n := S.Par.N
-	y := ps.NewFieldElemBig(n, S.Prec)
-	y.Domain = ps.Eval
-	for i := 0; i < n; i++ {
-		s := sigmas[i]
-		y.Coeffs[i].Real.SetFloat64(mrand.NormFloat64() * s)
-		y.Coeffs[i].Imag.SetFloat64(mrand.NormFloat64() * s)
-	}
-	return y
+func (S *Sampler) sampleEvalGaussian(sigmas []float64) (*ps.CyclotomicFieldElem, error) {
+	return S.sampleEvalGaussianC(sigmas)
 }
 
 // sampleEvalGaussianC draws per-slot complex Gaussians with Box-Muller.
-func (S *Sampler) sampleEvalGaussianC(sigmas []float64) *ps.CyclotomicFieldElem {
+func (S *Sampler) sampleEvalGaussianC(sigmas []float64) (*ps.CyclotomicFieldElem, error) {
 	n := S.Par.N
+	if len(sigmas) != n {
+		return nil, fmt.Errorf("sampleEvalGaussianC: sigma length=%d want %d", len(sigmas), n)
+	}
 	y := ps.NewFieldElemBig(n, S.Prec)
 	y.Domain = ps.Eval
 	for i := 0; i < n; i++ {
 		s := sigmas[i]
-		u1 := mrand.Float64()
-		for u1 <= 0 {
-			u1 = mrand.Float64()
+		re, im, err := entropyNormalPair(S.entropy)
+		if err != nil {
+			return nil, fmt.Errorf("sample eval Gaussian coefficient %d: %w", i, err)
 		}
-		u2 := mrand.Float64()
-		r := s * math.Sqrt(-2.0*math.Log(u1))
-		theta := 2.0 * math.Pi * u2
-		re := r * math.Cos(theta)
-		im := r * math.Sin(theta)
-		y.Coeffs[i].Real.SetFloat64(re)
-		y.Coeffs[i].Imag.SetFloat64(im)
+		y.Coeffs[i].Real.SetFloat64(re * s)
+		y.Coeffs[i].Imag.SetFloat64(im * s)
 	}
-	return y
+	return y, nil
 }
 
 // computeSigmasFromNorms computes σ1, σ2 from provided per-slot norms using big.Float math:
@@ -499,7 +497,7 @@ func (S *Sampler) RecommendedAlpha(margin float64) (float64, error) {
 }
 
 // sampleZVecCCompatible enforces the C sampler contract (real coeff means, stddev parameter).
-func sampleZVecCCompatible(xCoeff *ps.CyclotomicFieldElem, R float64) ([]int64, error) {
+func sampleZVecCCompatible(xCoeff *ps.CyclotomicFieldElem, R float64, entropy io.Reader) ([]int64, error) {
 	if xCoeff.Domain != ps.Coeff {
 		return nil, ErrUnsupportedCenterDomain
 	}
@@ -508,7 +506,7 @@ func sampleZVecCCompatible(xCoeff *ps.CyclotomicFieldElem, R float64) ([]int64, 
 		_, _ = xCoeff.Coeffs[i].Imag.Float64()
 		xCoeff.Coeffs[i].Imag.SetFloat64(0)
 	}
-	return sampleZVec(xCoeff, R)
+	return sampleZVec(xCoeff, R, entropy)
 }
 
 // samplePairCExact mirrors the two-step ffSampling from C (sign.c).
@@ -604,12 +602,16 @@ func (S *Sampler) samplePairCExactTrace(c0, c1 *ps.CyclotomicFieldElem) (z0, z1 
 	t21 := ps.FieldMulBig(S.beta21, c1Eval)
 	d2 := ps.FieldAddBig(t20, t21)
 	d2.Domain = ps.Eval
-	y2 := S.sampleEvalGaussian(sig2)
+	y2, errY2 := S.sampleEvalGaussian(sig2)
+	if errY2 != nil {
+		err = errY2
+		return
+	}
 	x2 := ps.FieldSubBig(d2, y2)
 	x2.Domain = ps.Eval
 	x2Coeff := FloatToCoeffCFFT(x2, S.Prec)
 	R := math.Sqrt(S.Opts.RSquare)
-	z1Ints, errZ1 := sampleZVecCCompatible(x2Coeff, R)
+	z1Ints, errZ1 := sampleZVecCCompatible(x2Coeff, R, S.entropy)
 	if errZ1 != nil {
 		err = errZ1
 		return
@@ -638,11 +640,15 @@ func (S *Sampler) samplePairCExactTrace(c0, c1 *ps.CyclotomicFieldElem) (z0, z1 
 	t1 := ps.FieldMulBig(S.beta11, c1Eval)
 	d1 := ps.FieldAddBig(t0, t1)
 	d1.Domain = ps.Eval
-	y1 := S.sampleEvalGaussian(sig1)
+	y1, errY1 := S.sampleEvalGaussian(sig1)
+	if errY1 != nil {
+		err = errY1
+		return
+	}
 	x1 := ps.FieldSubBig(d1, y1)
 	x1.Domain = ps.Eval
 	x1Coeff := FloatToCoeffCFFT(x1, S.Prec)
-	z0Ints, errZ0 := sampleZVecCCompatible(x1Coeff, R)
+	z0Ints, errZ0 := sampleZVecCCompatible(x1Coeff, R, S.entropy)
 	if errZ0 != nil {
 		err = errZ0
 		return

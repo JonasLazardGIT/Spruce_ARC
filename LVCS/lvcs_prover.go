@@ -17,6 +17,23 @@ type Opening struct {
 	DECSOpen *decs.DECSOpening
 }
 
+// MergeOpeningsV2 combines LVCS mask and tail openings using DECS's strict
+// index-keyed tape merge rules.
+func MergeOpeningsV2(ctx decs.CommitmentContext, mask, tail *Opening) (*Opening, error) {
+	var maskOpen, tailOpen *decs.DECSOpening
+	if mask != nil {
+		maskOpen = mask.DECSOpen
+	}
+	if tail != nil {
+		tailOpen = tail.DECSOpen
+	}
+	merged, err := decs.MergeOpeningsV2(ctx, maskOpen, tailOpen)
+	if err != nil {
+		return nil, err
+	}
+	return &Opening{DECSOpen: merged}, nil
+}
+
 // RowInput specifies one logical LVCS row. If Poly is non-nil, the prover
 // commits that polynomial directly and derives the Ω/Ω' evaluations from it.
 type RowInput struct {
@@ -77,6 +94,7 @@ type ProverKey struct {
 	Gamma         [][]uint64   // gamma values for the prover
 	Params        decs.Params  // DECS parameters
 	RootHash      []byte       // full DECS Merkle root hash
+	Context       decs.CommitmentContext
 	TailLen       int          // ℓ
 	Layout        OracleLayout // oracle segmentation metadata
 
@@ -91,15 +109,41 @@ type CommitOptions struct {
 	PhaseRecorder      decs.CommitPhaseRecorder
 	DecsWorkerCount    int
 	DecsFormalEvalMode decs.FormalEvalMode
+	DecsMaxTapeBytes   int
+	commitmentContext  *decs.CommitmentContext
 }
 
-// CommitInitWithParamsAndPointsWithOptions commits rows against an explicit
+// CommitInitWithParamsAndPointsV2 commits rows under the explicit v2
+// version/role/salt context and returns the full-width DECS root.
+func CommitInitWithParamsAndPointsV2(
+	ringQ *ring.Ring,
+	rows []RowInput,
+	ell int,
+	params decs.Params,
+	points []uint64,
+	ctx decs.CommitmentContext,
+	opts CommitOptions,
+) ([]byte, *ProverKey, error) {
+	if err := ctx.Validate(); err != nil {
+		return nil, nil, err
+	}
+	ctxCopy := ctx
+	ctxCopy.Salt = append([]byte(nil), ctx.Salt...)
+	opts.commitmentContext = &ctxCopy
+	prover, err := commitInitWithParamsAndPointsV2(ringQ, rows, ell, params, points, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append([]byte(nil), prover.RootHash...), prover, nil
+}
+
+// commitInitWithParamsAndPointsV2 commits rows against an explicit
 // DECS domain E with benchmark-only controls:
 //   - points defines the DECS evaluation domain E (E[i] = points[i])
 //   - Ω and Ω′ are interpreted as the prefixes:
 //     Ω  = points[0:ncols]
 //     Ω′ = points[ncols : ncols+ell]
-func CommitInitWithParamsAndPointsWithOptions(
+func commitInitWithParamsAndPointsV2(
 	ringQ *ring.Ring,
 	rows []RowInput,
 	ell int,
@@ -107,7 +151,6 @@ func CommitInitWithParamsAndPointsWithOptions(
 	points []uint64,
 	opts CommitOptions,
 ) (
-	root [16]byte,
 	prover *ProverKey,
 	err error,
 ) {
@@ -291,14 +334,29 @@ func CommitInitWithParamsAndPointsWithOptions(
 	if err != nil {
 		return
 	}
-	if root, err = dprover.CommitInitWithOptions(decs.CommitOptions{
-		PhaseRecorder:  opts.PhaseRecorder,
-		WorkerCount:    opts.DecsWorkerCount,
-		FormalEvalMode: opts.DecsFormalEvalMode,
-	}); err != nil {
+	defer func() {
+		if err != nil {
+			dprover.ReleaseTapes()
+		}
+	}()
+	decsOpts := decs.CommitOptions{
+		PhaseRecorder:      opts.PhaseRecorder,
+		WorkerCount:        opts.DecsWorkerCount,
+		FormalEvalMode:     opts.DecsFormalEvalMode,
+		MaxTapeBufferBytes: opts.DecsMaxTapeBytes,
+	}
+	if opts.commitmentContext == nil {
+		err = fmt.Errorf("CommitInitWithParams: missing v2 commitment context")
 		return
 	}
-	Gamma := decs.DeriveGamma(root, params.Eta, nrows, q0)
+	rootHash, err := dprover.CommitInitV2WithOptions(*opts.commitmentContext, decsOpts)
+	if err != nil {
+		return
+	}
+	Gamma, err := decs.DeriveGammaV2(*opts.commitmentContext, rootHash, params.Eta, nrows, q0)
+	if err != nil {
+		return
+	}
 
 	// lift P_j to NTT for later reuse when representable in ringQ.
 	rowNTTStart := time.Time{}
@@ -346,7 +404,7 @@ func CommitInitWithParamsAndPointsWithOptions(
 		MaskPolys:     masksNTT,
 		Gamma:         Gamma,
 		Params:        params,
-		RootHash:      dprover.RootHash(),
+		RootHash:      append([]byte(nil), rootHash...),
 		TailLen:       ell,
 		Points:        points,
 		NLeaves:       nLeaves,
@@ -354,6 +412,10 @@ func CommitInitWithParamsAndPointsWithOptions(
 			Witness: LayoutSegment{Offset: 0, Count: nrows},
 			Mask:    LayoutSegment{Offset: nrows, Count: 0},
 		},
+	}
+	if opts.commitmentContext != nil {
+		prover.Context = *opts.commitmentContext
+		prover.Context.Salt = append([]byte(nil), opts.commitmentContext.Salt...)
 	}
 	return
 }
@@ -491,14 +553,20 @@ func EvalInitManyChecked(
 	return bar, nil
 }
 
-// EvalFinish – §4.1 steps 3–4:
-// Open the masked positions via DECS.EvalOpen.
-func EvalFinish(
-	prover *ProverKey,
-	E []int,
-) *Opening {
-	decsOpen := prover.DecsProver.EvalOpen(E)
-	return &Opening{DECSOpen: decsOpen}
+// EvalFinishV2 returns a checked selective-tape opening. Duplicate or invalid
+// indices are rejected rather than silently producing a malformed proof.
+func EvalFinishV2(prover *ProverKey, indices []int) (*Opening, error) {
+	if prover == nil || prover.DecsProver == nil {
+		return nil, fmt.Errorf("lvcs: EvalFinishV2 requires a v2 prover")
+	}
+	if err := prover.Context.Validate(); err != nil {
+		return nil, fmt.Errorf("lvcs: EvalFinishV2 invalid commitment context: %w", err)
+	}
+	opening, err := prover.DecsProver.EvalOpenV2(indices)
+	if err != nil {
+		return nil, err
+	}
+	return &Opening{DECSOpen: opening}, nil
 }
 
 func validateLayout(total int, layout OracleLayout) error {

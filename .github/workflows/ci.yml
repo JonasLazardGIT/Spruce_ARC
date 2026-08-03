@@ -27,18 +27,16 @@ jobs:
         run: mkdir -p artifacts/docker && chmod 0777 artifacts/docker
       - name: Docker preset list
         run: docker run --rm spruce-poc list
-      - name: Docker WF-128 benchmark
+      - name: Docker WF-128 v2 benchmark
         run: >-
           docker run --rm --user "$(id -u):$(id -g)"
+          -e ARTIFACT_ROOT=/artifacts/smallwood-salted-v2
           -v "$PWD/artifacts/docker:/artifacts"
-          spruce-poc bench system-n1024-wf128-crom-v1
-      - name: Docker functional gate
+          spruce-poc bench system-n1024-wf128-crom-v2
+      - name: Docker v2 functional gate
         run: >-
           docker run --rm --user "$(id -u):$(id -g)"
+          --entrypoint issuance
           -v "$PWD/artifacts/docker:/artifacts"
-          spruce-poc gate
-      - name: Docker historical artifact gate
-        run: >-
-          docker run --rm --user "$(id -u):$(id -g)"
-          -v "$PWD/artifacts/docker:/artifacts"
-          spruce-poc artifact-gate
+          spruce-poc gate-functional-presets
+          -artifact-dir /artifacts/smallwood-salted-v2

@@ -6,13 +6,21 @@ import (
 )
 
 func TestIntGenISISVerifierKeyRoundTrip(t *testing.T) {
-	profile := PrimaryIntGenISISProfile()
+	preset, err := MustLookupIntGenISISPreset(IntGenISISPresetN512Compact96)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, _ := LookupIntGenISISProfile(preset.Profile)
 	key := IntGenISISVerifierKey{
-		Version:            IntGenISISVerifierKeyVersion,
-		Profile:            profile.Name,
-		RingDegree:         profile.N,
-		PublicParamsDigest: "digest",
-		NTRUPublic:         [][]int64{make([]int64, profile.N)},
+		Version:              IntGenISISVerifierKeyVersion,
+		Profile:              profile.Name,
+		PresetID:             preset.CanonicalID,
+		PresetVersion:        preset.PresetVersion,
+		PresetManifestDigest: IntGenISISPresetManifestDigest(preset),
+		RingDegree:           profile.N,
+		PublicParamsDigest:   repeatedDigest(1),
+		NTRUPublic:           [][]int64{make([]int64, profile.N)},
+		SignatureBound:       1,
 	}
 	path := filepath.Join(t.TempDir(), "verifier_key.json")
 	if err := SaveIntGenISISVerifierKey(path, key); err != nil {
@@ -32,7 +40,7 @@ func TestIntGenISISVerifierKeyRoundTrip(t *testing.T) {
 }
 
 func TestIntGenISISVerifierKeyRejectsTamperedPresetBinding(t *testing.T) {
-	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPoCN512SC96V1)
+	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPoCN512SC96V2)
 	profile, _ := LookupIntGenISISProfile(preset.Profile)
 	key := IntGenISISVerifierKey{
 		Version:              IntGenISISVerifierKeyVersion,
@@ -41,8 +49,9 @@ func TestIntGenISISVerifierKeyRejectsTamperedPresetBinding(t *testing.T) {
 		PresetVersion:        preset.PresetVersion,
 		PresetManifestDigest: IntGenISISPresetManifestDigest(preset),
 		RingDegree:           profile.N,
-		PublicParamsDigest:   "digest",
+		PublicParamsDigest:   repeatedDigest(1),
 		NTRUPublic:           [][]int64{make([]int64, profile.N)},
+		SignatureBound:       1,
 	}
 	if err := key.Validate(); err != nil {
 		t.Fatalf("valid bound verifier key rejected: %v", err)
@@ -50,5 +59,10 @@ func TestIntGenISISVerifierKeyRejectsTamperedPresetBinding(t *testing.T) {
 	key.PresetVersion++
 	if err := key.Validate(); err == nil {
 		t.Fatal("tampered verifier-key preset binding accepted")
+	}
+	key.PresetVersion = preset.PresetVersion
+	key.PresetID = preset.Name
+	if err := key.Validate(); err == nil {
+		t.Fatal("non-canonical verifier-key preset selector accepted")
 	}
 }

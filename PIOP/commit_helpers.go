@@ -95,9 +95,9 @@ func requiredExplicitPCSNColsForRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell
 	return required
 }
 
-// commitRows wraps LVCS.CommitInitWithParamsAndPoints and assigns the witness
-// and mask layout for a retained proof slice.
-func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs.Params, witnessCount, maskOffset, maskCount int, points []uint64, phase decs.CommitPhaseRecorder) (root [16]byte, pk *lvcs.ProverKey, oracleLayout lvcs.OracleLayout, err error) {
+// commitRows creates a v2 LVCS commitment and assigns the witness and mask
+// layout for a retained proof slice. The returned root is always full-width.
+func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs.Params, witnessCount, maskOffset, maskCount int, points []uint64, ctx decs.CommitmentContext, phase decs.CommitPhaseRecorder) (rootHash []byte, pk *lvcs.ProverKey, oracleLayout lvcs.OracleLayout, err error) {
 	if ringQ == nil {
 		err = fmt.Errorf("nil ring")
 		return
@@ -106,7 +106,7 @@ func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs
 		err = fmt.Errorf("no rows to commit")
 		return
 	}
-	root, pk, err = lvcs.CommitInitWithParamsAndPointsWithOptions(ringQ, rows, ell, decsParams, points, lvcs.CommitOptions{
+	rootHash, pk, err = lvcs.CommitInitWithParamsAndPointsV2(ringQ, rows, ell, decsParams, points, ctx, lvcs.CommitOptions{
 		PhaseRecorder:      phase,
 		DecsFormalEvalMode: decs.FormalEvalCombined,
 	})
@@ -116,6 +116,9 @@ func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs
 	oracleLayout.Witness = lvcs.LayoutSegment{Offset: 0, Count: witnessCount}
 	oracleLayout.Mask = lvcs.LayoutSegment{Offset: maskOffset, Count: maskCount}
 	if err = pk.SetLayout(oracleLayout); err != nil {
+		pk.DecsProver.ReleaseTapes()
+		rootHash = nil
+		pk = nil
 		return
 	}
 	return

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -40,8 +41,11 @@ func TestIntGenISISShowingOptsCarriesPresetShortnessAndCompression(t *testing.T)
 	if opts.IntGenISISMSECompression != tuning.CompressedRows {
 		t.Fatalf("opts compression=%d want %d", opts.IntGenISISMSECompression, tuning.CompressedRows)
 	}
-	if opts.IntGenISISReplayProjection != "project_u_digits_y_w_residual_v5" {
+	if opts.IntGenISISReplayProjection != PIOP.IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 {
 		t.Fatalf("opts replay projection=%q", opts.IntGenISISReplayProjection)
+	}
+	if opts.TranscriptOmissionMode != PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2 {
+		t.Fatalf("opts transcript omission mode=%q", opts.TranscriptOmissionMode)
 	}
 }
 
@@ -80,7 +84,7 @@ func TestShowingCLIPropagatesBQ32SplitWidthsAndPRFPath(t *testing.T) {
 
 func TestShowingCLIPropagatesWF128PoCPreset(t *testing.T) {
 	cfg, err := parseShowingCLIArgs([]string{
-		"-preset", credential.IntGenISISPresetSystemN1024WF128CROMV1,
+		"-preset", credential.IntGenISISPresetSystemN1024WF128CROMV2,
 	})
 	if err != nil {
 		t.Fatalf("parse showing WF-128 preset: %v", err)
@@ -98,14 +102,18 @@ func TestShowingCLIPropagatesWF128PoCPreset(t *testing.T) {
 	if opts.DECSCollisionBits != 264 || opts.DECSHashBits != 264 || opts.DECSTapeBits != 128 || opts.FSCollisionBits != 264 || opts.SaltBits != 256 {
 		t.Fatalf("WF-128 widths=%+v", opts)
 	}
-	if opts.LVCSNCols != 43 || opts.NLeaves != 524288 || opts.Eta != 46 || opts.Theta != 7 || opts.Ell != 9 || opts.Kappa != [4]int{0, 0, 4, 13} || opts.PRFParamsPath != credential.IntGenISISPRFParamsTag13 {
+	if opts.LVCSNCols != 42 || opts.NLeaves != 327680 || opts.Eta != 43 || opts.Theta != 7 || opts.Ell != 9 || opts.Kappa != [4]int{1, 0, 2, 13} || opts.PRFParamsPath != credential.IntGenISISPRFParamsTag13 {
 		t.Fatalf("WF-128 shape=%+v", opts)
 	}
 }
 
-func TestRandElemRejectsZeroModulus(t *testing.T) {
-	if _, err := randElem(0); err == nil {
-		t.Fatal("zero modulus accepted by presentation nonce sampler")
+func TestReadPresentationContextFileRejectsEmpty(t *testing.T) {
+	path := t.TempDir() + "/empty-context"
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readPresentationContextFile(path); err == nil {
+		t.Fatal("empty presentation context accepted")
 	}
 }
 

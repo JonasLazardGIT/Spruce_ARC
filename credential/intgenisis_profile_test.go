@@ -14,6 +14,9 @@ func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 	if profile.B != IntGenISISLiveBound {
 		t.Fatalf("profile B bound=%d want %d", profile.B, IntGenISISLiveBound)
 	}
+	if profile.HashInputBound != IntGenISISHashInputBound || IntGenISISHashInputBound != 1 {
+		t.Fatalf("profile hash input bound=%d want 1", profile.HashInputBound)
+	}
 	if profile.Q != IntGenISISSharedModulusQ {
 		t.Fatalf("profile B q=%d want %d", profile.Q, IntGenISISSharedModulusQ)
 	}
@@ -57,10 +60,12 @@ func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 	public := PublicParams{
 		Version:              PublicParamsVersion,
 		Profile:              profile.Name,
+		Modulus:              profile.Q,
 		HashRelation:         HashRelationBBTran,
 		BPath:                filepath.Join("internal", "source_data", "Bmatrix.intgenisis_profile_b.json"),
 		BoundB:               IntGenISISLiveBound,
 		CommitmentBound:      IntGenISISLiveBound,
+		HashInputBound:       IntGenISISHashInputBound,
 		RingDegree:           profile.N,
 		CM:                   cm,
 		AS:                   as,
@@ -71,13 +76,24 @@ func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 		EllX0:                profile.EllX0,
 		EllX1:                profile.EllX1,
 		SignaturePreimageLen: profile.SignaturePreimageLen,
+		MLWEHidingBits:       profile.MLWEHidingBits,
+		MSISBindingBits:      profile.MSISBindingBits,
+		CommitmentSecurity:   profile.CommitmentSecurity.ClonePtr(),
 		TargetDim:            profile.NC,
+		X0Len:                profile.EllX0,
+	}
+	preset, err := MustLookupIntGenISISPreset(IntGenISISPresetN512Compact96)
+	if err != nil {
+		t.Fatalf("lookup preset: %v", err)
+	}
+	if err := public.BindIntGenISISPreset(preset); err != nil {
+		t.Fatalf("bind preset: %v", err)
 	}
 	if err := (&public).Validate(); err != nil {
 		t.Fatalf("validate public params: %v", err)
 	}
 	if !closeFloat(public.MLWEHidingBits, profile.MLWEHidingBits) || !closeFloat(public.MSISBindingBits, profile.MSISBindingBits) || public.CommitmentSecurity == nil {
-		t.Fatalf("public params security not normalized from profile: %+v", public)
+		t.Fatalf("public params security metadata mismatch: %+v", public)
 	}
 	if public.X0Len != profile.EllX0 {
 		t.Fatalf("X0Len=%d want ell_x0=%d", public.X0Len, profile.EllX0)
@@ -88,6 +104,9 @@ func TestIntGenISISPublicParamsProfileB(t *testing.T) {
 	}
 	if params.LenR0H != 0 || params.LenR1H != 0 || params.LenRBar != 0 {
 		t.Fatalf("IntGenISIS params retained old randomness lengths: %+v", params)
+	}
+	if params.HashInputBound != IntGenISISHashInputBound {
+		t.Fatalf("issuance hash input bound=%d want %d", params.HashInputBound, IntGenISISHashInputBound)
 	}
 	targetParams, err := public.ToCommitmentParams(ringQ)
 	if err != nil {

@@ -1,292 +1,352 @@
 # SPRUCE Protocol And Code Map
 
-This document is the canonical description of the implemented SPRUCE protocol
-surface. It covers the maintained IntGenISIS issuance/showing flow, preset
-registry, artifact data flow, and code locations a reviewer should inspect.
+This document describes the hard v2 protocol implemented by SPRUCE. It is the
+executable companion to `/home/jonas/Bureau/GIT_Paper`: the manuscript defines
+the ARC-SPRUCE construction and its proof arguments, while this repository
+fixes one concrete encoding, transcript, artifact identity, and state machine.
 
-## Implemented Protocol
+Every maintained manifest has `claim_scope=proof_only`. The code proves and
+verifies the relations below; profile labels and successful execution do not
+assert security of an assembled deployment.
 
-SPRUCE implements a committed-message IntGenISIS credential flow. The holder
-commits to hidden semantic message material, proves that commitment before
-issuance, receives an NTRU/vSIS signature on the resulting target, and later
-shows the credential without revealing the hidden message, commitment opening,
-issuer rational-hash witnesses, or signature preimage.
+## Canonical Protocol Epoch
 
-The commitment equation is:
+Only these nine preset IDs select a protocol:
 
-```text
-c = C_M*M + A_s*s + e
-```
+| Canonical preset ID | Profile | Lifecycle | PRF profile | Showing projection |
+| --- | --- | --- | --- | --- |
+| `poc-n512-sc96-v2` | `intgenisis_profile_b` | `poc` | tag 7 | `project_u_digits_and_y_view_v3` |
+| `artifact-n1024-sc125-v2` | `intgenisis_profile_c` | `artifact` | tag 7 | `project_u_digits_y_bounded_sources_v6` |
+| `artifact-n1024-bq10-r96-v2` | `intgenisis_profile_c` | `artifact` | tag 7 | `project_u_digits_y_bounded_sources_v6` |
+| `artifact-n1024-bq16-r96-v2` | `intgenisis_profile_c` | `artifact` | tag 7 | `project_u_digits_y_bounded_sources_v6` |
+| `pilot-n1024-bq32-r96-v2` | `intgenisis_profile_c` | `candidate` | tag 9 | `project_u_digits_y_bounded_sources_v6` |
+| `poc-n1024-bq64-r128-v2` | `intgenisis_profile_c` | `poc` | tag 10 | `project_u_digits_y_bounded_sources_v6` |
+| `poc-n1024-bq96-r128-v2` | `intgenisis_profile_c` | `poc` | tag 10 | `project_u_digits_y_bounded_sources_v6` |
+| `poc-n1024-bq128-r128-v3` | `intgenisis_profile_c` | `poc` | tag 10 | `project_u_digits_y_bounded_sources_v6` |
+| `system-n1024-wf128-crom-v2` | `intgenisis_profile_c` | `candidate` | tag 13 | `project_u_digits_y_bounded_sources_v6` |
 
-The issuer samples rational-hash data:
+The revision suffix in a canonical ID is part of that ID. All nine manifests
+currently carry preset schema version `2`, including the BQ128 ID whose own
+revision suffix is `v3`.
 
-```text
-mu_sig, x0, x1
-```
-
-and signs:
-
-```text
-T = c + h_tran(mu_sig, x0, x1)
-```
-
-The rational hash is:
-
-```text
-h_tran(mu_sig, x0, x1)
-  = B0 + B1*mu_sig + sum_i B2[i]*x0[i] + Z
-Z * (B3 - x1) = 1
-```
-
-The showing proof proves the final relation, including:
-
-```text
-tag = PRF(k, nonce)
-A*u = T
-T = c + h_tran(mu_sig, x0, x1)
-c = C_M*M + A_s*s + e
-```
-
-The holder message material is `M`, with hidden PRF seed material `k` packed
-inside the semantic message row. `mu_sig` is issuer-sampled rational-hash input;
-it is not the holder PRF key and is not the old shared-randomness `mu`.
+There is no migration layer. A selector must be a canonical ID, and every
+persisted object must have the current exact schema and manifest binding.
+Changing a preset, public-parameter digest, PRF parameter digest, verifier-key
+digest, transcript tuple, or rate-limit policy creates a different protocol
+identity.
 
 ## Algebraic Setting
 
-All main equations live over:
+The main relations are over
 
 ```text
 R_q = Z_q[X] / (X^N + 1)
 q   = 1,017,857
+N   = 512 or 1024, as fixed by the preset profile
 ```
 
-The maintained profiles are:
+The holder's semantic message `M` contains ordinary credential coordinates and
+a 48-coefficient secret seed. The seed coefficients lie in `[-4,4]` and are
+packed into eight field elements for the Poseidon2 PRF. Ordinary message,
+commitment-randomness, and commitment-error coefficients use bound one.
 
-| Profile | Used By | N | ell_M | k_s | n_c | B | ell_mu_sig | ell_x0 | ell_x1 | NTRU beta |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `intgenisis_profile_b` | `n512-compact96` | 512 | 1 | 2 | 1 | 1 | 1 | 2 | 1 | 6,002 |
-| `intgenisis_profile_c` | all degree-1024 presets | 1024 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 6,142 |
-
-Ordinary message, `s`, and `e` coefficients use the live commitment bound
-`B=1`. The PRF seed tail is a separate 48-coefficient region in `[-4,4]`,
-packed base 9 into eight PRF key lanes.
-
-## Preset Taxonomy
-
-Lifecycle describes maintenance purpose; claim scope describes security
-meaning. Neither executability nor an artifact byte gate implies deployment
-readiness.
-
-Every registry entry is executable and distributed as an experimental PoC.
-Security metadata is informational and does not constitute a deployment claim.
-
-| Canonical preset | Purpose | Lifecycle | Claim | Availability |
-| --- | --- | --- | --- | --- |
-| `poc-n512-sc96-v1` | integration/demo | `poc` | SC-96 proof-only | available |
-| `artifact-n1024-sc125-v1` | paper reproduction | `artifact` | SC-125 proof-only | available |
-| `artifact-n1024-bq10-r96-historical-v1` | bounded-query reproduction | `artifact` | BQ10-R96 proof-only | available |
-| `artifact-n1024-bq16-r96-historical-v1` | bounded-query reproduction | `artifact` | BQ16-R96 proof-only | available |
-| `pilot-n1024-bq32-r96-v1` | controlled pilot | `candidate` | bounded complete-system candidate | available, not promoted |
-| `poc-n1024-bq64-r128-v1` | bounded-query experiment | `poc` | BQ64-R128 proof-only | available |
-| `poc-n1024-bq96-r128-v1` | bounded-query experiment | `poc` | BQ96-R128 proof-only | available |
-| `poc-n1024-bq128-r128-v2` | bounded-query experiment | `poc` | BQ128-R128 proof-only | available |
-| `system-n1024-wf128-crom-v1` | WF-128 PoC shape | `candidate` | complete-system target | available PoC; no claim |
-
-`list-presets` prints exactly these nine unique security-target/query-budget
-tuples. No complete-system deployment preset is currently available.
-
-## Executable Preset Parameters
-
-The executable registry accepts these selectors:
+The public commitment matrices define
 
 ```text
-n512-compact96
-n1024-compact125
-n1024-q10-96
-n1024-q16-96
-n1024-bq32-96
-poc-n1024-bq64-r128-v1
-poc-n1024-bq96-r128-v1
-poc-n1024-bq128-r128-v2
-system-n1024-wf128-crom-v1
+c = C_M * M + A_s * s_com + e.
 ```
 
-Legacy selectors resolve to their canonical manifests. Removed selectors are
-archived rather than redirected to different parameters.
-
-| Preset | Profile | Proof target | `n_cols` | `N_DECS` | eta | theta | rho | ell/ell' | Showing shortness | Compression | Projection |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | --- |
-| `n512-compact96` | B | 96 | 36 | 262,144 | 36 | 5 | 1 | 7/1 | R7/L5 | 0 | `project_u_digits_and_y_view_v3` |
-| `n1024-compact125` | C | 125+ | 46 | 608,192 | 48 | 7 | 1 | 9/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
-| `n1024-q10-96` | C | 96 | 37 | 720,896 | 40 | 6 | 1 | 7/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
-| `n1024-q16-96` | C | 96 | 38 | 393,216 | 40 | 6 | 1 | 8/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
-| `n1024-bq32-96` | C | 99.5 | 40 | 786,432 | 46 | 7 | 1 | 9/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
-| `poc-n1024-bq64-r128-v1` | C | 131.54 | 43 | 917,504 | 53 | 10 | 1 | 13/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
-| `poc-n1024-bq96-r128-v1` | C | 131.54 | 43 | 786,432 | 57 | 12 | 1 | 16/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
-| `poc-n1024-bq128-r128-v2` | C | 131.54 | 43 | 786,432 | 60 | 13 | 1 | 18/1 | R7/L5 | 1 | `project_u_digits_y_w_residual_v5` |
-| `system-n1024-wf128-crom-v1` | C | 128 | 43 | 524,288 | 46 | 7 | 1 | 9/1 | R11/L4 | 1 | `project_u_digits_y_w_residual_v5` |
-
-Issuance knobs prove the commitment opening and semantic constraints before the
-issuer signs. Showing knobs prove the final credential relation and add PRF
-companion rows, signature shortness rows, replay projection, compression where
-selected, and the maintained SmallWood 2025 transcript mode.
-
-## BQ32 Controlled Pilot
-
-`pilot-n1024-bq32-r96-v1` is an executable candidate under a fixed CROM threat
-manifest. Each proof-system phase has five global adversarial random-oracle caps
-of `2^32`; composing one accepted issuance and one accepted showing produces
-five `2^33` caps in the full-game report. Honest transcript volume is separately
-bounded by `2^32` total proofs, split as at most `2^31` issuance and `2^31`
-showing proofs. Tag volume is at most `2^32` per domain-separated context.
-
-| Security profile | Hash/FS bits | Tape bits | Salt bits | Actual tag elements | `n_cols` | `N_DECS` | eta | theta | ell |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| BQ32-R96 candidate | 168 | 136 | 168 | 9 | 40 | 786,432 | 46 | 7 | 9 |
-
-Measured paper transcripts are 25,844 bytes for issuance and 36,887 bytes for
-showing. The one-proof theorem result is 99.98 bits and the current
-one-issuance/one-showing global-collision composition is 98.59 bits. These are
-proof-accounting results, not a complete-system promotion.
-
-## NIZK-Scoped R128 PoC Presets
-
-The BQ64, BQ96, and BQ128 PoCs apply their raw query caps only to the five
-SmallWood/Fiat-Shamir oracle domains. The unchanged profile-C primitive family
-is assumed independently at 128 bits. Honest transcript and tag volumes are
-separately bounded by `2^32` per domain-separated context.
-
-| Preset | Raw caps per phase | Hash/FS | Tape | Salt | Tag | eta/theta/ell | Grinding | Issuance/showing bytes | Composed proof bits |
-| --- | --- | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: |
-| `poc-n1024-bq64-r128-v1` | `[2^64]*5` | 264 | 200 | 200 | 10 | 53/10/13 | `[13,2,8,13]` | 39,504 / 56,584 | 130.00 |
-| `poc-n1024-bq96-r128-v1` | `[2^96]*5` | 328 | 232 | 200 | 10 | 57/12/16 | `[0,0,0,7]` | 52,106 / 73,456 | 130.92 |
-| `poc-n1024-bq128-r128-v2` | `[2^128]*5` | 392 | 264 | 200 | 10 | 60/13/18 | `[0,3,11,12]` | 61,429 / 85,386 | 130.56 |
-
-All three use the current raw-cap theorem, block width 43, and the measured
-R7/L5 relation. BQ64 uses a `917504`-point authentication domain; BQ96 and
-BQ128 use `786432`. Their structural parameter audits pass, but their claim
-scope remains proof-only.
-
-## WF-128 PoC Preset
-
-`system-n1024-wf128-crom-v1` is an executable CROM work-factor configuration,
-not a deployment claim. It uses the compiled R11/L4 relation, leaves all
-bounded-query caps unset, and executes 264-bit DECS/hash and Fiat-Shamir
-outputs, a 128-bit tape, a 256-bit salt, and the tag-13 PRF relation.
-
-| Security profile | RO caps | Hash/FS bits | Tape bits | Salt bits | Actual tag elements | `n_cols` | `N_DECS` | eta | theta | ell |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| WF-128 candidate | unset | 264 | 128 | 256 | 13 | 43 | 524,288 | 46 | 7 | 9 |
-
-The selected shape also uses grinding vector `[0,0,4,13]`. Three repeated
-end-to-end measurements report 26,758 issuance bytes, 38,092 showing bytes,
-and 133.44/133.35 issuance/showing theorem bits. Relative to the initial
-66,671-byte combined control, this reduces the combined paper transcript by
-1,821 bytes. The structural parameter audit passes. The ledger remains
-diagnostic and the preset has `complete_system_claim=false`.
-
-## Archived Research Measurements
-
-Superseded and structurally rejected Q128, BQ64, R128, duplicate SC-96, and
-historical BQ32 configurations are recorded in
-`credential/testdata/removed_intgenisis_presets.json`. The corrected BQ64,
-BQ96, and BQ128 PoCs above are distinct executable manifests. The archive
-preserves old selectors, measurements, and rejection reasons without
-redirecting them to the new parameters.
-
-## Public Setup
-
-Public parameters include:
+For BB-tran, setup samples the public vector
 
 ```text
-R_q parameters: N, q
-BB-tran parameters: B0, B1, B2[], B3
-commitment matrices: C_M, A_s
-commitment bound: B
-hash relation label: bb_tran
-PRF parameters
-SmallWood/PACS showing parameters
-issuer NTRU public key
-canonical preset ID and version
-primitive and PRF profile IDs, including the exact PRF parameter-file digest
-transcript mode and complete preset-manifest digest
+B = (B0, B1, B2[0], ..., B2[ell_x0-1], B3).
 ```
 
-The issuer holds the NTRU trapdoor/signing key. The holder does not choose
-`B`, `C_M`, `A_s`, or the issuer public key.
+Every component, including `B0`, is an independent uniform draw. `B0` is not
+fixed to zero, but the relation imposes no nonzero or invertibility condition
+on it; zero remains a valid (negligibly likely) uniform outcome.
 
-## Issuance Flow
+The NTRU/vSIS public verification row is
 
-1. `setup-intgenisis-public` writes public IntGenISIS parameters and the
-   BB-tran matrix.
-2. `setup-ntru-keys` writes NTRU parameters and issuer key material for the
-   selected preset profile.
-3. `holder-commit` samples the semantic message/opening rows and writes
-   `holder_secret.json` plus `commit_request.json`.
-4. `holder-prove` builds the IntGenISIS pre-sign proof.
-5. `issuer-verify-sign` verifies the pre-sign proof, samples `mu_sig`, `x0`,
-   `x1`, computes `T`, signs `T`, and writes the issuer response plus verifier
-   key.
-6. `holder-finalize` verifies the issuer response and persists the credential
-   state.
+```text
+A = (-h, 1),
+```
 
-The pre-sign proof does not reveal `M`, `s`, `e`, or the PRF seed tail.
+and a valid short preimage `u=(s1,s2)` satisfies `A*u=T`.
 
-## Showing Flow
+## Issuance
 
-`cmd/showing` loads the finalized credential state, public params, verifier key,
-and PRF parameters. It samples a public nonce, computes `tag = PRF(k, nonce)`,
-builds the showing proof, verifies it locally, and optionally writes a
-presentation artifact.
+The executable issuance flow is:
 
-The showing statement proves:
+1. `setup-intgenisis-public` creates the commitment and BB-tran public
+   parameters for one canonical manifest.
+2. `setup-ntru-keys` creates separately identified NTRU parameters and issuer
+   signing/verifying material.
+3. The holder samples `M`, `s_com`, and `e`, computes `c`, and persists a holder
+   secret plus commitment request.
+4. `holder-prove` proves knowledge of a valid bounded opening of `c` without
+   exposing the message, seed, `s_com`, or `e`.
+5. The issuer verifies the pre-sign proof. It independently samples
+   `mu_sig`, every row of `x0`, and `x1` coefficient-wise and uniformly from
+   `{-1,0,1}`. It resamples `x1` until `B3-x1` is invertible and computes
 
-- the hidden NTRU preimage is short and verifies against the signed target,
-- the target is consistent with the hidden commitment and issuer rational-hash
-  witnesses,
-- the semantic message row contains the same hidden PRF key used for the tag,
-- replay and transcript accounting match the bound canonical preset.
+   ```text
+   Z = (B3 - x1)^(-1)
+   T = c + B0 + B1*mu_sig + sum_i B2[i]*x0[i] + Z.
+   ```
 
-Standalone presentation verification requires the presentation artifact, public
-parameters, verifier key, and optional persistent verifier-state path.
+6. The issuer samples a short NTRU preimage `u` of `T` and returns the response
+   and public verifier key.
+7. `holder-finalize` checks the bounded BB-tran data, inverse, target, NTRU
+   signature, and all manifest bindings before persisting credential state.
+
+`mu_sig` is the BB-tran message input. It is distinct from the credential's
+secret PRF seed. The inverse witness `Z` is algebraically constrained but is
+not assigned the ternary source bound.
+
+All source sampling uses an injected entropy reader and unbiased rejection.
+The public parameters store `hash_input_bound=1`, so the prover, verifier, and
+artifact identity agree on the accepted coefficient domain.
+
+## Public Context And Hidden Slot
+
+The v2 rate policy has the exact identity:
+
+```text
+mode                = public_context_hidden_slot_v2
+context_lanes       = 11
+hidden_slot_lanes   = 1
+quota_slots         = 16
+slot_bits           = 4
+context_encoding    = shake256_reject11_v2
+holder_counter_mode = monotonic_burn_v2
+verifier_state_mode = atomic_context_tag_set_v2
+```
+
+Let `raw_context` be non-empty opaque bytes supplied by the service. The holder
+derives a context binding from:
+
+- a domain label;
+- the raw bytes;
+- the field modulus and quota size;
+- the preset-manifest digest;
+- the public-parameter digest; and
+- the verifier-key digest.
+
+Separate SHAKE256 domains derive a 32-byte context digest and exactly 11 field
+elements. Field elements use unbiased 128-bit rejection sampling rather than
+modular reduction. The raw service input is bounded to 4096 bytes and is not
+copied into the presentation.
+
+For each credential and derived context, the holder reserves
+
+```text
+s in {0, 1, ..., 15}.
+```
+
+The reservation is atomically persisted and burned before proof construction.
+The PRF receives 12 input lanes:
+
+```text
+(context[0], ..., context[10], s),
+```
+
+and publishes
+
+```text
+tag = PRF(k, context || s).
+```
+
+The 11 context lanes are public statement values. The slot and its four bits
+are witness values. The proof enforces Boolean membership of every bit,
+reconstructs `s` from those bits, enforces `0 <= s < 16`, and proves the full
+PRF trace using the same secret seed `k` embedded in `M`. The presentation
+never serializes the slot or slot bits.
+
+This is an exact `L=16` policy, not a probabilistic choice from a larger
+domain. A holder state records the next slot by credential fingerprint and
+context digest. Failed proof construction does not refund a reserved slot.
+
+## Showing Statement
+
+The showing proof recomputes the hidden commitment and proves, in one bound
+statement:
+
+```text
+c = C_M*M + A_s*s_com + e
+Z * (B3 - x1) = 1
+T = c + B0 + B1*mu_sig + sum_i B2[i]*x0[i] + Z
+A*u = T
+tag = PRF(k, context || hidden_slot)
+hidden_slot = bit0 + 2*bit1 + 4*bit2 + 8*bit3
+bitj in {0,1}
+```
+
+It also proves:
+
+- coefficient membership of `mu_sig`, every `x0`, and `x1` in
+  `{-1,0,1}`;
+- the ordinary message/opening bounds and the wider seed bound;
+- consistency between coefficient-source rows and every transformed source
+  consumed by the signature equation;
+- signed-radix reconstruction and shortness of `u`;
+- consistency between the committed seed, packed PRF key, PRF checkpoints,
+  final round, and public tag; and
+- the canonical preset, context, transcript, and public-artifact bindings.
+
+The bounded BB-tran sources remain individually extractable. The proof does
+not replace them with a single unconstrained full-image residual.
+
+## Bounded-Source Row Encodings
+
+The current showing layouts are:
+
+```text
+intgenisis_showing_y_linear_bounded_sources_v2
+intgenisis_showing_project_u_digits_y_view_bounded_sources_v4
+intgenisis_showing_project_u_digits_y_bounded_sources_v6
+```
+
+The compact degree-512 preset uses the bounded-source `y_view` layout with
+projection mode `project_u_digits_and_y_view_v3`. The degree-1024 presets use
+`project_u_digits_y_bounded_sources_v6`. Both preserve explicit coefficient
+views for `mu_sig`, `x0`, and `x1`, their transformed hats, ternary membership,
+and source-to-hat bridges.
+
+The projection descriptor is `intgenisis_replay_projection_v2`. A proof binds
+the exact descriptor and row-layout version in its Fiat-Shamir public inputs.
+Unknown projections, layout/projection mismatches, and any encoding that omits
+the individual bounded sources are rejected.
+
+## Independent Salted Tapes
+
+Every maintained issuance and showing proof uses this exact transcript tuple:
+
+```text
+protocol = smallfield_2025_1085_salted_tapes_v2
+version  = smallwood_2025_1085_salted_decs_v2
+gate     = smallwood_2025_1085_salted_tapes_v2_live
+```
+
+The proof has schema version `2`. Its proof-global salt is sampled freshly and
+is an explicit input to Fiat-Shamir and every DECS v2 commitment context. A
+commitment context also carries version `2` and a role such as `main`,
+`q-payload`, `companion`, `replay`, or `sig-shortness`.
+
+For each logical leaf, DECS samples an independent fixed-width tape. The leaf
+hash binds the context, leaf index, evaluation point, modulus, canonical
+residues, and that leaf's tape. Internal nodes and padding bind the same
+context, level, index, and framed children. An opening transmits exactly the
+tape belonging to each distinct opened leaf.
+
+Verification checks the exact salt, role, version, tape count and width,
+canonical residues, distinct indices, authentication paths, and low-degree
+relations. The v2 format has no accepted seed-compressed fallback, and an
+opening that carries earlier-format material is rejected rather than
+normalized.
+
+## Presentation Verification And State
+
+Presentation creation requires:
+
+```text
+-state-path
+-verifier-key
+-context-file
+-holder-usage-state
+-presentation-out
+```
+
+The resulting `intgenisis_presentation_v2` envelope contains the manifest,
+public-parameter, verifier-key, and context digests; the 11 derived public
+context lanes; the public tag; and the proof. It excludes raw context bytes and
+hidden-slot material.
+
+Rate-limited verification requires:
+
+```text
+-public-params
+-verifier-key
+-verify-presentation
+-expected-context-file
+-verifier-state
+```
+
+The verifier:
+
+1. strictly decodes the v2 presentation, public parameters, and verifier key;
+2. validates their manifest and content-digest bindings;
+3. derives the expected digest and 11 lanes from independently supplied raw
+   service context bytes;
+4. compares that binding with the presentation;
+5. verifies the SmallWood proof and public tag relation; and
+6. under an exclusive lock, rejects a tag already accepted in that context or
+   atomically records the new `(context, tag)` acceptance.
+
+The verifier state is namespaced by public-parameter digest, verifier-key
+digest, and context digest. Deployments that intend a shared quota must share
+one consistent verifier-state namespace; isolated state files enforce isolated
+acceptance histories.
+
+With `-proof-only`, step 6 is deliberately skipped. The flag is valid only for
+verification, cannot be combined with `-verifier-state`, and does not represent
+rate-limit acceptance.
+
+## Artifact Identity And No Migration
+
+| Object | Exact current identity |
+| --- | --- |
+| preset manifest | preset version `2` plus one canonical ID above |
+| public parameters | schema version `8` and `public_context_hidden_slot_v2` policy |
+| credential state | schema version `7` |
+| verifier key | version `2` |
+| presentation | version `2`, `intgenisis_presentation_v2` |
+| holder usage state | version `2` |
+| verifier state | version `2` |
+| proof | schema version `2` and transcript tuple above |
+| DECS commitment/opening | version `2` with explicit commitment context |
+| NTRU parameters | `ntru-params-v2` |
+| NTRU key | `ntru-key-v2` |
+| NTRU signature | `ntru-signature-v2` |
+
+These formats use strict decoding and canonical values. An exact current
+schema number is required; it is not interpreted as a request to upgrade an
+older object. There is no cross-epoch verifier or conversion command.
+
+## Relationship To The Manuscript
+
+The main correspondence with `/home/jonas/Bureau/GIT_Paper` is:
+
+| Manuscript area | SPRUCE implementation |
+| --- | --- |
+| `sections/03_blind_signature.tex` | `issuance/intgenisis.go`, `cmd/issuance/flow_helpers.go`, `ntru/` |
+| `sections/04_arc_construction.tex` | `credential/presentation_context.go`, `credential/intgenisis_usage_state.go`, `credential/intgenisis_presentation.go`, `cmd/showing/` |
+| `sections/05_smallwood_model.tex` | `PIOP/`, `LVCS/`, `DECS/` |
+| `sections/06_parameters.tex` | `credential/intgenisis_profile.go`, `credential/intgenisis_presets.go`, `credential/preset_manifest.go` |
+| `appendix/B_gaussian_sampler.tex` | `ntru/` sampler and trapdoor implementation |
+| `appendix/C_smallwood_details.tex` and `appendix/D_extended_parameters.tex` | transcript construction, row geometry, projection, and proof reporting in `PIOP/` |
+| `appendix/E_prf_and_misc.tex` | `prf/` and the PRF companion relation in `PIOP/` |
+
+The manuscript is the mathematical narrative; the Go manifest is the
+executable parameter authority. Generated sizes and timings must come from a
+v2 benchmark run and then be reflected deliberately in the manuscript. The
+repositories are not synchronized automatically.
 
 ## Code Map
 
-| Area | Main Paths | Purpose |
-| --- | --- | --- |
-| CLI workflows | `cmd/issuance`, `cmd/showing` | Operator/reviewer entrypoints |
-| Presets and profiles | `credential/intgenisis_presets.go`, `credential/preset_manifest.go`, `credential/security_profiles.go` | Lifecycle, claim, threat model, requirements, aliases, and executable parameters |
-| Security audit and ledger | `credential/security_parameter_audit.go`, `credential/security_ledger.go` | Required/actual checks, scoped terms, provenance, and promotion blockers |
-| Public params/state | `credential/` | JSON formats, state, verifier keys, profile metadata |
-| Issuance target | `issuance/intgenisis.go`, `cmd/issuance/flow_helpers.go` | Rational hash target and issuance orchestration |
-| Proof system | `PIOP/` | IntGenISIS pre-sign and showing constraints, proof reports |
-| Row commitments | `DECS/`, `LVCS/` | Explicit-domain row commitment and openings |
-| Linear commitment | `commitment/` | Ajtai/MLWE commitment helpers |
-| Signature | `ntru/` | NTRU/vSIS keygen, sampling, signing, verification |
-| PRF | `prf/` | Poseidon-like PRF parameters and tag relation |
-| Validation scripts | `scripts/` | Docker/native artifact commands |
+| Area | Main paths |
+| --- | --- |
+| CLI orchestration | `cmd/issuance/`, `cmd/showing/` |
+| canonical presets and policy | `credential/intgenisis_presets.go`, `credential/preset_manifest.go`, `credential/v2_policy.go` |
+| strict public/state artifacts | `credential/public_params.go`, `credential/intgenisis_state.go`, `credential/intgenisis_verifier_key.go`, `credential/intgenisis_presentation.go` |
+| context and holder quota state | `credential/presentation_context.go`, `credential/intgenisis_usage_state.go`, `credential/atomic_state.go` |
+| committed-message issuance | `issuance/intgenisis.go`, `cmd/issuance/flow_helpers.go` |
+| bounded BB-tran public hash | `internal/hash/vsis_bbs.go` |
+| SmallWood/PACS proof | `PIOP/` |
+| row commitment stack | `LVCS/`, `DECS/` |
+| Ajtai commitment | `commitment/` |
+| NTRU/vSIS | `ntru/` |
+| Poseidon2 PRF | `prf/` |
 
-Package-level READMEs provide more detailed code-navigation notes for each
-subsystem.
-
-## Persisted Artifacts
-
-The benchmark/manual flow writes JSON artifacts for public parameters, holder
-secret, commit request, proof submission, issuer response, credential state,
-verifier key, presentation, verifier state, NTRU keys, and the benchmark
-report. See [../ARTIFACT.md](../ARTIFACT.md) for exact filenames and
-reproduction commands.
-
-Public parameters and finalized state store the canonical ID, version,
-primitive/PRF identity, transcript mode, and manifest digest. Verifier keys and
-presentations carry the same identity, while the digest and canonical fields
-are also Fiat-Shamir-bound as public inputs. Issuance and showing reject a
-mismatch.
-
-## Removed Surfaces
-
-The documented historical artifact labels remain aliases. Other removed preset
-labels, tuning flags, and command surfaces are invalid rather than fallback
-selectors. Preset-dependent material must be generated from a registered
-canonical manifest. Public accounting knobs such as query caps and DECS widths
-are selected by that manifest, not by public CLI flags.
+See [../ARTIFACT.md](../ARTIFACT.md) for executable commands and
+[SECURITY.md](SECURITY.md) for the proof-only security boundary.

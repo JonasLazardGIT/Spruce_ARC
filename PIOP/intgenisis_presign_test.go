@@ -67,27 +67,31 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 		t.Fatalf("commit: %v", err)
 	}
 	pub := PublicInputs{
-		Com:          c,
-		CM:           cm,
-		AS:           as,
-		BoundB:       credential.IntGenISISLiveBound,
-		X0Len:        profile.EllX0,
-		RingDegree:   profile.N,
-		HashRelation: credential.HashRelationBBTran,
-		IntGenISIS:   true,
+		Com:            c,
+		CM:             cm,
+		AS:             as,
+		BoundB:         credential.IntGenISISLiveBound,
+		HashInputBound: credential.IntGenISISHashInputBound,
+		X0Len:          profile.EllX0,
+		RingDegree:     profile.N,
+		HashRelation:   credential.HashRelationBBTran,
+		IntGenISIS:     true,
 	}
 	wit := WitnessInputs{M: M, MAttr: MAttr, K: K, S: s, E: e}
 	opts := ResolveSimOptsDefaults(SimOpts{
-		Credential: true,
-		RingDegree: profile.N,
-		NCols:      16,
-		LVCSNCols:  32,
-		Ell:        4,
-		Eta:        8,
-		Rho:        1,
-		Theta:      1,
-		DomainMode: DomainModeExplicit,
-		NLeaves:    4096,
+		Credential:             true,
+		RingDegree:             profile.N,
+		NCols:                  16,
+		LVCSNCols:              32,
+		Ell:                    4,
+		EllPrime:               1,
+		Eta:                    8,
+		Rho:                    1,
+		Theta:                  7,
+		DomainMode:             DomainModeExplicit,
+		NLeaves:                4096,
+		TranscriptVersion:      TranscriptVersionSmallWood2025V2,
+		TranscriptProtocolMode: TranscriptProtocolSmallField2025V2,
 	})
 	proof, err := BuildIntGenISISPreSign(ringQ, pub, wit, opts)
 	if err != nil {
@@ -102,8 +106,11 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	if proof.RowLayout.IntGenISISPreSign.BoundViewCount == 0 {
 		t.Fatal("missing IntGenISIS coefficient-view bound rows")
 	}
-	if proof.MaskRowOffset != proof.RowLayout.SigCount {
-		t.Fatalf("mask offset=%d want committed witness rows=%d", proof.MaskRowOffset, proof.RowLayout.SigCount)
+	if proof.MaskRowOffset != proof.PCSGeometry.WitnessRows {
+		t.Fatalf("mask offset=%d want physical small-field witness rows=%d", proof.MaskRowOffset, proof.PCSGeometry.WitnessRows)
+	}
+	if proof.RowLayout.SigCount <= proof.MaskRowOffset {
+		t.Fatalf("logical rows=%d should exceed matrix-packed physical rows=%d", proof.RowLayout.SigCount, proof.MaskRowOffset)
 	}
 	if got, want := proof.MaskDegreeBound, computeDQFromConstraintDegrees(9, 1, opts.NCols, opts.Ell); got != want || proof.QDegreeBound != want {
 		t.Fatalf("paper-conservative degree mismatch mask=%d q=%d want %d", got, proof.QDegreeBound, want)
@@ -122,29 +129,29 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("verify proof: ok=%v err=%v", ok, err)
 	}
-	if proof.QOpening == nil || proof.QRoot == ([16]byte{}) || len(proof.QRBits) == 0 {
-		t.Fatal("legacy proof did not carry Q DECS material")
+	if proof.QOpening != nil || len(proof.QRootHash) != 0 || len(proof.QRBits) != 0 || len(proof.QPayloadMatrix()) == 0 {
+		t.Fatal("v2 proof did not use the canonical Q payload-only transcript")
 	}
 	thetaOpts := opts
 	thetaOpts.Theta = 7
 	thetaOpts.Rho = 1
 	thetaOpts.EllPrime = 1
-	thetaOpts.TranscriptVersion = TranscriptVersionSmallWood2025
-	thetaOpts.TranscriptProtocolMode = TranscriptProtocolSmallField2025V1
+	thetaOpts.TranscriptVersion = TranscriptVersionSmallWood2025V2
+	thetaOpts.TranscriptProtocolMode = TranscriptProtocolSmallField2025V2
 	thetaProof, err := BuildIntGenISISPreSign(ringQ, pub, wit, thetaOpts)
 	if err != nil {
 		t.Fatalf("build strict smallfield proof: %v", err)
 	}
-	if thetaProof.TranscriptVersion != TranscriptVersionSmallWood2025 || thetaProof.TranscriptProtocolMode != TranscriptProtocolSmallField2025V1 {
+	if thetaProof.TranscriptVersion != TranscriptVersionSmallWood2025V2 || thetaProof.TranscriptProtocolMode != TranscriptProtocolSmallField2025V2 {
 		t.Fatalf("strict transcript tuple=(%q,%q)", thetaProof.TranscriptVersion, thetaProof.TranscriptProtocolMode)
 	}
 	if thetaProof.SmallField2025 == nil || thetaProof.SmallField2025.Status != SmallField2025StatusLive {
 		t.Fatalf("strict smallfield proof missing live metadata: %+v", thetaProof.SmallField2025)
 	}
-	if thetaProof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV1 {
+	if thetaProof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV2 {
 		t.Fatalf("strict smallfield geometry kind=%q", thetaProof.PCSGeometry.Kind)
 	}
-	if thetaProof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRows {
+	if thetaProof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRowsV2 {
 		t.Fatalf("strict smallfield source=%q", thetaProof.PCSGeometry.SmallFieldSource)
 	}
 	if thetaProof.QRoot != ([16]byte{}) || len(thetaProof.QRBits) != 0 || thetaProof.QOpening != nil {
@@ -219,9 +226,9 @@ func TestIntGenISISPreSignProofBuildsAndVerifies(t *testing.T) {
 	wideOpts.LVCSNCols = 68
 	wideOpts.Ell = 22
 	wideOpts.Eta = 30
-	wideOpts.Rho = 3
-	wideOpts.EllPrime = 3
-	wideOpts.Theta = 2
+	wideOpts.Rho = 1
+	wideOpts.EllPrime = 1
+	wideOpts.Theta = 7
 	wideProof, err := BuildIntGenISISPreSign(ringQ, pub, wit, wideOpts)
 	if err != nil {
 		t.Fatalf("build wide LVCS pre-sign proof: %v", err)

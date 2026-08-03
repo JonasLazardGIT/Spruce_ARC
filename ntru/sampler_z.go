@@ -1,8 +1,9 @@
 package ntru
 
 import (
+	"fmt"
+	"io"
 	"math"
-	mrand "math/rand"
 
 	ps "vSIS-Signature/ntru/internal/preimage"
 )
@@ -25,42 +26,57 @@ var cdtTable = [...]uint64{
 }
 
 // baseSampler draws z0 per CDT thresholds.
-func baseSampler() int64 {
-	r := mrand.Uint64()
+func baseSampler(entropy io.Reader) (int64, error) {
+	r, err := entropyUint64(entropy)
+	if err != nil {
+		return 0, err
+	}
 	res := int64(0)
 	for i := 0; i < len(cdtTable); i++ {
 		if r >= cdtTable[i] {
 			res++
 		}
 	}
-	return res
+	return res, nil
 }
 
 // sampleZ implements samplerZ(u) from C using Box-Muller acceptance with parameter R.
 // u is the real-valued mean (per coefficient), R is the smoothing parameter.
-func sampleZ(u, R float64) int64 {
+func sampleZ(u, R float64, entropy io.Reader) (int64, error) {
+	if math.IsNaN(u) || math.IsInf(u, 0) || math.IsNaN(R) || math.IsInf(R, 0) || R <= 0 {
+		return 0, fmt.Errorf("sampleZ: invalid mean/smoothing parameter u=%g R=%g", u, R)
+	}
 	uf := math.Floor(u)
 	for {
-		entropy := uint8(mrand.Intn(256))
+		bits, err := entropyByte(entropy)
+		if err != nil {
+			return 0, err
+		}
 		for i := 0; i < 8; i++ {
-			z0 := baseSampler()
-			b := (entropy >> uint(i)) & 1
+			z0, err := baseSampler(entropy)
+			if err != nil {
+				return 0, err
+			}
+			b := (bits >> uint(i)) & 1
 			// z = (2*b-1)*z0 + b + uf
 			sign := int64(2*int(b) - 1)
 			z := float64(sign)*float64(z0) + float64(b) + uf
 			x := (float64(z0*z0) - (z-u)*(z-u)) / (2 * R * R)
 			p := math.Exp(x)
 			// r in [0,1)
-			r := (float64(mrand.Uint64()&0x1FFFFFFFFFFFFF) * math.Pow(2, -53))
+			r, err := entropyFloat53(entropy)
+			if err != nil {
+				return 0, err
+			}
 			if r < p {
-				return RoundAwayFromZero(z)
+				return RoundAwayFromZero(z), nil
 			}
 		}
 	}
 }
 
 // sampleZVec samples an integer vector around coefficient-domain means.
-func sampleZVec(xCoeff *ps.CyclotomicFieldElem, R float64) ([]int64, error) {
+func sampleZVec(xCoeff *ps.CyclotomicFieldElem, R float64, entropy io.Reader) ([]int64, error) {
 	if xCoeff.Domain != ps.Coeff {
 		return nil, ErrUnsupportedCenterDomain
 	}
@@ -68,7 +84,11 @@ func sampleZVec(xCoeff *ps.CyclotomicFieldElem, R float64) ([]int64, error) {
 	out := make([]int64, n)
 	for i := 0; i < n; i++ {
 		mu, _ := xCoeff.Coeffs[i].Real.Float64()
-		out[i] = sampleZ(mu, R)
+		z, err := sampleZ(mu, R, entropy)
+		if err != nil {
+			return nil, fmt.Errorf("sampleZVec coefficient %d: %w", i, err)
+		}
+		out[i] = z
 	}
 	return out, nil
 }

@@ -9,6 +9,8 @@ import (
 
 const fsDigestBytes = 64
 
+const fsInitializationDomainV2 = "SPRUCE/SmallWood/Fiat-Shamir/init/v2"
+
 // XOF models the extendable-output function used by the Fiat–Shamir layer.
 type XOF interface {
 	Expand(label string, parts ...[]byte) []byte
@@ -77,16 +79,17 @@ func (s Shake256XOF) Expand(label string, parts ...[]byte) []byte {
 
 // FSParams bundles the Fiat–Shamir security parameters.
 type FSParams struct {
-	Lambda            int // random oracle security parameter (bits)
-	Kappa             [4]int
-	TranscriptVersion string
+	Lambda             int // random oracle security parameter (bits)
+	Kappa              [4]int
+	TranscriptVersion  string
+	TranscriptProtocol string
 }
 
 // FS tracks the four grinding rounds in the SmallWood–ARK transcript.
 type FS struct {
 	xof     XOF
 	params  FSParams
-	salt    []byte
+	initial []byte
 	ctr     [4]uint64
 	h       [4][]byte
 	labels  [4]string
@@ -99,12 +102,12 @@ func NewFS(x XOF, salt []byte, params FSParams) *FS {
 		params.Lambda = 256
 	}
 	fs := &FS{
-		xof:    x,
-		params: params,
-		salt:   append([]byte(nil), salt...),
-		labels: [4]string{"fs-gamma", "fs-gammap", "fs-eprime", "fs-tail"},
+		xof:     x,
+		params:  params,
+		initial: fsInitializationInput(params.TranscriptVersion, params.TranscriptProtocol, salt),
+		labels:  [4]string{"fs-gamma", "fs-gammap", "fs-eprime", "fs-tail"},
 	}
-	fs.chained = normalizeTranscriptVersion(params.TranscriptVersion) == TranscriptVersionSmallWood2025
+	fs.chained = normalizeTranscriptVersion(params.TranscriptVersion) == TranscriptVersionSmallWood2025V2
 	return fs
 }
 
@@ -143,9 +146,25 @@ func (fs *FS) roundInput(round int) []byte {
 		}
 		return append([]byte(nil), fs.h[round-1]...)
 	}
-	input := make([]byte, len(fs.salt))
-	copy(input, fs.salt)
+	input := make([]byte, len(fs.initial))
+	copy(input, fs.initial)
 	return input
+}
+
+func fsInitializationInput(version, protocol string, salt []byte) []byte {
+	input := make([]byte, 0, len(fsInitializationDomainV2)+len(version)+len(protocol)+len(salt)+32)
+	input = appendFSLengthPrefixed(input, []byte(fsInitializationDomainV2))
+	input = appendFSLengthPrefixed(input, []byte(version))
+	input = appendFSLengthPrefixed(input, []byte(protocol))
+	input = appendFSLengthPrefixed(input, salt)
+	return input
+}
+
+func appendFSLengthPrefixed(dst, value []byte) []byte {
+	var width [8]byte
+	binary.BigEndian.PutUint64(width[:], uint64(len(value)))
+	dst = append(dst, width[:]...)
+	return append(dst, value...)
 }
 
 // hasZeroPrefix checks whether the first kappa bits of buf are zero.

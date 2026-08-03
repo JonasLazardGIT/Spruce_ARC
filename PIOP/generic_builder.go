@@ -172,11 +172,13 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if cerr := ValidatePRFCompanionLayout(set.PRFCompanionLayout, witnessCount); cerr != nil {
 			return nil, fmt.Errorf("prf companion layout: %w", cerr)
 		}
-		var root [16]byte
+		var rootHash []byte
 		var pk *lvcs.ProverKey
 		var oracleLayout lvcs.OracleLayout
 		var sigShortness *SigShortnessProof
 		var sigShortnessBindingDigest []byte
+		var proofSalt []byte
+		var mainCommitmentContext decs.CommitmentContext
 		labels := BuildPublicLabels(pub)
 		labelsDigest := computeLabelsDigest(labels)
 
@@ -189,7 +191,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if opts.Eta <= 0 {
 			return nil, fmt.Errorf("invalid Eta=%d", opts.Eta)
 		}
-		decsParams = applyDECSCollisionWidth(decs.Params{Degree: maskCfg.DQ, Eta: opts.Eta, NonceBytes: 16}, opts)
+		decsParams = applyDECSCollisionWidth(decs.Params{Degree: maskCfg.DQ, Eta: opts.Eta, TapeBytes: 16}, opts)
 
 		rho := opts.Rho
 		if rho <= 0 {
@@ -407,14 +409,23 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			decsParams.Degree = rowDeg
 		}
 		// Commit rows to get root/pk/layout using possibly updated rowInputs/layout.
+		proofSalt, err = sampleProofSaltV2(opts)
+		if err != nil {
+			return nil, err
+		}
+		mainCommitmentContext, err = mainCommitmentContextV2(proofSalt)
+		if err != nil {
+			return nil, err
+		}
 		commitStart := time.Now()
-		root, pk, oracleLayout, err = commitRows(ringQ, rowInputs, opts.Ell, decsParams, witnessCount, maskRowOffset, maskRowCount, domainPoints, opts.PhaseRecorder)
+		rootHash, pk, oracleLayout, err = commitRows(ringQ, rowInputs, opts.Ell, decsParams, witnessCount, maskRowOffset, maskRowCount, domainPoints, mainCommitmentContext, opts.PhaseRecorder)
 		if opts.PhaseRecorder != nil {
 			opts.PhaseRecorder.RecordDuration("showing.lvcs_commit_total", time.Since(commitStart))
 		}
 		if err != nil {
 			return nil, fmt.Errorf("commit rows: %w", err)
 		}
+		defer pk.DecsProver.ReleaseTapes()
 		if prepared != nil {
 			prepared.builtPK = pk
 			prepared.rowInputs = rowInputs
@@ -530,7 +541,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 						set.AggregatedAlgDeg = postRows.AggregatedAlgDeg
 					}
 				} else if len(pub.A) > 0 && len(pub.B) > 0 {
-					postRows, cerr := rebuildPostSignConstraintSetWithBridges(ringQ, pub, rowLayout, constraintRows, omegaWitness, opts, root, set.PRFLayout, set.PRFCompanionLayout)
+					postRows, cerr := rebuildPostSignConstraintSetWithBridges(ringQ, pub, rowLayout, constraintRows, omegaWitness, opts, set.PRFLayout, set.PRFCompanionLayout)
 					if cerr != nil {
 						return nil, cerr
 					}
@@ -579,8 +590,8 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			Omega:              omega,
 			OmegaWitness:       omegaWitness,
 			DomainPoints:       domainPoints,
-			Root:               root,
-			RootHash:           pk.RootHash,
+			RootHash:           rootHash,
+			Salt:               append([]byte(nil), proofSalt...),
 			PK:                 pk,
 			OracleLayout:       oracleLayout,
 			RowLayout:          rowLayout,
@@ -594,8 +605,8 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			FaggNormCoeffs:     set.FaggNormCoeffs,
 			PRFCompanionLayout: set.PRFCompanionLayout,
 			PRFCompanionRows:   companionRowInputs,
-			PRFTagPublic:       copyInt64Matrix(pub.Tag),
-			PRFNoncePublic:     copyInt64Matrix(pub.Nonce),
+			PRFTagPublic:       append([]int64(nil), pub.Tag...),
+			PRFContextPublic:   append([]int64(nil), pub.Context...),
 			HashRelation:       pub.HashRelation,
 			RowInputs:          rowInputs,
 			// Theta>1 derives row heads from PK and layout on Ω.
@@ -658,8 +669,8 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		if proof.PRFLayout != nil {
 			return false, fmt.Errorf("old PRF layout is no longer supported")
 		}
-		if set.PRFCompanionLayout == nil && proof.PRFCompanion != nil {
-			set.PRFCompanionLayout = clonePRFCompanionLayout(proof.PRFCompanion.Layout)
+		if (set.PRFCompanionLayout == nil) != (proof.PRFCompanion == nil) {
+			return false, fmt.Errorf("proof PRF companion presence does not match the verifier-selected relation")
 		}
 		ringQ, omega, _, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
 		if err != nil {
@@ -674,36 +685,12 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		}
 		labels := BuildPublicLabels(pub)
 		digest := computeLabelsDigest(labels)
-		if len(proof.LabelsDigest) == 0 {
-			proof.LabelsDigest = digest
-		} else if !equalByteSlices(digest, proof.LabelsDigest) {
+		if len(proof.LabelsDigest) != len(digest) || !equalByteSlices(digest, proof.LabelsDigest) {
 			return false, fmt.Errorf("labels digest mismatch")
 		}
-		if proof.NColsUsed == 0 && opts.NCols > 0 {
-			proof.NColsUsed = opts.NCols
-		}
-		if proof.LVCSNColsUsed == 0 {
-			if opts.LVCSNCols > 0 {
-				proof.LVCSNColsUsed = opts.LVCSNCols
-			} else if proof.NColsUsed > 0 {
-				proof.LVCSNColsUsed = proof.NColsUsed
-			}
-		}
 		var domainPoints []uint64
-		witnessNCols := ringQ.N
-		if opts.NCols > 0 {
-			witnessNCols = opts.NCols
-		}
-		if proof.NColsUsed > 0 {
-			witnessNCols = proof.NColsUsed
-		}
-		lvcsNCols := witnessNCols
-		if opts.LVCSNCols > 0 {
-			lvcsNCols = opts.LVCSNCols
-		}
-		if proof.LVCSNColsUsed > 0 {
-			lvcsNCols = proof.LVCSNColsUsed
-		}
+		witnessNCols := opts.NCols
+		lvcsNCols := opts.LVCSNCols
 		if witnessNCols <= 0 {
 			return false, fmt.Errorf("invalid witness ncols=%d for replay", witnessNCols)
 		}
@@ -714,15 +701,9 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			return false, fmt.Errorf("invalid replay ncols: lvcs=%d < witness=%d", lvcsNCols, witnessNCols)
 		}
 		omegaWitness := omega
-		if proof.DomainMode == DomainModeExplicit || opts.DomainMode == DomainModeExplicit {
-			ell := len(proof.Tail)
-			nLeaves := proof.NLeavesUsed
-			if nLeaves <= 0 {
-				nLeaves = opts.NLeaves
-			}
-			if nLeaves <= 0 {
-				nLeaves = int(ringQ.N)
-			}
+		if proof.DomainMode == DomainModeExplicit && opts.DomainMode == DomainModeExplicit {
+			ell := opts.Ell
+			nLeaves := opts.NLeaves
 			if lvcsNCols+ell > nLeaves {
 				return false, fmt.Errorf("explicit domain: need lvcsNCols+ell <= nleaves (lvcsNCols=%d ell=%d nleaves=%d)", lvcsNCols, ell, nLeaves)
 			}
@@ -757,12 +738,6 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			omegaWitness = append([]uint64(nil), omegaWitness[:witnessNCols]...)
 		}
 		witnessRows := proof.RowLayout.SigCount
-		if witnessRows <= 0 {
-			witnessRows = proof.PCSGeometry.LogicalWitnessPolys
-		}
-		if witnessRows <= 0 {
-			witnessRows = proof.MaskRowOffset
-		}
 		if witnessRows > 0 {
 			if err := ValidateRowDependencyClosure(proof.RowLayout, nil, witnessRows); err != nil {
 				return false, fmt.Errorf("replay row dependency closure: %w", err)
@@ -1089,7 +1064,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				// The direct_full mode proves the full PRF relation in the main
 				// SmallWood constraints and intentionally carries no sampled
 				// scalar opening payload.
-			} else if cerr := verifyPRFCompanionOpenings(set.PRFCompanionLayout, proof, params, pub.Tag, pub.Nonce); cerr != nil {
+			} else if cerr := verifyPRFCompanionOpenings(set.PRFCompanionLayout, proof, params, pub.Tag, pub.Context); cerr != nil {
 				return false, cerr
 			}
 		}

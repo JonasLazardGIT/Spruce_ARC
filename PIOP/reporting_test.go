@@ -135,7 +135,7 @@ func TestPaperTranscriptReportOptimizedTotalSumsAllBuckets(t *testing.T) {
 
 func TestStrictSmallWoodProofSizeExcludesLegacyQDECS(t *testing.T) {
 	proof := &Proof{
-		TranscriptVersion: TranscriptVersionSmallWood2025,
+		TranscriptVersion: TranscriptVersionSmallWood2025V2,
 		R:                 [][]uint64{{1, 2, 3}, {4, 5, 6}},
 		QRoot:             [16]byte{1},
 		QRBits:            []byte{1, 2, 3},
@@ -232,6 +232,8 @@ func TestSigShortnessV18LayoutDigestBindsX0Len(t *testing.T) {
 
 func TestBuildOpeningPaperReportCountsCompressedResiduesAuthAndTapes(t *testing.T) {
 	open := &decs.DECSOpening{
+		Version:        decs.OpeningVersionV2,
+		Role:           decs.CommitmentRoleMain,
 		FormatVersion:  1,
 		PColsEncoded:   2,
 		POmitCols:      []int{1},
@@ -247,8 +249,13 @@ func TestBuildOpeningPaperReportCountsCompressedResiduesAuthAndTapes(t *testing.
 		Eta:            1,
 		Nodes:          [][]byte{{0, 1}, {2, 3, 4}},
 		PathIndex:      [][]int{{1, 2}, {3, 4}},
-		NonceSeed:      []byte{7, 8, 9},
-		NonceBytes:     24,
+		Tapes: [][]byte{
+			bytes.Repeat([]byte{7}, 16),
+			bytes.Repeat([]byte{8}, 16),
+			bytes.Repeat([]byte{9}, 16),
+			bytes.Repeat([]byte{10}, 16),
+		},
+		TapeBytes: 16,
 	}
 
 	got := BuildOpeningPaperReport(open)
@@ -261,8 +268,8 @@ func TestBuildOpeningPaperReportCountsCompressedResiduesAuthAndTapes(t *testing.
 	if got.AuthBits != 200 {
 		t.Fatalf("auth bits=%v, want 200", got.AuthBits)
 	}
-	if got.TapeBits != 32 {
-		t.Fatalf("tape bits=%v, want 32", got.TapeBits)
+	if got.TapeBits != 520 {
+		t.Fatalf("tape bits=%v, want 520", got.TapeBits)
 	}
 	if got.Audit.Pdecs.MetadataBytes != 3 || got.Audit.Pdecs.StreamBytes != 3 || got.Audit.Pdecs.EncodedCols != 2 {
 		t.Fatalf("unexpected Pdecs audit: %+v", got.Audit.Pdecs)
@@ -273,7 +280,7 @@ func TestBuildOpeningPaperReportCountsCompressedResiduesAuthAndTapes(t *testing.
 	if got.Audit.Auth.NodeCount != 2 || got.Audit.Auth.NodeBytes != 5 || got.Audit.Auth.PathIndexBytes != 16 || got.Audit.Auth.TotalBytes != 25 {
 		t.Fatalf("unexpected auth audit: %+v", got.Audit.Auth)
 	}
-	if got.Audit.Tapes.NonceSeedBytes != 3 || got.Audit.Tapes.NonceMetadataBytes != 1 || got.Audit.Tapes.TotalBytes != 4 {
+	if got.Audit.Tapes.TapeBytes != 64 || got.Audit.Tapes.TapeCount != 4 || got.Audit.Tapes.TapeMetadataBytes != 1 || got.Audit.Tapes.TotalBytes != 65 {
 		t.Fatalf("unexpected tape audit: %+v", got.Audit.Tapes)
 	}
 }
@@ -478,12 +485,16 @@ func cloneProofForPaperTest(src *Proof) *Proof {
 
 func testOpening() *decs.DECSOpening {
 	return &decs.DECSOpening{
+		Version:       decs.OpeningVersionV2,
+		Role:          decs.CommitmentRoleMain,
+		Indices:       []int{0},
 		PvalsBits:     []byte{1, 2},
 		MvalsBits:     []byte{3},
 		PvalsBitWidth: 14,
 		MvalsBitWidth: 14,
 		R:             1,
 		Eta:           1,
-		NonceSeed:     []byte{4, 5},
+		Tapes:         [][]byte{bytes.Repeat([]byte{4}, 16)},
+		TapeBytes:     16,
 	}
 }

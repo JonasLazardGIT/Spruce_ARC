@@ -58,41 +58,33 @@ check_gofmt() {
 	rm -f "$out"
 }
 
-showing_bytes_from_report() {
-	awk '
-		/"showing": \{/ { in_showing = 1; next }
-		in_showing && /"paper_transcript_bytes":/ {
-			line = $0
-			gsub(/[^0-9]/, "", line)
-			got = line
-		}
-		END { if (got != "") print got }
-	' "$1"
-}
-
-check_preset() {
-	preset=$1
-	expected=$2
-	artifact_dir="$artifact_root/$preset"
-	report="$artifact_dir/benchmark-intgenisis-e2e.json"
-	mkdir -p "$artifact_dir"
-
-	run go run ./cmd/issuance benchmark-intgenisis-e2e \
-		-preset "$preset" \
-		-artifact-dir "$artifact_dir" \
-		-json-out "$report" \
-		-force
-
-	got=$(showing_bytes_from_report "$report")
-	if [ "$got" != "$expected" ]; then
-		echo "$preset showing.paper_transcript_bytes=$got, want $expected" >&2
+check_v2_preset_identities() {
+	actual_file=$(mktemp "${TMPDIR:-/tmp}/spruce-v2-presets.XXXXXX")
+	expected_file=$(mktemp "${TMPDIR:-/tmp}/spruce-v2-presets-expected.XXXXXX")
+	go run ./cmd/issuance list-presets |
+		awk 'NR > 1 && $1 ~ /^(artifact|pilot|poc|system)-/ { print $1 }' >"$actual_file"
+	cat >"$expected_file" <<'EOF'
+artifact-n1024-bq10-r96-v2
+artifact-n1024-bq16-r96-v2
+artifact-n1024-sc125-v2
+pilot-n1024-bq32-r96-v2
+poc-n1024-bq128-r128-v3
+poc-n1024-bq64-r128-v2
+poc-n1024-bq96-r128-v2
+poc-n512-sc96-v2
+system-n1024-wf128-crom-v2
+EOF
+	if ! cmp -s "$expected_file" "$actual_file"; then
+		echo "v2 preset identity boundary mismatch" >&2
+		diff -u "$expected_file" "$actual_file" >&2 || true
+		rm -f "$actual_file" "$expected_file"
 		exit 1
 	fi
-	echo "$preset showing.paper_transcript_bytes=$got"
+	rm -f "$actual_file" "$expected_file"
 }
 
 run check_gofmt
-run go test ./...
+run go test ./... -count=1
 run go vet ./...
 if command -v staticcheck >/dev/null 2>&1; then
 	run staticcheck ./...
@@ -101,14 +93,11 @@ else
 fi
 run_deadcode -test ./...
 run_deadcode ./...
-run go build ./cmd/issuance ./cmd/showing
+run go build ./...
 
-check_preset n512-compact96 22016
-check_preset n1024-compact125 35223
-check_preset n1024-q10-96 29653
-check_preset n1024-q16-96 30591
-check_preset pilot-n1024-bq32-r96-v1 36887
-check_preset system-n1024-wf128-crom-v1 38092
+run check_v2_preset_identities
+run go run ./cmd/issuance gate-functional-presets \
+	-artifact-dir "$artifact_root/smallwood-salted-v2"
 
 if [ "$cleanup_artifacts" -eq 1 ]; then
 	echo "artifact validation passed; temporary artifacts removed"

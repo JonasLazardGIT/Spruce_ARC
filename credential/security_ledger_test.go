@@ -137,15 +137,12 @@ func TestIntGenISISSystemSecurityLedgerRejectsMissingRequiredTerms(t *testing.T)
 	}
 }
 
-func TestIntGenISISSystemSecurityLedgerBQ32Tag7FailsTagTermAndTag9Passes(t *testing.T) {
+func TestIntGenISISSystemSecurityLedgerV2QuotaMakesTag7AndTag9Pass(t *testing.T) {
 	tag7 := EvaluateIntGenISISSystemSecurityLedger(bq32LedgerInputForTagElements(7))
-	if !containsString(tag7.RejectionReasons, "tag collision bits below target") {
-		t.Fatalf("tag7 rejection reasons=%v", tag7.RejectionReasons)
+	if containsString(tag7.RejectionReasons, "tag collision bits below target") {
+		t.Fatalf("tag7 should clear the tag term under the 16-slot v2 quota: %v", tag7.RejectionReasons)
 	}
-	if countString(tag7.RejectionReasons, "tag collision bits below target") != 1 {
-		t.Fatalf("duplicate tag rejection reasons=%v", tag7.RejectionReasons)
-	}
-	if termStatus(tag7, SystemLedgerTermUnlinkability, "tag_collision") != "below_target" {
+	if termStatus(tag7, SystemLedgerTermUnlinkability, "tag_collision") != "pass" {
 		t.Fatalf("tag7 term status=%q", termStatus(tag7, SystemLedgerTermUnlinkability, "tag_collision"))
 	}
 
@@ -290,15 +287,15 @@ func TestLogMathHelpersComposeProbabilities(t *testing.T) {
 }
 
 func TestIntGenISISPresetThreatModelUsesRawROCapsConservatively(t *testing.T) {
-	preset, ok := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V1)
+	preset, ok := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V2)
 	if !ok {
 		t.Fatal("missing BQ32-96 pilot")
 	}
 	scope, scopeLogs := AdversaryScopesFromThreatModel(preset.ThreatModel)
-	if scope.TagsPerContext != 1<<32 || scope.PRFAttempts != 1<<32 || scope.Users != 1 || scope.Contexts != 1 {
+	if scope.TagsPerContext != uint64(IntGenISISQuotaSlots) || scope.PRFAttempts != uint64(IntGenISISQuotaSlots) || scope.Users != 1 || scope.Contexts != 1 {
 		t.Fatalf("scope defaults=%+v", scope)
 	}
-	if scopeLogs.ProofsLog2 != 32 || scopeLogs.TagsPerContextLog2 != 32 {
+	if scopeLogs.ProofsLog2 != 32 || scopeLogs.TagsPerContextLog2 != 4 {
 		t.Fatalf("scope logs=%+v", scopeLogs)
 	}
 	budgets := ROBudgetVectorFromCaps(testROQueryCapsFromPreset(preset.Showing.ROQueryCaps))
@@ -382,7 +379,7 @@ func TestValidPrefixLogCapsRequireExplicitTheoremMode(t *testing.T) {
 }
 
 func bq32LedgerInputForTagElements(tagElements int) SystemSecurityLedgerInput {
-	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V1)
+	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V2)
 	scope, scopeLogs := AdversaryScopesFromThreatModel(preset.ThreatModel)
 	tagBits := IntGenISISTagCollisionBitsLog(IntGenISISSharedModulusQ, tagElements, scopeLogs.TagsPerContextLog2)
 	return SystemSecurityLedgerInput{
@@ -483,14 +480,4 @@ func containsString(vals []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func countString(vals []string, want string) int {
-	count := 0
-	for _, v := range vals {
-		if v == want {
-			count++
-		}
-	}
-	return count
 }

@@ -7,6 +7,7 @@ import "fmt"
 type LinearForm struct {
 	KeyCoeffs        []Elem
 	CheckpointCoeffs []Elem
+	SlotCoeff        Elem
 	Const            Elem
 }
 
@@ -66,6 +67,7 @@ func linearFormAdd(f Field, a, b LinearForm) LinearForm {
 		out.CheckpointCoeffs[i] = f.add(a.CheckpointCoeffs[i], b.CheckpointCoeffs[i])
 	}
 	out.Const = f.add(a.Const, b.Const)
+	out.SlotCoeff = f.add(a.SlotCoeff, b.SlotCoeff)
 	return out
 }
 
@@ -84,6 +86,7 @@ func linearFormScale(f Field, a LinearForm, scalar Elem) LinearForm {
 		out.CheckpointCoeffs[i] = f.mul(a.CheckpointCoeffs[i], scalar)
 	}
 	out.Const = f.mul(a.Const, scalar)
+	out.SlotCoeff = f.mul(a.SlotCoeff, scalar)
 	return out
 }
 
@@ -100,9 +103,22 @@ func applyLinearLayer(forms []LinearForm, mds [][]uint64, f Field) []LinearForm 
 	return out
 }
 
-// TraceGroupedWitness returns the canonical grouped checkpoint witness together
-// with the public linear wiring metadata needed by the companion verifier.
-func TraceGroupedWitness(key, nonce []Elem, params *Params, groupRounds int) (*GroupedWitness, error) {
+// TraceGroupedWitnessContextSlot keeps the final PRF input lane symbolic so
+// the PIOP relation can bind it to the hidden slot witness.
+func TraceGroupedWitnessContextSlot(key, context []Elem, slot Elem, params *Params, groupRounds int) (*GroupedWitness, error) {
+	if len(context) != ContextLaneCountV2 {
+		return nil, fmt.Errorf("context lanes=%d want %d", len(context), ContextLaneCountV2)
+	}
+	if params == nil || params.LenNonce != ContextLaneCountV2+1 {
+		return nil, fmt.Errorf("v2 PRF requires %d input lanes", ContextLaneCountV2+1)
+	}
+	input := make([]Elem, 0, params.LenNonce)
+	input = append(input, context...)
+	input = append(input, slot)
+	return traceGroupedWitness(key, input, params, groupRounds, params.LenNonce-1)
+}
+
+func traceGroupedWitness(key, nonce []Elem, params *Params, groupRounds, hiddenNonceIndex int) (*GroupedWitness, error) {
 	if params == nil {
 		return nil, fmt.Errorf("nil params")
 	}
@@ -136,7 +152,12 @@ func TraceGroupedWitness(key, nonce []Elem, params *Params, groupRounds int) (*G
 			continue
 		}
 		form := zeroLinearForm(params.LenKey, checkpointCount)
-		form.Const = nonce[i-params.LenKey]
+		nonceIndex := i - params.LenKey
+		if nonceIndex == hiddenNonceIndex {
+			form.SlotCoeff = 1
+		} else {
+			form.Const = nonce[nonceIndex]
+		}
 		symState[i] = form
 	}
 	out := &GroupedWitness{

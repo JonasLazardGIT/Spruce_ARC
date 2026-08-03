@@ -1,15 +1,19 @@
 package keys
 
+import "fmt"
+
 // PrivateKey represents an NTRU private key persisted to JSON.
 type PrivateKey struct {
-	Version string  `json:"version"`
-	N       int     `json:"N"`
-	Q       string  `json:"Q"`
-	F       []int64 `json:"F"`
-	G       []int64 `json:"G"`
-	Fsmall  []int64 `json:"f"`
-	Gsmall  []int64 `json:"g"`
-	Policy  *struct {
+	Version      string  `json:"version"`
+	ParamsDigest string  `json:"params_digest"`
+	PublicKeyID  string  `json:"public_key_id"`
+	N            int     `json:"N"`
+	Q            string  `json:"Q"`
+	F            []int64 `json:"F"`
+	G            []int64 `json:"G"`
+	Fsmall       []int64 `json:"f"`
+	Gsmall       []int64 `json:"g"`
+	Policy       *struct {
 		FPlus      int    `json:"f_plus"`
 		FMinus     int    `json:"f_minus"`
 		GPlus      int    `json:"g_plus"`
@@ -21,7 +25,10 @@ type PrivateKey struct {
 
 func SavePrivateFile(path string, sk *PrivateKey) error {
 	if sk == nil {
-		return nil
+		return fmt.Errorf("nil NTRU private key")
+	}
+	if err := ValidatePrivateKey(sk); err != nil {
+		return err
 	}
 	return writeJSON(path, sk)
 }
@@ -29,6 +36,9 @@ func SavePrivateFile(path string, sk *PrivateKey) error {
 func LoadPrivateFile(path string) (*PrivateKey, error) {
 	var sk PrivateKey
 	if err := readJSON(path, &sk); err != nil {
+		return nil, err
+	}
+	if err := ValidatePrivateKey(&sk); err != nil {
 		return nil, err
 	}
 	return &sk, nil

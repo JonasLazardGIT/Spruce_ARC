@@ -1,6 +1,7 @@
 package PIOP
 
 import (
+	"bytes"
 	"testing"
 
 	decs "vSIS-Signature/DECS"
@@ -60,8 +61,13 @@ func testFormalBackendProof(t *testing.T, witnessNCols, pcsNCols, ell, nLeaves, 
 		{Head: witnessHead, PolyCoeffs: witnessCoeffs, TrustedHead: true},
 		{Head: maskHead, PolyCoeffs: maskCoeffs[0], TrustedHead: true},
 	}
-	decsParams := decs.Params{Degree: rowOracleDegreeFloor(ringQ, rows, ell), Eta: opts.Eta, NonceBytes: 16}
-	root, pk, layout, err := commitRows(ringQ, rows, ell, decsParams, 1, 1, 1, domainPoints, nil)
+	decsParams := applyDECSWidths(decs.Params{Degree: rowOracleDegreeFloor(ringQ, rows, ell), Eta: opts.Eta}, opts)
+	salt := bytes.Repeat([]byte{0x42}, fsSaltBytesForOpts(opts))
+	ctx, err := mainCommitmentContextV2(salt)
+	if err != nil {
+		t.Fatalf("commitment context: %v", err)
+	}
+	rootHash, pk, layout, err := commitRows(ringQ, rows, ell, decsParams, 1, 1, 1, domainPoints, ctx, nil)
 	if err != nil {
 		t.Fatalf("commit rows: %v", err)
 	}
@@ -71,8 +77,8 @@ func testFormalBackendProof(t *testing.T, witnessNCols, pcsNCols, ell, nLeaves, 
 		Omega:            omega,
 		OmegaWitness:     omegaWitness,
 		DomainPoints:     domainPoints,
-		Root:             root,
-		RootHash:         pk.RootHash,
+		RootHash:         rootHash,
+		Salt:             salt,
 		PK:               pk,
 		OracleLayout:     layout,
 		RowInputs:        rows,
@@ -89,6 +95,20 @@ func testFormalBackendProof(t *testing.T, witnessNCols, pcsNCols, ell, nLeaves, 
 	})
 	if err != nil {
 		t.Fatalf("RunMaskingFS: %v", err)
+	}
+	if proof.SchemaVersion != ProofSchemaVersionV2 || proof.Root != ([16]byte{}) || !bytes.Equal(proof.RootHash, rootHash) || !bytes.Equal(proof.Salt, salt) {
+		t.Fatalf("unexpected v2 proof envelope: schema=%d legacy_root=%x root_hash=%x salt=%x", proof.SchemaVersion, proof.Root, proof.RootHash, proof.Salt)
+	}
+	if err := validateOpeningRoleV2(resolveProofPCSOpening(proof), decs.CommitmentRoleMain); err != nil {
+		t.Fatalf("main v2 opening: %v", err)
+	}
+	if proof.QOpening != nil {
+		if err := validateOpeningRoleV2(proof.QOpening, decs.CommitmentRoleQPayload); err != nil {
+			t.Fatalf("Q v2 opening: %v", err)
+		}
+		if len(proof.QRootHash) == 0 || proof.QRoot != ([16]byte{}) {
+			t.Fatalf("unexpected Q root envelope: legacy=%x full=%x", proof.QRoot, proof.QRootHash)
+		}
 	}
 	return proof
 }

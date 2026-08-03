@@ -137,24 +137,27 @@ func rowHeadOnOmega(ringQ *ring.Ring, omegaWitness []uint64, row *ring.Poly, wid
 	return head, nil
 }
 
-func publicNonceElems(noncePublic [][]int64, q uint64) ([]prf.Elem, error) {
-	out := make([]prf.Elem, len(noncePublic))
-	for i := range noncePublic {
-		if len(noncePublic[i]) == 0 {
-			return nil, fmt.Errorf("public nonce lane %d is empty", i)
+func publicContextElems(contextPublic []int64, q uint64) ([]prf.Elem, error) {
+	if len(contextPublic) != prf.ContextLaneCountV2 {
+		return nil, fmt.Errorf("public context lanes=%d want %d", len(contextPublic), prf.ContextLaneCountV2)
+	}
+	out := make([]prf.Elem, len(contextPublic))
+	for i, value := range contextPublic {
+		if value < 0 || uint64(value) >= q {
+			return nil, fmt.Errorf("public context lane %d=%d is not canonical modulo %d", i, value, q)
 		}
-		out[i] = prf.Elem(liftToField(q, noncePublic[i][0]))
+		out[i] = prf.Elem(value)
 	}
 	return out, nil
 }
 
-func compressPublicTag(tagPublic [][]int64, tau uint64, q uint64) (uint64, error) {
+func compressPublicTag(tagPublic []int64, tau uint64, q uint64) (uint64, error) {
 	vals := make([]uint64, len(tagPublic))
-	for i := range tagPublic {
-		if len(tagPublic[i]) == 0 {
-			return 0, fmt.Errorf("public tag lane %d is empty", i)
+	for i, value := range tagPublic {
+		if value < 0 || uint64(value) >= q {
+			return 0, fmt.Errorf("public tag lane %d=%d is not canonical modulo %d", i, value, q)
 		}
-		vals[i] = liftToField(q, tagPublic[i][0])
+		vals[i] = uint64(value)
 	}
 	return compressFieldElems(vals, tau, q), nil
 }
@@ -274,6 +277,10 @@ func descriptorFromCheckpointWire(
 		slot := layout.CheckpointSlots[i]
 		appendSlotWeight(slotWeights, layout.PackWidth, slot.Row, slot.Coeff, uint64(coeff)%q, q)
 	}
+	if wire.SlotCoeff != 0 {
+		slot := layout.HiddenSlotSlot
+		appendSlotWeight(slotWeights, layout.PackWidth, slot.Row, slot.Coeff, uint64(wire.SlotCoeff)%q, q)
+	}
 	return buildDescriptor(label, buildPackedTerms(layout, slotWeights, q), uint64(wire.Const)%q, maskSlot, q), nil
 }
 
@@ -304,8 +311,8 @@ func buildPRFCompanionOpeningPlan(
 	checkpointSamples int,
 	seed3 []byte,
 	coordDigest []byte,
-	tagPublic [][]int64,
-	noncePublic [][]int64,
+	tagPublic []int64,
+	contextPublic []int64,
 ) (*prfCompanionOpeningPlan, error) {
 	if layout == nil {
 		return nil, nil
@@ -319,12 +326,12 @@ func buildPRFCompanionOpeningPlan(
 	mode = prfCompanionModeDefault(mode)
 	rng := prfCompanionOpeningRNG(seed3, coordDigest, mode, checkpointSamples)
 	q := params.Q
-	nonceElems, err := publicNonceElems(noncePublic, q)
+	contextElems, err := publicContextElems(contextPublic, q)
 	if err != nil {
 		return nil, err
 	}
 	zeroKey := make([]prf.Elem, params.LenKey)
-	grouped, err := prf.TraceGroupedWitness(zeroKey, nonceElems, params, prfCompanionOpeningGroupRounds)
+	grouped, err := prf.TraceGroupedWitnessContextSlot(zeroKey, contextElems, 0, params, prfCompanionOpeningGroupRounds)
 	if err != nil {
 		return nil, err
 	}
@@ -433,8 +440,8 @@ func buildPRFCompanionOpeningPayload(
 	params *prf.Params,
 	seed3 []byte,
 	coordDigest []byte,
-	tagPublic [][]int64,
-	noncePublic [][]int64,
+	tagPublic []int64,
+	contextPublic []int64,
 ) (*prfCompanionOpeningPayload, *prfCompanionOpeningPlan, error) {
 	if layout == nil {
 		return nil, nil, nil
@@ -445,7 +452,7 @@ func buildPRFCompanionOpeningPayload(
 	if layout.StartRow < 0 || layout.StartRow+layout.PackedRows > len(rows) {
 		return nil, nil, fmt.Errorf("companion row window [%d,%d) out of range for rows=%d", layout.StartRow, layout.StartRow+layout.PackedRows, len(rows))
 	}
-	plan, err := buildPRFCompanionOpeningPlan(layout, params, mode, checkpointSamples, seed3, coordDigest, tagPublic, noncePublic)
+	plan, err := buildPRFCompanionOpeningPlan(layout, params, mode, checkpointSamples, seed3, coordDigest, tagPublic, contextPublic)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -504,8 +511,8 @@ func verifyPRFCompanionOpenings(
 	layout *PRFCompanionLayout,
 	proof *Proof,
 	params *prf.Params,
-	tagPublic [][]int64,
-	noncePublic [][]int64,
+	tagPublic []int64,
+	contextPublic []int64,
 ) error {
 	if layout == nil || proof == nil || proof.PRFCompanion == nil {
 		return nil
@@ -525,7 +532,7 @@ func verifyPRFCompanionOpenings(
 		proof.Digests[2],
 		proof.PRFCompanion.CoordDigest,
 		tagPublic,
-		noncePublic,
+		contextPublic,
 	)
 	if err != nil {
 		return err

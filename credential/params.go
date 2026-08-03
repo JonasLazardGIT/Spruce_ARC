@@ -26,6 +26,7 @@ type Params struct {
 	EllMuSig             int
 	EllX0                int
 	EllX1                int
+	HashInputBound       int64
 	SignaturePreimageLen int
 	X0Len                int
 	X0CoeffBound         int64

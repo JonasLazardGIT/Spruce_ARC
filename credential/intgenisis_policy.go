@@ -30,7 +30,7 @@ func ParseIntGenISISPolicy(data []byte) (IntGenISISPolicy, error) {
 		return NoopIntGenISISPolicy(), nil
 	}
 	var p IntGenISISPolicy
-	if err := json.Unmarshal(data, &p); err != nil {
+	if err := decodeStrictJSON(data, &p); err != nil {
 		return IntGenISISPolicy{}, fmt.Errorf("unmarshal IntGenISIS policy: %w", err)
 	}
 	if p.ID == "" {
@@ -68,7 +68,7 @@ func ValidateIntGenISISPolicy(layout SemanticMessageLayout, p IntGenISISPolicy, 
 		return nil
 	case IntGenISISPolicyMEquals:
 		var data IntGenISISMEqualsPolicyData
-		if err := json.Unmarshal(p.Data, &data); err != nil {
+		if err := decodeStrictJSON(p.Data, &data); err != nil {
 			return fmt.Errorf("decode m_eq policy data: %w", err)
 		}
 		if err := validateRows("policy.m", data.MAttr, layout.AttributeRows, layout.RingDegree); err != nil {

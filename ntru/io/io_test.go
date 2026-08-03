@@ -40,7 +40,7 @@ func TestBMatrixMetadataRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLoadLegacyBMatrixMetadata(t *testing.T) {
+func TestLoadBMatrixMetadataRejectsLegacyArtifact(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy_Bmatrix.json")
 	legacy := map[string]any{
 		"B": [][]uint64{
@@ -57,17 +57,57 @@ func TestLoadLegacyBMatrixMetadata(t *testing.T) {
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		t.Fatalf("write legacy B: %v", err)
 	}
+	if _, err := LoadBMatrixMetadata(path); err == nil {
+		t.Fatal("legacy B matrix was silently upgraded")
+	}
+}
+
+func TestBMatrixDoesNotImposeNonzeroB0(t *testing.T) {
+	coeffs := [][]uint64{{0, 0, 0}, {1, 2, 3}, {4, 5, 6}, {7, 8, 9}}
+	path := filepath.Join(t.TempDir(), "Bmatrix.json")
+	if err := SaveBMatrixCoeffs(path, coeffs); err != nil {
+		t.Fatalf("zero-valued B0 rejected despite having no nonzero condition: %v", err)
+	}
 	meta, err := LoadBMatrixMetadata(path)
 	if err != nil {
-		t.Fatalf("load legacy B: %v", err)
+		t.Fatalf("load zero-valued B0: %v", err)
 	}
-	if meta.Version != 1 {
-		t.Fatalf("legacy version=%d want 1", meta.Version)
+	if len(meta.B) != len(coeffs) || meta.B[0][0] != 0 {
+		t.Fatalf("zero-valued B0 round trip mismatch: %+v", meta.B)
 	}
-	if meta.TargetDim != 1 || meta.X0Len != 1 || meta.RingDegree != 3 {
-		t.Fatalf("legacy metadata mismatch: %+v", meta)
+	if err := ValidateBMatrixCanonical(meta.B, 11); err != nil {
+		t.Fatalf("canonical B rejected: %v", err)
 	}
-	if len(meta.RowOrder) != 4 || meta.RowOrder[2] != "B2[0]" {
-		t.Fatalf("legacy row order mismatch: %v", meta.RowOrder)
+	meta.B[2][1] = 11
+	if err := ValidateBMatrixCanonical(meta.B, 11); err == nil {
+		t.Fatal("noncanonical B coefficient accepted")
+	}
+}
+
+func TestLoadBMatrixMetadataRejectsUnsupportedTargetDimension(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Bmatrix.json")
+	payload := BMatrixMetadata{
+		Version:    BMatrixVersion,
+		TargetDim:  2,
+		X0Len:      1,
+		RingDegree: 3,
+		RowOrder:   []string{"B0", "B1", "B2[0]", "B3"},
+		B:          [][]uint64{{0, 0, 0}, {1, 2, 3}, {4, 5, 6}, {7, 8, 9}},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadBMatrixMetadata(path); err == nil {
+		t.Fatal("unsupported target_dim accepted")
+	}
+}
+
+func TestSaveBMatrixRejectsEmptyPolynomials(t *testing.T) {
+	if err := SaveBMatrixCoeffs(filepath.Join(t.TempDir(), "Bmatrix.json"), [][]uint64{{}, {}, {}, {}}); err == nil {
+		t.Fatal("empty B-matrix polynomials accepted")
 	}
 }

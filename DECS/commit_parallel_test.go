@@ -1,37 +1,13 @@
 package decs
 
 import (
-	"os"
-	"path/filepath"
+	"bytes"
 	"reflect"
 	"runtime"
 	"testing"
 
-	"vSIS-Signature/credential"
+	"github.com/tuneinsight/lattigo/v4/ring"
 )
-
-func decsTestRepoRoot(tb testing.TB) string {
-	tb.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		tb.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), ".."))
-}
-
-func chdirForDECSTest(tb testing.TB, dir string) {
-	tb.Helper()
-	cwd, err := os.Getwd()
-	if err != nil {
-		tb.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		tb.Fatalf("chdir %s: %v", dir, err)
-	}
-	tb.Cleanup(func() {
-		_ = os.Chdir(cwd)
-	})
-}
 
 func formalRowsForCommitTest(rowCount int, degree int, mod uint64) [][]uint64 {
 	rows := make([][]uint64, rowCount)
@@ -59,8 +35,7 @@ func maskRowsForCommitTest(maskCount int, degree int, mod uint64) [][]uint64 {
 
 func makeDeterministicFormalProver(t testing.TB) *Prover {
 	t.Helper()
-	chdirForDECSTest(t, decsTestRepoRoot(t))
-	ringQ, err := credential.LoadRingWithDegree(0)
+	ringQ, err := ring.NewRing(1024, []uint64{1017857})
 	if err != nil {
 		t.Fatalf("load ring: %v", err)
 	}
@@ -78,16 +53,16 @@ func makeDeterministicFormalProver(t testing.TB) *Prover {
 	prover, err := NewProverWithParamsAndPointsFormalChecked(
 		ringQ,
 		formalRowsForCommitTest(rowCount, degree, mod),
-		Params{Degree: degree, Eta: maskCount, NonceBytes: 16, HashBytes: 16},
+		Params{Degree: degree, Eta: maskCount, TapeBytes: 16, HashBytes: 16},
 		points,
 	)
 	if err != nil {
 		t.Fatalf("new prover: %v", err)
 	}
 	prover.MFormal = maskRowsForCommitTest(maskCount, degree, mod)
-	prover.nonceSeed = make([]byte, prover.params.NonceBytes)
-	for i := range prover.nonceSeed {
-		prover.nonceSeed[i] = byte(17 + i)
+	prover.tapes = make([]byte, prover.nLeaves*prover.params.TapeBytes)
+	for i := range prover.tapes {
+		prover.tapes[i] = byte(17 + i)
 	}
 	return prover
 }
@@ -98,11 +73,15 @@ func TestCommitInitDeterministicAcrossParallelism(t *testing.T) {
 
 	prSerial := makeDeterministicFormalProver(t)
 	runtime.GOMAXPROCS(1)
-	rootSerial, err := prSerial.CommitInitWithOptions(CommitOptions{})
+	ctx := v2TestContext(CommitmentRoleMain, 21)
+	rootSerial, err := prSerial.CommitInitV2WithOptions(ctx, CommitOptions{})
 	if err != nil {
 		t.Fatalf("serial commit init: %v", err)
 	}
-	openSerial := prSerial.EvalOpen([]int{3, 17, 42})
+	openSerial, err := prSerial.EvalOpenV2([]int{3, 17, 42})
+	if err != nil {
+		t.Fatalf("serial opening: %v", err)
+	}
 
 	prParallel := makeDeterministicFormalProver(t)
 	parallelProcs := old
@@ -110,13 +89,16 @@ func TestCommitInitDeterministicAcrossParallelism(t *testing.T) {
 		parallelProcs = 2
 	}
 	runtime.GOMAXPROCS(parallelProcs)
-	rootParallel, err := prParallel.CommitInitWithOptions(CommitOptions{})
+	rootParallel, err := prParallel.CommitInitV2WithOptions(ctx, CommitOptions{})
 	if err != nil {
 		t.Fatalf("parallel commit init: %v", err)
 	}
-	openParallel := prParallel.EvalOpen([]int{3, 17, 42})
+	openParallel, err := prParallel.EvalOpenV2([]int{3, 17, 42})
+	if err != nil {
+		t.Fatalf("parallel opening: %v", err)
+	}
 
-	if rootSerial != rootParallel {
+	if !bytes.Equal(rootSerial, rootParallel) {
 		t.Fatalf("root mismatch: serial=%x parallel=%x", rootSerial, rootParallel)
 	}
 	if !reflect.DeepEqual(openSerial, openParallel) {
@@ -124,29 +106,36 @@ func TestCommitInitDeterministicAcrossParallelism(t *testing.T) {
 	}
 }
 
-func TestCommitInitTiledMatchesScalarLegacyRoot(t *testing.T) {
+func TestCommitInitV2TiledMatchesScalarRoot(t *testing.T) {
+	ctx := v2TestContext(CommitmentRoleMain, 22)
 	prScalar := makeDeterministicFormalProver(t)
-	rootScalar, err := prScalar.commitInitWithOptions(commitInitOptions{
-		forceScalarFormalEval: true,
-		workerCount:           1,
+	rootScalar, err := prScalar.CommitInitV2WithOptions(ctx, CommitOptions{
+		FormalEvalMode: FormalEvalScalar,
+		WorkerCount:    1,
 	})
 	if err != nil {
 		t.Fatalf("scalar commit init: %v", err)
 	}
-	openScalar := prScalar.EvalOpen([]int{0, 5, 123, 255})
+	openScalar, err := prScalar.EvalOpenV2([]int{0, 5, 123, 255})
+	if err != nil {
+		t.Fatalf("scalar opening: %v", err)
+	}
 
 	prOptimized := makeDeterministicFormalProver(t)
-	rootOptimized, err := prOptimized.CommitInitWithOptions(CommitOptions{
+	rootOptimized, err := prOptimized.CommitInitV2WithOptions(ctx, CommitOptions{
 		FormalEvalMode: FormalEvalCombined,
 		WorkerCount:    3,
 	})
 	if err != nil {
 		t.Fatalf("optimized commit init: %v", err)
 	}
-	openOptimized := prOptimized.EvalOpen([]int{0, 5, 123, 255})
+	openOptimized, err := prOptimized.EvalOpenV2([]int{0, 5, 123, 255})
+	if err != nil {
+		t.Fatalf("optimized opening: %v", err)
+	}
 
 	prTiled := makeDeterministicFormalProver(t)
-	rootTiled, err := prTiled.CommitInitWithOptions(CommitOptions{
+	rootTiled, err := prTiled.CommitInitV2WithOptions(ctx, CommitOptions{
 		FormalEvalMode:     FormalEvalTiled,
 		FormalEvalTileSize: 7,
 		WorkerCount:        3,
@@ -154,12 +143,15 @@ func TestCommitInitTiledMatchesScalarLegacyRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tiled commit init: %v", err)
 	}
-	openTiled := prTiled.EvalOpen([]int{0, 5, 123, 255})
+	openTiled, err := prTiled.EvalOpenV2([]int{0, 5, 123, 255})
+	if err != nil {
+		t.Fatalf("tiled opening: %v", err)
+	}
 
-	if rootScalar != rootTiled {
+	if !bytes.Equal(rootScalar, rootTiled) {
 		t.Fatalf("root mismatch: scalar=%x tiled=%x", rootScalar, rootTiled)
 	}
-	if rootScalar != rootOptimized {
+	if !bytes.Equal(rootScalar, rootOptimized) {
 		t.Fatalf("root mismatch: scalar=%x optimized=%x", rootScalar, rootOptimized)
 	}
 	if !reflect.DeepEqual(openScalar, openTiled) {

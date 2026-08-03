@@ -85,11 +85,10 @@ type OpeningAuthPaperAudit struct {
 }
 
 type OpeningTapePaperAudit struct {
-	NonceBytes         int `json:"nonce_bytes,omitempty"`
-	NonceCount         int `json:"nonce_count,omitempty"`
-	NonceSeedBytes     int `json:"nonce_seed_bytes,omitempty"`
-	NonceMetadataBytes int `json:"nonce_metadata_bytes,omitempty"`
-	TotalBytes         int `json:"total_bytes,omitempty"`
+	TapeBytes         int `json:"tape_bytes,omitempty"`
+	TapeCount         int `json:"tape_count,omitempty"`
+	TapeMetadataBytes int `json:"tape_metadata_bytes,omitempty"`
+	TotalBytes        int `json:"total_bytes,omitempty"`
 }
 
 type MatrixPayloadPaperAudit struct {
@@ -208,7 +207,7 @@ func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptPar
 
 // BuildOpeningPaperReport decomposes a DECS opening into the four paper-facing
 // components used in the proof-size formulas: P residues, M residues,
-// authentication material, and tapes/nonces.
+// authentication material, and selectively disclosed tapes.
 func BuildOpeningPaperReport(open *decs.DECSOpening) openingPaperReport {
 	if open == nil {
 		return openingPaperReport{}
@@ -277,19 +276,14 @@ func BuildOpeningPaperReport(open *decs.DECSOpening) openingPaperReport {
 
 	tapeBits := 0.0
 	tapeAudit := OpeningTapePaperAudit{}
-	if len(open.Nonces) > 0 {
-		for _, nonce := range open.Nonces {
-			tapeAudit.NonceBytes += len(nonce)
-			tapeAudit.NonceCount++
-			tapeBits += float64(len(nonce) * 8)
-		}
-	} else if len(open.NonceSeed) > 0 {
-		tapeAudit.NonceSeedBytes = len(open.NonceSeed)
-		tapeBits += float64(tapeAudit.NonceSeedBytes * 8)
+	for _, tape := range open.Tapes {
+		tapeAudit.TapeBytes += len(tape)
+		tapeAudit.TapeCount++
+		tapeBits += float64(len(tape) * 8)
 	}
-	if open.NonceBytes > 0 {
-		tapeAudit.NonceMetadataBytes = varintSize(open.NonceBytes)
-		tapeBits += float64(8 * tapeAudit.NonceMetadataBytes)
+	if open.TapeBytes > 0 {
+		tapeAudit.TapeMetadataBytes = varintSize(open.TapeBytes)
+		tapeBits += float64(8 * tapeAudit.TapeMetadataBytes)
 	}
 	tapeAudit.TotalBytes = bitsToBytes(tapeBits)
 
@@ -410,10 +404,9 @@ func addAuthPaperAudit(a, b OpeningAuthPaperAudit) OpeningAuthPaperAudit {
 }
 
 func addTapePaperAudit(a, b OpeningTapePaperAudit) OpeningTapePaperAudit {
-	a.NonceBytes += b.NonceBytes
-	a.NonceCount += b.NonceCount
-	a.NonceSeedBytes += b.NonceSeedBytes
-	a.NonceMetadataBytes += b.NonceMetadataBytes
+	a.TapeBytes += b.TapeBytes
+	a.TapeCount += b.TapeCount
+	a.TapeMetadataBytes += b.TapeMetadataBytes
 	a.TotalBytes += b.TotalBytes
 	return a
 }

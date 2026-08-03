@@ -4,8 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/crypto/sha3"
-
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
@@ -56,22 +54,22 @@ func benchmarkFormalCommitInitShape(b *testing.B, rowCount, degree, eta, nLeaves
 	pr, err := NewProverWithParamsAndPointsFormalChecked(
 		ringQ,
 		formalRowsForCommitTest(rowCount, degree, q),
-		Params{Degree: degree, Eta: eta, NonceBytes: 16},
+		Params{Degree: degree, Eta: eta, TapeBytes: 16, HashBytes: 16},
 		points,
 	)
 	if err != nil {
 		b.Fatalf("NewProverWithParamsAndPointsFormalChecked: %v", err)
 	}
 	pr.MFormal = maskRowsForCommitTest(eta, degree, q)
-	pr.nonceSeed = make([]byte, pr.params.NonceBytes)
-	for i := range pr.nonceSeed {
-		pr.nonceSeed[i] = byte(31 + i)
+	pr.tapes = make([]byte, pr.nLeaves*pr.params.TapeBytes)
+	for i := range pr.tapes {
+		pr.tapes[i] = byte(31 + i)
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := pr.CommitInitWithOptions(CommitOptions{}); err != nil {
+		if _, err := pr.CommitInitV2WithOptions(v2TestContext(CommitmentRoleMain, 23), CommitOptions{}); err != nil {
 			b.Fatalf("CommitInit: %v", err)
 		}
 	}
@@ -107,7 +105,6 @@ func (r *benchPhaseRecorder) report(b *testing.B, n int) {
 		"decs.merkle",
 		"decs.formal_evaluation_cpu",
 		"decs.leaf_encoding_cpu",
-		"decs.nonce_derivation_cpu",
 		"decs.leaf_hashing_cpu",
 	} {
 		if d := r.durations[label]; d > 0 {
@@ -130,16 +127,16 @@ func benchmarkMaintainedFormalCommitInitShapeWithOptions(b *testing.B, rowCount,
 	pr, err := NewProverWithParamsAndPointsFormalChecked(
 		ringQ,
 		formalRowsForCommitTest(rowCount, degree, q),
-		Params{Degree: degree, Eta: eta, NonceBytes: 16},
+		Params{Degree: degree, Eta: eta, TapeBytes: 16, HashBytes: 16},
 		points,
 	)
 	if err != nil {
 		b.Fatalf("NewProverWithParamsAndPointsFormalChecked: %v", err)
 	}
 	pr.MFormal = maskRowsForCommitTest(eta, degree, q)
-	pr.nonceSeed = make([]byte, pr.params.NonceBytes)
-	for i := range pr.nonceSeed {
-		pr.nonceSeed[i] = byte(31 + i)
+	pr.tapes = make([]byte, pr.nLeaves*pr.params.TapeBytes)
+	for i := range pr.tapes {
+		pr.tapes[i] = byte(31 + i)
 	}
 	var recorder *benchPhaseRecorder
 	if phases {
@@ -152,7 +149,19 @@ func benchmarkMaintainedFormalCommitInitShapeWithOptions(b *testing.B, rowCount,
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := pr.commitInitWithOptions(opts); err != nil {
+		mode := FormalEvalCombined
+		if opts.forceScalarFormalEval {
+			mode = FormalEvalScalar
+		} else if opts.tileSize > 0 {
+			mode = FormalEvalTiled
+		}
+		if _, err := pr.CommitInitV2WithOptions(v2TestContext(CommitmentRoleMain, 24), CommitOptions{
+			PhaseRecorder:      opts.phaseRecorder,
+			WorkerCount:        opts.workerCount,
+			RecordSubphases:    opts.recordSubphases,
+			FormalEvalMode:     mode,
+			FormalEvalTileSize: opts.tileSize,
+		}); err != nil {
 			b.Fatalf("CommitInit: %v", err)
 		}
 	}
@@ -166,7 +175,7 @@ func BenchmarkDECSCommitInitFormalN1024Compact96Showing(b *testing.B) {
 	benchmarkMaintainedFormalCommitInitShape(b, 471, 373, 40, 230208, false)
 }
 
-func BenchmarkDECSCommitInitFormalN1024Compact96ShowingScalarLegacy(b *testing.B) {
+func BenchmarkDECSCommitInitFormalN1024Compact96ShowingScalar(b *testing.B) {
 	benchmarkMaintainedFormalCommitInitShapeWithOptions(b, 471, 373, 40, 230208, false, commitInitOptions{forceScalarFormalEval: true})
 }
 
@@ -191,17 +200,23 @@ func BenchmarkDECSCommitInitFormalN1024Compact125ShowingPhases(b *testing.B) {
 }
 
 func benchmarkDECSLeafHashShape(b *testing.B, rowCount, eta int) {
-	leafBytes := 4*(rowCount+eta) + 2 + 16
-	leaf := make([]byte, leafBytes)
-	for i := range leaf {
-		leaf[i] = byte(17 + i)
+	const q = uint64(1054721)
+	pvals := make([]uint64, rowCount)
+	mvals := make([]uint64, eta)
+	for i := range pvals {
+		pvals[i] = uint64(17+i) % q
 	}
-	h := sha3.NewShake256()
-	b.SetBytes(int64(leafBytes))
+	for i := range mvals {
+		mvals[i] = uint64(31+i) % q
+	}
+	tape := make([]byte, 16)
+	ctx := v2TestContext(CommitmentRoleMain, 0x71)
+	h := nilShake()
+	b.SetBytes(int64(8*(rowCount+eta) + len(tape)))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = hashLeafWith(h, leaf, DefaultHashBytes)
+		_ = hashLeafV2With(h, ctx, 19, 23, q, pvals, mvals, tape, DefaultHashBytes)
 	}
 }
 
@@ -214,6 +229,7 @@ func BenchmarkDECSLeafHashSW115Shape(b *testing.B) {
 }
 
 func benchmarkDECSMerkleFromLeafHashesShape(b *testing.B, nLeaves int) {
+	ctx := v2TestContext(CommitmentRoleMain, 0x72)
 	leaves := make([][]byte, nLeaves)
 	for i := range leaves {
 		leaves[i] = make([]byte, DefaultHashBytes)
@@ -224,7 +240,9 @@ func benchmarkDECSMerkleFromLeafHashesShape(b *testing.B, nLeaves int) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = BuildMerkleTreeFromLeafHashBytes(leaves, DefaultHashBytes)
+		if _, err := BuildMerkleTreeFromLeafHashBytesV2(ctx, leaves, DefaultHashBytes); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 

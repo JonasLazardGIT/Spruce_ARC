@@ -11,24 +11,41 @@ import (
 func TestValidateSmallField2025RejectedMetadata(t *testing.T) {
 	proof := minimalSmallField2025Proof()
 	proof.SmallField2025 = &SmallField2025LVCSProof{
-		Version:          smallField2025LVCSProofVersionV1,
-		Mode:             TranscriptProtocolSmallField2025V1,
+		Version:          smallField2025LVCSProofVersionV2,
+		Mode:             TranscriptProtocolSmallField2025V2,
 		Status:           SmallField2025StatusRejected,
 		ReductionEnabled: false,
-		HeadDomainMode:   SmallField2025HeadDomainV1,
+		HeadDomainMode:   SmallField2025HeadDomainV2,
 	}
 	if err := ValidateSmallField2025Proof(proof); err != nil {
 		t.Fatalf("ValidateSmallField2025Proof rejected disabled fail-closed metadata: %v", err)
 	}
 }
 
+func TestStrictV2DefaultsExactTranscriptOmissionDescriptor(t *testing.T) {
+	opts := ResolveSimOptsDefaults(SimOpts{
+		TranscriptVersion:      TranscriptVersionSmallWood2025V2,
+		TranscriptProtocolMode: TranscriptProtocolSmallField2025V2,
+	})
+	if opts.TranscriptOmissionMode != SmallField2025TranscriptOmissionModeDigestBoundV2 {
+		t.Fatalf("default omission mode=%q want=%q", opts.TranscriptOmissionMode, SmallField2025TranscriptOmissionModeDigestBoundV2)
+	}
+	desc, err := newSmallField2025TranscriptOmission("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if desc == nil || desc.Version != smallField2025TranscriptOmissionVersionV2 || desc.Mode != SmallField2025TranscriptOmissionModeDigestBoundV2 {
+		t.Fatalf("empty live-mode default did not produce exact v2 descriptor: %+v", desc)
+	}
+}
+
 func TestValidateSmallField2025CanonicalGates(t *testing.T) {
 	proof := minimalSmallField2025Proof()
 	proof.SmallField2025 = &SmallField2025LVCSProof{
-		Version:        smallField2025LVCSProofVersionV1,
-		Mode:           TranscriptProtocolSmallField2025V1,
+		Version:        smallField2025LVCSProofVersionV2,
+		Mode:           TranscriptProtocolSmallField2025V2,
 		Status:         SmallField2025StatusRejected,
-		HeadDomainMode: SmallField2025HeadDomainV1,
+		HeadDomainMode: SmallField2025HeadDomainV2,
 	}
 	proof.Theta = 1
 	if err := ValidateSmallField2025Proof(proof); err == nil {
@@ -36,10 +53,10 @@ func TestValidateSmallField2025CanonicalGates(t *testing.T) {
 	}
 	proof = minimalSmallField2025Proof()
 	proof.SmallField2025 = &SmallField2025LVCSProof{
-		Version:        smallField2025LVCSProofVersionV1,
-		Mode:           TranscriptProtocolSmallField2025V1,
+		Version:        smallField2025LVCSProofVersionV2,
+		Mode:           TranscriptProtocolSmallField2025V2,
 		Status:         SmallField2025StatusRejected,
-		HeadDomainMode: SmallField2025HeadDomainV1,
+		HeadDomainMode: SmallField2025HeadDomainV2,
 	}
 	proof.KPoint = [][]uint64{{1, 2}, {3, 4}}
 	if err := ValidateSmallField2025Proof(proof); err == nil {
@@ -47,10 +64,10 @@ func TestValidateSmallField2025CanonicalGates(t *testing.T) {
 	}
 	proof = minimalSmallField2025Proof()
 	proof.SmallField2025 = &SmallField2025LVCSProof{
-		Version:        smallField2025LVCSProofVersionV1,
-		Mode:           TranscriptProtocolSmallField2025V1,
+		Version:        smallField2025LVCSProofVersionV2,
+		Mode:           TranscriptProtocolSmallField2025V2,
 		Status:         SmallField2025StatusRejected,
-		HeadDomainMode: SmallField2025HeadDomainV1,
+		HeadDomainMode: SmallField2025HeadDomainV2,
 	}
 	proof.QRoot[0] = 1
 	if err := ValidateSmallField2025Proof(proof); err == nil {
@@ -73,21 +90,14 @@ func TestValidateSmallField2025LiveMetadataDigest(t *testing.T) {
 func TestSmallField2025DigestBoundTranscriptKeepsMatrixPayloads(t *testing.T) {
 	proof := liveSmallField2025ProofForTest()
 	baseTranscript := smallField2025TranscriptBytes(proof.SmallField2025)
-	basePayload := append([]byte(nil), proof.SmallField2025.PayloadDigest...)
-	desc, err := newSmallField2025TranscriptOmission(SmallField2025TranscriptOmissionModeDigestBoundV1)
-	if err != nil {
-		t.Fatalf("new omission: %v", err)
-	}
-	proof.SmallField2025.TranscriptOmission = desc
-	proof.SmallField2025.PayloadDigest = smallField2025PayloadDigest(proof, proof.SmallField2025)
 	if err := ValidateSmallField2025Proof(proof); err != nil {
 		t.Fatalf("ValidateSmallField2025Proof rejected digest-bound omission: %v", err)
 	}
-	if equalByteSlices(basePayload, proof.SmallField2025.PayloadDigest) {
-		t.Fatal("payload digest did not change after binding omission descriptor")
-	}
-	if len(smallField2025TranscriptBytes(proof.SmallField2025)) <= len(baseTranscript) {
-		t.Fatal("transcript bytes did not include omission descriptor")
+	if proof.SmallField2025.TranscriptOmission == nil ||
+		proof.SmallField2025.TranscriptOmission.Version != smallField2025TranscriptOmissionVersionV2 ||
+		proof.SmallField2025.TranscriptOmission.Mode != SmallField2025TranscriptOmissionModeDigestBoundV2 ||
+		len(baseTranscript) == 0 {
+		t.Fatal("live transcript did not bind the exact v2 omission descriptor")
 	}
 	payloads := smallField2025Round4DirectPayloads(proof)
 	if len(payloads) != 2 {
@@ -112,10 +122,19 @@ func TestSmallField2025DigestBoundTranscriptKeepsMatrixPayloads(t *testing.T) {
 	}
 }
 
+func TestSmallField2025LiveMetadataRejectsMissingOmissionDescriptor(t *testing.T) {
+	proof := liveSmallField2025ProofForTest()
+	proof.SmallField2025.TranscriptOmission = nil
+	proof.SmallField2025.PayloadDigest = smallField2025PayloadDigest(proof, proof.SmallField2025)
+	if err := ValidateSmallField2025Proof(proof); err == nil {
+		t.Fatal("live small-field metadata accepted a missing omission descriptor")
+	}
+}
+
 func TestSmallField2025TranscriptOmissionRejectsUnsupportedFlags(t *testing.T) {
 	proof := liveSmallField2025ProofForTest()
 	proof.SmallField2025.TranscriptOmission = &SmallField2025TranscriptOmission{
-		Version: smallField2025TranscriptOmissionVersionV1,
+		Version: smallField2025TranscriptOmissionVersionV2,
 		Mode:    "unknown",
 	}
 	proof.SmallField2025.PayloadDigest = smallField2025PayloadDigest(proof, proof.SmallField2025)
@@ -124,8 +143,8 @@ func TestSmallField2025TranscriptOmissionRejectsUnsupportedFlags(t *testing.T) {
 	}
 	proof = liveSmallField2025ProofForTest()
 	proof.SmallField2025.TranscriptOmission = &SmallField2025TranscriptOmission{
-		Version:               smallField2025TranscriptOmissionVersionV1,
-		Mode:                  SmallField2025TranscriptOmissionModeDigestBoundV1,
+		Version:               smallField2025TranscriptOmissionVersionV2,
+		Mode:                  SmallField2025TranscriptOmissionModeDigestBoundV2,
 		OmitVTargets:          true,
 		AuthMultiproofCompact: true,
 	}
@@ -158,11 +177,11 @@ func TestValidateSmallField2025RejectsTamperedOmissionMap(t *testing.T) {
 		MOmitCols:      []int{0, 1},
 	}
 	meta := &SmallField2025LVCSProof{
-		Version:          smallField2025LVCSProofVersionV1,
-		Mode:             TranscriptProtocolSmallField2025V1,
+		Version:          smallField2025LVCSProofVersionV2,
+		Mode:             TranscriptProtocolSmallField2025V2,
 		Status:           SmallField2025StatusLive,
 		ReductionEnabled: true,
-		HeadDomainMode:   SmallField2025HeadDomainV1,
+		HeadDomainMode:   SmallField2025HeadDomainV2,
 		NRows:            6,
 		NCols:            3,
 		Theta:            2,
@@ -176,6 +195,11 @@ func TestValidateSmallField2025RejectsTamperedOmissionMap(t *testing.T) {
 		POmitCols:        []int{0, 1, 2, 3},
 		MOmitCols:        []int{0, 1},
 		MatrixDigest:     smallField2025MatrixDigest(proof.CoeffMatrix),
+		TranscriptOmission: &SmallField2025TranscriptOmission{
+			Version:                      smallField2025TranscriptOmissionVersionV2,
+			Mode:                         SmallField2025TranscriptOmissionModeDigestBoundV2,
+			OmitPdecsReconstructibleCols: true,
+		},
 	}
 	meta.PayloadDigest = smallField2025PayloadDigest(proof, meta)
 	proof.SmallField2025 = meta
@@ -236,11 +260,11 @@ func TestBuildSmallField2025CoeffPlanExtendsFullRankDeterministically(t *testing
 
 func minimalSmallField2025Proof() *Proof {
 	proof := &Proof{
-		TranscriptVersion:      TranscriptVersionSmallWood2025,
-		TranscriptProtocolMode: TranscriptProtocolSmallField2025V1,
+		TranscriptVersion:      TranscriptVersionSmallWood2025V2,
+		TranscriptProtocolMode: TranscriptProtocolSmallField2025V2,
 		Theta:                  2,
 		KPoint:                 [][]uint64{{1, 2}},
-		PCSGeometry:            PCSGeometry{Kind: PCSGeometryKindSmallFieldMatrixV1},
+		PCSGeometry:            PCSGeometry{Kind: PCSGeometryKindSmallFieldMatrixV2},
 	}
 	proof.setQPayload([][]uint64{{1}, {2}})
 	return proof
@@ -267,11 +291,11 @@ func liveSmallField2025ProofForTest() *Proof {
 		MColsEncoded:   0,
 	}
 	meta := &SmallField2025LVCSProof{
-		Version:          smallField2025LVCSProofVersionV1,
-		Mode:             TranscriptProtocolSmallField2025V1,
+		Version:          smallField2025LVCSProofVersionV2,
+		Mode:             TranscriptProtocolSmallField2025V2,
 		Status:           SmallField2025StatusLive,
 		ReductionEnabled: true,
-		HeadDomainMode:   SmallField2025HeadDomainV1,
+		HeadDomainMode:   SmallField2025HeadDomainV2,
 		NRows:            6,
 		NCols:            3,
 		Theta:            2,
@@ -283,6 +307,11 @@ func liveSmallField2025ProofForTest() *Proof {
 		VBarRows:         4,
 		VBarCols:         2,
 		MatrixDigest:     smallField2025MatrixDigest(proof.CoeffMatrix),
+		TranscriptOmission: &SmallField2025TranscriptOmission{
+			Version:                      smallField2025TranscriptOmissionVersionV2,
+			Mode:                         SmallField2025TranscriptOmissionModeDigestBoundV2,
+			OmitPdecsReconstructibleCols: true,
+		},
 	}
 	meta.PayloadDigest = smallField2025PayloadDigest(proof, meta)
 	proof.SmallField2025 = meta

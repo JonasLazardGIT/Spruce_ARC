@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -22,7 +23,7 @@ import (
 )
 
 const (
-	benchmarkIntGenISISE2EVersion     = 1
+	benchmarkIntGenISISE2EVersion     = 2
 	intGenISISDefaultMaxNLeaves       = 65536
 	intGenISISLeafCapDisabledSentinel = 0
 	defaultNTRUKeygenAttempts         = 16
@@ -120,20 +121,21 @@ type benchmarkIntGenISISE2EEnvironment struct {
 }
 
 type benchmarkIntGenISISE2EArtifacts struct {
-	PublicParams  string `json:"public_params"`
-	BMatrix       string `json:"b_matrix"`
-	HolderSecret  string `json:"holder_secret"`
-	CommitRequest string `json:"commit_request"`
-	Submission    string `json:"presign_submission"`
-	Response      string `json:"issue_response"`
-	State         string `json:"state"`
-	VerifierKey   string `json:"verifier_key"`
-	Presentation  string `json:"presentation"`
-	VerifierState string `json:"verifier_state"`
-	NTRUParams    string `json:"ntru_params"`
-	NTRUPublic    string `json:"ntru_public"`
-	NTRUPrivate   string `json:"ntru_private"`
-	NTRUSignature string `json:"ntru_signature"`
+	PublicParams     string `json:"public_params"`
+	BMatrix          string `json:"b_matrix"`
+	HolderSecret     string `json:"holder_secret"`
+	CommitRequest    string `json:"commit_request"`
+	Submission       string `json:"presign_submission"`
+	Response         string `json:"issue_response"`
+	State            string `json:"state"`
+	VerifierKey      string `json:"verifier_key"`
+	Presentation     string `json:"presentation"`
+	HolderUsageState string `json:"holder_usage_state"`
+	VerifierState    string `json:"verifier_state"`
+	NTRUParams       string `json:"ntru_params"`
+	NTRUPublic       string `json:"ntru_public"`
+	NTRUPrivate      string `json:"ntru_private"`
+	NTRUSignature    string `json:"ntru_signature"`
 }
 
 type benchmarkIntGenISISE2EReport struct {
@@ -369,28 +371,29 @@ func validateIntGenISISLeafCap(label string, t intGenISISTuning, maxNLeaves int)
 
 func intGenISISTuningToIssuanceOverrides(t intGenISISTuning, ringDegree int) issuanceRuntimeOverrides {
 	return issuanceRuntimeOverrides{
-		NCols:               t.NCols,
-		LVCSNCols:           t.LVCSNCols,
-		NLeaves:             t.NLeaves,
-		Ell:                 t.Ell,
-		EllPrime:            t.EllPrime,
-		Eta:                 t.Eta,
-		Theta:               t.Theta,
-		Rho:                 t.Rho,
-		DQOverride:          t.DQOverride,
-		Kappa:               t.Kappa,
-		ROQueryCaps:         t.ROQueryCaps,
-		ROQueryCapsSet:      t.ROQueryCapsSet,
-		ROQueryCapBits:      t.ROQueryCapBits,
-		ROQueryCapBitsSet:   t.ROQueryCapBitsSet,
-		DECSCollisionBits:   t.DECSCollisionBits,
-		DECSHashBits:        t.DECSHashBits,
-		DECSTapeBits:        t.DECSTapeBits,
-		FSCollisionBits:     t.FSCollisionBits,
-		SaltBits:            t.SaltBits,
-		TranscriptMode:      t.TranscriptMode,
-		FixedTranscriptSize: t.FixedTranscriptSize,
-		RingDegree:          ringDegree,
+		NCols:                  t.NCols,
+		LVCSNCols:              t.LVCSNCols,
+		NLeaves:                t.NLeaves,
+		Ell:                    t.Ell,
+		EllPrime:               t.EllPrime,
+		Eta:                    t.Eta,
+		Theta:                  t.Theta,
+		Rho:                    t.Rho,
+		DQOverride:             t.DQOverride,
+		Kappa:                  t.Kappa,
+		ROQueryCaps:            t.ROQueryCaps,
+		ROQueryCapsSet:         t.ROQueryCapsSet,
+		ROQueryCapBits:         t.ROQueryCapBits,
+		ROQueryCapBitsSet:      t.ROQueryCapBitsSet,
+		DECSCollisionBits:      t.DECSCollisionBits,
+		DECSHashBits:           t.DECSHashBits,
+		DECSTapeBits:           t.DECSTapeBits,
+		FSCollisionBits:        t.FSCollisionBits,
+		SaltBits:               t.SaltBits,
+		TranscriptMode:         t.TranscriptMode,
+		TranscriptOmissionMode: t.TranscriptOmissionMode,
+		FixedTranscriptSize:    t.FixedTranscriptSize,
+		RingDegree:             ringDegree,
 	}
 }
 
@@ -442,16 +445,8 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 }
 
 func intGenISISLiveTranscriptConfig(mode string) (codec, protocol string, err error) {
-	normalized, err := normalizeIntGenISISTranscriptMode(mode)
-	if err != nil {
-		return "", "", err
-	}
-	switch normalized {
-	case intGenISISTranscriptModeSmallField2025:
-		return "", PIOP.TranscriptProtocolSmallField2025V1, nil
-	default:
-		return "", "", fmt.Errorf("transcript mode %q has no live verifier implementation", normalized)
-	}
+	protocol, _, err = credential.ResolveIntGenISISTranscript(mode)
+	return "", protocol, err
 }
 
 func intGenISISLiveTranscriptCodec(mode string) (string, error) {
@@ -476,14 +471,11 @@ func intGenISISLiveTranscriptProtocolOrDefault(mode string) string {
 }
 
 func intGenISISLiveTranscriptVersionOrDefault(mode string) string {
-	normalized, err := normalizeIntGenISISTranscriptMode(mode)
+	_, version, err := credential.ResolveIntGenISISTranscript(mode)
 	if err != nil {
 		return ""
 	}
-	if normalized == intGenISISTranscriptModeSmallField2025 {
-		return PIOP.TranscriptVersionSmallWood2025
-	}
-	return ""
+	return version
 }
 
 func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenISISE2EReport, error) {
@@ -551,6 +543,12 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	if _, _, err := intGenISISLiveTranscriptConfig(cfg.Showing.TranscriptMode); err != nil {
 		return benchmarkIntGenISISE2EReport{}, err
 	}
+	if _, err := credential.ResolveIntGenISISTranscriptOmission(cfg.Issuance.TranscriptOmissionMode); err != nil {
+		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("issuance transcript omission mode: %w", err)
+	}
+	if _, err := credential.ResolveIntGenISISTranscriptOmission(cfg.Showing.TranscriptOmissionMode); err != nil {
+		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("showing transcript omission mode: %w", err)
+	}
 	switch cfg.Showing.PRFCompanionMode {
 	case PIOP.PRFCompanionModeDirectFull:
 	default:
@@ -567,36 +565,39 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	}
 	artifactDir := cfg.ArtifactDir
 	if artifactDir == "" {
-		tmp, err := os.MkdirTemp("", "spruce-intgenisis-e2e-*")
-		if err != nil {
-			return benchmarkIntGenISISE2EReport{}, fmt.Errorf("create temp artifact dir: %w", err)
+		preset, ok := credential.LookupIntGenISISPreset(cfg.PresetName)
+		if !ok {
+			return benchmarkIntGenISISE2EReport{}, fmt.Errorf("benchmark output requires a canonical v2 preset")
 		}
-		artifactDir = tmp
-	} else if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		artifactDir = intGenISISV2ArtifactDir(preset)
+	}
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("mkdir artifact dir: %w", err)
 	}
 
 	paths := benchmarkIntGenISISE2EArtifacts{
-		PublicParams:  filepath.Join(artifactDir, fmt.Sprintf("credential_public.%s.json", profile.Name)),
-		BMatrix:       filepath.Join(artifactDir, fmt.Sprintf("Bmatrix.%s.json", profile.Name)),
-		HolderSecret:  filepath.Join(artifactDir, "holder_secret.json"),
-		CommitRequest: filepath.Join(artifactDir, "commit_request.json"),
-		Submission:    filepath.Join(artifactDir, "presign_submission.json"),
-		Response:      filepath.Join(artifactDir, "issue_response.json"),
-		State:         filepath.Join(artifactDir, "credential_state.intgenisis.json"),
-		VerifierKey:   filepath.Join(artifactDir, "intgenisis_verifier_key.json"),
-		Presentation:  filepath.Join(artifactDir, "presentation.intgenisis.json"),
-		VerifierState: filepath.Join(artifactDir, "verifier_state.json"),
-		NTRUParams:    filepath.Join(artifactDir, "ntru_params.json"),
-		NTRUPublic:    filepath.Join(artifactDir, "ntru_public.json"),
-		NTRUPrivate:   filepath.Join(artifactDir, "ntru_private.json"),
-		NTRUSignature: filepath.Join(artifactDir, "ntru_signature.json"),
+		PublicParams:     filepath.Join(artifactDir, fmt.Sprintf("credential_public.%s.json", profile.Name)),
+		BMatrix:          filepath.Join(artifactDir, fmt.Sprintf("Bmatrix.%s.json", profile.Name)),
+		HolderSecret:     filepath.Join(artifactDir, "holder_secret.json"),
+		CommitRequest:    filepath.Join(artifactDir, "commit_request.json"),
+		Submission:       filepath.Join(artifactDir, "presign_submission.json"),
+		Response:         filepath.Join(artifactDir, "issue_response.json"),
+		State:            filepath.Join(artifactDir, "credential_state.intgenisis.json"),
+		VerifierKey:      filepath.Join(artifactDir, "intgenisis_verifier_key.json"),
+		Presentation:     filepath.Join(artifactDir, "presentation.intgenisis.json"),
+		HolderUsageState: filepath.Join(artifactDir, "holder_usage_state.json"),
+		VerifierState:    filepath.Join(artifactDir, "verifier_state.json"),
+		NTRUParams:       filepath.Join(artifactDir, "ntru_params.json"),
+		NTRUPublic:       filepath.Join(artifactDir, "ntru_public.json"),
+		NTRUPrivate:      filepath.Join(artifactDir, "ntru_private.json"),
+		NTRUSignature:    filepath.Join(artifactDir, "ntru_signature.json"),
 	}
 	if err := benchmarkIntGenISISE2EOverwriteCheck(paths, cfg.JSONOut, cfg.Force); err != nil {
 		return benchmarkIntGenISISE2EReport{}, err
 	}
 	if cfg.Force {
 		_ = os.Remove(paths.VerifierState)
+		_ = os.Remove(paths.HolderUsageState)
 	}
 
 	var timings benchmarkIntGenISISE2ETimings
@@ -642,7 +643,7 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	timings.IssuerSignMS = millisSince(t0)
 
 	t0 = time.Now()
-	if err := holderFinalize(paths.HolderSecret, paths.CommitRequest, "", paths.Response, paths.State, "", paths.NTRUParams); err != nil {
+	if err := holderFinalize(paths.HolderSecret, paths.CommitRequest, "", paths.Response, paths.State, "", paths.NTRUParams, paths.VerifierKey); err != nil {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("holder finalize: %w", err)
 	}
 	timings.HolderFinalizeMS = millisSince(t0)
@@ -704,20 +705,17 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		ProfileBound:               credential.IntGenISISLiveBound,
 		ArtifactDir:                artifactDir,
 		MaxNLeaves:                 cfg.MaxNLeaves,
-		Options: benchmarkIntGenISISE2EOptions{
-			Issuance: cfg.Issuance,
-			Showing:  cfg.Showing,
-		},
-		Environment:     benchmarkIntGenISISE2EEnvironmentSnapshot(),
-		Timings:         timings,
-		Issuance:        issuanceMetrics,
-		Showing:         showingMetrics,
-		FullGame:        fullGame,
-		SecurityLedger:  ledger,
-		ParameterAudit:  ledger.ParameterAudit,
-		ValidPrefixCost: showingMetrics.ValidPrefixCost,
-		Artifacts:       paths,
-		ReplayRejected:  replayRejected,
+		Options:                    benchmarkIntGenISISE2EReportOptions(cfg),
+		Environment:                benchmarkIntGenISISE2EEnvironmentSnapshot(),
+		Timings:                    timings,
+		Issuance:                   issuanceMetrics,
+		Showing:                    showingMetrics,
+		FullGame:                   fullGame,
+		SecurityLedger:             ledger,
+		ParameterAudit:             ledger.ParameterAudit,
+		ValidPrefixCost:            showingMetrics.ValidPrefixCost,
+		Artifacts:                  paths,
+		ReplayRejected:             replayRejected,
 		Notes: []string{
 			fmt.Sprintf("semantic layout uses ternary ordinary coefficients [0,N-%d), a reserved-zero tail prefix, and a %d-coefficient B=%d PRF seed packed into %d Poseidon key lanes", credential.IntGenISISPRFSeedTailReserve, credential.IntGenISISPRFSeedLen, credential.IntGenISISPRFSeedBound, credential.IntGenISISPRFPoseidonKeyLen),
 			fmt.Sprintf("live IntGenISIS ordinary M,s,e membership uses public B=%d; only PRF seed-tail rows use B=%d membership", credential.IntGenISISLiveBound, credential.IntGenISISPRFSeedBound),
@@ -734,13 +732,20 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	return report, nil
 }
 
+func benchmarkIntGenISISE2EReportOptions(cfg benchmarkIntGenISISE2EConfig) benchmarkIntGenISISE2EOptions {
+	return benchmarkIntGenISISE2EOptions{
+		Issuance: cfg.Issuance,
+		Showing:  cfg.Showing,
+	}
+}
+
 func benchmarkIntGenISISE2EOverwriteCheck(paths benchmarkIntGenISISE2EArtifacts, jsonOut string, force bool) error {
 	if force {
 		return nil
 	}
 	checks := []string{
 		paths.PublicParams, paths.BMatrix, paths.HolderSecret, paths.CommitRequest, paths.Submission,
-		paths.Response, paths.State, paths.VerifierKey, paths.Presentation, paths.VerifierState,
+		paths.Response, paths.State, paths.VerifierKey, paths.Presentation, paths.HolderUsageState, paths.VerifierState,
 		paths.NTRUParams, paths.NTRUPublic, paths.NTRUPrivate, paths.NTRUSignature,
 	}
 	if jsonOut != "" {
@@ -1102,15 +1107,16 @@ func benchmarkIntGenISISE2EPreSignMetrics(holderSecretPath, commitRequestPath, s
 		return benchmarkIntGenISISMetrics{}, err
 	}
 	pub := PIOP.PublicInputs{
-		Com:          polyVecFromInt64(rt.ringQ, req.Com, true),
-		CM:           cm,
-		AS:           as,
-		BoundB:       rt.public.CommitmentBound,
-		X0Len:        rt.public.EllX0,
-		RingDegree:   int(rt.ringQ.N),
-		HashRelation: rt.public.HashRelation,
-		IntGenISIS:   true,
-		Extras:       rt.public.PresetTranscriptExtras(nil),
+		Com:            polyVecFromInt64(rt.ringQ, req.Com, true),
+		CM:             cm,
+		AS:             as,
+		BoundB:         rt.public.CommitmentBound,
+		HashInputBound: rt.public.HashInputBound,
+		X0Len:          rt.public.EllX0,
+		RingDegree:     int(rt.ringQ.N),
+		HashRelation:   rt.public.HashRelation,
+		IntGenISIS:     true,
+		Extras:         rt.public.PresetTranscriptExtras(nil),
 	}
 	verifyStart := time.Now()
 	ok, err := PIOP.VerifyIntGenISISPreSign(pub, sub.Proof, rt.opts)
@@ -1171,7 +1177,7 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	if opts.NCols < params.LenKey {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("ncols=%d is too small for PRF key width %d", opts.NCols, params.LenKey)
 	}
-	B, err := loadBAsNTT(ringQ, publicParams.BPath)
+	B, err := loadBAsNTT(ringQ, publicParams)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, err
 	}
@@ -1207,24 +1213,60 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	for i, v := range keyScalars {
 		key[i] = intGenISISBenchmarkElemFromSigned(v, ringQ.Modulus[0])
 	}
-	nonce, noncePublic := intGenISISBenchmarkNonce(params.LenNonce, opts.NCols, ringQ.Modulus[0])
-	tag, err := prf.Tag(key, nonce, params)
+	publicParamsDigest, err := credential.PublicParamsDigest(publicParams)
+	if err != nil {
+		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("digest IntGenISIS public params: %w", err)
+	}
+	verifierKeyDigest, err := verifierKey.Digest()
+	if err != nil {
+		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("digest IntGenISIS verifier key: %w", err)
+	}
+	contextBinding, err := credential.DerivePresentationContext([]byte("ARC-SPRUCE benchmark context v2"), params.Q, publicParams.PresetManifestDigest, publicParamsDigest, verifierKeyDigest)
+	if err != nil {
+		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("derive benchmark presentation context: %w", err)
+	}
+	credentialFingerprint, err := credential.IntGenISISCredentialFingerprint(st)
+	if err != nil {
+		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("fingerprint benchmark credential: %w", err)
+	}
+	slot, err := credential.ReserveIntGenISISSlot(paths.HolderUsageState, publicParamsDigest, publicParams.PresetManifestDigest, credentialFingerprint, contextBinding.Digest)
+	if err != nil {
+		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("reserve benchmark hidden slot: %w", err)
+	}
+	if wit.CoeffNativeShowing == nil {
+		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("missing benchmark coefficient-native witness")
+	}
+	wit.CoeffNativeShowing.HiddenSlot = uint64(slot)
+	for i := range wit.CoeffNativeShowing.HiddenBits {
+		wit.CoeffNativeShowing.HiddenBits[i] = uint64(slot>>i) & 1
+	}
+	contextElems := make([]prf.Elem, len(contextBinding.Lanes))
+	for i, value := range contextBinding.Lanes {
+		contextElems[i] = prf.Elem(value)
+	}
+	tag, err := prf.TagContextSlot(key, contextElems, prf.Elem(slot), params)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("compute IntGenISIS tag: %w", err)
 	}
+	contextDigest, err := hex.DecodeString(contextBinding.Digest)
+	if err != nil || len(contextDigest) != 32 {
+		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("decode benchmark context digest")
+	}
 	pub := PIOP.PublicInputs{
-		A:            A,
-		B:            B,
-		CM:           cm,
-		AS:           as,
-		Tag:          intGenISISBenchmarkLanesFromElems(tag, opts.NCols),
-		Nonce:        noncePublic,
-		BoundB:       publicParams.CommitmentBound,
-		X0Len:        publicParams.EllX0,
-		RingDegree:   int(ringQ.N),
-		HashRelation: publicParams.HashRelation,
-		IntGenISIS:   true,
-		Extras:       publicParams.PresetTranscriptExtras(benchmarkIntGenISISE2ESignatureBoundExtras(st.SignatureBound)),
+		A:              A,
+		B:              B,
+		CM:             cm,
+		AS:             as,
+		Tag:            intGenISISBenchmarkScalarsFromElems(tag),
+		Context:        append([]int64(nil), contextBinding.Lanes...),
+		ContextDigest:  contextDigest,
+		BoundB:         publicParams.CommitmentBound,
+		HashInputBound: publicParams.HashInputBound,
+		X0Len:          publicParams.EllX0,
+		RingDegree:     int(ringQ.N),
+		HashRelation:   publicParams.HashRelation,
+		IntGenISIS:     true,
+		Extras:         publicParams.PresetTranscriptExtras(benchmarkIntGenISISE2ESignatureBoundExtras(st.SignatureBound)),
 	}
 	proveStart := time.Now()
 	proof, err := PIOP.BuildIntGenISISShowingCombined(pub, wit, opts)
@@ -1256,32 +1298,23 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("marshal IntGenISIS proof: %w", err)
 	}
-	digest, err := credential.PublicParamsDigest(publicParams)
-	if err != nil {
-		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("digest IntGenISIS public params: %w", err)
-	}
 	pres := credential.IntGenISISPresentation{
 		Version:              credential.IntGenISISPresentationVersion,
-		Profile:              st.Profile,
-		PresetID:             publicParams.PresetID,
-		PresetVersion:        publicParams.PresetVersion,
 		PresetManifestDigest: publicParams.PresetManifestDigest,
-		PublicParamsDigest:   digest,
-		Nonce:                noncePublic,
-		Tag:                  intGenISISBenchmarkLanesFromElems(tag, opts.NCols),
+		PublicParamsDigest:   publicParamsDigest,
+		VerifierKeyDigest:    verifierKeyDigest,
+		ContextDigest:        contextBinding.Digest,
+		Context:              append([]int64(nil), contextBinding.Lanes...),
+		Tag:                  intGenISISBenchmarkScalarsFromElems(tag),
 		Proof:                proofRaw,
 	}
 	if err := credential.SaveIntGenISISPresentation(paths.Presentation, pres); err != nil {
 		return benchmarkIntGenISISMetrics{}, false, err
 	}
-	state := credential.NewIntGenISISVerifierState()
-	if err := state.MarkPresentation(pres); err != nil {
+	if err := credential.CheckAndMarkIntGenISISPresentation(paths.VerifierState, pres); err != nil {
 		return benchmarkIntGenISISMetrics{}, false, err
 	}
-	if err := credential.SaveIntGenISISVerifierState(paths.VerifierState, state); err != nil {
-		return benchmarkIntGenISISMetrics{}, false, err
-	}
-	replayErr := state.MarkPresentation(pres)
+	replayErr := credential.CheckAndMarkIntGenISISPresentation(paths.VerifierState, pres)
 	replayRejected := replayErr != nil
 	if !replayRejected {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("verifier replay state accepted repeated nonce/tag")

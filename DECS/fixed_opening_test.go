@@ -31,13 +31,20 @@ func TestPackOpeningFixedTailIndicesAboveLegacyLimit(t *testing.T) {
 
 func TestPackOpeningFixedRowMajorPathsVerify(t *testing.T) {
 	pr := makeDeterministicFormalProver(t)
-	root, err := pr.CommitInitWithOptions(CommitOptions{})
+	ctx := v2TestContext(CommitmentRoleMain, 25)
+	root, err := pr.CommitInitV2WithOptions(ctx, CommitOptions{})
 	if err != nil {
 		t.Fatalf("commit init: %v", err)
 	}
-	gamma := DeriveGamma(root, pr.params.Eta, pr.rowCount(), pr.ringQ.Modulus[0])
+	gamma, err := DeriveGammaV2(ctx, root, pr.params.Eta, pr.rowCount(), pr.ringQ.Modulus[0])
+	if err != nil {
+		t.Fatalf("derive gamma: %v", err)
+	}
 	rFormal := pr.CommitStep2Formal(gamma)
-	open := pr.EvalOpen([]int{3, 17, 42, 211})
+	open, err := pr.EvalOpenV2([]int{3, 17, 42, 211})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
 	PackOpeningWithOptions(open, OpeningPackOptions{
 		FixedSize:     true,
 		NLeaves:       len(pr.points),
@@ -52,11 +59,11 @@ func TestPackOpeningFixedRowMajorPathsVerify(t *testing.T) {
 	if want := open.EntryCount() * open.PathDepth; len(open.Nodes) != want {
 		t.Fatalf("row-major nodes=%d want %d", len(open.Nodes), want)
 	}
-	verifier, err := NewVerifierWithParamsAndPointsChecked(pr.ringQ, pr.rowCount(), pr.params, pr.points)
+	verifier, err := NewVerifierWithParamsAndPointsV2Checked(pr.ringQ, pr.rowCount(), pr.params, pr.points, ctx)
 	if err != nil {
 		t.Fatalf("new verifier: %v", err)
 	}
-	if !verifier.VerifyEvalAtFormalHash(root[:], gamma, rFormal, open, []int{3, 17, 42, 211}) {
+	if !verifier.VerifyEvalAtFormalHashV2(root, gamma, rFormal, open, []int{3, 17, 42, 211}) {
 		t.Fatalf("fixed row-major opening did not verify")
 	}
 	tampered := *open
@@ -65,18 +72,24 @@ func TestPackOpeningFixedRowMajorPathsVerify(t *testing.T) {
 		tampered.Nodes[i] = append([]byte(nil), open.Nodes[i]...)
 	}
 	tampered.Nodes[0][0] ^= 1
-	if verifier.VerifyEvalAtFormalHash(root[:], gamma, rFormal, &tampered, []int{3, 17, 42, 211}) {
+	if verifier.VerifyEvalAtFormalHashV2(root, gamma, rFormal, &tampered, []int{3, 17, 42, 211}) {
 		t.Fatalf("tampered row-major path verified")
 	}
 }
 
 func TestPackOpeningFixedAuthenticationShapeIsConstant(t *testing.T) {
 	pr := makeDeterministicFormalProver(t)
-	if _, err := pr.CommitInitWithOptions(CommitOptions{}); err != nil {
+	if _, err := pr.CommitInitV2WithOptions(v2TestContext(CommitmentRoleMain, 26), CommitOptions{}); err != nil {
 		t.Fatalf("commit init: %v", err)
 	}
-	openA := pr.EvalOpen([]int{1, 2, 3, 4})
-	openB := pr.EvalOpen([]int{17, 63, 127, 255})
+	openA, err := pr.EvalOpenV2([]int{1, 2, 3, 4})
+	if err != nil {
+		t.Fatalf("open A: %v", err)
+	}
+	openB, err := pr.EvalOpenV2([]int{17, 63, 127, 255})
+	if err != nil {
+		t.Fatalf("open B: %v", err)
+	}
 	opts := OpeningPackOptions{FixedSize: true, NLeaves: len(pr.points), FieldBitWidth: 20}
 	PackOpeningWithOptions(openA, opts)
 	PackOpeningWithOptions(openB, opts)
@@ -94,44 +107,46 @@ func TestPackOpeningFixedAuthenticationShapeIsConstant(t *testing.T) {
 func TestVerifierRejectsExplicitHashAndTapeWidthMismatch(t *testing.T) {
 	pr := makeDeterministicFormalProver(t)
 	pr.params.HashBytes = 21
-	pr.params.NonceBytes = 16
-	if _, err := pr.CommitInitWithOptions(CommitOptions{}); err != nil {
+	ctx := v2TestContext(CommitmentRoleMain, 27)
+	if _, err := pr.CommitInitV2WithOptions(ctx, CommitOptions{}); err != nil {
 		t.Fatalf("commit init: %v", err)
 	}
 	rootHash := pr.RootHash()
-	// Recompute gamma from the legacy root prefix so CommitStep2Formal matches
-	// the verifier path used by low-level DECS callers.
-	copyRoot := [16]byte{}
-	copy(copyRoot[:], rootHash)
-	gamma := DeriveGamma(copyRoot, pr.params.Eta, pr.rowCount(), pr.ringQ.Modulus[0])
+	gamma, err := DeriveGammaV2(ctx, rootHash, pr.params.Eta, pr.rowCount(), pr.ringQ.Modulus[0])
+	if err != nil {
+		t.Fatalf("derive gamma: %v", err)
+	}
 	rFormal := pr.CommitStep2Formal(gamma)
-	open := pr.EvalOpen([]int{3, 17, 42})
+	open, err := pr.EvalOpenV2([]int{3, 17, 42})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
 
-	verifier, err := NewVerifierWithParamsAndPointsChecked(pr.ringQ, pr.rowCount(), pr.params, pr.points)
+	verifier, err := NewVerifierWithParamsAndPointsV2Checked(pr.ringQ, pr.rowCount(), pr.params, pr.points, ctx)
 	if err != nil {
 		t.Fatalf("new verifier: %v", err)
 	}
-	if !verifier.VerifyEvalAtFormalHash(rootHash, gamma, rFormal, open, []int{3, 17, 42}) {
+	if !verifier.VerifyEvalAtFormalHashV2(rootHash, gamma, rFormal, open, []int{3, 17, 42}) {
 		t.Fatal("baseline explicit-width opening did not verify")
 	}
 
 	hashMismatch := pr.params
 	hashMismatch.HashBytes = 20
-	hashVerifier, err := NewVerifierWithParamsAndPointsChecked(pr.ringQ, pr.rowCount(), hashMismatch, pr.points)
+	hashVerifier, err := NewVerifierWithParamsAndPointsV2Checked(pr.ringQ, pr.rowCount(), hashMismatch, pr.points, ctx)
 	if err != nil {
 		t.Fatalf("new hash mismatch verifier: %v", err)
 	}
-	if hashVerifier.VerifyEvalAtFormalHash(rootHash, gamma, rFormal, open, []int{3, 17, 42}) {
+	if hashVerifier.VerifyEvalAtFormalHashV2(rootHash, gamma, rFormal, open, []int{3, 17, 42}) {
 		t.Fatal("verifier accepted opening with mismatched explicit hash width")
 	}
 
 	tapeMismatch := pr.params
-	tapeMismatch.NonceBytes = 24
-	tapeVerifier, err := NewVerifierWithParamsAndPointsChecked(pr.ringQ, pr.rowCount(), tapeMismatch, pr.points)
+	tapeMismatch.TapeBytes = 24
+	tapeVerifier, err := NewVerifierWithParamsAndPointsV2Checked(pr.ringQ, pr.rowCount(), tapeMismatch, pr.points, ctx)
 	if err != nil {
 		t.Fatalf("new tape mismatch verifier: %v", err)
 	}
-	if tapeVerifier.VerifyEvalAtFormalHash(rootHash, gamma, rFormal, open, []int{3, 17, 42}) {
+	if tapeVerifier.VerifyEvalAtFormalHashV2(rootHash, gamma, rFormal, open, []int{3, 17, 42}) {
 		t.Fatal("verifier accepted opening with mismatched tape width")
 	}
 }

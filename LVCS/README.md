@@ -12,12 +12,17 @@ openings used by issuance and showing proofs.
 
 ## Main Entry Points
 
-- `CommitInitWithParamsAndPointsWithOptions`
+- `CommitInitWithParamsAndPointsV2`
 - `EvalInitManyChecked`
-- `EvalFinish`
-- `NewVerifierWithParamsAndPoints`
+- `EvalFinishV2`
+- `MergeOpeningsV2`
+- `NewVerifierWithParamsAndPointsV2`
 - `(*VerifierState).EvalStep2`
 - `(*VerifierState).EvalStep2SmallField2025`
+
+These v2 entry points propagate the same DECS `CommitmentContext` through the
+prover and verifier and use only the full-width `RootHash`. Context-free entry
+points have been removed.
 
 ## Row Model
 
@@ -29,6 +34,8 @@ need them.
 
 - Explicit-domain points are mandatory.
 - Prover and verifier must interpret the same oracle layout.
+- V2 split and merged openings preserve one tape per logical leaf index and
+  reject conflicting tapes for a repeated index.
 - LVCS is the authenticated row source for issuance and showing replay.
 - The maintained replay selector is reduced to carrier and PRF-companion
   families.

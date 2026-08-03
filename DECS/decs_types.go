@@ -7,6 +7,11 @@ const (
 
 	DefaultHashBytes = 18
 	WideHashBytes    = 32
+
+	// OpeningVersionV2 is the paper-aligned DECS opening format. V2 commits
+	// independently sampled tapes and is always verified with an explicit
+	// CommitmentContext.
+	OpeningVersionV2 uint16 = 2
 )
 
 // IsSupportedHashBytes reports whether hashBytes is one of the maintained
@@ -15,22 +20,29 @@ func IsSupportedHashBytes(hashBytes int) bool {
 	return hashBytes >= 16 && hashBytes <= 64
 }
 
-// IsSupportedNonceBytes reports whether nonceBytes is one of the maintained
-// byte-aligned tape/nonce widths.
-func IsSupportedNonceBytes(nonceBytes int) bool {
-	return nonceBytes >= 12 && nonceBytes <= 64
+func IsSupportedTapeBytes(tapeBytes int) bool {
+	return tapeBytes >= 12 && tapeBytes <= 64
 }
 
 func SupportedHashBytesList() string {
 	return "16..64"
 }
 
-func SupportedNonceBytesList() string {
+func SupportedTapeBytesList() string {
 	return "12..64"
 }
 
 // DECSOpening holds the DECS opening data sent by the prover.
 type DECSOpening struct {
+	// Version and Role identify the v2 commitment that this opening belongs to.
+	// The maintained verifier accepts only OpeningVersionV2.
+	Version uint16
+	Role    CommitmentRole
+	// Tapes contains exactly one independently sampled tape per logical opened
+	// leaf, in the same order as Pvals, Mvals, paths, and AllIndices().
+	Tapes     [][]byte
+	TapeBytes int
+
 	// FormatVersion selects the P-value encoding.
 	FormatVersion uint8
 	// PColsEncoded is the number of transmitted P columns per opened index.
@@ -66,9 +78,6 @@ type DECSOpening struct {
 	PathBits          []byte  // packed path indices (row-major t×depth), optional
 	PathBitWidth      uint8   // bit width per path entry when PathBits is set
 	PathDepth         int     // path length when PathBits is set
-	Nonces            [][]byte
-	NonceSeed         []byte
-	NonceBytes        int
 }
 
 // EntryCount returns the total number of opened indices.
@@ -121,11 +130,12 @@ func (op *DECSOpening) AllIndices() []int {
 
 // Params bundles the protocol parameters for DECS.
 type Params struct {
-	Degree     int // max polynomial degree d
-	Eta        int // number of mask polynomials η
-	NonceBytes int // size of each nonce ρ_e in bytes
-	HashBytes  int // size of Merkle hashes in bytes; zero keeps DefaultHashBytes
+	Degree int // max polynomial degree d
+	Eta    int // number of mask polynomials η
+	// TapeBytes is the width of each independent v2 tape.
+	TapeBytes int
+	HashBytes int // size of Merkle hashes in bytes
 }
 
 // DefaultParams provides the maintained DECS parameters.
-var DefaultParams = Params{Degree: 4095, Eta: 2, NonceBytes: 24}
+var DefaultParams = Params{Degree: 4095, Eta: 2, TapeBytes: 24, HashBytes: DefaultHashBytes}

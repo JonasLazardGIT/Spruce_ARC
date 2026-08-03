@@ -23,14 +23,14 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if proof == nil {
 		return false, false, false, errors.New("VerifyNIZK: nil proof")
 	}
+	if proof.SchemaVersion != ProofSchemaVersionV2 {
+		return false, false, false, fmt.Errorf("VerifyNIZK: unsupported proof schema %d; want %d", proof.SchemaVersion, ProofSchemaVersionV2)
+	}
+	intGenISISProof := proof.RowLayout.IntGenISISPreSign != nil || proof.RowLayout.IntGenISISShowing != nil
+	if intGenISISProof && (proof.TranscriptVersion != TranscriptVersionSmallWood2025V2 || proof.TranscriptProtocolMode != TranscriptProtocolSmallField2025V2) {
+		return false, false, false, fmt.Errorf("VerifyNIZK: unexpected transcript tuple (%q,%q)", proof.TranscriptVersion, proof.TranscriptProtocolMode)
+	}
 	paperQPayloadOnly := proofUsesPaperQPayloadOnly(proof)
-	defer func() {
-		if proof != nil {
-			decs.PackOpening(resolveProofPCSOpening(proof))
-			decs.PackOpening(proof.QOpening)
-		}
-	}()
-	proof.syncPCSCompat()
 	vTargets := proof.VTargetsMatrix()
 	if len(vTargets) == 0 || len(vTargets[0]) == 0 {
 		return false, false, false, errors.New("VerifyNIZK: missing VTargets")
@@ -39,7 +39,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if len(barSets) == 0 || len(barSets[0]) == 0 {
 		return false, false, false, errors.New("VerifyNIZK: missing BarSets")
 	}
-	if resolveProofPCSOpening(proof) == nil {
+	if proof.PCSOpening == nil {
 		return false, false, false, errors.New("VerifyNIZK: missing PCS opening")
 	}
 	if len(proof.Digests[0]) == 0 || len(proof.Digests[1]) == 0 || len(proof.Digests[3]) == 0 {
@@ -54,28 +54,28 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		return false, false, false, fmt.Errorf("VerifyNIZK: %w", err)
 	}
 	q := ringQ.Modulus[0]
-	ncols := len(vTargets[0])
-	if proof.LVCSNColsUsed > 0 {
-		ncols = proof.LVCSNColsUsed
+	ncols := proof.LVCSNColsUsed
+	if ncols <= 0 || len(vTargets[0]) != ncols {
+		return false, false, false, fmt.Errorf("VerifyNIZK: invalid or mismatched lvcs_ncols=%d vtarget_cols=%d", ncols, len(vTargets[0]))
 	}
 	witnessNCols := proof.NColsUsed
 	if witnessNCols <= 0 {
-		witnessNCols = ncols
+		return false, false, false, fmt.Errorf("VerifyNIZK: missing witness ncols")
 	}
-	pcsNCols := ncols
-	if proof.PCSNColsUsed > 0 {
-		pcsNCols = proof.PCSNColsUsed
+	pcsNCols := proof.PCSNColsUsed
+	if pcsNCols <= 0 || pcsNCols != ncols {
+		return false, false, false, fmt.Errorf("VerifyNIZK: pcs_ncols=%d want lvcs_ncols=%d", pcsNCols, ncols)
 	}
 	if pcsNCols < witnessNCols {
 		return false, false, false, fmt.Errorf("VerifyNIZK: invalid pcs_ncols (pcs=%d < witness=%d)", pcsNCols, witnessNCols)
 	}
 	if proof.Theta > 1 {
-		if proof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV1 {
-			return false, false, false, fmt.Errorf("VerifyNIZK: theta>1 requires %s geometry, got %q", PCSGeometryKindSmallFieldMatrixV1, proof.PCSGeometry.Kind)
+		if proof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV2 {
+			return false, false, false, fmt.Errorf("VerifyNIZK: theta>1 requires %s geometry, got %q", PCSGeometryKindSmallFieldMatrixV2, proof.PCSGeometry.Kind)
 		}
 		intGenISISSmallField := proof.RowLayout.IntGenISISPreSign != nil || proof.RowLayout.IntGenISISShowing != nil
-		if intGenISISSmallField && proof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRows {
-			return false, false, false, fmt.Errorf("VerifyNIZK: theta>1 requires small-field source %q, got %q", PCSGeometrySmallFieldSourceLiteralRows, proof.PCSGeometry.SmallFieldSource)
+		if intGenISISSmallField && proof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRowsV2 {
+			return false, false, false, fmt.Errorf("VerifyNIZK: theta>1 requires small-field source %q, got %q", PCSGeometrySmallFieldSourceLiteralRowsV2, proof.PCSGeometry.SmallFieldSource)
 		}
 		layerSize := witnessNCols + proof.Theta
 		if layerSize <= 0 || proof.PCSGeometry.ReplayWitnessRows <= 0 || proof.PCSGeometry.ReplayWitnessRows%layerSize != 0 {
@@ -92,7 +92,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 
 	nLeaves := proof.NLeavesUsed
 	if nLeaves <= 0 {
-		nLeaves = int(ringQ.N)
+		return false, false, false, fmt.Errorf("VerifyNIZK: missing explicit-domain leaf count")
 	}
 	if pcsNCols+ell > nLeaves {
 		return false, false, false, fmt.Errorf("VerifyNIZK: explicit domain requires pcs_ncols+ell <= nleaves (pcs_ncols=%d, ell=%d, nleaves=%d)", pcsNCols, ell, nLeaves)
@@ -104,7 +104,10 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if err := checkOmega(omega, q); err != nil {
 		return false, false, false, fmt.Errorf("VerifyNIZK: invalid Ω: %w", err)
 	}
-	pcsOpening := resolveProofPCSOpening(proof)
+	pcsOpening := proof.PCSOpening
+	if err := validateOpeningRoleV2(pcsOpening, decs.CommitmentRoleMain); err != nil {
+		return false, false, false, fmt.Errorf("VerifyNIZK: %w", err)
+	}
 	rRows := pcsOpening.R
 	eta := pcsOpening.Eta
 	unpackUint64Matrix(proof.PvalsEvalBits, proof.PvalsEvalRows, proof.PvalsEvalCols)
@@ -115,8 +118,15 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if lambda <= 0 {
 		lambda = 256
 	}
-	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa, TranscriptVersion: proof.TranscriptVersion})
+	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa, TranscriptVersion: proof.TranscriptVersion, TranscriptProtocol: proof.TranscriptProtocolMode})
 	rootBytes := append([]byte(nil), proofRootBytes(proof)...)
+	if !decs.IsSupportedHashBytes(len(rootBytes)) {
+		return false, false, false, fmt.Errorf("VerifyNIZK: invalid full v2 root width %d", len(rootBytes))
+	}
+	mainCtx, err := mainCommitmentContextV2(proof.Salt)
+	if err != nil {
+		return false, false, false, fmt.Errorf("VerifyNIZK: %w", err)
+	}
 	material0 := [][]byte{rootBytes}
 	if len(proof.LabelsDigest) > 0 {
 		material0 = append(material0, proof.LabelsDigest)
@@ -149,15 +159,11 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	if rowDegBound < 0 {
 		return false, false, false, fmt.Errorf("VerifyNIZK: invalid row degree bound %d (ringN=%d)", rowDegBound, ringQ.N)
 	}
-	nonceBytes := 16
-	if pcsOpening.NonceBytes > 0 {
-		nonceBytes = pcsOpening.NonceBytes
-	} else if len(pcsOpening.Nonces) > 0 && len(pcsOpening.Nonces[0]) > 0 {
-		nonceBytes = len(pcsOpening.Nonces[0])
+	lvcsParams := decs.Params{Degree: rowDegBound, Eta: eta, TapeBytes: pcsOpening.TapeBytes, HashBytes: len(rootBytes)}
+	vrf, err := lvcs.NewVerifierWithParamsAndPointsV2(ringQ, rRows, lvcsParams, ncols, domainPoints, mainCtx)
+	if err != nil {
+		return false, false, false, fmt.Errorf("VerifyNIZK: build v2 LVCS verifier: %w", err)
 	}
-	lvcsParams := decs.Params{Degree: rowDegBound, Eta: eta, NonceBytes: nonceBytes, HashBytes: decs.NormalizeHashBytes(len(rootBytes))}
-	vrf := lvcs.NewVerifierWithParamsAndPoints(ringQ, rRows, lvcsParams, ncols, domainPoints)
-	vrf.Root = proof.Root
 	vrf.RootHash = rootBytes
 	vrf.AcceptGamma(Gamma)
 	if !vrf.CommitStep2Formal(proof.R) {
@@ -168,7 +174,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	gammaBytes := bytesFromUint64Matrix(Gamma)
 	rBytes := bytesFromUint64Matrix(proof.R)
 	transcript2 := [][]byte{rootBytes, gammaBytes, rBytes}
-	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 {
+	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025V2 {
 		transcript2 = [][]byte{rBytes}
 	} else if len(proof.LabelsDigest) > 0 {
 		transcript2 = append(transcript2, proof.LabelsDigest)
@@ -216,7 +222,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if proofHasLegacyQDECS(proof) {
 			return false, false, false, errors.New("VerifyNIZK: strict SmallWood transcript carries redundant Q DECS material")
 		}
-	} else if proof.QRoot == ([16]byte{}) && len(proof.QRootHash) == 0 {
+	} else if len(proof.QRootHash) == 0 {
 		return false, false, false, errors.New("VerifyNIZK: missing QRoot commitment")
 	}
 
@@ -408,7 +414,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		}
 	}
 	transcriptForRound3 := transcript4
-	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 && len(proof.TailTranscript) > 0 {
+	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025V2 && len(proof.TailTranscript) > 0 {
 		recomputed := flattenBytes(transcript4)
 		if !bytes.Equal(recomputed, proof.TailTranscript) {
 			return false, false, false, fmt.Errorf("VerifyNIZK: reconstructed tail transcript mismatch (got %d bytes want %d)", len(recomputed), len(proof.TailTranscript))
@@ -499,6 +505,9 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if proof.QOpening == nil {
 			return okLin, false, false, errors.New("VerifyNIZK: missing Q opening")
 		}
+		if err := validateOpeningRoleV2(proof.QOpening, decs.CommitmentRoleQPayload); err != nil {
+			return okLin, false, false, fmt.Errorf("VerifyNIZK: Q opening: %w", err)
+		}
 		// Recompute Γ_Q from the FS round-2 digest and verify the DECS opening against QRoot.
 		if proof.QOpening.R != rhoQ {
 			return okLin, false, false, fmt.Errorf("VerifyNIZK: Q opening row count R=%d want %d", proof.QOpening.R, rhoQ)
@@ -508,15 +517,16 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		}
 		gammaQRNG := newFSRNG("GammaQ", seed3)
 		GammaQ := sampleFSMatrix(eta, rhoQ, q, gammaQRNG)
-		qNonceBytes := 16
-		if proof.QOpening.NonceBytes > 0 {
-			qNonceBytes = proof.QOpening.NonceBytes
-		} else if len(proof.QOpening.Nonces) > 0 && len(proof.QOpening.Nonces[0]) > 0 {
-			qNonceBytes = len(proof.QOpening.Nonces[0])
-		}
 		qRootBytes := proofQRootBytes(proof)
-		qParams := decs.Params{Degree: qDegBound, Eta: eta, NonceBytes: qNonceBytes, HashBytes: decs.NormalizeHashBytes(len(qRootBytes))}
-		qVrf, err := decs.NewVerifierWithParamsAndPointsChecked(ringQ, rhoQ, qParams, domainPoints)
+		if !decs.IsSupportedHashBytes(len(qRootBytes)) {
+			return okLin, false, false, fmt.Errorf("VerifyNIZK: invalid full Q root width %d", len(qRootBytes))
+		}
+		qCtx, err := qCommitmentContextV2(proof.Salt)
+		if err != nil {
+			return okLin, false, false, fmt.Errorf("VerifyNIZK: Q context: %w", err)
+		}
+		qParams := decs.Params{Degree: qDegBound, Eta: eta, TapeBytes: proof.QOpening.TapeBytes, HashBytes: len(qRootBytes)}
+		qVrf, err := decs.NewVerifierWithParamsAndPointsV2Checked(ringQ, rhoQ, qParams, domainPoints, qCtx)
 		if err != nil {
 			return okLin, false, false, fmt.Errorf("VerifyNIZK: invalid Q verifier params: %w", err)
 		}
@@ -539,7 +549,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if qPrepErr != nil {
 			return okLin, false, false, fmt.Errorf("VerifyNIZK: prepare Q opening: %w", qPrepErr)
 		}
-		if !qVrf.VerifyEvalAtFormalHash(qRootBytes, GammaQ, qr, qOpeningPrepared, qIdx) {
+		if !qVrf.VerifyEvalAtFormalHashV2(qRootBytes, GammaQ, qr, qOpeningPrepared, qIdx) {
 			return okLin, false, false, errors.New("VerifyNIZK: Q DECS opening rejected")
 		}
 		if len(qPayload) > 0 {
@@ -1511,15 +1521,15 @@ func validateDistinctIndicesInRange(indices []int, start, end int) error {
 	if end < start {
 		return fmt.Errorf("invalid range [%d,%d)", start, end)
 	}
-	seen := make(map[int]struct{}, len(indices))
+	previous := -1
 	for _, idx := range indices {
 		if idx < start || idx >= end {
 			return fmt.Errorf("index %d outside [%d,%d)", idx, start, end)
 		}
-		if _, ok := seen[idx]; ok {
-			return fmt.Errorf("duplicate index %d", idx)
+		if idx <= previous {
+			return fmt.Errorf("indices are not strictly increasing at %d", idx)
 		}
-		seen[idx] = struct{}{}
+		previous = idx
 	}
 	return nil
 }
@@ -1531,6 +1541,9 @@ func buildSubsetOpening(base *decs.DECSOpening, indices []int, rowCount, eta int
 	posByIdx := make(map[int]int, base.EntryCount())
 	for i := 0; i < base.EntryCount(); i++ {
 		idx := base.IndexAt(i)
+		if _, duplicate := posByIdx[idx]; duplicate {
+			return nil, fmt.Errorf("base opening contains duplicate index %d", idx)
+		}
 		posByIdx[idx] = i
 	}
 	maskCount := 0
@@ -1542,19 +1555,17 @@ func buildSubsetOpening(base *decs.DECSOpening, indices []int, rowCount, eta int
 		}
 	}
 	tailCount := len(indices) - maskCount
-	nonceBytes := base.NonceBytes
-	if nonceBytes <= 0 && len(base.Nonces) > 0 && len(base.Nonces[0]) > 0 {
-		nonceBytes = len(base.Nonces[0])
-	}
 	sub := &decs.DECSOpening{
-		MaskBase:   maskBase,
-		MaskCount:  maskCount,
-		Indices:    make([]int, tailCount),
-		Pvals:      make([][]uint64, len(indices)),
-		R:          rowCount,
-		Eta:        eta,
-		NonceSeed:  append([]byte(nil), base.NonceSeed...),
-		NonceBytes: nonceBytes,
+		Version:   base.Version,
+		Role:      base.Role,
+		MaskBase:  maskBase,
+		MaskCount: maskCount,
+		Indices:   make([]int, tailCount),
+		Pvals:     make([][]uint64, len(indices)),
+		Tapes:     make([][]byte, len(indices)),
+		TapeBytes: base.TapeBytes,
+		R:         rowCount,
+		Eta:       eta,
 	}
 	rowMajorBase := base.PathDepth > 0 && len(base.PathIndex) == 0 && len(base.PathBits) == 0 && len(base.Nodes) == base.EntryCount()*base.PathDepth
 	if rowMajorBase {
@@ -1562,9 +1573,6 @@ func buildSubsetOpening(base *decs.DECSOpening, indices []int, rowCount, eta int
 		sub.Nodes = make([][]byte, 0, len(indices)*base.PathDepth)
 	} else {
 		sub.Nodes = append([][]byte(nil), base.Nodes...)
-	}
-	if len(base.Nonces) > 0 {
-		sub.Nonces = make([][]byte, len(indices))
 	}
 	if len(base.PathIndex) > 0 && !rowMajorBase {
 		sub.PathIndex = make([][]int, len(indices))
@@ -1609,9 +1617,10 @@ func buildSubsetOpening(base *decs.DECSOpening, indices []int, rowCount, eta int
 		} else if len(base.PathIndex) > 0 {
 			sub.PathIndex[i] = append([]int(nil), base.PathIndex[pos]...)
 		}
-		if len(base.Nonces) > pos && len(base.Nonces[pos]) > 0 {
-			sub.Nonces[i] = append([]byte(nil), base.Nonces[pos]...)
+		if pos >= len(base.Tapes) || len(base.Tapes[pos]) != base.TapeBytes {
+			return nil, fmt.Errorf("opening tape missing or malformed at index %d", idx)
 		}
+		sub.Tapes[i] = append([]byte(nil), base.Tapes[pos]...)
 	}
 	if len(sub.PathIndex) > 0 && len(sub.PathIndex[0]) > 0 {
 		sub.PathDepth = len(sub.PathIndex[0])

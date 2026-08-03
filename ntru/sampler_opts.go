@@ -1,6 +1,9 @@
 package ntru
 
-import "math"
+import (
+	"io"
+	"math"
+)
 
 const (
 	AntragAlpha           = 1.25
@@ -12,8 +15,9 @@ const (
 )
 
 type SamplerOpts struct {
-	Prec       uint    // floating precision for embedding/big.Float
-	SigmaScale float64 // multiplier >= 1.0 applied to sqrt(diag(D)) per slot
+	Entropy    io.Reader // sampler-local randomness source; nil selects crypto/rand.Reader
+	Prec       uint      // floating precision for embedding/big.Float
+	SigmaScale float64   // multiplier >= 1.0 applied to sqrt(diag(D)) per slot
 	// C-style parameters (from antrag param.h / gen headers)
 	Alpha         float64 // ANTRAG_ALPHA
 	RSquare       float64 // R_SQUARE
@@ -22,8 +26,10 @@ type SamplerOpts struct {
 	MaxSignTrials int     // max trials in SignC (default 128)
 	ReduceIters   int     // extra Babai reduction iterations before C-sign
 	SaltBytes     int     // length of salt for hashing (default 32; match C presets if known)
-	// Eval Gaussian sampler behavior
-	UseCNormalDist bool // if true, use Box–Muller (C-like) for Eval Gaussian instead of NormFloat64
+	// Eval Gaussian sampler behavior. The checked implementation uses
+	// reader-local Box-Muller sampling; this flag is retained for format/API
+	// compatibility with callers that explicitly select the C-style path.
+	UseCNormalDist bool
 	// Retained sampler controls.
 	UseExactResidual bool    // always enforced in the shipped signer
 	BoundShape       string  // shipped code uses the C-style residual bound

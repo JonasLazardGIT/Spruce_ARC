@@ -1,7 +1,6 @@
 package PIOP
 
 import (
-	cryptoRand "crypto/rand"
 	"fmt"
 	"time"
 
@@ -102,7 +101,6 @@ type maskFSArgs struct {
 	ncols        int
 	witnessNCols int
 	pcsGeometry  PCSGeometry
-	root         [16]byte
 	rootHash     []byte
 
 	// Small-field parameters (Theta > 1)
@@ -138,8 +136,8 @@ type maskFSArgs struct {
 	prfCompanionLayout       *PRFCompanionLayout
 	prfCompanionRows         []lvcs.RowInput
 	prfCompanionBridgeChecks int
-	prfTagPublic             [][]int64
-	prfNoncePublic           [][]int64
+	prfTagPublic             []int64
+	prfContextPublic         []int64
 	hashRelation             string
 
 	// Mask configuration
@@ -165,7 +163,7 @@ type maskFSArgs struct {
 	// Optional ncols override (head length) for theta>1
 	ncolsOverride int
 
-	// Optional deterministic salt override for tests.
+	// Proof-global salt shared by every v2 commitment in this proof.
 	salt []byte
 }
 
@@ -234,8 +232,8 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		q = ringQ.Modulus[0]
 	}
 	rootBytes := append([]byte(nil), args.rootHash...)
-	if len(rootBytes) == 0 {
-		rootBytes = append([]byte(nil), args.root[:]...)
+	if len(rootBytes) == 0 || !decs.IsSupportedHashBytes(len(rootBytes)) {
+		return out, fmt.Errorf("missing or invalid full v2 root")
 	}
 	stage := func(label string, fn func() error) error {
 		start := time.Now()
@@ -248,16 +246,23 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	// FS initialization
 	baseXOF := NewShake256XOF(fsDigestBytes)
 	salt := append([]byte(nil), args.salt...)
-	if len(salt) == 0 {
-		salt = make([]byte, fsSaltBytesForOpts(o))
-		if _, err := cryptoRand.Read(salt); err != nil {
-			return out, fmt.Errorf("rand salt: %w", err)
-		}
+	if len(salt) != fsSaltBytesForOpts(o) {
+		return out, fmt.Errorf("proof-global salt width=%d want=%d", len(salt), fsSaltBytesForOpts(o))
 	}
-	fs := NewFS(baseXOF, salt, FSParams{Lambda: o.Lambda, Kappa: o.Kappa, TranscriptVersion: o.TranscriptVersion})
+	mainCtx, err := mainCommitmentContextV2(salt)
+	if err != nil {
+		return out, err
+	}
+	if args.PK == nil {
+		return out, fmt.Errorf("main commitment is not v2")
+	}
+	if err := validateProverCommitmentContextV2(args.PK.Context, mainCtx); err != nil {
+		return out, err
+	}
+	fs := NewFS(baseXOF, salt, FSParams{Lambda: o.Lambda, Kappa: o.Kappa, TranscriptVersion: o.TranscriptVersion, TranscriptProtocol: o.TranscriptProtocolMode})
 	proof := &Proof{
-		Root:                args.root,
-		RootHash:            proofHashField(args.root, rootBytes),
+		SchemaVersion:       ProofSchemaVersionV2,
+		RootHash:            append([]byte(nil), rootBytes...),
 		RingDegree:          int(ringQ.N),
 		Salt:                append([]byte(nil), salt...),
 		Lambda:              o.Lambda,
@@ -279,19 +284,19 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	proof.TranscriptVersion = normalizeTranscriptVersion(o.TranscriptVersion)
 	proof.TranscriptProtocolMode = normalizeTranscriptProtocolMode(o.TranscriptProtocolMode)
 	paperQPayloadOnly := proofUsesPaperQPayloadOnly(proof)
-	strictSmallField2025 := proof.TranscriptProtocolMode == TranscriptProtocolSmallField2025V1
+	strictSmallField2025 := proof.TranscriptProtocolMode == TranscriptProtocolSmallField2025V2
 	if strictSmallField2025 {
 		if !paperQPayloadOnly {
-			return out, fmt.Errorf("%s requires transcript version %s", TranscriptProtocolSmallField2025V1, TranscriptVersionSmallWood2025)
+			return out, fmt.Errorf("%s requires transcript version %s", TranscriptProtocolSmallField2025V2, TranscriptVersionSmallWood2025V2)
 		}
 		if o.Theta <= 1 || o.Rho != 1 || o.EllPrime != 1 {
-			return out, fmt.Errorf("%s requires theta>1, rho=1, ell_prime=1 (got theta=%d rho=%d ell_prime=%d)", TranscriptProtocolSmallField2025V1, o.Theta, o.Rho, o.EllPrime)
+			return out, fmt.Errorf("%s requires theta>1, rho=1, ell_prime=1 (got theta=%d rho=%d ell_prime=%d)", TranscriptProtocolSmallField2025V2, o.Theta, o.Rho, o.EllPrime)
 		}
-		if proof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV1 {
-			return out, fmt.Errorf("%s requires %s geometry", TranscriptProtocolSmallField2025V1, PCSGeometryKindSmallFieldMatrixV1)
+		if proof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV2 {
+			return out, fmt.Errorf("%s requires %s geometry", TranscriptProtocolSmallField2025V2, PCSGeometryKindSmallFieldMatrixV2)
 		}
-		if proof.PCSGeometry.SmallFieldSource != "" && proof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRows {
-			return out, fmt.Errorf("%s requires small-field source %q, got %q", TranscriptProtocolSmallField2025V1, PCSGeometrySmallFieldSourceLiteralRows, proof.PCSGeometry.SmallFieldSource)
+		if proof.PCSGeometry.SmallFieldSource != "" && proof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRowsV2 {
+			return out, fmt.Errorf("%s requires small-field source %q, got %q", TranscriptProtocolSmallField2025V2, PCSGeometrySmallFieldSourceLiteralRowsV2, proof.PCSGeometry.SmallFieldSource)
 		}
 	}
 	if proof.RowLayout.RingDegree == 0 {
@@ -312,8 +317,10 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		proof.Zeta = append([]uint64(nil), args.smallFieldOmegaS1.Limb...)
 	}
 	// Verifier init
-	vrf := lvcs.NewVerifierWithParamsAndPoints(ringQ, len(args.rowInputs), args.decsParams, args.ncols, domainPoints)
-	vrf.Root = args.root
+	vrf, err := lvcs.NewVerifierWithParamsAndPointsV2(ringQ, len(args.rowInputs), args.decsParams, args.ncols, domainPoints, mainCtx)
+	if err != nil {
+		return out, fmt.Errorf("build v2 LVCS verifier: %w", err)
+	}
 	vrf.RootHash = rootBytes
 	var (
 		Gamma       [][]uint64
@@ -359,7 +366,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			totalAgg += args.prfCompanionBridgeChecks
 		}
 		transcript2 := [][]byte{rootBytes, gammaBytes, rTranscript}
-		if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 {
+		if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025V2 {
 			transcript2 = [][]byte{rTranscript}
 		} else if len(args.labelsDigest) > 0 {
 			transcript2 = append(transcript2, args.labelsDigest)
@@ -448,11 +455,17 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	out.rowLayout = args.rowLayout
 
 	var qProver *decs.Prover
+	defer func() {
+		if qProver != nil {
+			qProver.ReleaseTapes()
+		}
+	}()
 	var qDomainPoints []uint64
 	qDecsParams := decs.Params{
-		Degree:     args.maskDegreeBound,
-		Eta:        args.decsParams.Eta,
-		NonceBytes: args.decsParams.NonceBytes,
+		Degree:    args.maskDegreeBound,
+		Eta:       args.decsParams.Eta,
+		TapeBytes: args.decsParams.TapeBytes,
+		HashBytes: args.decsParams.HashBytes,
 	}
 
 	// Masks and Q/QK generation.
@@ -584,7 +597,6 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			return fmt.Errorf("explicit-domain mode requires non-empty Q domain points")
 		}
 		if paperQPayloadOnly {
-			proof.QRoot = [16]byte{}
 			proof.QRootHash = nil
 			proof.setQR(nil)
 			proof.QOpening = nil
@@ -595,14 +607,17 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if qErr != nil {
 			return fmt.Errorf("build q prover: %w", qErr)
 		}
-		qRoot, qErr := qProver.CommitInitWithOptions(decs.CommitOptions{
+		qCtx, qErr := qCommitmentContextV2(salt)
+		if qErr != nil {
+			return qErr
+		}
+		qRootHash, qErr := qProver.CommitInitV2WithOptions(qCtx, decs.CommitOptions{
 			PhaseRecorder: o.PhaseRecorder,
 		})
 		if qErr != nil {
 			return fmt.Errorf("commit Q: %w", qErr)
 		}
-		proof.QRoot = qRoot
-		proof.QRootHash = proofHashField(qRoot, qProver.RootHash())
+		proof.QRootHash = append([]byte(nil), qRootHash...)
 		return nil
 	}); err != nil {
 		return out, err
@@ -640,7 +655,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if proof.PRFCompanion != nil && len(proof.PRFCompanion.CoordDigest) > 0 {
 			round3Material = append(round3Material, proof.PRFCompanion.CoordDigest)
 		}
-		if normalizeTranscriptVersion(proof.TranscriptVersion) != TranscriptVersionSmallWood2025 && len(args.labelsDigest) > 0 {
+		if normalizeTranscriptVersion(proof.TranscriptVersion) != TranscriptVersionSmallWood2025V2 && len(args.labelsDigest) > 0 {
 			round3Material = append(round3Material, args.labelsDigest)
 		}
 		round3 := fsRound(fs, proof, 2, func() string {
@@ -832,7 +847,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			proof.Digests[2],
 			proof.PRFCompanion.CoordDigest,
 			args.prfTagPublic,
-			args.prfNoncePublic,
+			args.prfContextPublic,
 		)
 		if err != nil {
 			return fmt.Errorf("build prf companion openings: %w", err)
@@ -889,9 +904,19 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			for i := 0; i < args.ell; i++ {
 				maskIdx[i] = args.ncols + i
 			}
-			openMask := lvcs.EvalFinish(args.PK, maskIdx)
-			openTail := lvcs.EvalFinish(args.PK, E)
-			combinedOpen := combineOpenings(openMask.DECSOpen, openTail.DECSOpen)
+			openMask, openErr := lvcs.EvalFinishV2(args.PK, maskIdx)
+			if openErr != nil {
+				return fmt.Errorf("open main mask rows: %w", openErr)
+			}
+			openTail, openErr := lvcs.EvalFinishV2(args.PK, E)
+			if openErr != nil {
+				return fmt.Errorf("open main tail rows: %w", openErr)
+			}
+			merged, openErr := lvcs.MergeOpeningsV2(mainCtx, openMask, openTail)
+			if openErr != nil {
+				return fmt.Errorf("merge main openings: %w", openErr)
+			}
+			combinedOpen := merged.DECSOpen
 			proof.PCSOpening = cloneDECSOpening(combinedOpen)
 			proof.PCSOpening.R = len(args.rowInputs)
 			proof.PCSOpening.Eta = args.decsParams.Eta
@@ -907,7 +932,10 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			}
 			qIdx = append(qIdx, E...)
 			if !paperQPayloadOnly {
-				qOpen := qProver.EvalOpen(qIdx)
+				qOpen, qOpenErr := qProver.EvalOpenV2(qIdx)
+				if qOpenErr != nil {
+					return fmt.Errorf("open Q rows: %w", qOpenErr)
+				}
 				out.qOpeningRaw = cloneDECSOpening(qOpen)
 				proof.QOpening = cloneDECSOpening(qOpen)
 				maybeCompressQOpening(proof.QOpening, gammaQ, q, true)
@@ -962,14 +990,24 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		for i := 0; i < args.ell; i++ {
 			maskIdx[i] = args.ncols + i
 		}
-		openTail := lvcs.EvalFinish(args.PK, E)
+		openTail, openErr := lvcs.EvalFinishV2(args.PK, E)
+		if openErr != nil {
+			return fmt.Errorf("open main tail rows: %w", openErr)
+		}
 		var openMask *lvcs.Opening
 		var combinedOpen *decs.DECSOpening
 		if strictSmallField2025 {
 			proof.PCSOpening = cloneDECSOpening(openTail.DECSOpen)
 		} else {
-			openMask = lvcs.EvalFinish(args.PK, maskIdx)
-			combinedOpen = combineOpenings(openMask.DECSOpen, openTail.DECSOpen)
+			openMask, openErr = lvcs.EvalFinishV2(args.PK, maskIdx)
+			if openErr != nil {
+				return fmt.Errorf("open main mask rows: %w", openErr)
+			}
+			merged, mergeErr := lvcs.MergeOpeningsV2(mainCtx, openMask, openTail)
+			if mergeErr != nil {
+				return fmt.Errorf("merge main openings: %w", mergeErr)
+			}
+			combinedOpen = merged.DECSOpen
 			proof.PCSOpening = cloneDECSOpening(combinedOpen)
 		}
 		proof.PCSOpening.R = len(args.rowInputs)
@@ -1000,7 +1038,10 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		}
 		qIdx = append(qIdx, E...)
 		if !paperQPayloadOnly {
-			qOpen := qProver.EvalOpen(qIdx)
+			qOpen, qOpenErr := qProver.EvalOpenV2(qIdx)
+			if qOpenErr != nil {
+				return fmt.Errorf("open Q rows: %w", qOpenErr)
+			}
 			out.qOpeningRaw = cloneDECSOpening(qOpen)
 			proof.QOpening = cloneDECSOpening(qOpen)
 			maybeCompressQOpening(proof.QOpening, gammaQ, q, true)

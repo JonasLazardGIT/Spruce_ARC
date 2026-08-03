@@ -9,6 +9,14 @@ import (
 )
 
 func (S *Sampler) SamplePreimageTargetOptionB(t ModQPoly, maxTrials int) (s0, s1 *IntPoly, trials int, err error) {
+	if S == nil {
+		return nil, nil, 0, errors.New("OptionB: nil sampler")
+	}
+	if S.Opts.Entropy != nil {
+		S.entropy = S.Opts.Entropy
+	} else if S.entropy == nil {
+		S.entropy = defaultEntropyReader(nil)
+	}
 	if S.Opts.ReduceIters <= 0 {
 		S.Opts.ReduceIters = 64
 	}
@@ -66,14 +74,14 @@ func (S *Sampler) SamplePreimageTargetOptionB(t ModQPoly, maxTrials int) (s0, s1
 			var sErr error
 			z0, z1, trace, sErr = S.samplePairCExactTrace(c0, c1)
 			if sErr != nil {
-				continue
+				return nil, nil, trials, fmt.Errorf("OptionB sample trial %d: %w", trials, sErr)
 			}
 			dbg(os.Stderr, "[OptionB] norms: initial=%.4e after1=%.4e after2=%.4e\n", trace.NormInitial, trace.NormAfterStep1, trace.NormAfterStep2)
 		} else {
 			var sErr error
 			z0, z1, sErr = S.samplePairCExact(c0, c1)
 			if sErr != nil {
-				continue
+				return nil, nil, trials, fmt.Errorf("OptionB sample trial %d: %w", trials, sErr)
 			}
 		}
 		z1Coeff := psFromInt64Coeff(z1, S.Prec)

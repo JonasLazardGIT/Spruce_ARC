@@ -1,90 +1,75 @@
 # SPRUCE Artifact Guide
 
-This guide is the canonical reviewer entrypoint for reproducing the maintained
-SPRUCE artifact. It covers supported commands, expected outputs, generated
-files, claim mapping, limitations, and common failure modes.
+This is the reviewer guide for the hard v2 SPRUCE artifact. The supported
+surface is `cmd/issuance`, `cmd/showing`, the canonical preset registry, the Go
+test suite, functional gates, and generated benchmark reports.
 
-## Supported Surface
+Every preset is experimental and has the proof-only claim scope. A successful
+run demonstrates execution and verification of the encoded relations under
+the selected manifest; it does not establish deployment security.
 
-The artifact supports:
+## Supported Presets
 
-- committed-message IntGenISIS issuance
-- IntGenISIS showing and verification
-- fixed-size paper transcript reporting
-- executable preset benchmarking and an all-preset functional gate
-- Go tests and static checks used by the validation script
+Only these canonical identifiers are accepted:
 
-The command surface is limited to `cmd/issuance` and `cmd/showing`. List the
-executable registry with:
+```text
+poc-n512-sc96-v2
+artifact-n1024-sc125-v2
+artifact-n1024-bq10-r96-v2
+artifact-n1024-bq16-r96-v2
+pilot-n1024-bq32-r96-v2
+poc-n1024-bq64-r128-v2
+poc-n1024-bq96-r128-v2
+poc-n1024-bq128-r128-v3
+system-n1024-wf128-crom-v2
+```
+
+List the executable registry directly:
 
 ```bash
 go run ./cmd/issuance list-presets
 ```
 
-Every listed preset is executable and distributed for experimental PoC use.
-Security reports are diagnostic; no listed preset makes a complete-system
-deployment claim.
+The canonical ID, preset version, manifest digest, primitive and PRF profile,
+transcript tuple, rate-limit policy, and executable tuning are one identity.
+Earlier selectors and persisted artifacts are not aliases and are not
+migrated. Recreate the entire setup, issuance, credential, and showing state
+for this epoch.
 
-The historical exact-byte gate covers these six selectors:
+## Build And Validate
 
-```text
-n512-compact96
-n1024-compact125
-n1024-q10-96
-n1024-q16-96
-pilot-n1024-bq32-r96-v1
-system-n1024-wf128-crom-v1
+Native build and functional validation:
+
+```bash
+go test ./...
+go vet ./...
+go build ./cmd/issuance ./cmd/showing
+go run ./cmd/issuance gate-functional-presets
 ```
 
-The four legacy selectors resolve to canonical manifests. Removed selectors are
-not redirected to new parameters. Their last measured results and disposition
-are archived in `credential/testdata/removed_intgenisis_presets.json`.
+Run the repository validation script:
 
-## Expected Results
+```bash
+./scripts/validate-artifact.sh
+```
 
-The canonical paper-facing size metric is
-`showing.paper_transcript_bytes`. It is not the serialized JSON proof size and
-not KiB.
+Preserve reports and generated artifacts with:
 
-| Preset | Role | Expected `showing.paper_transcript_bytes` |
-| --- | --- | ---: |
-| `n512-compact96` | PoC alias; SC-96 proof-only | 22016 |
-| `n1024-compact125` | paper artifact; SC-125 proof-only | 35223 |
-| `n1024-q10-96` | historical proof artifact, raw `2^10` caps | 29653 |
-| `n1024-q16-96` | historical proof artifact, raw `2^16` caps | 30591 |
-| `pilot-n1024-bq32-r96-v1` | BQ32-R96 candidate with actual tag-9 | 36887 |
-| `system-n1024-wf128-crom-v1` | unbounded CROM work-factor PoC | 38092 |
+```bash
+ARTIFACT_ROOT="$(pwd)/artifacts" ./scripts/validate-artifact.sh
+```
 
-The validation scripts fail if these byte counts change.
-
-The executable `system-n1024-wf128-crom-v1` PoC currently measures 26,758
-issuance and 38,092 showing paper-transcript bytes. Three tuning-confirmation
-runs produced identical byte counts. These values are diagnostic.
-
-## Docker Reproduction
-
-Build the Go-only artifact image:
+Build and run the Go-only Docker artifact:
 
 ```bash
 docker build -t spruce-artifact .
-```
-
-List the registry and run one benchmark:
-
-```bash
 docker run --rm --user "$(id -u):$(id -g)" spruce-artifact list
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench system-n1024-wf128-crom-v1
-```
-
-Run the all-preset functional gate, or reproduce the executable-preset exact-byte
-gate separately:
-
-```bash
+docker run --rm --user "$(id -u):$(id -g)" \
+  spruce-artifact bench artifact-n1024-sc125-v2
 docker run --rm --user "$(id -u):$(id -g)" spruce-artifact gate
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact artifact-gate
 ```
 
-Run the full validation path and keep artifacts on the host:
+Retain Docker validation output on the host:
 
 ```bash
 docker run --rm --user "$(id -u):$(id -g)" \
@@ -92,194 +77,213 @@ docker run --rm --user "$(id -u):$(id -g)" \
   spruce-artifact validate
 ```
 
-Docker commands write reports under `/artifacts` when that directory is
-mounted. The image intentionally excludes Sage/Python security-provenance tools.
+## Benchmark Reports And Evidence Status
 
-## Native Reproduction
-
-Run the full validation script:
-
-```bash
-./scripts/validate-artifact.sh
-```
-
-To preserve benchmark artifacts:
-
-```bash
-ARTIFACT_ROOT="$(pwd)/artifacts" ./scripts/validate-artifact.sh
-```
-
-The validation script runs:
-
-```text
-gofmt -l over Go sources
-go test ./...
-go vet ./...
-staticcheck ./...
-deadcode -test ./... with no output allowed
-deadcode ./... with no output allowed
-go build ./cmd/issuance ./cmd/showing
-benchmark-intgenisis-e2e for all six exact-byte-gated presets
-```
-
-If `staticcheck` is not installed, the script runs the pinned tool through
-`go run`. If `deadcode` is not installed, the script installs the pinned tool
-and then fails on any reported unreachable code.
-
-## Main Commands
-
-List every executable preset:
-
-```bash
-go run ./cmd/issuance list-presets
-```
-
-Benchmark one preset and write a JSON report:
+Run one preset and write its report:
 
 ```bash
 go run ./cmd/issuance benchmark-intgenisis-e2e \
-  -preset n1024-compact125 \
-  -artifact-dir artifacts/n1024-compact125 \
-  -json-out artifacts/n1024-compact125/benchmark-intgenisis-e2e.json \
+  -preset artifact-n1024-sc125-v2 \
+  -artifact-dir artifacts/sc125-v2 \
+  -json-out artifacts/sc125-v2/benchmark-intgenisis-e2e.json \
   -force
 ```
 
-Run the executable-preset exact-byte gate:
+The JSON report, not prose in this guide, is the source of truth for:
+
+- the canonical preset and manifest actually executed;
+- proof geometry and transcript component accounting;
+- serialized and paper-transcript size metrics;
+- theorem/accounting diagnostics and executed-parameter audits;
+- phase timings and runtime/build metadata;
+- artifact paths, local verification, and replay rejection checks.
+
+The bounded BB-tran rows, public-context/hidden-slot relation, v2 artifact
+envelopes, and independent salted tapes change both serialization and runtime.
+Earlier byte and timing baselines are invalid for this epoch. Maintained v2
+byte and timing evidence is pending freshly generated benchmark reports; no
+replacement figures are asserted here.
+
+`gate-artifact-presets` and `gate-degree1024-maintained-presets` are the
+reproduction entrypoints once v2 baselines have been generated and checked in:
 
 ```bash
 go run ./cmd/issuance gate-artifact-presets -artifact-dir "$(mktemp -d)"
+go run ./cmd/issuance gate-degree1024-maintained-presets \
+  -artifact-root "$(mktemp -d)"
 ```
 
-Run only the degree-1024 gates:
+Until those baselines are regenerated, a report marked pending is not an
+exact-byte claim.
+
+## Manual End-To-End Flow
+
+The benchmark command is the shortest reviewer path. The following sequence
+shows every artifact and the required showing state explicitly. It uses two
+files containing identical example service context bytes to model the holder
+input and the verifier's independently supplied expectation.
 
 ```bash
-go run ./cmd/issuance gate-degree1024-maintained-presets -artifact-root "$(mktemp -d)"
+PRESET="artifact-n1024-sc125-v2"
+RUN="$(mktemp -d)"
+printf '%s' 'reviewer-service-context-v2' > "$RUN/holder-context.bin"
+printf '%s' 'reviewer-service-context-v2' > "$RUN/verifier-context.bin"
+
+go run ./cmd/issuance setup-intgenisis-public \
+  -preset "$PRESET" \
+  -out "$RUN/credential_public.json"
+
+go run ./cmd/issuance setup-ntru-keys \
+  -preset "$PRESET" \
+  -params-out "$RUN/ntru_params.json" \
+  -public-out "$RUN/ntru_public.json" \
+  -private-out "$RUN/ntru_private.json"
+
+go run ./cmd/issuance holder-commit \
+  -preset "$PRESET" \
+  -public-params "$RUN/credential_public.json" \
+  -holder-secret "$RUN/holder_secret.json" \
+  -commit-request "$RUN/commit_request.json"
+
+go run ./cmd/issuance holder-prove \
+  -holder-secret "$RUN/holder_secret.json" \
+  -presign-submission "$RUN/presign_submission.json"
+
+go run ./cmd/issuance issuer-verify-sign \
+  -commit-request "$RUN/commit_request.json" \
+  -presign-submission "$RUN/presign_submission.json" \
+  -issue-response "$RUN/issue_response.json" \
+  -ntru-params "$RUN/ntru_params.json" \
+  -ntru-public-key "$RUN/ntru_public.json" \
+  -ntru-private-key "$RUN/ntru_private.json" \
+  -ntru-signature-out "$RUN/ntru_signature.json" \
+  -verifier-key-out "$RUN/intgenisis_verifier_key.json"
+
+go run ./cmd/issuance holder-finalize \
+  -holder-secret "$RUN/holder_secret.json" \
+  -commit-request "$RUN/commit_request.json" \
+  -issue-response "$RUN/issue_response.json" \
+  -state-out "$RUN/credential_state.json" \
+  -signature-out "$RUN/signature.json" \
+  -ntru-params "$RUN/ntru_params.json"
+
+go run ./cmd/showing \
+  -preset "$PRESET" \
+  -state-path "$RUN/credential_state.json" \
+  -verifier-key "$RUN/intgenisis_verifier_key.json" \
+  -context-file "$RUN/holder-context.bin" \
+  -holder-usage-state "$RUN/holder_usage_state.json" \
+  -presentation-out "$RUN/presentation.json"
+
+go run ./cmd/showing \
+  -preset "$PRESET" \
+  -public-params "$RUN/credential_public.json" \
+  -verifier-key "$RUN/intgenisis_verifier_key.json" \
+  -verify-presentation "$RUN/presentation.json" \
+  -expected-context-file "$RUN/verifier-context.bin" \
+  -verifier-state "$RUN/verifier_state.json"
 ```
 
-Run setup, issuance, showing, serialization, replay, manifest-binding, and
-nonzero-transcript checks for every executable preset:
+`-context-file` is required only for creation;
+`-expected-context-file` is required only for verification. The verifier must
+obtain its context through the service protocol rather than trusting data from
+the presentation.
+
+The holder state file is created if absent and atomically updated before proof
+construction. It burns one of the 16 hidden slots for the exact credential and
+derived context even if later proof construction fails. The verifier state
+file is created if absent and atomically records the accepted tag under the
+derived context after cryptographic verification.
+
+For algebraic verification without rate-limit acceptance, omit
+`-verifier-state` and add `-proof-only`:
 
 ```bash
-go run ./cmd/issuance gate-functional-presets
+go run ./cmd/showing \
+  -preset "$PRESET" \
+  -public-params "$RUN/credential_public.json" \
+  -verifier-key "$RUN/intgenisis_verifier_key.json" \
+  -verify-presentation "$RUN/presentation.json" \
+  -expected-context-file "$RUN/verifier-context.bin" \
+  -proof-only
 ```
 
-`gate-maintained-presets` remains a deprecated alias for
-`gate-artifact-presets`. `gate-complete-system-presets` fails while there is no
-complete deployment preset; it must never pass vacuously.
+`-proof-only` cannot be used while creating a presentation and cannot be
+combined with `-verifier-state`.
 
-Run the manual issuance/showing sequence:
+## Generated State And Identities
 
-```bash
-go run ./cmd/issuance setup-intgenisis-public -preset n1024-compact125
-go run ./cmd/issuance setup-ntru-keys -preset n1024-compact125
-go run ./cmd/issuance holder-commit -preset n1024-compact125
-go run ./cmd/issuance holder-prove
-go run ./cmd/issuance issuer-verify-sign
-go run ./cmd/issuance holder-finalize
-go run ./cmd/showing -preset n1024-compact125
-```
-
-Preset-dependent commands require `-preset`. Tuning/accounting knobs are not
-public CLI flags; query caps, DECS collision widths, replay shape, compression,
-and transcript mode are selected by the preset registry.
-
-Default terminal output is concise and reviewer-facing. Pass `-verbose` to
-`benchmark-intgenisis-e2e` or `cmd/showing` for row geometry, bucket
-breakdowns, phase timings, and soundness-vector diagnostics.
-
-## Generated Files
-
-Each benchmark directory contains:
+A full manual or benchmark run produces the following classes of data:
 
 ```text
-credential_public.<profile>.json
-Bmatrix.<profile>.json
-holder_secret.json
-commit_request.json
-presign_submission.json
-issue_response.json
-credential_state.intgenisis.json
-intgenisis_verifier_key.json
-presentation.intgenisis.json
-verifier_state.json
-ntru_params.json
-ntru_public.json
-ntru_private.json
-ntru_signature.json
-benchmark-intgenisis-e2e.json
+credential public parameters and B matrix
+NTRU parameters, public key, private key, and signature bundle
+holder secret, commitment request, and pre-sign submission
+issuer response and public verifier key
+final credential state
+holder usage state keyed by credential and context
+presentation envelope
+verifier replay state keyed by public parameters, verifier key, and context
+benchmark report
 ```
 
-The benchmark JSON report records:
+The opaque context files are service inputs, not presentation outputs. Raw
+context bytes are not copied into the presentation; it carries the canonical
+derived digest and 11 public lanes.
 
-- selected preset-derived issuance/showing options
-- proof and paper transcript metrics
-- theorem/accounting bits
-- non-zero runtime timings
-- replay rejection status
-- canonical preset ID/version, lifecycle, claim scope, and threat model
-- canonical manifest digest and executed-parameter `required`/`actual` audit
-- ledger term source, evidence reference, scope, accounting status, and result
-- generated artifact paths
-- Go runtime and VCS build metadata when available
+The enforced hard-epoch identities include:
 
-## Claim Map
+| Artifact or protocol component | Required identity |
+| --- | --- |
+| preset manifest | preset version `2` and one canonical ID above |
+| public parameters | schema version `8` |
+| credential state | schema version `7` |
+| verifier key | schema version `2` |
+| presentation and verifier state | version `2`; presentation schema `intgenisis_presentation_v2` |
+| holder usage state | version `2` |
+| proof | schema version `2` |
+| DECS commitment/opening | version `2` |
+| NTRU parameters | `ntru-params-v2` |
+| NTRU keys | `ntru-key-v2` |
+| NTRU signatures | `ntru-signature-v2` |
 
-| Claim | Reproduction command | Report field or check |
-| --- | --- | --- |
-| Every listed preset is executable | `go run ./cmd/issuance gate-functional-presets` | every registry entry reports `functional=pass` |
-| Historical preset byte list | `go run ./cmd/issuance gate-artifact-presets` | all six exact-byte checks pass |
-| BQ32 controlled-pilot candidate | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset pilot-n1024-bq32-r96-v1` | actual parameters pass their profile requirements; ledger remains explicitly blocked |
-| WF-128 PoC shape | `go run ./cmd/issuance benchmark-intgenisis-e2e -preset system-n1024-wf128-crom-v1` | parameter audit passes, tag length is 13, bounded-query caps are unset, and `complete_system_claim == false` |
-| Removed research measurements | inspect `credential/testdata/removed_intgenisis_presets.json` | archived selectors, measured bytes, theorem bits, audit status, and removal reason |
-| Maintained paper transcript byte counts | `./scripts/validate-artifact.sh` | `showing.paper_transcript_bytes` equals the maintained table above |
-| SmallWood 2025 transcript mode | any benchmark JSON report | `showing.transcript_security_status == "smallwood_2025_1085_live"` |
-| Fixed-size transcript stability | repeat benchmark for same preset | `showing.paper_transcript_bytes` unchanged |
-| Replay protection | any benchmark JSON report | `replay_rejected == true` |
-| Public CLI surface | `go run ./cmd/issuance help`, `go run ./cmd/showing -h` | listed commands and flags |
-| Go code health | `./scripts/validate-artifact.sh` | tests, vet, staticcheck, deadcode pass |
+The numeric storage schema counters do not imply migration support. Each
+loader checks the exact current value, canonical field encodings, content
+digests, and cross-artifact bindings.
 
-## Limitations
+## What The Gates Establish
 
-This repository is a paper artifact, not a backwards-compatible Go library
-distribution. It intentionally does not support:
+| Check | Command or observation |
+| --- | --- |
+| every registry entry executes | `go run ./cmd/issuance gate-functional-presets` |
+| one exact manifest is executed | benchmark report canonical ID, version, and manifest digest |
+| issuance and showing proofs verify | benchmark phase results and CLI success |
+| context is independently bound | verification fails if expected context bytes differ |
+| hidden-slot quota is durable | holder usage state advances monotonically and stops after 16 reservations |
+| accepted tags cannot replay in one context | a second stateful verification is rejected |
+| cross-artifact mixing fails | digest, schema, preset, PRF, transcript, and key checks reject |
+| Go implementation health | tests, vet, static analysis, and builds in the validation script |
 
-- removed preset labels and non-maintained tuning selectors
-- old non-IntGenISIS showing builders
-- old signature-shortness proof versions
-- old credential state APIs
-- broad parameter searches or tuning flags as public CLI features
-- external Go library compatibility for removed convenience APIs
-- treating executable, artifact, or candidate lifecycle as a deployment claim
+These are implementation and proof-artifact claims. Primitive reductions,
+multi-user composition, operational recovery, and deployment assurance remain
+outside this artifact claim.
 
-Removed modes should fail closed with explicit errors instead of silently
-falling back.
+## Expected Failures
 
-Public parameters, proofs, finalized state, verifier keys, and presentations
-bind the canonical preset ID, version, primitive/PRF identity, transcript mode,
-and complete manifest digest. Mixing artifacts from different manifests is
-rejected.
+The CLIs fail closed on:
 
-The security-estimator and PRF-generation material is provenance. The wrapper
-scripts and Sage sources are documented in [docs/SECURITY.md](docs/SECURITY.md)
-and excluded from Docker artifact runtime; lattice-estimator itself is supplied
-as an external pinned checkout.
+- a non-canonical preset selector or an artifact from another epoch;
+- missing, unknown, or non-canonical persisted fields;
+- manifest, public-parameter, PRF, verifier-key, or NTRU identity mismatch;
+- a missing creation context, holder usage state, or verifier key;
+- a missing independently expected verification context;
+- a context mismatch or a repeated `(context, tag)` acceptance;
+- exhaustion of all 16 holder slots for one credential and context;
+- legacy DECS opening material or a mixed commitment role/salt;
+- BB-tran coefficients outside `{-1,0,1}` or an invalid inverse relation;
+- unavailable entropy, malformed keys, or exhausted bounded NTRU retries.
 
-## Runtime And Failure Modes
-
-Runtime varies by CPU and scheduler. The `n512` preset is normally a short
-smoke run. The BQ32 and WF-128 configurations are the slowest retained
-exact-byte runs.
-
-NTRU key generation is randomized and can internally retry if the numerical
-annulus sampler rejects a trial. The artifact uses a bounded retry budget and
-reports a setup error if all attempts fail. Rerunning the command is acceptable
-for that setup failure. The current NTRU preimage sampler uses Go's
-process-global `math/rand` source, so these artifact runs are reproducibility
-and proof-system measurements, not evidence for a complete-system deployment
-claim.
-
-To stress artifact NTRU key generation:
-
-```bash
-NTRU_STRESS_RUNS=20 ./scripts/stress-ntru-keygen.sh n1024-compact125
-```
+All live randomness, including NTRU key generation and preimage sampling, is
+obtained from `crypto/rand` or an explicitly injected `io.Reader`. Entropy
+failure is returned as an error; the implementation does not silently fall
+back to deterministic process-global randomness.

@@ -5,6 +5,7 @@ import (
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
+	"vSIS-Signature/credential"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -14,6 +15,9 @@ import (
 // commitment equation plus the deterministic semantic binding M=m||k.
 func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInputs, opts SimOpts) (*Proof, error) {
 	opts.applyDefaults()
+	if err := validateIntGenISISV2TranscriptOpts(opts); err != nil {
+		return nil, err
+	}
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -199,18 +203,27 @@ func VerifyIntGenISISPreSign(pub PublicInputs, proof *Proof, opts SimOpts) (bool
 	if proof == nil {
 		return false, fmt.Errorf("nil proof")
 	}
+	opts.applyDefaults()
 	pub.IntGenISIS = true
-	var err error
-	ringN := pub.RingDegree
-	if ringN == 0 && proof.RowLayout.RingDegree > 0 {
-		ringN = proof.RowLayout.RingDegree
+	if err := validateIntGenISISVerifierOptionsV2(pub, opts); err != nil {
+		return false, err
 	}
-	pub, err = bindIntGenISISPublicExtras(pub, ringN)
+	pub, err := bindIntGenISISPublicExtras(pub, pub.RingDegree)
 	if err != nil {
 		return false, err
 	}
-	opts.applyDefaults()
+	ringQ, err := credential.LoadRingWithDegree(pub.RingDegree)
+	if err != nil {
+		return false, err
+	}
+	expectedLayout, err := expectedIntGenISISPreSignLayoutV2(ringQ, pub, opts)
+	if err != nil {
+		return false, err
+	}
 	if err := validateIntGenISISProofDegreeMetadata(proof, pub, opts); err != nil {
+		return false, err
+	}
+	if err := validateIntGenISISProofEnvelopeV2(proof, expectedLayout, nil, pub, opts); err != nil {
 		return false, err
 	}
 	opts.Credential = true

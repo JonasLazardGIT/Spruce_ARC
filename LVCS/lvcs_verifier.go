@@ -19,16 +19,17 @@ type VerifierState struct {
 	points  []uint64
 	nLeaves int
 
-	Root     [16]byte
 	RootHash []byte
+	Context  decs.CommitmentContext
 	Gamma    [][]uint64
 	R        []*ring.Poly
 	RFormal  [][]uint64
 }
 
 const (
-	SmallField2025ModeV1       = "smallfield_2025_1085_v1"
-	SmallField2025HeadDomainV1 = "smallfield_head_v1"
+	SmallField2025MetadataVersionV2 = 2
+	SmallField2025ModeV2            = "smallfield_2025_1085_salted_tapes_v2"
+	SmallField2025HeadDomainV2      = "smallfield_head_v2"
 )
 
 type SmallField2025EvalMetadata struct {
@@ -67,27 +68,57 @@ type smallField2025ReconstructionPlan struct {
 	aInv     [][]uint64
 }
 
-func NewVerifierWithParamsAndPoints(ringQ *ring.Ring, r int, params decs.Params, ncols int, points []uint64) *VerifierState {
-	if len(points) == 0 {
-		panic("lvcs: explicit points are required")
+// NewVerifierWithParamsAndPointsV2 constructs a verifier bound to the same
+// public version/role/salt context as the prover. V2 verification requires a
+// full-width RootHash.
+func NewVerifierWithParamsAndPointsV2(ringQ *ring.Ring, r int, params decs.Params, ncols int, points []uint64, ctx decs.CommitmentContext) (*VerifierState, error) {
+	if err := ctx.Validate(); err != nil {
+		return nil, err
 	}
-	nLeaves := len(points)
-	v := &VerifierState{RingQ: ringQ, r: r, params: params, ncols: ncols, points: points, nLeaves: nLeaves}
+	if _, err := decs.NewVerifierWithParamsAndPointsV2Checked(ringQ, r, params, points, ctx); err != nil {
+		return nil, err
+	}
+	v := &VerifierState{
+		RingQ: ringQ, r: r, params: params, ncols: ncols,
+		points: append([]uint64(nil), points...), nLeaves: len(points),
+		Context: ctx,
+	}
+	v.Context.Salt = append([]byte(nil), ctx.Salt...)
 	v.layout = OracleLayout{
 		Witness: LayoutSegment{Offset: 0, Count: r},
 		Mask:    LayoutSegment{Offset: r, Count: 0},
 	}
-	return v
+	return v, nil
 }
 
 func (v *VerifierState) rootHashBytes() []byte {
 	if v == nil {
 		return nil
 	}
-	if len(v.RootHash) > 0 {
-		return v.RootHash
+	if len(v.RootHash) != v.params.HashBytes {
+		return nil
 	}
-	return v.Root[:]
+	return v.RootHash
+}
+
+func (v *VerifierState) newDECSVerifier() (*decs.Verifier, error) {
+	return decs.NewVerifierWithParamsAndPointsV2Checked(v.RingQ, v.r, v.params, v.points, v.Context)
+}
+
+func (v *VerifierState) verifyDECSFormal(open *decs.DECSOpening, indices []int) bool {
+	verifier, err := v.newDECSVerifier()
+	if err != nil {
+		return false
+	}
+	return verifier.VerifyEvalAtFormalHashV2(v.rootHashBytes(), v.Gamma, v.RFormal, open, indices)
+}
+
+func (v *VerifierState) verifyDECSRing(open *decs.DECSOpening, indices []int) bool {
+	verifier, err := v.newDECSVerifier()
+	if err != nil {
+		return false
+	}
+	return verifier.VerifyEvalAtHashV2(v.rootHashBytes(), v.Gamma, v.R, open, indices)
 }
 
 // AcceptGamma allows callers to inject an explicit Γ sampled via Fiat–Shamir grinding.
@@ -153,7 +184,7 @@ func (v *VerifierState) EvalStep2SmallField2025(in SmallField2025EvalInput) bool
 
 func (v *VerifierState) validateSmallField2025EvalInput(in SmallField2025EvalInput, debug bool) (*smallField2025ReconstructionPlan, bool) {
 	meta := in.Metadata
-	if meta.Version != 1 || meta.Mode != SmallField2025ModeV1 || meta.HeadDomainMode != SmallField2025HeadDomainV1 {
+	if meta.Version != SmallField2025MetadataVersionV2 || meta.Mode != SmallField2025ModeV2 || meta.HeadDomainMode != SmallField2025HeadDomainV2 {
 		if debug {
 			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] invalid smallfield2025 metadata version=%d mode=%q head=%q\n", meta.Version, meta.Mode, meta.HeadDomainMode)
 		}
@@ -342,18 +373,14 @@ func (v *VerifierState) evalStep2SmallField2025Core(in SmallField2025EvalInput, 
 		return false
 	}
 
-	decv, err := decs.NewVerifierWithParamsAndPointsChecked(v.RingQ, v.r, v.params, v.points)
-	if err != nil {
-		return false
-	}
 	if len(v.RFormal) > 0 {
-		if !decv.VerifyEvalAtFormalHash(v.rootHashBytes(), v.Gamma, v.RFormal, in.Opening, in.Tail) {
+		if !v.verifyDECSFormal(in.Opening, in.Tail) {
 			if debug {
 				fmt.Println("[LVCS_DEBUG_EVALSTEP2] smallfield2025 VerifyEvalAtFormal(tail) rejected")
 			}
 			return false
 		}
-	} else if !decv.VerifyEvalAtHash(v.rootHashBytes(), v.Gamma, v.R, in.Opening, in.Tail) {
+	} else if !v.verifyDECSRing(in.Opening, in.Tail) {
 		if debug {
 			fmt.Println("[LVCS_DEBUG_EVALSTEP2] smallfield2025 VerifyEvalAt(tail) rejected")
 		}
@@ -569,31 +596,38 @@ func (v *VerifierState) evalStep2Core(
 		return false
 	}
 	maskOpen := &decs.DECSOpening{
-		Indices:    make([]int, 0, ell),
-		Pvals:      make([][]uint64, 0, ell),
-		Mvals:      make([][]uint64, 0, ell),
-		Nodes:      open.Nodes,
-		PathIndex:  make([][]int, 0, ell),
-		NonceSeed:  append([]byte(nil), open.NonceSeed...),
-		NonceBytes: open.NonceBytes,
-		R:          open.R,
-		Eta:        open.Eta,
+		Version:   open.Version,
+		Role:      open.Role,
+		Indices:   make([]int, 0, ell),
+		Pvals:     make([][]uint64, 0, ell),
+		Mvals:     make([][]uint64, 0, ell),
+		Nodes:     open.Nodes,
+		PathIndex: make([][]int, 0, ell),
+		Tapes:     make([][]byte, 0, ell),
+		TapeBytes: open.TapeBytes,
+		R:         open.R,
+		Eta:       open.Eta,
 	}
 	tailOpen := &decs.DECSOpening{
-		Indices:    make([]int, 0, len(E)),
-		Pvals:      make([][]uint64, 0, len(E)),
-		Mvals:      make([][]uint64, 0, len(E)),
-		Nodes:      open.Nodes,
-		PathIndex:  make([][]int, 0, len(E)),
-		NonceSeed:  append([]byte(nil), open.NonceSeed...),
-		NonceBytes: open.NonceBytes,
-		R:          open.R,
-		Eta:        open.Eta,
+		Version:   open.Version,
+		Role:      open.Role,
+		Indices:   make([]int, 0, len(E)),
+		Pvals:     make([][]uint64, 0, len(E)),
+		Mvals:     make([][]uint64, 0, len(E)),
+		Nodes:     open.Nodes,
+		PathIndex: make([][]int, 0, len(E)),
+		Tapes:     make([][]byte, 0, len(E)),
+		TapeBytes: open.TapeBytes,
+		R:         open.R,
+		Eta:       open.Eta,
 	}
 	maskSeen := make(map[int]struct{}, ell)
 	tailSeenOpen := make(map[int]struct{}, len(E))
 	allIdx := open.AllIndices()
 	for i, idx := range allIdx {
+		if i >= len(open.Tapes) || len(open.Tapes[i]) != open.TapeBytes {
+			return false
+		}
 		pathRow, ok := openingPathRowForSplit(open, i)
 		if !ok {
 			return false
@@ -608,6 +642,7 @@ func (v *VerifierState) evalStep2Core(
 			maskOpen.Pvals = append(maskOpen.Pvals, open.Pvals[i])
 			maskOpen.Mvals = append(maskOpen.Mvals, open.Mvals[i])
 			maskOpen.PathIndex = append(maskOpen.PathIndex, pathRow)
+			maskOpen.Tapes = append(maskOpen.Tapes, append([]byte(nil), open.Tapes[i]...))
 		case idx >= maskEnd && idx < N:
 			if _, dup := tailSeenOpen[idx]; dup {
 				return false
@@ -617,6 +652,7 @@ func (v *VerifierState) evalStep2Core(
 			tailOpen.Pvals = append(tailOpen.Pvals, open.Pvals[i])
 			tailOpen.Mvals = append(tailOpen.Mvals, open.Mvals[i])
 			tailOpen.PathIndex = append(tailOpen.PathIndex, pathRow)
+			tailOpen.Tapes = append(tailOpen.Tapes, append([]byte(nil), open.Tapes[i]...))
 		default:
 			return false
 		}
@@ -647,35 +683,31 @@ func (v *VerifierState) evalStep2Core(
 		return false
 	}
 
-	decv, err := decs.NewVerifierWithParamsAndPointsChecked(v.RingQ, v.r, v.params, v.points)
-	if err != nil {
-		return false
-	}
 	maskIdx := make([]int, ell)
 	for i := 0; i < ell; i++ {
 		maskIdx[i] = ncols + i
 	}
 	if len(v.RFormal) > 0 {
-		if !decv.VerifyEvalAtFormalHash(v.rootHashBytes(), v.Gamma, v.RFormal, maskOpen, maskIdx) {
+		if !v.verifyDECSFormal(maskOpen, maskIdx) {
 			if debug {
 				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAtFormal(mask) rejected")
 			}
 			return false
 		}
-		if !decv.VerifyEvalAtFormalHash(v.rootHashBytes(), v.Gamma, v.RFormal, tailOpen, E) {
+		if !v.verifyDECSFormal(tailOpen, E) {
 			if debug {
 				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAtFormal(tail) rejected")
 			}
 			return false
 		}
 	} else {
-		if !decv.VerifyEvalAtHash(v.rootHashBytes(), v.Gamma, v.R, maskOpen, maskIdx) {
+		if !v.verifyDECSRing(maskOpen, maskIdx) {
 			if debug {
 				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAt(mask) rejected")
 			}
 			return false
 		}
-		if !decv.VerifyEvalAtHash(v.rootHashBytes(), v.Gamma, v.R, tailOpen, E) {
+		if !v.verifyDECSRing(tailOpen, E) {
 			if debug {
 				fmt.Println("[LVCS_DEBUG_EVALSTEP2] VerifyEvalAt(tail) rejected")
 			}

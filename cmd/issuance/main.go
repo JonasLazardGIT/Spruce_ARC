@@ -31,6 +31,21 @@ func intGenISISPresetHelp() string {
 	return strings.Join(credential.IntGenISISDefaultPresetNames(), ", ")
 }
 
+func intGenISISV2ArtifactDir(preset credential.IntGenISISPreset) string {
+	return filepath.Join("artifacts", "smallwood-salted-v2", preset.CanonicalID)
+}
+
+func requiredIntGenISISCLIPreset(selector string) (credential.IntGenISISPreset, error) {
+	selected, err := credential.ResolveIntGenISISPresetSelector(selector, false)
+	if err != nil {
+		return credential.IntGenISISPreset{}, err
+	}
+	if selected == "" {
+		return credential.IntGenISISPreset{}, fmt.Errorf("missing -preset (available: %s)", intGenISISPresetHelp())
+	}
+	return credential.MustLookupIntGenISISPreset(selected)
+}
+
 func usage() {
 	fmt.Println(`usage: issuance <command> [options]
 
@@ -233,7 +248,7 @@ func runSetupIntGenISISPublic(args []string) error {
 	}
 	warnIntGenISISPreset(preset)
 	if strings.TrimSpace(*outPath) == "" {
-		*outPath = filepath.Join("internal", "source_data", fmt.Sprintf("credential_public.%s.json", preset.Profile))
+		*outPath = filepath.Join(intGenISISV2ArtifactDir(preset), fmt.Sprintf("credential_public.%s.json", preset.Profile))
 	}
 	profile, ok := credential.LookupIntGenISISProfile(preset.Profile)
 	if !ok {
@@ -269,16 +284,26 @@ func runSetupNTRUKeys(args []string) error {
 	if !ok {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", preset.Profile)
 	}
+	artifactDir := intGenISISV2ArtifactDir(preset)
+	if *paramsOut == "" {
+		*paramsOut = filepath.Join(artifactDir, "ntru_params.json")
+	}
+	if *publicOut == "" {
+		*publicOut = filepath.Join(artifactDir, "ntru_public.json")
+	}
+	if *privateOut == "" {
+		*privateOut = filepath.Join(artifactDir, "ntru_private.json")
+	}
 	return setupNTRUKeys(profile.N, *paramsOut, *publicOut, *privateOut, *force, 10000, defaultNTRUKeygenAttempts, preset.NTRUBeta)
 }
 
 func runHolderCommit(args []string) error {
 	fs := flag.NewFlagSet("holder-commit", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	publicPath := fs.String("public-params", credentialPublicPathDefault(), "credential public params path")
+	publicPath := fs.String("public-params", "", "credential public params path; defaults beneath the selected v2 artifact directory")
 	prfPath := fs.String("prf-params", defaultPRFParamsPath, "PRF params path")
-	holderSecretPath := fs.String("holder-secret", defaultHolderSecretPath, "holder secret artifact path")
-	commitRequestPath := fs.String("commit-request", defaultCommitRequestPath, "commit request artifact path")
+	holderSecretPath := fs.String("holder-secret", "", "holder secret artifact path")
+	commitRequestPath := fs.String("commit-request", "", "commit request artifact path")
 	presetName := fs.String("preset", "", "named IntGenISIS issuance preset: "+intGenISISPresetHelp())
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -295,8 +320,15 @@ func runHolderCommit(args []string) error {
 		return err
 	}
 	warnIntGenISISPreset(preset)
-	if *publicPath == credentialPublicPathDefault() && preset.Profile != credential.ProfileIntGenISISB {
-		*publicPath = filepath.Join("internal", "source_data", fmt.Sprintf("credential_public.%s.json", preset.Profile))
+	artifactDir := intGenISISV2ArtifactDir(preset)
+	if *publicPath == "" {
+		*publicPath = filepath.Join(artifactDir, fmt.Sprintf("credential_public.%s.json", preset.Profile))
+	}
+	if *holderSecretPath == "" {
+		*holderSecretPath = filepath.Join(artifactDir, "holder_secret.json")
+	}
+	if *commitRequestPath == "" {
+		*commitRequestPath = filepath.Join(artifactDir, "commit_request.json")
 	}
 	publicParams, err := credential.LoadPublicParams(*publicPath)
 	if err != nil {
@@ -319,10 +351,22 @@ func runHolderCommit(args []string) error {
 func runHolderProve(args []string) error {
 	fs := flag.NewFlagSet("holder-prove", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	holderSecretPath := fs.String("holder-secret", defaultHolderSecretPath, "holder secret artifact path")
-	submissionPath := fs.String("presign-submission", defaultPreSignSubmissionPath, "pre-sign submission artifact path")
+	holderSecretPath := fs.String("holder-secret", "", "holder secret artifact path")
+	submissionPath := fs.String("presign-submission", "", "pre-sign submission artifact path")
+	presetName := fs.String("preset", "", "named IntGenISIS issuance preset: "+intGenISISPresetHelp())
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	preset, err := requiredIntGenISISCLIPreset(*presetName)
+	if err != nil {
+		return err
+	}
+	artifactDir := intGenISISV2ArtifactDir(preset)
+	if *holderSecretPath == "" {
+		*holderSecretPath = filepath.Join(artifactDir, "holder_secret.json")
+	}
+	if *submissionPath == "" {
+		*submissionPath = filepath.Join(artifactDir, "presign_submission.json")
 	}
 	return holderProve(*holderSecretPath, "", *submissionPath)
 }
@@ -330,17 +374,47 @@ func runHolderProve(args []string) error {
 func runIssuerVerifySign(args []string) error {
 	fs := flag.NewFlagSet("issuer-verify-sign", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	commitRequestPath := fs.String("commit-request", defaultCommitRequestPath, "commit request artifact path")
-	submissionPath := fs.String("presign-submission", defaultPreSignSubmissionPath, "pre-sign submission artifact path")
-	responsePath := fs.String("issue-response", defaultIssueResponsePath, "issuer response artifact path")
+	commitRequestPath := fs.String("commit-request", "", "commit request artifact path")
+	submissionPath := fs.String("presign-submission", "", "pre-sign submission artifact path")
+	responsePath := fs.String("issue-response", "", "issuer response artifact path")
 	maxTrials := fs.Int("max-trials", 2048, "maximum NTRU signer trials")
-	ntruParamsPath := fs.String("ntru-params", defaultNTRUParamsPath, "NTRU params path used for signature beta bound")
-	ntruPublicPath := fs.String("ntru-public-key", defaultNTRUPublicKeyPath, "NTRU public key path")
-	ntruPrivatePath := fs.String("ntru-private-key", defaultNTRUPrivateKeyPath, "NTRU private key path")
+	ntruParamsPath := fs.String("ntru-params", "", "NTRU params path used for signature beta bound")
+	ntruPublicPath := fs.String("ntru-public-key", "", "NTRU public key path")
+	ntruPrivatePath := fs.String("ntru-private-key", "", "NTRU private key path")
 	ntruSignaturePath := fs.String("ntru-signature-out", "", "optional issuer-side NTRU signature artifact path")
-	verifierKeyOut := fs.String("verifier-key-out", "", "optional IntGenISIS public verifier key artifact path")
+	verifierKeyOut := fs.String("verifier-key-out", "", "IntGenISIS public verifier key artifact path")
+	presetName := fs.String("preset", "", "named IntGenISIS issuance preset: "+intGenISISPresetHelp())
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	preset, err := requiredIntGenISISCLIPreset(*presetName)
+	if err != nil {
+		return err
+	}
+	artifactDir := intGenISISV2ArtifactDir(preset)
+	if *commitRequestPath == "" {
+		*commitRequestPath = filepath.Join(artifactDir, "commit_request.json")
+	}
+	if *submissionPath == "" {
+		*submissionPath = filepath.Join(artifactDir, "presign_submission.json")
+	}
+	if *responsePath == "" {
+		*responsePath = filepath.Join(artifactDir, "issue_response.json")
+	}
+	if *ntruParamsPath == "" {
+		*ntruParamsPath = filepath.Join(artifactDir, "ntru_params.json")
+	}
+	if *ntruPublicPath == "" {
+		*ntruPublicPath = filepath.Join(artifactDir, "ntru_public.json")
+	}
+	if *ntruPrivatePath == "" {
+		*ntruPrivatePath = filepath.Join(artifactDir, "ntru_private.json")
+	}
+	if *ntruSignaturePath == "" {
+		*ntruSignaturePath = filepath.Join(artifactDir, "ntru_signature.json")
+	}
+	if *verifierKeyOut == "" {
+		*verifierKeyOut = filepath.Join(artifactDir, "intgenisis_verifier_key.json")
 	}
 	return issuerVerifySign(*commitRequestPath, "", *submissionPath, *responsePath, *maxTrials, ntruSigningPaths(*ntruParamsPath, *ntruPublicPath, *ntruPrivatePath, *ntruSignaturePath), *verifierKeyOut)
 }
@@ -348,14 +422,42 @@ func runIssuerVerifySign(args []string) error {
 func runHolderFinalize(args []string) error {
 	fs := flag.NewFlagSet("holder-finalize", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	holderSecretPath := fs.String("holder-secret", defaultHolderSecretPath, "holder secret artifact path")
-	commitRequestPath := fs.String("commit-request", defaultCommitRequestPath, "commit request artifact path")
-	responsePath := fs.String("issue-response", defaultIssueResponsePath, "issuer response artifact path")
-	statePath := fs.String("state-out", defaultCredentialStatePath, "final credential state path")
-	signaturePath := fs.String("signature-out", defaultCredentialSignaturePath, "final signature artifact path")
-	ntruParamsPath := fs.String("ntru-params", defaultNTRUParamsPath, "NTRU params path used when verifying seeded signature bundles")
+	holderSecretPath := fs.String("holder-secret", "", "holder secret artifact path")
+	commitRequestPath := fs.String("commit-request", "", "commit request artifact path")
+	responsePath := fs.String("issue-response", "", "issuer response artifact path")
+	statePath := fs.String("state-out", "", "final credential state path")
+	signaturePath := fs.String("signature-out", "", "final signature artifact path")
+	ntruParamsPath := fs.String("ntru-params", "", "NTRU params path used when verifying signature bundles")
+	verifierKeyPath := fs.String("verifier-key", "", "trusted IntGenISIS v2 verifier key used to bind the issuer NTRU row")
+	presetName := fs.String("preset", "", "named IntGenISIS issuance preset: "+intGenISISPresetHelp())
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return holderFinalize(*holderSecretPath, *commitRequestPath, "", *responsePath, *statePath, *signaturePath, *ntruParamsPath)
+	preset, err := requiredIntGenISISCLIPreset(*presetName)
+	if err != nil {
+		return err
+	}
+	artifactDir := intGenISISV2ArtifactDir(preset)
+	if *holderSecretPath == "" {
+		*holderSecretPath = filepath.Join(artifactDir, "holder_secret.json")
+	}
+	if *commitRequestPath == "" {
+		*commitRequestPath = filepath.Join(artifactDir, "commit_request.json")
+	}
+	if *responsePath == "" {
+		*responsePath = filepath.Join(artifactDir, "issue_response.json")
+	}
+	if *statePath == "" {
+		*statePath = filepath.Join(artifactDir, "credential_state.intgenisis.json")
+	}
+	if *signaturePath == "" {
+		*signaturePath = filepath.Join(artifactDir, "credential_signature.json")
+	}
+	if *ntruParamsPath == "" {
+		*ntruParamsPath = filepath.Join(artifactDir, "ntru_params.json")
+	}
+	if *verifierKeyPath == "" {
+		*verifierKeyPath = filepath.Join(artifactDir, "intgenisis_verifier_key.json")
+	}
+	return holderFinalize(*holderSecretPath, *commitRequestPath, "", *responsePath, *statePath, *signaturePath, *ntruParamsPath, *verifierKeyPath)
 }

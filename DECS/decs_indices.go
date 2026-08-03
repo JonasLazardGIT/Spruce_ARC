@@ -156,41 +156,38 @@ func unpackIndexAtWidth(bits []byte, pos int, width int) (int, bool) {
 	if width > 63 {
 		width = 63
 	}
+	maxInt := int(^uint(0) >> 1)
+	if pos > maxInt/width {
+		return 0, false
+	}
 	bitPos := pos * width
-	bytePos := bitPos >> 3
-	if bytePos >= len(bits) {
+	if bitPos > maxInt-width || bitPos+width > len(bits)*8 {
 		return 0, false
 	}
-	shift := uint(bitPos & 7)
-	var chunk uint64
-	bytesNeeded := (width + int(shift) + 7) / 8
-	for i := 0; i < bytesNeeded && (bytePos+i) < len(bits); i++ {
-		chunk |= uint64(bits[bytePos+i]) << (8 * i)
+	var raw uint64
+	for i := 0; i < width; i++ {
+		absoluteBit := bitPos + i
+		if bits[absoluteBit>>3]&(1<<uint(absoluteBit&7)) != 0 {
+			raw |= uint64(1) << uint(i)
+		}
 	}
-	chunk >>= shift
-	var mask uint64
-	if width >= 64 {
-		mask = ^uint64(0)
-	} else {
-		mask = (uint64(1) << uint(width)) - 1
-	}
-	value := int(chunk & mask)
-	if bytePos*8+int(shift)+width > len(bits)*8 {
+	if raw > uint64(^uint(0)>>1) {
 		return 0, false
 	}
-	return value, true
+	return int(raw), true
 }
 
 func packIndexUintAt(out []byte, bitPos, width int, val uint64) {
 	if width <= 0 {
 		return
 	}
-	bytePos := bitPos >> 3
-	shift := uint(bitPos & 7)
-	chunk := val << shift
-	bytesNeeded := (width + int(shift) + 7) / 8
-	for i := 0; i < bytesNeeded && (bytePos+i) < len(out); i++ {
-		out[bytePos+i] |= byte(chunk & 0xFF)
-		chunk >>= 8
+	for i := 0; i < width; i++ {
+		absoluteBit := bitPos + i
+		if absoluteBit < 0 || absoluteBit >= len(out)*8 {
+			return
+		}
+		if val&(uint64(1)<<uint(i)) != 0 {
+			out[absoluteBit>>3] |= 1 << uint(absoluteBit&7)
+		}
 	}
 }

@@ -41,18 +41,6 @@ func BuildPublicLabels(pub PublicInputs) []PublicLabel {
 		}
 		labels = append(labels, PublicLabel{Name: name, Data: b})
 	}
-	appendInt64Slices := func(name string, slices [][]int64) {
-		if len(slices) == 0 {
-			return
-		}
-		buf := new(bytes.Buffer)
-		for _, vals := range slices {
-			for _, v := range vals {
-				_ = binary.Write(buf, binary.LittleEndian, uint64(v))
-			}
-		}
-		labels = append(labels, PublicLabel{Name: name, Data: buf.Bytes()})
-	}
 	appendString := func(name, v string) {
 		if v == "" {
 			return
@@ -82,6 +70,9 @@ func BuildPublicLabels(pub PublicInputs) []PublicLabel {
 		}
 		if pub.BoundB != 0 {
 			appendInt("IntGenISIS.B", int(pub.BoundB))
+		}
+		if pub.HashInputBound != 0 {
+			appendInt("IntGenISIS.hash_input_bound", int(pub.HashInputBound))
 		}
 	}
 	if len(pub.Com) > 0 {
@@ -128,10 +119,13 @@ func BuildPublicLabels(pub PublicInputs) []PublicLabel {
 		appendInt64("T", pub.T)
 	}
 	if len(pub.Tag) > 0 {
-		appendInt64Slices("Tag", pub.Tag)
+		appendInt64("Tag", pub.Tag)
 	}
-	if len(pub.Nonce) > 0 {
-		appendInt64Slices("Nonce", pub.Nonce)
+	if len(pub.Context) > 0 {
+		appendInt64("Context", pub.Context)
+	}
+	if len(pub.ContextDigest) > 0 {
+		labels = append(labels, PublicLabel{Name: "ContextDigest", Data: append([]byte(nil), pub.ContextDigest...)})
 	}
 	appendString("HashRelation", pub.HashRelation)
 	if len(pub.Extras) > 0 {

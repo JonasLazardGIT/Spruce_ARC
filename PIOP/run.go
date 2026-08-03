@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 
@@ -18,8 +19,9 @@ import (
 
 const (
 	CoeffNativeSigModelLiteralPackedAggregatedV3 = "literal_packed_aggregated_v3"
-	TranscriptProtocolSmallField2025V1           = "smallfield_2025_1085_v1"
-	TranscriptVersionSmallWood2025               = "smallwood_2025_1085_v1"
+	TranscriptProtocolSmallField2025V2           = "smallfield_2025_1085_salted_tapes_v2"
+	TranscriptVersionSmallWood2025V2             = decs.TranscriptVersionV2
+	ProofSchemaVersionV2                         = 2
 )
 
 const (
@@ -76,29 +78,15 @@ func normalizeShowingReplayMode(mode ShowingReplayMode) ShowingReplayMode {
 }
 
 func normalizeTranscriptProtocolMode(mode string) string {
-	switch strings.TrimSpace(mode) {
-	case "":
-		return ""
-	case TranscriptProtocolSmallField2025V1, "smallfield-2025-1085-v1", "smallfield_2025", "smallfield-2025":
-		return TranscriptProtocolSmallField2025V1
-	default:
-		return strings.TrimSpace(mode)
-	}
+	return strings.TrimSpace(mode)
 }
 
 func normalizeTranscriptVersion(version string) string {
-	switch strings.TrimSpace(version) {
-	case "", "legacy":
-		return ""
-	case TranscriptVersionSmallWood2025, "smallwood-2025-1085-v1", "2025-1085", "paper":
-		return TranscriptVersionSmallWood2025
-	default:
-		return strings.TrimSpace(version)
-	}
+	return strings.TrimSpace(version)
 }
 
 func proofUsesPaperQPayloadOnly(proof *Proof) bool {
-	return proof != nil && normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025
+	return proof != nil && normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025V2
 }
 
 func proofHasLegacyQDECS(proof *Proof) bool {
@@ -477,8 +465,9 @@ type SimOpts struct {
 	// TranscriptCodec selects exact serialization codecs that do not change the
 	// algebraic relation. Empty keeps the historical transcript encoding.
 	TranscriptCodec string
-	// TranscriptOmissionMode selects internal, verifier-bound paper transcript
-	// omission models. Empty keeps all payload buckets explicit.
+	// TranscriptOmissionMode selects the verifier-bound paper transcript
+	// omission descriptor. The live v2 tuple resolves an empty value to the
+	// mandatory digest-bound v2 descriptor.
 	TranscriptOmissionMode string
 	// TranscriptProtocolMode selects transcript-shape protocol changes. Empty
 	// keeps the historical dense replay protocol.
@@ -708,6 +697,11 @@ func (o *SimOpts) applyDefaults() {
 	o.ShowingReplayMode = normalizeShowingReplayMode(o.ShowingReplayMode)
 	o.TranscriptProtocolMode = normalizeTranscriptProtocolMode(o.TranscriptProtocolMode)
 	o.TranscriptVersion = normalizeTranscriptVersion(o.TranscriptVersion)
+	if o.TranscriptProtocolMode == TranscriptProtocolSmallField2025V2 &&
+		o.TranscriptVersion == TranscriptVersionSmallWood2025V2 &&
+		o.TranscriptOmissionMode == "" {
+		o.TranscriptOmissionMode = SmallField2025TranscriptOmissionModeDigestBoundV2
+	}
 	if o.DomainMode != DomainModeExplicit {
 		o.DomainMode = DomainModeExplicit
 	}
@@ -928,8 +922,9 @@ type KPolySnapshot struct {
 // Proof captures the transcript material emitted by the prover following the
 // nine-round SmallWood–ARK flow.
 type Proof struct {
-	Root                   [16]byte
-	RootHash               []byte `json:"root_hash,omitempty"`
+	SchemaVersion          int      `json:"schema_version"`
+	Root                   [16]byte `json:"-"`
+	RootHash               []byte   `json:"root_hash,omitempty"`
 	RingDegree             int
 	HashRelation           string
 	TranscriptVersion      string
@@ -965,9 +960,10 @@ type Proof struct {
 	GammaAgg               [][]uint64
 	R                      [][]uint64
 	// Q material. Legacy proofs carry a redundant Q DECS commitment/opening here;
-	// smallwood_2025_1085_v1 proofs carry the paper-shaped QPayload only.
-	QRoot            [16]byte
-	QRootHash        []byte `json:"q_root_hash,omitempty"`
+	// smallwood_2025_1085_salted_decs_v2 proofs carry the paper-shaped
+	// QPayload only.
+	QRoot            [16]byte `json:"-"`
+	QRootHash        []byte   `json:"q_root_hash,omitempty"`
 	QR               [][]uint64
 	QRBits           []byte
 	QRRows           int
@@ -1637,6 +1633,9 @@ func cloneDECSOpening(op *decs.DECSOpening) *decs.DECSOpening {
 		return nil
 	}
 	clone := &decs.DECSOpening{
+		Version:        op.Version,
+		Role:           op.Role,
+		TapeBytes:      op.TapeBytes,
 		FormatVersion:  op.FormatVersion,
 		PColsEncoded:   op.PColsEncoded,
 		POmitCols:      append([]int(nil), op.POmitCols...),
@@ -1655,10 +1654,6 @@ func cloneDECSOpening(op *decs.DECSOpening) *decs.DECSOpening {
 	// copy metadata and packed buffers if present
 	clone.R = op.R
 	clone.Eta = op.Eta
-	clone.NonceBytes = op.NonceBytes
-	if len(op.NonceSeed) > 0 {
-		clone.NonceSeed = append([]byte(nil), op.NonceSeed...)
-	}
 	if op.PvalsBits != nil {
 		clone.PvalsBits = append([]byte(nil), op.PvalsBits...)
 	}
@@ -1702,10 +1697,10 @@ func cloneDECSOpening(op *decs.DECSOpening) *decs.DECSOpening {
 	}
 	clone.PathBitWidth = op.PathBitWidth
 	clone.PathDepth = op.PathDepth
-	if len(op.Nonces) > 0 {
-		clone.Nonces = make([][]byte, len(op.Nonces))
-		for i := range op.Nonces {
-			clone.Nonces[i] = append([]byte(nil), op.Nonces[i]...)
+	if len(op.Tapes) > 0 {
+		clone.Tapes = make([][]byte, len(op.Tapes))
+		for i := range op.Tapes {
+			clone.Tapes[i] = append([]byte(nil), op.Tapes[i]...)
 		}
 	}
 	return clone
@@ -2033,6 +2028,7 @@ func sampleDistinctIndices(start, length, count int, rng *fsRNG) []int {
 		seen[candidate] = struct{}{}
 		res = append(res, candidate)
 	}
+	sort.Ints(res)
 	return res
 }
 
@@ -2260,7 +2256,7 @@ func computeSoundnessBudget(
 	rowsBlock := ceilDiv(witnessRows, ncolsLVCS)
 	sb.NRows = rowsBlock * (sWitness + o.Theta)
 	if o.Theta > 1 {
-		// smallfield_matrix_v1 commits:
+		// smallfield_matrix_v2 commits:
 		// - rowsBlock witness blocks of size (s + theta),
 		// - rho masks, each chunked into floor(dQ/ncols)+1 coefficient blocks,
 		// - ell' coefficient matrices of size rowsBlock*theta for K-point replay.
@@ -2304,6 +2300,12 @@ func sizeDECSOpening(open *decs.DECSOpening) int {
 		return 0
 	}
 	sum := 0
+	if open.Version != 0 {
+		sum += 2
+	}
+	if open.Role != "" {
+		sum += varintSize(len(open.Role)) + len(open.Role)
+	}
 	if open.FormatVersion != 0 {
 		sum += 1
 	}
@@ -2371,15 +2373,11 @@ func sizeDECSOpening(open *decs.DECSOpening) int {
 			sum += len(pi) * 4
 		}
 	}
-	if len(open.Nonces) > 0 {
-		for _, nonce := range open.Nonces {
-			sum += len(nonce)
-		}
-	} else if len(open.NonceSeed) > 0 {
-		sum += len(open.NonceSeed)
+	for _, tape := range open.Tapes {
+		sum += len(tape)
 	}
-	if open.NonceBytes > 0 {
-		sum += varintSize(open.NonceBytes)
+	if open.TapeBytes > 0 {
+		sum += varintSize(open.TapeBytes)
 	}
 	return sum
 }
@@ -2529,92 +2527,6 @@ func MeasureProofSize(proof *Proof) ProofSizeReport {
 		copyParts[k] = v
 	}
 	return ProofSizeReport{Total: total, Parts: copyParts}
-}
-
-func combineOpenings(mask, tail *decs.DECSOpening) *decs.DECSOpening {
-	combined := &decs.DECSOpening{}
-	nodeMap := make(map[string]int)
-	addNode := func(b []byte) int {
-		key := string(b)
-		if id, ok := nodeMap[key]; ok {
-			return id
-		}
-		id := len(combined.Nodes)
-		combined.Nodes = append(combined.Nodes, append([]byte(nil), b...))
-		nodeMap[key] = id
-		return id
-	}
-	// helper to append per-entry data and remap path indices
-	appendOpen := func(src *decs.DECSOpening, storeIndices bool) {
-		if src == nil {
-			return
-		}
-		for _, b := range src.Nodes {
-			_ = addNode(b)
-		}
-		for _, row := range src.Pvals {
-			combined.Pvals = append(combined.Pvals, append([]uint64(nil), row...))
-		}
-		for _, row := range src.Mvals {
-			combined.Mvals = append(combined.Mvals, append([]uint64(nil), row...))
-		}
-		for _, pi := range src.PathIndex {
-			mapped := make([]int, len(pi))
-			for i, id := range pi {
-				if id < 0 || id >= len(src.Nodes) {
-					mapped[i] = -1
-					continue
-				}
-				mapped[i] = addNode(src.Nodes[id])
-			}
-			combined.PathIndex = append(combined.PathIndex, mapped)
-		}
-		if storeIndices {
-			combined.Indices = append(combined.Indices, src.AllIndices()...)
-		}
-	}
-
-	if mask != nil {
-		maskIndices := mask.AllIndices()
-		if len(maskIndices) > 0 {
-			base := maskIndices[0]
-			for i := 1; i < len(maskIndices); i++ {
-				if maskIndices[i] != base+i {
-					panic("mask indices not contiguous")
-				}
-			}
-			combined.MaskBase = base
-			combined.MaskCount = len(maskIndices)
-		}
-		combined.R = mask.R
-		combined.Eta = mask.Eta
-		if len(combined.NonceSeed) == 0 && len(mask.NonceSeed) > 0 {
-			combined.NonceSeed = append([]byte(nil), mask.NonceSeed...)
-			combined.NonceBytes = mask.NonceBytes
-		}
-		appendOpen(mask, false)
-	}
-	if tail != nil {
-		if combined.R == 0 {
-			combined.R = tail.R
-		}
-		if combined.Eta == 0 {
-			combined.Eta = tail.Eta
-		}
-		if len(tail.NonceSeed) > 0 {
-			if len(combined.NonceSeed) == 0 {
-				combined.NonceSeed = append([]byte(nil), tail.NonceSeed...)
-				combined.NonceBytes = tail.NonceBytes
-			} else if !bytes.Equal(combined.NonceSeed, tail.NonceSeed) {
-				panic("tail opening nonce seed mismatch")
-			}
-		}
-		appendOpen(tail, true)
-	}
-	if len(combined.PathIndex) > 0 && len(combined.PathIndex[0]) > 0 {
-		combined.PathDepth = len(combined.PathIndex[0])
-	}
-	return combined
 }
 
 func buildKPointCoeffMatrix(

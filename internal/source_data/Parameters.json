@@ -1,7 +1,9 @@
 {
-  "beta": 6142,
-  "bound": 6142,
-  "k": 20,
+  "version": "ntru-params-v2",
+  "params_digest": "ed0f664ac23b2a5aab2d528bd93c8a1daa605b3b9aa9298fba139920c3538149",
   "n": 1024,
-  "q": 1017857
+  "q": 1017857,
+  "k": 20,
+  "beta": 6142,
+  "bound": 6142
 }

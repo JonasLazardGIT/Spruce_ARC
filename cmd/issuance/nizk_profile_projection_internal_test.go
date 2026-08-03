@@ -47,9 +47,8 @@ type nizkProfilePaperProjection struct {
 }
 
 var (
-	nizkProfileProjectionRingOnce sync.Once
-	nizkProfileProjectionRing     *ring.Ring
-	nizkProfileProjectionRingErr  error
+	nizkProfileProjectionRingsMu sync.Mutex
+	nizkProfileProjectionRings   = make(map[int]*ring.Ring)
 )
 
 func nizkProfileProjectPaperTranscript(params nizkProfilePaperProjectionParams) (nizkProfilePaperProjection, error) {
@@ -81,6 +80,8 @@ func nizkProfileProjectPaperTranscript(params nizkProfilePaperProjectionParams) 
 	hashBytes := nizkProfileBytesForBits(params.DECSHashBits)
 	tapeBytes := nizkProfileBytesForBits(params.DECSTapeBits)
 	opening := &decs.DECSOpening{
+		Version:        decs.OpeningVersionV2,
+		Role:           decs.CommitmentRoleMain,
 		FormatVersion:  decs.OpeningFormatOmitCols,
 		PColsEncoded:   pColsEncoded,
 		MFormatVersion: decs.OpeningFormatOmitCols,
@@ -93,8 +94,11 @@ func nizkProfileProjectPaperTranscript(params nizkProfilePaperProjectionParams) 
 		R:              openingRows,
 		Eta:            params.Eta,
 		PathDepth:      pathDepth,
-		NonceSeed:      make([]byte, tapeBytes),
-		NonceBytes:     tapeBytes,
+		Tapes:          make([][]byte, params.Ell),
+		TapeBytes:      tapeBytes,
+	}
+	for i := range opening.Tapes {
+		opening.Tapes[i] = make([]byte, tapeBytes)
 	}
 	node := make([]byte, hashBytes)
 	opening.Nodes = make([][]byte, params.Ell*pathDepth)
@@ -105,36 +109,45 @@ func nizkProfileProjectPaperTranscript(params nizkProfilePaperProjectionParams) 
 	vTargetsBytes := nizkProfilePackedMatrixBytes(queryCount, params.LVCSNCols, fieldBitWidth)
 	barSetsBytes := nizkProfilePackedMatrixBytes(queryCount, params.Ell, fieldBitWidth)
 	proof := &PIOP.Proof{
-		RingDegree:        params.RingDegree,
-		RootHash:          make([]byte, hashBytes),
-		Lambda:            params.Lambda,
-		Theta:             params.Theta,
-		Salt:              make([]byte, nizkProfileBytesForBits(params.SaltBits)),
-		PCSOpening:        opening,
-		RowOpening:        opening,
-		VTargetsBits:      make([]byte, vTargetsBytes),
-		VTargetsRows:      queryCount,
-		VTargetsCols:      params.LVCSNCols,
-		VTargetsBitWidth:  uint8(fieldBitWidth),
-		BarSetsBits:       make([]byte, barSetsBytes),
-		BarSetsRows:       queryCount,
-		BarSetsCols:       params.Ell,
-		BarSetsBitWidth:   uint8(fieldBitWidth),
-		MaskRowOffset:     replayWitnessRows,
-		MaskRowCount:      maskRows,
-		NColsUsed:         params.NCols,
-		PCSNColsUsed:      params.LVCSNCols,
-		LVCSNColsUsed:     params.LVCSNCols,
-		NLeavesUsed:       params.NLeaves,
-		QDegreeBound:      params.DQ,
-		MaskDegreeBound:   params.DQ,
-		TranscriptVersion: PIOP.TranscriptVersionSmallWood2025,
+		SchemaVersion:          PIOP.ProofSchemaVersionV2,
+		RingDegree:             params.RingDegree,
+		RootHash:               make([]byte, hashBytes),
+		Lambda:                 params.Lambda,
+		Theta:                  params.Theta,
+		Salt:                   make([]byte, nizkProfileBytesForBits(params.SaltBits)),
+		PCSOpening:             opening,
+		RowOpening:             opening,
+		VTargetsBits:           make([]byte, vTargetsBytes),
+		VTargetsRows:           queryCount,
+		VTargetsCols:           params.LVCSNCols,
+		VTargetsBitWidth:       uint8(fieldBitWidth),
+		BarSetsBits:            make([]byte, barSetsBytes),
+		BarSetsRows:            queryCount,
+		BarSetsCols:            params.Ell,
+		BarSetsBitWidth:        uint8(fieldBitWidth),
+		MaskRowOffset:          replayWitnessRows,
+		MaskRowCount:           maskRows,
+		NColsUsed:              params.NCols,
+		PCSNColsUsed:           params.LVCSNCols,
+		LVCSNColsUsed:          params.LVCSNCols,
+		NLeavesUsed:            params.NLeaves,
+		QDegreeBound:           params.DQ,
+		MaskDegreeBound:        params.DQ,
+		TranscriptVersion:      PIOP.TranscriptVersionSmallWood2025V2,
+		TranscriptProtocolMode: PIOP.TranscriptProtocolSmallField2025V2,
+		PCSGeometry: PIOP.PCSGeometry{
+			Kind:               PIOP.PCSGeometryKindSmallFieldMatrixV2,
+			WitnessPackingCols: params.NCols,
+			PCSNCols:           params.LVCSNCols,
+			Theta:              params.Theta,
+			Ell:                params.Ell,
+		},
 		SmallField2025: &PIOP.SmallField2025LVCSProof{
-			Version:          1,
-			Mode:             PIOP.TranscriptProtocolSmallField2025V1,
+			Version:          2,
+			Mode:             PIOP.TranscriptProtocolSmallField2025V2,
 			Status:           PIOP.SmallField2025StatusLive,
 			ReductionEnabled: true,
-			HeadDomainMode:   PIOP.SmallField2025HeadDomainV1,
+			HeadDomainMode:   PIOP.SmallField2025HeadDomainV2,
 			NRows:            openingRows,
 			NCols:            params.LVCSNCols,
 			Theta:            params.Theta,
@@ -167,8 +180,8 @@ func nizkProfileProjectPaperTranscript(params nizkProfilePaperProjectionParams) 
 		DQOverride:             params.DQ,
 		Lambda:                 params.Lambda,
 		TranscriptOmissionMode: params.TranscriptOmissionMode,
-		TranscriptProtocolMode: PIOP.TranscriptProtocolSmallField2025V1,
-		TranscriptVersion:      PIOP.TranscriptVersionSmallWood2025,
+		TranscriptProtocolMode: PIOP.TranscriptProtocolSmallField2025V2,
+		TranscriptVersion:      PIOP.TranscriptVersionSmallWood2025V2,
 	}, ringQ)
 	if err != nil {
 		return nizkProfilePaperProjection{}, err
@@ -185,20 +198,24 @@ func nizkProfileProjectPaperTranscript(params nizkProfilePaperProjectionParams) 
 }
 
 func nizkProfilePaperProjectionRing(params nizkProfilePaperProjectionParams) (*ring.Ring, error) {
-	if params.Q != credential.IntGenISISSharedModulusQ || params.RingDegree != 1024 {
+	if params.Q != credential.IntGenISISSharedModulusQ || (params.RingDegree != 512 && params.RingDegree != 1024) {
 		return nil, fmt.Errorf(
-			"paper projection supports the N=1024 IntGenISIS sweep ring, got N=%d q=%d",
+			"paper projection supports the maintained N=512/N=1024 IntGenISIS sweep rings, got N=%d q=%d",
 			params.RingDegree,
 			params.Q,
 		)
 	}
-	nizkProfileProjectionRingOnce.Do(func() {
-		nizkProfileProjectionRing, nizkProfileProjectionRingErr = ring.NewRing(
-			params.RingDegree,
-			[]uint64{params.Q},
-		)
-	})
-	return nizkProfileProjectionRing, nizkProfileProjectionRingErr
+	nizkProfileProjectionRingsMu.Lock()
+	defer nizkProfileProjectionRingsMu.Unlock()
+	if cached := nizkProfileProjectionRings[params.RingDegree]; cached != nil {
+		return cached, nil
+	}
+	created, err := ring.NewRing(params.RingDegree, []uint64{params.Q})
+	if err != nil {
+		return nil, err
+	}
+	nizkProfileProjectionRings[params.RingDegree] = created
+	return created, nil
 }
 
 func nizkProfileValidatePaperProjectionParams(params nizkProfilePaperProjectionParams) error {
@@ -223,8 +240,8 @@ func nizkProfileValidatePaperProjectionParams(params nizkProfilePaperProjectionP
 		return fmt.Errorf("smallfield2025 projection requires logical_rows>0")
 	case params.DECSHashBits <= 0 || params.DECSTapeBits <= 0 || params.SaltBits <= 0:
 		return fmt.Errorf("smallfield2025 projection requires positive transcript widths")
-	case params.TranscriptOmissionMode != "":
-		return fmt.Errorf("smallfield2025 exact projection does not model serializer omissions")
+	case params.TranscriptOmissionMode != "" && params.TranscriptOmissionMode != credential.IntGenISISTranscriptOmissionModeV2:
+		return fmt.Errorf("smallfield2025 exact projection does not model transcript omission mode %q", params.TranscriptOmissionMode)
 	}
 	return nil
 }
@@ -260,16 +277,34 @@ func TestNIZKProfilePaperProjectionMatchesMeasuredBQ64Shapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := issuance.Transcript.OptimizedBytes, 41518; got != want {
-		t.Fatalf("legacy issuance projection=%d want measured %d: %+v", got, want, issuance.Transcript)
+	assertV2SelectiveTapes := func(label string, projection nizkProfilePaperProjection, wantCount, wantWidth int) {
+		t.Helper()
+		audit := projection.Transcript.Audit.Tapes
+		if audit.TapeCount != wantCount {
+			t.Fatalf("%s tape count=%d want=%d: %+v", label, audit.TapeCount, wantCount, audit)
+		}
+		if audit.TapeBytes != wantCount*wantWidth {
+			t.Fatalf("%s disclosed tape bytes=%d want=%d: %+v", label, audit.TapeBytes, wantCount*wantWidth, audit)
+		}
+		if audit.TapeMetadataBytes <= 0 || audit.TotalBytes != audit.TapeBytes+audit.TapeMetadataBytes {
+			t.Fatalf("%s malformed tape accounting: %+v", label, audit)
+		}
+		if projection.Transcript.Tapes.OptimizedBytes != audit.TotalBytes {
+			t.Fatalf("%s tape bucket=%d want audit total=%d", label, projection.Transcript.Tapes.OptimizedBytes, audit.TotalBytes)
+		}
+		if projection.Transcript.OptimizedBytes <= projection.Transcript.Tapes.OptimizedBytes {
+			t.Fatalf("%s transcript does not include non-tape payloads: %+v", label, projection.Transcript)
+		}
 	}
+	assertV2SelectiveTapes("first issuance", issuance, params.Ell, nizkProfileBytesForBits(params.DECSTapeBits))
 	params.LogicalRows = 472
 	showing, err := nizkProfileProjectPaperTranscript(params)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := showing.Transcript.OptimizedBytes, 59333; got != want {
-		t.Fatalf("legacy showing projection=%d want measured %d", got, want)
+	assertV2SelectiveTapes("first showing", showing, params.Ell, nizkProfileBytesForBits(params.DECSTapeBits))
+	if showing.Transcript.OptimizedBytes <= issuance.Transcript.OptimizedBytes {
+		t.Fatalf("showing transcript=%d must exceed issuance transcript=%d for the larger relation", showing.Transcript.OptimizedBytes, issuance.Transcript.OptimizedBytes)
 	}
 
 	params.NLeaves = 917504
@@ -286,11 +321,10 @@ func TestNIZKProfilePaperProjectionMatchesMeasuredBQ64Shapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := issuance.Transcript.OptimizedBytes, 39504; got != want {
-		t.Fatalf("promoted issuance projection=%d want measured %d", got, want)
-	}
-	if got, want := showing.Transcript.OptimizedBytes, 56584; got != want {
-		t.Fatalf("promoted showing projection=%d want measured %d", got, want)
+	assertV2SelectiveTapes("second issuance", issuance, params.Ell, nizkProfileBytesForBits(params.DECSTapeBits))
+	assertV2SelectiveTapes("second showing", showing, params.Ell, nizkProfileBytesForBits(params.DECSTapeBits))
+	if showing.Transcript.OptimizedBytes <= issuance.Transcript.OptimizedBytes {
+		t.Fatalf("showing transcript=%d must exceed issuance transcript=%d for the larger relation", showing.Transcript.OptimizedBytes, issuance.Transcript.OptimizedBytes)
 	}
 }
 

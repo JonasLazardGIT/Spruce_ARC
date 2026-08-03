@@ -241,7 +241,7 @@ func buildCredentialConstraintSetPostCoeffNativeLiteralPacked(ringQ *ring.Ring, 
 	if domainMode != DomainModeExplicit {
 		return ConstraintSet{}, fmt.Errorf("literal packed aggregated mode requires explicit domain mode")
 	}
-	if prfCompanionLayout != nil && prfCompanionLayout.RelationVersion == 1 {
+	if prfCompanionLayout != nil && prfCompanionLayout.RelationVersion == 2 {
 		return ConstraintSet{}, fmt.Errorf("direct_full PRF companion is only implemented for IntGenISIS showing constraints")
 	}
 	var baseSet ConstraintSet

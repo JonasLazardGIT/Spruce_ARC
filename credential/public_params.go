@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
+	"reflect"
 
 	"vSIS-Signature/commitment"
 
@@ -12,23 +12,24 @@ import (
 )
 
 const DefaultPublicParamsPath = "internal/source_data/credential_public.intgenisis_profile_b.json"
-const PublicParamsVersion = 7
+const PublicParamsVersion = 8
 const MuLayoutFullCapacityHalvesV1 = "full_capacity_halves_v1"
 
 // PublicParams captures the stable credential-side public parameters used by
 // issuance and showing.
 type PublicParams struct {
-	Version              int                           `json:"version,omitempty"`
-	Profile              string                        `json:"profile,omitempty"`
-	PresetID             string                        `json:"preset_id,omitempty"`
-	PresetVersion        int                           `json:"preset_version,omitempty"`
-	PrimitiveProfileID   string                        `json:"primitive_profile_id,omitempty"`
-	PRFProfile           string                        `json:"prf_profile,omitempty"`
-	TranscriptMode       string                        `json:"transcript_mode,omitempty"`
-	PresetManifestDigest string                        `json:"preset_manifest_digest,omitempty"`
+	Version              int                           `json:"version"`
+	Profile              string                        `json:"profile"`
+	PresetID             string                        `json:"preset_id"`
+	PresetVersion        int                           `json:"preset_version"`
+	PrimitiveProfileID   string                        `json:"primitive_profile_id"`
+	PRFProfile           string                        `json:"prf_profile"`
+	TranscriptMode       string                        `json:"transcript_mode"`
+	PresetManifestDigest string                        `json:"preset_manifest_digest"`
+	RateLimitPolicy      RateLimitPolicy               `json:"rate_limit_policy"`
 	Modulus              uint64                        `json:"q,omitempty"`
 	HashRelation         string                        `json:"hash_relation"`
-	Ac                   commitment.CoeffMatrix        `json:"Ac"`
+	Ac                   commitment.CoeffMatrix        `json:"Ac,omitempty"`
 	CM                   commitment.CoeffMatrix        `json:"C_M,omitempty"`
 	AS                   commitment.CoeffMatrix        `json:"A_s,omitempty"`
 	BPath                string                        `json:"BPath"`
@@ -40,6 +41,7 @@ type PublicParams struct {
 	EllMuSig             int                           `json:"ell_mu_sig,omitempty"`
 	EllX0                int                           `json:"ell_x0,omitempty"`
 	EllX1                int                           `json:"ell_x1,omitempty"`
+	HashInputBound       int64                         `json:"hash_input_bound,omitempty"`
 	SignaturePreimageLen int                           `json:"signature_preimage_len,omitempty"`
 	MLWEHidingBits       float64                       `json:"mlwe_hiding_bits,omitempty"`
 	MSISBindingBits      float64                       `json:"msis_binding_bits,omitempty"`
@@ -59,121 +61,6 @@ type PublicParams struct {
 	LenRBar              int                           `json:"LenRBar,omitempty"`
 }
 
-func (pp *PublicParams) normalizeLegacy() {
-	if pp.Version == 0 {
-		pp.Version = 1
-	}
-	if pp.LenMu == 0 && (pp.LenM > 0 || pp.LenK > 0) {
-		pp.LenMu = 1
-	}
-	if pp.X0Len == 0 {
-		if pp.LenR0H > 0 {
-			pp.X0Len = pp.LenR0H
-		} else {
-			pp.X0Len = 1
-		}
-	}
-	if pp.X0CoeffBound == 0 {
-		if pp.BoundB > 0 {
-			pp.X0CoeffBound = pp.BoundB
-		} else {
-			pp.X0CoeffBound = 1
-		}
-	}
-	if pp.TargetDim == 0 {
-		pp.TargetDim = DefaultTargetDim
-	}
-	if pp.TargetHidingLambda == 0 {
-		pp.TargetHidingLambda = DefaultTargetHidingLambda
-	}
-	if pp.X0Distribution == "" {
-		pp.X0Distribution = X0DistributionUniformInterval
-	}
-	if pp.MuLayout == "" {
-		pp.MuLayout = MuLayoutFullCapacityHalvesV1
-	}
-	if pp.Version < PublicParamsVersion {
-		pp.Version = PublicParamsVersion
-	}
-	if pp.RingDegree == 0 {
-		pp.RingDegree = pp.InferRingDegree()
-	}
-	if pp.Profile != "" {
-		if profile, ok := LookupIntGenISISProfile(pp.Profile); ok {
-			if pp.RingDegree == 0 {
-				pp.RingDegree = profile.N
-			}
-			if pp.Modulus == 0 {
-				pp.Modulus = profile.Q
-			}
-			if pp.CommitmentBound == 0 {
-				pp.CommitmentBound = IntGenISISLiveBound
-			}
-			if pp.BoundB == 0 {
-				pp.BoundB = IntGenISISLiveBound
-			}
-			if pp.EllM == 0 {
-				pp.EllM = profile.EllM
-			}
-			if pp.KS == 0 {
-				pp.KS = profile.KS
-			}
-			if pp.NC == 0 {
-				pp.NC = profile.NC
-			}
-			if pp.EllMuSig == 0 {
-				pp.EllMuSig = profile.EllMuSig
-			}
-			if pp.EllX0 == 0 {
-				pp.EllX0 = profile.EllX0
-			}
-			if pp.EllX1 == 0 {
-				pp.EllX1 = profile.EllX1
-			}
-			if pp.SignaturePreimageLen == 0 {
-				pp.SignaturePreimageLen = profile.SignaturePreimageLen
-			}
-			pp.MLWEHidingBits = profile.MLWEHidingBits
-			pp.MSISBindingBits = profile.MSISBindingBits
-			pp.CommitmentSecurity = profile.CommitmentSecurity.ClonePtr()
-			if pp.TargetDim == 0 {
-				pp.TargetDim = profile.NC
-			}
-			if pp.X0Len == 0 || pp.LenR0H == 0 {
-				pp.X0Len = profile.EllX0
-			}
-		}
-	}
-}
-
-func (pp PublicParams) InferRingDegree() int {
-	if pp.RingDegree > 0 {
-		return pp.RingDegree
-	}
-	for i := range pp.Ac {
-		for j := range pp.Ac[i] {
-			if len(pp.Ac[i][j]) > 0 {
-				return len(pp.Ac[i][j])
-			}
-		}
-	}
-	for i := range pp.CM {
-		for j := range pp.CM[i] {
-			if len(pp.CM[i][j]) > 0 {
-				return len(pp.CM[i][j])
-			}
-		}
-	}
-	for i := range pp.AS {
-		for j := range pp.AS[i] {
-			if len(pp.AS[i][j]) > 0 {
-				return len(pp.AS[i][j])
-			}
-		}
-	}
-	return 0
-}
-
 func (pp PublicParams) UsesIntGenISIS() bool {
 	if pp.Profile != "" {
 		if _, ok := LookupIntGenISISProfile(pp.Profile); ok {
@@ -184,7 +71,15 @@ func (pp PublicParams) UsesIntGenISIS() bool {
 }
 
 func (pp *PublicParams) Validate() error {
-	pp.normalizeLegacy()
+	if pp == nil {
+		return fmt.Errorf("nil public parameters")
+	}
+	if pp.Version != PublicParamsVersion {
+		return noMigrationSchemaError("public-parameters", pp.Version, PublicParamsVersion)
+	}
+	if err := pp.RateLimitPolicy.ValidateV2(); err != nil {
+		return err
+	}
 	if err := ValidateHashRelation(pp.HashRelation); err != nil {
 		return err
 	}
@@ -205,50 +100,13 @@ func (pp *PublicParams) Validate() error {
 			return err
 		}
 	}
-	if pp.UsesIntGenISIS() {
-		if err := pp.validatePresetBinding(); err != nil {
-			return err
-		}
-		return pp.validateIntGenISIS()
+	if !pp.UsesIntGenISIS() {
+		return fmt.Errorf("public-parameters schema %d supports only canonical IntGenISIS artifacts", PublicParamsVersion)
 	}
-	if len(pp.Ac) == 0 {
-		return fmt.Errorf("missing Ac")
+	if err := pp.validatePresetBinding(); err != nil {
+		return err
 	}
-	if pp.X0CoeffBound <= 0 {
-		return fmt.Errorf("invalid X0CoeffBound=%d", pp.X0CoeffBound)
-	}
-	if pp.X0Len <= 0 {
-		return fmt.Errorf("invalid X0Len=%d", pp.X0Len)
-	}
-	if pp.TargetDim <= 0 {
-		return fmt.Errorf("invalid TargetDim=%d", pp.TargetDim)
-	}
-	if pp.TargetHidingLambda <= 0 {
-		return fmt.Errorf("invalid TargetHidingLambda=%d", pp.TargetHidingLambda)
-	}
-	if pp.X0Distribution != X0DistributionUniformInterval {
-		return fmt.Errorf("unsupported X0Distribution=%q", pp.X0Distribution)
-	}
-	if pp.MuLayout != MuLayoutFullCapacityHalvesV1 {
-		return fmt.Errorf("unsupported MuLayout=%q", pp.MuLayout)
-	}
-	if pp.LenMu <= 0 || pp.LenR0H <= 0 || pp.LenR1H <= 0 || pp.LenRBar <= 0 {
-		return fmt.Errorf("invalid row lengths mu=%d r0h=%d r1h=%d rbar=%d", pp.LenMu, pp.LenR0H, pp.LenR1H, pp.LenRBar)
-	}
-	if pp.LenR0H != pp.X0Len {
-		return fmt.Errorf("LenR0H=%d must match X0Len=%d", pp.LenR0H, pp.X0Len)
-	}
-	if pp.RingDegree <= 0 {
-		return fmt.Errorf("invalid ring_degree=%d", pp.RingDegree)
-	}
-	for i := range pp.Ac {
-		for j := range pp.Ac[i] {
-			if len(pp.Ac[i][j]) != pp.RingDegree {
-				return fmt.Errorf("ac[%d][%d] coefficient length=%d want ring_degree=%d", i, j, len(pp.Ac[i][j]), pp.RingDegree)
-			}
-		}
-	}
-	return nil
+	return pp.validateIntGenISIS()
 }
 
 func (pp PublicParams) HasPresetBinding() bool {
@@ -268,6 +126,7 @@ func (pp *PublicParams) BindIntGenISISPreset(preset IntGenISISPreset) error {
 	pp.PRFProfile = preset.PRFProfile
 	pp.TranscriptMode = preset.Showing.TranscriptMode
 	pp.PresetManifestDigest = IntGenISISPresetManifestDigest(preset)
+	pp.RateLimitPolicy = preset.RateLimitPolicy
 	return pp.validatePresetBinding()
 }
 
@@ -281,9 +140,18 @@ func (pp PublicParams) ValidateIntGenISISPreset(preset IntGenISISPreset) error {
 	if pp.PresetVersion != preset.PresetVersion {
 		return fmt.Errorf("public parameter preset_version=%d does not match selected preset version %d", pp.PresetVersion, preset.PresetVersion)
 	}
+	if pp.Profile != preset.Profile || pp.PrimitiveProfileID != preset.PrimitiveProfileID {
+		return fmt.Errorf("public parameter primitive profile does not match selected preset")
+	}
+	if pp.PRFProfile != preset.PRFProfile || pp.TranscriptMode != preset.Showing.TranscriptMode {
+		return fmt.Errorf("public parameter PRF/transcript binding does not match selected preset")
+	}
+	if pp.RateLimitPolicy != preset.RateLimitPolicy {
+		return fmt.Errorf("public parameter rate-limit policy does not match selected preset")
+	}
 	wantDigest := IntGenISISPresetManifestDigest(preset)
 	if pp.PresetManifestDigest != wantDigest {
-		return fmt.Errorf("public parameter preset manifest digest mismatch")
+		return fmt.Errorf("public parameter preset manifest digest=%q want=%q", pp.PresetManifestDigest, wantDigest)
 	}
 	return nil
 }
@@ -291,27 +159,28 @@ func (pp PublicParams) ValidateIntGenISISPreset(preset IntGenISISPreset) error {
 // PresetTranscriptExtras returns canonical byte values suitable for PIOP's
 // public-input Fiat-Shamir binding. Existing entries are copied.
 func (pp PublicParams) PresetTranscriptExtras(existing map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(existing)+6)
+	out := make(map[string]interface{}, len(existing)+8)
 	for key, value := range existing {
 		out[key] = value
-	}
-	if !pp.HasPresetBinding() {
-		return out
 	}
 	out["IntGenISIS.preset_id"] = []byte(pp.PresetID)
 	out["IntGenISIS.preset_version"] = []byte(fmt.Sprintf("%d", pp.PresetVersion))
 	out["IntGenISIS.primitive_profile_id"] = []byte(pp.PrimitiveProfileID)
 	out["IntGenISIS.prf_profile"] = []byte(pp.PRFProfile)
 	out["IntGenISIS.transcript_mode"] = []byte(pp.TranscriptMode)
+	out["IntGenISIS.transcript_version"] = []byte(IntGenISISTranscriptVersionV2)
 	out["IntGenISIS.preset_manifest_digest"] = []byte(pp.PresetManifestDigest)
+	policy, err := json.Marshal(pp.RateLimitPolicy)
+	if err != nil {
+		panic("marshal fixed IntGenISIS rate-limit policy: " + err.Error())
+	}
+	out["IntGenISIS.rate_limit_policy"] = policy
 	return out
 }
 
 func (pp *PublicParams) validatePresetBinding() error {
 	if !pp.HasPresetBinding() {
-		// Version-6 and earlier artifact files remain readable for reproduction,
-		// but CLI issuance/showing rejects them when a selected preset is required.
-		return nil
+		return fmt.Errorf("public parameters are not bound to a canonical preset manifest")
 	}
 	if pp.PresetID == "" || pp.PresetVersion <= 0 || pp.PrimitiveProfileID == "" || pp.PRFProfile == "" || pp.TranscriptMode == "" || pp.PresetManifestDigest == "" {
 		return fmt.Errorf("incomplete IntGenISIS preset binding")
@@ -330,39 +199,45 @@ func (pp *PublicParams) validatePresetBinding() error {
 }
 
 func (pp *PublicParams) validateIntGenISIS() error {
-	wantEllX0 := 2
-	if profile, ok := LookupIntGenISISProfile(pp.Profile); pp.Profile != "" {
-		if !ok {
-			return fmt.Errorf("unsupported IntGenISIS profile %q", pp.Profile)
-		}
-		wantEllX0 = profile.EllX0
+	profile, ok := LookupIntGenISISProfile(pp.Profile)
+	if !ok || pp.Profile == "" {
+		return fmt.Errorf("unsupported IntGenISIS profile %q", pp.Profile)
+	}
+	if len(pp.Ac) != 0 || pp.X0CoeffBound != 0 || pp.TargetHidingLambda != 0 || pp.X0Distribution != "" || pp.LenMu != 0 || pp.MuLayout != "" || pp.LenM != 0 || pp.LenK != 0 || pp.LenR0H != 0 || pp.LenR1H != 0 || pp.LenRBar != 0 {
+		return fmt.Errorf("public-parameters schema %d contains removed legacy commitment fields", PublicParamsVersion)
 	}
 	if pp.CommitmentBound <= 0 {
 		return fmt.Errorf("invalid commitment bound B=%d", pp.CommitmentBound)
 	}
-	if pp.BoundB != IntGenISISLiveBound || pp.CommitmentBound != IntGenISISLiveBound {
-		return fmt.Errorf("IntGenISIS live bounds must be BoundB=B=%d, got BoundB=%d B=%d", IntGenISISLiveBound, pp.BoundB, pp.CommitmentBound)
+	if pp.BoundB != profile.B || pp.CommitmentBound != profile.B {
+		return fmt.Errorf("IntGenISIS bounds must match profile B=%d, got BoundB=%d B=%d", profile.B, pp.BoundB, pp.CommitmentBound)
 	}
-	if pp.EllM <= 0 || pp.KS <= 0 || pp.NC <= 0 {
-		return fmt.Errorf("invalid commitment dimensions ell_M=%d k_s=%d n_c=%d", pp.EllM, pp.KS, pp.NC)
+	if pp.Modulus != profile.Q {
+		return fmt.Errorf("q=%d want profile modulus %d", pp.Modulus, profile.Q)
 	}
-	if pp.EllMuSig != 1 {
-		return fmt.Errorf("ell_mu_sig=%d want 1", pp.EllMuSig)
+	if pp.RingDegree != profile.N {
+		return fmt.Errorf("ring_degree=%d want %d", pp.RingDegree, profile.N)
 	}
-	if pp.EllX0 != wantEllX0 {
-		return fmt.Errorf("ell_x0=%d want %d", pp.EllX0, wantEllX0)
+	if pp.EllM != profile.EllM || pp.KS != profile.KS || pp.NC != profile.NC {
+		return fmt.Errorf("commitment dimensions ell_M/k_s/n_c=%d/%d/%d want %d/%d/%d", pp.EllM, pp.KS, pp.NC, profile.EllM, profile.KS, profile.NC)
 	}
-	if pp.EllX1 != 1 {
-		return fmt.Errorf("ell_x1=%d want 1", pp.EllX1)
+	if pp.EllMuSig != profile.EllMuSig || pp.EllX0 != profile.EllX0 || pp.EllX1 != profile.EllX1 {
+		return fmt.Errorf("hash dimensions ell_mu_sig/ell_x0/ell_x1=%d/%d/%d want %d/%d/%d", pp.EllMuSig, pp.EllX0, pp.EllX1, profile.EllMuSig, profile.EllX0, profile.EllX1)
 	}
-	if pp.SignaturePreimageLen != 2 {
-		return fmt.Errorf("signature_preimage_len=%d want 2", pp.SignaturePreimageLen)
+	if pp.HashInputBound != profile.HashInputBound {
+		return fmt.Errorf("hash_input_bound=%d want %d", pp.HashInputBound, profile.HashInputBound)
+	}
+	if pp.SignaturePreimageLen != profile.SignaturePreimageLen {
+		return fmt.Errorf("signature_preimage_len=%d want %d", pp.SignaturePreimageLen, profile.SignaturePreimageLen)
 	}
 	if pp.TargetDim != pp.NC {
 		return fmt.Errorf("target_dim=%d must match n_c=%d", pp.TargetDim, pp.NC)
 	}
-	if pp.X0Len != 0 && pp.X0Len != pp.EllX0 {
+	if pp.X0Len != pp.EllX0 {
 		return fmt.Errorf("stored X0Len=%d must match ell_x0=%d", pp.X0Len, pp.EllX0)
+	}
+	if pp.MLWEHidingBits != profile.MLWEHidingBits || pp.MSISBindingBits != profile.MSISBindingBits || pp.CommitmentSecurity == nil || !reflect.DeepEqual(*pp.CommitmentSecurity, profile.CommitmentSecurity) {
+		return fmt.Errorf("commitment security metadata does not match profile %q", profile.Name)
 	}
 	if err := validateCoeffMatrixDims("C_M", pp.CM, pp.NC, pp.EllM, pp.RingDegree); err != nil {
 		return err
@@ -412,8 +287,8 @@ func LoadPublicParams(path string) (PublicParams, error) {
 	if err != nil {
 		return out, fmt.Errorf("read public params: %w", err)
 	}
-	if err := json.Unmarshal(data, &out); err != nil {
-		return out, fmt.Errorf("unmarshal public params: %w", err)
+	if err := decodeStrictVersionedJSON(data, &out, "public-parameters", PublicParamsVersion); err != nil {
+		return out, fmt.Errorf("decode public params: %w", err)
 	}
 	if err := (&out).Validate(); err != nil {
 		return out, fmt.Errorf("validate public params %s: %w", path, err)
@@ -422,20 +297,14 @@ func LoadPublicParams(path string) (PublicParams, error) {
 }
 
 func SavePublicParams(path string, params PublicParams) error {
-	if params.Version == 0 {
-		params.Version = PublicParamsVersion
-	}
 	if err := (&params).Validate(); err != nil {
 		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("mkdir public params dir: %w", err)
 	}
 	data, err := json.MarshalIndent(params, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal public params: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := atomicWriteFile(path, append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("write public params: %w", err)
 	}
 	return nil
@@ -488,6 +357,7 @@ func (pp PublicParams) ToIssuanceParams(ringQ *ring.Ring) (*Params, error) {
 		EllMuSig:             pp.EllMuSig,
 		EllX0:                pp.EllX0,
 		EllX1:                pp.EllX1,
+		HashInputBound:       pp.HashInputBound,
 		SignaturePreimageLen: pp.SignaturePreimageLen,
 		X0Len:                pp.X0Len,
 		X0CoeffBound:         pp.X0CoeffBound,

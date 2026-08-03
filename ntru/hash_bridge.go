@@ -1,11 +1,8 @@
 package ntru
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"vSIS-Signature/credential"
 	vsishash "vSIS-Signature/internal/hash"
@@ -75,32 +72,32 @@ func ComputeTargetFromSeeds(pp *ntrurio.SystemParams, Bfile, relation string, mS
 	return coeffs, nil
 }
 
-// loadBMatrix is a light copy of the helper used by signer/verifier.
+// loadBMatrix uses the same strict v3 reader as setup, issuance, and showing.
+// Diagnostic seed profiles must not regain the retired four-row B shape or a
+// parent-directory fallback merely because they are not part of issuance.
 func loadBMatrix(path string, ringQ *ring.Ring) ([]*ring.Poly, error) {
-	type bjson struct {
-		B [][]uint64 `json:"B"`
-	}
-	raw, err := os.ReadFile(path)
+	meta, err := ntrurio.LoadBMatrixMetadata(path)
 	if err != nil {
-		// Fallback one level up to support subdirectory test runs
-		if !filepath.IsAbs(path) {
-			raw, err = os.ReadFile(filepath.Join("..", path))
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	var bj bjson
-	if err = json.Unmarshal(raw, &bj); err != nil {
 		return nil, err
 	}
-	if len(bj.B) != 4 {
-		return nil, fmt.Errorf("expected 4 polys in B, got %d", len(bj.B))
+	if ringQ == nil {
+		return nil, fmt.Errorf("nil ring")
 	}
-	B := make([]*ring.Poly, 4)
-	for i := 0; i < 4; i++ {
+	if meta.RingDegree != int(ringQ.N) {
+		return nil, fmt.Errorf("b ring degree=%d want=%d", meta.RingDegree, ringQ.N)
+	}
+	if meta.X0Len != 1 {
+		return nil, fmt.Errorf("seed-derived diagnostic target supports x0_len=1, got canonical issuance x0_len=%d", meta.X0Len)
+	}
+	B := make([]*ring.Poly, len(meta.B))
+	for i := range meta.B {
 		p := ringQ.NewPoly()
-		copy(p.Coeffs[0], bj.B[i])
+		for j, coeff := range meta.B[i] {
+			if coeff >= ringQ.Modulus[0] {
+				return nil, fmt.Errorf("b[%d][%d]=%d is not canonical modulo %d", i, j, coeff, ringQ.Modulus[0])
+			}
+		}
+		copy(p.Coeffs[0], meta.B[i])
 		ringQ.NTT(p, p)
 		B[i] = p
 	}

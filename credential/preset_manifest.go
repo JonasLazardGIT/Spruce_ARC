@@ -45,13 +45,13 @@ const (
 )
 
 const (
-	IntGenISISPresetPoCN512SC96V1          = "poc-n512-sc96-v1"
-	IntGenISISPresetArtifactN1024SC125V1   = "artifact-n1024-sc125-v1"
-	IntGenISISPresetPilotN1024BQ32R96V1    = "pilot-n1024-bq32-r96-v1"
-	IntGenISISPresetPoCN1024BQ64R128V1     = "poc-n1024-bq64-r128-v1"
-	IntGenISISPresetPoCN1024BQ96R128V1     = "poc-n1024-bq96-r128-v1"
-	IntGenISISPresetPoCN1024BQ128R128V2    = "poc-n1024-bq128-r128-v2"
-	IntGenISISPresetSystemN1024WF128CROMV1 = "system-n1024-wf128-crom-v1"
+	IntGenISISPresetPoCN512SC96V2          = "poc-n512-sc96-v2"
+	IntGenISISPresetArtifactN1024SC125V2   = "artifact-n1024-sc125-v2"
+	IntGenISISPresetPilotN1024BQ32R96V2    = "pilot-n1024-bq32-r96-v2"
+	IntGenISISPresetPoCN1024BQ64R128V2     = "poc-n1024-bq64-r128-v2"
+	IntGenISISPresetPoCN1024BQ96R128V2     = "poc-n1024-bq96-r128-v2"
+	IntGenISISPresetPoCN1024BQ128R128V3    = "poc-n1024-bq128-r128-v3"
+	IntGenISISPresetSystemN1024WF128CROMV2 = "system-n1024-wf128-crom-v2"
 )
 
 // PresetThreatModel records the resource scope to which a preset's security
@@ -85,50 +85,49 @@ type intGenISISPresetMetadata struct {
 	proofsLog2   float64
 	issuanceLog2 float64
 	showingLog2  float64
-	tagsLog2     float64
 }
 
 func intGenISISPresetMetadataRegistry() map[string]intGenISISPresetMetadata {
 	return map[string]intGenISISPresetMetadata{
 		IntGenISISPresetN512Compact96: {
-			canonicalID: IntGenISISPresetPoCN512SC96V1, purpose: "demonstration",
+			canonicalID: IntGenISISPresetPoCN512SC96V2, purpose: "demonstration",
 			lifecycle: PresetPoC, claimScope: ClaimProofOnly,
 		},
 		IntGenISISPresetN1024Compact125: {
-			canonicalID: IntGenISISPresetArtifactN1024SC125V1, purpose: "reproduction",
+			canonicalID: IntGenISISPresetArtifactN1024SC125V2, purpose: "reproduction",
 			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
 		},
-		IntGenISISPresetSystemN1024WF128CROMV1: {
-			canonicalID: IntGenISISPresetSystemN1024WF128CROMV1, purpose: "WF-128 PoC",
-			lifecycle: PresetCandidate, claimScope: ClaimCompleteSystem,
+		IntGenISISPresetSystemN1024WF128CROMV2: {
+			canonicalID: IntGenISISPresetSystemN1024WF128CROMV2, purpose: "WF-128 PoC",
+			lifecycle: PresetCandidate, claimScope: ClaimProofOnly,
 		},
 		IntGenISISPresetN1024Q10_96: {
-			canonicalID: "artifact-n1024-bq10-r96-historical-v1", purpose: "historical reproduction",
+			canonicalID: "artifact-n1024-bq10-r96-v2", purpose: "artifact reproduction",
 			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
 		},
 		IntGenISISPresetN1024Q16_96: {
-			canonicalID: "artifact-n1024-bq16-r96-historical-v1", purpose: "historical reproduction",
+			canonicalID: "artifact-n1024-bq16-r96-v2", purpose: "artifact reproduction",
 			lifecycle: PresetArtifact, claimScope: ClaimProofOnly,
 		},
 		IntGenISISPresetN1024BQ32_96: {
-			canonicalID: IntGenISISPresetPilotN1024BQ32R96V1, purpose: "controlled pilot",
-			lifecycle: PresetCandidate, claimScope: ClaimCompleteSystem,
-			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31, tagsLog2: 32,
+			canonicalID: IntGenISISPresetPilotN1024BQ32R96V2, purpose: "controlled pilot",
+			lifecycle: PresetCandidate, claimScope: ClaimProofOnly,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31,
 		},
-		IntGenISISPresetPoCN1024BQ64R128V1: {
-			canonicalID: IntGenISISPresetPoCN1024BQ64R128V1, purpose: "bounded-query PoC",
+		IntGenISISPresetPoCN1024BQ64R128V2: {
+			canonicalID: IntGenISISPresetPoCN1024BQ64R128V2, purpose: "bounded-query PoC",
 			lifecycle: PresetPoC, claimScope: ClaimProofOnly,
-			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31, tagsLog2: 32,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31,
 		},
-		IntGenISISPresetPoCN1024BQ96R128V1: {
-			canonicalID: IntGenISISPresetPoCN1024BQ96R128V1, purpose: "bounded-query PoC",
+		IntGenISISPresetPoCN1024BQ96R128V2: {
+			canonicalID: IntGenISISPresetPoCN1024BQ96R128V2, purpose: "bounded-query PoC",
 			lifecycle: PresetPoC, claimScope: ClaimProofOnly,
-			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31, tagsLog2: 32,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31,
 		},
-		IntGenISISPresetPoCN1024BQ128R128V2: {
-			canonicalID: IntGenISISPresetPoCN1024BQ128R128V2, purpose: "bounded-query PoC",
+		IntGenISISPresetPoCN1024BQ128R128V3: {
+			canonicalID: IntGenISISPresetPoCN1024BQ128R128V3, purpose: "bounded-query PoC",
 			lifecycle: PresetPoC, claimScope: ClaimProofOnly,
-			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31, tagsLog2: 32,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31,
 		},
 	}
 }
@@ -161,10 +160,12 @@ func intGenISISPresetApplyMetadata(reg map[string]IntGenISISPreset) {
 			panic("missing lifecycle metadata for IntGenISIS preset " + name)
 		}
 		preset.CanonicalID = meta.canonicalID
-		preset.PresetVersion = 1
+		preset.PresetVersion = 2
 		preset.Purpose = meta.purpose
 		preset.Lifecycle = meta.lifecycle
 		preset.ClaimScope = meta.claimScope
+		preset.CompleteSystemClaim = false
+		preset.RateLimitPolicy = IntGenISISRateLimitPolicyV2()
 		preset.PrimitiveProfileID = preset.Profile
 		preset.ThreatModel = intGenISISPresetThreatModel(preset, meta)
 		if err := ValidatePresetThreatModel(preset.ThreatModel); err != nil {
@@ -222,6 +223,18 @@ func ValidateIntGenISISPresetManifest(preset IntGenISISPreset) error {
 	if preset.Issuance.TranscriptMode == "" || preset.Issuance.TranscriptMode != preset.Showing.TranscriptMode {
 		return fmt.Errorf("issuance and showing transcript modes differ")
 	}
+	if _, _, err := ResolveIntGenISISTranscript(preset.Issuance.TranscriptMode); err != nil {
+		return fmt.Errorf("invalid preset transcript mode: %w", err)
+	}
+	if preset.Issuance.TranscriptOmissionMode != preset.Showing.TranscriptOmissionMode {
+		return fmt.Errorf("issuance and showing transcript omission modes differ")
+	}
+	if _, err := ResolveIntGenISISTranscriptOmission(preset.Issuance.TranscriptOmissionMode); err != nil {
+		return fmt.Errorf("invalid preset transcript omission mode: %w", err)
+	}
+	if err := preset.RateLimitPolicy.ValidateV2(); err != nil {
+		return err
+	}
 	switch preset.Lifecycle {
 	case PresetInternal, PresetArtifact, PresetPoC, PresetCandidate, PresetResearch, PresetComplete, PresetDeprecated:
 	default:
@@ -278,7 +291,7 @@ func intGenISISPresetThreatModel(preset IntGenISISPreset, meta intGenISISPresetM
 		MaxProofsLog2:           meta.proofsLog2,
 		MaxIssuanceProofsLog2:   meta.issuanceLog2,
 		MaxShowingProofsLog2:    meta.showingLog2,
-		MaxTagsPerContextLog2:   meta.tagsLog2,
+		MaxTagsPerContextLog2:   math.Log2(float64(IntGenISISQuotaSlots)),
 		DomainSeparatedContexts: true,
 		ProofVolumeScope:        ProofVolumeHonestTranscripts,
 		AcceptedIssuance:        1,
@@ -404,6 +417,7 @@ type intGenISISCanonicalManifest struct {
 	Issuance           IntGenISISTuningPreset `json:"issuance"`
 	Showing            IntGenISISTuningPreset `json:"showing"`
 	ThreatModel        PresetThreatModel      `json:"threat_model"`
+	RateLimitPolicy    RateLimitPolicy        `json:"rate_limit_policy"`
 }
 
 func IntGenISISPresetManifestDigest(preset IntGenISISPreset) string {
@@ -414,7 +428,7 @@ func IntGenISISPresetManifestDigest(preset IntGenISISPreset) string {
 	issuance.PRFParamsPath = ""
 	showing.PRFParamsPath = ""
 	manifest := intGenISISCanonicalManifest{
-		Schema:             "spruce.intgenisis.preset.v1",
+		Schema:             "spruce.intgenisis.preset.v2",
 		CanonicalID:        preset.CanonicalID,
 		PresetVersion:      preset.PresetVersion,
 		PrimitiveProfileID: preset.PrimitiveProfileID,
@@ -429,6 +443,7 @@ func IntGenISISPresetManifestDigest(preset IntGenISISPreset) string {
 		Issuance:           issuance,
 		Showing:            showing,
 		ThreatModel:        preset.ThreatModel,
+		RateLimitPolicy:    preset.RateLimitPolicy,
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {

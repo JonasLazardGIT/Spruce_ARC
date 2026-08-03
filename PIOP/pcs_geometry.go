@@ -12,9 +12,9 @@ import (
 
 const (
 	PCSGeometryKindLiteralRows        = "literal_rows_v1"
-	PCSGeometryKindSmallFieldMatrixV1 = "smallfield_matrix_v1"
+	PCSGeometryKindSmallFieldMatrixV2 = "smallfield_matrix_v2"
 
-	PCSGeometrySmallFieldSourceLiteralRows = "literal_row_heads_v1"
+	PCSGeometrySmallFieldSourceLiteralRowsV2 = "literal_row_heads_v2"
 )
 
 // PCSGeometry describes the committed PCS row geometry independently of the
@@ -193,7 +193,7 @@ func buildSmallFieldPCSRows(
 		MaskRowOffset: maskRowOffset,
 		MaskRowCount:  len(maskRows),
 		PCSGeometry: PCSGeometry{
-			Kind:                PCSGeometryKindSmallFieldMatrixV1,
+			Kind:                PCSGeometryKindSmallFieldMatrixV2,
 			WitnessPackingCols:  len(omegaWitness),
 			PCSNCols:            pcsNCols,
 			Theta:               K.Theta,
@@ -266,8 +266,8 @@ func buildSmallFieldPCSRowsFromLiteralInputs(
 		MaskRowOffset: maskRowOffset,
 		MaskRowCount:  len(maskRows),
 		PCSGeometry: PCSGeometry{
-			Kind:                PCSGeometryKindSmallFieldMatrixV1,
-			SmallFieldSource:    PCSGeometrySmallFieldSourceLiteralRows,
+			Kind:                PCSGeometryKindSmallFieldMatrixV2,
+			SmallFieldSource:    PCSGeometrySmallFieldSourceLiteralRowsV2,
 			WitnessPackingCols:  len(omegaWitness),
 			PCSNCols:            pcsNCols,
 			Theta:               K.Theta,

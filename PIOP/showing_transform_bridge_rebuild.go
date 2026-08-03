@@ -16,7 +16,6 @@ func rebuildPostSignConstraintSetWithBridges(
 	rowsNTT []*ring.Poly,
 	omega []uint64,
 	opts SimOpts,
-	root [16]byte,
 	prfLayout *PRFLayout,
 	prfCompanionLayout *PRFCompanionLayout,
 ) (ConstraintSet, error) {
@@ -27,6 +26,5 @@ func rebuildPostSignConstraintSetWithBridges(
 		return ConstraintSet{}, fmt.Errorf("empty witness rows")
 	}
 	opts.applyDefaults()
-	_ = root
 	return buildCredentialConstraintSetPostFromRows(ringQ, pub.BoundB, pub, layout, rowsNTT, omega, opts.DomainMode, opts, prfLayout, prfCompanionLayout)
 }

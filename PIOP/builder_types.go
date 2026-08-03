@@ -17,11 +17,13 @@ type PublicInputs struct {
 	A                  [][]*ring.Poly
 	B                  []*ring.Poly
 	T                  []int64
-	Tag                [][]int64
-	Nonce              [][]int64
+	Tag                []int64
+	Context            []int64
+	ContextDigest      []byte
 	BoundB             int64
 	X0Len              int
 	X0CoeffBound       int64
+	HashInputBound     int64
 	TargetDim          int
 	TargetHidingLambda int
 	RingDegree         int
@@ -61,6 +63,8 @@ type CoeffNativeShowingWitness struct {
 	R1          *ring.Poly
 	Z           *ring.Poly
 	T           *ring.Poly
+	HiddenSlot  uint64
+	HiddenBits  [4]uint64
 	PackedNCols int
 }
 

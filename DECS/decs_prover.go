@@ -2,9 +2,9 @@ package decs
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -15,45 +15,9 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-const nonceDeriveLabel = "decs-nonce"
-
 // q32 dense storage is kept behind a local switch because the maintained q20
 // profiles benchmark faster with uint64 coefficient rows on current hardware.
 const enableFormalEvalUint32 = false
-
-func deriveNonce(seed []byte, idx int, nonceBytes int) []byte {
-	scratch := make([]byte, 0, len(nonceDeriveLabel)+len(seed)+5)
-	out := make([]byte, nonceBytes)
-	_ = deriveNonceInto(out, scratch, seed, idx)
-	return out
-}
-
-func deriveNonceInto(dst []byte, scratch []byte, seed []byte, idx int) []byte {
-	nonceBytes := len(dst)
-	if nonceBytes <= 0 {
-		return scratch
-	}
-	scratch = scratch[:0]
-	scratch = append(scratch, nonceDeriveLabel...)
-	scratch = append(scratch, seed...)
-	var idxBuf [4]byte
-	binary.LittleEndian.PutUint32(idxBuf[:], uint32(idx))
-	scratch = append(scratch, idxBuf[:]...)
-	sum := sha256.Sum256(scratch)
-	n := copy(dst, sum[:])
-	if n < nonceBytes {
-		baseLen := len(scratch)
-		var counter byte = 1
-		for n < nonceBytes {
-			scratch = scratch[:baseLen]
-			scratch = append(scratch, counter)
-			counter++
-			chunk := sha256.Sum256(scratch)
-			n += copy(dst[n:], chunk[:])
-		}
-	}
-	return scratch
-}
 
 type formalEvalPlan struct {
 	rowCount    int
@@ -448,20 +412,23 @@ func (p formalEvalPlan) evalTileIntoPrepared(dst []uint64, points []uint64, red 
 
 // Prover encapsulates the prover state for DECS.
 type Prover struct {
-	ringQ     *ring.Ring
-	P         []*ring.Poly // r input polys (coeff form)
-	M         []*ring.Poly // η mask polys (coeff form)
-	PFormal   [][]uint64   // optional formal coeffs for explicit-domain mode
-	MFormal   [][]uint64   // optional formal coeffs for explicit-domain mode
-	nonceSeed []byte
-	mt        *MerkleTree
-	root      [16]byte
-	rootHash  []byte
-	R         []*ring.Poly // η output polys in coeff form
-	RFormal   [][]uint64   // optional formal coeffs for explicit-domain mode
-	params    Params
-	points    []uint64 // explicit evaluation domain points E[i]
-	nLeaves   int
+	ringQ   *ring.Ring
+	P       []*ring.Poly // r input polys (coeff form)
+	M       []*ring.Poly // η mask polys (coeff form)
+	PFormal [][]uint64   // optional formal coeffs for explicit-domain mode
+	MFormal [][]uint64   // optional formal coeffs for explicit-domain mode
+	// tapes is the flat prover-private v2 tape buffer. It is never serialized
+	// wholesale; EvalOpenV2 copies only challenged slices.
+	tapes             []byte
+	entropy           io.Reader
+	commitmentContext CommitmentContext
+	mt                *MerkleTree
+	rootHash          []byte
+	R                 []*ring.Poly // η output polys in coeff form
+	RFormal           [][]uint64   // optional formal coeffs for explicit-domain mode
+	params            Params
+	points            []uint64 // explicit evaluation domain points E[i]
+	nLeaves           int
 }
 
 // NewProverWithParamsAndPointsFormalChecked is the error-returning variant of
@@ -476,8 +443,8 @@ func NewProverWithParamsAndPointsFormalChecked(ringQ *ring.Ring, coeffs [][]uint
 	if params.Eta <= 0 {
 		return nil, fmt.Errorf("decs: invalid eta (must be > 0)")
 	}
-	if params.NonceBytes <= 0 {
-		return nil, fmt.Errorf("decs: invalid NonceBytes (must be > 0)")
+	if !IsSupportedTapeBytes(params.TapeBytes) {
+		return nil, fmt.Errorf("decs: invalid TapeBytes (supported: %s)", SupportedTapeBytesList())
 	}
 	if len(ringQ.Modulus) != 1 {
 		return nil, fmt.Errorf("decs: only single-modulus rings are supported (len(Modulus) must be 1)")
@@ -509,11 +476,16 @@ type CommitOptions struct {
 	RecordSubphases    bool
 	FormalEvalMode     FormalEvalMode
 	FormalEvalTileSize int
+	// MaxTapeBufferBytes is an operational allocation ceiling for independent
+	// v2 tapes. Zero selects DefaultMaxTapeBufferBytes.
+	MaxTapeBufferBytes int
 }
+
+const DefaultMaxTapeBufferBytes = 64 << 20
 
 // FormalEvalMode selects the internal formal-row evaluator used by CommitInit.
 // All modes keep the committed leaf bytes and Merkle tree format; they are
-// expected to produce identical roots when masks and nonces are fixed.
+// expected to produce identical roots when masks and tapes are fixed.
 type FormalEvalMode uint8
 
 const (
@@ -531,13 +503,13 @@ type commitInitOptions struct {
 	tileSize              int
 	forceScalarFormalEval bool
 	recordSubphases       bool
+	maxTapeBufferBytes    int
 }
 
 type commitInitPhaseTimings struct {
 	maskSamplingNs  int64
 	formalEvalNs    int64
 	leafEncodingNs  int64
-	nonceDeriveNs   int64
 	leafHashNs      int64
 	merkleNs        int64
 	evalHashNs      int64
@@ -556,19 +528,46 @@ func (t *commitInitPhaseTimings) record(rec CommitPhaseRecorder) {
 	}
 	rec.RecordDuration("decs.formal_evaluation_cpu", time.Duration(atomic.LoadInt64(&t.formalEvalNs)))
 	rec.RecordDuration("decs.leaf_encoding_cpu", time.Duration(atomic.LoadInt64(&t.leafEncodingNs)))
-	rec.RecordDuration("decs.nonce_derivation_cpu", time.Duration(atomic.LoadInt64(&t.nonceDeriveNs)))
 	rec.RecordDuration("decs.leaf_hashing_cpu", time.Duration(atomic.LoadInt64(&t.leafHashNs)))
 }
 
-// CommitInitWithOptions is CommitInit with benchmark-only controls. It keeps
-// the committed leaf encoding and tree format so roots and proof bytes match
-// CommitInit for fixed masks/nonces.
-func (pr *Prover) CommitInitWithOptions(opts CommitOptions) ([16]byte, error) {
+// CommitInitV2WithOptions commits using independent per-leaf tapes and the
+// canonical version/role/salt context. It returns the full declared-width
+// Merkle root and never exposes or derives a master tape seed.
+func (pr *Prover) CommitInitV2WithOptions(ctx CommitmentContext, opts CommitOptions) ([]byte, error) {
+	if pr == nil {
+		return nil, fmt.Errorf("decs: nil prover")
+	}
+	if err := ctx.Validate(); err != nil {
+		return nil, err
+	}
+	if _, err := v2TapeBytes(pr.params); err != nil {
+		return nil, err
+	}
+	if !IsSupportedHashBytes(pr.params.HashBytes) {
+		return nil, fmt.Errorf("decs: v2 requires explicit HashBytes (got %d)", pr.params.HashBytes)
+	}
+	internal, err := normalizeCommitOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	pr.commitmentContext = cloneCommitmentContext(ctx)
+	pr.mt = nil
+	pr.rootHash = nil
+	if err := pr.commitInitWithOptions(internal); err != nil {
+		pr.ReleaseTapes()
+		return nil, err
+	}
+	return pr.RootHash(), nil
+}
+
+func normalizeCommitOptions(opts CommitOptions) (commitInitOptions, error) {
 	internal := commitInitOptions{
 		phaseRecorder:         opts.PhaseRecorder,
 		workerCount:           opts.WorkerCount,
 		forceScalarFormalEval: true,
 		recordSubphases:       opts.RecordSubphases,
+		maxTapeBufferBytes:    opts.MaxTapeBufferBytes,
 	}
 	switch opts.FormalEvalMode {
 	case FormalEvalScalar:
@@ -581,19 +580,19 @@ func (pr *Prover) CommitInitWithOptions(opts CommitOptions) ([16]byte, error) {
 			internal.tileSize = 8
 		}
 	default:
-		return [16]byte{}, fmt.Errorf("decs: unsupported formal eval mode %d", opts.FormalEvalMode)
+		return commitInitOptions{}, fmt.Errorf("decs: unsupported formal eval mode %d", opts.FormalEvalMode)
 	}
 	if opts.WorkerCount > 0 {
 		internal.workerCount = opts.WorkerCount
 	}
-	return pr.commitInitWithOptions(internal)
+	return internal, nil
 }
 
-func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error) {
+func (pr *Prover) commitInitWithOptions(opts commitInitOptions) error {
 	r := pr.rowCount()
 	N := pr.nLeaves
 	q := pr.ringQ.Modulus[0]
-	hashBytes := NormalizeHashBytes(pr.params.HashBytes)
+	hashBytes := pr.params.HashBytes
 	var timings *commitInitPhaseTimings
 	if opts.phaseRecorder != nil {
 		timings = &commitInitPhaseTimings{recordSubphases: opts.recordSubphases}
@@ -612,20 +611,20 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 				for i := range row {
 					v, err := randUint64Mod(pr.ringQ.Modulus[0])
 					if err != nil {
-						return [16]byte{}, err
+						return err
 					}
 					row[i] = v
 				}
 				pr.MFormal[k] = trimFormalInPlace(row, pr.ringQ.Modulus[0])
 			}
 		} else if len(pr.MFormal) != pr.params.Eta {
-			return [16]byte{}, fmt.Errorf("decs: formal mask polynomial count mismatch: got=%d want=%d", len(pr.MFormal), pr.params.Eta)
+			return fmt.Errorf("decs: formal mask polynomial count mismatch: got=%d want=%d", len(pr.MFormal), pr.params.Eta)
 		}
 	} else {
 		if pr.M == nil {
 			prng, err := utils.NewPRNG()
 			if err != nil {
-				return [16]byte{}, err
+				return err
 			}
 			us := ring.NewUniformSampler(prng, pr.ringQ)
 			// 1a) sample η mask polys
@@ -638,7 +637,7 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 				}
 			}
 		} else if len(pr.M) != pr.params.Eta {
-			return [16]byte{}, fmt.Errorf("decs: mask polynomial count mismatch: got=%d want=%d", len(pr.M), pr.params.Eta)
+			return fmt.Errorf("decs: mask polynomial count mismatch: got=%d want=%d", len(pr.M), pr.params.Eta)
 		}
 	}
 	if timings != nil {
@@ -653,15 +652,10 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 		evalHashStart = time.Now()
 	}
 	leafHashes := make([][]byte, N)
-	if len(pr.nonceSeed) == 0 {
-		pr.nonceSeed = make([]byte, pr.params.NonceBytes)
-		if _, err := rand.Read(pr.nonceSeed); err != nil {
-			return [16]byte{}, err
-		}
-	} else if len(pr.nonceSeed) != pr.params.NonceBytes {
-		return [16]byte{}, fmt.Errorf("decs: nonce seed length mismatch: got=%d want=%d", len(pr.nonceSeed), pr.params.NonceBytes)
+	if err := pr.ensureV2Tapes(opts.maxTapeBufferBytes); err != nil {
+		return err
 	}
-	leafBytes := 4*(r+pr.params.Eta) + 2 + pr.params.NonceBytes
+	leafBytes := 0
 	if pr.PFormal != nil {
 		if opts.forceScalarFormalEval {
 			pr.commitInitFormalScalarLeafHashes(leafHashes, leafBytes, timings)
@@ -669,31 +663,23 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 			pr.commitInitFormalOptimizedLeafHashes(leafHashes, leafBytes, opts, timings)
 		}
 	} else {
-		buildLeaf := func(i int) []byte {
-			buf := make([]byte, leafBytes)
-			off := 0
+		buildLeafHash := func(h sha3.ShakeHash, i int) []byte {
 			x := pr.points[i] % q
+			pvals := make([]uint64, r)
 			for j := 0; j < r; j++ {
-				binary.LittleEndian.PutUint32(buf[off:], uint32(evalPoly(pr.P[j].Coeffs[0], x, q)))
-				off += 4
+				pvals[j] = evalPoly(pr.P[j].Coeffs[0], x, q)
 			}
+			mvals := make([]uint64, pr.params.Eta)
 			for k := 0; k < pr.params.Eta; k++ {
-				binary.LittleEndian.PutUint32(buf[off:], uint32(evalPoly(pr.M[k].Coeffs[0], x, q)))
-				off += 4
+				mvals[k] = evalPoly(pr.M[k].Coeffs[0], x, q)
 			}
-			binary.LittleEndian.PutUint16(buf[off:], uint16(i))
-			off += 2
-			rho := deriveNonce(pr.nonceSeed, i, pr.params.NonceBytes)
-			copy(buf[off:], rho)
-			return buf
+			return hashLeafV2With(h, pr.commitmentContext, uint64(i), pr.points[i], q, pvals, mvals, pr.tapeAt(i), hashBytes)
 		}
 		workers := runtime.GOMAXPROCS(0)
 		if workers < 2 || N < 128 {
 			h := nilShake()
 			for i := 0; i < N; i++ {
-				leaf := buildLeaf(i)
-				leafHashes[i] = make([]byte, hashBytes)
-				hashLeafIntoWith(h, leaf, leafHashes[i])
+				leafHashes[i] = buildLeafHash(h, i)
 			}
 		} else {
 			if workers > N {
@@ -708,15 +694,13 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 				if end > N {
 					end = N
 				}
-				go func() {
+				go func(start, end int) {
 					defer wg.Done()
 					h := nilShake()
 					for i := start; i < end; i++ {
-						leaf := buildLeaf(i)
-						leafHashes[i] = make([]byte, hashBytes)
-						hashLeafIntoWith(h, leaf, leafHashes[i])
+						leafHashes[i] = buildLeafHash(h, i)
 					}
-				}()
+				}(start, end)
 			}
 			wg.Wait()
 		}
@@ -730,15 +714,79 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) ([16]byte, error
 	if timings != nil {
 		merkleStart = time.Now()
 	}
-	pr.mt = BuildMerkleTreeFromLeafHashBytes(leafHashes, hashBytes)
-	pr.root = pr.mt.Root()
+	var err error
+	pr.mt, err = BuildMerkleTreeFromLeafHashBytesV2(pr.commitmentContext, leafHashes, hashBytes)
+	if err != nil {
+		return err
+	}
 	pr.rootHash = pr.mt.RootHash()
 	if timings != nil {
 		timings.merkleNs = int64(time.Since(merkleStart))
 		timings.record(opts.phaseRecorder)
 	}
 
-	return pr.root, nil
+	return nil
+}
+
+func v2TapeBytes(params Params) (int, error) {
+	if !IsSupportedTapeBytes(params.TapeBytes) {
+		return 0, fmt.Errorf("decs: invalid v2 TapeBytes=%d (supported: %s)", params.TapeBytes, SupportedTapeBytesList())
+	}
+	return params.TapeBytes, nil
+}
+
+func (pr *Prover) ensureV2Tapes(maxBytes int) error {
+	tapeBytes, err := v2TapeBytes(pr.params)
+	if err != nil {
+		return err
+	}
+	if pr.nLeaves < 0 || (pr.nLeaves > 0 && tapeBytes > int(^uint(0)>>1)/pr.nLeaves) {
+		return fmt.Errorf("decs: v2 tape buffer size overflows int")
+	}
+	total := pr.nLeaves * tapeBytes
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxTapeBufferBytes
+	}
+	if total > maxBytes {
+		return fmt.Errorf("decs: v2 tape buffer=%d exceeds configured limit=%d", total, maxBytes)
+	}
+	if len(pr.tapes) != 0 {
+		if len(pr.tapes) != total {
+			return fmt.Errorf("decs: v2 tape buffer width=%d want=%d", len(pr.tapes), total)
+		}
+		return nil
+	}
+	pr.tapes = make([]byte, total)
+	reader := pr.entropy
+	if reader == nil {
+		reader = rand.Reader
+	}
+	if _, err := io.ReadFull(reader, pr.tapes); err != nil {
+		for i := range pr.tapes {
+			pr.tapes[i] = 0
+		}
+		pr.tapes = nil
+		return fmt.Errorf("decs: sample independent tapes: %w", err)
+	}
+	return nil
+}
+
+func (pr *Prover) tapeAt(index int) []byte {
+	tapeBytes := pr.params.TapeBytes
+	start := index * tapeBytes
+	return pr.tapes[start : start+tapeBytes]
+}
+
+// ReleaseTapes zeroes and releases the prover-private v2 tape buffer. Further
+// openings fail until a new commitment is created.
+func (pr *Prover) ReleaseTapes() {
+	if pr == nil {
+		return
+	}
+	for i := range pr.tapes {
+		pr.tapes[i] = 0
+	}
+	pr.tapes = nil
 }
 
 func (pr *Prover) commitInitFormalScalarLeafHashes(leafHashes [][]byte, leafBytes int, timings *commitInitPhaseTimings) {
@@ -779,19 +827,16 @@ func (pr *Prover) commitInitFormalScalarLeafHashes(leafHashes [][]byte, leafByte
 }
 
 func (pr *Prover) commitInitFormalScalarRange(start, end int, leafHashes [][]byte, leafBytes, r int, red modReducer64, pPlan, mPlan formalEvalPlan, usePowerEval bool, powerCount int, timings *commitInitPhaseTimings) {
-	buf := make([]byte, leafBytes)
 	pScratch := make([]uint64, r)
 	mScratch := make([]uint64, pr.params.Eta)
 	var powerScratch []uint64
 	if usePowerEval {
 		powerScratch = make([]uint64, powerCount)
 	}
-	nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
 	shake := nilShake()
 	record := timings != nil && timings.recordSubphases
-	var evalNs, encodeNs, nonceNs, hashNs int64
+	var evalNs, hashNs int64
 	for i := start; i < end; i++ {
-		buf = buf[:leafBytes]
 		x := pr.points[i] % red.mod
 		evalStart := time.Time{}
 		if record {
@@ -805,46 +850,17 @@ func (pr *Prover) commitInitFormalScalarRange(start, end int, leafHashes [][]byt
 		if record {
 			evalNs += int64(time.Since(evalStart))
 		}
-		encodeStart := time.Time{}
-		if record {
-			encodeStart = time.Now()
-		}
-		off := 0
-		for j := 0; j < r; j++ {
-			binary.LittleEndian.PutUint32(buf[off:], uint32(pScratch[j]))
-			off += 4
-		}
-		for k := 0; k < pr.params.Eta; k++ {
-			binary.LittleEndian.PutUint32(buf[off:], uint32(mScratch[k]))
-			off += 4
-		}
-		binary.LittleEndian.PutUint16(buf[off:], uint16(i))
-		off += 2
-		if record {
-			encodeNs += int64(time.Since(encodeStart))
-		}
-		nonceStart := time.Time{}
-		if record {
-			nonceStart = time.Now()
-		}
-		nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
-		if record {
-			nonceNs += int64(time.Since(nonceStart))
-		}
 		hashStart := time.Time{}
 		if record {
 			hashStart = time.Now()
 		}
-		leafHashes[i] = make([]byte, NormalizeHashBytes(pr.params.HashBytes))
-		hashLeafIntoWith(shake, buf, leafHashes[i])
+		leafHashes[i] = hashLeafV2With(shake, pr.commitmentContext, uint64(i), pr.points[i], red.mod, pScratch, mScratch, pr.tapeAt(i), pr.params.HashBytes)
 		if record {
 			hashNs += int64(time.Since(hashStart))
 		}
 	}
 	if record {
 		atomic.AddInt64(&timings.formalEvalNs, evalNs)
-		atomic.AddInt64(&timings.leafEncodingNs, encodeNs)
-		atomic.AddInt64(&timings.nonceDeriveNs, nonceNs)
 		atomic.AddInt64(&timings.leafHashNs, hashNs)
 	}
 }
@@ -943,15 +959,12 @@ func (pr *Prover) commitInitFormalOptimizedLeafHashes(leafHashes [][]byte, leafB
 }
 
 func (pr *Prover) commitInitFormalOptimizedRange(start, end int, leafHashes [][]byte, leafBytes, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
-	buf := make([]byte, leafBytes)
 	values := make([]uint64, plan.rowCount)
 	powers := make([]uint64, plan.maxDeg+1)
-	nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
 	shake := nilShake()
 	record := timings != nil && timings.recordSubphases
-	var evalNs, encodeNs, nonceNs, hashNs int64
+	var evalNs, hashNs int64
 	for i := start; i < end; i++ {
-		buf = buf[:leafBytes]
 		x := pr.points[i] % red.mod
 		evalStart := time.Time{}
 		if record {
@@ -962,59 +975,28 @@ func (pr *Prover) commitInitFormalOptimizedRange(start, end int, leafHashes [][]
 		if record {
 			evalNs += int64(time.Since(evalStart))
 		}
-		encodeStart := time.Time{}
-		if record {
-			encodeStart = time.Now()
-		}
-		off := 0
-		for j := 0; j < r; j++ {
-			binary.LittleEndian.PutUint32(buf[off:], uint32(values[j]))
-			off += 4
-		}
-		for k := 0; k < pr.params.Eta; k++ {
-			binary.LittleEndian.PutUint32(buf[off:], uint32(values[r+k]))
-			off += 4
-		}
-		binary.LittleEndian.PutUint16(buf[off:], uint16(i))
-		off += 2
-		if record {
-			encodeNs += int64(time.Since(encodeStart))
-		}
-		nonceStart := time.Time{}
-		if record {
-			nonceStart = time.Now()
-		}
-		nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
-		if record {
-			nonceNs += int64(time.Since(nonceStart))
-		}
 		hashStart := time.Time{}
 		if record {
 			hashStart = time.Now()
 		}
-		leafHashes[i] = make([]byte, NormalizeHashBytes(pr.params.HashBytes))
-		hashLeafIntoWith(shake, buf, leafHashes[i])
+		leafHashes[i] = hashLeafV2With(shake, pr.commitmentContext, uint64(i), pr.points[i], red.mod, values[:r], values[r:r+pr.params.Eta], pr.tapeAt(i), pr.params.HashBytes)
 		if record {
 			hashNs += int64(time.Since(hashStart))
 		}
 	}
 	if record {
 		atomic.AddInt64(&timings.formalEvalNs, evalNs)
-		atomic.AddInt64(&timings.leafEncodingNs, encodeNs)
-		atomic.AddInt64(&timings.nonceDeriveNs, nonceNs)
 		atomic.AddInt64(&timings.leafHashNs, hashNs)
 	}
 }
 
 func (pr *Prover) commitInitFormalTiledRange(start, end, tileSize int, leafHashes [][]byte, leafBytes, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
 	rowCount := plan.rowCount
-	buf := make([]byte, leafBytes)
 	values := make([]uint64, tileSize*rowCount)
 	powers := make([]uint64, tileSize*(plan.maxDeg+1))
-	nonceScratch := make([]byte, 0, len(nonceDeriveLabel)+len(pr.nonceSeed)+5)
 	shake := nilShake()
 	record := timings != nil && timings.recordSubphases
-	var evalNs, encodeNs, nonceNs, hashNs int64
+	var evalNs, hashNs int64
 	for tileStart := start; tileStart < end; tileStart += tileSize {
 		tileEnd := tileStart + tileSize
 		if tileEnd > end {
@@ -1033,39 +1015,11 @@ func (pr *Prover) commitInitFormalTiledRange(start, end, tileSize int, leafHashe
 		for t := 0; t < tileLen; t++ {
 			i := tileStart + t
 			rowVals := values[t*rowCount : (t+1)*rowCount]
-			buf = buf[:leafBytes]
-			encodeStart := time.Time{}
-			if record {
-				encodeStart = time.Now()
-			}
-			off := 0
-			for j := 0; j < r; j++ {
-				binary.LittleEndian.PutUint32(buf[off:], uint32(rowVals[j]))
-				off += 4
-			}
-			for k := 0; k < pr.params.Eta; k++ {
-				binary.LittleEndian.PutUint32(buf[off:], uint32(rowVals[r+k]))
-				off += 4
-			}
-			binary.LittleEndian.PutUint16(buf[off:], uint16(i))
-			off += 2
-			if record {
-				encodeNs += int64(time.Since(encodeStart))
-			}
-			nonceStart := time.Time{}
-			if record {
-				nonceStart = time.Now()
-			}
-			nonceScratch = deriveNonceInto(buf[off:off+pr.params.NonceBytes], nonceScratch, pr.nonceSeed, i)
-			if record {
-				nonceNs += int64(time.Since(nonceStart))
-			}
 			hashStart := time.Time{}
 			if record {
 				hashStart = time.Now()
 			}
-			leafHashes[i] = make([]byte, NormalizeHashBytes(pr.params.HashBytes))
-			hashLeafIntoWith(shake, buf, leafHashes[i])
+			leafHashes[i] = hashLeafV2With(shake, pr.commitmentContext, uint64(i), pr.points[i], red.mod, rowVals[:r], rowVals[r:r+pr.params.Eta], pr.tapeAt(i), pr.params.HashBytes)
 			if record {
 				hashNs += int64(time.Since(hashStart))
 			}
@@ -1073,8 +1027,6 @@ func (pr *Prover) commitInitFormalTiledRange(start, end, tileSize int, leafHashe
 	}
 	if record {
 		atomic.AddInt64(&timings.formalEvalNs, evalNs)
-		atomic.AddInt64(&timings.leafEncodingNs, encodeNs)
-		atomic.AddInt64(&timings.nonceDeriveNs, nonceNs)
 		atomic.AddInt64(&timings.leafHashNs, hashNs)
 	}
 }
@@ -1116,31 +1068,58 @@ func (pr *Prover) CommitStep2Formal(Gamma [][]uint64) [][]uint64 {
 	return cloneFormalRows(pr.RFormal)
 }
 
-// EvalOpen does DECS.Eval step 1: given E, returns Pvals,Mvals,Paths,Nonces.
-func (pr *Prover) EvalOpen(E []int) *DECSOpening {
+// EvalOpenV2 opens distinct challenged leaves from a v2 commitment. Exactly
+// one independently sampled tape is copied for each index; no seed or other
+// state capable of reconstructing unopened tapes is returned.
+func (pr *Prover) EvalOpenV2(E []int) (*DECSOpening, error) {
+	if pr == nil {
+		return nil, fmt.Errorf("decs: EvalOpenV2 requires a completed v2 commitment")
+	}
+	if pr.mt == nil || len(pr.rootHash) == 0 {
+		return nil, fmt.Errorf("decs: EvalOpenV2 called before commitment")
+	}
+	tapeBytes, err := v2TapeBytes(pr.params)
+	if err != nil {
+		return nil, err
+	}
+	if len(pr.tapes) != pr.nLeaves*tapeBytes {
+		return nil, fmt.Errorf("decs: v2 private tapes unavailable or malformed")
+	}
+	if len(E) == 0 {
+		return nil, fmt.Errorf("decs: v2 opening index set is empty")
+	}
+	previous := -1
+	for _, idx := range E {
+		if idx < 0 || idx >= pr.nLeaves {
+			return nil, fmt.Errorf("decs: opening index %d outside [0,%d)", idx, pr.nLeaves)
+		}
+		if idx <= previous {
+			return nil, fmt.Errorf("decs: v2 opening indices are not strictly increasing at %d", idx)
+		}
+		previous = idx
+	}
+
 	r := pr.rowCount()
 	open := &DECSOpening{
-		Indices:    append([]int(nil), E...),
-		Pvals:      make([][]uint64, len(E)),
-		Mvals:      make([][]uint64, len(E)),
-		Nodes:      nil,
-		PathIndex:  make([][]int, len(E)),
-		R:          r,
-		Eta:        pr.params.Eta,
-		NonceSeed:  append([]byte(nil), pr.nonceSeed...),
-		NonceBytes: pr.params.NonceBytes,
+		Version:   OpeningVersionV2,
+		Role:      pr.commitmentContext.Role,
+		Indices:   append([]int(nil), E...),
+		Pvals:     make([][]uint64, len(E)),
+		Mvals:     make([][]uint64, len(E)),
+		PathIndex: make([][]int, len(E)),
+		Tapes:     make([][]byte, len(E)),
+		TapeBytes: tapeBytes,
+		R:         r,
+		Eta:       pr.params.Eta,
 	}
-	// Deduplicate sibling nodes across all paths
 	nodeIdx := make(map[string]int)
-	addNode := func(b []byte) int {
-		key := string(b)
+	addNode := func(value []byte) int {
+		key := string(value)
 		if id, ok := nodeIdx[key]; ok {
 			return id
 		}
 		id := len(open.Nodes)
-		// store a copy
-		cp := append([]byte(nil), b...)
-		open.Nodes = append(open.Nodes, cp)
+		open.Nodes = append(open.Nodes, append([]byte(nil), value...))
 		nodeIdx[key] = id
 		return id
 	}
@@ -1153,20 +1132,17 @@ func (pr *Prover) EvalOpen(E []int) *DECSOpening {
 		for k := 0; k < pr.params.Eta; k++ {
 			open.Mvals[t][k] = pr.evalM(idx, k)
 		}
-		// Build path and map to indices
+		open.Tapes[t] = append([]byte(nil), pr.tapeAt(idx)...)
 		depth := len(pr.mt.layers) - 1
-		pi := make([]int, depth)
+		pathIndices := make([]int, depth)
 		cur := idx
-		for lvl := 0; lvl < depth; lvl++ {
-			sib := cur ^ 1
-			h := pr.mt.layers[lvl][sib]
-			pi[lvl] = addNode(h)
+		for level := 0; level < depth; level++ {
+			pathIndices[level] = addNode(pr.mt.layers[level][cur^1])
 			cur >>= 1
 		}
-		open.PathIndex[t] = pi
+		open.PathIndex[t] = pathIndices
 	}
-	// Return unpacked opening; the caller may pack it after combining
-	return open
+	return open, nil
 }
 
 func (pr *Prover) evalP(idx, j int) uint64 {
@@ -1197,11 +1173,11 @@ func validateProverParams(params Params) error {
 	if params.Degree < 0 {
 		return fmt.Errorf("decs: invalid degree parameter")
 	}
-	if params.HashBytes != 0 && !IsSupportedHashBytes(params.HashBytes) {
+	if !IsSupportedHashBytes(params.HashBytes) {
 		return fmt.Errorf("decs: invalid HashBytes (supported: %s)", SupportedHashBytesList())
 	}
-	if params.NonceBytes != 0 && !IsSupportedNonceBytes(params.NonceBytes) {
-		return fmt.Errorf("decs: invalid NonceBytes (supported: %s)", SupportedNonceBytesList())
+	if !IsSupportedTapeBytes(params.TapeBytes) {
+		return fmt.Errorf("decs: invalid TapeBytes (supported: %s)", SupportedTapeBytesList())
 	}
 	return nil
 }
@@ -1210,10 +1186,7 @@ func (pr *Prover) RootHash() []byte {
 	if pr == nil {
 		return nil
 	}
-	if len(pr.rootHash) > 0 {
-		return append([]byte(nil), pr.rootHash...)
-	}
-	return append([]byte(nil), pr.root[:]...)
+	return append([]byte(nil), pr.rootHash...)
 }
 
 func (pr *Prover) rowCount() int {
@@ -1332,9 +1305,6 @@ func PackOpeningWithOptions(op *DECSOpening, opts OpeningPackOptions) {
 		op.packResidues()
 		op.packTailIndices()
 		op.packRowMajorPaths()
-	}
-	if len(op.NonceSeed) > 0 {
-		op.Nonces = nil
 	}
 }
 
@@ -1624,28 +1594,40 @@ func (op *DECSOpening) packResidues() {
 	}
 }
 
-// DeriveGamma expands root→η×r matrix Γ with entries uniform in [0,q).
-// Uses SHA256(root || ctr) as a PRF and 64-bit rejection sampling for exact uniformity.
-func DeriveGamma(root [16]byte, eta, r int, q uint64) [][]uint64 {
+// DeriveGammaV2 expands the complete v2 Merkle root into Gamma. It binds the
+// same version/role/salt context as the commitment and never truncates a wide
+// root to the legacy 16-byte prefix.
+func DeriveGammaV2(ctx CommitmentContext, rootHash []byte, eta, r int, q uint64) ([][]uint64, error) {
+	if err := ctx.Validate(); err != nil {
+		return nil, err
+	}
+	if !IsSupportedHashBytes(len(rootHash)) {
+		return nil, fmt.Errorf("decs: invalid v2 root width %d", len(rootHash))
+	}
+	if eta <= 0 || r <= 0 || q < 2 {
+		return nil, fmt.Errorf("decs: invalid v2 gamma dimensions eta=%d r=%d q=%d", eta, r, q)
+	}
 	out := make([][]uint64, eta)
-	var ctr uint64
+	limit := (^uint64(0) / q) * q
+	var counter uint64
 	for k := 0; k < eta; k++ {
 		out[k] = make([]uint64, r)
 		for j := 0; j < r; j++ {
 			for {
-				var buf [24]byte
-				copy(buf[:16], root[:])
-				binary.LittleEndian.PutUint64(buf[16:], ctr)
-				h := sha256.Sum256(buf[:])
-				x := binary.LittleEndian.Uint64(h[:8])
-				ctr++
-				limit := (^uint64(0) / q) * q
-				if x < limit {
-					out[k][j] = x % q
+				h := sha3.NewShake256()
+				writeContextV2(h, gammaDomainV2, ctx)
+				writeLengthPrefixed(h, rootHash)
+				writeUint64(h, counter)
+				var buf [8]byte
+				_, _ = h.Read(buf[:])
+				counter++
+				value := binary.BigEndian.Uint64(buf[:])
+				if value < limit {
+					out[k][j] = value % q
 					break
 				}
 			}
 		}
 	}
-	return out
+	return out, nil
 }

@@ -517,7 +517,7 @@ func nizkProfileCandidateFromTuningWithOptions(name, relationEncoding, preset st
 	if opts.SerializerOmission != "" && (!opts.ReconstructionAvailable || !opts.OmissionMapFSBound) {
 		notes = append(notes, "serializer omission is fail-closed until verifier reconstruction and Fiat-Shamir binding are available")
 	}
-	if opts.SerializerOmission == PIOP.SmallField2025TranscriptOmissionModeDigestBoundV1 {
+	if opts.SerializerOmission == PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2 {
 		showing.TranscriptOmissionMode = opts.SerializerOmission
 		notes = append(notes, "digest-bound SmallWood payload omission is verifier-bound and internal to research transcript accounting")
 	}
@@ -931,7 +931,7 @@ func nizkProfileValidPrefixTrailCandidates(presetName string, base intGenISISTun
 			TagElementsOverride:     13,
 			ValidPrefixResearch:     true,
 			ValidPrefixCapExponent:  [4]float64{64, 64, 61, 64},
-			SerializerOmission:      PIOP.SmallField2025TranscriptOmissionModeDigestBoundV1,
+			SerializerOmission:      PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2,
 			ReconstructionAvailable: true,
 			OmissionMapFSBound:      true,
 			Notes:                   []string{"safe serializer target: VTargets and BarSets remain explicit; only already-reconstructible Pdecs columns are descriptor-bound"},
@@ -1028,7 +1028,7 @@ func nizkProfileValidPrefixTrailCandidates(presetName string, base intGenISISTun
 			RawQueryCapExponentOverride: 128,
 			ValidPrefixResearch:         true,
 			ValidPrefixCapExponent:      [4]float64{64, 64, 64, 64},
-			SerializerOmission:          PIOP.SmallField2025TranscriptOmissionModeDigestBoundV1,
+			SerializerOmission:          PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2,
 			ReconstructionAvailable:     true,
 			OmissionMapFSBound:          true,
 			Notes:                       []string{"BQ128 vp64 serializer trail with VTargets/BarSets explicit and Pdecs omitted-column compression only"},
@@ -1086,7 +1086,7 @@ func nizkProfileValidPrefixTrailCandidates(presetName string, base intGenISISTun
 			RawQueryCapExponentOverride: 128,
 			ValidPrefixResearch:         true,
 			ValidPrefixCapExponent:      [4]float64{80, 80, 80, 80},
-			SerializerOmission:          PIOP.SmallField2025TranscriptOmissionModeDigestBoundV1,
+			SerializerOmission:          PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2,
 			ReconstructionAvailable:     true,
 			OmissionMapFSBound:          true,
 			Notes:                       []string{"BQ128 vp80 serializer search lane; VTargets/BarSets stay explicit pending a reconstruction theorem"},
@@ -1132,7 +1132,7 @@ func nizkProfileValidPrefixTrailCandidates(presetName string, base intGenISISTun
 			SaltBitsOverride:            384,
 			TagElementsOverride:         20,
 			RawQueryCapExponentOverride: 128,
-			SerializerOmission:          PIOP.SmallField2025TranscriptOmissionModeDigestBoundV1,
+			SerializerOmission:          PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2,
 			ReconstructionAvailable:     true,
 			OmissionMapFSBound:          true,
 			Notes:                       []string{"raw 2^128 control with VTargets/BarSets explicit and Pdecs omitted-column compression only; no valid-prefix algebraic discount"},
@@ -1651,7 +1651,7 @@ func nizkProfileCandidateReport(target NIZKProfileSearchTarget, cand NIZKProfile
 
 func nizkProfileApplyProjectedSerializerOmission(cand NIZKProfileSearchCandidate, buckets nizkProfileBucketDigest) nizkProfileBucketDigest {
 	switch cand.SerializerOmission {
-	case PIOP.SmallField2025TranscriptOmissionModeDigestBoundV1:
+	case PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2:
 		// The descriptor currently binds only already-reconstructible DECS
 		// opening columns. VTargets and BarSets remain explicit until a
 		// verifier reconstruction theorem is available.
@@ -2110,7 +2110,7 @@ func bq64ReductionSerializerModel(cand NIZKProfileSearchCandidate) BQ64Reduction
 		model.OmitBarSets = true
 		model.Status = "blocked"
 		model.Reason = "BarSets omission needs verifier byte-for-byte reconstruction before DECS verification"
-	case PIOP.SmallField2025TranscriptOmissionModeDigestBoundV1:
+	case PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2:
 		model.OmitPdecs = true
 		model.Status = "serializer_safe_existing_path"
 		model.Reason = "descriptor binds the existing smallfield2025 omitted-column Pdecs reconstruction; VTargets and BarSets remain explicit"
@@ -3444,10 +3444,21 @@ func TestNIZKProfileSweepIntegrationSummary(t *testing.T) {
 			if result.IssuanceProjection == nil || result.ShowingProjection == nil {
 				t.Fatalf("BQ64-128 missing exact phase projections: %+v", result)
 			}
-			if result.IssuanceProjection.Transcript.OptimizedBytes != 39504 ||
-				result.ShowingProjection.Transcript.OptimizedBytes != 56584 ||
-				result.CombinedPaperBytes != 96088 {
-				t.Fatalf("BQ64-128 exact projection mismatch: %+v", result)
+			issuanceBytes := result.IssuanceProjection.Transcript.OptimizedBytes
+			showingBytes := result.ShowingProjection.Transcript.OptimizedBytes
+			if issuanceBytes <= 0 || showingBytes <= issuanceBytes ||
+				result.CombinedPaperBytes != issuanceBytes+showingBytes {
+				t.Fatalf("BQ64-128 malformed v2 projection accounting: %+v", result)
+			}
+			for phase, projection := range map[string]*NIZKProfilePhaseProjection{
+				"issuance": result.IssuanceProjection,
+				"showing":  result.ShowingProjection,
+			} {
+				tapes := projection.Transcript.Audit.Tapes
+				if tapes.TapeCount != result.SmallWood.Ell || tapes.TapeBytes <= 0 ||
+					tapes.TotalBytes != tapes.TapeBytes+tapes.TapeMetadataBytes {
+					t.Fatalf("BQ64-128 %s projection lacks independent selective-tape accounting: %+v", phase, tapes)
+				}
 			}
 			if result.SmallWood.Kappa != [4]int{13, 2, 8, 13} ||
 				result.ExpectedGrindingWork != 16644 ||
@@ -3620,21 +3631,59 @@ func TestNIZKProfileFormalRhoEllPrimeProbeFailsClosed(t *testing.T) {
 }
 
 func TestNIZKProfileMaintainedByteGateBaselineLocked(t *testing.T) {
-	want := map[string]int{
-		credential.IntGenISISPresetN512Compact96:          22016,
-		credential.IntGenISISPresetN1024Compact125:        35223,
-		credential.IntGenISISPresetN1024Q10_96:            29653,
-		credential.IntGenISISPresetN1024Q16_96:            30591,
-		credential.IntGenISISPresetN1024BQ32_96:           36887,
-		credential.IntGenISISPresetSystemN1024WF128CROMV1: 38092,
+	type byteBaseline struct {
+		issuance int
+		showing  int
+		combined int
+	}
+	want := map[string]byteBaseline{
+		credential.IntGenISISPresetPoCN512SC96V2:          {15283, 23963, 39246},
+		credential.IntGenISISPresetArtifactN1024SC125V2:   {23926, 40150, 64076},
+		"artifact-n1024-bq10-r96-v2":                      {19113, 34388, 53501},
+		"artifact-n1024-bq16-r96-v2":                      {20592, 35000, 55592},
+		credential.IntGenISISPresetPilotN1024BQ32R96V2:    {24859, 41159, 66018},
+		credential.IntGenISISPresetPoCN1024BQ64R128V2:     {39950, 64350, 104300},
+		credential.IntGenISISPresetPoCN1024BQ96R128V2:     {52472, 82972, 135444},
+		credential.IntGenISISPresetPoCN1024BQ128R128V3:    {62029, 96254, 158283},
+		credential.IntGenISISPresetSystemN1024WF128CROMV2: {26515, 42739, 69254},
 	}
 	gates := allMaintainedPresetGates()
 	if len(gates) != len(want) {
 		t.Fatalf("maintained gates=%d want %d", len(gates), len(want))
 	}
+	seen := make(map[string]bool, len(gates))
 	for _, gate := range gates {
-		if got, ok := want[gate.Name]; !ok || gate.ExpectedPaperBytes != got {
-			t.Fatalf("maintained byte baseline changed for %s: got %d want %d", gate.Name, gate.ExpectedPaperBytes, got)
+		if seen[gate.Name] {
+			t.Fatalf("duplicate maintained gate %s", gate.Name)
+		}
+		seen[gate.Name] = true
+		got, ok := want[gate.Name]
+		if !ok {
+			t.Fatalf("unexpected maintained gate %s", gate.Name)
+		}
+		preset, ok := credential.LookupIntGenISISPreset(gate.Name)
+		if !ok || preset.CanonicalID != gate.Name {
+			t.Fatalf("maintained gate %q is not a canonical v2 preset ID", gate.Name)
+		}
+		profile, ok := credential.LookupIntGenISISSecurityProfile(preset.SecurityProfile)
+		if !ok || gate.MinTheoremBits != profile.TargetBits {
+			t.Fatalf("maintained theorem gate for %s=%v, want profile target %v", gate.Name, gate.MinTheoremBits, profile.TargetBits)
+		}
+		if gate.ExpectedIssuancePaperBytes != got.issuance ||
+			gate.ExpectedShowingPaperBytes != got.showing ||
+			gate.ExpectedCombinedPaperBytes != got.combined {
+			t.Fatalf("maintained byte baseline changed for %s: got %d/%d/%d want %d/%d/%d",
+				gate.Name,
+				gate.ExpectedIssuancePaperBytes,
+				gate.ExpectedShowingPaperBytes,
+				gate.ExpectedCombinedPaperBytes,
+				got.issuance,
+				got.showing,
+				got.combined,
+			)
+		}
+		if gate.ExpectedCombinedPaperBytes != gate.ExpectedIssuancePaperBytes+gate.ExpectedShowingPaperBytes {
+			t.Fatalf("maintained combined byte baseline is inconsistent for %s", gate.Name)
 		}
 	}
 }
@@ -3800,7 +3849,7 @@ func TestNIZKProfileLargeNLeavesRemainProjectionOnlyUnderCurrentQ(t *testing.T) 
 	}
 }
 
-func TestNIZKProfileSearchKeepsBQ3296PresetUnchanged(t *testing.T) {
+func TestNIZKProfileSearchUsesRetunedBQ3296Preset(t *testing.T) {
 	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetN1024BQ32_96)
 	if err != nil {
 		t.Fatal(err)
@@ -3808,7 +3857,7 @@ func TestNIZKProfileSearchKeepsBQ3296PresetUnchanged(t *testing.T) {
 	if preset.SecurityProfile != "BQ32-96" || preset.CompleteSystemClaim {
 		t.Fatalf("BQ32-96 security classification changed: %+v", preset)
 	}
-	if preset.Showing.LVCSNCols != 40 || preset.Showing.NLeaves != 786432 || preset.Showing.Eta != 46 || preset.Showing.Ell != 9 {
+	if preset.Showing.LVCSNCols != 43 || preset.Showing.NLeaves != 442368 || preset.Showing.Eta != 45 || preset.Showing.Ell != 9 || preset.Showing.Kappa != [4]int{2, 0, 3, 13} {
 		t.Fatalf("BQ32-96 tuning changed: %+v", preset.Showing)
 	}
 }

@@ -2,13 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"math"
-	"math/big"
 	"os"
 	"path/filepath"
 
@@ -37,27 +37,28 @@ type intGenISISHolderWitnessSpec struct {
 }
 
 type smallWoodTuningSpec struct {
-	NCols               int        `json:"ncols,omitempty"`
-	LVCSNCols           int        `json:"lvcs_ncols,omitempty"`
-	NLeaves             int        `json:"nleaves,omitempty"`
-	Ell                 int        `json:"ell,omitempty"`
-	EllPrime            int        `json:"ell_prime,omitempty"`
-	Eta                 int        `json:"eta,omitempty"`
-	Theta               int        `json:"theta,omitempty"`
-	Rho                 int        `json:"rho,omitempty"`
-	DQOverride          int        `json:"dq_override,omitempty"`
-	Kappa               [4]int     `json:"kappa,omitempty"`
-	ROQueryCaps         [5]int     `json:"ro_query_caps,omitempty"`
-	ROQueryCapsSet      bool       `json:"ro_query_caps_set,omitempty"`
-	ROQueryCapBits      [5]float64 `json:"ro_query_cap_bits,omitempty"`
-	ROQueryCapBitsSet   bool       `json:"ro_query_cap_bits_set,omitempty"`
-	DECSCollisionBits   int        `json:"decs_collision_bits,omitempty"`
-	DECSHashBits        int        `json:"decs_hash_bits,omitempty"`
-	DECSTapeBits        int        `json:"decs_tape_bits,omitempty"`
-	FSCollisionBits     int        `json:"fs_collision_bits,omitempty"`
-	SaltBits            int        `json:"salt_bits,omitempty"`
-	TranscriptMode      string     `json:"transcript_mode,omitempty"`
-	FixedTranscriptSize bool       `json:"fixed_transcript_size,omitempty"`
+	NCols                  int        `json:"ncols,omitempty"`
+	LVCSNCols              int        `json:"lvcs_ncols,omitempty"`
+	NLeaves                int        `json:"nleaves,omitempty"`
+	Ell                    int        `json:"ell,omitempty"`
+	EllPrime               int        `json:"ell_prime,omitempty"`
+	Eta                    int        `json:"eta,omitempty"`
+	Theta                  int        `json:"theta,omitempty"`
+	Rho                    int        `json:"rho,omitempty"`
+	DQOverride             int        `json:"dq_override,omitempty"`
+	Kappa                  [4]int     `json:"kappa,omitempty"`
+	ROQueryCaps            [5]int     `json:"ro_query_caps,omitempty"`
+	ROQueryCapsSet         bool       `json:"ro_query_caps_set,omitempty"`
+	ROQueryCapBits         [5]float64 `json:"ro_query_cap_bits,omitempty"`
+	ROQueryCapBitsSet      bool       `json:"ro_query_cap_bits_set,omitempty"`
+	DECSCollisionBits      int        `json:"decs_collision_bits,omitempty"`
+	DECSHashBits           int        `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits           int        `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits        int        `json:"fs_collision_bits,omitempty"`
+	SaltBits               int        `json:"salt_bits,omitempty"`
+	TranscriptMode         string     `json:"transcript_mode,omitempty"`
+	TranscriptOmissionMode string     `json:"transcript_omission_mode,omitempty"`
+	FixedTranscriptSize    bool       `json:"fixed_transcript_size,omitempty"`
 }
 
 type holderSecretFile struct {
@@ -92,7 +93,6 @@ type preSignSubmissionFile struct {
 type issueResponseFile struct {
 	Version              int       `json:"version"`
 	CredentialPublicPath string    `json:"credential_public_path"`
-	T                    []int64   `json:"t,omitempty"`
 	MuSig                [][]int64 `json:"mu_sig,omitempty"`
 	X0                   [][]int64 `json:"x0,omitempty"`
 	X1                   [][]int64 `json:"x1,omitempty"`
@@ -113,28 +113,29 @@ type issuanceRuntime struct {
 }
 
 type issuanceRuntimeOverrides struct {
-	NCols               int
-	LVCSNCols           int
-	NLeaves             int
-	Ell                 int
-	EllPrime            int
-	Eta                 int
-	Theta               int
-	Rho                 int
-	DQOverride          int
-	Kappa               [4]int
-	ROQueryCaps         [5]int
-	ROQueryCapsSet      bool
-	ROQueryCapBits      [5]float64
-	ROQueryCapBitsSet   bool
-	DECSCollisionBits   int
-	DECSHashBits        int
-	DECSTapeBits        int
-	FSCollisionBits     int
-	SaltBits            int
-	TranscriptMode      string
-	FixedTranscriptSize bool
-	RingDegree          int
+	NCols                  int
+	LVCSNCols              int
+	NLeaves                int
+	Ell                    int
+	EllPrime               int
+	Eta                    int
+	Theta                  int
+	Rho                    int
+	DQOverride             int
+	Kappa                  [4]int
+	ROQueryCaps            [5]int
+	ROQueryCapsSet         bool
+	ROQueryCapBits         [5]float64
+	ROQueryCapBitsSet      bool
+	DECSCollisionBits      int
+	DECSHashBits           int
+	DECSTapeBits           int
+	FSCollisionBits        int
+	SaltBits               int
+	TranscriptMode         string
+	TranscriptOmissionMode string
+	FixedTranscriptSize    bool
+	RingDegree             int
 }
 
 func ntruSigningPaths(paramsPath, publicPath, privatePath, signaturePath string) signverify.SignPaths {
@@ -146,25 +147,21 @@ func ntruSigningPaths(paramsPath, publicPath, privatePath, signaturePath string)
 	}
 }
 
-const issuanceArtifactVersion = 2
+const issuanceArtifactVersion = 3
+
+func requireIssuanceArtifactVersion(kind string, got int) error {
+	if got == issuanceArtifactVersion {
+		return nil
+	}
+	return fmt.Errorf("unsupported %s schema %d; this build requires schema %d. No migration is supported; rerun setup and issuance", kind, got, issuanceArtifactVersion)
+}
 
 func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves int, omega []uint64, spec *smallWoodTuningSpec) issuanceRuntimeOverrides {
-	if ncols <= 0 && len(omega) > 0 {
-		ncols = len(omega)
-	}
 	out := issuanceRuntimeOverrides{
-		NCols:      ncols,
-		LVCSNCols:  lvcsNCols,
-		NLeaves:    nLeaves,
 		RingDegree: 0,
 	}
 	if spec != nil {
-		if spec.NCols > 0 {
-			out.NCols = spec.NCols
-		}
-		if out.NCols <= 0 && len(omega) > 0 {
-			out.NCols = len(omega)
-		}
+		out.NCols = spec.NCols
 		out.LVCSNCols = spec.LVCSNCols
 		out.NLeaves = spec.NLeaves
 		out.Ell = spec.Ell
@@ -184,6 +181,7 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 		out.FSCollisionBits = spec.FSCollisionBits
 		out.SaltBits = spec.SaltBits
 		out.TranscriptMode = spec.TranscriptMode
+		out.TranscriptOmissionMode = spec.TranscriptOmissionMode
 		out.FixedTranscriptSize = spec.FixedTranscriptSize
 	}
 	return out
@@ -191,31 +189,32 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 
 func smallWoodTuningSpecFromOpts(opts PIOP.SimOpts) *smallWoodTuningSpec {
 	transcriptMode := ""
-	if opts.TranscriptProtocolMode == PIOP.TranscriptProtocolSmallField2025V1 {
+	if opts.TranscriptProtocolMode == PIOP.TranscriptProtocolSmallField2025V2 {
 		transcriptMode = intGenISISTranscriptModeSmallField2025
 	}
 	return &smallWoodTuningSpec{
-		NCols:               opts.NCols,
-		LVCSNCols:           opts.LVCSNCols,
-		NLeaves:             opts.NLeaves,
-		Ell:                 opts.Ell,
-		EllPrime:            opts.EllPrime,
-		Eta:                 opts.Eta,
-		Theta:               opts.Theta,
-		Rho:                 opts.Rho,
-		DQOverride:          opts.DQOverride,
-		Kappa:               opts.Kappa,
-		ROQueryCaps:         opts.ROQueryCaps,
-		ROQueryCapsSet:      opts.ROQueryCapsSet,
-		ROQueryCapBits:      opts.ROQueryCapBits,
-		ROQueryCapBitsSet:   opts.ROQueryCapBitsSet,
-		DECSCollisionBits:   opts.DECSCollisionBits,
-		DECSHashBits:        opts.DECSHashBits,
-		DECSTapeBits:        opts.DECSTapeBits,
-		FSCollisionBits:     opts.FSCollisionBits,
-		SaltBits:            opts.SaltBits,
-		TranscriptMode:      transcriptMode,
-		FixedTranscriptSize: opts.FixedTranscriptSize,
+		NCols:                  opts.NCols,
+		LVCSNCols:              opts.LVCSNCols,
+		NLeaves:                opts.NLeaves,
+		Ell:                    opts.Ell,
+		EllPrime:               opts.EllPrime,
+		Eta:                    opts.Eta,
+		Theta:                  opts.Theta,
+		Rho:                    opts.Rho,
+		DQOverride:             opts.DQOverride,
+		Kappa:                  opts.Kappa,
+		ROQueryCaps:            opts.ROQueryCaps,
+		ROQueryCapsSet:         opts.ROQueryCapsSet,
+		ROQueryCapBits:         opts.ROQueryCapBits,
+		ROQueryCapBitsSet:      opts.ROQueryCapBitsSet,
+		DECSCollisionBits:      opts.DECSCollisionBits,
+		DECSHashBits:           opts.DECSHashBits,
+		DECSTapeBits:           opts.DECSTapeBits,
+		FSCollisionBits:        opts.FSCollisionBits,
+		SaltBits:               opts.SaltBits,
+		TranscriptMode:         transcriptMode,
+		TranscriptOmissionMode: opts.TranscriptOmissionMode,
+		FixedTranscriptSize:    opts.FixedTranscriptSize,
 	}
 }
 
@@ -282,12 +281,11 @@ func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeO
 		opts.TranscriptProtocolMode = intGenISISLiveTranscriptProtocolOrDefault(overrides.TranscriptMode)
 		opts.TranscriptVersion = intGenISISLiveTranscriptVersionOrDefault(overrides.TranscriptMode)
 	}
+	if overrides.TranscriptOmissionMode != "" {
+		opts.TranscriptOmissionMode = overrides.TranscriptOmissionMode
+	}
 	opts.FixedTranscriptSize = overrides.FixedTranscriptSize
 	return opts
-}
-
-func credentialPublicPathDefault() string {
-	return credential.DefaultPublicParamsPath
 }
 
 func setupIntGenISISPublicForPreset(outPath string, force bool, profile credential.IntGenISISProfile, bPath string, preset *credential.IntGenISISPreset) error {
@@ -322,6 +320,9 @@ func setupIntGenISISPublicForPreset(outPath string, force bool, profile credenti
 	for i := range B {
 		coeffs[i] = append([]uint64(nil), B[i].Coeffs[0]...)
 	}
+	if err := ntrurio.ValidateBMatrixCanonical(coeffs, ringQ.Modulus[0]); err != nil {
+		return fmt.Errorf("validate generated B matrix: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(bPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir B dir: %w", err)
 	}
@@ -353,6 +354,7 @@ func setupIntGenISISPublicForPreset(outPath string, force bool, profile credenti
 		EllMuSig:             profile.EllMuSig,
 		EllX0:                profile.EllX0,
 		EllX1:                profile.EllX1,
+		HashInputBound:       profile.HashInputBound,
 		SignaturePreimageLen: profile.SignaturePreimageLen,
 		MLWEHidingBits:       profile.MLWEHidingBits,
 		MSISBindingBits:      profile.MSISBindingBits,
@@ -445,16 +447,12 @@ func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, forc
 		return fmt.Errorf("write NTRU params: %w", err)
 	}
 	wroteFreshParams := !force
-	par, err := ntru.NewParams(selectedN, new(big.Int).SetUint64(params.Q))
-	if err != nil {
-		return fmt.Errorf("build NTRU params: %w", err)
-	}
 	kg := ntru.KeygenOpts{
 		Prec:      512,
 		MaxTrials: keygenTrials,
 		Alpha:     1.20,
 	}
-	if _, _, err := generateIssuanceNTRUKeypairWithRetry(par, kg, attempts, publicOut, privateOut); err != nil {
+	if _, _, err := generateIssuanceNTRUKeypairWithRetry(params, kg, attempts, publicOut, privateOut); err != nil {
 		if wroteFreshParams {
 			_ = os.Remove(paramsOut)
 		}
@@ -466,13 +464,13 @@ func setupNTRUKeys(ringDegree int, paramsOut, publicOut, privateOut string, forc
 	return nil
 }
 
-func generateIssuanceNTRUKeypairWithRetry(par ntru.Params, kg ntru.KeygenOpts, attempts int, publicOut, privateOut string) (*keys.PublicKey, *keys.PrivateKey, error) {
+func generateIssuanceNTRUKeypairWithRetry(params ntrurio.SystemParams, kg ntru.KeygenOpts, attempts int, publicOut, privateOut string) (*keys.PublicKey, *keys.PrivateKey, error) {
 	if attempts <= 0 {
 		attempts = 1
 	}
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		pk, sk, err := signverify.GenerateKeypairAnnulusToFiles(par, kg, publicOut, privateOut)
+		pk, sk, err := signverify.GenerateKeypairAnnulusToFiles(params, kg, publicOut, privateOut)
 		if err == nil {
 			return pk, sk, nil
 		}
@@ -586,11 +584,17 @@ func holderProve(holderSecretPath, challengePath, submissionPath string) error {
 	if err := readJSONFile(holderSecretPath, &secret); err != nil {
 		return fmt.Errorf("read holder secret: %w", err)
 	}
-	if secret.Version != issuanceArtifactVersion {
-		return fmt.Errorf("unsupported holder secret version %d", secret.Version)
+	if err := requireIssuanceArtifactVersion("holder secret", secret.Version); err != nil {
+		return err
+	}
+	if err := validatePersistedSmallWoodV2("holder secret", secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega, secret.SmallWood); err != nil {
+		return err
 	}
 	rt, err := loadIssuanceRuntime(secret.CredentialPublicPath, secret.PRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega, secret.SmallWood))
 	if err != nil {
+		return err
+	}
+	if err := validatePersistedOmegaV2("holder secret", secret.Omega, rt.omega); err != nil {
 		return err
 	}
 	if !rt.public.UsesIntGenISIS() {
@@ -614,15 +618,16 @@ func holderProveIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, submiss
 		return err
 	}
 	pub := PIOP.PublicInputs{
-		Com:          com,
-		CM:           cm,
-		AS:           as,
-		BoundB:       rt.public.CommitmentBound,
-		X0Len:        rt.public.EllX0,
-		RingDegree:   int(rt.ringQ.N),
-		HashRelation: rt.public.HashRelation,
-		IntGenISIS:   true,
-		Extras:       rt.public.PresetTranscriptExtras(nil),
+		Com:            com,
+		CM:             cm,
+		AS:             as,
+		BoundB:         rt.public.CommitmentBound,
+		HashInputBound: rt.public.HashInputBound,
+		X0Len:          rt.public.EllX0,
+		RingDegree:     int(rt.ringQ.N),
+		HashRelation:   rt.public.HashRelation,
+		IntGenISIS:     true,
+		Extras:         rt.public.PresetTranscriptExtras(nil),
 	}
 	proof, err := PIOP.BuildIntGenISISPreSign(rt.ringQ, pub, PIOP.WitnessInputs{
 		M:     inputs.M,
@@ -651,15 +656,24 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 	if err := readJSONFile(commitRequestPath, &req); err != nil {
 		return fmt.Errorf("read commit request: %w", err)
 	}
-	if req.Version != issuanceArtifactVersion {
-		return fmt.Errorf("unsupported commit request version %d", req.Version)
+	if err := requireIssuanceArtifactVersion("issuance request", req.Version); err != nil {
+		return err
+	}
+	if err := validatePersistedSmallWoodV2("issuance request", req.PackedNCols, req.LVCSNCols, req.NLeaves, req.Omega, req.SmallWood); err != nil {
+		return err
 	}
 	var submission preSignSubmissionFile
 	if err := readJSONFile(submissionPath, &submission); err != nil {
 		return fmt.Errorf("read submission: %w", err)
 	}
-	if submission.Version != issuanceArtifactVersion {
-		return fmt.Errorf("unsupported pre-sign submission version %d", submission.Version)
+	if err := requireIssuanceArtifactVersion("issuance submission", submission.Version); err != nil {
+		return err
+	}
+	if submission.CredentialPublicPath != req.CredentialPublicPath {
+		return fmt.Errorf("issuance request and submission public-parameter paths differ")
+	}
+	if submission.Proof == nil || submission.Proof.SchemaVersion != PIOP.ProofSchemaVersionV2 {
+		return fmt.Errorf("issuance submission contains a non-v2 PIOP proof. No migration is supported; rerun setup and issuance")
 	}
 	prfPath := defaultPRFParamsPath
 	public, err := credential.LoadPublicParams(req.CredentialPublicPath)
@@ -675,6 +689,9 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 	}
 	rt, err := loadIssuanceRuntime(req.CredentialPublicPath, prfPath, persistedIssuanceRuntimeOverridesWithSmallWood(req.PackedNCols, req.LVCSNCols, req.NLeaves, req.Omega, req.SmallWood))
 	if err != nil {
+		return err
+	}
+	if err := validatePersistedOmegaV2("issuance request", req.Omega, rt.omega); err != nil {
 		return err
 	}
 	if !rt.public.UsesIntGenISIS() {
@@ -697,15 +714,16 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 		return err
 	}
 	pub := PIOP.PublicInputs{
-		Com:          com,
-		CM:           cm,
-		AS:           as,
-		BoundB:       rt.public.CommitmentBound,
-		X0Len:        rt.public.EllX0,
-		RingDegree:   int(rt.ringQ.N),
-		HashRelation: rt.public.HashRelation,
-		IntGenISIS:   true,
-		Extras:       rt.public.PresetTranscriptExtras(nil),
+		Com:            com,
+		CM:             cm,
+		AS:             as,
+		BoundB:         rt.public.CommitmentBound,
+		HashInputBound: rt.public.HashInputBound,
+		X0Len:          rt.public.EllX0,
+		RingDegree:     int(rt.ringQ.N),
+		HashRelation:   rt.public.HashRelation,
+		IntGenISIS:     true,
+		Extras:         rt.public.PresetTranscriptExtras(nil),
 	}
 	ok, err := PIOP.VerifyIntGenISISPreSign(pub, submission.Proof, rt.opts)
 	if err != nil {
@@ -714,7 +732,7 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 	if !ok {
 		return fmt.Errorf("verify IntGenISIS pre-sign returned ok=false")
 	}
-	B, err := loadBAsNTT(rt.ringQ, rt.public.BPath)
+	B, err := loadBAsNTT(rt.ringQ, rt.public)
 	if err != nil {
 		return err
 	}
@@ -725,6 +743,9 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 	target, err := issuance.ComputeIntGenISISTarget(rt.ringQ, B, com, data)
 	if err != nil {
 		return fmt.Errorf("compute IntGenISIS target: %w", err)
+	}
+	if err := issuance.VerifyIntGenISISTargetRelation(rt.ringQ, B, com, data, target); err != nil {
+		return fmt.Errorf("verify computed IntGenISIS target relation: %w", err)
 	}
 	if err := validateNTRUSigningArtifacts(ntruPaths, len(target.TCoeff)); err != nil {
 		return err
@@ -785,10 +806,16 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 	return nil
 }
 
-func holderFinalize(holderSecretPath, commitRequestPath, challengePath, responsePath, statePath, signaturePath, ntruParamsPath string) error {
+func holderFinalize(holderSecretPath, commitRequestPath, challengePath, responsePath, statePath, signaturePath, ntruParamsPath, verifierKeyPath string) error {
 	var secretProbe holderSecretFile
 	if err := readJSONFile(holderSecretPath, &secretProbe); err != nil {
 		return fmt.Errorf("read holder secret: %w", err)
+	}
+	if err := requireIssuanceArtifactVersion("holder secret", secretProbe.Version); err != nil {
+		return err
+	}
+	if err := validatePersistedSmallWoodV2("holder secret", secretProbe.PackedNCols, secretProbe.LVCSNCols, secretProbe.NLeaves, secretProbe.Omega, secretProbe.SmallWood); err != nil {
+		return err
 	}
 	rtProbe, err := loadIssuanceRuntime(secretProbe.CredentialPublicPath, secretProbe.PRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(secretProbe.PackedNCols, secretProbe.LVCSNCols, secretProbe.NLeaves, secretProbe.Omega, secretProbe.SmallWood))
 	if err != nil {
@@ -797,11 +824,14 @@ func holderFinalize(holderSecretPath, commitRequestPath, challengePath, response
 	if !rtProbe.public.UsesIntGenISIS() {
 		return fmt.Errorf("holder-finalize supports only IntGenISIS public params")
 	}
+	if err := validatePersistedOmegaV2("holder secret", secretProbe.Omega, rtProbe.omega); err != nil {
+		return err
+	}
 	_ = challengePath
-	return holderFinalizeIntGenISIS(rtProbe, secretProbe, commitRequestPath, responsePath, statePath, signaturePath, ntruParamsPath)
+	return holderFinalizeIntGenISIS(rtProbe, secretProbe, commitRequestPath, responsePath, statePath, signaturePath, ntruParamsPath, verifierKeyPath)
 }
 
-func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, commitRequestPath, responsePath, statePath, signaturePath, ntruParamsPath string) error {
+func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, commitRequestPath, responsePath, statePath, signaturePath, ntruParamsPath, verifierKeyPath string) error {
 	var req commitRequestFile
 	if err := readJSONFile(commitRequestPath, &req); err != nil {
 		return fmt.Errorf("read commit request: %w", err)
@@ -809,6 +839,27 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 	var resp issueResponseFile
 	if err := readJSONFile(responsePath, &resp); err != nil {
 		return fmt.Errorf("read issue response: %w", err)
+	}
+	if err := requireIssuanceArtifactVersion("issuance request", req.Version); err != nil {
+		return err
+	}
+	if err := requireIssuanceArtifactVersion("issuance response", resp.Version); err != nil {
+		return err
+	}
+	if err := validatePersistedSmallWoodV2("issuance request", req.PackedNCols, req.LVCSNCols, req.NLeaves, req.Omega, req.SmallWood); err != nil {
+		return err
+	}
+	if err := validateMatchingSmallWoodV2("holder secret", secret.SmallWood, "issuance request", req.SmallWood); err != nil {
+		return err
+	}
+	if err := validatePersistedOmegaV2("issuance request", req.Omega, rt.omega); err != nil {
+		return err
+	}
+	if req.CredentialPublicPath != secret.CredentialPublicPath {
+		return fmt.Errorf("issuance request credential_public_path does not match holder secret")
+	}
+	if resp.CredentialPublicPath != secret.CredentialPublicPath {
+		return fmt.Errorf("issuance response credential_public_path does not match holder secret")
 	}
 	inputs, err := intGenISISInputsFromSecret(rt.ringQ, secret)
 	if err != nil {
@@ -821,18 +872,33 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 	if !polyRowsEqual(polyVecToInt64(rt.ringQ, com, true), req.Com) {
 		return fmt.Errorf("holder-derived IntGenISIS commitment does not match commit request")
 	}
-	B, err := loadBAsNTT(rt.ringQ, rt.public.BPath)
+	B, err := loadBAsNTT(rt.ringQ, rt.public)
 	if err != nil {
 		return err
 	}
-	data := issuance.SignatureHashData{
-		MuSig: polysFromInt64(rt.ringQ, resp.MuSig),
-		X0:    polysFromInt64(rt.ringQ, resp.X0),
-		X1:    polysFromInt64(rt.ringQ, resp.X1),
+	data, err := signatureHashDataFromIssueResponse(rt.ringQ, resp, rt.public.EllMuSig, rt.public.EllX0, rt.public.EllX1)
+	if err != nil {
+		return fmt.Errorf("validate bounded issuer hash inputs: %w", err)
 	}
 	target, err := issuance.ComputeIntGenISISTarget(rt.ringQ, B, com, data)
 	if err != nil {
 		return fmt.Errorf("recompute IntGenISIS target: %w", err)
+	}
+	if err := issuance.VerifyIntGenISISTargetRelation(rt.ringQ, B, com, data, target); err != nil {
+		return fmt.Errorf("verify IntGenISIS target relation: %w", err)
+	}
+	if verifierKeyPath == "" {
+		return fmt.Errorf("missing trusted IntGenISIS verifier-key path")
+	}
+	verifierKey, err := credential.LoadIntGenISISVerifierKey(verifierKeyPath)
+	if err != nil {
+		return fmt.Errorf("load trusted IntGenISIS verifier key: %w", err)
+	}
+	if err := verifierKey.ValidateAgainst(rt.public); err != nil {
+		return fmt.Errorf("validate trusted IntGenISIS verifier key: %w", err)
+	}
+	if !polyRowsEqual(resp.NTRUPublic, verifierKey.NTRUPublic) {
+		return fmt.Errorf("issuer response NTRU public row does not match trusted verifier key")
 	}
 	if err := verifyIntGenISISSignatureResponse(rt.ringQ, resp, target.TCoeff); err != nil {
 		return fmt.Errorf("verify IntGenISIS signature response: %w", err)
@@ -840,6 +906,9 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 	ntruParams, err := loadNTRUParamsForBound(ntruParamsPath)
 	if err != nil {
 		return err
+	}
+	if verifierKey.SignatureBound != int64(ntruParams.Beta) {
+		return fmt.Errorf("trusted verifier-key signature_bound=%d does not match NTRU beta=%d", verifierKey.SignatureBound, ntruParams.Beta)
 	}
 	profile, ok := credential.LookupIntGenISISProfile(rt.public.Profile)
 	if !ok {
@@ -881,6 +950,47 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 	}
 	log.Printf("[issuance-cli] IntGenISIS holder finalize wrote %s", statePath)
 	return nil
+}
+
+func signatureHashDataFromIssueResponse(ringQ *ring.Ring, resp issueResponseFile, ellMuSig, ellX0, ellX1 int) (issuance.SignatureHashData, error) {
+	if ringQ == nil {
+		return issuance.SignatureHashData{}, fmt.Errorf("nil ring")
+	}
+	if ellMuSig != 1 || ellX0 <= 0 || ellX1 != 1 {
+		return issuance.SignatureHashData{}, fmt.Errorf("unsupported bounded hash dimensions mu_sig=%d x0=%d x1=%d", ellMuSig, ellX0, ellX1)
+	}
+	for _, group := range []struct {
+		name string
+		rows [][]int64
+		want int
+	}{
+		{name: "mu_sig", rows: resp.MuSig, want: ellMuSig},
+		{name: "x0", rows: resp.X0, want: ellX0},
+		{name: "x1", rows: resp.X1, want: ellX1},
+	} {
+		if len(group.rows) != group.want {
+			return issuance.SignatureHashData{}, fmt.Errorf("%s rows=%d want %d", group.name, len(group.rows), group.want)
+		}
+		if err := validateInt64RowsExact(group.name, group.rows, int(ringQ.N)); err != nil {
+			return issuance.SignatureHashData{}, err
+		}
+		for i := range group.rows {
+			for j, value := range group.rows[i] {
+				if value < -credential.IntGenISISHashInputBound || value > credential.IntGenISISHashInputBound {
+					return issuance.SignatureHashData{}, fmt.Errorf("%s[%d][%d]=%d outside ternary domain {-1,0,1}", group.name, i, j, value)
+				}
+			}
+		}
+	}
+	data := issuance.SignatureHashData{
+		MuSig: polysFromInt64(ringQ, resp.MuSig),
+		X0:    polysFromInt64(ringQ, resp.X0),
+		X1:    polysFromInt64(ringQ, resp.X1),
+	}
+	if err := issuance.ValidateSignatureHashData(ringQ, data, ellMuSig, ellX0); err != nil {
+		return issuance.SignatureHashData{}, err
+	}
+	return data, nil
 }
 
 func loadNTRUParamsForBound(paramsPath string) (ntrurio.SystemParams, error) {
@@ -1211,11 +1321,25 @@ func newLocalEntropyReader() io.Reader {
 	return bufio.NewReaderSize(cryptorand.Reader, 64*1024)
 }
 
-func loadBAsNTT(r *ring.Ring, path string) ([]*ring.Poly, error) {
-	coeffs, err := ntrurio.LoadBMatrixCoeffs(path)
+func loadBAsNTT(r *ring.Ring, public credential.PublicParams) ([]*ring.Poly, error) {
+	path := public.BPath
+	meta, err := ntrurio.LoadBMatrixMetadata(path)
 	if err != nil {
 		return nil, fmt.Errorf("load B %s: %w", path, err)
 	}
+	if meta.TargetDim != public.NC {
+		return nil, fmt.Errorf("b target_dim=%d want n_c=%d", meta.TargetDim, public.NC)
+	}
+	if meta.X0Len != public.EllX0 {
+		return nil, fmt.Errorf("b x0_len=%d want ell_x0=%d", meta.X0Len, public.EllX0)
+	}
+	if meta.RingDegree != int(r.N) {
+		return nil, fmt.Errorf("b ring_degree=%d want %d", meta.RingDegree, r.N)
+	}
+	if err := ntrurio.ValidateBMatrixCanonical(meta.B, r.Modulus[0]); err != nil {
+		return nil, fmt.Errorf("load B %s: %w", path, err)
+	}
+	coeffs := meta.B
 	out := make([]*ring.Poly, len(coeffs))
 	for i := range coeffs {
 		if len(coeffs[i]) != int(r.N) {
@@ -1243,7 +1367,19 @@ func readJSONFile(path string, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(data, out)
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	var trailing interface{}
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("trailing JSON value")
+		}
+		return fmt.Errorf("trailing JSON: %w", err)
+	}
+	return nil
 }
 
 func writeJSONFile(path string, value interface{}, perm os.FileMode) error {

@@ -1,6 +1,7 @@
 package lvcs
 
 import (
+	"bytes"
 	"testing"
 
 	decs "vSIS-Signature/DECS"
@@ -180,8 +181,9 @@ func newSmallField2025Fixture(t *testing.T) smallField2025Fixture {
 	for i := range points {
 		points[i] = uint64(i + 1)
 	}
-	params := decs.Params{Degree: ncols + ell - 1, Eta: 2, NonceBytes: 16, HashBytes: 16}
-	root, pk, err := CommitInitWithParamsAndPointsWithOptions(ringQ, rows, ell, params, points, CommitOptions{})
+	params := decs.Params{Degree: ncols + ell - 1, Eta: 2, TapeBytes: 16, HashBytes: 16}
+	ctx := decs.CommitmentContext{TranscriptVersion: decs.TranscriptVersionV2, Role: decs.CommitmentRoleMain, Salt: bytes.Repeat([]byte{2}, 32)}
+	root, pk, err := CommitInitWithParamsAndPointsV2(ringQ, rows, ell, params, points, ctx, CommitOptions{})
 	if err != nil {
 		t.Fatalf("CommitInitWithParamsAndPointsWithOptions: %v", err)
 	}
@@ -210,19 +212,30 @@ func newSmallField2025Fixture(t *testing.T) smallField2025Fixture {
 	}
 	tail := []int{ncols + ell, ncols + ell + 1}
 	openIdx := []int{ncols, ncols + 1, tail[0], tail[1]}
-	open := EvalFinish(pk, openIdx).DECSOpen
-	openTail := EvalFinish(pk, tail).DECSOpen
-	vrf := NewVerifierWithParamsAndPoints(ringQ, len(rows), params, ncols, points)
-	vrf.Root = root
+	openResult, err := EvalFinishV2(pk, openIdx)
+	if err != nil {
+		t.Fatalf("EvalFinishV2 full: %v", err)
+	}
+	open := openResult.DECSOpen
+	openTailResult, err := EvalFinishV2(pk, tail)
+	if err != nil {
+		t.Fatalf("EvalFinishV2 tail: %v", err)
+	}
+	openTail := openTailResult.DECSOpen
+	vrf, err := NewVerifierWithParamsAndPointsV2(ringQ, len(rows), params, ncols, points, ctx)
+	if err != nil {
+		t.Fatalf("NewVerifierWithParamsAndPointsV2: %v", err)
+	}
+	vrf.RootHash = root
 	vrf.AcceptGamma(pk.Gamma)
 	rFormal := pk.DecsProver.CommitStep2Formal(pk.Gamma)
 	if !vrf.CommitStep2Formal(rFormal) {
 		t.Fatalf("CommitStep2Formal rejected R")
 	}
 	meta := SmallField2025EvalMetadata{
-		Version:          1,
-		Mode:             SmallField2025ModeV1,
-		HeadDomainMode:   SmallField2025HeadDomainV1,
+		Version:          SmallField2025MetadataVersionV2,
+		Mode:             SmallField2025ModeV2,
+		HeadDomainMode:   SmallField2025HeadDomainV2,
 		ReductionEnabled: true,
 		NRows:            len(rows),
 		NCols:            ncols,
@@ -314,8 +327,7 @@ func cloneOpeningForSmallFieldTest(open *decs.DECSOpening) *decs.DECSOpening {
 	out.Nodes = cloneBytesMatrixForSmallFieldTest(open.Nodes)
 	out.PathIndex = cloneIntMatrixForSmallFieldTest(open.PathIndex)
 	out.PathBits = append([]byte(nil), open.PathBits...)
-	out.Nonces = cloneBytesMatrixForSmallFieldTest(open.Nonces)
-	out.NonceSeed = append([]byte(nil), open.NonceSeed...)
+	out.Tapes = cloneBytesMatrixForSmallFieldTest(open.Tapes)
 	return &out
 }
 

@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 )
 
-const IntGenISISStateVersion = 6
+const IntGenISISStateVersion = 7
 
 // IntGenISISState is the live credential witness/state for the committed-message
 // protocol. It intentionally does not include c, T, r0/r1, holder/issuer split
@@ -14,36 +15,33 @@ const IntGenISISStateVersion = 6
 type IntGenISISState struct {
 	Version              int       `json:"version"`
 	Profile              string    `json:"profile"`
-	PresetID             string    `json:"preset_id,omitempty"`
-	PresetVersion        int       `json:"preset_version,omitempty"`
-	PrimitiveProfileID   string    `json:"primitive_profile_id,omitempty"`
-	PRFProfile           string    `json:"prf_profile,omitempty"`
-	TranscriptMode       string    `json:"transcript_mode,omitempty"`
-	PresetManifestDigest string    `json:"preset_manifest_digest,omitempty"`
+	PresetID             string    `json:"preset_id"`
+	PresetVersion        int       `json:"preset_version"`
+	PrimitiveProfileID   string    `json:"primitive_profile_id"`
+	PRFProfile           string    `json:"prf_profile"`
+	TranscriptMode       string    `json:"transcript_mode"`
+	PresetManifestDigest string    `json:"preset_manifest_digest"`
 	M                    [][]int64 `json:"M"`
-	MAttr                [][]int64 `json:"m,omitempty"`
-	K                    [][]int64 `json:"k,omitempty"`
+	MAttr                [][]int64 `json:"m"`
+	K                    [][]int64 `json:"k"`
 	S                    [][]int64 `json:"s"`
 	E                    [][]int64 `json:"e"`
 	MuSig                [][]int64 `json:"mu_sig"`
 	X0                   [][]int64 `json:"x0"`
 	X1                   [][]int64 `json:"x1"`
-	SigS1                []int64   `json:"sig_s1,omitempty"`
-	SigS2                []int64   `json:"sig_s2,omitempty"`
+	SigS1                []int64   `json:"sig_s1"`
+	SigS2                []int64   `json:"sig_s2"`
 	RingDegree           int       `json:"ring_degree"`
-	PackedNCols          int       `json:"packed_ncols,omitempty"`
+	PackedNCols          int       `json:"packed_ncols"`
 	CredentialPublicPath string    `json:"credential_public_path"`
 	HashRelation         string    `json:"hash_relation"`
 	BPath                string    `json:"b_path"`
-	PRFParamsPath        string    `json:"prf_params_path,omitempty"`
-	NTRUPublic           [][]int64 `json:"ntru_public,omitempty"`
-	SignatureBound       int64     `json:"signature_bound,omitempty"`
+	PRFParamsPath        string    `json:"prf_params_path"`
+	NTRUPublic           [][]int64 `json:"ntru_public"`
+	SignatureBound       int64     `json:"signature_bound"`
 }
 
 func SaveIntGenISISState(path string, st IntGenISISState) error {
-	if st.Version == 0 {
-		st.Version = IntGenISISStateVersion
-	}
 	if err := st.Validate(); err != nil {
 		return err
 	}
@@ -51,7 +49,7 @@ func SaveIntGenISISState(path string, st IntGenISISState) error {
 	if err != nil {
 		return fmt.Errorf("marshal IntGenISIS state: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := atomicWriteFile(path, append(data, '\n'), 0o600); err != nil {
 		return fmt.Errorf("write IntGenISIS state: %w", err)
 	}
 	return nil
@@ -63,8 +61,8 @@ func LoadIntGenISISState(path string) (IntGenISISState, error) {
 	if err != nil {
 		return st, fmt.Errorf("read IntGenISIS state: %w", err)
 	}
-	if err := json.Unmarshal(data, &st); err != nil {
-		return st, fmt.Errorf("unmarshal IntGenISIS state: %w", err)
+	if err := decodeStrictVersionedJSON(data, &st, "IntGenISIS credential-state", IntGenISISStateVersion); err != nil {
+		return st, fmt.Errorf("decode IntGenISIS state: %w", err)
 	}
 	if err := st.Validate(); err != nil {
 		return st, fmt.Errorf("validate IntGenISIS state %s: %w", path, err)
@@ -74,7 +72,7 @@ func LoadIntGenISISState(path string) (IntGenISISState, error) {
 
 func (st IntGenISISState) Validate() error {
 	if st.Version != IntGenISISStateVersion {
-		return fmt.Errorf("unsupported IntGenISIS state version %d", st.Version)
+		return noMigrationSchemaError("IntGenISIS credential-state", st.Version, IntGenISISStateVersion)
 	}
 	profile, ok := LookupIntGenISISProfile(st.Profile)
 	if !ok {
@@ -83,17 +81,30 @@ func (st IntGenISISState) Validate() error {
 	if st.RingDegree != profile.N {
 		return fmt.Errorf("ring_degree=%d want %d", st.RingDegree, profile.N)
 	}
-	if st.HasPresetBinding() {
-		if st.PresetID == "" || st.PresetVersion <= 0 || st.PrimitiveProfileID == "" || st.PRFProfile == "" || st.TranscriptMode == "" || st.PresetManifestDigest == "" {
-			return fmt.Errorf("incomplete IntGenISIS state preset binding")
-		}
-		preset, ok := LookupIntGenISISPreset(st.PresetID)
-		if !ok {
-			return fmt.Errorf("unknown state preset_id %q", st.PresetID)
-		}
-		if st.Profile != preset.Profile || st.PrimitiveProfileID != preset.PrimitiveProfileID || st.PRFProfile != preset.PRFProfile || st.TranscriptMode != preset.Showing.TranscriptMode || st.PresetVersion != preset.PresetVersion || st.PresetManifestDigest != IntGenISISPresetManifestDigest(preset) {
-			return fmt.Errorf("IntGenISIS state preset manifest mismatch")
-		}
+	if st.PresetID == "" || st.PresetVersion <= 0 || st.PrimitiveProfileID == "" || st.PRFProfile == "" || st.TranscriptMode == "" || st.PresetManifestDigest == "" {
+		return fmt.Errorf("incomplete IntGenISIS state preset binding")
+	}
+	preset, ok := LookupIntGenISISPreset(st.PresetID)
+	if !ok {
+		return fmt.Errorf("unknown state preset_id %q", st.PresetID)
+	}
+	if st.PresetID != preset.CanonicalID || st.Profile != preset.Profile || st.PrimitiveProfileID != preset.PrimitiveProfileID || st.PRFProfile != preset.PRFProfile || st.TranscriptMode != preset.Showing.TranscriptMode || st.PresetVersion != preset.PresetVersion || st.PresetManifestDigest != IntGenISISPresetManifestDigest(preset) {
+		return fmt.Errorf("IntGenISIS state preset manifest mismatch")
+	}
+	if st.PRFParamsPath != preset.PRFParamsPath {
+		return fmt.Errorf("state prf_params_path=%q does not match preset path %q", st.PRFParamsPath, preset.PRFParamsPath)
+	}
+	if st.PackedNCols != preset.Showing.NCols {
+		return fmt.Errorf("state packed_ncols=%d does not match preset showing ncols=%d", st.PackedNCols, preset.Showing.NCols)
+	}
+	if st.CredentialPublicPath == "" {
+		return fmt.Errorf("missing credential_public_path")
+	}
+	if err := ValidateHashRelation(st.HashRelation); err != nil {
+		return err
+	}
+	if st.BPath == "" {
+		return fmt.Errorf("missing b_path")
 	}
 	if len(st.M) != profile.EllM {
 		return fmt.Errorf("m rows=%d want ell_M=%d", len(st.M), profile.EllM)
@@ -148,14 +159,29 @@ func (st IntGenISISState) Validate() error {
 	if err := validateBoundedIntGenISISRows("e", st.E, IntGenISISLiveBound); err != nil {
 		return err
 	}
-	if len(st.SigS1) > 0 && len(st.SigS1) != profile.N {
+	for name, rows := range map[string][][]int64{
+		"mu_sig": st.MuSig,
+		"x0":     st.X0,
+		"x1":     st.X1,
+	} {
+		if err := validateBoundedIntGenISISRows(name, rows, profile.HashInputBound); err != nil {
+			return err
+		}
+	}
+	if len(st.SigS1) != profile.N {
 		return fmt.Errorf("sig_s1 coefficient length=%d want %d", len(st.SigS1), profile.N)
 	}
-	if len(st.SigS2) > 0 && len(st.SigS2) != profile.N {
+	if len(st.SigS2) != profile.N {
 		return fmt.Errorf("sig_s2 coefficient length=%d want %d", len(st.SigS2), profile.N)
 	}
-	if st.SignatureBound < 0 {
-		return fmt.Errorf("signature_bound=%d", st.SignatureBound)
+	if st.SignatureBound <= 0 {
+		return fmt.Errorf("signature_bound=%d must be positive", st.SignatureBound)
+	}
+	if err := validateBoundedIntGenISISRows("signature", [][]int64{st.SigS1, st.SigS2}, st.SignatureBound); err != nil {
+		return err
+	}
+	if len(st.NTRUPublic) != 1 || len(st.NTRUPublic[0]) != profile.N {
+		return fmt.Errorf("ntru_public dimensions=%dx? want 1x%d", len(st.NTRUPublic), profile.N)
 	}
 	return nil
 }
@@ -165,14 +191,44 @@ func (st IntGenISISState) HasPresetBinding() bool {
 }
 
 func (st IntGenISISState) ValidateIntGenISISPreset(public PublicParams, preset IntGenISISPreset) error {
-	if !st.HasPresetBinding() {
-		return fmt.Errorf("credential state is not bound to a canonical preset manifest")
+	if err := st.Validate(); err != nil {
+		return err
+	}
+	if err := (&public).Validate(); err != nil {
+		return err
 	}
 	if err := public.ValidateIntGenISISPreset(preset); err != nil {
 		return err
 	}
-	if st.PresetID != public.PresetID || st.PresetVersion != public.PresetVersion || st.PresetManifestDigest != public.PresetManifestDigest {
+	if st.Profile != public.Profile || st.PresetID != public.PresetID || st.PresetVersion != public.PresetVersion || st.PrimitiveProfileID != public.PrimitiveProfileID || st.PRFProfile != public.PRFProfile || st.TranscriptMode != public.TranscriptMode || st.PresetManifestDigest != public.PresetManifestDigest {
 		return fmt.Errorf("credential state and public parameter preset bindings differ")
+	}
+	if st.RingDegree != public.RingDegree || st.HashRelation != public.HashRelation || st.BPath != public.BPath {
+		return fmt.Errorf("credential state and public parameter primitive bindings differ")
+	}
+	return nil
+}
+
+// ValidateAgainst verifies the complete persisted credential/public/verifier
+// key identity. It must be called before the state is used for showing.
+func (st IntGenISISState) ValidateAgainst(public PublicParams, key IntGenISISVerifierKey) error {
+	preset, ok := LookupIntGenISISPreset(public.PresetID)
+	if !ok {
+		return fmt.Errorf("unknown public parameter preset_id %q", public.PresetID)
+	}
+	if err := st.ValidateIntGenISISPreset(public, preset); err != nil {
+		return err
+	}
+	if err := key.ValidateAgainst(public); err != nil {
+		return err
+	}
+	if st.SignatureBound != key.SignatureBound || len(st.NTRUPublic) != len(key.NTRUPublic) {
+		return fmt.Errorf("credential state and verifier key signature bindings differ")
+	}
+	for i := range st.NTRUPublic {
+		if !slices.Equal(st.NTRUPublic[i], key.NTRUPublic[i]) {
+			return fmt.Errorf("credential state and verifier key NTRU public keys differ")
+		}
 	}
 	return nil
 }

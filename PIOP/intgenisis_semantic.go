@@ -77,6 +77,20 @@ func bindIntGenISISPublicExtrasWithOpts(pub PublicInputs, ringN int, opts SimOpt
 	if err != nil {
 		return pub, err
 	}
+	if pub.HashInputBound != credential.IntGenISISHashInputBound {
+		return pub, fmt.Errorf("IntGenISIS hash-input bound=%d want %d", pub.HashInputBound, credential.IntGenISISHashInputBound)
+	}
+	if len(pub.Tag) != 0 || len(pub.Context) != 0 || len(pub.ContextDigest) != 0 {
+		if len(pub.Tag) == 0 {
+			return pub, fmt.Errorf("IntGenISIS showing missing public tag")
+		}
+		if len(pub.Context) != credential.IntGenISISContextLaneCount {
+			return pub, fmt.Errorf("IntGenISIS showing context lanes=%d want %d", len(pub.Context), credential.IntGenISISContextLaneCount)
+		}
+		if len(pub.ContextDigest) != 32 {
+			return pub, fmt.Errorf("IntGenISIS showing context digest bytes=%d want 32", len(pub.ContextDigest))
+		}
+	}
 	if pub.Extras == nil {
 		pub.Extras = make(map[string]interface{})
 	}
@@ -105,8 +119,13 @@ func bindIntGenISISPublicExtrasWithOpts(pub PublicInputs, ringN int, opts SimOpt
 		pub.Extras["IntGenISIS.replay_projection"] = projectionBytes
 	}
 	pub.Extras["IntGenISIS.policy"] = policyBytes
+	ratePolicyBytes, err := json.Marshal(credential.IntGenISISRateLimitPolicyV2())
+	if err != nil {
+		return pub, fmt.Errorf("marshal IntGenISIS rate-limit policy: %w", err)
+	}
+	pub.Extras["IntGenISIS.rate_limit_policy"] = ratePolicyBytes
 	pub.Extras["IntGenISIS.sampler_profile"] = []byte(credential.IntGenISISSamplerUniformRQV1)
-	pub.Extras["IntGenISIS.presentation_schema"] = []byte("intgenisis_presentation_v1")
+	pub.Extras["IntGenISIS.presentation_schema"] = []byte(credential.IntGenISISPresentationSchemaV2)
 	sigBound, err := intGenISISSignatureBoundFromPublic(pub)
 	if err != nil {
 		return pub, err
@@ -671,6 +690,7 @@ type IntGenISISDegreeMetadata struct {
 	ShortnessDegree      int    `json:"shortness_degree,omitempty"`
 	PolicyDegree         int    `json:"policy_degree,omitempty"`
 	SignatureDegree      int    `json:"signature_degree,omitempty"`
+	PRFDegree            int    `json:"prf_degree,omitempty"`
 	CompressionLevel     int    `json:"compression_level,omitempty"`
 	CompressionPackWidth int    `json:"compression_pack_width,omitempty"`
 	CompressionDegree    int    `json:"compression_degree,omitempty"`
@@ -746,7 +766,15 @@ func intGenISISDegreeMetadataForLayout(ringQ *ring.Ring, pub PublicInputs, layou
 		meta.ShortnessDegree = maxInt(shortDegree, intGenISISDirectSignatureRangeDegree(sigBound))
 		meta.SignatureDegree = 2
 		meta.ParallelAlgDegree = maxInt(maxInt(maxInt(meta.SignatureDegree, meta.TernaryDegree), meta.ShortnessDegree), meta.PolicyDegree)
-		meta.AggregatedAlgDegree = 2
+		params, err := loadPRFParamsForOpts(opts)
+		if err != nil {
+			return IntGenISISDegreeMetadata{}, fmt.Errorf("load direct PRF relation parameters: %w", err)
+		}
+		if params.D > uint64(^uint(0)>>1) {
+			return IntGenISISDegreeMetadata{}, fmt.Errorf("direct PRF degree overflows int: %d", params.D)
+		}
+		meta.PRFDegree = int(params.D)
+		meta.AggregatedAlgDegree = maxInt(2, meta.PRFDegree)
 		if compressionDesc.Level > 0 {
 			meta.AggregatedAlgDegree = maxInt(meta.AggregatedAlgDegree, compressionDesc.DecodeDegree)
 		}
@@ -758,6 +786,7 @@ func intGenISISDegreeMetadataForLayout(ringQ *ring.Ring, pub PublicInputs, layou
 			{"compression", meta.CompressionDegree},
 			{"bounded_range", meta.TernaryDegree},
 			{"signature", meta.SignatureDegree},
+			{"direct_prf", meta.PRFDegree},
 			{"policy", meta.PolicyDegree},
 		})
 	default:
@@ -778,16 +807,19 @@ func IntGenISISDegreeMetadataForProof(proof *Proof, pub PublicInputs, opts SimOp
 	if proof == nil {
 		return IntGenISISDegreeMetadata{}, fmt.Errorf("nil proof")
 	}
-	ringN := proof.RingDegree
-	if ringN == 0 {
-		ringN = proof.RowLayout.RingDegree
+	opts.applyDefaults()
+	if pub.RingDegree <= 0 || opts.RingDegree != pub.RingDegree {
+		return IntGenISISDegreeMetadata{}, fmt.Errorf("trusted ring degree mismatch: public=%d verifier=%d", pub.RingDegree, opts.RingDegree)
 	}
-	ringQ, err := credential.LoadRingWithDegree(ringN)
+	if proof.RingDegree != pub.RingDegree || proof.RowLayout.RingDegree != pub.RingDegree {
+		return IntGenISISDegreeMetadata{}, fmt.Errorf("proof ring degree does not match trusted ring degree %d", pub.RingDegree)
+	}
+	if proof.NColsUsed != opts.NCols {
+		return IntGenISISDegreeMetadata{}, fmt.Errorf("proof ncols=%d want verifier ncols=%d", proof.NColsUsed, opts.NCols)
+	}
+	ringQ, err := credential.LoadRingWithDegree(pub.RingDegree)
 	if err != nil {
 		return IntGenISISDegreeMetadata{}, err
-	}
-	if proof.NColsUsed > 0 {
-		opts.NCols = proof.NColsUsed
 	}
 	return intGenISISDegreeMetadataForLayout(ringQ, pub, proof.RowLayout, opts)
 }

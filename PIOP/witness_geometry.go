@@ -194,7 +194,7 @@ func slackFor(count, width int) int {
 
 // BuildWitnessGeometrySnapshotFromLayout derives the exact one-root witness
 // geometry from the actual row builder output plus the small-field block
-// formula. Under smallfield_matrix_v1, row order within a fixed witness set
+// formula. Under smallfield_matrix_v2, row order within a fixed witness set
 // does not change block count or committed witness rows; only total witness
 // polynomial count and the chosen widths do.
 func BuildWitnessGeometrySnapshotFromLayout(

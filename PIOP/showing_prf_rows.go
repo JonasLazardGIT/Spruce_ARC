@@ -11,6 +11,8 @@ import (
 type packedCompanionWitness struct {
 	Rows                  []*ring.Poly
 	KeySlots              []CoeffSlot
+	HiddenSlotSlot        CoeffSlot
+	HiddenSlotBitSlots    [4]CoeffSlot
 	CheckpointSlots       []CoeffSlot
 	FinalRoundOutputSlots []CoeffSlot
 	FinalTagSlots         []CoeffSlot
@@ -19,7 +21,7 @@ type packedCompanionWitness struct {
 
 func prfCompanionRelationVersion(mode PRFCompanionMode) uint8 {
 	if normalizePRFCompanionMode(mode) == PRFCompanionModeDirectFull {
-		return 1
+		return 2
 	}
 	return 0
 }
@@ -31,6 +33,8 @@ func packPRFCompanionWitnessRows(
 	mode PRFCompanionMode,
 	denseKeyPacking bool,
 	key []prf.Elem,
+	hiddenSlot prf.Elem,
+	hiddenBits [4]prf.Elem,
 	grouped *prf.GroupedWitness,
 	makeRowFromHead func([]uint64) *ring.Poly,
 ) (*packedCompanionWitness, error) {
@@ -85,6 +89,10 @@ func packPRFCompanionWitnessRows(
 		}
 		for _, v := range key {
 			out.KeySlots = append(out.KeySlots, appendScalar(uint64(v)%ringQ.Modulus[0]))
+		}
+		out.HiddenSlotSlot = appendScalar(uint64(hiddenSlot) % ringQ.Modulus[0])
+		for i, bit := range hiddenBits {
+			out.HiddenSlotBitSlots[i] = appendScalar(uint64(bit) % ringQ.Modulus[0])
 		}
 		flush()
 		for _, v := range grouped.CheckpointOutputs {

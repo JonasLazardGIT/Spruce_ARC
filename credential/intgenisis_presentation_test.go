@@ -10,14 +10,8 @@ import (
 
 func TestIntGenISISPresentationPrivacyAndReplayState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "presentation.json")
-	pres := IntGenISISPresentation{
-		Version:            IntGenISISPresentationVersion,
-		Profile:            ProfileIntGenISISB,
-		PublicParamsDigest: "abc123",
-		Nonce:              [][]int64{{1}, {2}},
-		Tag:                [][]int64{{3}, {4}},
-		Proof:              json.RawMessage(`{"root":"opaque"}`),
-	}
+	pres := testPresentationV2(t)
+	pres.Proof = json.RawMessage(`{"schema_version":2,"root":"opaque"}`)
 	if err := SaveIntGenISISPresentation(path, pres); err != nil {
 		t.Fatalf("save presentation: %v", err)
 	}
@@ -31,7 +25,7 @@ func TestIntGenISISPresentationPrivacyAndReplayState(t *testing.T) {
 			t.Fatalf("presentation leaked private field %q: %s", stale, text)
 		}
 	}
-	state := NewIntGenISISVerifierState()
+	state := NewIntGenISISVerifierState(pres.PublicParamsDigest, pres.VerifierKeyDigest)
 	if err := state.MarkPresentation(pres); err != nil {
 		t.Fatalf("mark first presentation: %v", err)
 	}
@@ -41,23 +35,18 @@ func TestIntGenISISPresentationPrivacyAndReplayState(t *testing.T) {
 }
 
 func TestIntGenISISPresentationRejectsTamperedPresetBinding(t *testing.T) {
-	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPoCN512SC96V1)
-	pres := IntGenISISPresentation{
-		Version:              IntGenISISPresentationVersion,
-		Profile:              preset.Profile,
-		PresetID:             preset.CanonicalID,
-		PresetVersion:        preset.PresetVersion,
-		PresetManifestDigest: IntGenISISPresetManifestDigest(preset),
-		PublicParamsDigest:   "digest",
-		Nonce:                [][]int64{{1}},
-		Tag:                  [][]int64{{2}},
-		Proof:                json.RawMessage(`{"proof":true}`),
-	}
+	pres := testPresentationV2(t)
 	if err := pres.Validate(); err != nil {
 		t.Fatalf("valid bound presentation rejected: %v", err)
 	}
-	pres.PresetID = IntGenISISPresetArtifactN1024SC125V1
+	pres.PresetManifestDigest = repeatedDigest(0xff)
 	if err := pres.Validate(); err == nil {
 		t.Fatal("tampered presentation preset binding accepted")
 	}
+}
+
+func TestIntGenISISPresentationRejectsInnerV1Proof(t *testing.T) {
+	pres := testPresentationV2(t)
+	pres.Proof = json.RawMessage(`{"schema_version":1}`)
+	requireNoMigrationError(t, pres.Validate())
 }

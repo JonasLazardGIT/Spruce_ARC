@@ -6,6 +6,9 @@ const (
 
 	IntGenISISSharedModulusQ    = 1017857
 	IntGenISISN512SignatureBeta = 6002
+	// IntGenISISHashInputBound is the coefficient bound for the BB-tran
+	// issuer inputs mu_sig, x0, and x1.
+	IntGenISISHashInputBound int64 = 1
 )
 
 // IntGenISISProfile records the committed-message / MLWE-hiding dimensions.
@@ -22,6 +25,7 @@ type IntGenISISProfile struct {
 	EllMuSig             int
 	EllX0                int
 	EllX1                int
+	HashInputBound       int64
 	SignaturePreimageLen int
 	MLWEHidingBits       float64
 	MSISBindingBits      float64
@@ -41,6 +45,7 @@ func PrimaryIntGenISISProfile() IntGenISISProfile {
 		EllMuSig:             1,
 		EllX0:                2,
 		EllX1:                1,
+		HashInputBound:       IntGenISISHashInputBound,
 		SignaturePreimageLen: 2,
 		MLWEHidingBits:       security.MLWEHidingBits,
 		MSISBindingBits:      security.MSISBindingBits,
@@ -61,6 +66,7 @@ func Ternary1024IntGenISISProfile() IntGenISISProfile {
 		EllMuSig:             1,
 		EllX0:                1,
 		EllX1:                1,
+		HashInputBound:       IntGenISISHashInputBound,
 		SignaturePreimageLen: 2,
 		MLWEHidingBits:       security.MLWEHidingBits,
 		MSISBindingBits:      security.MSISBindingBits,

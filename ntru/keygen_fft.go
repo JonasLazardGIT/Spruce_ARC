@@ -1,15 +1,12 @@
 package ntru
 
 import (
-	crand "crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 )
-
-var keygenFloat64s = cryptoRandFloat64s
 
 // KeygenFFT is the shipped key generation path.
 func KeygenFFT(par Params, opts KeygenOpts) (f, g, F, G []int64, err error) {
@@ -117,7 +114,12 @@ func KeygenFFT(par Params, opts KeygenOpts) (f, g, F, G []int64, err error) {
 }
 
 func sampleAnnulusCandidate(par Params, opts KeygenOpts, epar EmbedParams) (fInt, gInt []int64, err error) {
-	fEval, gEval, err := KeygenRadialFGOpts(par, opts.Alpha, opts.UseCRadius, opts.Radius)
+	var fEval, gEval EvalVec
+	if opts.Entropy == nil {
+		fEval, gEval, err = KeygenRadialFGOpts(par, opts.Alpha, opts.UseCRadius, opts.Radius)
+	} else {
+		fEval, gEval, err = KeygenRadialFGOptsWithReader(par, opts.Alpha, opts.UseCRadius, opts.Radius, opts.Entropy)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -142,6 +144,13 @@ func sampleAnnulusCandidate(par Params, opts KeygenOpts, epar EmbedParams) (fInt
 
 // KeygenRadialFGOpts adds the fixed-radius variant used by key generation.
 func KeygenRadialFGOpts(par Params, alpha float64, useCRadius bool, cRadius float64) (fEval, gEval EvalVec, err error) {
+	return KeygenRadialFGOptsWithReader(par, alpha, useCRadius, cRadius, nil)
+}
+
+// KeygenRadialFGOptsWithReader is KeygenRadialFGOpts with an explicit entropy
+// source. A nil reader selects crypto/rand.Reader. It is intended for
+// deterministic tests and callers that provide an audited system RNG.
+func KeygenRadialFGOptsWithReader(par Params, alpha float64, useCRadius bool, cRadius float64, entropy io.Reader) (fEval, gEval EvalVec, err error) {
 	if par.N%2 != 0 || par.N <= 0 {
 		return EvalVec{}, EvalVec{}, errors.New("KeygenRadialFG: N must be positive even")
 	}
@@ -162,8 +171,8 @@ func KeygenRadialFGOpts(par Params, alpha float64, useCRadius bool, cRadius floa
 		rad = math.Sqrt(q) * 0.5 * (alpha + 1.0/alpha)
 	}
 
-	// r array of length 3*N/2 with uniform [0,1) from crypto/rand
-	r, err := keygenFloat64s(3 * half)
+	// r has 3*N/2 independently sampled uniform values in [0,1).
+	r, err := entropyFloat64s(entropy, 3*half)
 	if err != nil {
 		return EvalVec{}, EvalVec{}, err
 	}
@@ -193,23 +202,4 @@ func KeygenRadialFGOpts(par Params, alpha float64, useCRadius bool, cRadius floa
 	}
 
 	return EvalVec{V: f}, EvalVec{V: g}, nil
-}
-
-// cryptoRandFloat64s returns n independent floats U in [0,1) using crypto/rand.
-// Mirrors C's simple_frand: U = uint64 / 2^64.
-func cryptoRandFloat64s(n int) ([]float64, error) {
-	if n <= 0 {
-		return nil, nil
-	}
-	out := make([]float64, n)
-	buf := make([]byte, 8*n)
-	if _, err := crand.Read(buf); err != nil {
-		return nil, err
-	}
-	const inv2p64 = 5.421010862427522e-20 // 2^-64
-	for i := 0; i < n; i++ {
-		u := binary.LittleEndian.Uint64(buf[8*i:])
-		out[i] = float64(u) * inv2p64
-	}
-	return out, nil
 }

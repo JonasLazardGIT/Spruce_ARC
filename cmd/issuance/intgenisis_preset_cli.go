@@ -35,6 +35,7 @@ func intGenISISTuningFromPresetSpec(spec credential.IntGenISISTuningPreset) intG
 		CompressedRows:         spec.CompressedRows,
 		ReplayProjection:       spec.ReplayProjection,
 		TranscriptMode:         spec.TranscriptMode,
+		TranscriptOmissionMode: spec.TranscriptOmissionMode,
 		FixedTranscriptSize:    spec.FixedTranscriptSize,
 		FixedTranscriptSizeSet: spec.FixedTranscriptSize,
 	}

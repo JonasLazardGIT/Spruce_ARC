@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	intGenISISShowingLayoutVersionYLinearV1                     = "intgenisis_showing_y_linear_v1"
-	intGenISISShowingLayoutVersionProjectionUDigitsYViewV3      = "intgenisis_showing_project_u_digits_y_view_v3"
-	intGenISISShowingLayoutVersionProjectionUDigitsYWResidualV5 = "intgenisis_showing_project_u_digits_y_w_residual_v5"
+	intGenISISShowingLayoutVersionYLinearBoundedV2                   = "intgenisis_showing_y_linear_bounded_sources_v2"
+	intGenISISShowingLayoutVersionProjectionUDigitsYViewBoundedV4    = "intgenisis_showing_project_u_digits_y_view_bounded_sources_v4"
+	intGenISISShowingLayoutVersionProjectionUDigitsYBoundedSourcesV6 = "intgenisis_showing_project_u_digits_y_bounded_sources_v6"
 )
 
 type intGenISISShortnessMembershipBackend string
@@ -108,7 +108,7 @@ func intGenISISShortnessMembershipBackendForOpts(_ SimOpts) intGenISISShortnessM
 }
 
 func intGenISISOptsUseStrictSmallField2025(opts SimOpts) bool {
-	return normalizeTranscriptProtocolMode(opts.TranscriptProtocolMode) == TranscriptProtocolSmallField2025V1
+	return normalizeTranscriptProtocolMode(opts.TranscriptProtocolMode) == TranscriptProtocolSmallField2025V2
 }
 
 func rejectIntGenISISUnsupportedDegreeCappedModes(opts SimOpts) error {
@@ -116,10 +116,10 @@ func rejectIntGenISISUnsupportedDegreeCappedModes(opts SimOpts) error {
 		return nil
 	}
 	if opts.IntGenISISMSECompression > 1 {
-		return fmt.Errorf("%s strict IntGenISIS showing does not support raw M/s/e compression level %d without a degree-capped decode/membership backend", TranscriptProtocolSmallField2025V1, opts.IntGenISISMSECompression)
+		return fmt.Errorf("%s strict IntGenISIS showing does not support raw M/s/e compression level %d without a degree-capped decode/membership backend", TranscriptProtocolSmallField2025V2, opts.IntGenISISMSECompression)
 	}
 	if opts.SigShortnessRadix == 25 && opts.SigShortnessL == 3 && intGenISISShortnessMembershipBackendForOpts(opts) == intGenISISShortnessMembershipPolynomial {
-		return fmt.Errorf("%s strict IntGenISIS showing rejects raw R25/L3 polynomial shortness membership; degree-capped lookup backend is required", TranscriptProtocolSmallField2025V1)
+		return fmt.Errorf("%s strict IntGenISIS showing rejects raw R25/L3 polynomial shortness membership; degree-capped lookup backend is required", TranscriptProtocolSmallField2025V2)
 	}
 	return nil
 }
@@ -161,6 +161,22 @@ func (wit *CoeffNativeShowingWitness) ValidateIntGenISIS(ringN int, pub PublicIn
 	}
 	if wit.Z == nil {
 		return fmt.Errorf("missing Z row")
+	}
+	if wit.HiddenSlot >= 16 {
+		return fmt.Errorf("hidden slot=%d outside [0,16)", wit.HiddenSlot)
+	}
+	recomposed := uint64(0)
+	for i, bit := range wit.HiddenBits {
+		if bit > 1 {
+			return fmt.Errorf("hidden slot bit %d=%d is not Boolean", i, bit)
+		}
+		recomposed += bit << i
+	}
+	if recomposed != wit.HiddenSlot {
+		return fmt.Errorf("hidden slot=%d does not match bit decomposition=%d", wit.HiddenSlot, recomposed)
+	}
+	if pub.HashInputBound != credential.IntGenISISHashInputBound {
+		return fmt.Errorf("hash_input_bound=%d want %d", pub.HashInputBound, credential.IntGenISISHashInputBound)
 	}
 	if len(pub.A) > 0 && len(pub.A[0]) > 0 && len(wit.Sig) != len(pub.A[0]) {
 		return fmt.Errorf("signature preimage rows=%d want %d", len(wit.Sig), len(pub.A[0]))
@@ -262,6 +278,18 @@ func BuildCredentialRowsShowingIntGenISIS(
 	if err := validateIntGenISISLiveBoundPolys(ringQ, pub.BoundB, "e", cn.E); err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
+	for _, source := range []struct {
+		name string
+		rows []*ring.Poly
+	}{
+		{"mu_sig", cn.MuSig},
+		{"x0", cn.X0},
+		{"x1", []*ring.Poly{cn.X1}},
+	} {
+		if err := validateIntGenISISBoundedPolys(ringQ, pub.HashInputBound, source.name, source.rows); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+		}
+	}
 	sigBound, err := intGenISISSignatureBoundFromPublic(pub)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
@@ -280,20 +308,14 @@ func BuildCredentialRowsShowingIntGenISIS(
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
 	replayProjection := normalizeIntGenISISReplayProjection(opts.IntGenISISReplayProjection)
-	layoutVersion := intGenISISShowingLayoutVersionYLinearV1
+	layoutVersion := intGenISISShowingLayoutVersionYLinearBoundedV2
 	layoutReplayProjection := ""
 	if replayProjection == IntGenISISReplayProjectionProjectUDigitsYViewV3 {
-		layoutVersion = intGenISISShowingLayoutVersionProjectionUDigitsYViewV3
+		layoutVersion = intGenISISShowingLayoutVersionProjectionUDigitsYViewBoundedV4
 		layoutReplayProjection = replayProjection
-	} else if replayProjection == IntGenISISReplayProjectionProjectUDigitsYWResidualV5 {
-		layoutVersion = intGenISISShowingLayoutVersionProjectionUDigitsYWResidualV5
+	} else if replayProjection == IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 {
+		layoutVersion = intGenISISShowingLayoutVersionProjectionUDigitsYBoundedSourcesV6
 		layoutReplayProjection = replayProjection
-	}
-	useWResidual := replayProjection == IntGenISISReplayProjectionProjectUDigitsYWResidualV5
-	if useWResidual {
-		if err := validateIntGenISISBBTranLinearMapFullImage(ringQ, pub.B, x0Len); err != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("IntGenISIS W-residual projection: %w", err)
-		}
 	}
 	ncols = opts.NCols
 	if ncols <= 0 {
@@ -399,7 +421,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 		recordRowPhase("showing.rows.row_inputs", rowInputsStart)
 		return nil
 	}
-	digitOnlyU := replayProjection == IntGenISISReplayProjectionProjectUDigitsYViewV3 || replayProjection == IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+	digitOnlyU := replayProjection == IntGenISISReplayProjectionProjectUDigitsYViewV3 || replayProjection == IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 	uViewStart := -1
 	coeffViewsStart := time.Now()
 	uViewRows := []intGenISISRowMaterial(nil)
@@ -441,6 +463,18 @@ func BuildCredentialRowsShowingIntGenISIS(
 	eViewRows, err := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, cn.E, ncols, rowInterp)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("e coefficient views: %w", err)
+	}
+	muSigViewRows, err := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, cn.MuSig, ncols, rowInterp)
+	if err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("mu_sig coefficient views: %w", err)
+	}
+	x0ViewRows, err := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, cn.X0, ncols, rowInterp)
+	if err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("x0 coefficient views: %w", err)
+	}
+	x1ViewRows, err := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, []*ring.Poly{cn.X1}, ncols, rowInterp)
+	if err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("x1 coefficient views: %w", err)
 	}
 	recordRowPhase("showing.rows.coeff_views", coeffViewsStart)
 	mViewStart := -1
@@ -509,6 +543,18 @@ func BuildCredentialRowsShowingIntGenISIS(
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 	}
+	muSigStart = len(rows)
+	if err := appendRowMaterialsWithInputs("mu_sig coefficient view", muSigViewRows); err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+	}
+	x0Start = len(rows)
+	if err := appendRowMaterialsWithInputs("x0 coefficient view", x0ViewRows); err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+	}
+	x1Start = len(rows)
+	if err := appendRowMaterialsWithInputs("x1 coefficient view", x1ViewRows); err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+	}
 	boundViewCount := len(rows) - boundViewStart
 	yViewStart := -1
 	yViewRows := []intGenISISRowMaterial(nil)
@@ -565,27 +611,15 @@ func BuildCredentialRowsShowingIntGenISIS(
 	}
 	muSigHatStart, muSigHatCount := -1, 0
 	x0HatStart, x0HatCount := -1, 0
-	wHatStart, wHatCount := -1, 0
-	if useWResidual {
-		wCoeff, werr := intGenISISBBTranLinearResidualWCoeff(ringQ, pub, cn)
-		if werr != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("bb-tran w residual: %w", werr)
-		}
-		wHatStart, wHatCount, err = buildAndAppendDirectHats("W", []*ring.Poly{wCoeff})
-		if err != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("w hats: %w", err)
-		}
-	} else {
-		muSigHatStart, muSigHatCount, err = buildAndAppendDirectHats("mu_sig", cn.MuSig)
-		if err != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("mu_sig hats: %w", err)
-		}
-		x0HatStart, x0HatCount, err = buildAndAppendDirectHats("x0", cn.X0)
-		if err != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("x0 hats: %w", err)
-		}
+	muSigHatStart, muSigHatCount, err = buildAndAppendHats("mu_sig", muSigViewRows)
+	if err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("mu_sig hats: %w", err)
 	}
-	x1HatStart, x1HatCount, err := buildAndAppendDirectHats("x1", []*ring.Poly{cn.X1})
+	x0HatStart, x0HatCount, err = buildAndAppendHats("x0", x0ViewRows)
+	if err != nil {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("x0 hats: %w", err)
+	}
+	x1HatStart, x1HatCount, err := buildAndAppendHats("x1", x1ViewRows)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("x1 hats: %w", err)
 	}
@@ -607,24 +641,28 @@ func BuildCredentialRowsShowingIntGenISIS(
 		if len(key) != prfParamsLenKey {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("semantic key length=%d want %d", len(key), prfParamsLenKey)
 		}
-		nonceElems := make([]prf.Elem, len(pub.Nonce))
-		for i := range pub.Nonce {
-			if len(pub.Nonce[i]) == 0 {
-				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("public nonce lane %d is empty", i)
-			}
-			nonceElems[i] = prf.Elem(liftToField(q, pub.Nonce[i][0]))
-		}
 		params, perr := loadPRFParamsForOpts(opts)
 		if perr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("load prf params: %w", perr)
 		}
-		groupedWitness, gwerr := prf.TraceGroupedWitness(key, nonceElems, params, prfGroupRounds)
+		contextElems, cerr := publicContextElems(pub.Context, params.Q)
+		if cerr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, cerr
+		}
+		if uint64(cn.HiddenSlot) >= params.Q {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("hidden slot=%d is not canonical modulo %d", cn.HiddenSlot, params.Q)
+		}
+		groupedWitness, gwerr := prf.TraceGroupedWitnessContextSlot(key, contextElems, prf.Elem(cn.HiddenSlot), params, prfGroupRounds)
 		if gwerr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("trace prf witness: %w", gwerr)
 		}
 		companionStart := len(rows)
 		startIdx = companionStart
-		packed, perr := packPRFCompanionWitnessRows(ringQ, ncols, companionStart, companionMode, true, key, groupedWitness, makeRowFromHead)
+		hiddenBits := [4]prf.Elem{}
+		for i, bit := range cn.HiddenBits {
+			hiddenBits[i] = prf.Elem(bit)
+		}
+		packed, perr := packPRFCompanionWitnessRows(ringQ, ncols, companionStart, companionMode, true, key, prf.Elem(cn.HiddenSlot), hiddenBits, groupedWitness, makeRowFromHead)
 		if perr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack prf companion rows: %w", perr)
 		}
@@ -641,6 +679,8 @@ func BuildCredentialRowsShowingIntGenISIS(
 			rowSemantics[i] = CoeffPackedRow
 		}
 		dataSlots := append([]CoeffSlot(nil), packed.KeySlots...)
+		dataSlots = append(dataSlots, packed.HiddenSlotSlot)
+		dataSlots = append(dataSlots, packed.HiddenSlotBitSlots[:]...)
 		dataSlots = append(dataSlots, packed.CheckpointSlots...)
 		dataSlots = append(dataSlots, packed.FinalRoundOutputSlots...)
 		dataRows := len(uniqueRowsFromCoeffSlots(dataSlots))
@@ -667,6 +707,8 @@ func BuildCredentialRowsShowingIntGenISIS(
 			KeySource:             KeySourceIndependentWitness,
 			KeySourceMode:         keySourceMode,
 			KeySlots:              packed.KeySlots,
+			HiddenSlotSlot:        packed.HiddenSlotSlot,
+			HiddenSlotBitSlots:    packed.HiddenSlotBitSlots,
 			KeySourceSlots:        keySourceSlots,
 			KeySourceDecodeLanes:  keySourceDecodeLanes,
 			CheckpointSlots:       packed.CheckpointSlots,
@@ -680,6 +722,8 @@ func BuildCredentialRowsShowingIntGenISIS(
 			DataRows:              dataRows,
 			HelperRows:            helperRows,
 			KeyCount:              len(packed.KeySlots),
+			HiddenSlotCount:       1,
+			HiddenSlotBitCount:    len(packed.HiddenSlotBitSlots),
 			CheckpointCount:       len(packed.CheckpointSlots),
 			FinalRoundOutputCount: len(packed.FinalRoundOutputSlots),
 			TagCount:              len(pub.Tag),
@@ -768,8 +812,8 @@ func BuildCredentialRowsShowingIntGenISIS(
 			MuSigHatCount:              muSigHatCount,
 			X0HatStart:                 x0HatStart,
 			X0HatCount:                 x0HatCount,
-			WHatStart:                  wHatStart,
-			WHatCount:                  wHatCount,
+			WHatStart:                  -1,
+			WHatCount:                  0,
 			X1HatStart:                 x1HatStart,
 			X1HatCount:                 x1HatCount,
 			ZHatStart:                  zHatStart,
@@ -779,7 +823,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 			CoreRowCount:               coreRowCount,
 		},
 	}
-	decsParams = applyDECSCollisionWidth(decs.Params{Degree: int(ringQ.N) - 1, Eta: opts.Eta, NonceBytes: 16}, opts)
+	decsParams = applyDECSCollisionWidth(decs.Params{Degree: int(ringQ.N) - 1, Eta: opts.Eta, TapeBytes: 16}, opts)
 	maskRowOffset = len(rows)
 	maskRowCount = opts.Rho
 	if maskRowCount <= 0 {
@@ -922,80 +966,6 @@ func intGenISISCommitmentLinearYCoeff(ringQ *ring.Ring, pub PublicInputs, cn *Co
 	return yCoeff, nil
 }
 
-func validateIntGenISISBBTranLinearMapFullImage(ringQ *ring.Ring, B []*ring.Poly, x0Len int) error {
-	if ringQ == nil {
-		return fmt.Errorf("nil ring")
-	}
-	if x0Len <= 0 {
-		return fmt.Errorf("invalid x0 length=%d", x0Len)
-	}
-	if len(B) != 3+x0Len {
-		return fmt.Errorf("b length=%d want %d", len(B), 3+x0Len)
-	}
-	q := ringQ.Modulus[0]
-	for slot := 0; slot < int(ringQ.N); slot++ {
-		nonzero := false
-		for idx := 1; idx < 2+x0Len; idx++ {
-			if B[idx] == nil || len(B[idx].Coeffs) == 0 || len(B[idx].Coeffs[0]) <= slot {
-				return fmt.Errorf("b[%d] missing NTT slot %d", idx, slot)
-			}
-			if B[idx].Coeffs[0][slot]%q != 0 {
-				nonzero = true
-				break
-			}
-		}
-		if !nonzero {
-			return fmt.Errorf("bb-tran linear residual map is not full-image: B1/Bx0 all zero at NTT slot %d", slot)
-		}
-	}
-	return nil
-}
-
-func intGenISISBBTranLinearResidualWCoeff(ringQ *ring.Ring, pub PublicInputs, cn *CoeffNativeShowingWitness) (*ring.Poly, error) {
-	if ringQ == nil {
-		return nil, fmt.Errorf("nil ring")
-	}
-	if cn == nil {
-		return nil, fmt.Errorf("nil showing witness")
-	}
-	if len(cn.MuSig) != 1 {
-		return nil, fmt.Errorf("mu_sig rows=%d want 1", len(cn.MuSig))
-	}
-	if len(cn.X0) <= 0 {
-		return nil, fmt.Errorf("missing x0 rows")
-	}
-	if len(pub.B) != 3+len(cn.X0) {
-		return nil, fmt.Errorf("b length=%d want %d", len(pub.B), 3+len(cn.X0))
-	}
-	if err := validateIntGenISISBBTranLinearMapFullImage(ringQ, pub.B, len(cn.X0)); err != nil {
-		return nil, err
-	}
-	wNTT := ringQ.NewPoly()
-	tmpNTT := ringQ.NewPoly()
-	sourceNTT := ringQ.NewPoly()
-	addProduct := func(label string, publicNTT, sourceCoeff *ring.Poly) error {
-		if publicNTT == nil || sourceCoeff == nil {
-			return fmt.Errorf("nil %s term", label)
-		}
-		ring.Copy(sourceCoeff, sourceNTT)
-		ringQ.NTT(sourceNTT, sourceNTT)
-		ringQ.MulCoeffs(publicNTT, sourceNTT, tmpNTT)
-		ringQ.Add(wNTT, tmpNTT, wNTT)
-		return nil
-	}
-	if err := addProduct("B1*mu_sig", pub.B[1], cn.MuSig[0]); err != nil {
-		return nil, err
-	}
-	for i := range cn.X0 {
-		if err := addProduct(fmt.Sprintf("Bx0[%d]*x0[%d]", i, i), pub.B[2+i], cn.X0[i]); err != nil {
-			return nil, err
-		}
-	}
-	wCoeff := ringQ.NewPoly()
-	ringQ.InvNTT(wNTT, wCoeff)
-	return wCoeff, nil
-}
-
 func intGenISISThetaBlockCoeff(ringQ *ring.Ring, p *ring.Poly, omega []uint64, block, blocks int, name string) ([]uint64, error) {
 	coeff, err := thetaCoeffFromNTTBlock(ringQ, p, omega, block, blocks)
 	if err != nil {
@@ -1017,17 +987,17 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 	}
 	projectionMode := intGenISISProjectionModeFromLayout(l)
 	switch l.LayoutVersion {
-	case intGenISISShowingLayoutVersionYLinearV1:
+	case intGenISISShowingLayoutVersionYLinearBoundedV2:
 		if projectionMode != IntGenISISReplayProjectionNone {
 			return fmt.Errorf("IntGenISIS showing layout version %q cannot use replay projection %q", l.LayoutVersion, projectionMode)
 		}
-	case intGenISISShowingLayoutVersionProjectionUDigitsYViewV3:
+	case intGenISISShowingLayoutVersionProjectionUDigitsYViewBoundedV4:
 		if projectionMode != IntGenISISReplayProjectionProjectUDigitsYViewV3 {
 			return fmt.Errorf("IntGenISIS showing projection layout requires replay projection %q, got %q", IntGenISISReplayProjectionProjectUDigitsYViewV3, projectionMode)
 		}
-	case intGenISISShowingLayoutVersionProjectionUDigitsYWResidualV5:
-		if projectionMode != IntGenISISReplayProjectionProjectUDigitsYWResidualV5 {
-			return fmt.Errorf("IntGenISIS showing projection layout requires replay projection %q, got %q", IntGenISISReplayProjectionProjectUDigitsYWResidualV5, projectionMode)
+	case intGenISISShowingLayoutVersionProjectionUDigitsYBoundedSourcesV6:
+		if projectionMode != IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 {
+			return fmt.Errorf("IntGenISIS showing projection layout requires replay projection %q, got %q", IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6, projectionMode)
 		}
 	default:
 		return fmt.Errorf("unsupported IntGenISIS showing layout version %q", l.LayoutVersion)
@@ -1035,7 +1005,6 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 	digitOnlyU := intGenISISProjectionUsesDigitOnlyU(l)
 	projectedUY := intGenISISProjectionUsesProjectedUYHat(l)
 	derivedYView := intGenISISProjectionDerivesYView(l)
-	wResidual := intGenISISProjectionUsesBBTranWResidual(l)
 	if l.CoreRowCount != 0 {
 		return fmt.Errorf("IntGenISIS packed showing requires core_row_count=0, got %d", l.CoreRowCount)
 	}
@@ -1091,44 +1060,15 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 		count int
 	}{
 		{"Z hat", l.ZHatStart, l.ZHatCount},
+		{"mu_sig coefficient-view", l.MuSigViewStart, l.MuSigCount * rpp},
+		{"x0 coefficient-view", l.X0ViewStart, l.X0Count * rpp},
+		{"x1 coefficient-view", l.X1ViewStart, l.X1Count * rpp},
+		{"mu_sig hat", l.MuSigHatStart, l.MuSigHatCount},
+		{"x0 hat", l.X0HatStart, l.X0HatCount},
+		{"x1 hat", l.X1HatStart, l.X1HatCount},
 	}
-	if !wResidual && (l.WHatStart >= 0 || l.WHatCount != 0) {
-		return fmt.Errorf("IntGenISIS non-W-residual projection must not commit W hats, got start=%d count=%d", l.WHatStart, l.WHatCount)
-	}
-	if wResidual {
-		required = append(required,
-			struct {
-				name  string
-				start int
-				count int
-			}{"W hat", l.WHatStart, l.WHatCount},
-			struct {
-				name  string
-				start int
-				count int
-			}{"x1 hat", l.X1HatStart, l.X1HatCount},
-		)
-		if l.MuSigHatStart >= 0 || l.MuSigHatCount != 0 || l.X0HatStart >= 0 || l.X0HatCount != 0 {
-			return fmt.Errorf("IntGenISIS W-residual projection must omit mu_sig/x0 hats, got mu=(%d,%d) x0=(%d,%d)", l.MuSigHatStart, l.MuSigHatCount, l.X0HatStart, l.X0HatCount)
-		}
-	} else {
-		required = append(required,
-			struct {
-				name  string
-				start int
-				count int
-			}{"mu_sig hat", l.MuSigHatStart, l.MuSigHatCount},
-			struct {
-				name  string
-				start int
-				count int
-			}{"x0 hat", l.X0HatStart, l.X0HatCount},
-			struct {
-				name  string
-				start int
-				count int
-			}{"x1 hat", l.X1HatStart, l.X1HatCount},
-		)
+	if l.WHatStart >= 0 || l.WHatCount != 0 {
+		return fmt.Errorf("IntGenISIS bounded BB-tran must not commit W hats, got start=%d count=%d", l.WHatStart, l.WHatCount)
 	}
 	if digitOnlyU {
 		if l.UViewStart >= 0 {
@@ -1255,9 +1195,6 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 	}{
 		{"m coefficient-view", l.MAttrViewStart},
 		{"k coefficient-view", l.KViewStart},
-		{"mu_sig coefficient-view", l.MuSigViewStart},
-		{"x0 coefficient-view", l.X0ViewStart},
-		{"x1 coefficient-view", l.X1ViewStart},
 		{"Z coefficient-view", l.ZViewStart},
 	} {
 		if part.start >= 0 {
@@ -1279,15 +1216,10 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 		}
 	}
 	expectedHatCounts := map[string][2]int{
-		"Z": {l.ZHatCount, l.ZCount * rpp},
-	}
-	if wResidual {
-		expectedHatCounts["W"] = [2]int{l.WHatCount, rpp}
-		expectedHatCounts["x1"] = [2]int{l.X1HatCount, l.X1Count * rpp}
-	} else {
-		expectedHatCounts["mu_sig"] = [2]int{l.MuSigHatCount, l.MuSigCount * rpp}
-		expectedHatCounts["x0"] = [2]int{l.X0HatCount, l.X0Count * rpp}
-		expectedHatCounts["x1"] = [2]int{l.X1HatCount, l.X1Count * rpp}
+		"Z":      {l.ZHatCount, l.ZCount * rpp},
+		"mu_sig": {l.MuSigHatCount, l.MuSigCount * rpp},
+		"x0":     {l.X0HatCount, l.X0Count * rpp},
+		"x1":     {l.X1HatCount, l.X1Count * rpp},
 	}
 	if !projectedUY {
 		expectedHatCounts["u"] = [2]int{l.UHatCount, l.UCount * rpp}
@@ -1859,22 +1791,6 @@ func intGenISISLinearHatFormalCoeff(rowCache *intGenISISRowCoeffCache, l *IntGen
 	}
 }
 
-func intGenISISWResidualFormalCoeff(rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, block int) ([]uint64, error) {
-	if rowCache == nil || l == nil {
-		return nil, fmt.Errorf("missing IntGenISIS W residual metadata")
-	}
-	if !intGenISISProjectionUsesBBTranWResidual(l) {
-		return nil, fmt.Errorf("IntGenISIS layout does not use W residual")
-	}
-	if block < 0 || block >= l.ViewRowsPerPoly {
-		return nil, fmt.Errorf("IntGenISIS W residual block=%d outside rows/poly=%d", block, l.ViewRowsPerPoly)
-	}
-	if l.WHatStart < 0 || l.WHatCount != l.ViewRowsPerPoly {
-		return nil, fmt.Errorf("IntGenISIS W residual rows unavailable start=%d count=%d", l.WHatStart, l.WHatCount)
-	}
-	return rowCache.Row(l.WHatStart + block)
-}
-
 func newIntGenISISProjectedSignaturePlan(ringQ *ring.Ring, pub PublicInputs, l *IntGenISISShowingRowLayout, basis *transformBridgeBasisCache, omega []uint64) (*intGenISISProjectedSignaturePlan, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
@@ -2287,47 +2203,39 @@ func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowC
 		}
 		rhs := make([]uint64, n)
 		addScaledInto(rhs, plan.bBlockCoeff[0][block], 1, q)
-		if intGenISISProjectionUsesBBTranWResidual(l) {
-			wCoeff, err := intGenISISWResidualFormalCoeff(rowCache, l, block)
+		bSources := make([][]uint64, 1+l.X0Count)
+		muCoeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatMuSig, 0, block)
+		if err != nil {
+			return err
+		}
+		bSources[0] = muCoeff
+		for i := 0; i < l.X0Count; i++ {
+			x0Coeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatX0, i, block)
 			if err != nil {
 				return err
 			}
-			addScaledInto(rhs, wCoeff, 1, q)
-		} else {
-			bSources := make([][]uint64, 1+l.X0Count)
-			muCoeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatMuSig, 0, block)
-			if err != nil {
-				return err
-			}
-			bSources[0] = muCoeff
-			for i := 0; i < l.X0Count; i++ {
-				x0Coeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatX0, i, block)
-				if err != nil {
-					return err
+			bSources[1+i] = x0Coeff
+		}
+		accOK := scratch != nil && scratch.acc != nil && scratch.b != nil
+		if accOK {
+			resetRingPolyCoeffs(scratch.acc)
+			for i, coeff := range bSources {
+				publicIdx := 1 + i
+				if !coeffsToNTTPolyInto(ringQ, scratch.b, coeff) ||
+					!addMulNTTIntoAccumulator(ringQ, scratch.acc, plan.bBlockCoeffNTT[publicIdx][block], scratch.b, 1, scratch) {
+					accOK = false
+					break
 				}
-				bSources[1+i] = x0Coeff
 			}
-			accOK := scratch != nil && scratch.acc != nil && scratch.b != nil
 			if accOK {
-				resetRingPolyCoeffs(scratch.acc)
-				for i, coeff := range bSources {
-					publicIdx := 1 + i
-					if !coeffsToNTTPolyInto(ringQ, scratch.b, coeff) ||
-						!addMulNTTIntoAccumulator(ringQ, scratch.acc, plan.bBlockCoeffNTT[publicIdx][block], scratch.b, 1, scratch) {
-						accOK = false
-						break
-					}
-				}
-				if accOK {
-					accOK = flushNTTAccumulatorInto(ringQ, rhs, scratch.acc, scratch)
-				}
+				accOK = flushNTTAccumulatorInto(ringQ, rhs, scratch.acc, scratch)
 			}
-			if !accOK {
-				for i, coeff := range bSources {
-					publicIdx := 1 + i
-					if !addMulModXN1PrecomputedNTTInto(ringQ, rhs, plan.bBlockCoeffNTT[publicIdx][block], coeff, 1, scratch) {
-						addMulModXN1Into(rhs, plan.bBlockCoeff[publicIdx][block], coeff, 1, q)
-					}
+		}
+		if !accOK {
+			for i, coeff := range bSources {
+				publicIdx := 1 + i
+				if !addMulModXN1PrecomputedNTTInto(ringQ, rhs, plan.bBlockCoeffNTT[publicIdx][block], coeff, 1, scratch) {
+					addMulModXN1Into(rhs, plan.bBlockCoeff[publicIdx][block], coeff, 1, q)
 				}
 			}
 		}
@@ -2399,6 +2307,9 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 	if !pub.IntGenISIS {
 		return ConstraintSet{}, fmt.Errorf("IntGenISIS showing constraints require IntGenISIS public inputs")
 	}
+	if pub.HashInputBound != credential.IntGenISISHashInputBound {
+		return ConstraintSet{}, fmt.Errorf("hash_input_bound=%d want %d", pub.HashInputBound, credential.IntGenISISHashInputBound)
+	}
 	l := layout.IntGenISISShowing
 	if err := validateIntGenISISShowingPackedLayout(l, len(rowsNTT)); err != nil {
 		return ConstraintSet{}, err
@@ -2408,11 +2319,6 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 	}
 	if len(pub.B) != 3+l.X0Count {
 		return ConstraintSet{}, fmt.Errorf("b length=%d want %d", len(pub.B), 3+l.X0Count)
-	}
-	if intGenISISProjectionUsesBBTranWResidual(l) {
-		if err := validateIntGenISISBBTranLinearMapFullImage(ringQ, pub.B, l.X0Count); err != nil {
-			return ConstraintSet{}, fmt.Errorf("IntGenISIS W-residual projection: %w", err)
-		}
 	}
 	if len(pub.CM) != l.ECount || len(pub.CM[0]) != l.MCount || len(pub.AS) != l.ECount || len(pub.AS[0]) != l.SCount {
 		return ConstraintSet{}, fmt.Errorf("commitment public dimensions mismatch")
@@ -2480,33 +2386,25 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 				return ConstraintSet{}, err
 			}
 			sig = polySub(sig, b0, q)
-			if intGenISISProjectionUsesBBTranWResidual(l) {
-				wCoeff, err := intGenISISWResidualFormalCoeff(rowCache, l, block)
+			b1, err := intGenISISThetaBlockCoeff(ringQ, pub.B[1], omega, block, l.ViewRowsPerPoly, "B[1]")
+			if err != nil {
+				return ConstraintSet{}, err
+			}
+			muCoeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatMuSig, 0, block)
+			if err != nil {
+				return ConstraintSet{}, err
+			}
+			sig = polySub(sig, polyMul(b1, muCoeff, q), q)
+			for i := 0; i < l.X0Count; i++ {
+				bCoeff, err := intGenISISThetaBlockCoeff(ringQ, pub.B[2+i], omega, block, l.ViewRowsPerPoly, fmt.Sprintf("B[%d]", 2+i))
 				if err != nil {
 					return ConstraintSet{}, err
 				}
-				sig = polySub(sig, wCoeff, q)
-			} else {
-				b1, err := intGenISISThetaBlockCoeff(ringQ, pub.B[1], omega, block, l.ViewRowsPerPoly, "B[1]")
+				x0Coeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatX0, i, block)
 				if err != nil {
 					return ConstraintSet{}, err
 				}
-				muCoeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatMuSig, 0, block)
-				if err != nil {
-					return ConstraintSet{}, err
-				}
-				sig = polySub(sig, polyMul(b1, muCoeff, q), q)
-				for i := 0; i < l.X0Count; i++ {
-					bCoeff, err := intGenISISThetaBlockCoeff(ringQ, pub.B[2+i], omega, block, l.ViewRowsPerPoly, fmt.Sprintf("B[%d]", 2+i))
-					if err != nil {
-						return ConstraintSet{}, err
-					}
-					x0Coeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatX0, i, block)
-					if err != nil {
-						return ConstraintSet{}, err
-					}
-					sig = polySub(sig, polyMul(bCoeff, x0Coeff, q), q)
-				}
+				sig = polySub(sig, polyMul(bCoeff, x0Coeff, q), q)
 			}
 			sig = polySub(sig, zCoeff, q)
 			yHatCoeff, err := rowCache.Row(l.YHatStart + block)
@@ -2703,6 +2601,16 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 			boundPolys = append(boundPolys, seedPolys...)
 			boundCoeffs = append(boundCoeffs, seedCoeffs...)
 		}
+		hashRows := make([]int, 0, (l.MuSigCount+l.X0Count+l.X1Count)*l.ViewRowsPerPoly)
+		hashRows = append(hashRows, intGenISISViewRowIndices(l.MuSigViewStart, l.MuSigCount*l.ViewRowsPerPoly)...)
+		hashRows = append(hashRows, intGenISISViewRowIndices(l.X0ViewStart, l.X0Count*l.ViewRowsPerPoly)...)
+		hashRows = append(hashRows, intGenISISViewRowIndices(l.X1ViewStart, l.X1Count*l.ViewRowsPerPoly)...)
+		hashPolys, hashCoeffs, herr := intGenISISRangeMembershipRows(ringQ, rowsNTT, hashRows, pub.HashInputBound)
+		if herr != nil {
+			return herr
+		}
+		boundPolys = append(boundPolys, hashPolys...)
+		boundCoeffs = append(boundCoeffs, hashCoeffs...)
 		radixPolys, radixCoeffs, berr = intGenISISUShortnessConstraintRows(ringQ, rowsNTT, l, shortSpec)
 		return berr
 	}); err != nil {
@@ -2724,7 +2632,7 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 		bridgePolys = append(bridgePolys, yPolys...)
 		bridgeCoeffs = append(bridgeCoeffs, yCoeffs...)
 	}
-	if prfCompanionLayout != nil && prfCompanionLayout.RelationVersion == 1 {
+	if prfCompanionLayout != nil && prfCompanionLayout.RelationVersion == 2 {
 		var prfFullPolys []*ring.Poly
 		var prfFullCoeffs [][]uint64
 		if err := stage("showing.constraints.prf_direct_full", func() error {
@@ -2748,7 +2656,7 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 				rowCache,
 				prfCompanionLayout,
 				pub.Tag,
-				pub.Nonce,
+				pub.Context,
 				omega,
 				prfCompanionLayout.GroupRounds,
 			)
@@ -2823,6 +2731,23 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 			bridgeCoeffs = append(bridgeCoeffs, coeffs...)
 		}
 	}
+	for _, bridge := range []struct {
+		name       string
+		source     int
+		components int
+		hat        int
+	}{
+		{"mu_sig", l.MuSigViewStart, l.MuSigCount, l.MuSigHatStart},
+		{"x0", l.X0ViewStart, l.X0Count, l.X0HatStart},
+		{"x1", l.X1ViewStart, l.X1Count, l.X1HatStart},
+	} {
+		polys, coeffs, berr := intGenISISCoeffToHatBridgeFormalCoeffs(ringQ, rowCache, omega, bridge.source, bridge.components, bridge.hat, l.ViewRowsPerPoly, bridge.name)
+		if berr != nil {
+			return ConstraintSet{}, berr
+		}
+		bridgePolys = append(bridgePolys, polys...)
+		bridgeCoeffs = append(bridgeCoeffs, coeffs...)
+	}
 	shortDegree, err := signatureShortnessMaxDegree(shortSpec, SimOpts{})
 	if err != nil {
 		return ConstraintSet{}, err
@@ -2835,7 +2760,7 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 		FparNormCoeffs:   boundCoeffs,
 		FaggNorm:         bridgePolys,
 		FaggNormCoeffs:   bridgeCoeffs,
-		ParallelAlgDeg:   maxInt(maxInt(maxInt(2, intGenISISMembershipDegree(pub.BoundB)), intGenISISMembershipDegree(intGenISISSeedBound)), maxInt(shortDegree, compressionSpec.Descriptor.MembershipDeg)),
+		ParallelAlgDeg:   maxInt(maxInt(maxInt(maxInt(2, intGenISISMembershipDegree(pub.BoundB)), intGenISISMembershipDegree(intGenISISSeedBound)), intGenISISMembershipDegree(pub.HashInputBound)), maxInt(shortDegree, compressionSpec.Descriptor.MembershipDeg)),
 		AggregatedAlgDeg: maxInt(maxInt(2, compressionSpec.Descriptor.DecodeDegree), prfDirectFullDegree),
 	}, nil
 }
@@ -2855,6 +2780,9 @@ func rejectIntGenISISUnsafeSigLookup(opts SimOpts) error {
 // material and does not affect proof verification.
 func PrepareIntGenISISShowingContext(pub PublicInputs, opts SimOpts) (*IntGenISISShowingPreparedContext, error) {
 	opts.applyDefaults()
+	if err := validateIntGenISISV2TranscriptOpts(opts); err != nil {
+		return nil, err
+	}
 	if err := rejectIntGenISISUnsafeSigLookup(opts); err != nil {
 		return nil, err
 	}
@@ -2936,6 +2864,9 @@ func BuildIntGenISISShowingCombinedPrepared(pub PublicInputs, wit WitnessInputs,
 
 func buildIntGenISISShowingCombinedPreparedWithState(pub PublicInputs, wit WitnessInputs, opts SimOpts, ctx *IntGenISISShowingPreparedContext) (*Proof, *preparedCredentialBuild, error) {
 	opts.applyDefaults()
+	if err := validateIntGenISISV2TranscriptOpts(opts); err != nil {
+		return nil, nil, err
+	}
 	if ctx == nil {
 		var err error
 		ctx, err = PrepareIntGenISISShowingContext(pub, opts)
@@ -2949,6 +2880,9 @@ func buildIntGenISISShowingCombinedPreparedWithState(pub PublicInputs, wit Witne
 	pub = ctx.pub
 	phaseRecorder := opts.PhaseRecorder
 	opts = ctx.opts
+	if err := validateIntGenISISV2TranscriptOpts(opts); err != nil {
+		return nil, nil, err
+	}
 	if phaseRecorder != nil {
 		opts.PhaseRecorder = phaseRecorder
 	}
@@ -3036,6 +2970,9 @@ func VerifyIntGenISISShowing(pub PublicInputs, proof *Proof, opts SimOpts) (bool
 		return false, fmt.Errorf("nil proof")
 	}
 	opts.applyDefaults()
+	if err := validateIntGenISISVerifierOptionsV2(pub, opts); err != nil {
+		return false, err
+	}
 	if err := rejectIntGenISISUnsafeSigLookup(opts); err != nil {
 		return false, err
 	}
@@ -3043,21 +2980,25 @@ func VerifyIntGenISISShowing(pub PublicInputs, proof *Proof, opts SimOpts) (bool
 		return false, err
 	}
 	pub.IntGenISIS = true
-	ringN := pub.RingDegree
-	if ringN == 0 && proof.RowLayout.RingDegree > 0 {
-		ringN = proof.RowLayout.RingDegree
-	}
 	var err error
-	pub, err = bindIntGenISISPublicExtrasWithOpts(pub, ringN, opts)
+	pub, err = bindIntGenISISPublicExtrasWithOpts(pub, pub.RingDegree, opts)
+	if err != nil {
+		return false, err
+	}
+	ringQ, err := credential.LoadRingWithDegree(pub.RingDegree)
+	if err != nil {
+		return false, err
+	}
+	expectedLayout, expectedCompanion, err := expectedIntGenISISShowingLayoutsV2(ringQ, pub, opts)
 	if err != nil {
 		return false, err
 	}
 	if err := validateIntGenISISProofDegreeMetadata(proof, pub, opts); err != nil {
 		return false, err
 	}
-	verifySet := ConstraintSet{}
-	if proof.PRFCompanion != nil {
-		verifySet.PRFCompanionLayout = proof.PRFCompanion.Layout
+	if err := validateIntGenISISProofEnvelopeV2(proof, expectedLayout, expectedCompanion, pub, opts); err != nil {
+		return false, err
 	}
+	verifySet := ConstraintSet{PRFCompanionLayout: expectedCompanion}
 	return VerifyWithConstraints(proof, verifySet, pub, opts, FSModeCredential)
 }

@@ -1,106 +1,79 @@
 # SPRUCE
 
-SPRUCE is the ARC-SPRUCE IntGenISIS paper artifact. It implements
-the committed-message issuance flow, final IntGenISIS showing proof, verifier
-path, fixed transcript reporting, and one executable preset registry.
+SPRUCE is the executable Go artifact for the ARC-SPRUCE construction in the
+sibling manuscript repository `/home/jonas/Bureau/GIT_Paper`. It implements
+committed-message IntGenISIS issuance, the SmallWood issuance and showing
+proofs, NTRU/vSIS signing, the Poseidon2 tag relation, and stateful rate-limit
+verification.
 
-The maintained artifact surface is intentionally narrow:
+This tree is in a hard v2 protocol epoch. Preset identifiers and persisted
+artifacts are protocol identity, not compatibility labels. Only the canonical
+identifiers below are supported. Material from an earlier epoch is rejected;
+there is no selector aliasing, in-place upgrade, or mixed-version verification.
 
-- `cmd/issuance`
-- `cmd/showing`
-- every preset in the executable registry
-- Go tests, one all-preset functional gate, the executable-preset byte gate, and
-  benchmark reports
-
-All configurations are experimental PoC presets. Security metadata is
-informational and does not constitute a deployment claim. Lifecycle and claim
-scope remain in reports so a run can be identified precisely, but they do not
-restrict execution.
+Every maintained preset has `claim_scope=proof_only`. Security-profile names
+and benchmark accounting describe the executed proof configuration; they are
+not deployment claims.
 
 ## Reviewer Path
 
-This README is the first reviewer document. Then read:
+Read these files in order:
 
-1. [ARTIFACT.md](ARTIFACT.md): build, run, validate, expected outputs, claims,
-   limitations, and generated files.
-2. [docs/PROTOCOL.md](docs/PROTOCOL.md): implemented protocol, preset surface,
-   artifact/code map, and data flow.
-3. [docs/SECURITY.md](docs/SECURITY.md): security estimates, provenance
-   commands, PRF parameter generation, and caveats.
+1. [ARTIFACT.md](ARTIFACT.md) for build, validation, manual CLI use, generated
+   state, and evidence status.
+2. [docs/PROTOCOL.md](docs/PROTOCOL.md) for the implemented equations,
+   public-context/hidden-slot policy, transcript, and paper-to-code map.
+3. [docs/SECURITY.md](docs/SECURITY.md) for the proof-only security boundary,
+   operational invariants, provenance, and unresolved evidence.
 
-Package-level READMEs remain available for code navigation, but the files above
-are the canonical reviewer-facing docs.
+The manuscript gives the mathematical construction and security arguments.
+This repository fixes their executable encoding, artifact schemas, transcript
+domains, preset manifests, and operator state transitions.
 
-## Executable Presets
+## Canonical v2 Presets
 
-```bash
-go run ./cmd/issuance list-presets
-```
+`go run ./cmd/issuance list-presets` prints these nine canonical IDs:
 
-The command prints every canonical registry entry. Every listed preset can be
-run by `benchmark-intgenisis-e2e`; there are no visibility flags or unavailable
-placeholder entries.
+| Canonical ID | Lifecycle | Security profile |
+| --- | --- | --- |
+| `poc-n512-sc96-v2` | `poc` | `SC-96` |
+| `artifact-n1024-sc125-v2` | `artifact` | `SC-125` |
+| `artifact-n1024-bq10-r96-v2` | `artifact` | `BQ10-96` |
+| `artifact-n1024-bq16-r96-v2` | `artifact` | `BQ16-96` |
+| `pilot-n1024-bq32-r96-v2` | `candidate` | `BQ32-96` |
+| `poc-n1024-bq64-r128-v2` | `poc` | `BQ64-128` |
+| `poc-n1024-bq96-r128-v2` | `poc` | `BQ96-128` |
+| `poc-n1024-bq128-r128-v3` | `poc` | `BQ128-128` |
+| `system-n1024-wf128-crom-v2` | `candidate` | `WF-128` |
 
-The retained `n512-*` and `n1024-*` selectors remain accepted aliases for their
-canonical manifests. Removed duplicate or structurally rejected selectors do
-not resolve to a different preset.
+The lifecycle is an artifact-maintenance label. It does not widen the
+proof-only claim scope.
 
-`system-n1024-wf128-crom-v1` is executable, but remains a candidate with
-`CompleteSystemClaim=false`. No complete-system deployment preset is currently
-available.
+## Hard v2 Changes
 
-## BQ32 Controlled Pilot
+- A showing uses an opaque service context supplied independently by the
+  holder and verifier. SHAKE256 rejection sampling derives exactly 11 public
+  field lanes. One additional PRF input lane is a hidden slot
+  `s in {0,...,15}`. The proof enforces its four-bit decomposition, so the
+  per-credential, per-context quota is exactly `L=16`.
+- The holder durably burns the next slot before proving. The verifier
+  cryptographically verifies the presentation and then atomically records the
+  `(context, tag)` acceptance. Proof-only verification deliberately skips that
+  operational state transition.
+- DECS/LVCS v2 commits independently sampled per-leaf tapes. A proof-global
+  salt and a commitment role are included in every v2 leaf, node, padding, and
+  challenge domain. Seed-derived opening material is not accepted by v2.
+- BB-tran inputs `mu_sig`, every `x0` row, and `x1` are independently sampled
+  coefficient-wise from `{-1,0,1}`. `B0` is an independently uniform public
+  polynomial. The showing proof retains each bounded source and proves its
+  ternary membership and source-to-transform bridge.
+- Public parameters, credential state, verifier keys, presentations, holder
+  usage state, verifier replay state, NTRU material, and proof transcripts have
+  strict v2 identities. Cross-manifest and cross-epoch combinations fail
+  closed.
 
-`pilot-n1024-bq32-r96-v1` is a CROM candidate, not a deployment preset. Its
-immutable scope uses raw query caps `[2^32]*5` within each proof-system phase,
-at most `2^32` honest proof transcripts and tags per domain-separated context,
-and the actual tag-9 PRF relation. One issuance plus one showing composes to
-`[2^33]*5`. It executes 168-bit DECS/hash and Fiat-Shamir outputs, 136-bit tapes,
-and a 168-bit salt.
-
-The current live measurement is 25,844 issuance bytes, 36,887 showing bytes,
-99.98 one-proof theorem bits, and 98.59 bits after the current one-issuance /
-one-showing global-collision composition. The executed-parameter audit passes,
-but complete-system promotion remains blocked by missing or unreviewed
-primitive and full-game ledger terms.
-
-Removed duplicate, historical, and research measurements remain recorded in
-`credential/testdata/removed_intgenisis_presets.json`. They are not executable
-presets because their parameter audit failed or a smaller preset implements the
-same security target and adversary budget.
-
-## WF-128 PoC Preset
-
-`system-n1024-wf128-crom-v1` exercises the intended unbounded CROM work-factor
-shape with 264-bit DECS/hash and Fiat-Shamir outputs, a 128-bit tape, a 256-bit
-salt, and the bundled tag-13 PRF profile. Its bounded-query caps are unset. The
-retuned shape uses polynomial block width 43, `N_DECS=524288`, `eta=46`, and
-grinding vector `[0,0,4,13]`. Three repeated runs report 26,758 issuance bytes,
-38,092 showing bytes, and 133.44/133.35 issuance/showing theorem bits. Its
-structural parameter audit passes; its security ledger remains diagnostic and
-makes no complete-system claim.
-
-## Fast Docker Run
-
-```bash
-docker build -t spruce-artifact .
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact list
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact bench system-n1024-wf128-crom-v1
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact gate
-docker run --rm --user "$(id -u):$(id -g)" spruce-artifact artifact-gate
-```
-
-To keep generated reports:
-
-```bash
-docker run --rm --user "$(id -u):$(id -g)" \
-  -v "$(pwd)/artifacts:/artifacts" \
-  spruce-artifact validate
-```
-
-The Docker artifact is Go-only. Sage/Python provenance scripts stay in the
-source tree, while lattice-estimator reproduction uses an external pinned
-checkout documented in [docs/SECURITY.md](docs/SECURITY.md).
+See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the full relation and exact
+protocol identifiers.
 
 ## Fast Native Run
 
@@ -108,41 +81,79 @@ checkout documented in [docs/SECURITY.md](docs/SECURITY.md).
 go test ./...
 go build ./cmd/issuance ./cmd/showing
 go run ./cmd/issuance list-presets
-go run ./cmd/issuance benchmark-intgenisis-e2e -preset system-n1024-wf128-crom-v1
+go run ./cmd/issuance benchmark-intgenisis-e2e \
+  -preset artifact-n1024-sc125-v2
 go run ./cmd/issuance gate-functional-presets
-go run ./cmd/issuance gate-artifact-presets
 ```
 
-The full native validation script runs formatting, tests, vet, staticcheck,
-strict deadcode, CLI builds, and the six maintained historical exact-byte
-gates. `gate-functional-presets` separately exercises every executable preset:
+The benchmark report is the source of truth for executed dimensions,
+transcript accounting, theorem/accounting fields, phase timings, and artifact
+paths. Pre-v2 byte and timing baselines do not apply after the bounded-source
+and salted-tape changes. Maintained v2 size and timing evidence is pending
+fresh generated reports; this documentation intentionally does not substitute
+estimated values.
+
+Run the repository validation path with:
 
 ```bash
 ./scripts/validate-artifact.sh
 ```
 
-To keep validation artifacts:
+To preserve its outputs:
 
 ```bash
 ARTIFACT_ROOT="$(pwd)/artifacts" ./scripts/validate-artifact.sh
 ```
 
-## Manual Flow
-
-The end-to-end benchmark above is the main reviewer command. The individual
-issuance/showing commands are also available:
+## Fast Docker Run
 
 ```bash
-go run ./cmd/issuance setup-intgenisis-public -preset artifact-n1024-sc125-v1
-go run ./cmd/issuance setup-ntru-keys -preset artifact-n1024-sc125-v1
-go run ./cmd/issuance holder-commit -preset artifact-n1024-sc125-v1
-go run ./cmd/issuance holder-prove
-go run ./cmd/issuance issuer-verify-sign
-go run ./cmd/issuance holder-finalize
-go run ./cmd/showing -preset artifact-n1024-sc125-v1
+docker build -t spruce-artifact .
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact list
+docker run --rm --user "$(id -u):$(id -g)" \
+  spruce-artifact bench artifact-n1024-sc125-v2
+docker run --rm --user "$(id -u):$(id -g)" spruce-artifact gate
 ```
 
-Commands that create preset-dependent material require `-preset`. Accounting
-parameters are not exposed as public flags; they come from the canonical
-preset manifest. Public parameters, credential state, verifier keys,
-presentations, and Fiat-Shamir public inputs bind that manifest.
+To retain generated reports:
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$(pwd)/artifacts:/artifacts" \
+  spruce-artifact validate
+```
+
+The Docker runtime is Go-only. Sage/Python and the external pinned lattice
+estimator are provenance tools documented in
+[docs/SECURITY.md](docs/SECURITY.md).
+
+## Showing CLI State Boundary
+
+Presentation creation requires all of:
+
+```text
+-preset
+-state-path
+-verifier-key
+-context-file
+-holder-usage-state
+-presentation-out
+```
+
+Rate-limited verification requires all of:
+
+```text
+-preset
+-public-params
+-verifier-key
+-verify-presentation
+-expected-context-file
+-verifier-state
+```
+
+`-proof-only` is valid only with `-verify-presentation`. It omits
+`-verifier-state`, verifies the cryptographic statement, and intentionally does
+not enforce or persist rate-limit acceptance. It cannot be combined with
+`-verifier-state`.
+
+The full manual command sequence is in [ARTIFACT.md](ARTIFACT.md).

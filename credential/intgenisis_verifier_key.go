@@ -6,38 +6,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 )
 
-const IntGenISISVerifierKeyVersion = 1
+const IntGenISISVerifierKeyVersion = 2
 
 type IntGenISISVerifierKey struct {
 	Version              int       `json:"version"`
 	Profile              string    `json:"profile"`
-	PresetID             string    `json:"preset_id,omitempty"`
-	PresetVersion        int       `json:"preset_version,omitempty"`
-	PresetManifestDigest string    `json:"preset_manifest_digest,omitempty"`
+	PresetID             string    `json:"preset_id"`
+	PresetVersion        int       `json:"preset_version"`
+	PresetManifestDigest string    `json:"preset_manifest_digest"`
 	RingDegree           int       `json:"ring_degree"`
 	PublicParamsDigest   string    `json:"public_params_digest"`
 	NTRUPublic           [][]int64 `json:"ntru_public"`
-	SignatureBound       int64     `json:"signature_bound,omitempty"`
+	SignatureBound       int64     `json:"signature_bound"`
 }
 
 func SaveIntGenISISVerifierKey(path string, key IntGenISISVerifierKey) error {
-	if key.Version == 0 {
-		key.Version = IntGenISISVerifierKeyVersion
-	}
 	if err := key.Validate(); err != nil {
 		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("mkdir verifier key dir: %w", err)
 	}
 	data, err := json.MarshalIndent(key, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal IntGenISIS verifier key: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := atomicWriteFile(path, append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("write IntGenISIS verifier key: %w", err)
 	}
 	return nil
@@ -49,8 +42,8 @@ func LoadIntGenISISVerifierKey(path string) (IntGenISISVerifierKey, error) {
 	if err != nil {
 		return key, fmt.Errorf("read IntGenISIS verifier key: %w", err)
 	}
-	if err := json.Unmarshal(data, &key); err != nil {
-		return key, fmt.Errorf("unmarshal IntGenISIS verifier key: %w", err)
+	if err := decodeStrictVersionedJSON(data, &key, "IntGenISIS verifier-key", IntGenISISVerifierKeyVersion); err != nil {
+		return key, fmt.Errorf("decode IntGenISIS verifier key: %w", err)
 	}
 	if err := key.Validate(); err != nil {
 		return key, fmt.Errorf("validate IntGenISIS verifier key %s: %w", path, err)
@@ -60,7 +53,7 @@ func LoadIntGenISISVerifierKey(path string) (IntGenISISVerifierKey, error) {
 
 func (key IntGenISISVerifierKey) Validate() error {
 	if key.Version != IntGenISISVerifierKeyVersion {
-		return fmt.Errorf("unsupported IntGenISIS verifier key version %d", key.Version)
+		return noMigrationSchemaError("IntGenISIS verifier-key", key.Version, IntGenISISVerifierKeyVersion)
 	}
 	profile, ok := LookupIntGenISISProfile(key.Profile)
 	if !ok {
@@ -69,23 +62,42 @@ func (key IntGenISISVerifierKey) Validate() error {
 	if key.RingDegree != profile.N {
 		return fmt.Errorf("ring_degree=%d want %d", key.RingDegree, profile.N)
 	}
-	if key.PublicParamsDigest == "" {
-		return fmt.Errorf("missing public params digest")
+	if err := validateDigestHex("verifier-key public params digest", key.PublicParamsDigest); err != nil {
+		return err
 	}
-	if key.PresetID != "" || key.PresetVersion != 0 || key.PresetManifestDigest != "" {
-		if key.PresetID == "" || key.PresetVersion <= 0 || key.PresetManifestDigest == "" {
-			return fmt.Errorf("incomplete verifier-key preset binding")
-		}
-		preset, ok := LookupIntGenISISPreset(key.PresetID)
-		if !ok || preset.Profile != key.Profile || preset.PresetVersion != key.PresetVersion || IntGenISISPresetManifestDigest(preset) != key.PresetManifestDigest {
-			return fmt.Errorf("verifier-key preset manifest mismatch")
-		}
+	if key.PresetID == "" || key.PresetVersion <= 0 || key.PresetManifestDigest == "" {
+		return fmt.Errorf("incomplete verifier-key preset binding")
+	}
+	preset, ok := LookupIntGenISISPreset(key.PresetID)
+	if !ok || key.PresetID != preset.CanonicalID || preset.Profile != key.Profile || preset.PresetVersion != key.PresetVersion || IntGenISISPresetManifestDigest(preset) != key.PresetManifestDigest {
+		return fmt.Errorf("verifier-key preset manifest mismatch")
 	}
 	if len(key.NTRUPublic) != 1 || len(key.NTRUPublic[0]) != profile.N {
 		return fmt.Errorf("ntru_public dimensions=%dx? want 1x%d", len(key.NTRUPublic), profile.N)
 	}
-	if key.SignatureBound < 0 {
-		return fmt.Errorf("signature_bound=%d", key.SignatureBound)
+	if key.SignatureBound <= 0 {
+		return fmt.Errorf("signature_bound=%d must be positive", key.SignatureBound)
+	}
+	return nil
+}
+
+// ValidateAgainst binds a verifier key to one exact public-parameter artifact.
+func (key IntGenISISVerifierKey) ValidateAgainst(public PublicParams) error {
+	if err := key.Validate(); err != nil {
+		return err
+	}
+	if err := (&public).Validate(); err != nil {
+		return err
+	}
+	digest, err := PublicParamsDigest(public)
+	if err != nil {
+		return err
+	}
+	if key.PublicParamsDigest != digest {
+		return fmt.Errorf("verifier-key public params digest mismatch")
+	}
+	if key.Profile != public.Profile || key.RingDegree != public.RingDegree || key.PresetID != public.PresetID || key.PresetVersion != public.PresetVersion || key.PresetManifestDigest != public.PresetManifestDigest {
+		return fmt.Errorf("verifier-key and public parameter bindings differ")
 	}
 	return nil
 }

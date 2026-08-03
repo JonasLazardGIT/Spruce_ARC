@@ -31,6 +31,13 @@ func SignTargetAndSaveWithPaths(t []int64, maxTrials int, opts ntru.SamplerOpts,
 	} else if err := keys.SaveSignatureFile(signaturePath, sig); err != nil {
 		return nil, fmt.Errorf("save signature: %w", err)
 	}
+	persisted, err := keys.LoadSignatureFile(signaturePath)
+	if err != nil {
+		return nil, fmt.Errorf("read back signature: %w", err)
+	}
+	if persisted.SignatureID != sig.SignatureID {
+		return nil, fmt.Errorf("persisted signature ID mismatch: got %q want %q", persisted.SignatureID, sig.SignatureID)
+	}
 	log.Printf("[issuance] signature saved to %s (trials_used=%d rejected=%v)", signaturePath, sig.Signature.TrialsUsed, sig.Signature.Rejected)
 	return sig, nil
 }

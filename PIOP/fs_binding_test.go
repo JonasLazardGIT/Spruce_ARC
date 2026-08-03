@@ -5,8 +5,8 @@ import "testing"
 func TestBuildPublicLabelsOmitsTWhenEmpty(t *testing.T) {
 	labels := BuildPublicLabels(PublicInputs{
 		HashRelation: "bbs",
-		Tag:          [][]int64{{1, 2}},
-		Nonce:        [][]int64{{3, 4}},
+		Tag:          []int64{1, 2},
+		Context:      []int64{3, 4},
 	})
 	for _, label := range labels {
 		if label.Name == "T" {
@@ -19,8 +19,8 @@ func TestBuildPublicLabelsIncludesTWhenPresent(t *testing.T) {
 	labels := BuildPublicLabels(PublicInputs{
 		HashRelation: "bbs",
 		T:            []int64{5, 6},
-		Tag:          [][]int64{{1}},
-		Nonce:        [][]int64{{2}},
+		Tag:          []int64{1},
+		Context:      []int64{2},
 	})
 	found := false
 	for _, label := range labels {

@@ -36,7 +36,7 @@ func ResolveDECSCollisionBits(bits int) int {
 }
 
 func ResolveDECSTapeBits(bits int) int {
-	if bits > 0 && bits%8 == 0 && decs.IsSupportedNonceBytes(bits/8) {
+	if bits > 0 && bits%8 == 0 && decs.IsSupportedTapeBytes(bits/8) {
 		return bits
 	}
 	return decs.DefaultHashBytes * 8
@@ -67,7 +67,7 @@ func FSCollisionBitsForOpts(opts SimOpts) int {
 }
 
 func applyDECSWidths(params decs.Params, opts SimOpts) decs.Params {
-	params.NonceBytes = DECSTapeBitsForOpts(opts) / 8
+	params.TapeBytes = DECSTapeBitsForOpts(opts) / 8
 	params.HashBytes = DECSHashBitsForOpts(opts) / 8
 	return params
 }
@@ -80,6 +80,9 @@ func proofRootBytes(proof *Proof) []byte {
 	if proof == nil {
 		return nil
 	}
+	if proof.SchemaVersion == ProofSchemaVersionV2 {
+		return proof.RootHash
+	}
 	if len(proof.RootHash) > 0 {
 		return proof.RootHash
 	}
@@ -89,6 +92,9 @@ func proofRootBytes(proof *Proof) []byte {
 func proofRootSerializedSize(proof *Proof) int {
 	if proof == nil {
 		return 0
+	}
+	if proof.SchemaVersion == ProofSchemaVersionV2 {
+		return len(proof.RootHash)
 	}
 	size := len(proof.Root)
 	if len(proof.RootHash) > 0 {
@@ -101,6 +107,9 @@ func proofQRootBytes(proof *Proof) []byte {
 	if proof == nil {
 		return nil
 	}
+	if proof.SchemaVersion == ProofSchemaVersionV2 {
+		return proof.QRootHash
+	}
 	if len(proof.QRootHash) > 0 {
 		return proof.QRootHash
 	}
@@ -111,18 +120,14 @@ func proofQRootSerializedSize(proof *Proof) int {
 	if proof == nil {
 		return 0
 	}
+	if proof.SchemaVersion == ProofSchemaVersionV2 {
+		return len(proof.QRootHash)
+	}
 	size := len(proof.QRoot)
 	if len(proof.QRootHash) > 0 {
 		size += len(proof.QRootHash)
 	}
 	return size
-}
-
-func proofHashField(root [16]byte, rootHash []byte) []byte {
-	if len(rootHash) > len(root) {
-		return append([]byte(nil), rootHash...)
-	}
-	return nil
 }
 
 func proofDECSHashBits(proof *Proof) int {
@@ -165,17 +170,15 @@ func openingTapeBytes(open *decs.DECSOpening) int {
 	if open == nil {
 		return 0
 	}
-	if open.NonceBytes > 0 {
-		return open.NonceBytes
+	if open.Version != decs.OpeningVersionV2 || !decs.IsSupportedTapeBytes(open.TapeBytes) || len(open.Tapes) != open.EntryCount() {
+		return 0
 	}
-	min := 0
-	for _, nonce := range open.Nonces {
-		min = minPositiveInt(min, len(nonce))
+	for _, tape := range open.Tapes {
+		if len(tape) != open.TapeBytes {
+			return 0
+		}
 	}
-	if len(open.NonceSeed) > 0 {
-		min = minPositiveInt(min, len(open.NonceSeed))
-	}
-	return min
+	return open.TapeBytes
 }
 
 func minPositiveInt(vals ...int) int {

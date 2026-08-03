@@ -11,7 +11,7 @@ import (
 
 const (
 	nizkProfileMaxSupportedGrinding               = 13
-	nizkProfileProjectionProjectUDigitsYWResidual = PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+	nizkProfileProjectionProjectUDigitsYWResidual = PIOP.IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 )
 
 type nizkProfileBucketDigest struct {

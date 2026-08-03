@@ -28,14 +28,6 @@ func fixedNonceTest(lenNonce, ncols int, q uint64) ([]prf.Elem, [][]int64) {
 	return nonce, public
 }
 
-func lanesFromElemsTest(vals []prf.Elem, ncols int) [][]int64 {
-	out := make([][]int64, len(vals))
-	for i, v := range vals {
-		out[i] = constLaneTest(ncols, int64(v))
-	}
-	return out
-}
-
 func evalPolyOnOmegaTest(ringQ *ring.Ring, omega []uint64, poly *ring.Poly) ([]uint64, error) {
 	if poly == nil {
 		return nil, nil

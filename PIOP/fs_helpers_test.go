@@ -19,6 +19,26 @@ func TestFiatShamirDomainSeparationChangesChallenges(t *testing.T) {
 	}
 }
 
+func TestFSInitializationLengthBindsTranscriptTuple(t *testing.T) {
+	salt := []byte("same salt")
+	base := fsInitializationInput("v2", "protocol-a", salt)
+	if bytes.Equal(base, fsInitializationInput("v2", "protocol-b", salt)) {
+		t.Fatal("FS initialization did not bind transcript protocol")
+	}
+	if bytes.Equal(base, fsInitializationInput("v3", "protocol-a", salt)) {
+		t.Fatal("FS initialization did not bind transcript version")
+	}
+	if bytes.Equal(
+		fsInitializationInput("ab", "c", salt),
+		fsInitializationInput("a", "bc", salt),
+	) {
+		t.Fatal("FS transcript tuple framing is ambiguous")
+	}
+	if bytes.Equal(base, salt) || !bytes.Contains(base, []byte(fsInitializationDomainV2)) {
+		t.Fatal("FS initialization is not domain separated from the raw salt")
+	}
+}
+
 func TestFSSaltBytesUsesExplicitSplitWidth(t *testing.T) {
 	opts := SimOpts{Lambda: 256, SaltBits: 168}
 	if got := fsSaltBytesForOpts(opts); got != 21 {

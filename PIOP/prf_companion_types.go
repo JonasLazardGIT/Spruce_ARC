@@ -39,6 +39,8 @@ type PRFCompanionLayout struct {
 	KeySource             KeySource
 	KeySourceMode         string
 	KeySlots              []CoeffSlot
+	HiddenSlotSlot        CoeffSlot
+	HiddenSlotBitSlots    [4]CoeffSlot
 	KeySourceSlots        []CoeffSlot
 	KeySourceDecodeLanes  []int
 	CheckpointSlots       []CoeffSlot
@@ -52,6 +54,8 @@ type PRFCompanionLayout struct {
 	DataRows              int
 	HelperRows            int
 	KeyCount              int
+	HiddenSlotCount       int
+	HiddenSlotBitCount    int
 	CheckpointCount       int
 	FinalRoundOutputCount int
 	TagCount              int
@@ -254,6 +258,19 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 			return err
 		}
 	}
+	if layout.RelationVersion == 2 {
+		if layout.HiddenSlotCount != 1 || layout.HiddenSlotBitCount != 4 {
+			return fmt.Errorf("v2 companion hidden slot counts=(%d,%d) want (1,4)", layout.HiddenSlotCount, layout.HiddenSlotBitCount)
+		}
+		if err := checkSlot("hidden_slot", layout.HiddenSlotSlot); err != nil {
+			return err
+		}
+		for _, slot := range layout.HiddenSlotBitSlots {
+			if err := checkSlot("hidden_slot_bit", slot); err != nil {
+				return err
+			}
+		}
+	}
 	for _, slot := range layout.KeySourceSlots {
 		if slot.Row < 0 || slot.Row >= witnessRows {
 			return fmt.Errorf("key source slot row=%d outside witness rows=%d", slot.Row, witnessRows)
@@ -300,7 +317,7 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 			return err
 		}
 	}
-	wantLogical := len(layout.KeySlots) + len(layout.CheckpointSlots) + len(layout.FinalRoundOutputSlots) + len(layout.FinalTagSlots)
+	wantLogical := len(layout.KeySlots) + len(layout.CheckpointSlots) + len(layout.FinalRoundOutputSlots) + len(layout.FinalTagSlots) + layout.HiddenSlotCount + layout.HiddenSlotBitCount
 	if layout.PackedLogicalCount != wantLogical {
 		return fmt.Errorf("companion packed logical count=%d want %d", layout.PackedLogicalCount, wantLogical)
 	}
@@ -327,7 +344,7 @@ func ValidatePRFCompanionLayout(layout *PRFCompanionLayout, witnessRows int) err
 		if layout.FinalRoundOutputCount != 0 || len(layout.FinalRoundOutputSlots) != 0 {
 			return fmt.Errorf("version-0 companion relation carries final-round output slots")
 		}
-	case 1:
+	case 1, 2:
 		if layout.FinalRoundOutputCount <= 0 {
 			return fmt.Errorf("direct_full companion relation requires final-round output slots")
 		}
@@ -363,6 +380,16 @@ func prfCompanionLayoutDigest(layout *PRFCompanionLayout) []byte {
 	for _, slot := range layout.KeySlots {
 		writeInt(slot.Row)
 		writeInt(slot.Coeff)
+	}
+	if layout.RelationVersion >= 2 {
+		writeInt(layout.HiddenSlotSlot.Row)
+		writeInt(layout.HiddenSlotSlot.Coeff)
+		writeInt(layout.HiddenSlotCount)
+		writeInt(layout.HiddenSlotBitCount)
+		for _, slot := range layout.HiddenSlotBitSlots {
+			writeInt(slot.Row)
+			writeInt(slot.Coeff)
+		}
 	}
 	writeInt(len(layout.KeySourceSlots))
 	for _, slot := range layout.KeySourceSlots {

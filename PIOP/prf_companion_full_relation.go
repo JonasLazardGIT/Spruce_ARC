@@ -14,13 +14,16 @@ func buildPRFCompanionDirectFullFormalCoeffs(
 	rowsNTT []*ring.Poly,
 	rowCache *intGenISISRowCoeffCache,
 	layout *PRFCompanionLayout,
-	tagPublic [][]int64,
-	noncePublic [][]int64,
+	tagPublic []int64,
+	contextPublic []int64,
 	omega []uint64,
 	groupRounds int,
 ) ([]*ring.Poly, [][]uint64, int, error) {
-	if layout == nil || layout.RelationVersion != 1 {
+	if layout == nil {
 		return nil, nil, 0, nil
+	}
+	if layout.RelationVersion != 2 {
+		return nil, nil, 0, fmt.Errorf("unsupported direct_full relation version %d; want 2", layout.RelationVersion)
 	}
 	if ringQ == nil {
 		return nil, nil, 0, fmt.Errorf("nil ring")
@@ -66,8 +69,8 @@ func buildPRFCompanionDirectFullFormalCoeffs(
 	if len(tagPublic) != prfParams.LenTag {
 		return nil, nil, 0, fmt.Errorf("tag lanes=%d want %d", len(tagPublic), prfParams.LenTag)
 	}
-	if len(noncePublic) != prfParams.LenNonce {
-		return nil, nil, 0, fmt.Errorf("nonce lanes=%d want %d", len(noncePublic), prfParams.LenNonce)
+	if len(contextPublic) != prf.ContextLaneCountV2 || prfParams.LenNonce != prf.ContextLaneCountV2+1 {
+		return nil, nil, 0, fmt.Errorf("context/prf input lanes=(%d,%d) want (%d,%d)", len(contextPublic), prfParams.LenNonce, prf.ContextLaneCountV2, prf.ContextLaneCountV2+1)
 	}
 
 	q := ringQ.Modulus[0]
@@ -75,17 +78,27 @@ func buildPRFCompanionDirectFullFormalCoeffs(
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("direct_full selectors: %w", err)
 	}
-	tagTheta, tagCoeff, err := buildPRFThetaPolys(ringQ, tagPublic, omega)
+	tagLanes := make([][]int64, len(tagPublic))
+	for i, value := range tagPublic {
+		if value < 0 || uint64(value) >= prfParams.Q {
+			return nil, nil, 0, fmt.Errorf("tag lane %d=%d is not canonical modulo %d", i, value, prfParams.Q)
+		}
+		tagLanes[i] = make([]int64, len(omega))
+		for j := range tagLanes[i] {
+			tagLanes[i][j] = value
+		}
+	}
+	tagTheta, tagCoeff, err := buildPRFThetaPolys(ringQ, tagLanes, omega)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("tag theta: %w", err)
 	}
 	_ = tagTheta
-	nonceElems, err := publicNonceElems(noncePublic, q)
+	contextElems, err := publicContextElems(contextPublic, prfParams.Q)
 	if err != nil {
 		return nil, nil, 0, err
 	}
 	zeroKey := make([]prf.Elem, prfParams.LenKey)
-	grouped, err := prf.TraceGroupedWitness(zeroKey, nonceElems, prfParams, groupRounds)
+	grouped, err := prf.TraceGroupedWitnessContextSlot(zeroKey, contextElems, 0, prfParams, groupRounds)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("trace direct_full symbolic PRF: %w", err)
 	}
@@ -154,6 +167,13 @@ func buildPRFCompanionDirectFullFormalCoeffs(
 			}
 			acc = modAdd(acc, modMul(uint64(coeff)%q, v, q), q)
 		}
+		if form.SlotCoeff != 0 {
+			v, err := slotScalar("hidden_slot", layout.HiddenSlotSlot)
+			if err != nil {
+				return 0, err
+			}
+			acc = modAdd(acc, modMul(uint64(form.SlotCoeff)%q, v, q), q)
+		}
 		return acc, nil
 	}
 	appendSlotResidual := func(polys *[]*ring.Poly, coeffs *[][]uint64, slot CoeffSlot, coeff []uint64) {
@@ -162,8 +182,31 @@ func buildPRFCompanionDirectFullFormalCoeffs(
 		*polys = append(*polys, nttPolyFromFormalCoeffsIfFits(ringQ, trimmed))
 	}
 
-	residuals := make([]*ring.Poly, 0, checkpointCount+prfParams.T()+2*prfParams.LenTag)
-	residualCoeffs := make([][]uint64, 0, checkpointCount+prfParams.T()+2*prfParams.LenTag)
+	residuals := make([]*ring.Poly, 0, checkpointCount+prfParams.T()+2*prfParams.LenTag+5)
+	residualCoeffs := make([][]uint64, 0, checkpointCount+prfParams.T()+2*prfParams.LenTag+5)
+	bitValues := [4]uint64{}
+	for i, bitSlot := range layout.HiddenSlotBitSlots {
+		bitCoeff, err := selectedSlotCoeff("hidden_slot_bit", bitSlot)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		bitValues[i], err = slotScalar("hidden_slot_bit", bitSlot)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		one := selectorCoeff[bitSlot.Coeff]
+		booleanResidual := polyMul(bitCoeff, polySub(bitCoeff, one, q), q)
+		appendSlotResidual(&residuals, &residualCoeffs, bitSlot, booleanResidual)
+	}
+	hiddenSlot, err := slotScalar("hidden_slot", layout.HiddenSlotSlot)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	recomposed := modAdd(bitValues[0], modMul(2, bitValues[1], q), q)
+	recomposed = modAdd(recomposed, modMul(4, bitValues[2], q), q)
+	recomposed = modAdd(recomposed, modMul(8, bitValues[3], q), q)
+	reconstruction := placeScalarAt(layout.HiddenSlotSlot, modSub(hiddenSlot, recomposed, q))
+	appendSlotResidual(&residuals, &residualCoeffs, layout.HiddenSlotSlot, reconstruction)
 	for i, cp := range grouped.Checkpoints {
 		zSlot := layout.CheckpointSlots[i]
 		zCoeff, err := selectedSlotCoeff("checkpoint", zSlot)
@@ -210,13 +253,21 @@ func buildPRFCompanionDirectFullFormalCoeffs(
 		appendSlotResidual(&residuals, &residualCoeffs, ySlot, polySub(yCoeff, placeScalarAt(ySlot, linearFinal), q))
 
 		var x0 uint64
-		if j < prfParams.LenKey {
+		switch {
+		case j < prfParams.LenKey:
 			x0, err = slotScalar("key", layout.KeySlots[j])
 			if err != nil {
 				return nil, nil, 0, err
 			}
-		} else {
-			x0 = uint64(nonceElems[j-prfParams.LenKey]) % q
+		case j < prfParams.LenKey+prf.ContextLaneCountV2:
+			x0 = uint64(contextElems[j-prfParams.LenKey]) % q
+		case j == prfParams.LenKey+prf.ContextLaneCountV2:
+			x0, err = slotScalar("hidden_slot", layout.HiddenSlotSlot)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+		default:
+			return nil, nil, 0, fmt.Errorf("feed-forward lane %d exceeds v2 input width", j)
 		}
 		tagAtSlot := EvalPoly(tagCoeff[j], omega[ySlot.Coeff]%q, q) % q
 		lhs := selectedSlotCoeffNoErr(yCoeff, placeScalarAt(ySlot, x0), q)

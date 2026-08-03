@@ -60,38 +60,39 @@ func IntGenISISPRFProfileParamsDigest(profile string) (string, bool) {
 // IntGenISISTuningPreset is the CLI-stable, package-neutral representation of
 // the SmallWood knobs used by maintained IntGenISIS issuance and showing presets.
 type IntGenISISTuningPreset struct {
-	NCols               int        `json:"ncols"`
-	LVCSNCols           int        `json:"lvcs_ncols"`
-	NLeaves             int        `json:"nleaves"`
-	Eta                 int        `json:"eta"`
-	Theta               int        `json:"theta"`
-	Rho                 int        `json:"rho"`
-	Ell                 int        `json:"ell"`
-	EllPrime            int        `json:"ell_prime"`
-	Kappa               [4]int     `json:"kappa"`
-	ROQueryCaps         [5]int     `json:"ro_query_caps,omitempty"`
-	ROQueryCapsSet      bool       `json:"ro_query_caps_set,omitempty"`
-	ROQueryCapBits      [5]float64 `json:"ro_query_cap_bits,omitempty"`
-	ROQueryCapBitsSet   bool       `json:"ro_query_cap_bits_set,omitempty"`
-	DECSCollisionBits   int        `json:"decs_collision_bits,omitempty"`
-	DECSHashBits        int        `json:"decs_hash_bits,omitempty"`
-	DECSTapeBits        int        `json:"decs_tape_bits,omitempty"`
-	FSCollisionBits     int        `json:"fs_collision_bits,omitempty"`
-	SaltBits            int        `json:"salt_bits,omitempty"`
-	PRFProfile          string     `json:"prf_profile,omitempty"`
-	PRFParamsPath       string     `json:"prf_params_path,omitempty"`
-	PRFCompanionMode    string     `json:"prf_companion_mode,omitempty"`
-	PRFGroupRounds      int        `json:"prf_group_rounds,omitempty"`
-	CheckpointSamples   int        `json:"prf_checkpoint_samples,omitempty"`
-	SigShortnessRadix   int        `json:"sig_shortness_radix,omitempty"`
-	SigShortnessDigits  int        `json:"sig_shortness_digits,omitempty"`
-	CompressedRows      int        `json:"compressed_rows,omitempty"`
-	ReplayProjection    string     `json:"replay_projection,omitempty"`
-	TranscriptMode      string     `json:"transcript_mode,omitempty"`
-	FixedTranscriptSize bool       `json:"fixed_transcript_size,omitempty"`
-	TargetEq8Bits       float64    `json:"target_eq8_bits,omitempty"`
-	TargetTheoremBits   float64    `json:"target_theorem_bits,omitempty"`
-	SoundnessGate       string     `json:"soundness_gate,omitempty"`
+	NCols                  int        `json:"ncols"`
+	LVCSNCols              int        `json:"lvcs_ncols"`
+	NLeaves                int        `json:"nleaves"`
+	Eta                    int        `json:"eta"`
+	Theta                  int        `json:"theta"`
+	Rho                    int        `json:"rho"`
+	Ell                    int        `json:"ell"`
+	EllPrime               int        `json:"ell_prime"`
+	Kappa                  [4]int     `json:"kappa"`
+	ROQueryCaps            [5]int     `json:"ro_query_caps,omitempty"`
+	ROQueryCapsSet         bool       `json:"ro_query_caps_set,omitempty"`
+	ROQueryCapBits         [5]float64 `json:"ro_query_cap_bits,omitempty"`
+	ROQueryCapBitsSet      bool       `json:"ro_query_cap_bits_set,omitempty"`
+	DECSCollisionBits      int        `json:"decs_collision_bits,omitempty"`
+	DECSHashBits           int        `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits           int        `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits        int        `json:"fs_collision_bits,omitempty"`
+	SaltBits               int        `json:"salt_bits,omitempty"`
+	PRFProfile             string     `json:"prf_profile,omitempty"`
+	PRFParamsPath          string     `json:"prf_params_path,omitempty"`
+	PRFCompanionMode       string     `json:"prf_companion_mode,omitempty"`
+	PRFGroupRounds         int        `json:"prf_group_rounds,omitempty"`
+	CheckpointSamples      int        `json:"prf_checkpoint_samples,omitempty"`
+	SigShortnessRadix      int        `json:"sig_shortness_radix,omitempty"`
+	SigShortnessDigits     int        `json:"sig_shortness_digits,omitempty"`
+	CompressedRows         int        `json:"compressed_rows,omitempty"`
+	ReplayProjection       string     `json:"replay_projection,omitempty"`
+	TranscriptMode         string     `json:"transcript_mode,omitempty"`
+	TranscriptOmissionMode string     `json:"transcript_omission_mode,omitempty"`
+	FixedTranscriptSize    bool       `json:"fixed_transcript_size,omitempty"`
+	TargetEq8Bits          float64    `json:"target_eq8_bits,omitempty"`
+	TargetTheoremBits      float64    `json:"target_theorem_bits,omitempty"`
+	SoundnessGate          string     `json:"soundness_gate,omitempty"`
 }
 
 type intGenISISScopedR128Tuning struct {
@@ -117,35 +118,36 @@ func intGenISISScopedR128ShowingTuning(cfg intGenISISScopedR128Tuning) IntGenISI
 		cfg.QueryCapBits,
 	}
 	return IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           cfg.LVCSNCols,
-		NLeaves:             cfg.NLeaves,
-		Eta:                 cfg.Eta,
-		Theta:               cfg.Theta,
-		Rho:                 1,
-		Ell:                 cfg.Ell,
-		EllPrime:            1,
-		Kappa:               cfg.Kappa,
-		ROQueryCapBits:      queryCaps,
-		ROQueryCapBitsSet:   true,
-		DECSCollisionBits:   cfg.HashBits,
-		DECSHashBits:        cfg.HashBits,
-		DECSTapeBits:        cfg.TapeBits,
-		FSCollisionBits:     cfg.HashBits,
-		SaltBits:            200,
-		PRFProfile:          IntGenISISPRFProfileTag10,
-		PRFParamsPath:       IntGenISISPRFParamsTag10,
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   cfg.SignatureRadix,
-		SigShortnessDigits:  cfg.SignatureDigits,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   131.5405683813627,
-		SoundnessGate:       "smallwood_2025_1085_live",
+		NCols:                  32,
+		LVCSNCols:              cfg.LVCSNCols,
+		NLeaves:                cfg.NLeaves,
+		Eta:                    cfg.Eta,
+		Theta:                  cfg.Theta,
+		Rho:                    1,
+		Ell:                    cfg.Ell,
+		EllPrime:               1,
+		Kappa:                  cfg.Kappa,
+		ROQueryCapBits:         queryCaps,
+		ROQueryCapBitsSet:      true,
+		DECSCollisionBits:      cfg.HashBits,
+		DECSHashBits:           cfg.HashBits,
+		DECSTapeBits:           cfg.TapeBits,
+		FSCollisionBits:        cfg.HashBits,
+		SaltBits:               200,
+		PRFProfile:             IntGenISISPRFProfileTag10,
+		PRFParamsPath:          IntGenISISPRFParamsTag10,
+		PRFCompanionMode:       "direct_full",
+		PRFGroupRounds:         2,
+		CheckpointSamples:      1,
+		SigShortnessRadix:      cfg.SignatureRadix,
+		SigShortnessDigits:     cfg.SignatureDigits,
+		CompressedRows:         1,
+		ReplayProjection:       "project_u_digits_y_bounded_sources_v6",
+		TranscriptMode:         "smallfield_2025_1085_salted_tapes_v2",
+		TranscriptOmissionMode: IntGenISISTranscriptOmissionModeV2,
+		FixedTranscriptSize:    true,
+		TargetTheoremBits:      131.5405683813627,
+		SoundnessGate:          "smallwood_2025_1085_salted_tapes_v2_live",
 	}
 }
 
@@ -176,6 +178,7 @@ type IntGenISISPreset struct {
 	Issuance            IntGenISISTuningPreset `json:"issuance"`
 	Showing             IntGenISISTuningPreset `json:"showing"`
 	ThreatModel         PresetThreatModel      `json:"threat_model"`
+	RateLimitPolicy     RateLimitPolicy        `json:"rate_limit_policy"`
 	Notes               []string               `json:"notes,omitempty"`
 }
 
@@ -219,177 +222,183 @@ func normalizeIntGenISISPresetName(name string) string {
 
 func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	n512Show96 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           36,
-		NLeaves:             262144,
-		Eta:                 36,
-		Theta:               5,
-		Rho:                 1,
-		Ell:                 7,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 0, 6, 8},
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   7,
-		SigShortnessDigits:  5,
-		ReplayProjection:    "project_u_digits_and_y_view_v3",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   96,
-		SoundnessGate:       "smallwood_2025_1085_live",
+		NCols:                  32,
+		LVCSNCols:              35,
+		NLeaves:                147456,
+		Eta:                    33,
+		Theta:                  5,
+		Rho:                    1,
+		Ell:                    7,
+		EllPrime:               1,
+		Kappa:                  [4]int{5, 2, 7, 13},
+		PRFCompanionMode:       "direct_full",
+		PRFGroupRounds:         2,
+		CheckpointSamples:      1,
+		SigShortnessRadix:      7,
+		SigShortnessDigits:     5,
+		ReplayProjection:       "project_u_digits_y_bounded_sources_v6",
+		TranscriptMode:         "smallfield_2025_1085_salted_tapes_v2",
+		TranscriptOmissionMode: IntGenISISTranscriptOmissionModeV2,
+		FixedTranscriptSize:    true,
+		TargetTheoremBits:      96,
+		SoundnessGate:          "smallwood_2025_1085_salted_tapes_v2_live",
 	}
 	n512Issuance96 := intGenISISIssuanceTuning(n512Show96)
 
 	n1024Show125 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           46,
-		NLeaves:             608192,
-		Eta:                 48,
-		Theta:               7,
-		Rho:                 1,
-		Ell:                 9,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 0, 0, 5},
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   11,
-		SigShortnessDigits:  4,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   125,
-		SoundnessGate:       "smallwood_2025_1085_live",
+		NCols:                  32,
+		LVCSNCols:              42,
+		NLeaves:                264128,
+		Eta:                    42,
+		Theta:                  7,
+		Rho:                    1,
+		Ell:                    9,
+		EllPrime:               1,
+		Kappa:                  [4]int{0, 0, 0, 13},
+		PRFCompanionMode:       "direct_full",
+		PRFGroupRounds:         2,
+		CheckpointSamples:      1,
+		SigShortnessRadix:      11,
+		SigShortnessDigits:     4,
+		CompressedRows:         1,
+		ReplayProjection:       "project_u_digits_y_bounded_sources_v6",
+		TranscriptMode:         "smallfield_2025_1085_salted_tapes_v2",
+		TranscriptOmissionMode: IntGenISISTranscriptOmissionModeV2,
+		FixedTranscriptSize:    true,
+		TargetTheoremBits:      125,
+		SoundnessGate:          "smallwood_2025_1085_salted_tapes_v2_live",
 	}
 	n1024Issuance125 := intGenISISIssuanceTuning(n1024Show125)
 
 	n1024WF128Show := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           43,
-		NLeaves:             524288,
-		Eta:                 46,
-		Theta:               7,
-		Rho:                 1,
-		Ell:                 9,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 0, 4, 13},
-		DECSCollisionBits:   264,
-		DECSHashBits:        264,
-		DECSTapeBits:        128,
-		FSCollisionBits:     264,
-		SaltBits:            256,
-		PRFProfile:          IntGenISISPRFProfileTag13,
-		PRFParamsPath:       IntGenISISPRFParamsTag13,
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   11,
-		SigShortnessDigits:  4,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   128,
-		SoundnessGate:       "smallwood_2025_1085_live",
+		NCols:                  32,
+		LVCSNCols:              42,
+		NLeaves:                327680,
+		Eta:                    43,
+		Theta:                  7,
+		Rho:                    1,
+		Ell:                    9,
+		EllPrime:               1,
+		Kappa:                  [4]int{1, 0, 2, 13},
+		DECSCollisionBits:      264,
+		DECSHashBits:           264,
+		DECSTapeBits:           128,
+		FSCollisionBits:        264,
+		SaltBits:               256,
+		PRFProfile:             IntGenISISPRFProfileTag13,
+		PRFParamsPath:          IntGenISISPRFParamsTag13,
+		PRFCompanionMode:       "direct_full",
+		PRFGroupRounds:         2,
+		CheckpointSamples:      1,
+		SigShortnessRadix:      11,
+		SigShortnessDigits:     4,
+		CompressedRows:         1,
+		ReplayProjection:       "project_u_digits_y_bounded_sources_v6",
+		TranscriptMode:         "smallfield_2025_1085_salted_tapes_v2",
+		TranscriptOmissionMode: IntGenISISTranscriptOmissionModeV2,
+		FixedTranscriptSize:    true,
+		TargetTheoremBits:      128,
+		SoundnessGate:          "smallwood_2025_1085_salted_tapes_v2_live",
 	}
 	n1024WF128Issuance := intGenISISIssuanceTuning(n1024WF128Show)
 
 	n1024Q10Show96 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           37,
-		NLeaves:             720896,
-		Eta:                 40,
-		Theta:               6,
-		Rho:                 1,
-		Ell:                 7,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 0, 0, 8},
-		ROQueryCaps:         intGenISISROQueryCaps(intGenISISPow2QueryCap(10)),
-		ROQueryCapsSet:      true,
-		DECSCollisionBits:   128,
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   7,
-		SigShortnessDigits:  5,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   96,
-		SoundnessGate:       "smallwood_2025_1085_live",
+		NCols:                  32,
+		LVCSNCols:              34,
+		NLeaves:                376832,
+		Eta:                    36,
+		Theta:                  6,
+		Rho:                    1,
+		Ell:                    7,
+		EllPrime:               1,
+		Kappa:                  [4]int{0, 0, 0, 13},
+		ROQueryCaps:            intGenISISROQueryCaps(intGenISISPow2QueryCap(10)),
+		ROQueryCapsSet:         true,
+		DECSCollisionBits:      128,
+		PRFCompanionMode:       "direct_full",
+		PRFGroupRounds:         2,
+		CheckpointSamples:      1,
+		SigShortnessRadix:      7,
+		SigShortnessDigits:     5,
+		CompressedRows:         1,
+		ReplayProjection:       "project_u_digits_y_bounded_sources_v6",
+		TranscriptMode:         "smallfield_2025_1085_salted_tapes_v2",
+		TranscriptOmissionMode: IntGenISISTranscriptOmissionModeV2,
+		FixedTranscriptSize:    true,
+		TargetTheoremBits:      96,
+		SoundnessGate:          "smallwood_2025_1085_salted_tapes_v2_live",
 	}
 	n1024Q10Issuance96 := intGenISISIssuanceTuning(n1024Q10Show96)
 
 	n1024Q16Show96 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           38,
-		NLeaves:             393216,
-		Eta:                 40,
-		Theta:               6,
-		Rho:                 1,
-		Ell:                 8,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 0, 3, 7},
-		ROQueryCaps:         intGenISISROQueryCaps(intGenISISPow2QueryCap(16)),
-		ROQueryCapsSet:      true,
-		DECSCollisionBits:   136,
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   11,
-		SigShortnessDigits:  4,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   96,
-		SoundnessGate:       "smallwood_2025_1085_live",
+		NCols:                  32,
+		LVCSNCols:              36,
+		NLeaves:                212992,
+		Eta:                    36,
+		Theta:                  6,
+		Rho:                    1,
+		Ell:                    8,
+		EllPrime:               1,
+		Kappa:                  [4]int{8, 0, 6, 13},
+		ROQueryCaps:            intGenISISROQueryCaps(intGenISISPow2QueryCap(16)),
+		ROQueryCapsSet:         true,
+		DECSCollisionBits:      136,
+		PRFCompanionMode:       "direct_full",
+		PRFGroupRounds:         2,
+		CheckpointSamples:      1,
+		SigShortnessRadix:      11,
+		SigShortnessDigits:     4,
+		CompressedRows:         1,
+		ReplayProjection:       "project_u_digits_y_bounded_sources_v6",
+		TranscriptMode:         "smallfield_2025_1085_salted_tapes_v2",
+		TranscriptOmissionMode: IntGenISISTranscriptOmissionModeV2,
+		FixedTranscriptSize:    true,
+		TargetTheoremBits:      96,
+		SoundnessGate:          "smallwood_2025_1085_salted_tapes_v2_live",
 	}
 	n1024Q16Issuance96 := intGenISISIssuanceTuning(n1024Q16Show96)
 
 	n1024BQ32Show96 := IntGenISISTuningPreset{
-		NCols:               32,
-		LVCSNCols:           40,
-		NLeaves:             786432,
-		Eta:                 46,
-		Theta:               7,
-		Rho:                 1,
-		Ell:                 9,
-		EllPrime:            1,
-		Kappa:               [4]int{0, 0, 2, 7},
-		ROQueryCaps:         intGenISISROQueryCaps(intGenISISPow2QueryCap(32)),
-		ROQueryCapsSet:      true,
-		DECSCollisionBits:   168,
-		DECSHashBits:        168,
-		DECSTapeBits:        136,
-		FSCollisionBits:     168,
-		SaltBits:            168,
-		PRFProfile:          IntGenISISPRFProfileTag9,
-		PRFParamsPath:       IntGenISISPRFParamsTag9,
-		PRFCompanionMode:    "direct_full",
-		PRFGroupRounds:      2,
-		CheckpointSamples:   1,
-		SigShortnessRadix:   7,
-		SigShortnessDigits:  5,
-		CompressedRows:      1,
-		ReplayProjection:    "project_u_digits_y_w_residual_v5",
-		TranscriptMode:      "smallfield_2025_1085_v1",
-		FixedTranscriptSize: true,
-		TargetTheoremBits:   99.5,
-		SoundnessGate:       "smallwood_2025_1085_live",
+		NCols:                  32,
+		LVCSNCols:              43,
+		NLeaves:                442368,
+		Eta:                    45,
+		Theta:                  7,
+		Rho:                    1,
+		Ell:                    9,
+		EllPrime:               1,
+		Kappa:                  [4]int{2, 0, 3, 13},
+		ROQueryCaps:            intGenISISROQueryCaps(intGenISISPow2QueryCap(32)),
+		ROQueryCapsSet:         true,
+		DECSCollisionBits:      168,
+		DECSHashBits:           168,
+		DECSTapeBits:           136,
+		FSCollisionBits:        168,
+		SaltBits:               168,
+		PRFProfile:             IntGenISISPRFProfileTag9,
+		PRFParamsPath:          IntGenISISPRFParamsTag9,
+		PRFCompanionMode:       "direct_full",
+		PRFGroupRounds:         2,
+		CheckpointSamples:      1,
+		SigShortnessRadix:      7,
+		SigShortnessDigits:     5,
+		CompressedRows:         1,
+		ReplayProjection:       "project_u_digits_y_bounded_sources_v6",
+		TranscriptMode:         "smallfield_2025_1085_salted_tapes_v2",
+		TranscriptOmissionMode: IntGenISISTranscriptOmissionModeV2,
+		FixedTranscriptSize:    true,
+		TargetTheoremBits:      99.5,
+		SoundnessGate:          "smallwood_2025_1085_salted_tapes_v2_live",
 	}
 	n1024BQ32Issuance96 := intGenISISIssuanceTuning(n1024BQ32Show96)
 
 	n1024BQ64Show128 := intGenISISScopedR128ShowingTuning(intGenISISScopedR128Tuning{
 		LVCSNCols:       43,
-		NLeaves:         917504,
+		NLeaves:         835584,
 		Eta:             53,
 		Theta:           10,
 		Ell:             13,
-		Kappa:           [4]int{13, 2, 8, 13},
+		Kappa:           [4]int{8, 2, 9, 13},
 		QueryCapBits:    64,
 		HashBits:        264,
 		TapeBits:        200,
@@ -400,11 +409,11 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 
 	n1024BQ96Show128 := intGenISISScopedR128ShowingTuning(intGenISISScopedR128Tuning{
 		LVCSNCols:       43,
-		NLeaves:         786432,
-		Eta:             57,
+		NLeaves:         557056,
+		Eta:             55,
 		Theta:           12,
 		Ell:             16,
-		Kappa:           [4]int{0, 0, 0, 7},
+		Kappa:           [4]int{6, 0, 0, 13},
 		QueryCapBits:    96,
 		HashBits:        328,
 		TapeBits:        232,
@@ -415,11 +424,11 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 
 	n1024BQ128Show128 := intGenISISScopedR128ShowingTuning(intGenISISScopedR128Tuning{
 		LVCSNCols:       43,
-		NLeaves:         786432,
-		Eta:             60,
+		NLeaves:         688128,
+		Eta:             59,
 		Theta:           13,
 		Ell:             18,
-		Kappa:           [4]int{0, 3, 11, 12},
+		Kappa:           [4]int{5, 6, 12, 13},
 		QueryCapBits:    128,
 		HashBits:        392,
 		TapeBits:        264,
@@ -460,8 +469,8 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 				"This is a 125+ live preset optimized for execution time with less than 6 grinding bits per round; it is not a 128-bit live preset.",
 			},
 		},
-		IntGenISISPresetSystemN1024WF128CROMV1: {
-			Name:              IntGenISISPresetSystemN1024WF128CROMV1,
+		IntGenISISPresetSystemN1024WF128CROMV2: {
+			Name:              IntGenISISPresetSystemN1024WF128CROMV2,
 			Description:       "profile-C N=1024 executable WF-128 CROM PoC with tag-13 PRF",
 			Profile:           ProfileIntGenISISC,
 			TargetTheoremBits: 128,
@@ -493,8 +502,8 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 				"Uses 168-bit hash/Fiat-Shamir output, 136-bit tapes, 168-bit salts, and actual tag-9 PRF params; complete-system promotion remains gated by the security ledger.",
 			},
 		},
-		IntGenISISPresetPoCN1024BQ64R128V1: {
-			Name:              IntGenISISPresetPoCN1024BQ64R128V1,
+		IntGenISISPresetPoCN1024BQ64R128V2: {
+			Name:              IntGenISISPresetPoCN1024BQ64R128V2,
 			Description:       "profile-C N=1024 proof-only PoC for raw 2^64 NIZK oracle caps",
 			Profile:           ProfileIntGenISISC,
 			TargetTheoremBits: n1024BQ64Show128.TargetTheoremBits,
@@ -509,8 +518,8 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 				"The unchanged profile-C primitive family is assumed independently at 128 bits.",
 			},
 		},
-		IntGenISISPresetPoCN1024BQ96R128V1: {
-			Name:              IntGenISISPresetPoCN1024BQ96R128V1,
+		IntGenISISPresetPoCN1024BQ96R128V2: {
+			Name:              IntGenISISPresetPoCN1024BQ96R128V2,
 			Description:       "profile-C N=1024 proof-only PoC for raw 2^96 NIZK oracle caps",
 			Profile:           ProfileIntGenISISC,
 			TargetTheoremBits: n1024BQ96Show128.TargetTheoremBits,
@@ -525,8 +534,8 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 				"The unchanged profile-C primitive family is assumed independently at 128 bits.",
 			},
 		},
-		IntGenISISPresetPoCN1024BQ128R128V2: {
-			Name:              IntGenISISPresetPoCN1024BQ128R128V2,
+		IntGenISISPresetPoCN1024BQ128R128V3: {
+			Name:              IntGenISISPresetPoCN1024BQ128R128V3,
 			Description:       "profile-C N=1024 proof-only PoC for raw 2^128 NIZK oracle caps",
 			Profile:           ProfileIntGenISISC,
 			TargetTheoremBits: n1024BQ128Show128.TargetTheoremBits,
@@ -572,19 +581,19 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	}
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN512Compact96, "SC-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Compact125, "SC-125")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetSystemN1024WF128CROMV1, "WF-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetSystemN1024WF128CROMV2, "WF-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024BQ32_96, "BQ32-96")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetPoCN1024BQ64R128V1, "BQ64-128")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetPoCN1024BQ96R128V1, "BQ96-128")
-	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetPoCN1024BQ128R128V2, "BQ128-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetPoCN1024BQ64R128V2, "BQ64-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetPoCN1024BQ96R128V2, "BQ96-128")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetPoCN1024BQ128R128V3, "BQ128-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_96, "BQ10-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_96, "BQ16-96")
 	intGenISISPresetApplyDefaultPRF(reg)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ32_96, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
-	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ64R128V1, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
-	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ96R128V1, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
-	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ128R128V2, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
-	intGenISISPresetApplyPRF(reg, IntGenISISPresetSystemN1024WF128CROMV1, IntGenISISPRFProfileTag13, IntGenISISPRFParamsTag13)
+	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ64R128V2, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
+	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ96R128V2, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
+	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ128R128V3, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
+	intGenISISPresetApplyPRF(reg, IntGenISISPresetSystemN1024WF128CROMV2, IntGenISISPRFProfileTag13, IntGenISISPRFParamsTag13)
 	intGenISISPresetApplyMetadata(reg)
 	if err := validateIntGenISISPresetSecurityTupleUniqueness(reg); err != nil {
 		panic(err)

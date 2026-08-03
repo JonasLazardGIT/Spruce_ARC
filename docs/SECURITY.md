@@ -1,351 +1,349 @@
 # SPRUCE Security And Provenance
 
-This document is the canonical security note for the maintained SPRUCE
-artifact. It records estimator inputs, interpreted results, PRF parameter
-provenance, and caveats. The Go/Docker artifact does not rerun these tools
-during normal validation.
+This note defines the security boundary of the hard v2 SPRUCE artifact. Every
+maintained preset has `claim_scope=proof_only`. A benchmark can show that the
+implemented issuance and showing statements execute, verify, bind their
+manifest, and report the selected proof-accounting model. It does not by
+itself establish security of a deployed credential service.
 
-## Scope
+The mathematical construction and reductions live in
+`/home/jonas/Bureau/GIT_Paper`. The Go repository supplies executable evidence
+for a concrete encoding. Neither repository silently upgrades artifacts or
+evidence from another protocol epoch.
 
-The implemented artifact proves and verifies the maintained issuance/showing
-relations described in [PROTOCOL.md](PROTOCOL.md). Security provenance is
-outside the Docker runtime:
+## Canonical Claim Surface
 
-- `tools/intgenisis_commitment_estimator.py`
-- `tools/intgenisis_lattice_security_estimator.py`
-- `prf/generate_params.sage`
-- `prf/sweep_rounds.sage`
-- an external pinned `malb/lattice-estimator` checkout
+These are the only maintained protocol identities:
 
-The estimator outputs are rough estimates and model evidence, not
-unconditional reductions.
+| Canonical ID | Security metadata | Lifecycle | Claim scope |
+| --- | --- | --- | --- |
+| `poc-n512-sc96-v2` | `SC-96` | `poc` | `proof_only` |
+| `artifact-n1024-sc125-v2` | `SC-125` | `artifact` | `proof_only` |
+| `artifact-n1024-bq10-r96-v2` | `BQ10-96` | `artifact` | `proof_only` |
+| `artifact-n1024-bq16-r96-v2` | `BQ16-96` | `artifact` | `proof_only` |
+| `pilot-n1024-bq32-r96-v2` | `BQ32-96` | `candidate` | `proof_only` |
+| `poc-n1024-bq64-r128-v2` | `BQ64-128` | `poc` | `proof_only` |
+| `poc-n1024-bq96-r128-v2` | `BQ96-128` | `poc` | `proof_only` |
+| `poc-n1024-bq128-r128-v3` | `BQ128-128` | `poc` | `proof_only` |
+| `system-n1024-wf128-crom-v2` | `WF-128` | `candidate` | `proof_only` |
 
-All executable configurations are experimental PoC presets. Security metadata
-is informational and does not constitute a deployment claim.
+The security metadata selects a proof-accounting threat model: ROM mode,
+oracle-query scope, honest-proof volume, tag volume, collision widths,
+grinding, and theorem target. Lifecycle describes why a configuration is kept.
+Neither changes the proof-only boundary.
 
 The reporting invariant is:
 
-> Benchmark reports measure executed parameters. Security profiles supply
-> minimum requirements. Missing actual metadata or an actual value below its
-> requirement rejects a complete-system claim.
+> A report records what the proof actually executed. A profile records the
+> requirements against which those executed values are checked. Desired
+> metadata is never substituted for a missing or different runtime value.
 
-In particular, the ledger never substitutes a desired profile tag length,
-query cap, hash width, tape width, salt width, or transcript mode for the value
-loaded by the proof run.
+Consequently, a profile name alone is not evidence. Review the canonical
+manifest digest, executed-parameter audit, transcript tuple, PRF digest,
+rate-limit policy, and theorem/accounting fields in the generated report.
 
-## Shared Parameters
+## Hard-Epoch Binding And Fail-Closed Parsing
 
-| Profile | N | q | ell_M | k_s | n_c | Ordinary M/s/e bound | PRF seed bound | ell_x0 | NTRU beta |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `intgenisis_profile_b` | 512 | 1,017,857 | 1 | 2 | 1 | 1 | 4 | 2 | 6,002 |
-| `intgenisis_profile_c` | 1024 | 1,017,857 | 1 | 1 | 1 | 1 | 4 | 1 | 6,142 |
-
-The PRF seed tail contains 48 coefficients in `[-4,4]`. These are packed
-base 9 into eight field lanes. Ordinary semantic message coefficients and
-commitment randomness/error use the live bound `1`.
-The sampler therefore has `48*log2(9) = 152.16` bits of seed entropy.
-
-## Security Profiles And Lifecycle
-
-Security profiles contain requirements, not executable parameter values.
-Preset lifecycle (`artifact`, `poc`, `candidate`, `research`, or `complete`) is
-separate from claim scope (`proof_only` or `complete_system`).
-
-| Profile | Mode/scope | Target | Min hash/FS | Min tape | Min salt | Min tag elements | Primitive requirement | Status |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `SC-96` | one candidate | 96 | - | - | - | 7 | 96 | proof-only |
-| `SC-125` | one candidate | 125 | - | - | - | 7 | 125 | proof-only |
-| `BQ10-96` | raw `[2^10]*5` CROM caps | 96 residual | 120 | 106 | 120 | 7 | 106 | proof-only |
-| `BQ16-96` | raw `[2^16]*5` CROM caps | 96 residual | 136 | 112 | 136 | 7 | 112 | proof-only |
-| `BQ32-96` | raw `[2^32]*5` CROM caps | 96 residual | 168 | 136 | 168 | 9 | 128 | candidate |
-| `BQ64-128` | raw `[2^64]*5` NIZK CROM caps | 128 residual | 264 | 200 | 200 | 10 | 128 | proof-only |
-| `BQ96-128` | raw `[2^96]*5` NIZK CROM caps | 128 residual | 328 | 232 | 200 | 10 | 128 | proof-only |
-| `BQ128-128` | raw `[2^128]*5` NIZK CROM caps | 128 residual | 392 | 264 | 200 | 10 | 128 | proof-only |
-| `WF-128` | global CROM work factor | 128 | 264 | 128 | 256 | 13 | 128 | executable PoC candidate |
-
-Q10 and Q16 have exact profiles and do not borrow BQ32 query metadata. The
-BQ32-R96 pilot executes tag-9 and passes its parameter audit. BQ64/BQ96/BQ128
-apply their query caps only to the five NIZK oracle domains; they do not grant
-the same budget to attacks on the independently assumed 128-bit primitive
-family.
-
-## Ledger Structure
-
-Every report separates proof soundness, zero knowledge, primitive security,
-unlinkability/rate limiting, correctness/freshness, composition, and model
-scope. Each required term records actual bits, required bits, source
-(`measured`, `exact_theorem`, `estimator`, `conservative`, or `missing`), an
-evidence reference, scope, accounting status, and pass/fail result.
-
-Required `missing` or `report_only` terms reject promotion. Conservative or
-theory-pending accounting also rejects promotion until reviewed for that
-category. Aggregate `core_available` is informational and is not composed a
-second time with its constituent primitive terms.
-
-## Commitment Security
-
-The implemented commitment is:
+Security-relevant objects bind the canonical preset, manifest digest, public
+parameters, primitive profile, PRF parameters, transcript, and rate policy.
+The current identities are:
 
 ```text
-c = C_M*M + A_s*s + e
+preset schema                 2
+proof schema                  2
+DECS commitment/opening       2
+presentation schema           intgenisis_presentation_v2
+public-context policy         public_context_hidden_slot_v2
+transcript protocol           smallfield_2025_1085_salted_tapes_v2
+transcript version            smallwood_2025_1085_salted_decs_v2
+NTRU parameters               ntru-params-v2
+NTRU keys                     ntru-key-v2
+NTRU signatures               ntru-signature-v2
 ```
 
-with mixed bounds in `M`, ternary `s`, and ternary `e`.
+Artifact decoders require the exact current storage schema, reject unknown
+fields and non-canonical values, and check content digests. A mismatched epoch,
+manifest, role, salt, public parameter, verifier key, PRF file, or NTRU object
+is rejected. There is no conversion path and no mixed-epoch verification.
 
-| Profile | MLWE hiding bits | MLWE attack | MSIS binding bits | Mixed L2 bound | L-infinity bound | Statistical hiding | Statistical hiding slack | Statistical binding slack |
-| --- | ---: | --- | ---: | ---: | ---: | --- | ---: | ---: |
-| `intgenisis_profile_b` | 131.113 | `dual_hybrid` | `inf` | 104.919 | 8 | no | -8,039.535 | 5,415.133 |
-| `intgenisis_profile_c` | 131.113 | `dual_hybrid` | `inf` | 122.898 | 8 | no | -17,446.071 | 13,255.516 |
+This strict boundary prevents an apparently familiar filename or selector
+from changing the statement that a verifier accepts.
 
-Interpretation:
+## Independent Salted-Tape Transcript
 
-- The maintained commitments are computationally MLWE hiding, not
-  statistically hiding.
-- Both profiles have the same rough MLWE hiding estimate because both use
-  ternary `s,e`.
-- Both profiles return no finite rough-estimator attack for the mixed-bound
-  MSIS binding instance at the configured bound.
+DECS/LVCS v2 uses a proof-global fresh salt and independently sampled tapes,
+one tape for every logical committed leaf. There is no accepted compact seed
+from which all leaf randomness is regenerated.
 
-The last result is not interpreted as infinite binding security. The complete
-ledger records MSIS binding as missing until a reviewed finite bound and model
-are available.
+Each DECS commitment is given an explicit context containing:
 
-## NTRU/vSIS Signature Surface
+- commitment version `2`;
+- a role distinguishing main rows, Q payload, companion rows, replay rows, or
+  signature-shortness rows; and
+- the proof-global salt.
 
-The showing proof uses:
+The v2 leaf hash frames and binds that context, leaf index, evaluation point,
+field modulus, canonical P/M residues, and the leaf's independent tape.
+Internal nodes and padding have separate domains and bind their structural
+indices. Fiat-Shamir also receives the same salt. These bindings prevent a
+root or opening from being reinterpreted under a different proof role or salt.
+
+An opening carries exactly one tape for each distinct opened leaf.
+Verification rejects duplicate indices, non-canonical field elements,
+incorrect tape widths or counts, malformed paths, role/salt mismatches, and
+earlier-format opening fields. Merged openings deduplicate an identical leaf
+and reject conflicting tape, value, or authentication data.
+
+Security consequences and limits:
+
+- Compromise or disclosure of one opened tape does not determine unopened
+  tapes by construction.
+- Fresh salt domain-separates proofs and is included in collision and
+  Fiat-Shamir accounting.
+- Salt freshness does not repair weak hash, tape, PRF, or algebraic
+  parameters. The manifest and generated report must be audited together.
+- Independence depends on successful entropy reads. Entropy errors abort;
+  there is no deterministic fallback.
+- Proof size and time changed with this format. Earlier measurements cannot be
+  used as v2 evidence.
+
+## Exact Public-Context/Hidden-Slot Policy
+
+The rate-limit statement has 11 public context lanes and one hidden slot lane.
+The holder and verifier start from opaque service-controlled bytes. Separate
+SHAKE256 domains derive the context digest and the lanes, while binding:
+
+- the raw service context;
+- field modulus and quota size;
+- preset-manifest digest;
+- public-parameter digest; and
+- verifier-key digest.
+
+The 11 lanes use unbiased rejection sampling. The verifier supplies the raw
+context independently and rederives the expected public statement; the
+presentation cannot choose that expectation. Raw bytes are not carried in the
+presentation.
+
+The holder reserves a hidden slot
 
 ```text
-A*u = T
-A = (-h, 1)
-u = (s1, s2)
+s in {0,...,15}
 ```
 
-The estimator model is a SIS/ISIS surrogate over `R_q^{1 x 2}`. It estimates
-short-preimage hardness and does not model trapdoor leakage.
-
-| Profile | SIS L-infinity bound | SIS L-infinity bits | C-style L2 bound | SIS L2 bits |
-| --- | ---: | ---: | ---: | ---: |
-| `intgenisis_profile_b` | 6,002 | 103.368 | 55,506.651 | 119.428 |
-| `intgenisis_profile_c` | 6,142 | 240.900 | 78,498.259 | 276.524 |
-
-Interpretation:
-
-- Profile B clears the maintained 96-bit engineering target under both modeled
-  views, but not a 125-bit target under the L-infinity beta model.
-- Profile C is well above the maintained 125+ target under both modeled views.
-- The L-infinity beta model is the conservative number to track for showing,
-  because the proof exposes a public coefficient bound through
-  `IntGenISIS.signature_bound`.
-
-These are currently provenance/surrogate estimates rather than an approved
-complete-game lattice-signature term. The complete ledger therefore keeps the
-signature term blocked pending model review instead of silently inserting the
-larger profile-C number.
-
-## Rational Hash Surface
-
-The live rational hash is:
+and proves
 
 ```text
-h_tran(mu_sig, x0, x1)
-  = B0 + B1*mu_sig + sum_i B2[i]*x0[i] + Z
-Z * (B3 - x1) = 1
+tag = PRF(k, context || s).
 ```
 
-The implementation samples `mu_sig`, `x0`, and `x1` uniformly over `R_q`, and
-`Z` is the inverse of `B3 - x1`. There is no range bound on `Z`.
+Four Boolean witness bits reconstruct `s`, giving an exact quota `L=16`.
+Neither `s` nor its bits appear in the public presentation.
 
-Because of that, the live rational-hash relation is not directly expressible as
-the kind of bounded SIS/vSIS instance estimated by `lattice-estimator`. The
-estimator script includes a bounded-linear surrogate for orientation only,
-where deltas for `mu_sig`, `x0`, and `Z` are artificially bounded by `14`.
+### Holder invariant
 
-| Profile | Surrogate rows | Surrogate L-infinity bits | Surrogate L2 bits |
-| --- | ---: | ---: | ---: |
-| `intgenisis_profile_b` | 4 | 585.168 | 450.556 |
-| `intgenisis_profile_c` | 3 | `inf` | `inf` |
+The holder usage state is bound to the public parameters, preset manifest, and
+credential fingerprint. Under an exclusive file lock, it reads the next slot
+for the context digest, rejects exhaustion, increments the counter, and
+atomically persists the new state before proving. This is a monotonic burn:
+process failure or proof failure after reservation consumes the slot.
 
-This surrogate is not a proof of live `h_tran` security. The live rational
-inverse relation is tracked as an explicit caveat.
+The burn-before-prove order prevents local crashes from accidentally reusing a
+slot. It also means state backup/restore, cloning, rollback, loss, or concurrent
+use outside the shared lock boundary is an operational security concern. A
+holder must protect this state as carefully as the credential state.
 
-## PRF Parameters
+### Verifier invariant
 
-The default artifact PRF uses the same field modulus as the proof system:
+After strict artifact validation, independent context derivation, and
+cryptographic proof verification, stateful verification locks its replay file.
+The state is bound to the public-parameter and verifier-key digests and stores
+accepted tag digests under a context namespace. An existing `(context, tag)`
+is rejected; otherwise the new acceptance is atomically persisted.
+
+The rate policy is only as global as the verifier state. Forked, rolled-back,
+or per-node files create separate acceptance histories. A service that expects
+one quota domain must provide a linearizable shared state or an equivalent
+transactional backend around the same check-and-mark operation.
+
+`-proof-only` verifies the algebraic statement but deliberately skips the
+check-and-mark transition. It cannot be combined with `-verifier-state` and
+must never be interpreted as operational rate-limit acceptance.
+
+### What `L=16` does and does not say
+
+The proof constrains every accepted presentation to one of 16 slot values for
+the credential key and exact derived context. Stateful duplicate-tag rejection
+then permits at most one acceptance per slot, subject to PRF correctness and
+one consistent verifier state.
+
+This does not protect against service-state forks, context-definition mistakes,
+credential theft, verifier-key substitution outside the bound setup, or a
+failure of the PRF or proof assumptions. Context construction must encode the
+service's intended policy epoch and scope unambiguously before its bytes reach
+the SPRUCE CLI.
+
+## Bounded BB-Tran Relation
+
+The current public BB-tran matrix samples `B0` independently and uniformly.
+The issuer samples `mu_sig`, each `x0` row, and `x1` coefficient-wise from
+`{-1,0,1}` and resamples `x1` until the denominator is invertible. The signed
+target is
 
 ```text
-q = 1,017,857
-alpha = 3
-security target = 128
-field bits = 20
-state width = 20
-rounds = 20
-LenKey = 8
-LenTag = 7
+Z = (B3 - x1)^(-1)
+T = c + B0 + B1*mu_sig + sum_i B2[i]*x0[i] + Z.
 ```
 
-Round-count provenance:
+The showing proof retains each bounded source explicitly. It proves ternary
+membership in the coefficient domain, creates the transformed source used by
+the ring/NTT signature check, and proves a source-to-transform bridge. The
+canonical degree-1024 replay projection is
+`project_u_digits_y_bounded_sources_v6`; the compact degree-512 path uses its
+bounded-source `y_view` encoding. No supported relation collapses the BB-tran
+sources into an unconstrained full-image residual.
+
+This change gives the extractor the individual bounded witnesses that the
+stated relation requires and makes `hash_input_bound=1` a public, transcript-
+bound fact. It does not on its own prove the IntGenISIS assumption or the
+security of the NTRU sampler. The inverse witness `Z` remains algebraic rather
+than short, and the manuscript reduction must match that exact relation.
+
+## Commitment, NTRU, And PRF Boundaries
+
+The Ajtai commitment relation is
+
+```text
+c = C_M*M + A_s*s_com + e.
+```
+
+The implementation proves the configured coefficient domains and binding
+between the committed seed and showing key. Lattice-estimator results are
+model-based provenance for the selected MLWE/MSIS instances, not reductions
+performed by the Go verifier.
+
+The NTRU/vSIS layer proves a short `u` satisfying `A*u=T`. Parameters, keys,
+and signature bundles have content-derived v2 identities. Public/private key
+loading validates parameter digests, public-key identity, canonical centered
+coefficients, and cross-object bindings. Key generation and preimage sampling
+use `crypto/rand` or an explicitly injected `io.Reader`; entropy failure is
+returned. Numerical sampler correctness, side channels, trapdoor leakage, and
+the exact lattice-signature reduction still require analysis beyond a
+successful proof run.
+
+The Poseidon2 relation proves the full configured trace from the packed secret
+seed and `(context, hidden_slot)` input to every published tag element. The
+canonical manifest binds the exact PRF profile, parameter path, parameter-file
+digest, and tag width. A different file or width is rejected. PRF parameter
+generation and cryptanalysis remain external provenance, not something the Go
+runtime re-establishes.
+
+## Proof Accounting
+
+Each manifest records the proof-system threat model and accepted accounting
+mode. Benchmark output separates, where available:
+
+- executed SmallWood geometry and algebraic theorem terms;
+- random-oracle query caps and their scope;
+- collision, salt, tape, and Fiat-Shamir widths;
+- honest issuance/showing volume and tag volume;
+- grinding and phase composition;
+- primitive estimates or assumptions; and
+- missing, informational, or theory-pending evidence.
+
+Do not combine these by taking an informal minimum from log output. Use the
+structured report and the accounting code, and preserve whether a term is
+measured, theorem-derived, estimated, conservatively bounded, or missing.
+Bounded-query caps for the NIZK do not automatically become PRF, multi-user,
+or tag-volume bounds.
+
+All nine manifests remain proof-only even when their executed-parameter audit
+passes. Security against malicious implementations, multi-user and
+multi-context composition, side channels, state rollback, key compromise, and
+service-level failures is outside the generated proof report.
+
+## Evidence Status
+
+The hard v2 transition changed the witness rows, transcript openings,
+presentation envelope, and stateful context path. Therefore:
+
+- earlier paper-transcript byte counts are not v2 results;
+- earlier phase timings are not v2 results;
+- tables derived from the earlier row layout or opening format must be
+  regenerated; and
+- a stable exact-byte gate should be enabled only after reviewed v2 reports
+  have been generated on the intended code revision.
+
+Fresh size and timing evidence is currently pending generated v2 benchmark
+reports. This document intentionally states no replacement byte or timing
+figures.
+
+Generate evidence with:
 
 ```bash
-sage prf/sweep_rounds.sage 20 0xf8801 3 128 20 20 7
+go run ./cmd/issuance benchmark-intgenisis-e2e \
+  -preset artifact-n1024-sc125-v2 \
+  -artifact-dir artifacts/sc125-v2 \
+  -json-out artifacts/sc125-v2/benchmark-intgenisis-e2e.json \
+  -force
 ```
 
-Regenerate the shipped parameter JSON:
+Repeat for the exact canonical IDs whose results will be cited. Preserve the
+commit/build metadata and report file; do not copy a result between manifests.
 
-```bash
-sage prf/generate_params.sage 1 0 20 20 3 128 0xf8801 8 12 7 nochecks
+## Provenance Tools
+
+The Go/Docker validation path does not rerun Sage or the external lattice
+estimator. Relevant sources are:
+
+```text
+tools/intgenisis_commitment_estimator.py
+tools/intgenisis_lattice_security_estimator.py
+prf/generate_params.sage
+prf/sweep_rounds.sage
+/home/jonas/Bureau/GIT_Paper/sections/03_blind_signature.tex
+/home/jonas/Bureau/GIT_Paper/sections/04_arc_construction.tex
+/home/jonas/Bureau/GIT_Paper/sections/05_smallwood_model.tex
+/home/jonas/Bureau/GIT_Paper/sections/06_parameters.tex
+/home/jonas/Bureau/GIT_Paper/appendix/B_gaussian_sampler.tex
+/home/jonas/Bureau/GIT_Paper/appendix/C_smallwood_details.tex
+/home/jonas/Bureau/GIT_Paper/appendix/D_extended_parameters.tex
+/home/jonas/Bureau/GIT_Paper/appendix/E_prf_and_misc.tex
 ```
 
-The generated file is `prf/prf_params.json`. Go tests and artifact commands
-load this file directly; Docker validation does not run Sage.
-
-The controlled BQ32 pilot loads `prf/prf_params_tag9.json` with `LenTag=9`.
-The NIZK-scoped R128 PoCs load `prf/prf_params_tag10.json` with `LenTag=10`,
-and the WF-128 PoC loads `prf/prf_params_tag13.json` with `LenTag=13`. All
-retain the default permutation matrices, constants, rounds, key length, and
-nonce length. The tag-10 and tag-13 files have SHA-256 digests
-`93c97ee27c14f468250c3d249d8c98733ed1dee3aceeaffdfdafce5b220b8e48` and
-`94462038554d296342ed088fcbbecd03165a8f1705fdf64346551a4eabe6b5dd`.
-The canonical preset binds both the PRF profile and exact parameter-file
-digest, and runtime loading rejects a digest or tag-width mismatch. The
-direct-full relation tests also tamper-check tag coordinates 8 and 9, where
-feed-forward changes from key coordinates to nonce coordinates. Tag-14 remains
-unregistered.
-
-## BQ32-R96 Pilot Measurement
-
-The candidate manifest fixes CROM, raw caps `[2^32]*5` within each proof-system
-phase, at most `2^32` honest transcripts and tags per domain-separated context,
-and one accepted issuance plus one accepted showing in the reported forgery
-composition. Adding the two phase games gives `[2^33]*5` in that combined
-report. Honest transcript volume is used for salt/tag collision accounting; it
-is distinct from the adversarial random-oracle budget.
-
-| Item | Actual | Requirement/result |
-| --- | ---: | --- |
-| DECS/hash and Fiat-Shamir width | 168 bits | 168 minimum |
-| Tape width | 136 bits | 136 minimum; 104 bits after `2^32` guesses |
-| Salt width | 168 bits | about 105 collision bits at `2^32` proofs |
-| PRF tag | 9 field elements | about 116.61 collision bits at `2^32` tags/context |
-| One-proof theorem result | 99.98 bits | engineering gate 99.5 |
-| Current two-phase composition | 98.59 bits | above 96 residual target |
-| Paper transcript | 25,844 / 36,887 bytes | issuance / showing |
-
-The parameter audit passes. Promotion does not: simultaneous extraction remains
-report-only, challenge-bias/programming terms need reviewed theorem accounting,
-and MSIS binding plus the lattice-signature term are not complete-grade.
-
-## NIZK-Scoped R128 PoC Measurements
-
-For one accepted issuance and one accepted showing, the global collision term
-uses five domains with combined caps `2^(b+1)`. The byte-aligned widths below
-leave 131.68 global-collision bits. Requiring about 131.54 algebraic bits in
-each phase then leaves at least 130 composed proof-system bits.
-
-| Preset | Raw cap | Hash/FS | Tape | Salt | Tag elements | Phase algebraic bits | Composed bits | Issuance/showing bytes |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `poc-n1024-bq64-r128-v1` | `2^64` | 264 | 200 | 200 | 10 | 131.54 | 130.00 | 39,504 / 56,584 |
-| `poc-n1024-bq96-r128-v1` | `2^96` | 328 | 232 | 200 | 10 | 133.21 | 130.92 | 52,106 / 73,456 |
-| `poc-n1024-bq128-r128-v2` | `2^128` | 392 | 264 | 200 | 10 | 132.45 | 130.56 | 61,429 / 85,386 |
-
-The threat manifests independently cap honest proofs and tags at `2^32` per
-domain-separated context. At that volume, the 200-bit salt has about 137
-collision bits, and the ten-element tag has about 136.57 collision bits. The
-query budget is not reused as a tag-volume bound. All three parameter audits
-pass and all three ledgers report `proof_only`; they make no complete-system
-claim and do not alter the profile-C lattice parameters or estimator evidence.
-
-## WF-128 PoC Measurement
-
-`system-n1024-wf128-crom-v1` executes the bare WF-128 lane with 264-bit
-DECS/hash and Fiat-Shamir output, a 128-bit tape, a 256-bit salt, and tag-13.
-It has no bounded-query caps: `WF-128` is a global CROM work-factor profile,
-not residual security at a fixed query budget.
-
-| Item | Actual | Requirement/result |
-| --- | ---: | --- |
-| DECS/hash and Fiat-Shamir width | 264 bits | 264 minimum |
-| Tape width | 128 bits | 128 minimum |
-| Salt width | 256 bits | 256 minimum |
-| PRF tag | 13 field elements | 13 minimum |
-| SmallWood geometry | block width 43, `N_DECS=524288`, `eta=46`, `theta=7`, `ell=9` | measured R11/L4 retune |
-| Grinding vector | `[0,0,4,13]` | supported live path |
-| Issuance/showing theorem result | 133.44 / 133.35 bits | above 128 proof target |
-| Paper transcript | 26,758 / 38,092 bytes | issuance / showing; exact-byte gated |
-
-The final geometry was selected by projection followed by measured
-issuance/showing comparison. Wider committed rows alone reduced showing bytes
-but increased issuance; the selected domain/block-width pair reduced the
-combined transcript from 66,671 to 64,850 bytes and reproduced exactly across
-three runs. The structural parameter audit passes. Primitive estimates and
-unresolved full-game terms remain diagnostic, so the lifecycle is `candidate`
-and `complete_system_claim=false`. The 272/136/264/tag-14 engineering lane
-remains a design point without an executable preset.
-
-## Reproducing Estimator Outputs
-
-Fetch the estimator outside the repository and pin it to the archived commit:
+To reproduce the lattice-model outputs, use a checkout outside this repository
+at the commit pinned by the manuscript/artifact record, then run:
 
 ```bash
-mkdir -p external
-git clone https://github.com/malb/lattice-estimator external/lattice-estimator
-git -C external/lattice-estimator checkout 4bfa63e364be9dd7fd1b2b531e2a11da8fb1c2ad
 export SPRUCE_LATTICE_ESTIMATOR="$PWD/external/lattice-estimator"
-```
-
-Run these commands from the repository root in a Sage/Python environment:
-
-```bash
 python3 tools/intgenisis_commitment_estimator.py --pretty
 python3 tools/intgenisis_lattice_security_estimator.py --pretty
 ```
 
-Equivalently, pass `--estimator-path external/lattice-estimator` to each
-script. The wrapper scripts are source provenance and must not add public flags
-or modes to `cmd/issuance` or `cmd/showing`.
+PRF parameter regeneration uses the Sage scripts above. Generated JSON must be
+reviewed and its digest deliberately updated in the preset manifest; replacing
+a file without changing the bound identity is rejected.
 
-## Mapping To Artifact Claims
+## Reviewer Checklist
 
-- `poc-n512-sc96-v1` is a PoC with an SC-96 proof-only statement.
-- `artifact-n1024-sc125-v1` reproduces the paper's higher single-candidate
-  proof measurement; it is not a complete-system profile.
-- The BQ10-R96 and BQ16-R96 artifacts preserve their exact per-phase query
-  budgets and pass their structural parameter audits.
-- `pilot-n1024-bq32-r96-v1` is a bounded candidate whose executed-parameter
-  audit passes but whose complete ledger does not.
-- `poc-n1024-bq64-r128-v1`, `poc-n1024-bq96-r128-v1`, and
-  `poc-n1024-bq128-r128-v2` are NIZK-scoped proof-only PoCs. Their raw oracle
-  caps do not strengthen the independently assumed 128-bit primitive profile.
-- `system-n1024-wf128-crom-v1` is an executable unbounded CROM work-factor PoC
-  whose structural parameter audit passes; its ledger is diagnostic and it
-  makes no complete-system claim.
-- Query-budget presets carry explicit `ROQueryCaps` and DECS hash/tape widths
-  in the preset registry; theorem accounting is recorded by each benchmark.
-- Removed duplicate and rejected research measurements are preserved in
-  `credential/testdata/removed_intgenisis_presets.json`; they are not
-  executable presets.
-- Fixed-size transcript byte claims are reproduced by `ARTIFACT.md` commands
-  and are not security-estimator outputs.
-- No complete-system deployment preset is currently available.
+For any claimed v2 result, verify:
 
-## Caveats
-
-- The commitment is computationally hiding, not statistically hiding.
-- The `h_tran` rational inverse relation is documented with surrogate
-  estimator evidence only.
-- Estimator outputs are rough estimates and should be read as artifact
-  provenance, not as full security reductions.
-- NTRU key generation is randomized; validation may retry setup internally.
-- Live credential seeds, attributes, commitment randomness, and issuer-side
-  BB-tran values use `crypto/rand` with unbiased integer rejection sampling.
-  The current NTRU preimage sampler still uses Go's process-global
-  `math/rand` source. This is a pre-existing implementation blocker, alongside
-  the missing reviewed lattice-signature estimate, for any complete-system
-  deployment claim.
-- Sage/Python provenance tooling and external estimator checkouts are
-  intentionally excluded from Docker runtime.
-- The BQ128 NIZK-only preset promotes the SmallWood proof claim only. It does
-  not promote PRF, MLWE, tag-collision, multi-user, or full credential-system
-  security beyond the current ledger status.
-- Canonical public parameters, state, verifier keys, presentations, and
-  Fiat-Shamir public inputs bind the preset manifest. Legacy aliases resolve to
-  the same manifest; cross-manifest use is rejected.
+1. The command uses one of the nine canonical IDs and the report repeats that
+   ID with preset schema `2`.
+2. Public parameters, verifier key, credential state, PRF parameters, NTRU
+   material, and presentation all pass their digest and schema checks.
+3. The report uses `smallfield_2025_1085_salted_tapes_v2` with proof and DECS
+   schema `2`.
+4. Every opening uses independently sampled tapes under the proof salt and
+   exact commitment role.
+5. `hash_input_bound=1`, `B0` is part of the uniform public matrix, and the
+   showing layout retains bounded `mu_sig`, `x0`, and `x1` sources with their
+   bridges.
+6. The public context has exactly 11 lanes, the proof contains one hidden
+   four-bit slot, and the verifier derives context from an independent service
+   input.
+7. Holder quota state is durable and monotonic; rate-limited verification uses
+   one atomic verifier state. A `-proof-only` result is labeled accordingly.
+8. Size and timing statements cite a generated v2 report from the same code
+   revision rather than an earlier table.
+9. Any manuscript statement uses the same relation, transcript, rate policy,
+   preset identity, and evidence status as the executable artifact.

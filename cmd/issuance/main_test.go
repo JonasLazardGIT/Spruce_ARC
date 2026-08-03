@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"math"
+	mathrand "math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,8 +14,11 @@ import (
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
+	"vSIS-Signature/issuance"
 	ntrurio "vSIS-Signature/ntru/io"
 	"vSIS-Signature/prf"
+
+	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
 func issuanceTestRepoRoot(t *testing.T) string {
@@ -138,6 +142,12 @@ func TestBenchmarkIntGenISISE2EPropagatesPresetAccounting(t *testing.T) {
 	if cfg.Issuance.DECSCollisionBits != 136 {
 		t.Fatalf("issuance decs collision bits=%d", cfg.Issuance.DECSCollisionBits)
 	}
+	options := benchmarkIntGenISISE2EReportOptions(cfg)
+	for phase, tuning := range map[string]intGenISISTuning{"issuance": options.Issuance, "showing": options.Showing} {
+		if tuning.TranscriptOmissionMode != PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2 {
+			t.Fatalf("benchmark report Options.%s transcript omission mode=%q", phase, tuning.TranscriptOmissionMode)
+		}
+	}
 }
 
 func TestBenchmarkIntGenISISE2EPropagatesBQ32ProfileMetadata(t *testing.T) {
@@ -163,7 +173,7 @@ func TestBenchmarkIntGenISISE2EPropagatesBQ32ProfileMetadata(t *testing.T) {
 
 func TestBenchmarkIntGenISISE2EPropagatesWF128PoCPreset(t *testing.T) {
 	cfg, err := parseBenchmarkIntGenISISE2EConfig([]string{
-		"-preset", credential.IntGenISISPresetSystemN1024WF128CROMV1,
+		"-preset", credential.IntGenISISPresetSystemN1024WF128CROMV2,
 	})
 	if err != nil {
 		t.Fatalf("parse benchmark WF-128 preset: %v", err)
@@ -180,13 +190,13 @@ func TestBenchmarkIntGenISISE2EPropagatesWF128PoCPreset(t *testing.T) {
 	if cfg.Showing.DECSCollisionBits != 264 || cfg.Showing.DECSHashBits != 264 || cfg.Showing.DECSTapeBits != 128 || cfg.Showing.FSCollisionBits != 264 || cfg.Showing.SaltBits != 256 {
 		t.Fatalf("WF-128 widths=%+v", cfg.Showing)
 	}
-	if cfg.Showing.NCols != 32 || cfg.Showing.LVCSNCols != 43 || cfg.Showing.NLeaves != 524288 || cfg.Showing.Eta != 46 || cfg.Showing.Theta != 7 || cfg.Showing.Ell != 9 || cfg.Showing.Kappa != [4]int{0, 0, 4, 13} {
+	if cfg.Showing.NCols != 32 || cfg.Showing.LVCSNCols != 42 || cfg.Showing.NLeaves != 327680 || cfg.Showing.Eta != 43 || cfg.Showing.Theta != 7 || cfg.Showing.Ell != 9 || cfg.Showing.Kappa != [4]int{1, 0, 2, 13} {
 		t.Fatalf("WF-128 showing geometry=%+v", cfg.Showing)
 	}
 }
 
 func TestWF128PoCPresetParameterAuditMatchesBindings(t *testing.T) {
-	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetSystemN1024WF128CROMV1)
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetSystemN1024WF128CROMV2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,12 +255,13 @@ func TestBenchmarkActualROQueryCapsRecognizesSingleCandidateDefault(t *testing.T
 
 func TestIntGenISISTuningFromPresetSpecPropagatesLogCaps(t *testing.T) {
 	spec := credential.IntGenISISTuningPreset{
-		ROQueryCapBits:    [5]float64{128, 128, 128, 128, 128},
-		ROQueryCapBitsSet: true,
-		DECSHashBits:      512,
-		DECSTapeBits:      256,
-		FSCollisionBits:   512,
-		SaltBits:          384,
+		ROQueryCapBits:         [5]float64{128, 128, 128, 128, 128},
+		ROQueryCapBitsSet:      true,
+		DECSHashBits:           512,
+		DECSTapeBits:           256,
+		FSCollisionBits:        512,
+		SaltBits:               384,
+		TranscriptOmissionMode: credential.IntGenISISTranscriptOmissionModeV2,
 	}
 	got := intGenISISTuningFromPresetSpec(spec)
 	if got.ROQueryCapsSet || !got.ROQueryCapBitsSet || got.ROQueryCapBits != spec.ROQueryCapBits {
@@ -258,6 +269,9 @@ func TestIntGenISISTuningFromPresetSpecPropagatesLogCaps(t *testing.T) {
 	}
 	if got.DECSHashBits != 512 || got.DECSTapeBits != 256 || got.FSCollisionBits != 512 || got.SaltBits != 384 {
 		t.Fatalf("security widths were not preserved: %+v", got)
+	}
+	if got.TranscriptOmissionMode != credential.IntGenISISTranscriptOmissionModeV2 {
+		t.Fatalf("transcript omission mode was not preserved: %+v", got)
 	}
 }
 
@@ -330,7 +344,7 @@ func TestBenchmarkRequiredPhaseAlgebraicBitsForBQ32Current(t *testing.T) {
 }
 
 func TestBenchmarkSecurityLedgerExplainsBQ32FullGameComponents(t *testing.T) {
-	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetPilotN1024BQ32R96V1)
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetPilotN1024BQ32R96V2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,16 +648,25 @@ func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
 	if normalized.TranscriptMode != intGenISISTranscriptModeSmallField2025 {
 		t.Fatalf("normalized issuance transcript mode=%q", normalized.TranscriptMode)
 	}
+	if normalized.TranscriptOmissionMode != credential.IntGenISISTranscriptOmissionModeV2 {
+		t.Fatalf("normalized issuance transcript omission mode=%q", normalized.TranscriptOmissionMode)
+	}
 	overrides := intGenISISTuningToIssuanceOverrides(normalized, credential.Ternary1024IntGenISISProfile().N)
 	if overrides.TranscriptMode != intGenISISTranscriptModeSmallField2025 {
 		t.Fatalf("issuance override transcript mode=%q", overrides.TranscriptMode)
+	}
+	if overrides.TranscriptOmissionMode != credential.IntGenISISTranscriptOmissionModeV2 {
+		t.Fatalf("issuance override transcript omission mode=%q", overrides.TranscriptOmissionMode)
 	}
 	if !overrides.FixedTranscriptSize {
 		t.Fatalf("issuance override fixed transcript size=false")
 	}
 	opts := applyIssuanceRuntimeOverrides(PIOP.SimOpts{}, overrides)
-	if opts.TranscriptVersion != PIOP.TranscriptVersionSmallWood2025 || opts.TranscriptProtocolMode != PIOP.TranscriptProtocolSmallField2025V1 {
+	if opts.TranscriptVersion != PIOP.TranscriptVersionSmallWood2025V2 || opts.TranscriptProtocolMode != PIOP.TranscriptProtocolSmallField2025V2 {
 		t.Fatalf("issuance opts transcript tuple=(%q,%q)", opts.TranscriptVersion, opts.TranscriptProtocolMode)
+	}
+	if opts.TranscriptOmissionMode != PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2 {
+		t.Fatalf("issuance opts transcript omission mode=%q", opts.TranscriptOmissionMode)
 	}
 	if !opts.FixedTranscriptSize {
 		t.Fatalf("issuance opts fixed transcript size=false")
@@ -652,12 +675,18 @@ func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
 	if spec.TranscriptMode != intGenISISTranscriptModeSmallField2025 {
 		t.Fatalf("persisted SmallWood transcript mode=%q", spec.TranscriptMode)
 	}
+	if spec.TranscriptOmissionMode != credential.IntGenISISTranscriptOmissionModeV2 {
+		t.Fatalf("persisted SmallWood transcript omission mode=%q", spec.TranscriptOmissionMode)
+	}
 	if !spec.FixedTranscriptSize {
 		t.Fatalf("persisted SmallWood fixed transcript size=false")
 	}
 	roundTrip := persistedIssuanceRuntimeOverridesWithSmallWood(spec.NCols, spec.LVCSNCols, spec.NLeaves, nil, spec)
 	if roundTrip.TranscriptMode != intGenISISTranscriptModeSmallField2025 {
 		t.Fatalf("round-trip override transcript mode=%q", roundTrip.TranscriptMode)
+	}
+	if roundTrip.TranscriptOmissionMode != credential.IntGenISISTranscriptOmissionModeV2 {
+		t.Fatalf("round-trip transcript omission mode=%q", roundTrip.TranscriptOmissionMode)
 	}
 	if !roundTrip.FixedTranscriptSize {
 		t.Fatalf("round-trip fixed transcript size=false")
@@ -787,6 +816,7 @@ func TestIntGenISISCLICommitAndProveOmitLegacyChallengeMaterial(t *testing.T) {
 	}
 	if err := run([]string{
 		"holder-prove",
+		"-preset", credential.IntGenISISPresetN512Compact96,
 		"-holder-secret", holderSecret,
 		"-presign-submission", submission,
 	}); err != nil {
@@ -836,6 +866,304 @@ func TestIntGenISISIssueResponseOmitsTargetAndVerifiesAUEqualsT(t *testing.T) {
 	}
 }
 
+func TestIssueResponseBoundedHashInputsAreValidatedBeforeReduction(t *testing.T) {
+	ringQ, err := ring.NewRing(16, []uint64{97})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := func() []int64 { return make([]int64, ringQ.N) }
+	valid := issueResponseFile{
+		MuSig: [][]int64{row()},
+		X0:    [][]int64{row()},
+		X1:    [][]int64{row()},
+	}
+	if _, err := signatureHashDataFromIssueResponse(ringQ, valid, 1, 1, 1); err != nil {
+		t.Fatalf("valid bounded inputs rejected: %v", err)
+	}
+	for _, source := range []string{"mu_sig", "x0", "x1"} {
+		t.Run(source, func(t *testing.T) {
+			resp := issueResponseFile{
+				MuSig: [][]int64{row()},
+				X0:    [][]int64{row()},
+				X1:    [][]int64{row()},
+			}
+			switch source {
+			case "mu_sig":
+				resp.MuSig[0][0] = int64(ringQ.Modulus[0]) + 1
+			case "x0":
+				resp.X0[0][0] = 2
+			case "x1":
+				resp.X1[0][0] = -2
+			}
+			if _, err := signatureHashDataFromIssueResponse(ringQ, resp, 1, 1, 1); err == nil || !strings.Contains(err.Error(), "outside ternary domain") {
+				t.Fatalf("out-of-domain %s accepted before modular conversion: %v", source, err)
+			}
+		})
+	}
+	short := valid
+	short.X1 = [][]int64{make([]int64, ringQ.N-1)}
+	if _, err := signatureHashDataFromIssueResponse(ringQ, short, 1, 1, 1); err == nil || !strings.Contains(err.Error(), "coefficient length") {
+		t.Fatalf("short x1 row accepted: %v", err)
+	}
+}
+
+func TestIssueResponseRejectsRetiredSerializedTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "issue_response.json")
+	raw := []byte(`{"version":3,"credential_public_path":"public.json","t":[0],"mu_sig":[],"x0":[],"x1":[],"sig_s1":[],"sig_s2":[],"ntru_public":[]}`)
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var resp issueResponseFile
+	if err := readJSONFile(path, &resp); err == nil || !strings.Contains(err.Error(), "unknown field \"t\"") {
+		t.Fatalf("retired target field accepted: %v", err)
+	}
+}
+
+func TestIssuanceBLoaderChecksCanonicalCoefficientsWithoutRequiringNonzeroB0(t *testing.T) {
+	ringQ, err := ring.NewRing(16, []uint64{97})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := make([][]uint64, 4)
+	for i := range rows {
+		rows[i] = make([]uint64, ringQ.N)
+	}
+	rows[1][0] = 1
+	rows[2][0] = 2
+	rows[3][0] = 3
+	path := filepath.Join(t.TempDir(), "Bmatrix.json")
+	if err := ntrurio.SaveBMatrixCoeffs(path, rows); err != nil {
+		t.Fatal(err)
+	}
+	public := credential.PublicParams{BPath: path, NC: 1, EllX0: 1}
+	if _, err := loadBAsNTT(ringQ, public); err != nil {
+		t.Fatalf("canonical B with zero-valued B0 rejected: %v", err)
+	}
+	rows[2][4] = ringQ.Modulus[0]
+	if err := ntrurio.SaveBMatrixCoeffs(path, rows); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadBAsNTT(ringQ, public); err == nil || !strings.Contains(err.Error(), "not canonical") {
+		t.Fatalf("noncanonical B accepted: %v", err)
+	}
+}
+
+func TestHolderFinalizeRejectsBoundedBBViolationsBeforePersisting(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+	tmp := t.TempDir()
+	presetID := credential.IntGenISISPresetN512Compact96
+	publicPath := filepath.Join(tmp, "credential_public.json")
+	holderSecret := filepath.Join(tmp, "holder_secret.json")
+	commitRequest := filepath.Join(tmp, "commit_request.json")
+	if err := run([]string{"setup-intgenisis-public", "-preset", presetID, "-out", publicPath, "-force"}); err != nil {
+		t.Fatalf("setup public params: %v", err)
+	}
+	if err := run([]string{
+		"holder-commit",
+		"-preset", presetID,
+		"-public-params", publicPath,
+		"-holder-secret", holderSecret,
+		"-commit-request", commitRequest,
+	}); err != nil {
+		t.Fatalf("holder commit: %v", err)
+	}
+	public, err := credential.LoadPublicParams(publicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := ntrurio.LoadBMatrixMetadata(public.BPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Make the valid ternary x1=0 noninvertible without changing any other
+	// setup component. B0 remains the independently generated public row.
+	meta.B[len(meta.B)-1] = make([]uint64, meta.RingDegree)
+	if err := ntrurio.SaveBMatrixCoeffs(public.BPath, meta.B); err != nil {
+		t.Fatal(err)
+	}
+	profile, ok := credential.LookupIntGenISISProfile(public.Profile)
+	if !ok {
+		t.Fatalf("unknown profile %q", public.Profile)
+	}
+	rows := func(count int) [][]int64 {
+		out := make([][]int64, count)
+		for i := range out {
+			out[i] = make([]int64, profile.N)
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name      string
+		tamper    func(*issueResponseFile)
+		wantError string
+	}{
+		{
+			name: "nonternary-x0",
+			tamper: func(resp *issueResponseFile) {
+				resp.X0[0][0] = 2
+			},
+			wantError: "outside ternary domain",
+		},
+		{
+			name:      "noninvertible-x1",
+			tamper:    func(*issueResponseFile) {},
+			wantError: "denominator not invertible",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			responsePath := filepath.Join(tmp, tc.name+"-response.json")
+			statePath := filepath.Join(tmp, tc.name+"-state.json")
+			resp := issueResponseFile{
+				Version:              issuanceArtifactVersion,
+				CredentialPublicPath: publicPath,
+				MuSig:                rows(profile.EllMuSig),
+				X0:                   rows(profile.EllX0),
+				X1:                   rows(profile.EllX1),
+			}
+			tc.tamper(&resp)
+			if err := writeJSONFile(responsePath, resp, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			err := run([]string{
+				"holder-finalize",
+				"-preset", presetID,
+				"-holder-secret", holderSecret,
+				"-commit-request", commitRequest,
+				"-issue-response", responsePath,
+				"-state-out", statePath,
+				"-ntru-params", filepath.Join(tmp, "not-reached-ntru-params.json"),
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("unexpected finalize result: %v", err)
+			}
+			if _, statErr := os.Stat(statePath); !os.IsNotExist(statErr) {
+				t.Fatalf("credential state persisted after rejected response: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestHolderFinalizeBindsTrustedVerifierKeyBeforePersisting(t *testing.T) {
+	root := issuanceTestRepoRoot(t)
+	chdirForIssuanceTest(t, root)
+	tmp := t.TempDir()
+	presetID := credential.IntGenISISPresetN512Compact96
+	publicPath := filepath.Join(tmp, "credential_public.json")
+	holderSecretPath := filepath.Join(tmp, "holder_secret.json")
+	commitRequestPath := filepath.Join(tmp, "commit_request.json")
+	responsePath := filepath.Join(tmp, "issue_response.json")
+	paramsPath := filepath.Join(tmp, "ntru_params.json")
+	verifierKeyPath := filepath.Join(tmp, "verifier_key.json")
+	statePath := filepath.Join(tmp, "credential_state.json")
+
+	if err := run([]string{"setup-intgenisis-public", "-preset", presetID, "-out", publicPath, "-force"}); err != nil {
+		t.Fatalf("setup public params: %v", err)
+	}
+	if err := run([]string{
+		"holder-commit",
+		"-preset", presetID,
+		"-public-params", publicPath,
+		"-holder-secret", holderSecretPath,
+		"-commit-request", commitRequestPath,
+	}); err != nil {
+		t.Fatalf("holder commit: %v", err)
+	}
+
+	var secret holderSecretFile
+	if err := readJSONFile(holderSecretPath, &secret); err != nil {
+		t.Fatalf("read holder secret: %v", err)
+	}
+	rt, err := loadIssuanceRuntime(secret.CredentialPublicPath, secret.PRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega, secret.SmallWood))
+	if err != nil {
+		t.Fatalf("load issuance runtime: %v", err)
+	}
+	inputs, err := intGenISISInputsFromSecret(rt.ringQ, secret)
+	if err != nil {
+		t.Fatalf("load holder inputs: %v", err)
+	}
+	com, err := issuance.PrepareIntGenISISCommit(rt.params, inputs)
+	if err != nil {
+		t.Fatalf("prepare commitment: %v", err)
+	}
+	B, err := loadBAsNTT(rt.ringQ, rt.public)
+	if err != nil {
+		t.Fatalf("load B: %v", err)
+	}
+	data, err := issuance.SampleSignatureHashData(rt.ringQ, B, rt.public.EllMuSig, rt.public.EllX0, mathrand.New(mathrand.NewSource(1)))
+	if err != nil {
+		t.Fatalf("sample bounded hash inputs: %v", err)
+	}
+	target, err := issuance.ComputeIntGenISISTarget(rt.ringQ, B, com, data)
+	if err != nil {
+		t.Fatalf("compute target: %v", err)
+	}
+	zeroPublic := [][]int64{make([]int64, rt.ringQ.N)}
+	response := issueResponseFile{
+		Version:              issuanceArtifactVersion,
+		CredentialPublicPath: publicPath,
+		MuSig:                polyVecToInt64(rt.ringQ, data.MuSig, false),
+		X0:                   polyVecToInt64(rt.ringQ, data.X0, false),
+		X1:                   polyVecToInt64(rt.ringQ, data.X1, false),
+		SigS1:                make([]int64, rt.ringQ.N),
+		SigS2:                append([]int64(nil), target.TCoeff...),
+		NTRUPublic:           zeroPublic,
+	}
+	if err := writeJSONFile(responsePath, response, 0o644); err != nil {
+		t.Fatalf("write response: %v", err)
+	}
+	if err := ntrurio.SaveParams(paramsPath, ntrurio.SystemParams{
+		N:    rt.ringQ.N,
+		Q:    rt.ringQ.Modulus[0],
+		Beta: rt.ringQ.Modulus[0],
+	}); err != nil {
+		t.Fatalf("write NTRU params: %v", err)
+	}
+	publicDigest, err := credential.PublicParamsDigest(rt.public)
+	if err != nil {
+		t.Fatalf("digest public params: %v", err)
+	}
+	key := credential.IntGenISISVerifierKey{
+		Version:              credential.IntGenISISVerifierKeyVersion,
+		Profile:              rt.public.Profile,
+		PresetID:             rt.public.PresetID,
+		PresetVersion:        rt.public.PresetVersion,
+		PresetManifestDigest: rt.public.PresetManifestDigest,
+		RingDegree:           rt.ringQ.N,
+		PublicParamsDigest:   publicDigest,
+		NTRUPublic:           [][]int64{make([]int64, rt.ringQ.N)},
+		SignatureBound:       int64(rt.ringQ.Modulus[0]),
+	}
+
+	mismatchedKey := key
+	mismatchedKey.NTRUPublic = [][]int64{make([]int64, rt.ringQ.N)}
+	mismatchedKey.NTRUPublic[0][0] = 1
+	if err := credential.SaveIntGenISISVerifierKey(verifierKeyPath, mismatchedKey); err != nil {
+		t.Fatalf("write mismatched verifier key: %v", err)
+	}
+	err = holderFinalize(holderSecretPath, commitRequestPath, "", responsePath, statePath, "", paramsPath, verifierKeyPath)
+	if err == nil || !strings.Contains(err.Error(), "does not match trusted verifier key") {
+		t.Fatalf("response under untrusted NTRU key accepted: %v", err)
+	}
+	if _, statErr := os.Stat(statePath); !os.IsNotExist(statErr) {
+		t.Fatalf("credential state persisted after verifier-key mismatch: %v", statErr)
+	}
+
+	if err := credential.SaveIntGenISISVerifierKey(verifierKeyPath, key); err != nil {
+		t.Fatalf("write matching verifier key: %v", err)
+	}
+	if err := holderFinalize(holderSecretPath, commitRequestPath, "", responsePath, statePath, "", paramsPath, verifierKeyPath); err != nil {
+		t.Fatalf("finalize matching response: %v", err)
+	}
+	state, err := credential.LoadIntGenISISState(statePath)
+	if err != nil {
+		t.Fatalf("load persisted credential state: %v", err)
+	}
+	if err := state.ValidateAgainst(rt.public, key); err != nil {
+		t.Fatalf("persisted state lost trusted issuer binding: %v", err)
+	}
+}
+
 func ledgerTermByName(ledger credential.SystemSecurityLedger, category, name string) credential.SystemSecurityLedgerTerm {
 	for _, term := range ledger.Terms {
 		if term.Category == category && term.Name == name {
@@ -846,7 +1174,7 @@ func ledgerTermByName(ledger credential.SystemSecurityLedger, category, name str
 }
 
 func TestBoundIssuanceOptionsRejectManifestMismatch(t *testing.T) {
-	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetArtifactN1024SC125V1)
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPresetArtifactN1024SC125V2)
 	if err != nil {
 		t.Fatal(err)
 	}

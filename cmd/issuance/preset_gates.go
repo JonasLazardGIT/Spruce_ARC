@@ -84,7 +84,7 @@ func runGateCompleteSystemPresets(args []string) error {
 				return fmt.Errorf("required ledger term %s/%s is not complete-grade", term.Category, term.Name)
 			}
 		}
-		if preset.SoundnessGate != "smallwood_2025_1085_live" {
+		if preset.SoundnessGate != credential.IntGenISISSecurityGateV2 {
 			return fmt.Errorf("complete preset uses non-live soundness gate %q", preset.SoundnessGate)
 		}
 		return nil

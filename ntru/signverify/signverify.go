@@ -31,7 +31,7 @@ func loadParams() (*ntrurio.SystemParams, error) {
 	return &p, nil
 }
 
-func GenerateKeypairAnnulusToFiles(par ntru.Params, kg ntru.KeygenOpts, publicPath, privatePath string) (pk *keys.PublicKey, sk *keys.PrivateKey, err error) {
+func GenerateKeypairAnnulusToFiles(sys ntrurio.SystemParams, kg ntru.KeygenOpts, publicPath, privatePath string) (pk *keys.PublicKey, sk *keys.PrivateKey, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			pk = nil
@@ -39,7 +39,15 @@ func GenerateKeypairAnnulusToFiles(par ntru.Params, kg ntru.KeygenOpts, publicPa
 			err = fmt.Errorf("annulus keygen panic: %v", rec)
 		}
 	}()
-	pk, sk, err = generateKeypairAnnulusNoRecover(par, kg)
+	canonical, err := ntrurio.CanonicalizeParams(sys)
+	if err != nil {
+		return nil, nil, err
+	}
+	par, err := ntru.NewParams(canonical.N, new(big.Int).SetUint64(canonical.Q))
+	if err != nil {
+		return nil, nil, err
+	}
+	pk, sk, err = generateKeypairAnnulusNoRecover(canonical, par, kg)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -56,7 +64,7 @@ func GenerateKeypairAnnulusToFiles(par ntru.Params, kg ntru.KeygenOpts, publicPa
 	return pk, sk, nil
 }
 
-func generateKeypairAnnulusNoRecover(par ntru.Params, kg ntru.KeygenOpts) (*keys.PublicKey, *keys.PrivateKey, error) {
+func generateKeypairAnnulusNoRecover(sys ntrurio.SystemParams, par ntru.Params, kg ntru.KeygenOpts) (*keys.PublicKey, *keys.PrivateKey, error) {
 	f, g, F, G, err := ntru.Keygen(par, kg)
 	if err != nil {
 		return nil, nil, err
@@ -65,21 +73,33 @@ func generateKeypairAnnulusNoRecover(par ntru.Params, kg ntru.KeygenOpts) (*keys
 	if err != nil {
 		return nil, nil, err
 	}
-	hCoeffs, _ := ntru.CenterModQToInt64(hQ, par)
+	hCoeffs, err := ntru.CenterModQToInt64(hQ, par)
+	if err != nil {
+		return nil, nil, err
+	}
 	pk := &keys.PublicKey{
-		Version: "ntru-key-v1",
-		N:       par.N,
-		Q:       par.Q.Text(16),
-		HCoeffs: hCoeffs,
+		Version:      keys.KeyV2,
+		ParamsDigest: sys.ParamsDigest,
+		N:            par.N,
+		Q:            par.Q.Text(16),
+		HCoeffs:      hCoeffs,
+	}
+	if err := keys.BindPublicKey(pk); err != nil {
+		return nil, nil, err
 	}
 	priv := &keys.PrivateKey{
-		Version: "ntru-key-v1",
-		N:       par.N,
-		Q:       par.Q.Text(16),
-		F:       F,
-		G:       G,
-		Fsmall:  f,
-		Gsmall:  g,
+		Version:      keys.KeyV2,
+		ParamsDigest: sys.ParamsDigest,
+		PublicKeyID:  pk.KeyID,
+		N:            par.N,
+		Q:            par.Q.Text(16),
+		F:            F,
+		G:            G,
+		Fsmall:       f,
+		Gsmall:       g,
+	}
+	if err := keys.ValidatePrivateKey(priv); err != nil {
+		return nil, nil, err
 	}
 	return pk, priv, nil
 }
@@ -162,18 +182,39 @@ func signWithTCoeffsAndPaths(tCoeffs []int64, maxTrials int, opts ntru.SamplerOp
 	if keyQ.Uint64() != sys.Q {
 		return nil, fmt.Errorf("NTRU key modulus %s incompatible with params q=%d", pk.Q, sys.Q)
 	}
-	return signWithLoadedKeys(pk, sk, tCoeffs, maxTrials, opts, meta, paths.SignaturePath)
+	if pk.ParamsDigest != sys.ParamsDigest || sk.ParamsDigest != sys.ParamsDigest {
+		return nil, fmt.Errorf("NTRU key params digest mismatch: params=%s public=%s private=%s", sys.ParamsDigest, pk.ParamsDigest, sk.ParamsDigest)
+	}
+	return signWithLoadedKeys(sys, pk, sk, tCoeffs, maxTrials, opts, meta, paths.SignaturePath)
 }
 
-func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts, meta targetMeta, signaturePath string) (*keys.Signature, error) {
+func signWithLoadedKeys(sys *ntrurio.SystemParams, pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64, maxTrials int, opts ntru.SamplerOpts, meta targetMeta, signaturePath string) (*keys.Signature, error) {
+	if sys == nil {
+		return nil, errors.New("nil NTRU system params")
+	}
+	if err := ntrurio.ValidateParams(*sys); err != nil {
+		return nil, err
+	}
 	if pk == nil || sk == nil {
 		return nil, errors.New("nil NTRU key")
+	}
+	if err := keys.ValidatePublicKey(pk); err != nil {
+		return nil, err
+	}
+	if err := keys.ValidatePrivateKey(sk); err != nil {
+		return nil, err
 	}
 	if pk.N != sk.N {
 		return nil, fmt.Errorf("NTRU key degree mismatch: public N=%d private N=%d", pk.N, sk.N)
 	}
 	if pk.Q != sk.Q {
 		return nil, fmt.Errorf("NTRU key modulus mismatch: public Q=%s private Q=%s", pk.Q, sk.Q)
+	}
+	if pk.ParamsDigest != sys.ParamsDigest || sk.ParamsDigest != sys.ParamsDigest {
+		return nil, errors.New("NTRU key/system parameter digest mismatch")
+	}
+	if sk.PublicKeyID != pk.KeyID {
+		return nil, errors.New("NTRU public/private key ID mismatch")
 	}
 	Q := new(big.Int)
 	if _, ok := Q.SetString(pk.Q, 16); !ok {
@@ -197,6 +238,22 @@ func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64
 			return nil, fmt.Errorf("NTRU %s coefficient length=%d want N=%d", check.name, len(check.row), par.N)
 		}
 	}
+	if !ntru.CheckNTRUIdentity(sk.Fsmall, sk.Gsmall, sk.F, sk.G, par) {
+		return nil, errors.New("invalid NTRU private key identity")
+	}
+	derivedH, err := ntru.PublicKeyH(ntru.Int64ToModQPoly(sk.Fsmall, par), ntru.Int64ToModQPoly(sk.Gsmall, par), par)
+	if err != nil {
+		return nil, err
+	}
+	derivedHCoeffs, err := ntru.CenterModQToInt64(derivedH, par)
+	if err != nil {
+		return nil, err
+	}
+	for i := range derivedHCoeffs {
+		if derivedHCoeffs[i] != pk.HCoeffs[i] {
+			return nil, fmt.Errorf("NTRU public/private key mismatch at h[%d]", i)
+		}
+	}
 	if len(tCoeffs) != par.N {
 		return nil, fmt.Errorf("t size mismatch: got %d want %d", len(tCoeffs), par.N)
 	}
@@ -205,7 +262,12 @@ func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64
 		prec = 512
 	}
 	opts.Prec = prec
-	S, err := ntru.NewSampler(sk.Fsmall, sk.Gsmall, sk.F, sk.G, par, prec)
+	var S *ntru.Sampler
+	if opts.Entropy == nil {
+		S, err = ntru.NewSampler(sk.Fsmall, sk.Gsmall, sk.F, sk.G, par, prec)
+	} else {
+		S, err = ntru.NewSamplerWithReader(sk.Fsmall, sk.Gsmall, sk.F, sk.G, par, prec, opts.Entropy)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -224,9 +286,11 @@ func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64
 	S.Opts.UseExactResidual = true
 	S.Opts.BoundShape = "cstyle"
 	S.Opts.UseLog3Cross = opts.UseLog3Cross
+	if maxTrials <= 0 {
+		maxTrials = 1 << 16
+	}
 	S.Opts.MaxSignTrials = maxTrials
 	S.Opts.ApplyDefaults(S.Par)
-
 	tPoly := ntru.Int64ToModQPoly(tCoeffs, par)
 	s0, s1, trials, err := S.SamplePreimageTargetOptionB(tPoly, maxTrials)
 	if err != nil {
@@ -288,6 +352,7 @@ func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64
 	sig := keys.NewSignature()
 	sig.Params.N = par.N
 	sig.Params.Q = pk.Q
+	sig.Params.ParamsDigest = sys.ParamsDigest
 	sig.Hash.BFile = meta.BFile
 	sig.Hash.HashRelation = meta.HashRelation
 	if len(meta.MSeed) > 0 {
@@ -301,6 +366,7 @@ func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64
 	}
 	sig.Hash.TCoeffs = tCoeffs
 	sig.PublicKey.HCoeffs = pk.HCoeffs
+	sig.PublicKey.KeyID = pk.KeyID
 	sig.Signature.S0 = s0i
 	sig.Signature.S1 = s1i
 	normSq := ntru.CoefficientNormSquared(s1i, s2Vec, par, S.Opts)
@@ -311,6 +377,12 @@ func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64
 	sig.Signature.Rejected = trials > 1
 	sig.Signature.MaxTrials = maxTrials
 	sig.Signature.S2 = s2Vec
+	if err := keys.BindSignature(sig); err != nil {
+		return nil, err
+	}
+	if err := keys.ValidateSignature(sig); err != nil {
+		return nil, err
+	}
 	if meta.Persist {
 		if signaturePath != "" {
 			if err := keys.SaveSignatureFile(signaturePath, sig); err != nil {
@@ -324,8 +396,21 @@ func signWithLoadedKeys(pk *keys.PublicKey, sk *keys.PrivateKey, tCoeffs []int64
 }
 
 func VerifyWithParamsPath(sig *keys.Signature, paramsPath string) error {
-	if sig == nil {
-		return errors.New("nil signature")
+	if err := keys.ValidateSignature(sig); err != nil {
+		return err
+	}
+	sys, err := loadParamsFromPath(paramsPath)
+	if err != nil {
+		return err
+	}
+	if sig.Params.ParamsDigest != sys.ParamsDigest {
+		return fmt.Errorf("NTRU signature params digest %s does not match loaded params %s", sig.Params.ParamsDigest, sys.ParamsDigest)
+	}
+	if sig.Params.N != sys.N {
+		return fmt.Errorf("NTRU signature degree %d does not match loaded params degree %d", sig.Params.N, sys.N)
+	}
+	if sig.Params.Q != new(big.Int).SetUint64(sys.Q).Text(16) {
+		return fmt.Errorf("NTRU signature modulus %s does not match loaded params q=%d", sig.Params.Q, sys.Q)
 	}
 	Q := new(big.Int)
 	if _, ok := Q.SetString(sig.Params.Q, 16); !ok {
@@ -338,10 +423,6 @@ func VerifyWithParamsPath(sig *keys.Signature, paramsPath string) error {
 	// Recompute target from seeds when available; otherwise trust stored t.
 	var tCmp []int64
 	if sig.Hash.MSeed != "" || sig.Hash.X0Seed != "" || sig.Hash.X1Seed != "" {
-		sys, err := loadParamsFromPath(paramsPath)
-		if err != nil {
-			return err
-		}
 		mSeed, err := keys.DecodeSeed(sig.Hash.MSeed)
 		if err != nil {
 			return err

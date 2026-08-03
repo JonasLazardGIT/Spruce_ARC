@@ -2,7 +2,6 @@ package ntru
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -11,6 +10,8 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
+
+	ntrurio "vSIS-Signature/ntru/io"
 )
 
 var (
@@ -72,14 +73,11 @@ func detectCSmoothingFromC() (float64, error) {
 
 func loadSystemParams() (systemParams, error) {
 	path := filepath.Join("internal", "source_data", "Parameters.json")
-	data, err := os.ReadFile(path)
+	p, err := ntrurio.LoadParams(path, true)
 	if err != nil {
 		return systemParams{}, err
 	}
-	var sp systemParams
-	if err := json.Unmarshal(data, &sp); err != nil {
-		return systemParams{}, err
-	}
+	sp := systemParams{N: p.N, Q: p.Q}
 	if sp.N <= 0 || sp.Q == 0 {
 		return systemParams{}, errors.New("invalid system parameters")
 	}

@@ -9,8 +9,16 @@ import (
 )
 
 // GenerateBWithX0Len samples [B0, B1, B2[0], ..., B2[x0Len-1], B3] in the
-// coefficient domain for the live BB-tran relation.
+// coefficient domain for the bounded BB-tran relation. B0 is an independent
+// uniform public polynomial just like the other B components; it has no
+// nonzero or invertibility condition.
 func GenerateBWithX0Len(ringQ *ring.Ring, prng utils.PRNG, x0Len int) ([]*ring.Poly, error) {
+	if ringQ == nil {
+		return nil, errors.New("nil ring")
+	}
+	if prng == nil {
+		return nil, errors.New("nil prng")
+	}
 	if x0Len <= 0 {
 		return nil, errors.New("invalid x0 length")
 	}
@@ -18,9 +26,7 @@ func GenerateBWithX0Len(ringQ *ring.Ring, prng utils.PRNG, x0Len int) ([]*ring.P
 	B := make([]*ring.Poly, 3+x0Len)
 	for i := 0; i < len(B); i++ {
 		p := ringQ.NewPoly()
-		if i != 0 {
-			uni.Read(p)
-		}
+		uni.Read(p)
 		B[i] = p
 	}
 	return B, nil

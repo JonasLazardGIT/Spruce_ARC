@@ -1,7 +1,6 @@
 package decs
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -14,22 +13,26 @@ type Verifier struct {
 	params  Params
 	points  []uint64 // explicit evaluation domain points E[i]
 	nLeaves int
+	context CommitmentContext
 }
 
-// NewVerifierWithParamsAndPointsChecked is the error-returning variant of
-// NewVerifierWithParamsAndPoints for library callers.
-func NewVerifierWithParamsAndPointsChecked(ringQ *ring.Ring, r int, params Params, points []uint64) (*Verifier, error) {
+// NewVerifierWithParamsAndPointsV2Checked constructs a verifier that accepts
+// only canonical v2 openings under ctx and a full declared-width root.
+func NewVerifierWithParamsAndPointsV2Checked(ringQ *ring.Ring, r int, params Params, points []uint64, ctx CommitmentContext) (*Verifier, error) {
+	if err := ctx.Validate(); err != nil {
+		return nil, err
+	}
+	if _, err := v2TapeBytes(params); err != nil {
+		return nil, err
+	}
+	if !IsSupportedHashBytes(params.HashBytes) {
+		return nil, fmt.Errorf("decs: v2 requires explicit HashBytes (got %d)", params.HashBytes)
+	}
 	if points == nil {
 		return nil, fmt.Errorf("decs: explicit points are required")
 	}
-	if err := validateVerifierParams(params); err != nil {
-		return nil, err
-	}
 	if params.Eta <= 0 {
 		return nil, fmt.Errorf("decs: invalid eta (must be > 0)")
-	}
-	if params.NonceBytes <= 0 {
-		return nil, fmt.Errorf("decs: invalid NonceBytes (must be > 0)")
 	}
 	if len(ringQ.Modulus) != 1 {
 		return nil, fmt.Errorf("decs: only single-modulus rings are supported (len(Modulus) must be 1)")
@@ -37,141 +40,11 @@ func NewVerifierWithParamsAndPointsChecked(ringQ *ring.Ring, r int, params Param
 	if err := validatePoints(points, ringQ.Modulus[0]); err != nil {
 		return nil, err
 	}
-	return &Verifier{ringQ: ringQ, r: r, params: params, points: points, nLeaves: len(points)}, nil
-}
-
-func (v *Verifier) VerifyEvalFormalHash(
-	rootHash []byte, Gamma [][]uint64, R [][]uint64,
-	open *DECSOpening,
-) bool {
-	if open == nil {
-		return false
-	}
-	if v.params.HashBytes > 0 && len(rootHash) != NormalizeHashBytes(v.params.HashBytes) {
-		return false
-	}
-	if openingPRequiresReconstruction(open) {
-		if len(open.Pvals) == 0 {
-			// Compressed openings must be reconstructed before DECS verification.
-			return false
-		}
-		if open.R <= 0 {
-			return false
-		}
-		for i := 0; i < len(open.Pvals); i++ {
-			if len(open.Pvals[i]) != open.R {
-				return false
-			}
-		}
-	}
-	if openingMRequiresReconstruction(open) {
-		if len(open.Mvals) == 0 {
-			// Compressed M openings must be reconstructed before DECS verification.
-			return false
-		}
-		for i := 0; i < len(open.Mvals); i++ {
-			if len(open.Mvals[i]) != open.Eta {
-				return false
-			}
-		}
-	}
-	n := open.EntryCount()
-	if len(open.Pvals) > 0 && len(open.Pvals) != n {
-		return false
-	}
-	if len(open.Pvals) == 0 && openingPCols(open) < v.r {
-		return false
-	}
-	if len(open.Mvals) > 0 && len(open.Mvals) != n {
-		return false
-	}
-	if len(open.Mvals) == 0 && openingMCols(open) < v.params.Eta {
-		return false
-	}
-	if len(open.Nonces) > 0 && len(open.Nonces) != n {
-		return false
-	}
-	if len(Gamma) != v.params.Eta || len(R) != v.params.Eta {
-		return false
-	}
-	for k := 0; k < v.params.Eta; k++ {
-		if len(Gamma[k]) != v.r {
-			return false
-		}
-	}
-
-	mod := v.ringQ.Modulus[0]
-
-	for t := 0; t < n; t++ {
-		idx := open.IndexAt(t)
-		if idx < 0 || idx >= v.nLeaves {
-			return false
-		}
-		if len(open.Pvals) > 0 && len(open.Pvals[t]) != v.r {
-			return false
-		}
-		if len(open.Mvals) > 0 && len(open.Mvals[t]) != v.params.Eta {
-			return false
-		}
-		var nonce []byte
-		if len(open.Nonces) > t && len(open.Nonces[t]) > 0 {
-			nonce = open.Nonces[t]
-		} else if len(open.NonceSeed) > 0 && open.NonceBytes > 0 {
-			nonce = deriveNonce(open.NonceSeed, idx, open.NonceBytes)
-		}
-		if len(nonce) != v.params.NonceBytes {
-			return false
-		}
-
-		// pack field elements as uint32 and index as uint16 (matching prover)
-		buf := make([]byte, 4*(v.r+v.params.Eta)+2+v.params.NonceBytes)
-		off := 0
-		for j := 0; j < v.r; j++ {
-			pv := getPval(open, t, j)
-			binary.LittleEndian.PutUint32(buf[off:], uint32(pv))
-			off += 4
-		}
-		for k := 0; k < v.params.Eta; k++ {
-			mv := getMval(open, t, k)
-			binary.LittleEndian.PutUint32(buf[off:], uint32(mv))
-			off += 4
-		}
-		binary.LittleEndian.PutUint16(buf[off:], uint16(idx))
-		off += 2
-		copy(buf[off:], nonce[:v.params.NonceBytes])
-		// Reconstruct per-index path from union
-		ids, ok := pathRowIndices(open, t)
-		if !ok {
-			return false
-		}
-		path := make([][]byte, len(ids))
-		for lvl, id := range ids {
-			if id < 0 || id >= len(open.Nodes) {
-				return false
-			}
-			path[lvl] = open.Nodes[id]
-			if v.params.HashBytes > 0 && len(path[lvl]) != NormalizeHashBytes(v.params.HashBytes) {
-				return false
-			}
-		}
-		if !VerifyPathHash(buf, path, rootHash, idx) {
-			return false
-		}
-
-		for k := 0; k < v.params.Eta; k++ {
-			x := v.points[idx] % mod
-			lhs := evalPoly(R[k], x, mod)
-			rhs := getMval(open, t, k) % mod
-			for j := 0; j < v.r; j++ {
-				mul := mulMod64(getPval(open, t, j), Gamma[k][j], mod)
-				rhs = addMod64(rhs, mul, mod)
-			}
-			if lhs != rhs {
-				return false
-			}
-		}
-	}
-	return true
+	return &Verifier{
+		ringQ: ringQ, r: r, params: params,
+		points: append([]uint64(nil), points...), nLeaves: len(points),
+		context: cloneCommitmentContext(ctx),
+	}, nil
 }
 
 // getPval returns Pvals[t][j], reading from packed form if necessary.
@@ -328,57 +201,4 @@ func pathRowIndices(open *DECSOpening, row int) ([]int, bool) {
 		return nil, false
 	}
 	return rowVals, true
-}
-
-func (v *Verifier) VerifyEvalAtHash(
-	rootHash []byte, Gamma [][]uint64, R []*ring.Poly,
-	open *DECSOpening, E []int,
-) bool {
-	return v.VerifyEvalAtFormalHash(rootHash, Gamma, ringRowsToFormal(R, v.ringQ.Modulus[0]), open, E)
-}
-
-func (v *Verifier) VerifyEvalAtFormalHash(
-	rootHash []byte, Gamma [][]uint64, R [][]uint64,
-	open *DECSOpening, E []int,
-) bool {
-	if open == nil {
-		return false
-	}
-	indices := open.AllIndices()
-	if len(indices) != len(E) {
-		return false
-	}
-	seen := make(map[int]struct{}, len(E))
-	for _, x := range E {
-		if x < 0 || x >= v.nLeaves {
-			return false
-		}
-		if _, dup := seen[x]; dup {
-			return false
-		}
-		seen[x] = struct{}{}
-	}
-	for _, y := range indices {
-		if _, ok := seen[y]; !ok {
-			return false
-		}
-		delete(seen, y)
-	}
-	if len(seen) != 0 {
-		return false
-	}
-	return v.VerifyEvalFormalHash(rootHash, Gamma, R, open)
-}
-
-func validateVerifierParams(params Params) error {
-	if params.Degree < 0 {
-		return fmt.Errorf("decs: invalid degree parameter")
-	}
-	if params.HashBytes != 0 && !IsSupportedHashBytes(params.HashBytes) {
-		return fmt.Errorf("decs: invalid HashBytes (supported: %s)", SupportedHashBytesList())
-	}
-	if params.NonceBytes != 0 && !IsSupportedNonceBytes(params.NonceBytes) {
-		return fmt.Errorf("decs: invalid NonceBytes (supported: %s)", SupportedNonceBytesList())
-	}
-	return nil
 }

@@ -9,30 +9,37 @@ import (
 
 // ProofReport captures proof size and soundness metrics for a built proof.
 type ProofReport struct {
-	ProofBytes      int
-	ProofKB         float64
-	Soundness       SoundnessBudget
-	PaperTranscript PaperTranscriptReport
-	TranscriptFocus TranscriptOptimizationReport
-	Packing         ProofPackingAudit
-	ReplayAudit     ReplayFamilyAuditReport
-	SigShortness    SigShortnessReport
-	Geometry        WitnessGeometrySnapshot
-	RingDegree      int
-	X0Len           int
-	NCols           int
-	PCSNCols        int
-	LVCSNCols       int
-	Ell             int
-	EllPrime        int
-	Rho             int
-	Theta           int
-	Eta             int
-	DQ              int
-	NLeaves         int
-	FieldModulus    uint64
-	Lambda          int
-	Kappa           [4]int
+	ProofBytes            int
+	ProofKB               float64
+	Soundness             SoundnessBudget
+	PaperTranscript       PaperTranscriptReport
+	TranscriptFocus       TranscriptOptimizationReport
+	Packing               ProofPackingAudit
+	ReplayAudit           ReplayFamilyAuditReport
+	SigShortness          SigShortnessReport
+	Geometry              WitnessGeometrySnapshot
+	RingDegree            int
+	X0Len                 int
+	NCols                 int
+	PCSNCols              int
+	LVCSNCols             int
+	Ell                   int
+	EllPrime              int
+	Rho                   int
+	Theta                 int
+	Eta                   int
+	DQ                    int
+	NLeaves               int
+	FieldModulus          uint64
+	Lambda                int
+	Kappa                 [4]int
+	TapeBytes             int    `json:"tape_bytes"`
+	TapeCount             int    `json:"tape_count"`
+	TapeWidthBytes        int    `json:"tape_width_bytes"`
+	TapeDisclosureMode    string `json:"tape_disclosure_mode"`
+	LeafEncodingVersion   int    `json:"leaf_encoding_version"`
+	RootWidthBytes        int    `json:"root_width_bytes"`
+	ZeroKnowledgeEligible bool   `json:"zero_knowledge_eligible"`
 }
 
 type SigShortnessReport struct {
@@ -147,6 +154,13 @@ type TranscriptOptimizationReport struct {
 	SmallField2025VBarRows          int    `json:"smallfield_2025_vbar_rows,omitempty"`
 	SmallField2025VBarCols          int    `json:"smallfield_2025_vbar_cols,omitempty"`
 	SmallField2025Notes             string `json:"smallfield_2025_notes,omitempty"`
+	TapeBytes                       int    `json:"tape_bytes"`
+	TapeCount                       int    `json:"tape_count"`
+	TapeWidthBytes                  int    `json:"tape_width_bytes"`
+	TapeDisclosureMode              string `json:"tape_disclosure_mode"`
+	LeafEncodingVersion             int    `json:"leaf_encoding_version"`
+	RootWidthBytes                  int    `json:"root_width_bytes"`
+	ZeroKnowledgeEligible           bool   `json:"zero_knowledge_eligible"`
 }
 
 // BuildProofReport derives proof size + soundness metrics for a given proof/options.
@@ -255,6 +269,7 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		DQ:           dQ,
 		DDECS:        lvcsNCols + ell - 1,
 	})
+	disclosure := buildDECSV2DisclosureAccounting(proof)
 	if proof.SourceProductBridge != nil {
 		openingRep := BuildOpeningPaperReport(proof.SourceProductBridge.RowsOpening)
 		paperTranscript.Pdecs.NaiveBits += openingRep.PdecsBits
@@ -266,33 +281,53 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		paperTranscript.Tapes.NaiveBits += openingRep.TapeBits
 		paperTranscript.Tapes.OptimizedBits += openingRep.TapeBits
 		addOpeningPaperAudit(&paperTranscript.Audit, openingRep.Audit)
-		finalizePaperTranscriptReport(&paperTranscript)
 	}
+	// The broad paper buckets historically modeled only the main opening and
+	// source replay bridge. Reclassify every other retained opening's tape
+	// disclosure into the canonical tape bucket/audit so it exactly matches the
+	// proof-wide serialized accounting without inventing residue/auth formulas.
+	for _, retained := range retainedDECSOpenings(proof) {
+		if retained.Kind == retainedDECSOpeningMain || retained.Kind == retainedDECSOpeningSourceReplay {
+			continue
+		}
+		openingRep := BuildOpeningPaperReport(retained.Opening)
+		paperTranscript.Tapes.NaiveBits += openingRep.TapeBits
+		paperTranscript.Tapes.OptimizedBits += openingRep.TapeBits
+		paperTranscript.Audit.Tapes = addTapePaperAudit(paperTranscript.Audit.Tapes, openingRep.Audit.Tapes)
+	}
+	finalizePaperTranscriptReport(&paperTranscript)
 	return ProofReport{
-		ProofBytes:      size.Total,
-		ProofKB:         float64(size.Total) / 1024.0,
-		Soundness:       sb,
-		PaperTranscript: paperTranscript,
-		Packing:         packing,
-		ReplayAudit:     replayAudit,
-		SigShortness:    sigShortness,
-		Geometry:        geometry,
-		TranscriptFocus: buildTranscriptOptimizationReport(proof, paperTranscript, packing, sb, geometry, lvcsNCols, dQ, reportOpts, q),
-		RingDegree:      int(ringQ.N),
-		X0Len:           x0Len,
-		NCols:           ncols,
-		PCSNCols:        lvcsNCols,
-		LVCSNCols:       lvcsNCols,
-		Ell:             ell,
-		EllPrime:        ellPrime,
-		Rho:             rho,
-		Theta:           theta,
-		Eta:             eta,
-		DQ:              dQ,
-		NLeaves:         nLeaves,
-		FieldModulus:    q,
-		Lambda:          reportOpts.Lambda,
-		Kappa:           reportOpts.Kappa,
+		ProofBytes:            size.Total,
+		ProofKB:               float64(size.Total) / 1024.0,
+		Soundness:             sb,
+		PaperTranscript:       paperTranscript,
+		Packing:               packing,
+		ReplayAudit:           replayAudit,
+		SigShortness:          sigShortness,
+		Geometry:              geometry,
+		TranscriptFocus:       buildTranscriptOptimizationReport(proof, paperTranscript, packing, sb, geometry, lvcsNCols, dQ, reportOpts, q),
+		RingDegree:            int(ringQ.N),
+		X0Len:                 x0Len,
+		NCols:                 ncols,
+		PCSNCols:              lvcsNCols,
+		LVCSNCols:             lvcsNCols,
+		Ell:                   ell,
+		EllPrime:              ellPrime,
+		Rho:                   rho,
+		Theta:                 theta,
+		Eta:                   eta,
+		DQ:                    dQ,
+		NLeaves:               nLeaves,
+		FieldModulus:          q,
+		Lambda:                reportOpts.Lambda,
+		Kappa:                 reportOpts.Kappa,
+		TapeBytes:             disclosure.TapeBytes,
+		TapeCount:             disclosure.TapeCount,
+		TapeWidthBytes:        disclosure.TapeWidthBytes,
+		TapeDisclosureMode:    disclosure.TapeDisclosureMode,
+		LeafEncodingVersion:   disclosure.LeafEncodingVersion,
+		RootWidthBytes:        disclosure.RootWidthBytes,
+		ZeroKnowledgeEligible: disclosure.ZeroKnowledgeEligible,
 	}, nil
 }
 
@@ -331,21 +366,29 @@ func buildSigShortnessReport(proof *Proof) SigShortnessReport {
 }
 
 func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport, packing ProofPackingAudit, sb SoundnessBudget, geometry WitnessGeometrySnapshot, lvcsNCols int, dQ int, opts SimOpts, q uint64) TranscriptOptimizationReport {
+	disclosure := buildDECSV2DisclosureAccounting(proof)
 	out := TranscriptOptimizationReport{
-		RingDegree:          resolvedProofRingDegree(proof, opts.RingDegree),
-		X0Len:               rowLayoutX0Len(proof.RowLayout),
-		NRows:               sb.NRows,
-		M:                   sb.M,
-		PCols:               packing.RowOpening.Pvals.EncodedCols,
-		OmitP:               packing.RowOpening.Pvals.OmittedCols,
-		RowOpeningEntries:   packing.RowOpening.EntryCount,
-		PdecsBytes:          paper.Pdecs.OptimizedBytes,
-		VTargetsBytes:       paper.VTargets.OptimizedBytes,
-		BarSetsBytes:        paper.BarSets.OptimizedBytes,
-		QBytes:              paper.Q.OptimizedBytes,
-		PDecsBitWidth:       packing.RowOpening.Pvals.BitWidth,
-		VTargetsBitWidth:    packing.VTargets.BitWidth,
-		FixedTranscriptSize: opts.FixedTranscriptSize || proof.FixedTranscriptSize,
+		RingDegree:            resolvedProofRingDegree(proof, opts.RingDegree),
+		X0Len:                 rowLayoutX0Len(proof.RowLayout),
+		NRows:                 sb.NRows,
+		M:                     sb.M,
+		PCols:                 packing.RowOpening.Pvals.EncodedCols,
+		OmitP:                 packing.RowOpening.Pvals.OmittedCols,
+		RowOpeningEntries:     packing.RowOpening.EntryCount,
+		PdecsBytes:            paper.Pdecs.OptimizedBytes,
+		VTargetsBytes:         paper.VTargets.OptimizedBytes,
+		BarSetsBytes:          paper.BarSets.OptimizedBytes,
+		QBytes:                paper.Q.OptimizedBytes,
+		PDecsBitWidth:         packing.RowOpening.Pvals.BitWidth,
+		VTargetsBitWidth:      packing.VTargets.BitWidth,
+		FixedTranscriptSize:   opts.FixedTranscriptSize || proof.FixedTranscriptSize,
+		TapeBytes:             disclosure.TapeBytes,
+		TapeCount:             disclosure.TapeCount,
+		TapeWidthBytes:        disclosure.TapeWidthBytes,
+		TapeDisclosureMode:    disclosure.TapeDisclosureMode,
+		LeafEncodingVersion:   disclosure.LeafEncodingVersion,
+		RootWidthBytes:        disclosure.RootWidthBytes,
+		ZeroKnowledgeEligible: disclosure.ZeroKnowledgeEligible,
 	}
 	if out.FixedTranscriptSize {
 		out.TranscriptSizeMode = "fixed"
@@ -455,16 +498,18 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 			}
 		}
 	}
-	out.TranscriptSecurityStatus = "maintained_live"
-	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025 {
-		out.TranscriptSecurityStatus = "smallwood_2025_1085_live"
-	}
-	if opts.TranscriptCodec != "" {
-		out.TranscriptSecurityStatus = "serialization_live"
+	out.TranscriptSecurityStatus = SmallField2025StatusRejected
+	if out.ZeroKnowledgeEligible {
+		out.TranscriptSecurityStatus = SmallField2025StatusLive
 	}
 	if proof.SmallField2025 != nil {
-		out.TranscriptSecurityStatus = proof.SmallField2025.Status
-		out.SmallField2025Status = proof.SmallField2025.Status
+		if out.ZeroKnowledgeEligible && proof.SmallField2025.Status == SmallField2025StatusLive {
+			out.TranscriptSecurityStatus = proof.SmallField2025.Status
+			out.SmallField2025Status = proof.SmallField2025.Status
+		} else {
+			out.TranscriptSecurityStatus = SmallField2025StatusRejected
+			out.SmallField2025Status = SmallField2025StatusRejected
+		}
 		out.SmallField2025ReductionEnabled = proof.SmallField2025.ReductionEnabled
 		out.SmallField2025QueryCount = proof.SmallField2025.QueryCount
 		out.SmallField2025VHeadRows = proof.SmallField2025.VHeadRows

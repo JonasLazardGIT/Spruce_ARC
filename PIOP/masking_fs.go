@@ -1,6 +1,7 @@
 package PIOP
 
 import (
+	"bytes"
 	"fmt"
 
 	decs "vSIS-Signature/DECS"
@@ -84,10 +85,11 @@ type MaskingFSInput struct {
 	Public PublicInputs
 	Omega  []uint64
 	// OmegaWitness is the witness packing domain Ω_s.
-	OmegaWitness              []uint64
-	DomainPoints              []uint64
-	Root                      [16]byte
-	RootHash                  []byte
+	OmegaWitness []uint64
+	DomainPoints []uint64
+	RootHash     []byte
+	// Salt is the proof-global salt sampled before the main commitment.
+	Salt                      []byte
 	PK                        *lvcs.ProverKey
 	OracleLayout              lvcs.OracleLayout
 	RowLayout                 RowLayout
@@ -101,8 +103,8 @@ type MaskingFSInput struct {
 	FaggNormCoeffs            [][]uint64
 	PRFCompanionLayout        *PRFCompanionLayout
 	PRFCompanionRows          []lvcs.RowInput
-	PRFTagPublic              [][]int64
-	PRFNoncePublic            [][]int64
+	PRFTagPublic              []int64
+	PRFContextPublic          []int64
 	HashRelation              string
 	RowInputs                 []lvcs.RowInput
 	WitnessPolys              []*ring.Poly // layout base (w1)
@@ -164,22 +166,28 @@ func alignConstraintPolysWithCoeffs(polys []*ring.Poly, coeffs [][]uint64) []*ri
 	return out
 }
 
-func copyInt64Matrix(src [][]int64) [][]int64 {
-	if len(src) == 0 {
-		return nil
-	}
-	out := make([][]int64, len(src))
-	for i := range src {
-		out[i] = append([]int64(nil), src[i]...)
-	}
-	return out
-}
-
 // RunMaskingFS executes the masking, commitment, Fiat-Shamir, and opening
 // stages from explicit row and constraint inputs.
 func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 	o := in.Opts
 	o.applyDefaults()
+	if in.RingQ == nil {
+		return nil, fmt.Errorf("nil ring")
+	}
+	if in.PK == nil || in.PK.DecsProver == nil {
+		return nil, fmt.Errorf("RunMaskingFS requires a v2 LVCS prover")
+	}
+	defer in.PK.DecsProver.ReleaseTapes()
+	mainCtx, err := mainCommitmentContextV2(in.Salt)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateProverCommitmentContextV2(in.PK.Context, mainCtx); err != nil {
+		return nil, err
+	}
+	if len(in.RootHash) == 0 || !bytes.Equal(in.RootHash, in.PK.RootHash) {
+		return nil, fmt.Errorf("RunMaskingFS full root does not match v2 prover")
+	}
 	args := maskFSArgs{
 		ringQ:        in.RingQ,
 		public:       in.Public,
@@ -200,8 +208,8 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 			return in.NCols
 		}(),
 		witnessNCols:       in.NCols,
-		root:               in.Root,
 		rootHash:           append([]byte(nil), in.RootHash...),
+		salt:               append([]byte(nil), in.Salt...),
 		PK:                 in.PK,
 		w1:                 in.WitnessPolys,
 		origW1Len:          len(in.WitnessPolys),
@@ -215,8 +223,8 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		FaggNormCoeffs:     in.FaggNormCoeffs,
 		prfCompanionLayout: in.PRFCompanionLayout,
 		prfCompanionRows:   append([]lvcs.RowInput(nil), in.PRFCompanionRows...),
-		prfTagPublic:       copyInt64Matrix(in.PRFTagPublic),
-		prfNoncePublic:     copyInt64Matrix(in.PRFNoncePublic),
+		prfTagPublic:       append([]int64(nil), in.PRFTagPublic...),
+		prfContextPublic:   append([]int64(nil), in.PRFContextPublic...),
 		hashRelation:       in.HashRelation,
 		FparAll: append(
 			alignConstraintPolysWithCoeffs(in.FparInt, in.FparIntCoeffs),

@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	IntGenISISReplayProjectionNone                       = "none"
-	IntGenISISReplayProjectionProjectUDigitsYViewV3      = "project_u_digits_and_y_view_v3"
-	IntGenISISReplayProjectionProjectUDigitsYWResidualV5 = "project_u_digits_y_w_residual_v5"
+	IntGenISISReplayProjectionNone                            = "none"
+	IntGenISISReplayProjectionProjectUDigitsYViewV3           = "project_u_digits_and_y_view_v3"
+	IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 = "project_u_digits_y_bounded_sources_v6"
 )
 
 type intGenISISReplayProjectionDescriptor struct {
@@ -23,8 +23,8 @@ func normalizeIntGenISISReplayProjection(mode string) string {
 		return IntGenISISReplayProjectionNone
 	case IntGenISISReplayProjectionProjectUDigitsYViewV3:
 		return IntGenISISReplayProjectionProjectUDigitsYViewV3
-	case IntGenISISReplayProjectionProjectUDigitsYWResidualV5:
-		return IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+	case IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6:
+		return IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 	default:
 		return strings.ToLower(strings.TrimSpace(mode))
 	}
@@ -32,7 +32,7 @@ func normalizeIntGenISISReplayProjection(mode string) string {
 
 func validateIntGenISISReplayProjection(mode string) error {
 	switch normalizeIntGenISISReplayProjection(mode) {
-	case IntGenISISReplayProjectionNone, IntGenISISReplayProjectionProjectUDigitsYViewV3, IntGenISISReplayProjectionProjectUDigitsYWResidualV5:
+	case IntGenISISReplayProjectionNone, IntGenISISReplayProjectionProjectUDigitsYViewV3, IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6:
 		return nil
 	default:
 		return fmt.Errorf("unsupported IntGenISIS replay projection mode %q", mode)
@@ -45,7 +45,7 @@ func intGenISISReplayProjectionDescriptorBytes(mode string) ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(intGenISISReplayProjectionDescriptor{
-		Version: "intgenisis_replay_projection_v1",
+		Version: "intgenisis_replay_projection_v2",
 		Mode:    mode,
 	})
 }
@@ -58,30 +58,32 @@ func intGenISISProjectionModeFromLayout(l *IntGenISISShowingRowLayout) string {
 	if mode != IntGenISISReplayProjectionNone {
 		return mode
 	}
-	if l.LayoutVersion == intGenISISShowingLayoutVersionProjectionUDigitsYViewV3 {
+	if l.LayoutVersion == intGenISISShowingLayoutVersionProjectionUDigitsYViewBoundedV4 {
 		return IntGenISISReplayProjectionProjectUDigitsYViewV3
 	}
-	if l.LayoutVersion == intGenISISShowingLayoutVersionProjectionUDigitsYWResidualV5 {
-		return IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+	if l.LayoutVersion == intGenISISShowingLayoutVersionProjectionUDigitsYBoundedSourcesV6 {
+		return IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 	}
 	return IntGenISISReplayProjectionNone
 }
 
 func intGenISISProjectionUsesProjectedUYHat(l *IntGenISISShowingRowLayout) bool {
 	mode := intGenISISProjectionModeFromLayout(l)
-	return mode == IntGenISISReplayProjectionProjectUDigitsYViewV3 || mode == IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+	return mode == IntGenISISReplayProjectionProjectUDigitsYViewV3 || mode == IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 }
 
 func intGenISISProjectionDerivesYView(l *IntGenISISShowingRowLayout) bool {
 	mode := intGenISISProjectionModeFromLayout(l)
-	return mode == IntGenISISReplayProjectionProjectUDigitsYViewV3 || mode == IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+	return mode == IntGenISISReplayProjectionProjectUDigitsYViewV3 || mode == IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 }
 
 func intGenISISProjectionUsesDigitOnlyU(l *IntGenISISShowingRowLayout) bool {
 	mode := intGenISISProjectionModeFromLayout(l)
-	return mode == IntGenISISReplayProjectionProjectUDigitsYViewV3 || mode == IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+	return mode == IntGenISISReplayProjectionProjectUDigitsYViewV3 || mode == IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 }
 
 func intGenISISProjectionUsesBBTranWResidual(l *IntGenISISShowingRowLayout) bool {
-	return intGenISISProjectionModeFromLayout(l) == IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+	// Bounded BB-tran v2 always retains the individual bounded sources. The W
+	// full-image projection is not a supported proof relation.
+	return false
 }

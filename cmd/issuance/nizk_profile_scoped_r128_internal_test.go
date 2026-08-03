@@ -596,11 +596,11 @@ func nizkProfileIncumbentTuning(profile string) (intGenISISTuning, bool) {
 	presetName := ""
 	switch profile {
 	case "BQ64-128":
-		presetName = credential.IntGenISISPresetPoCN1024BQ64R128V1
+		presetName = credential.IntGenISISPresetPoCN1024BQ64R128V2
 	case "BQ96-128":
-		presetName = credential.IntGenISISPresetPoCN1024BQ96R128V1
+		presetName = credential.IntGenISISPresetPoCN1024BQ96R128V2
 	case "BQ128-128":
-		presetName = credential.IntGenISISPresetPoCN1024BQ128R128V2
+		presetName = credential.IntGenISISPresetPoCN1024BQ128R128V3
 	default:
 		return intGenISISTuning{}, false
 	}

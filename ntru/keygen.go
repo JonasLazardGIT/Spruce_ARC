@@ -1,13 +1,16 @@
 package ntru
 
+import "io"
+
 // KeygenOpts controls the retained annulus key generation routine.
 type KeygenOpts struct {
-	Prec       uint    // floating precision for embeddings (defaults to 128 bits)
-	MaxTrials  int     // maximum trials for the annulus sampler (defaults to 10000)
-	Alpha      float64 // annulus quality window parameter (defaults to 1.20)
-	UseCRadius bool    // optional: use fixed radius instead of Alpha window
-	Radius     float64 // required when UseCRadius is true
-	Verbose    bool    // emit sampling diagnostics
+	Prec       uint      // floating precision for embeddings (defaults to 128 bits)
+	MaxTrials  int       // maximum trials for the annulus sampler (defaults to 10000)
+	Alpha      float64   // annulus quality window parameter (defaults to 1.20)
+	UseCRadius bool      // optional: use fixed radius instead of Alpha window
+	Radius     float64   // required when UseCRadius is true
+	Verbose    bool      // emit sampling diagnostics
+	Entropy    io.Reader // randomness source; nil selects crypto/rand.Reader
 }
 
 // Keygen simply dispatches to the annulus/FFT path with sane defaults.

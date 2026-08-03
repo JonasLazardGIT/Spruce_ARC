@@ -176,11 +176,8 @@ func deriveMainPCSSubsetParams(proof *Proof) (decs.Params, int, error) {
 	if rowDegBound <= 0 {
 		return decs.Params{}, 0, fmt.Errorf("missing row degree bound")
 	}
-	nonceBytes := 16
-	if pcsOpening.NonceBytes > 0 {
-		nonceBytes = pcsOpening.NonceBytes
-	} else if len(pcsOpening.Nonces) > 0 && len(pcsOpening.Nonces[0]) > 0 {
-		nonceBytes = len(pcsOpening.Nonces[0])
+	if err := validateOpeningRoleV2(pcsOpening, decs.CommitmentRoleMain); err != nil {
+		return decs.Params{}, 0, err
 	}
 	if pcsOpening.Eta <= 0 {
 		return decs.Params{}, 0, fmt.Errorf("missing PCS eta")
@@ -188,10 +185,15 @@ func deriveMainPCSSubsetParams(proof *Proof) (decs.Params, int, error) {
 	if pcsOpening.R <= 0 {
 		return decs.Params{}, 0, fmt.Errorf("missing PCS row count")
 	}
+	hashBytes := len(proofRootBytes(proof))
+	if !decs.IsSupportedHashBytes(hashBytes) {
+		return decs.Params{}, 0, fmt.Errorf("invalid full v2 root width %d", hashBytes)
+	}
 	return decs.Params{
-		Degree:     rowDegBound,
-		Eta:        pcsOpening.Eta,
-		NonceBytes: nonceBytes,
+		Degree:    rowDegBound,
+		Eta:       pcsOpening.Eta,
+		TapeBytes: pcsOpening.TapeBytes,
+		HashBytes: hashBytes,
 	}, pcsOpening.R, nil
 }
 
@@ -206,7 +208,7 @@ func deriveMainPCSSubsetGamma(proof *Proof, rowCount int, q uint64) ([][]uint64,
 	if lambda <= 0 {
 		lambda = 256
 	}
-	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa, TranscriptVersion: proof.TranscriptVersion})
+	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa, TranscriptVersion: proof.TranscriptVersion, TranscriptProtocol: proof.TranscriptProtocolMode})
 	material0 := [][]byte{append([]byte(nil), proofRootBytes(proof)...)}
 	if len(proof.LabelsDigest) > 0 {
 		material0 = append(material0, proof.LabelsDigest)

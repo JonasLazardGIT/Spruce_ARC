@@ -1,6 +1,7 @@
 package lvcs
 
 import (
+	"bytes"
 	"testing"
 
 	decs "vSIS-Signature/DECS"
@@ -22,12 +23,13 @@ func TestCommitInitTrustedHeadSkipsOnlyDirectPolynomialHeadCheck(t *testing.T) {
 	for i := 0; i < ncols; i++ {
 		head[i] = evalPolyCoeffs(coeffs, points[i], q)
 	}
-	params := decs.Params{Degree: len(coeffs) - 1, Eta: 1, NonceBytes: 16}
-	if _, pk, err := CommitInitWithParamsAndPointsWithOptions(ringQ, []RowInput{{
+	params := decs.Params{Degree: len(coeffs) - 1, Eta: 1, TapeBytes: 16, HashBytes: 16}
+	ctx := decs.CommitmentContext{TranscriptVersion: decs.TranscriptVersionV2, Role: decs.CommitmentRoleMain, Salt: bytes.Repeat([]byte{1}, 32)}
+	if _, pk, err := CommitInitWithParamsAndPointsV2(ringQ, []RowInput{{
 		Head:        head,
 		PolyCoeffs:  append([]uint64(nil), coeffs...),
 		TrustedHead: true,
-	}}, ell, params, points, CommitOptions{}); err != nil {
+	}}, ell, params, points, ctx, CommitOptions{}); err != nil {
 		t.Fatalf("trusted direct polynomial commit: %v", err)
 	} else if len(pk.Rows) != 1 || len(pk.Rows[0].Head) != len(head) {
 		t.Fatalf("unexpected committed row head shape")
@@ -35,10 +37,10 @@ func TestCommitInitTrustedHeadSkipsOnlyDirectPolynomialHeadCheck(t *testing.T) {
 
 	badHead := append([]uint64(nil), head...)
 	badHead[0] = (badHead[0] + 1) % q
-	if _, _, err := CommitInitWithParamsAndPointsWithOptions(ringQ, []RowInput{{
+	if _, _, err := CommitInitWithParamsAndPointsV2(ringQ, []RowInput{{
 		Head:       badHead,
 		PolyCoeffs: append([]uint64(nil), coeffs...),
-	}}, ell, params, points, CommitOptions{}); err == nil {
+	}}, ell, params, points, ctx, CommitOptions{}); err == nil {
 		t.Fatalf("unchecked direct polynomial commit accepted mismatched head")
 	}
 }

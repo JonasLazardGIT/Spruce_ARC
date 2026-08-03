@@ -114,7 +114,7 @@ func completeSecurityParameterActuals(caps [5]float64) IntGenISISSecurityParamet
 		SaltBits:          168,
 		PRFTagElements:    9,
 		PRFProfile:        IntGenISISPRFProfileTag9,
-		TranscriptMode:    "smallfield_2025_1085_v1",
+		TranscriptMode:    "smallfield_2025_1085_salted_tapes_v2",
 		Evidence: map[string]string{
 			"ro_query_cap_log2": SecurityEvidenceMeasured,
 			"decs_hash_bits":    SecurityEvidenceMeasured,

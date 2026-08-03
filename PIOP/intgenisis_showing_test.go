@@ -23,21 +23,24 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		t.Fatalf("load prf params: %v", err)
 	}
 	opts := ResolveSimOptsDefaults(SimOpts{
-		Credential:        true,
-		CoeffPacking:      true,
-		RingDegree:        profile.N,
-		NCols:             16,
-		LVCSNCols:         32,
-		PostSignLVCSNCols: 32,
-		PRFLVCSNCols:      32,
-		Ell:               4,
-		Eta:               8,
-		Rho:               1,
-		Theta:             1,
-		DomainMode:        DomainModeExplicit,
-		NLeaves:           4096,
-		PRFGroupRounds:    2,
-		PRFCompanionMode:  PRFCompanionModeDirectFull,
+		Credential:             true,
+		CoeffPacking:           true,
+		RingDegree:             profile.N,
+		NCols:                  16,
+		LVCSNCols:              32,
+		PostSignLVCSNCols:      32,
+		PRFLVCSNCols:           32,
+		Ell:                    4,
+		EllPrime:               1,
+		Eta:                    8,
+		Rho:                    1,
+		Theta:                  7,
+		DomainMode:             DomainModeExplicit,
+		NLeaves:                4096,
+		PRFGroupRounds:         2,
+		PRFCompanionMode:       PRFCompanionModeDirectFull,
+		TranscriptVersion:      TranscriptVersionSmallWood2025V2,
+		TranscriptProtocolMode: TranscriptProtocolSmallField2025V2,
 	})
 
 	layout, err := credential.DefaultSemanticMessageLayout(profile, params.LenKey)
@@ -56,8 +59,12 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extract key: %v", err)
 	}
-	nonce, noncePublic := fixedNonceTest(params.LenNonce, opts.NCols, ringQ.Modulus[0])
-	tag, err := prf.Tag(key, nonce, params)
+	nonce, _ := fixedNonceTest(params.LenNonce, opts.NCols, ringQ.Modulus[0])
+	if len(nonce) != prf.ContextLaneCountV2+1 {
+		t.Fatalf("PRF input lanes=%d want %d", len(nonce), prf.ContextLaneCountV2+1)
+	}
+	context := append([]prf.Elem(nil), nonce[:prf.ContextLaneCountV2]...)
+	tag, err := prf.TagContextSlot(key, context, 0, params)
 	if err != nil {
 		t.Fatalf("tag: %v", err)
 	}
@@ -84,6 +91,8 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		X0:          []*ring.Poly{zeroCoeff.CopyNew(), zeroCoeff.CopyNew()},
 		X1:          zeroCoeff.CopyNew(),
 		Z:           oneCoeff,
+		HiddenSlot:  0,
+		HiddenBits:  [4]uint64{0, 0, 0, 0},
 		PackedNCols: opts.NCols,
 	}
 	pub := PublicInputs{
@@ -98,16 +107,18 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 			intGenISISTestPublicConstNTT(ringQ, 1),
 			intGenISISTestPublicConstNTT(ringQ, 1),
 		},
-		CM:           [][]*ring.Poly{{cmNTT}},
-		AS:           [][]*ring.Poly{{intGenISISTestPublicConstNTT(ringQ, 0), intGenISISTestPublicConstNTT(ringQ, 0)}},
-		Tag:          lanesFromElemsTest(tag, opts.NCols),
-		Nonce:        noncePublic,
-		BoundB:       credential.IntGenISISLiveBound,
-		X0Len:        profile.EllX0,
-		RingDegree:   profile.N,
-		HashRelation: credential.HashRelationBBTran,
-		IntGenISIS:   true,
-		Extras:       map[string]interface{}{"IntGenISIS.signature_bound_value": int64(6142)},
+		CM:             [][]*ring.Poly{{cmNTT}},
+		AS:             [][]*ring.Poly{{intGenISISTestPublicConstNTT(ringQ, 0), intGenISISTestPublicConstNTT(ringQ, 0)}},
+		Tag:            elemsToInt64Test(tag),
+		Context:        elemsToInt64Test(context),
+		ContextDigest:  make([]byte, 32),
+		BoundB:         credential.IntGenISISLiveBound,
+		HashInputBound: credential.IntGenISISHashInputBound,
+		X0Len:          profile.EllX0,
+		RingDegree:     profile.N,
+		HashRelation:   credential.HashRelationBBTran,
+		IntGenISIS:     true,
+		Extras:         map[string]interface{}{"IntGenISIS.signature_bound_value": int64(6142)},
 	}
 	debugPub, err := bindIntGenISISPublicExtras(pub, int(ringQ.N))
 	if err != nil {
@@ -136,9 +147,9 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		t.Fatalf("debug FaggNorm nonzero=%v err=%v", nonZero, err)
 	}
 	debugShowLayout := debugLayout.IntGenISISShowing
-	mutatedRowsNTT := func(rowIdx int) []*ring.Poly {
+	mutatedRowsNTTBy := func(rowIdx int, delta uint64) []*ring.Poly {
 		cp := clonePolySliceForIntGenISISTest(ringQ, rows)
-		cp[rowIdx].Coeffs[0][0] = (cp[rowIdx].Coeffs[0][0] + 1) % ringQ.Modulus[0]
+		cp[rowIdx].Coeffs[0][0] = (cp[rowIdx].Coeffs[0][0] + delta) % ringQ.Modulus[0]
 		out := make([]*ring.Poly, len(cp))
 		for i := range cp {
 			out[i] = ringQ.NewPoly()
@@ -147,6 +158,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		}
 		return out
 	}
+	mutatedRowsNTT := func(rowIdx int) []*ring.Poly { return mutatedRowsNTTBy(rowIdx, 1) }
 	expectFaggFailure := func(name string, rowIdx int) {
 		set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, mutatedRowsNTT(rowIdx), debugOmega[:builtNCols], debugCompanion, nil, SimOpts{})
 		if err != nil {
@@ -183,10 +195,20 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	expectFaggFailure("tampered M coefficient view", debugShowLayout.MViewStart)
 	expectFaggFailure("tampered Y coefficient view", debugShowLayout.YViewStart)
 	expectFaggFailure("tampered Y hat", debugShowLayout.YHatStart)
+	expectFaggFailure("tampered mu_sig coefficient view", debugShowLayout.MuSigViewStart)
+	expectFaggFailure("tampered x0 coefficient view", debugShowLayout.X0ViewStart)
+	expectFaggFailure("tampered x1 coefficient view", debugShowLayout.X1ViewStart)
 	expectFparFailure("tampered mu_sig hat", debugShowLayout.MuSigHatStart, false)
 	expectFparFailure("tampered x0 hat", debugShowLayout.X0HatStart, false)
 	expectFparFailure("tampered x1 hat", debugShowLayout.X1HatStart, false)
 	expectFparFailure("tampered Z hat", debugShowLayout.ZHatStart, false)
+	boundSet, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, debugPub, debugLayout, mutatedRowsNTTBy(debugShowLayout.MuSigViewStart, 2), debugOmega[:builtNCols], debugCompanion, nil, SimOpts{})
+	if err != nil {
+		t.Fatalf("out-of-range mu_sig constraints: %v", err)
+	}
+	if nonZero, err := bucketHasNonZeroOmegaValue(ringQ, debugOmega[:builtNCols], boundSet.FparNorm, boundSet.FparNormCoeffs); err != nil || !nonZero {
+		t.Fatalf("out-of-range mu_sig membership nonzero=%v err=%v", nonZero, err)
+	}
 	proof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, opts)
 	if err != nil {
 		t.Fatalf("build showing: %v", err)
@@ -222,12 +244,15 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if got, want := showLayout.UShortnessGroupCount*showLayout.UShortnessRowsPerGroup, 256; got != want {
 		t.Fatalf("u shortness rows=%d want %d", got, want)
 	}
-	coeffViewRows := (showLayout.UCount + showLayout.MCount + showLayout.SCount + showLayout.ECount) * showLayout.ViewRowsPerPoly
-	if got, want := coeffViewRows, 192; got != want {
+	coeffViewRows := (showLayout.UCount + showLayout.MCount + showLayout.SCount + showLayout.ECount + showLayout.MuSigCount + showLayout.X0Count + showLayout.X1Count) * showLayout.ViewRowsPerPoly
+	if got, want := coeffViewRows, 320; got != want {
 		t.Fatalf("coefficient-view row count=%d want %d", got, want)
 	}
-	if showLayout.MAttrViewStart >= 0 || showLayout.KViewStart >= 0 || showLayout.MuSigViewStart >= 0 || showLayout.X0ViewStart >= 0 || showLayout.X1ViewStart >= 0 || showLayout.ZViewStart >= 0 {
-		t.Fatalf("compact/issuer rows should be omitted, got starts m=%d k=%d mu=%d x0=%d x1=%d z=%d", showLayout.MAttrViewStart, showLayout.KViewStart, showLayout.MuSigViewStart, showLayout.X0ViewStart, showLayout.X1ViewStart, showLayout.ZViewStart)
+	if showLayout.MAttrViewStart >= 0 || showLayout.KViewStart >= 0 || showLayout.ZViewStart >= 0 {
+		t.Fatalf("compact rows should be omitted, got starts m=%d k=%d z=%d", showLayout.MAttrViewStart, showLayout.KViewStart, showLayout.ZViewStart)
+	}
+	if showLayout.MuSigViewStart < 0 || showLayout.X0ViewStart < 0 || showLayout.X1ViewStart < 0 {
+		t.Fatalf("bounded issuer source views missing: mu=%d x0=%d x1=%d", showLayout.MuSigViewStart, showLayout.X0ViewStart, showLayout.X1ViewStart)
 	}
 	if showLayout.BoundViewStart <= showLayout.UShortnessStart {
 		t.Fatalf("bound views start=%d should follow u shortness start=%d", showLayout.BoundViewStart, showLayout.UShortnessStart)
@@ -242,6 +267,33 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("verify showing: ok=%v err=%v", ok, err)
 	}
+	expectEnvelopeReject := func(name string, candidate *Proof) {
+		t.Helper()
+		if accepted, verifyErr := VerifyIntGenISISShowing(pub, candidate, opts); verifyErr == nil && accepted {
+			t.Fatalf("%s was accepted", name)
+		}
+	}
+	missingLabels := *proof
+	missingLabels.LabelsDigest = nil
+	expectEnvelopeReject("missing labels digest", &missingLabels)
+	missingNCols := *proof
+	missingNCols.NColsUsed = 0
+	expectEnvelopeReject("missing witness geometry", &missingNCols)
+	badGeometry := *proof
+	badGeometry.PCSGeometry.PCSNCols--
+	expectEnvelopeReject("proof-selected PCS geometry", &badGeometry)
+	badRowLayout := *proof
+	badRowLayout.RowLayout = proof.RowLayout
+	badShowingLayout := *proof.RowLayout.IntGenISISShowing
+	badShowingLayout.X0Count--
+	badRowLayout.RowLayout.IntGenISISShowing = &badShowingLayout
+	expectEnvelopeReject("proof-selected relation layout", &badRowLayout)
+	badCompanionLayout := *proof
+	badCompanion := *proof.PRFCompanion
+	badCompanion.Layout = clonePRFCompanionLayout(proof.PRFCompanion.Layout)
+	badCompanion.Layout.StartRow++
+	badCompanionLayout.PRFCompanion = &badCompanion
+	expectEnvelopeReject("proof-selected PRF layout", &badCompanionLayout)
 	preparedCtx, err := PrepareIntGenISISShowingContext(pub, opts)
 	if err != nil {
 		t.Fatalf("prepare showing context: %v", err)
@@ -309,10 +361,10 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		t.Fatal("direct_full proof missing companion layout")
 	}
 	fullLayout := fullProof.PRFCompanion.Layout
-	if fullProof.PRFCompanion.Mode != PRFCompanionModeDirectFull || fullLayout.RelationVersion != 1 {
+	if fullProof.PRFCompanion.Mode != PRFCompanionModeDirectFull || fullLayout.RelationVersion != 2 {
 		t.Fatalf("direct_full mode/layout=(%s,%d)", fullProof.PRFCompanion.Mode, fullLayout.RelationVersion)
 	}
-	if got, want := fullLayout.PackedLogicalCount, params.LenKey+groupedPRFSBoxCount(params.LenKey, params.LenNonce, params.RF, params.RP, fullOpts.PRFGroupRounds)+params.T()+params.LenTag; got != want {
+	if got, want := fullLayout.PackedLogicalCount, params.LenKey+groupedPRFSBoxCount(params.LenKey, params.LenNonce, params.RF, params.RP, fullOpts.PRFGroupRounds)+params.T()+params.LenTag+1+4; got != want {
 		t.Fatalf("direct_full logical count=%d want %d", got, want)
 	}
 	if got, want := len(fullLayout.FinalRoundOutputSlots), params.T(); got != want {
@@ -330,35 +382,29 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		t.Fatalf("verify direct_full showing: ok=%v err=%v proofAgg=%d debugAgg=%d fullSetAgg=%d rel=%d", ok, err, gotAgg, len(fullProof.FaggCoeffDebug), len(fullSet.FaggNorm), fullProof.PRFCompanion.Layout.RelationVersion)
 	}
 	tamperedTagPub := pub
-	tamperedTagPub.Tag = make([][]int64, len(pub.Tag))
-	for i := range pub.Tag {
-		tamperedTagPub.Tag[i] = append([]int64(nil), pub.Tag[i]...)
-	}
-	tamperedTagPub.Tag[0][0]++
+	tamperedTagPub.Tag = append([]int64(nil), pub.Tag...)
+	tamperedTagPub.Tag[0]++
 	ok, err = VerifyIntGenISISShowing(tamperedTagPub, fullProof, fullOpts)
 	if err == nil && ok {
 		t.Fatal("direct_full verifier accepted tampered public tag")
 	}
-	tamperedNoncePub := pub
-	tamperedNoncePub.Nonce = make([][]int64, len(pub.Nonce))
-	for i := range pub.Nonce {
-		tamperedNoncePub.Nonce[i] = append([]int64(nil), pub.Nonce[i]...)
-	}
-	tamperedNoncePub.Nonce[0][0]++
-	ok, err = VerifyIntGenISISShowing(tamperedNoncePub, fullProof, fullOpts)
+	tamperedContextPub := pub
+	tamperedContextPub.Context = append([]int64(nil), pub.Context...)
+	tamperedContextPub.Context[0]++
+	ok, err = VerifyIntGenISISShowing(tamperedContextPub, fullProof, fullOpts)
 	if err == nil && ok {
-		t.Fatal("direct_full verifier accepted tampered public nonce")
+		t.Fatal("direct_full verifier accepted tampered public context")
 	}
 	tag10Params, err := prf.LoadLocalOrDefaultParams(filepath.Join("prf", "prf_params_tag10.json"))
 	if err != nil {
 		t.Fatalf("load tag10 params: %v", err)
 	}
-	tag10, err := prf.Tag(key, nonce, tag10Params)
+	tag10, err := prf.TagContextSlot(key, context, 0, tag10Params)
 	if err != nil {
 		t.Fatalf("tag10: %v", err)
 	}
 	tag10Pub := pub
-	tag10Pub.Tag = lanesFromElemsTest(tag10, opts.NCols)
+	tag10Pub.Tag = elemsToInt64Test(tag10)
 	tag10Opts := fullOpts
 	tag10Opts.PRFParamsPath = filepath.Join("prf", "prf_params_tag10.json")
 	tag10Proof, err := BuildIntGenISISShowingCombined(tag10Pub, WitnessInputs{CoeffNativeShowing: cn}, tag10Opts)
@@ -375,18 +421,15 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	}
 	for _, coord := range []int{8, 9} {
 		tampered := tag10Pub
-		tampered.Tag = make([][]int64, len(tag10Pub.Tag))
-		for i := range tag10Pub.Tag {
-			tampered.Tag[i] = append([]int64(nil), tag10Pub.Tag[i]...)
-		}
-		tampered.Tag[coord][0]++
+		tampered.Tag = append([]int64(nil), tag10Pub.Tag...)
+		tampered.Tag[coord]++
 		ok, err = VerifyIntGenISISShowing(tampered, tag10Proof, tag10Opts)
 		if err == nil && ok {
 			t.Fatalf("tag10 verifier accepted tampered nonce-feed-forward coordinate %d", coord)
 		}
 	}
-	if proof.QOpening == nil || proof.QRoot == ([16]byte{}) || len(proof.QRBits) == 0 {
-		t.Fatal("showing proof did not carry Q DECS material")
+	if proof.QOpening != nil || len(proof.QRootHash) != 0 || len(proof.QRBits) != 0 || len(proof.QPayloadMatrix()) == 0 {
+		t.Fatal("showing proof did not use the canonical Q payload-only transcript")
 	}
 	v3Opts := opts
 	v3Opts.IntGenISISReplayProjection = IntGenISISReplayProjectionProjectUDigitsYViewV3
@@ -399,7 +442,7 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		t.Fatalf("projection v3 debug rows: %v", err)
 	}
 	v3Layout := v3DebugLayout.IntGenISISShowing
-	if v3Layout.LayoutVersion != intGenISISShowingLayoutVersionProjectionUDigitsYViewV3 {
+	if v3Layout.LayoutVersion != intGenISISShowingLayoutVersionProjectionUDigitsYViewBoundedV4 {
 		t.Fatalf("projection v3 layout version=%q", v3Layout.LayoutVersion)
 	}
 	if v3Layout.UViewStart >= 0 || v3Layout.UShortnessSourceViewStart >= 0 || v3Layout.UShortnessSourceViewRows != 0 {
@@ -410,8 +453,8 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		t.Fatalf("projection v3 retained derived rows: uhat=(%d,%d) yhat=(%d,%d) yview=(%d,%d)",
 			v3Layout.UHatStart, v3Layout.UHatCount, v3Layout.YHatStart, v3Layout.YHatCount, v3Layout.YViewStart, v3Layout.YViewCount)
 	}
-	if v3Layout.MuSigViewStart >= 0 || v3Layout.X0ViewStart >= 0 || v3Layout.X1ViewStart >= 0 {
-		t.Fatalf("projection v3 unexpectedly committed issuer source views: mu=%d x0=%d x1=%d", v3Layout.MuSigViewStart, v3Layout.X0ViewStart, v3Layout.X1ViewStart)
+	if v3Layout.MuSigViewStart < 0 || v3Layout.X0ViewStart < 0 || v3Layout.X1ViewStart < 0 {
+		t.Fatalf("projection v3 omitted bounded issuer source views: mu=%d x0=%d x1=%d", v3Layout.MuSigViewStart, v3Layout.X0ViewStart, v3Layout.X1ViewStart)
 	}
 	if v3Layout.MuSigHatCount == 0 || v3Layout.X0HatCount == 0 || v3Layout.X1HatCount == 0 {
 		t.Fatalf("projection v3 must keep issuer hats bound: mu=%d x0=%d x1=%d", v3Layout.MuSigHatCount, v3Layout.X0HatCount, v3Layout.X1HatCount)
@@ -479,57 +522,58 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		"project_u_y_hat_v1",
 		"project_u_y_hat_and_y_view_v2",
 		"project_u_digits_y_source_linear_v4",
+		"project_u_digits_y_w_residual_v5",
 	} {
 		if err := validateIntGenISISReplayProjection(removedProjection); err == nil {
 			t.Fatalf("removed projection %q validated", removedProjection)
 		}
 	}
-	v5Opts := opts
-	v5Opts.IntGenISISReplayProjection = IntGenISISReplayProjectionProjectUDigitsYWResidualV5
-	v5DebugPub, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), v5Opts)
+	v6Opts := opts
+	v6Opts.IntGenISISReplayProjection = IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
+	v6DebugPub, err := bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), v6Opts)
 	if err != nil {
-		t.Fatalf("bind projection v5 debug public extras: %v", err)
+		t.Fatalf("bind bounded projection v6 debug public extras: %v", err)
 	}
-	v5Rows, _, v5DebugLayout, _, v5DebugCompanion, _, _, _, _, _, v5BuiltNCols, err := BuildCredentialRowsShowingIntGenISIS(ringQ, v5DebugPub, WitnessInputs{CoeffNativeShowing: cn}, params.LenKey, params.LenNonce, params.RF, params.RP, v5Opts.PRFGroupRounds, v5Opts)
+	v6Rows, _, v6DebugLayout, _, v6DebugCompanion, _, _, _, _, _, v6BuiltNCols, err := BuildCredentialRowsShowingIntGenISIS(ringQ, v6DebugPub, WitnessInputs{CoeffNativeShowing: cn}, params.LenKey, params.LenNonce, params.RF, params.RP, v6Opts.PRFGroupRounds, v6Opts)
 	if err != nil {
-		t.Fatalf("projection v5 debug rows: %v", err)
+		t.Fatalf("bounded projection v6 debug rows: %v", err)
 	}
-	v5Layout := v5DebugLayout.IntGenISISShowing
-	if v5Layout.LayoutVersion != intGenISISShowingLayoutVersionProjectionUDigitsYWResidualV5 {
-		t.Fatalf("projection v5 layout version=%q", v5Layout.LayoutVersion)
+	v6Layout := v6DebugLayout.IntGenISISShowing
+	if v6Layout.LayoutVersion != intGenISISShowingLayoutVersionProjectionUDigitsYBoundedSourcesV6 {
+		t.Fatalf("bounded projection v6 layout version=%q", v6Layout.LayoutVersion)
 	}
-	if v5Layout.MuSigHatStart >= 0 || v5Layout.MuSigHatCount != 0 || v5Layout.X0HatStart >= 0 || v5Layout.X0HatCount != 0 {
-		t.Fatalf("projection v5 retained mu/x0 hats: mu=(%d,%d) x0=(%d,%d)", v5Layout.MuSigHatStart, v5Layout.MuSigHatCount, v5Layout.X0HatStart, v5Layout.X0HatCount)
+	if v6Layout.MuSigViewStart < 0 || v6Layout.X0ViewStart < 0 || v6Layout.X1ViewStart < 0 {
+		t.Fatalf("bounded projection v6 omitted source views: mu=%d x0=%d x1=%d", v6Layout.MuSigViewStart, v6Layout.X0ViewStart, v6Layout.X1ViewStart)
 	}
-	if v5Layout.WHatStart < 0 || v5Layout.WHatCount != v5Layout.ViewRowsPerPoly {
-		t.Fatalf("projection v5 W hats=(%d,%d) want rows/poly=%d", v5Layout.WHatStart, v5Layout.WHatCount, v5Layout.ViewRowsPerPoly)
+	if v6Layout.MuSigHatCount != v6Layout.ViewRowsPerPoly || v6Layout.X0HatCount != v6Layout.X0Count*v6Layout.ViewRowsPerPoly || v6Layout.X1HatCount != v6Layout.ViewRowsPerPoly {
+		t.Fatalf("bounded projection v6 source hats: mu=%d x0=%d x1=%d", v6Layout.MuSigHatCount, v6Layout.X0HatCount, v6Layout.X1HatCount)
 	}
-	if v5Layout.X1HatCount != v5Layout.ViewRowsPerPoly || v5Layout.ZHatCount != v5Layout.ViewRowsPerPoly {
-		t.Fatalf("projection v5 must keep x1/Z hats: x1=%d Z=%d rows/poly=%d", v5Layout.X1HatCount, v5Layout.ZHatCount, v5Layout.ViewRowsPerPoly)
+	if v6Layout.WHatStart >= 0 || v6Layout.WHatCount != 0 {
+		t.Fatalf("bounded projection v6 retained W hats=(%d,%d)", v6Layout.WHatStart, v6Layout.WHatCount)
 	}
-	if got, want := len(v3Rows)-len(v5Rows), v3Layout.MuSigHatCount+v3Layout.X0HatCount-v5Layout.WHatCount; got != want {
-		t.Fatalf("projection v5 row saving=%d want %d", got, want)
+	if got, want := len(v6Rows), len(v3Rows); got != want {
+		t.Fatalf("bounded projections row counts v6=%d v3=%d", got, want)
 	}
-	v5RowsNTT := make([]*ring.Poly, len(v5Rows))
-	for i := range v5Rows {
-		v5RowsNTT[i] = ringQ.NewPoly()
-		ring.Copy(v5Rows[i], v5RowsNTT[i])
-		ringQ.NTT(v5RowsNTT[i], v5RowsNTT[i])
+	v6RowsNTT := make([]*ring.Poly, len(v6Rows))
+	for i := range v6Rows {
+		v6RowsNTT[i] = ringQ.NewPoly()
+		ring.Copy(v6Rows[i], v6RowsNTT[i])
+		ringQ.NTT(v6RowsNTT[i], v6RowsNTT[i])
 	}
-	v5Omega, err := deriveRelationWitnessOmega(ringQ.Modulus[0], v5Opts.NLeaves, v5Opts.NCols, v5Opts.LVCSNCols, v5Opts.Ell, pub.HashRelation)
+	v6Omega, err := deriveRelationWitnessOmega(ringQ.Modulus[0], v6Opts.NLeaves, v6Opts.NCols, v6Opts.LVCSNCols, v6Opts.Ell, pub.HashRelation)
 	if err != nil {
-		t.Fatalf("projection v5 debug omega: %v", err)
+		t.Fatalf("bounded projection v6 debug omega: %v", err)
 	}
-	v5Set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v5DebugPub, v5DebugLayout, v5RowsNTT, v5Omega[:v5BuiltNCols], v5DebugCompanion, nil, SimOpts{})
+	v6Set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v6DebugPub, v6DebugLayout, v6RowsNTT, v6Omega[:v6BuiltNCols], v6DebugCompanion, nil, SimOpts{})
 	if err != nil {
-		t.Fatalf("projection v5 constraints: %v", err)
+		t.Fatalf("bounded projection v6 constraints: %v", err)
 	}
-	assertConstraintBucketVanishesOnOmega(t, ringQ, v5Omega[:v5BuiltNCols], "projection v5 FparInt", v5Set.FparInt, v5Set.FparIntCoeffs)
-	if nonZero, err := bucketHasNonZeroOmegaSum(ringQ, v5Omega[:v5BuiltNCols], v5Set.FaggNorm, v5Set.FaggNormCoeffs); err != nil || nonZero {
-		t.Fatalf("projection v5 FaggNorm nonzero=%v err=%v", nonZero, err)
+	assertConstraintBucketVanishesOnOmega(t, ringQ, v6Omega[:v6BuiltNCols], "bounded projection v6 FparInt", v6Set.FparInt, v6Set.FparIntCoeffs)
+	if nonZero, err := bucketHasNonZeroOmegaSum(ringQ, v6Omega[:v6BuiltNCols], v6Set.FaggNorm, v6Set.FaggNormCoeffs); err != nil || nonZero {
+		t.Fatalf("bounded projection v6 FaggNorm nonzero=%v err=%v", nonZero, err)
 	}
-	v5MutatedRowsNTT := func(rowIdx int) []*ring.Poly {
-		cp := clonePolySliceForIntGenISISTest(ringQ, v5Rows)
+	v6MutatedRowsNTT := func(rowIdx int) []*ring.Poly {
+		cp := clonePolySliceForIntGenISISTest(ringQ, v6Rows)
 		cp[rowIdx].Coeffs[0][0] = (cp[rowIdx].Coeffs[0][0] + 1) % ringQ.Modulus[0]
 		out := make([]*ring.Poly, len(cp))
 		for i := range cp {
@@ -539,29 +583,29 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 		}
 		return out
 	}
-	set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v5DebugPub, v5DebugLayout, v5MutatedRowsNTT(v5Layout.WHatStart), v5Omega[:v5BuiltNCols], v5DebugCompanion, nil, SimOpts{})
+	set, err := buildIntGenISISShowingConstraintSetFromRows(ringQ, v6DebugPub, v6DebugLayout, v6MutatedRowsNTT(v6Layout.MuSigViewStart), v6Omega[:v6BuiltNCols], v6DebugCompanion, nil, SimOpts{})
 	if err != nil {
-		t.Fatalf("projection v5 tampered W constraints: %v", err)
+		t.Fatalf("bounded projection v6 tampered source constraints: %v", err)
 	}
-	if nonZero, err := bucketHasNonZeroOmegaSum(ringQ, v5Omega[:v5BuiltNCols], set.FaggNorm, set.FaggNormCoeffs); err != nil || !nonZero {
-		t.Fatalf("projection v5 tampered W nonzero=%v err=%v", nonZero, err)
+	if nonZero, err := bucketHasNonZeroOmegaSum(ringQ, v6Omega[:v6BuiltNCols], set.FaggNorm, set.FaggNormCoeffs); err != nil || !nonZero {
+		t.Fatalf("bounded projection v6 tampered source bridge nonzero=%v err=%v", nonZero, err)
 	}
-	v5BadLayout := *v5Layout
-	v5BadLayout.MuSigHatStart, v5BadLayout.MuSigHatCount = v3Layout.MuSigHatStart, v3Layout.MuSigHatCount
-	if err := validateIntGenISISShowingPackedLayout(&v5BadLayout, len(v5Rows)); err == nil || !strings.Contains(err.Error(), "must omit mu_sig/x0 hats") {
-		t.Fatalf("projection v5 layout should reject materialized mu hat, err=%v", err)
+	v6BadLayout := *v6Layout
+	v6BadLayout.WHatStart, v6BadLayout.WHatCount = 0, v6Layout.ViewRowsPerPoly
+	if err := validateIntGenISISShowingPackedLayout(&v6BadLayout, len(v6Rows)); err == nil || !strings.Contains(err.Error(), "must not commit W hats") {
+		t.Fatalf("bounded projection v6 layout should reject W hats, err=%v", err)
 	}
-	badPub := v5DebugPub
-	badPub.B = make([]*ring.Poly, len(v5DebugPub.B))
-	for i := range v5DebugPub.B {
+	badPub := v6DebugPub
+	badPub.B = make([]*ring.Poly, len(v6DebugPub.B))
+	for i := range v6DebugPub.B {
 		badPub.B[i] = ringQ.NewPoly()
-		ring.Copy(v5DebugPub.B[i], badPub.B[i])
+		ring.Copy(v6DebugPub.B[i], badPub.B[i])
 	}
 	for _, idx := range []int{1, 2, 3} {
-		badPub.B[idx].Coeffs[0][0] = 0
+		badPub.B[idx] = ringQ.NewPoly()
 	}
-	if _, _, _, _, _, _, _, _, _, _, _, err := BuildCredentialRowsShowingIntGenISIS(ringQ, badPub, WitnessInputs{CoeffNativeShowing: cn}, params.LenKey, params.LenNonce, params.RF, params.RP, v5Opts.PRFGroupRounds, v5Opts); err == nil || !strings.Contains(err.Error(), "not full-image") {
-		t.Fatalf("projection v5 should reject non-full-image B map, err=%v", err)
+	if _, _, _, _, _, _, _, _, _, _, _, err := BuildCredentialRowsShowingIntGenISIS(ringQ, badPub, WitnessInputs{CoeffNativeShowing: cn}, params.LenKey, params.LenNonce, params.RF, params.RP, v6Opts.PRFGroupRounds, v6Opts); err != nil {
+		t.Fatalf("bounded projection v6 retained full-image B requirement: %v", err)
 	}
 	v3MutatedRowsNTT := func(rowIdx int) []*ring.Poly {
 		cp := clonePolySliceForIntGenISISTest(ringQ, v3Rows)
@@ -597,21 +641,21 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if err == nil && ok {
 		t.Fatal("default verifier accepted projection v3 proof")
 	}
-	v5Proof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, v5Opts)
+	v6Proof, err := BuildIntGenISISShowingCombined(pub, WitnessInputs{CoeffNativeShowing: cn}, v6Opts)
 	if err != nil {
-		t.Fatalf("build projection v5 showing: %v", err)
+		t.Fatalf("build bounded projection v6 showing: %v", err)
 	}
-	ok, err = VerifyIntGenISISShowing(pub, v5Proof, v5Opts)
+	ok, err = VerifyIntGenISISShowing(pub, v6Proof, v6Opts)
 	if err != nil || !ok {
-		t.Fatalf("verify projection v5 showing: ok=%v err=%v", ok, err)
+		t.Fatalf("verify bounded projection v6 showing: ok=%v err=%v", ok, err)
 	}
-	ok, err = VerifyIntGenISISShowing(pub, v5Proof, v3Opts)
+	ok, err = VerifyIntGenISISShowing(pub, v6Proof, v3Opts)
 	if err == nil && ok {
-		t.Fatal("projection v3 verifier accepted projection v5 proof")
+		t.Fatal("projection v3 verifier accepted bounded projection v6 proof")
 	}
-	ok, err = VerifyIntGenISISShowing(pub, v3Proof, v5Opts)
+	ok, err = VerifyIntGenISISShowing(pub, v3Proof, v6Opts)
 	if err == nil && ok {
-		t.Fatal("projection v5 verifier accepted projection v3 proof")
+		t.Fatal("bounded projection v6 verifier accepted projection v3 proof")
 	}
 	compressedOpts := opts
 	compressedOpts.IntGenISISMSECompression = 1
@@ -650,8 +694,8 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	thetaOpts.LVCSNCols = thetaOpts.NCols
 	thetaOpts.PostSignLVCSNCols = thetaOpts.NCols
 	thetaOpts.PRFLVCSNCols = thetaOpts.NCols
-	thetaOpts.TranscriptVersion = TranscriptVersionSmallWood2025
-	thetaOpts.TranscriptProtocolMode = TranscriptProtocolSmallField2025V1
+	thetaOpts.TranscriptVersion = TranscriptVersionSmallWood2025V2
+	thetaOpts.TranscriptProtocolMode = TranscriptProtocolSmallField2025V2
 	rawR25Strict := thetaOpts
 	rawR25Strict.IntGenISISReplayProjection = IntGenISISReplayProjectionProjectUDigitsYViewV3
 	rawR25Strict.SigShortnessRadix = 25
@@ -681,10 +725,10 @@ func TestIntGenISISShowingProofBuildsAndVerifies(t *testing.T) {
 	if thetaProof.PCSOpening == nil || thetaProof.PCSOpening.PColsEncoded != thetaProof.PCSOpening.R-thetaProof.SmallField2025.QueryCount {
 		t.Fatalf("strict theta>1 showing opening PColsEncoded=%d R=%d query_count=%d", thetaProof.PCSOpening.PColsEncoded, thetaProof.PCSOpening.R, thetaProof.SmallField2025.QueryCount)
 	}
-	if thetaProof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV1 {
+	if thetaProof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV2 {
 		t.Fatalf("theta>1 geometry kind=%q", thetaProof.PCSGeometry.Kind)
 	}
-	if thetaProof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRows {
+	if thetaProof.PCSGeometry.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRowsV2 {
 		t.Fatalf("theta>1 source=%q", thetaProof.PCSGeometry.SmallFieldSource)
 	}
 	if thetaProof.QRoot != ([16]byte{}) || len(thetaProof.QRBits) != 0 || thetaProof.QOpening != nil {
@@ -843,6 +887,14 @@ func intGenISISTestPRFSeed() []int64 {
 		seed[i] = int64((i % int(2*credential.IntGenISISPRFSeedBound+1)) - int(credential.IntGenISISPRFSeedBound))
 	}
 	return seed
+}
+
+func elemsToInt64Test(values []prf.Elem) []int64 {
+	out := make([]int64, len(values))
+	for i, value := range values {
+		out[i] = int64(value)
+	}
+	return out
 }
 
 func assertIntGenISISShowingPreparedConstraintsMatchRebuild(t *testing.T, ringQ *ring.Ring, pub PublicInputs, cn *CoeffNativeShowingWitness, params *prf.Params, opts SimOpts) {

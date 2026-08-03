@@ -39,9 +39,9 @@ func TestDECSWidthResolutionSupportsSplitHashTape(t *testing.T) {
 	opts.DECSCollisionBits = 168
 	opts.DECSHashBits = 192
 	opts.DECSTapeBits = 128
-	params := applyDECSWidths(decs.Params{Degree: 16, Eta: 1, NonceBytes: 16}, opts)
-	if params.HashBytes != 24 || params.NonceBytes != 16 {
-		t.Fatalf("split params hash=%d nonce=%d", params.HashBytes, params.NonceBytes)
+	params := applyDECSWidths(decs.Params{Degree: 16, Eta: 1}, opts)
+	if params.HashBytes != 24 || params.TapeBytes != 16 {
+		t.Fatalf("split params hash=%d tape=%d", params.HashBytes, params.TapeBytes)
 	}
 	sb := computeSoundnessBudget(opts, 12289, 12289, 512, 192, 128, 32, 16, 16, 1, 1, 64, 64, 16)
 	if sb.DECSHashBits != 192 || sb.DECSTapeBits != 128 || sb.CollisionSpaceBits != 192 {
@@ -287,14 +287,10 @@ func soundnessTestOpts(caps [5]int) SimOpts {
 }
 
 func soundnessWidthProof(hashBytes int) *Proof {
-	var root [16]byte
-	copy(root[:], bytes.Repeat([]byte{1}, len(root)))
-	var rootHash []byte
-	if hashBytes > len(root) {
-		rootHash = bytes.Repeat([]byte{1}, hashBytes)
-	}
+	rootHash := bytes.Repeat([]byte{1}, hashBytes)
 	return &Proof{
-		TranscriptVersion: TranscriptVersionSmallWood2025,
+		SchemaVersion:     ProofSchemaVersionV2,
+		TranscriptVersion: TranscriptVersionSmallWood2025V2,
 		RingDegree:        1024,
 		QDegreeBound:      32,
 		NLeavesUsed:       64,
@@ -303,18 +299,19 @@ func soundnessWidthProof(hashBytes int) *Proof {
 		Theta:             1,
 		Kappa:             [4]int{30, 30, 30, 30},
 		Salt:              make([]byte, 64),
-		Root:              root,
 		RootHash:          rootHash,
 		PCSOpening: &decs.DECSOpening{
-			Indices:    []int{0},
-			PvalsBits:  []byte{1},
-			MvalsBits:  []byte{2},
-			R:          1,
-			Eta:        1,
-			Nodes:      [][]byte{bytes.Repeat([]byte{2}, hashBytes)},
-			PathIndex:  [][]int{{0}},
-			NonceSeed:  bytes.Repeat([]byte{3}, hashBytes),
-			NonceBytes: hashBytes,
+			Version:   decs.OpeningVersionV2,
+			Role:      decs.CommitmentRoleMain,
+			Indices:   []int{0},
+			PvalsBits: []byte{1},
+			MvalsBits: []byte{2},
+			R:         1,
+			Eta:       1,
+			Nodes:     [][]byte{bytes.Repeat([]byte{2}, hashBytes)},
+			PathIndex: [][]int{{0}},
+			Tapes:     [][]byte{bytes.Repeat([]byte{3}, hashBytes)},
+			TapeBytes: hashBytes,
 		},
 	}
 }

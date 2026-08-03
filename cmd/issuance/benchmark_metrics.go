@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"strings"
 	"time"
 
 	"vSIS-Signature/PIOP"
@@ -10,9 +8,7 @@ import (
 	"vSIS-Signature/prf"
 )
 
-const (
-	intGenISISTranscriptModeSmallField2025 = "smallfield_2025_1085_v1"
-)
+const intGenISISTranscriptModeSmallField2025 = credential.IntGenISISTranscriptProtocolV2
 
 type benchmarkIntGenISISMetrics struct {
 	ProofSizeBytes                int                               `json:"proof_size_bytes"`
@@ -24,6 +20,13 @@ type benchmarkIntGenISISMetrics struct {
 	MdecsBytes                    int                               `json:"mdecs_bytes,omitempty"`
 	AuthBytes                     int                               `json:"auth_bytes"`
 	TapesBytes                    int                               `json:"tapes_bytes,omitempty"`
+	TapeBytes                     int                               `json:"tape_bytes"`
+	TapeCount                     int                               `json:"tape_count"`
+	TapeWidthBytes                int                               `json:"tape_width_bytes"`
+	TapeDisclosureMode            string                            `json:"tape_disclosure_mode"`
+	LeafEncodingVersion           int                               `json:"leaf_encoding_version"`
+	RootWidthBytes                int                               `json:"root_width_bytes"`
+	ZeroKnowledgeEligible         bool                              `json:"zero_knowledge_eligible"`
 	SigShortnessBytes             int                               `json:"sig_shortness_bytes"`
 	VTargetsBytes                 int                               `json:"vtargets_bytes"`
 	BarSetsBytes                  int                               `json:"barsets_bytes"`
@@ -55,6 +58,8 @@ type benchmarkIntGenISISMetrics struct {
 	YLinearConstraints            int                               `json:"y_linear_constraints,omitempty"`
 	ProjectedSignatureConstraints int                               `json:"projected_signature_constraints,omitempty"`
 	ReplayProjection              string                            `json:"replay_projection,omitempty"`
+	LayoutVersion                 string                            `json:"layout_version,omitempty"`
+	PRFCompanionRelationVersion   int                               `json:"prf_companion_relation_version,omitempty"`
 	IssuerBridgeConstraints       int                               `json:"issuer_bridge_constraints,omitempty"`
 	PRFKeyBridgeConstraints       int                               `json:"prf_key_bridge_constraints,omitempty"`
 	FparIntConstraints            int                               `json:"fpar_int_constraints,omitempty"`
@@ -144,15 +149,6 @@ type benchmarkIntGenISISRelationReport struct {
 	DominantDQBranch     string         `json:"dominant_dq_branch,omitempty"`
 }
 
-func normalizeIntGenISISTranscriptMode(mode string) (string, error) {
-	switch strings.TrimSpace(strings.ToLower(mode)) {
-	case "", intGenISISTranscriptModeSmallField2025, "smallfield-2025-1085-v1", "smallwood-2025-1085-smallfield", "paper-smallfield":
-		return intGenISISTranscriptModeSmallField2025, nil
-	default:
-		return "", fmt.Errorf("unknown transcript mode %q (supported: smallfield_2025_1085_v1)", mode)
-	}
-}
-
 func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub PIOP.PublicInputs, opts PIOP.SimOpts, proveDur, verifyDur time.Duration, status string) benchmarkIntGenISISMetrics {
 	metrics := benchmarkIntGenISISMetrics{
 		ProofSizeBytes:           report.ProofBytes,
@@ -164,6 +160,13 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		MdecsBytes:               report.PaperTranscript.Mdecs.OptimizedBytes,
 		AuthBytes:                report.PaperTranscript.Auth.OptimizedBytes,
 		TapesBytes:               report.PaperTranscript.Tapes.OptimizedBytes,
+		TapeBytes:                report.TapeBytes,
+		TapeCount:                report.TapeCount,
+		TapeWidthBytes:           report.TapeWidthBytes,
+		TapeDisclosureMode:       report.TapeDisclosureMode,
+		LeafEncodingVersion:      report.LeafEncodingVersion,
+		RootWidthBytes:           report.RootWidthBytes,
+		ZeroKnowledgeEligible:    report.ZeroKnowledgeEligible,
 		SigShortnessBytes:        report.PaperTranscript.SigShortness.OptimizedBytes,
 		VTargetsBytes:            report.PaperTranscript.VTargets.OptimizedBytes,
 		BarSetsBytes:             report.PaperTranscript.BarSets.OptimizedBytes,
@@ -295,7 +298,7 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		metrics.MSECompressionDegree = l.MSECompressionDecodeDegree
 		metrics.RangeConstraints = l.BoundViewCount
 		metrics.ShortnessRows = l.UShortnessGroupCount * l.UShortnessRowsPerGroup
-		metrics.UDigitOnly = l.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || l.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+		metrics.UDigitOnly = l.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || l.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 		metrics.ShortnessConstraints = l.UShortnessGroupCount * l.UShortnessRowsPerGroup
 		if !metrics.UDigitOnly {
 			metrics.ShortnessConstraints += l.UShortnessGroupCount
@@ -303,12 +306,13 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		metrics.YHatRows = l.YHatCount
 		metrics.HatRows = l.UHatCount + l.MHatCount + l.SHatCount + l.EHatCount + l.YHatCount + l.MuSigHatCount + l.X0HatCount + l.WHatCount + l.X1HatCount + l.ZHatCount
 		metrics.ReplayProjection = l.ReplayProjection
+		metrics.LayoutVersion = l.LayoutVersion
 		if metrics.ReplayProjection == "" && l.LayoutVersion == "intgenisis_showing_project_u_digits_y_view_v3" {
 			metrics.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3
-		} else if metrics.ReplayProjection == "" && l.LayoutVersion == "intgenisis_showing_project_u_digits_y_w_residual_v5" {
-			metrics.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+		} else if metrics.ReplayProjection == "" && l.LayoutVersion == "intgenisis_showing_project_u_digits_y_bounded_sources_v6" {
+			metrics.ReplayProjection = PIOP.IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 		}
-		metrics.UDigitOnly = metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5
+		metrics.UDigitOnly = metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 		if l.ViewRowsPerPoly > 0 {
 			ncols := proof.RowLayout.RingDegree / l.ViewRowsPerPoly
 			bridgeRows := func(viewStart, hatCount int) int {
@@ -321,7 +325,7 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 			metrics.CommitmentBridgeConstraints = bridgeRows(l.YViewStart, l.YHatCount)
 			metrics.YLinearConstraints = l.YViewCount * ncols
 			metrics.IssuerBridgeConstraints = bridgeRows(l.MuSigViewStart, l.MuSigHatCount) + bridgeRows(l.X0ViewStart, l.X0HatCount) + bridgeRows(l.X1ViewStart, l.X1HatCount) + bridgeRows(l.ZViewStart, l.ZHatCount)
-			if metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5 {
+			if metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 {
 				metrics.ProjectedSignatureConstraints = l.ViewRowsPerPoly * ncols
 			}
 			metrics.SourceBridgeConstraints = metrics.UBridgeConstraints + metrics.CommitmentBridgeConstraints + metrics.YLinearConstraints + metrics.ProjectedSignatureConstraints + metrics.IssuerBridgeConstraints
@@ -330,7 +334,7 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 		if l.MViewStart >= 0 && l.MAttrViewStart >= 0 && l.KViewStart >= 0 {
 			semanticConstraints = l.ViewRowsPerPoly
 		}
-		if metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYWResidualV5 {
+		if metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYViewV3 || metrics.ReplayProjection == PIOP.IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 {
 			metrics.FparIntConstraints = l.ViewRowsPerPoly + semanticConstraints
 		} else {
 			metrics.FparIntConstraints = 2*l.ViewRowsPerPoly + semanticConstraints
@@ -353,6 +357,22 @@ func intGenISISMetricsFromProof(proof *PIOP.Proof, report PIOP.ProofReport, pub 
 	if proof.PRFCompanion != nil && proof.PRFCompanion.Layout != nil {
 		metrics.PRFRows = proof.PRFCompanion.Layout.PackedRows
 		metrics.PRFKeyBridgeConstraints = proof.PRFCompanion.Layout.KeyCount
+		metrics.PRFCompanionRelationVersion = int(proof.PRFCompanion.Layout.RelationVersion)
+	}
+	if smallField := proof.SmallField2025; smallField != nil {
+		metrics.PaperShapeNRows = smallField.NRows
+		metrics.PaperShapeQueries = smallField.QueryCount
+		metrics.PaperShapeWitnessLayers = smallField.WitnessLayers
+		metrics.PaperShapeMaskRows = smallField.MaskRows
+		metrics.PaperShapeOpeningOmitEntries = len(smallField.POmitCols) + len(smallField.MOmitCols)
+		metrics.PaperShapeCanonical = smallField.Version == 2 &&
+			smallField.Mode == credential.IntGenISISTranscriptProtocolV2 &&
+			smallField.Status == credential.IntGenISISSecurityGateV2 &&
+			smallField.ReductionEnabled &&
+			proof.PCSGeometry.Kind == PIOP.PCSGeometryKindSmallFieldMatrixV2 &&
+			smallField.TranscriptOmission != nil &&
+			smallField.TranscriptOmission.Version == 2 &&
+			smallField.TranscriptOmission.Mode == PIOP.SmallField2025TranscriptOmissionModeDigestBoundV2
 	}
 	if metrics.ProofReportBuckets == 0 {
 		metrics.ProofReportBuckets = report.TranscriptFocus.RowOpeningEntries
@@ -367,7 +387,7 @@ func benchmarkTranscriptModeFromProof(proof *PIOP.Proof) string {
 	if proof == nil {
 		return ""
 	}
-	if proof.TranscriptVersion == PIOP.TranscriptVersionSmallWood2025 {
+	if proof.TranscriptVersion == PIOP.TranscriptVersionSmallWood2025V2 {
 		return intGenISISTranscriptModeSmallField2025
 	}
 	return ""
@@ -478,29 +498,10 @@ func intGenISISBenchmarkElemFromSigned(v int64, q uint64) prf.Elem {
 	return prf.Elem(uint64(mod))
 }
 
-func intGenISISBenchmarkNonce(lenNonce, ncols int, q uint64) ([]prf.Elem, [][]int64) {
-	nonce := make([]prf.Elem, lenNonce)
-	public := make([][]int64, lenNonce)
-	for i := 0; i < lenNonce; i++ {
-		v := uint64(i+1) % q
-		nonce[i] = prf.Elem(v)
-		public[i] = intGenISISBenchmarkConstLane(ncols, int64(v))
-	}
-	return nonce, public
-}
-
-func intGenISISBenchmarkConstLane(ncols int, v int64) []int64 {
-	out := make([]int64, ncols)
-	for i := range out {
-		out[i] = v
-	}
-	return out
-}
-
-func intGenISISBenchmarkLanesFromElems(vals []prf.Elem, ncols int) [][]int64 {
-	out := make([][]int64, len(vals))
+func intGenISISBenchmarkScalarsFromElems(vals []prf.Elem) []int64 {
+	out := make([]int64, len(vals))
 	for i, v := range vals {
-		out[i] = intGenISISBenchmarkConstLane(ncols, int64(v))
+		out[i] = int64(v)
 	}
 	return out
 }

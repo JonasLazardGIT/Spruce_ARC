@@ -7,10 +7,10 @@ import (
 
 func TestCanonicalPresetAliasesResolveToOneManifest(t *testing.T) {
 	tests := map[string]string{
-		IntGenISISPresetPoCN512SC96V1:          IntGenISISPresetN512Compact96,
-		IntGenISISPresetArtifactN1024SC125V1:   IntGenISISPresetN1024Compact125,
-		IntGenISISPresetPilotN1024BQ32R96V1:    IntGenISISPresetN1024BQ32_96,
-		IntGenISISPresetSystemN1024WF128CROMV1: IntGenISISPresetSystemN1024WF128CROMV1,
+		IntGenISISPresetPoCN512SC96V2:          IntGenISISPresetN512Compact96,
+		IntGenISISPresetArtifactN1024SC125V2:   IntGenISISPresetN1024Compact125,
+		IntGenISISPresetPilotN1024BQ32R96V2:    IntGenISISPresetN1024BQ32_96,
+		IntGenISISPresetSystemN1024WF128CROMV2: IntGenISISPresetSystemN1024WF128CROMV2,
 	}
 	for alias, legacy := range tests {
 		fromAlias, ok := LookupIntGenISISPreset(alias)
@@ -53,7 +53,7 @@ func TestEveryRegisteredPresetManifestValidates(t *testing.T) {
 }
 
 func TestPresetManifestDigestBindsSecurityRelevantTuning(t *testing.T) {
-	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V1)
+	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V2)
 	digest := IntGenISISPresetManifestDigest(preset)
 	mutated := preset
 	mutated.Showing.SaltBits++
@@ -71,6 +71,11 @@ func TestPresetManifestDigestBindsSecurityRelevantTuning(t *testing.T) {
 		t.Fatal("PRF parameter change did not change preset manifest digest")
 	}
 	mutated = preset
+	mutated.Showing.TranscriptOmissionMode = "different"
+	if got := IntGenISISPresetManifestDigest(mutated); got == digest {
+		t.Fatal("transcript omission mode change did not change preset manifest digest")
+	}
+	mutated = preset
 	mutated.PRFParamsPath = "/alternate/local/path/to/the-same-parameters.json"
 	if got := IntGenISISPresetManifestDigest(mutated); got != digest {
 		t.Fatal("operational PRF pathname changed canonical manifest identity")
@@ -84,34 +89,39 @@ func TestPresetThreatModelsSeparatePerPhaseOracleCapsFromHonestVolume(t *testing
 			t.Fatalf("%s threat model: %v", name, err)
 		}
 	}
-	pilot, _ := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V1)
+	pilot, _ := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V2)
 	if pilot.ThreatModel.MaxProofsLog2 != 32 || pilot.ThreatModel.MaxIssuanceProofsLog2 != 31 || pilot.ThreatModel.MaxShowingProofsLog2 != 31 {
 		t.Fatalf("pilot proof-volume split=%+v", pilot.ThreatModel)
 	}
 	if pilot.ThreatModel.ROQueryCapScope != ROQueryCapPerPhaseGlobal || pilot.ThreatModel.AcceptedIssuance != 1 || pilot.ThreatModel.AcceptedShowing != 1 {
 		t.Fatalf("pilot adversarial composition=%+v", pilot.ThreatModel)
 	}
-	poc, _ := LookupIntGenISISPreset(IntGenISISPresetPoCN512SC96V1)
+	poc, _ := LookupIntGenISISPreset(IntGenISISPresetPoCN512SC96V2)
 	if poc.ThreatModel.TargetSingleCandidateBits != 96 || poc.ThreatModel.TargetResidualBits != 0 || poc.ThreatModel.TargetWorkFactorBits != 0 {
 		t.Fatalf("single-candidate target encoded under the wrong semantics: %+v", poc.ThreatModel)
 	}
 }
 
 func TestPresetManifestRejectsDivergentTargetsAndQueryScopes(t *testing.T) {
-	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V1)
+	preset, _ := LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V2)
 	preset.ThreatModel.TargetResidualBits++
 	if err := ValidateIntGenISISPresetManifest(preset); err == nil {
 		t.Fatal("threat-model target differing from the selected profile was accepted")
 	}
-	preset, _ = LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V1)
+	preset, _ = LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V2)
 	preset.Issuance.ROQueryCaps[0] /= 2
 	if err := ValidateIntGenISISPresetManifest(preset); err == nil {
 		t.Fatal("issuance query scope differing from the showing/profile scope was accepted")
 	}
-	preset, _ = LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V1)
+	preset, _ = LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V2)
 	preset.ThreatModel.MaxProofsLog2 = math.NaN()
 	if err := ValidateIntGenISISPresetManifest(preset); err == nil {
 		t.Fatal("non-finite threat-model volume was accepted")
+	}
+	preset, _ = LookupIntGenISISPreset(IntGenISISPresetPilotN1024BQ32R96V2)
+	preset.Showing.TranscriptOmissionMode = ""
+	if err := ValidateIntGenISISPresetManifest(preset); err == nil {
+		t.Fatal("missing showing transcript omission mode was accepted")
 	}
 }
 
