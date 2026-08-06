@@ -43,7 +43,7 @@ func validateFunctionalPresetReport(report benchmarkIntGenISISE2EReport) error {
 		return fmt.Errorf("replay rejection did not pass")
 	}
 	if report.Issuance.ProofSizeBytes <= 0 || report.Showing.ProofSizeBytes <= 0 {
-		return fmt.Errorf("missing serialized issuance/showing proof")
+		return fmt.Errorf("missing issuance/showing proof-size accounting")
 	}
 	return nil
 }

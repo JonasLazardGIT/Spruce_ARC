@@ -3644,8 +3644,8 @@ func TestNIZKProfileMaintainedByteGateBaselineLocked(t *testing.T) {
 		credential.IntGenISISPresetPilotN1024BQ32R96V2:    {24859, 41159, 66018},
 		credential.IntGenISISPresetPoCN1024BQ64R128V2:     {39950, 64350, 104300},
 		credential.IntGenISISPresetPoCN1024BQ96R128V2:     {52472, 82972, 135444},
-		credential.IntGenISISPresetPoCN1024BQ128R128V3:    {62029, 96254, 158283},
-		credential.IntGenISISPresetSystemN1024WF128CROMV2: {26515, 42739, 69254},
+		credential.IntGenISISPresetPoCN1024BQ128R128V3:    {57271, 90494, 147765},
+		credential.IntGenISISPresetSystemN1024WF128CROMV2: {23790, 39837, 63627},
 	}
 	gates := allMaintainedPresetGates()
 	if len(gates) != len(want) {
@@ -3663,7 +3663,7 @@ func TestNIZKProfileMaintainedByteGateBaselineLocked(t *testing.T) {
 		}
 		preset, ok := credential.LookupIntGenISISPreset(gate.Name)
 		if !ok || preset.CanonicalID != gate.Name {
-			t.Fatalf("maintained gate %q is not a canonical v2 preset ID", gate.Name)
+			t.Fatalf("maintained gate %q is not a canonical preset ID", gate.Name)
 		}
 		profile, ok := credential.LookupIntGenISISSecurityProfile(preset.SecurityProfile)
 		if !ok || gate.MinTheoremBits != profile.TargetBits {
@@ -3684,6 +3684,17 @@ func TestNIZKProfileMaintainedByteGateBaselineLocked(t *testing.T) {
 		}
 		if gate.ExpectedCombinedPaperBytes != gate.ExpectedIssuancePaperBytes+gate.ExpectedShowingPaperBytes {
 			t.Fatalf("maintained combined byte baseline is inconsistent for %s", gate.Name)
+		}
+		expectedStatus := credential.IntGenISISSecurityGateV2
+		if gate.Name == credential.IntGenISISPresetPoCN1024BQ128R128V3 || gate.Name == credential.IntGenISISPresetSystemN1024WF128CROMV2 {
+			expectedStatus = credential.IntGenISISSecurityGateV3
+		}
+		actualStatus := gate.ExpectedTranscriptStatus
+		if actualStatus == "" {
+			actualStatus = credential.IntGenISISSecurityGateV2
+		}
+		if actualStatus != expectedStatus {
+			t.Fatalf("maintained transcript gate for %s=%q want %q", gate.Name, actualStatus, expectedStatus)
 		}
 	}
 }

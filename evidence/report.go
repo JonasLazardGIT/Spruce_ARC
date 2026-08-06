@@ -65,27 +65,55 @@ type benchmarkReportWire struct {
 	Options                    benchmarkOptionsWire                        `json:"options"`
 	Environment                benchmarkEnvironmentWire                    `json:"environment"`
 	Timings                    benchmarkTimingsWire                        `json:"timings"`
+	Resources                  benchmarkResourcesWire                      `json:"resources"`
 	Issuance                   benchmarkPhaseWire                          `json:"issuance"`
 	Showing                    benchmarkPhaseWire                          `json:"showing"`
 	FullGame                   PIOP.FullGameSoundnessReport                `json:"full_game"`
+	FullGameAccountingStatus   string                                      `json:"full_game_accounting_status,omitempty"`
 	SecurityLedger             credential.SystemSecurityLedger             `json:"security_ledger"`
 	ParameterAudit             credential.IntGenISISSecurityParameterAudit `json:"parameter_audit"`
 	ValidPrefixCost            credential.ValidPrefixCostReport            `json:"valid_prefix_cost,omitempty"`
 	Artifacts                  benchmarkArtifactsWire                      `json:"artifacts"`
+	CanonicalSizes             *benchmarkCanonicalSizesWire                `json:"canonical_sizes,omitempty"`
 	ReplayRejected             bool                                        `json:"replay_rejected"`
+	TamperRejected             bool                                        `json:"tamper_rejected,omitempty"`
+	ArtifactHashesVerified     bool                                        `json:"artifact_hashes_verified,omitempty"`
+	ArtifactSHA256             map[string]string                           `json:"artifact_sha256,omitempty"`
 	Notes                      []string                                    `json:"notes"`
 }
 
 type benchmarkEnvironmentWire struct {
-	GoVersion  string `json:"go_version"`
-	GOOS       string `json:"goos"`
-	GOARCH     string `json:"goarch"`
-	NumCPU     int    `json:"num_cpu"`
-	GOMAXPROCS int    `json:"gomaxprocs"`
-	VCS        string `json:"vcs,omitempty"`
-	Commit     string `json:"commit,omitempty"`
-	CommitTime string `json:"commit_time,omitempty"`
-	Modified   *bool  `json:"modified,omitempty"`
+	GoVersion           string `json:"go_version"`
+	GOOS                string `json:"goos"`
+	GOARCH              string `json:"goarch"`
+	NumCPU              int    `json:"num_cpu"`
+	GOMAXPROCS          int    `json:"gomaxprocs"`
+	VCS                 string `json:"vcs,omitempty"`
+	Commit              string `json:"commit,omitempty"`
+	CommitTime          string `json:"commit_time,omitempty"`
+	Modified            *bool  `json:"modified,omitempty"`
+	SourceTreeAlgorithm string `json:"source_tree_algorithm,omitempty"`
+	SourceTreeDigest    string `json:"source_tree_digest,omitempty"`
+	SourceTreeFileCount int    `json:"source_tree_file_count,omitempty"`
+	BuildSHA256         string `json:"build_sha256,omitempty"`
+	CPUModel            string `json:"cpu_model,omitempty"`
+	CPUFeatures         string `json:"cpu_features,omitempty"`
+	MachineDigest       string `json:"machine_digest,omitempty"`
+}
+
+type benchmarkResourcesWire struct {
+	AllocatedBytes uint64 `json:"allocated_bytes"`
+	Allocations    uint64 `json:"allocations"`
+	PeakRSSBytes   uint64 `json:"peak_rss_bytes,omitempty"`
+}
+
+type benchmarkCanonicalSizesWire struct {
+	CredentialStateBytes   int `json:"persistent_credential_state_bytes"`
+	IssuanceProofWireBytes int `json:"issuance_proof_wire_bytes"`
+	ShowingProofWireBytes  int `json:"showing_proof_wire_bytes"`
+	PresentationWireBytes  int `json:"presentation_wire_bytes"`
+	IssuancePaperBytes     int `json:"issuance_paper_transcript_bytes"`
+	ShowingPaperBytes      int `json:"showing_paper_transcript_bytes"`
 }
 
 type benchmarkArtifactsWire struct {
@@ -121,41 +149,57 @@ type benchmarkOptionsWire struct {
 }
 
 type benchmarkTuningWire struct {
-	NCols                  int        `json:"ncols"`
-	LVCSNCols              int        `json:"lvcs_ncols"`
-	NLeaves                int        `json:"nleaves"`
-	Eta                    int        `json:"eta"`
-	Theta                  int        `json:"theta"`
-	Rho                    int        `json:"rho"`
-	Ell                    int        `json:"ell"`
-	EllPrime               int        `json:"ell_prime"`
-	DQOverride             int        `json:"dq_override,omitempty"`
-	Kappa                  [4]int     `json:"kappa"`
-	ROQueryCaps            [5]int     `json:"ro_query_caps,omitempty"`
-	ROQueryCapBits         [5]float64 `json:"ro_query_cap_bits,omitempty"`
-	DECSCollisionBits      int        `json:"decs_collision_bits,omitempty"`
-	DECSHashBits           int        `json:"decs_hash_bits,omitempty"`
-	DECSTapeBits           int        `json:"decs_tape_bits,omitempty"`
-	FSCollisionBits        int        `json:"fs_collision_bits,omitempty"`
-	SaltBits               int        `json:"salt_bits,omitempty"`
-	PRFProfile             string     `json:"prf_profile,omitempty"`
-	PRFParamsPath          string     `json:"prf_params_path,omitempty"`
-	PRFCompanionMode       string     `json:"prf_companion_mode,omitempty"`
-	PRFGroupRounds         int        `json:"prf_group_rounds,omitempty"`
-	CheckpointSamples      int        `json:"prf_checkpoint_samples,omitempty"`
-	SigShortnessRadix      int        `json:"sig_shortness_radix,omitempty"`
-	SigShortnessDigits     int        `json:"sig_shortness_digits,omitempty"`
-	CompressedRows         int        `json:"compressed_rows,omitempty"`
-	ReplayProjection       string     `json:"replay_projection,omitempty"`
-	TranscriptMode         string     `json:"transcript_mode,omitempty"`
-	TranscriptOmissionMode string     `json:"transcript_omission_mode,omitempty"`
-	FixedTranscriptSize    bool       `json:"fixed_transcript_size,omitempty"`
+	PresetID                string     `json:"preset_id,omitempty"`
+	NCols                   int        `json:"ncols"`
+	LVCSNCols               int        `json:"lvcs_ncols"`
+	NLeaves                 int        `json:"nleaves"`
+	Eta                     int        `json:"eta"`
+	Theta                   int        `json:"theta"`
+	Rho                     int        `json:"rho"`
+	Ell                     int        `json:"ell"`
+	EllPrime                int        `json:"ell_prime"`
+	DQOverride              int        `json:"dq_override,omitempty"`
+	Kappa                   [4]int     `json:"kappa"`
+	ROQueryCaps             [5]int     `json:"ro_query_caps,omitempty"`
+	ROQueryCapBits          [5]float64 `json:"ro_query_cap_bits,omitempty"`
+	AggregateROQueryCapLog2 float64    `json:"aggregate_ro_query_cap_log2,omitempty"`
+	DECSCollisionBits       int        `json:"decs_collision_bits,omitempty"`
+	DECSHashBits            int        `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits            int        `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits         int        `json:"fs_collision_bits,omitempty"`
+	FSOutputBits            int        `json:"fs_output_bits,omitempty"`
+	SaltBits                int        `json:"salt_bits,omitempty"`
+	PRFProfile              string     `json:"prf_profile,omitempty"`
+	PRFParamsPath           string     `json:"prf_params_path,omitempty"`
+	PRFCompanionMode        string     `json:"prf_companion_mode,omitempty"`
+	PRFGroupRounds          int        `json:"prf_group_rounds,omitempty"`
+	CheckpointSamples       int        `json:"prf_checkpoint_samples,omitempty"`
+	SigShortnessRadix       int        `json:"sig_shortness_radix,omitempty"`
+	SigShortnessDigits      int        `json:"sig_shortness_digits,omitempty"`
+	CompressedRows          int        `json:"compressed_rows,omitempty"`
+	ReplayProjection        string     `json:"replay_projection,omitempty"`
+	TranscriptMode          string     `json:"transcript_mode,omitempty"`
+	TranscriptOmissionMode  string     `json:"transcript_omission_mode,omitempty"`
+	FixedTranscriptSize     bool       `json:"fixed_transcript_size,omitempty"`
 }
 
 // benchmarkPhaseWire names the complete v2 metric object. Large diagnostic
 // subobjects are retained as RawMessage; their containing schema is strict.
 type benchmarkPhaseWire struct {
 	ProofSizeBytes                int                              `json:"proof_size_bytes"`
+	ModeledVerifierMessageBytes   int                              `json:"modeled_verifier_message_bytes"`
+	CanonicalProofWireBytes       int                              `json:"canonical_proof_wire_bytes,omitempty"`
+	CanonicalPresentationBytes    int                              `json:"canonical_presentation_wire_bytes,omitempty"`
+	CanonicalWireAudit            *PIOP.CanonicalProofWireAuditV6  `json:"canonical_wire_audit,omitempty"`
+	ProofSchemaVersion            int                              `json:"proof_schema_version,omitempty"`
+	CanonicalProofKind            string                           `json:"canonical_proof_kind,omitempty"`
+	CanonicalProofCodecVersion    int                              `json:"canonical_proof_codec_version,omitempty"`
+	CanonicalProofCodecProfile    string                           `json:"canonical_proof_codec_profile,omitempty"`
+	CanonicalProofFieldEncoding   string                           `json:"canonical_proof_field_encoding,omitempty"`
+	CanonicalProofQKernelEncoding string                           `json:"canonical_proof_q_kernel_encoding,omitempty"`
+	CanonicalProofRadixQGroupSize int                              `json:"canonical_proof_radix_q_group_elements,omitempty"`
+	CanonicalProofMerkleTopology  string                           `json:"canonical_proof_merkle_topology,omitempty"`
+	CanonicalTamperRejected       bool                             `json:"canonical_tamper_rejected"`
 	PaperTranscriptBytes          int                              `json:"paper_transcript_bytes"`
 	PaperTranscriptKB             float64                          `json:"paper_transcript_kb"`
 	QBytes                        int                              `json:"q_bytes"`
@@ -179,6 +223,7 @@ type benchmarkPhaseWire struct {
 	ProvingMS                     float64                          `json:"proving_ms"`
 	VerificationMS                float64                          `json:"verification_ms"`
 	PhaseTimings                  []PIOP.PhaseTiming               `json:"phase_timings,omitempty"`
+	FSCounters                    [4]uint64                        `json:"fs_counters"`
 	TotalRows                     int                              `json:"total_rows"`
 	RowsBlock                     int                              `json:"rows_block,omitempty"`
 	AuditRows                     int                              `json:"audit_rows,omitempty"`
@@ -203,7 +248,9 @@ type benchmarkPhaseWire struct {
 	ProjectedSignatureConstraints int                              `json:"projected_signature_constraints,omitempty"`
 	ReplayProjection              string                           `json:"replay_projection,omitempty"`
 	LayoutVersion                 string                           `json:"layout_version,omitempty"`
+	RelationVersion               string                           `json:"relation_version,omitempty"`
 	PRFCompanionRelationVersion   int                              `json:"prf_companion_relation_version,omitempty"`
+	PRFInputTraceRelationVersion  int                              `json:"prf_input_trace_relation_version,omitempty"`
 	IssuerBridgeConstraints       int                              `json:"issuer_bridge_constraints,omitempty"`
 	PRFKeyBridgeConstraints       int                              `json:"prf_key_bridge_constraints,omitempty"`
 	FparIntConstraints            int                              `json:"fpar_int_constraints,omitempty"`
@@ -228,6 +275,15 @@ type benchmarkPhaseWire struct {
 	ROQueryCapBits                [5]float64                       `json:"ro_query_cap_bits,omitempty"`
 	CollisionSpaceBits            int                              `json:"collision_space_bits"`
 	FSLambdaBits                  int                              `json:"fs_lambda_bits"`
+	FSOutputBits                  int                              `json:"fs_output_bits"`
+	ObservedFSDigestBits          [4]int                           `json:"observed_fs_digest_bits"`
+	AggregateQueryBudget          bool                             `json:"aggregate_query_budget,omitempty"`
+	AggregateQueryCapLog2         float64                          `json:"aggregate_query_cap_log2,omitempty"`
+	WorkFactorMode                bool                             `json:"work_factor_mode,omitempty"`
+	WorkFactorBits                float64                          `json:"work_factor_bits,omitempty"`
+	WorkFactorComponents          [6]float64                       `json:"work_factor_components,omitempty"`
+	NativeAlgebraicTerms          [4]float64                       `json:"native_algebraic_terms,omitempty"`
+	NativeAlgebraicBits           [4]float64                       `json:"native_algebraic_bits,omitempty"`
 	EffectiveLambdaBits           int                              `json:"effective_lambda_bits"`
 	DECSHashBits                  int                              `json:"decs_hash_bits"`
 	DECSTapeBits                  int                              `json:"decs_tape_bits"`

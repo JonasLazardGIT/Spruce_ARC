@@ -1,0 +1,51 @@
+{
+  "schema": "spruce.focused-v3-final-size-optimization",
+  "version": 1,
+  "measured_on": "2026-08-05",
+  "claim_scope": "proof_only",
+  "implementation_base_commit": "f8973f05473c9110081324a0f2671fa410fb12f3",
+  "source_tree_digest": "07035083fc3a35ae3226a2598b1f879bc12b36e06b1ada863b92d4f228df23ff",
+  "paper_repository": {
+    "head_before": "d19818571f04c8c12425e2e7c10ceb41f7a1762d",
+    "head_after": "d19818571f04c8c12425e2e7c10ceb41f7a1762d",
+    "clean_before": true,
+    "clean_after": true
+  },
+  "protocol": {
+    "proof_schema_version": 3,
+    "canonical_proof_codec_version": 6,
+    "canonical_proof_codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+    "merkle_topology": "exact-n-largest-lower-power-v3",
+    "merkle_wire": "exact-tail-frontier-unpadded-v1"
+  },
+  "targets": [
+    {
+      "canonical_id": "poc-n1024-bq128-r128-v3",
+      "manifest_digest": "ed2ef5aebe3fe38c07fd85f02b15cd2f0f9ee56c3be4ca49cd1fe83cc802a193",
+      "kappa": [5, 6, 12, 13],
+      "signature_shortness": {"radix": 11, "digits": 4, "capacity": 7320, "signature_bound": 6142},
+      "showing_geometry": {"logical_rows": 423, "layers": 10, "parallel_degree": 11, "aggregated_degree": 8, "q_degree": 570, "mask_rows": 195, "replay_rows": 450, "physical_rows": 645, "queries": 143, "opening_p_columns": 502},
+      "accepted_codec5": {"state_bytes": 4926, "issuance_proof_bytes": 52385, "showing_proof_bytes": 86801, "presentation_bytes": 86834, "issuance_paper_bytes": 57271, "showing_paper_bytes": 91756, "issuance_proving_ms": 1880.686, "showing_proving_ms": 3785.032, "peak_rss_bytes": 585973760},
+      "medians": {"state_bytes": 4926, "issuance_proof_bytes": 51895, "showing_proof_bytes": 84717, "presentation_bytes": 84750, "issuance_paper_bytes": 57271, "showing_paper_bytes": 90494, "issuance_proving_ms": 1706.772, "showing_proving_ms": 3692.639, "peak_rss_bytes": 601784320},
+      "runs": [
+        {"run": 1, "report_path": "artifacts/smallwood-v3/final-size-optimization-v2/bq128/run-1/report.json", "report_sha256": "99492d4c1a1e472c7d9e6d726089358cf53ac52249fc393165c9f129a04d9384", "resource_path": "artifacts/smallwood-v3/final-size-optimization-v2/bq128/run-1/resource.txt", "resource_sha256": "c095fb234f320edf9e93f77b3eef6614b8761b61af97f04eeff116e6cafc52e5", "state_bytes": 4926, "issuance_proof_bytes": 51846, "showing_proof_bytes": 84719, "presentation_bytes": 84752, "issuance_paper_bytes": 57271, "showing_paper_bytes": 90494, "issuance_proving_ms": 2314.490, "showing_proving_ms": 4407.041, "peak_rss_bytes": 619200512, "issuance_auth_nodes": 262, "showing_auth_nodes": 256, "parameter_audit": "pass", "replay_rejected": true, "issuance_zk": true, "showing_zk": true, "issuance_theorem_bits": 131.25146007325387, "showing_theorem_bits": 131.22153285804552},
+        {"run": 2, "report_path": "artifacts/smallwood-v3/final-size-optimization-v2/bq128/run-2/report.json", "report_sha256": "df5395512f9af62976657bafb3bb7b7dc414c6d448f2735d61be51d8e7914d15", "resource_path": "artifacts/smallwood-v3/final-size-optimization-v2/bq128/run-2/resource.txt", "resource_sha256": "064d76bdb4600a076a00917aedd434832f25ba250cc4fd10b76249d512b3ea4c", "state_bytes": 4926, "issuance_proof_bytes": 51895, "showing_proof_bytes": 84668, "presentation_bytes": 84701, "issuance_paper_bytes": 57271, "showing_paper_bytes": 90494, "issuance_proving_ms": 1706.772, "showing_proving_ms": 3491.742, "peak_rss_bytes": 601784320, "issuance_auth_nodes": 263, "showing_auth_nodes": 255, "parameter_audit": "pass", "replay_rejected": true, "issuance_zk": true, "showing_zk": true, "issuance_theorem_bits": 131.25146007325387, "showing_theorem_bits": 131.22153285804552},
+        {"run": 3, "report_path": "artifacts/smallwood-v3/final-size-optimization-v2/bq128/run-3/report.json", "report_sha256": "cd5d957665f294c864ff621a6a07e974cb4bde3239f5d7a9b68861e126db86e0", "resource_path": "artifacts/smallwood-v3/final-size-optimization-v2/bq128/run-3/resource.txt", "resource_sha256": "bd8800f6c37cd312b36710d9e5e2ec0e68eb1c8299d201d8894adf737938cef1", "state_bytes": 4926, "issuance_proof_bytes": 51944, "showing_proof_bytes": 84717, "presentation_bytes": 84750, "issuance_paper_bytes": 57271, "showing_paper_bytes": 90494, "issuance_proving_ms": 1645.068, "showing_proving_ms": 3692.639, "peak_rss_bytes": 592592896, "issuance_auth_nodes": 264, "showing_auth_nodes": 256, "parameter_audit": "pass", "replay_rejected": true, "issuance_zk": true, "showing_zk": true, "issuance_theorem_bits": 131.25146007325387, "showing_theorem_bits": 131.22153285804552}
+      ]
+    },
+    {
+      "canonical_id": "system-n1024-wf128-crom-v2",
+      "manifest_digest": "4063d1422055d5753355781160188abdb98dd683f5e42978abcb3d273e89e4c7",
+      "kappa": [1, 0, 2, 13],
+      "signature_shortness": {"radix": 11, "digits": 4, "capacity": 7320, "signature_bound": 6142},
+      "showing_geometry": {"logical_rows": 423, "layers": 11, "parallel_degree": 11, "aggregated_degree": 8, "q_degree": 471, "mask_rows": 91, "replay_rows": 429, "physical_rows": 520, "queries": 84, "opening_p_columns": 436},
+      "accepted_codec5": {"state_bytes": 4894, "issuance_proof_bytes": 22050, "showing_proof_bytes": 38068, "presentation_bytes": 38109, "issuance_paper_bytes": 23790, "showing_paper_bytes": 39837, "issuance_proving_ms": 697.362, "showing_proving_ms": 1657.617, "peak_rss_bytes": 298876928},
+      "medians": {"state_bytes": 4894, "issuance_proof_bytes": 21720, "showing_proof_bytes": 37936, "presentation_bytes": 37977, "issuance_paper_bytes": 23790, "showing_paper_bytes": 39837, "issuance_proving_ms": 729.139, "showing_proving_ms": 1421.167, "peak_rss_bytes": 326336512},
+      "runs": [
+        {"run": 1, "report_path": "artifacts/smallwood-v3/final-size-optimization-v2/wf128/run-1/report.json", "report_sha256": "e00e502a8ac159e17b6e21f55963d167715c2c9fd772966fa553f65c5937be3e", "resource_path": "artifacts/smallwood-v3/final-size-optimization-v2/wf128/run-1/resource.txt", "resource_sha256": "10b2dd35554ce72a2b91448c7480d786f5b53be406f2f6c5ee0c286d9b9fecd6", "state_bytes": 4894, "issuance_proof_bytes": 21720, "showing_proof_bytes": 37936, "presentation_bytes": 37977, "issuance_paper_bytes": 23790, "showing_paper_bytes": 39837, "issuance_proving_ms": 735.020, "showing_proving_ms": 1534.680, "peak_rss_bytes": 304381952, "issuance_auth_nodes": 126, "showing_auth_nodes": 132, "parameter_audit": "pass", "replay_rejected": true, "issuance_zk": true, "showing_zk": true, "issuance_theorem_bits": 128.06002366298887, "showing_theorem_bits": 128.42126043151222},
+        {"run": 2, "report_path": "artifacts/smallwood-v3/final-size-optimization-v2/wf128/run-2/report.json", "report_sha256": "2d26713a8655304ad32e488834f1ab326508ed1bec6680b9c7ff3849aad12733", "resource_path": "artifacts/smallwood-v3/final-size-optimization-v2/wf128/run-2/resource.txt", "resource_sha256": "91031da44675a1978c516939d298430b0d668bddf7ab805e50e75e58bfbd7129", "state_bytes": 4894, "issuance_proof_bytes": 21852, "showing_proof_bytes": 37771, "presentation_bytes": 37812, "issuance_paper_bytes": 23790, "showing_paper_bytes": 39837, "issuance_proving_ms": 667.702, "showing_proving_ms": 1400.498, "peak_rss_bytes": 326336512, "issuance_auth_nodes": 130, "showing_auth_nodes": 127, "parameter_audit": "pass", "replay_rejected": true, "issuance_zk": true, "showing_zk": true, "issuance_theorem_bits": 128.06002366298887, "showing_theorem_bits": 128.42126043151222},
+        {"run": 3, "report_path": "artifacts/smallwood-v3/final-size-optimization-v2/wf128/run-3/report.json", "report_sha256": "003ae354708a7873b54bf4f31ad7ff24f1d4ee1945064bf5513cec14cad12953", "resource_path": "artifacts/smallwood-v3/final-size-optimization-v2/wf128/run-3/resource.txt", "resource_sha256": "adc903c7610abf7322ef7c288da97368136fa321ce279ebc8668c2a3afa9c646", "state_bytes": 4894, "issuance_proof_bytes": 21720, "showing_proof_bytes": 38002, "presentation_bytes": 38043, "issuance_paper_bytes": 23790, "showing_paper_bytes": 39837, "issuance_proving_ms": 729.139, "showing_proving_ms": 1421.167, "peak_rss_bytes": 326615040, "issuance_auth_nodes": 126, "showing_auth_nodes": 134, "parameter_audit": "pass", "replay_rejected": true, "issuance_zk": true, "showing_zk": true, "issuance_theorem_bits": 128.06002366298887, "showing_theorem_bits": 128.42126043151222}
+      ]
+    }
+  ]
+}

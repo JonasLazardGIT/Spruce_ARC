@@ -68,7 +68,7 @@ func ValidateArtifactLock(lock ArtifactLock, opts ValidationOptions) error {
 		return fmt.Errorf("invalid artifact lock status %q", lock.Status)
 	}
 	if lock.Status == "pending" && !opts.AllowPending {
-		return fmt.Errorf("artifact lock is pending; final validation requires all nine v2 benchmark reports")
+		return fmt.Errorf("artifact lock is pending; final validation requires all seven historical-v2 benchmark reports")
 	}
 	if lock.PresetCount != len(canonicalV2PresetIDs) || len(lock.Presets) != len(canonicalV2PresetIDs) {
 		return fmt.Errorf("artifact lock has %d/%d presets; want %d", lock.PresetCount, len(lock.Presets), len(canonicalV2PresetIDs))

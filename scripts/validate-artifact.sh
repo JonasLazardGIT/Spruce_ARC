@@ -49,7 +49,16 @@ run_deadcode() {
 
 check_gofmt() {
 	out=$(mktemp "${TMPDIR:-/tmp}/spruce-gofmt.XXXXXX")
-	find . -name '*.go' -not -path './external/*' -not -path './.git/*' -print | xargs gofmt -l >"$out"
+	# Retained benchmark/tuning artifacts may contain source overlays used to
+	# reproduce an old candidate.  They are evidence inputs, not repository Go
+	# packages, and must not make a later source-format check depend on which
+	# optional artifact directories happen to be present locally.
+	find . -name '*.go' \
+		-not -path './external/*' \
+		-not -path './.git/*' \
+		-not -path './artifacts/*' \
+		-not -path './tmp/*' \
+		-print | xargs gofmt -l >"$out"
 	if [ -s "$out" ]; then
 		cat "$out" >&2
 		rm -f "$out"

@@ -190,8 +190,11 @@ func TestBenchmarkIntGenISISE2EPropagatesWF128PoCPreset(t *testing.T) {
 	if cfg.Showing.DECSCollisionBits != 264 || cfg.Showing.DECSHashBits != 264 || cfg.Showing.DECSTapeBits != 128 || cfg.Showing.FSCollisionBits != 264 || cfg.Showing.SaltBits != 256 {
 		t.Fatalf("WF-128 widths=%+v", cfg.Showing)
 	}
-	if cfg.Showing.NCols != 32 || cfg.Showing.LVCSNCols != 42 || cfg.Showing.NLeaves != 327680 || cfg.Showing.Eta != 43 || cfg.Showing.Theta != 7 || cfg.Showing.Ell != 9 || cfg.Showing.Kappa != [4]int{1, 0, 2, 13} {
+	if cfg.Showing.NCols != 32 || cfg.Showing.LVCSNCols != 41 || cfg.Showing.NLeaves != 327680 || cfg.Showing.Eta != 43 || cfg.Showing.Theta != 7 || cfg.Showing.Ell != 9 || cfg.Showing.Kappa != [4]int{1, 0, 2, 13} {
 		t.Fatalf("WF-128 showing geometry=%+v", cfg.Showing)
+	}
+	if cfg.Issuance.LVCSNCols != 42 {
+		t.Fatalf("WF-128 issuance L=%d want frozen incumbent 42", cfg.Issuance.LVCSNCols)
 	}
 }
 
@@ -542,6 +545,75 @@ func TestBenchmarkMetricsFromProofIncludesPaperBuckets(t *testing.T) {
 	}
 }
 
+func TestBenchmarkStrictV3ProtocolIdentityUsesActualProofAndCodecEpochs(t *testing.T) {
+	proof := &PIOP.Proof{
+		SchemaVersion: PIOP.ProofSchemaVersionV3,
+		RowLayout: PIOP.RowLayout{IntGenISISPreSign: &PIOP.IntGenISISPreSignRowLayout{
+			LayoutVersion:   "intgenisis_presign_source_only_ternary_carrier_v3",
+			RelationVersion: "intgenisis_presign_full_ring_source_only_v3",
+		}},
+	}
+	metrics := intGenISISMetricsFromProof(proof, PIOP.ProofReport{}, PIOP.PublicInputs{}, PIOP.SimOpts{}, 0, 0, "test")
+	if metrics.ProofSchemaVersion != PIOP.ProofSchemaVersionV3 ||
+		metrics.LayoutVersion != "intgenisis_presign_source_only_ternary_carrier_v3" ||
+		metrics.RelationVersion != "intgenisis_presign_full_ring_source_only_v3" {
+		t.Fatalf("actual proof identity was not reported: %+v", metrics)
+	}
+	metrics.CanonicalProofWireBytes = 123
+	audit := PIOP.CanonicalProofWireAuditV6{
+		CodecVersion: PIOP.CanonicalProofCodecVersionV6, CodecProfile: PIOP.CanonicalProofCodecProfileV6,
+		ProofSchemaVersion: PIOP.ProofSchemaVersionV3, FieldEncoding: PIOP.CanonicalProofFieldEncodingV6,
+		QKernelEncoding: PIOP.CanonicalProofQKernelEncodingV6, RadixQGroupElements: PIOP.CanonicalProofRadixQGroupElementsV6,
+		MerkleTopology: "exact-n-largest-lower-power-v3", TotalBytes: 123,
+	}
+	if err := attachCanonicalProofIdentity(&metrics, "presign", audit); err != nil {
+		t.Fatal(err)
+	}
+	if metrics.CanonicalProofKind != "presign" || metrics.CanonicalProofCodecVersion != PIOP.CanonicalProofCodecVersionV6 ||
+		metrics.CanonicalProofCodecProfile != PIOP.CanonicalProofCodecProfileV6 || metrics.CanonicalProofMerkleTopology != audit.MerkleTopology {
+		t.Fatalf("canonical proof identity was not reported: %+v", metrics)
+	}
+	bad := audit
+	bad.ProofSchemaVersion = PIOP.ProofSchemaVersionV2
+	if err := attachCanonicalProofIdentity(&metrics, "presign", bad); err == nil {
+		t.Fatal("accepted a codec audit for a different proof schema")
+	}
+}
+
+func TestBenchmarkStrictV3KeepsRetiredCompanionMetadataEmpty(t *testing.T) {
+	fallback := defaultIntGenISISTuning()
+	tuning := intGenISISTuning{
+		NCols: 32, LVCSNCols: 41, NLeaves: 327680, Eta: 43, Theta: 7, Rho: 1, Ell: 9, EllPrime: 1,
+		TranscriptMode: credential.IntGenISISTranscriptProtocolV3,
+	}
+	normalized := normalizeIntGenISISTuning(tuning, fallback, true)
+	if normalized.PRFCompanionMode != "" || normalized.PRFGroupRounds != 0 || normalized.CheckpointSamples != 0 {
+		t.Fatalf("strict-v3 normalization revived retired companion metadata: %+v", normalized)
+	}
+	if err := validateBenchmarkPRFRelationMetadata(normalized); err != nil {
+		t.Fatal(err)
+	}
+	legacy := normalized
+	legacy.PRFCompanionMode = PIOP.PRFCompanionModeDirectFull
+	legacy.PRFGroupRounds = 2
+	legacy.CheckpointSamples = 8
+	if err := validateBenchmarkPRFRelationMetadata(legacy); err == nil {
+		t.Fatal("strict-v3 benchmark accepted legacy PRF companion metadata")
+	}
+
+	showingProof := &PIOP.Proof{
+		SchemaVersion: PIOP.ProofSchemaVersionV3,
+		RowLayout: PIOP.RowLayout{IntGenISISShowing: &PIOP.IntGenISISShowingRowLayout{
+			LayoutVersion:       "intgenisis_showing_input_trace_ternary_carrier_v3",
+			PRFInputTraceV3Rows: 6,
+		}},
+	}
+	metrics := intGenISISMetricsFromProof(showingProof, PIOP.ProofReport{}, PIOP.PublicInputs{}, PIOP.SimOpts{}, 0, 0, "test")
+	if metrics.LayoutVersion != "intgenisis_showing_input_trace_ternary_carrier_v3" || metrics.PRFInputTraceRelationVersion != 3 || metrics.PRFCompanionRelationVersion != 0 || metrics.RelationVersion != "" {
+		t.Fatalf("showing report did not identify the input-trace-only relation: %+v", metrics)
+	}
+}
+
 func TestCompleteSystemGateReportsUnavailableBeforeRunning(t *testing.T) {
 	err := runGateCompleteSystemPresets([]string{"-artifact-dir", t.TempDir()})
 	if err == nil || !strings.Contains(err.Error(), "no complete-system deployment preset") {
@@ -672,6 +744,9 @@ func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
 		t.Fatalf("issuance opts fixed transcript size=false")
 	}
 	spec := smallWoodTuningSpecFromOpts(opts)
+	if spec.PresetID != "" {
+		t.Fatalf("historical persisted SmallWood preset ID=%q; want omitted", spec.PresetID)
+	}
 	if spec.TranscriptMode != intGenISISTranscriptModeSmallField2025 {
 		t.Fatalf("persisted SmallWood transcript mode=%q", spec.TranscriptMode)
 	}
@@ -697,6 +772,21 @@ func TestIntGenISISIssuanceTranscriptModePropagation(t *testing.T) {
 	}
 }
 
+func TestPublicationV4IssuanceSpecPersistsTrustedPresetIdentity(t *testing.T) {
+	preset, err := credential.MustLookupIntGenISISPreset(credential.IntGenISISPublicationPresetBQ96Q32V4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tuning := intGenISISTuningFromPresetSpec(preset.Issuance)
+	tuning.PresetID = preset.CanonicalID
+	overrides := intGenISISTuningToIssuanceOverrides(tuning, credential.Ternary1024IntGenISISProfile().N)
+	opts := applyIssuanceRuntimeOverrides(PIOP.SimOpts{}, overrides)
+	spec := smallWoodTuningSpecFromOpts(opts)
+	if spec.PresetID != preset.CanonicalID {
+		t.Fatalf("publication-v4 persisted preset ID=%q; want %q", spec.PresetID, preset.CanonicalID)
+	}
+}
+
 func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 	overrides := issuanceRuntimeOverrides{
 		ROQueryCaps:         [5]int{0, 1, 2, 3, 4},
@@ -708,6 +798,7 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 		DECSTapeBits:        128,
 		FSCollisionBits:     200,
 		SaltBits:            128,
+		CompressedRows:      1,
 		DQOverride:          1200,
 		FixedTranscriptSize: true,
 	}
@@ -732,6 +823,9 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 	if spec.DQOverride != 1200 {
 		t.Fatalf("persisted dQ override=%d", spec.DQOverride)
 	}
+	if spec.CompressedRows != 1 {
+		t.Fatalf("persisted carrier compression=%d", spec.CompressedRows)
+	}
 	roundTrip := persistedIssuanceRuntimeOverridesWithSmallWood(spec.NCols, spec.LVCSNCols, spec.NLeaves, nil, spec)
 	if !roundTrip.ROQueryCapsSet || roundTrip.ROQueryCaps != overrides.ROQueryCaps {
 		t.Fatalf("round-trip query caps=%v set=%v", roundTrip.ROQueryCaps, roundTrip.ROQueryCapsSet)
@@ -747,6 +841,9 @@ func TestIssuanceSmallWoodAccountingOverridesRoundTrip(t *testing.T) {
 	}
 	if roundTrip.DQOverride != 1200 {
 		t.Fatalf("round-trip dQ override=%d", roundTrip.DQOverride)
+	}
+	if roundTrip.CompressedRows != 1 {
+		t.Fatalf("round-trip carrier compression=%d", roundTrip.CompressedRows)
 	}
 }
 
@@ -863,6 +960,48 @@ func TestIntGenISISIssueResponseOmitsTargetAndVerifiesAUEqualsT(t *testing.T) {
 	resp.SigS2[0]++
 	if err := verifyIntGenISISSignatureResponse(ringQ, resp, target); err == nil {
 		t.Fatal("modified signature response accepted")
+	}
+}
+
+func TestPreSignSubmissionArtifactV4CarriesOnlyCanonicalProofBytes(t *testing.T) {
+	v4 := preSignSubmissionFile{
+		Version:              issuanceArtifactVersionV4,
+		CredentialPublicPath: "public.json",
+		CanonicalProof:       []byte("canonical-proof-v3"),
+	}
+	if err := validatePreSignSubmissionEncoding(v4); err != nil {
+		t.Fatalf("valid v4 submission: %v", err)
+	}
+	raw, err := json.Marshal(v4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(`"proof"`)) || !bytes.Contains(raw, []byte(`"canonical_proof"`)) {
+		t.Fatalf("v4 artifact did not isolate canonical proof bytes: %s", raw)
+	}
+
+	jsonV3 := v4
+	jsonV3.Proof = &PIOP.Proof{SchemaVersion: PIOP.ProofSchemaVersionV3}
+	if err := validatePreSignSubmissionEncoding(jsonV3); err == nil {
+		t.Fatal("v4 accepted a JSON proof")
+	}
+	missing := v4
+	missing.CanonicalProof = nil
+	if err := validatePreSignSubmissionEncoding(missing); err == nil {
+		t.Fatal("v4 accepted a missing canonical proof")
+	}
+
+	v2 := preSignSubmissionFile{
+		Version:              issuanceArtifactVersion,
+		CredentialPublicPath: "public.json",
+		Proof:                &PIOP.Proof{SchemaVersion: PIOP.ProofSchemaVersionV2},
+	}
+	if err := validatePreSignSubmissionEncoding(v2); err != nil {
+		t.Fatalf("historical v2 submission: %v", err)
+	}
+	v2.CanonicalProof = []byte("mixed")
+	if err := validatePreSignSubmissionEncoding(v2); err == nil {
+		t.Fatal("v2 accepted mixed canonical proof bytes")
 	}
 }
 

@@ -17,6 +17,7 @@ type maintainedPresetGate struct {
 	ExpectedIssuancePaperBytes int
 	ExpectedShowingPaperBytes  int
 	ExpectedCombinedPaperBytes int
+	ExpectedTranscriptStatus   string
 }
 
 func runGateMaintainedPresets(args []string) error {
@@ -127,16 +128,18 @@ func degree1024MaintainedPresetGates() []maintainedPresetGate {
 		{
 			Name:                       credential.IntGenISISPresetPoCN1024BQ128R128V3,
 			MinTheoremBits:             128,
-			ExpectedIssuancePaperBytes: 62029,
-			ExpectedShowingPaperBytes:  96254,
-			ExpectedCombinedPaperBytes: 158283,
+			ExpectedIssuancePaperBytes: 57271,
+			ExpectedShowingPaperBytes:  90494,
+			ExpectedCombinedPaperBytes: 147765,
+			ExpectedTranscriptStatus:   credential.IntGenISISSecurityGateV3,
 		},
 		{
 			Name:                       credential.IntGenISISPresetSystemN1024WF128CROMV2,
 			MinTheoremBits:             128,
-			ExpectedIssuancePaperBytes: 26515,
-			ExpectedShowingPaperBytes:  42739,
-			ExpectedCombinedPaperBytes: 69254,
+			ExpectedIssuancePaperBytes: 23790,
+			ExpectedShowingPaperBytes:  39837,
+			ExpectedCombinedPaperBytes: 63627,
+			ExpectedTranscriptStatus:   credential.IntGenISISSecurityGateV3,
 		},
 	}
 }
@@ -183,8 +186,12 @@ func runMaintainedPresetGate(root string, gate maintainedPresetGate) error {
 	if combinedPaperBytes != gate.ExpectedCombinedPaperBytes {
 		return fmt.Errorf("%s combined paper transcript bytes=%d, want %d", gate.Name, combinedPaperBytes, gate.ExpectedCombinedPaperBytes)
 	}
-	if showing.TranscriptSecurityStatus != credential.IntGenISISSecurityGateV2 {
-		return fmt.Errorf("%s transcript security status=%q, want %s", gate.Name, showing.TranscriptSecurityStatus, credential.IntGenISISSecurityGateV2)
+	expectedTranscriptStatus := gate.ExpectedTranscriptStatus
+	if expectedTranscriptStatus == "" {
+		expectedTranscriptStatus = credential.IntGenISISSecurityGateV2
+	}
+	if showing.TranscriptSecurityStatus != expectedTranscriptStatus {
+		return fmt.Errorf("%s transcript security status=%q, want %s", gate.Name, showing.TranscriptSecurityStatus, expectedTranscriptStatus)
 	}
 	for i, clamped := range showing.Clamped {
 		if clamped {

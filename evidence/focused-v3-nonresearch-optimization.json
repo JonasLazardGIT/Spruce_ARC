@@ -1,0 +1,1141 @@
+{
+  "schema": "spruce.focused-v3-nonresearch-optimization",
+  "version": 2,
+  "measured_on": "2026-08-04",
+  "claim_scope": "proof_only",
+  "implementation_base_commit": "f8973f05473c9110081324a0f2671fa410fb12f3",
+  "environment": {
+    "go_version": "go1.23.12",
+    "goos": "darwin",
+    "goarch": "arm64",
+    "num_cpu": 15,
+    "gomaxprocs": 15,
+    "vcs": "git",
+    "commit": "f8973f05473c9110081324a0f2671fa410fb12f3",
+    "commit_time": "2026-08-03T17:20:12Z",
+    "modified": true,
+    "source_tree_algorithm": "sha256-length-framed-go-list-build-inputs-v2",
+    "source_tree_digest": "2b963f0ddebfa6c7ec80154a6c5b353c0dcbd94cbff3e929f3b4bf61830b6e16",
+    "source_tree_file_count": 202
+  },
+  "prior_v3_evidence": {
+    "path": "evidence/focused-v3-transcript-reduction.json",
+    "sha256": "a2d0692c2ab732dbdce4bf0a86829ac326e172f36c24b62bce3fe2b3d0731a12"
+  },
+  "paper_repository": {
+    "head_before": "d19818571f04c8c12425e2e7c10ceb41f7a1762d",
+    "clean_before": true,
+    "head_after": "d19818571f04c8c12425e2e7c10ceb41f7a1762d",
+    "clean_after": true
+  },
+  "targets": [
+    {
+      "canonical_id": "poc-n1024-bq128-r128-v3",
+      "manifest_digest": "f08dc90c5e319dfd667a4b960050aa2f0932eb2353a528c280299354452d3a08",
+      "kappa": [
+        5,
+        6,
+        12,
+        13
+      ],
+      "prior_accepted": {
+        "persistent_state_bytes": 4926,
+        "issuance_proof_wire_bytes": 60426,
+        "showing_proof_wire_bytes": 87091,
+        "presentation_wire_bytes": 87124,
+        "paper_issuance_bytes": 65091,
+        "paper_showing_bytes": 91756,
+        "median_issuance_proving_ms": 1646.125,
+        "median_showing_proving_ms": 3261.918,
+        "median_peak_rss_bytes": 547487744
+      },
+      "frozen_parameters": {
+        "issuance": {
+          "ncols": 32,
+          "lvcs_ncols": 43,
+          "nleaves": 688128,
+          "eta": 59,
+          "theta": 13,
+          "rho": 1,
+          "ell": 18,
+          "ell_prime": 1,
+          "dq_override": 0,
+          "kappa": [
+            5,
+            6,
+            12,
+            13
+          ],
+          "ro_query_caps": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ro_query_cap_bits": [
+            128,
+            128,
+            128,
+            128,
+            128
+          ],
+          "decs_collision_bits": 392,
+          "decs_hash_bits": 392,
+          "decs_tape_bits": 264,
+          "fs_collision_bits": 392,
+          "salt_bits": 200,
+          "prf_profile": "poseidon2-t20-tag10",
+          "prf_companion_mode": "",
+          "prf_group_rounds": 0,
+          "checkpoint_samples": 0,
+          "sig_shortness_radix": 0,
+          "sig_shortness_digits": 0,
+          "compressed_rows": 1,
+          "replay_projection": "",
+          "transcript_mode": "smallfield_2025_1085_salted_tapes_v3",
+          "transcript_omission_mode": "canonical_reconstruction_v3",
+          "fixed_transcript_size": true,
+          "soundness_gate": "smallwood_2025_1085_salted_tapes_v3_live",
+          "relation_version": 3,
+          "layout_version": 3
+        },
+        "showing": {
+          "ncols": 32,
+          "lvcs_ncols": 43,
+          "nleaves": 688128,
+          "eta": 59,
+          "theta": 13,
+          "rho": 1,
+          "ell": 18,
+          "ell_prime": 1,
+          "dq_override": 0,
+          "kappa": [
+            5,
+            6,
+            12,
+            13
+          ],
+          "ro_query_caps": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ro_query_cap_bits": [
+            128,
+            128,
+            128,
+            128,
+            128
+          ],
+          "decs_collision_bits": 392,
+          "decs_hash_bits": 392,
+          "decs_tape_bits": 264,
+          "fs_collision_bits": 392,
+          "salt_bits": 200,
+          "prf_profile": "poseidon2-t20-tag10",
+          "prf_companion_mode": "",
+          "prf_group_rounds": 0,
+          "checkpoint_samples": 0,
+          "sig_shortness_radix": 7,
+          "sig_shortness_digits": 5,
+          "compressed_rows": 1,
+          "replay_projection": "project_u_digits_y_bounded_sources_v6",
+          "transcript_mode": "smallfield_2025_1085_salted_tapes_v3",
+          "transcript_omission_mode": "canonical_reconstruction_v3",
+          "fixed_transcript_size": true,
+          "soundness_gate": "smallwood_2025_1085_salted_tapes_v3_live",
+          "relation_version": 3,
+          "layout_version": 3
+        }
+      },
+      "protocol_identity": {
+        "proof_schema_version": 3,
+        "canonical_proof_codec_version": 5,
+        "canonical_proof_codec_profile": "SPRUCE/canonical-proof-codec/v5;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1",
+        "canonical_proof_field_encoding": "radix-q-v1;group=1024",
+        "canonical_proof_q_kernel_encoding": "ker-sum-omega-constant-v1",
+        "canonical_proof_radix_q_group_elements": 1024,
+        "canonical_proof_merkle_topology": "exact-n-largest-lower-power-v3",
+        "issuance_layout_version": "intgenisis_presign_source_only_ternary_carrier_v3",
+        "issuance_relation_version": "intgenisis_presign_full_ring_source_only_v3",
+        "showing_layout_version": "intgenisis_showing_input_trace_ternary_carrier_v3",
+        "showing_input_trace_relation_version": 3
+      },
+      "issuance_geometry": {
+        "logical_rows": 49,
+        "layers": 2,
+        "mask_rows": 156,
+        "replay_rows": 90,
+        "physical_rows": 246,
+        "queries": 39,
+        "opening_p_columns": 207,
+        "parallel_degree": 9,
+        "aggregated_degree": 8,
+        "q_degree": 472
+      },
+      "showing_geometry": {
+        "logical_rows": 487,
+        "layers": 12,
+        "mask_rows": 156,
+        "replay_rows": 540,
+        "physical_rows": 696,
+        "queries": 169,
+        "opening_p_columns": 527,
+        "parallel_degree": 9,
+        "aggregated_degree": 8,
+        "q_degree": 472
+      },
+      "runs": [
+        {
+          "run": 1,
+          "artifact_directory": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1",
+          "report_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/report.json",
+          "report_sha256": "c162c4cf4118ec7990cb596be979f3f15b1b241ecb64dad3cdb9b3bb06cfc89d",
+          "resource_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/resource.txt",
+          "resource_sha256": "856b6413e49f5d8b8f6aeba6452c9ef86743f7177ba2dae5dd70261a7044ab46",
+          "artifacts": {
+            "state_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/credential_state.intgenisis.v8",
+            "state_sha256": "1632ed9940fdf44a2b4a9597cf2081fc2432fdeee03e0f6a6ab6ac26515bd540",
+            "submission_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/presign_submission.json",
+            "submission_sha256": "533a30c38131f540be1ae7689977334c64d8d17c3d360c09df9e49b5f1a274a8",
+            "issuance_proof_sha256": "e3f3cb3e02392aaf0f04253955fe5089ee7127dbc182199bf21a8f0ce3dc2ff5",
+            "presentation_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/presentation.intgenisis.v3",
+            "presentation_sha256": "3a713a3ef2915382ca51c507a928bd85d44e7ef0fc0f6cb9a373ec66e15c39bf",
+            "showing_proof_sha256": "4d8303728b2223fff0222f832979eb8b095759d0099d4bcd02c1533d12471bea",
+            "files": [
+              {
+                "role": "public_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/credential_public.intgenisis_profile_c.json",
+                "bytes": 35087,
+                "sha256": "4f6fa8b60c5390d275a1b20929c1ba863c452654cf7b0d943e3b52af9982c95d"
+              },
+              {
+                "role": "b_matrix",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/Bmatrix.intgenisis_profile_c.json",
+                "bytes": 57215,
+                "sha256": "11254b291a37c2fd3597040865de41a11eff6906bac2c2e287f9a0360a85a2cd"
+              },
+              {
+                "role": "holder_secret",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/holder_secret.json",
+                "bytes": 59342,
+                "sha256": "d65913ca6a39119949815065194b9d8118a2c1446e686f87104d5fd4dc8149e5"
+              },
+              {
+                "role": "commit_request",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/commit_request.json",
+                "bytes": 16004,
+                "sha256": "7077bd08a301c0c53ccc91803e159eb8a5e426003b88edf638171ce65ade5712"
+              },
+              {
+                "role": "presign_submission",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/presign_submission.json",
+                "bytes": 70026,
+                "sha256": "533a30c38131f540be1ae7689977334c64d8d17c3d360c09df9e49b5f1a274a8"
+              },
+              {
+                "role": "issue_response",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/issue_response.json",
+                "bytes": 63932,
+                "sha256": "8e79689fd3612750375a8f387e76b6309b1fde454dc701ccb3482b1e9eb1eeea"
+              },
+              {
+                "role": "state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/credential_state.intgenisis.v8",
+                "bytes": 4926,
+                "sha256": "1632ed9940fdf44a2b4a9597cf2081fc2432fdeee03e0f6a6ab6ac26515bd540"
+              },
+              {
+                "role": "verifier_key",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/intgenisis_verifier_key.json",
+                "bytes": 15031,
+                "sha256": "540dce6f88abdde10c14e51f6de2c4640a91fe5f196261b881df299646ac417f"
+              },
+              {
+                "role": "presentation",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/presentation.intgenisis.v3",
+                "bytes": 86834,
+                "sha256": "3a713a3ef2915382ca51c507a928bd85d44e7ef0fc0f6cb9a373ec66e15c39bf"
+              },
+              {
+                "role": "holder_usage_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/holder_usage_state.json",
+                "bytes": 636,
+                "sha256": "7eadf2741084c5b4c6e0882f653140350ab863b0b59404abcf185a3bc1834d9a"
+              },
+              {
+                "role": "verifier_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/verifier_state.json",
+                "bytes": 609,
+                "sha256": "e5817f873c3eac629f892fd34b84b7806ff717a8f9abf7c713dbb768f14f3e71"
+              },
+              {
+                "role": "ntru_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/ntru_params.json",
+                "bytes": 194,
+                "sha256": "a344f807566b52a3323debab2eb583a956d27baf30c6aaf5416fd25b9b449169"
+              },
+              {
+                "role": "ntru_public",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/ntru_public.json",
+                "bytes": 12834,
+                "sha256": "7b4d99ed6ca1a07c269060b613c81871ee807fff1bbd09a2685336395c660e94"
+              },
+              {
+                "role": "ntru_private",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/ntru_private.json",
+                "bytes": 35699,
+                "sha256": "809cd775dc2344fa11bd1fe0033036b9727b3246b0e9ccaf4a7d5f7108328608"
+              },
+              {
+                "role": "ntru_signature",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-1/ntru_signature.json",
+                "bytes": 69056,
+                "sha256": "f7a72eed16c9d5f24cbfa0a5c828b31f3390439541e831123b1d3fc8d6082316"
+              }
+            ]
+          },
+          "persistent_state_bytes": 4926,
+          "issuance_proof_wire_bytes": 52385,
+          "showing_proof_wire_bytes": 86801,
+          "presentation_wire_bytes": 86834,
+          "paper_issuance_bytes": 57271,
+          "paper_showing_bytes": 91756,
+          "issuance_proving_ms": 1849.621,
+          "showing_proving_ms": 3228.774,
+          "issuance_verification_ms": 594.993,
+          "showing_verification_ms": 388.639,
+          "peak_rss_bytes": 585973760,
+          "issuance_theorem_bits": 131.25146007325387,
+          "showing_theorem_bits": 131.25146007325387,
+          "parameter_audit_status": "pass",
+          "issuance_zero_knowledge_eligible": true,
+          "showing_zero_knowledge_eligible": true,
+          "replay_rejected": true
+        },
+        {
+          "run": 2,
+          "artifact_directory": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2",
+          "report_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/report.json",
+          "report_sha256": "52ac28f26e4307663132cbada432b3d2f3e08fa4ef6316fd1398ba3633d8215a",
+          "resource_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/resource.txt",
+          "resource_sha256": "050d63b87c759f8b1e5340370b333d9e2632e656acfe1e9e1d6b4117cf567b36",
+          "artifacts": {
+            "state_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/credential_state.intgenisis.v8",
+            "state_sha256": "f166aced8d9dd3187ae213a6dc4932c02aa5a13e5e52ce010b643c701c27ffd4",
+            "submission_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/presign_submission.json",
+            "submission_sha256": "8ff17c2f6a0ca4b02f61a2546f1244b9eace51a927238b8a95db895d0662bada",
+            "issuance_proof_sha256": "0c71ff4deb6c0352ea308b5904eb2fc2dbdabaa679321f13d369ec1a36d88c06",
+            "presentation_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/presentation.intgenisis.v3",
+            "presentation_sha256": "e00be507be4eb2e6dd245b205cc4063b9cfed18f3c761e88d30cfc6c293cdc0a",
+            "showing_proof_sha256": "b0c0f0fdfb91dc0e25abdd3305710e68d1218fe38c58d1b697ccb5fe3313e28a",
+            "files": [
+              {
+                "role": "public_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/credential_public.intgenisis_profile_c.json",
+                "bytes": 35078,
+                "sha256": "5d3b2af8f4f78ceab9ad1ed77b530f60dce8000cf607ab04e9dd7c4b5940972c"
+              },
+              {
+                "role": "b_matrix",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/Bmatrix.intgenisis_profile_c.json",
+                "bytes": 57178,
+                "sha256": "fa9c1f387bdc2e3c33dd912453b3d3e6c16b27a498ae2956071a6043d1196ce1"
+              },
+              {
+                "role": "holder_secret",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/holder_secret.json",
+                "bytes": 59241,
+                "sha256": "82f9cb4d8c77769df89ff0c51faa81daae04e0800c2c424b0618c88adb251dd1"
+              },
+              {
+                "role": "commit_request",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/commit_request.json",
+                "bytes": 16037,
+                "sha256": "814465419090c93c413c3654be4fb2108f2460c92eb77d7bffaf145ce6f1be5c"
+              },
+              {
+                "role": "presign_submission",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/presign_submission.json",
+                "bytes": 70026,
+                "sha256": "8ff17c2f6a0ca4b02f61a2546f1244b9eace51a927238b8a95db895d0662bada"
+              },
+              {
+                "role": "issue_response",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/issue_response.json",
+                "bytes": 63852,
+                "sha256": "99820871a81849676286d86fcf1dab32d266b41c979e6c20050d207f0b378aa2"
+              },
+              {
+                "role": "state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/credential_state.intgenisis.v8",
+                "bytes": 4926,
+                "sha256": "f166aced8d9dd3187ae213a6dc4932c02aa5a13e5e52ce010b643c701c27ffd4"
+              },
+              {
+                "role": "verifier_key",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/intgenisis_verifier_key.json",
+                "bytes": 15029,
+                "sha256": "76813d0007bdef4b2cc82582eb6746fb76e0a5bc10bc1a1d96242a808068b15c"
+              },
+              {
+                "role": "presentation",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/presentation.intgenisis.v3",
+                "bytes": 86834,
+                "sha256": "e00be507be4eb2e6dd245b205cc4063b9cfed18f3c761e88d30cfc6c293cdc0a"
+              },
+              {
+                "role": "holder_usage_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/holder_usage_state.json",
+                "bytes": 636,
+                "sha256": "2b016218f3c4b1b704524f2718802232dc313ab1891fc4c123e78b58d7989f64"
+              },
+              {
+                "role": "verifier_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/verifier_state.json",
+                "bytes": 609,
+                "sha256": "7b2790c3517084d21b376de222a829617d9b078a49ad83ca4ff442abd2050e02"
+              },
+              {
+                "role": "ntru_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/ntru_params.json",
+                "bytes": 194,
+                "sha256": "a344f807566b52a3323debab2eb583a956d27baf30c6aaf5416fd25b9b449169"
+              },
+              {
+                "role": "ntru_public",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/ntru_public.json",
+                "bytes": 12832,
+                "sha256": "6e012ee42a39dfc069ee4c14284da9751b5291aca334ccceef8e3cc5a3b17b4e"
+              },
+              {
+                "role": "ntru_private",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/ntru_private.json",
+                "bytes": 35659,
+                "sha256": "6baec31a9babd113a9e0eab89be1da35fdec888ec683601d881e09eb10355b46"
+              },
+              {
+                "role": "ntru_signature",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-2/ntru_signature.json",
+                "bytes": 69098,
+                "sha256": "a25a0c2a4d46443dc7542c8a487b764a3de01b0ffbb68a0a80bf7c468702dcc7"
+              }
+            ]
+          },
+          "persistent_state_bytes": 4926,
+          "issuance_proof_wire_bytes": 52385,
+          "showing_proof_wire_bytes": 86801,
+          "presentation_wire_bytes": 86834,
+          "paper_issuance_bytes": 57271,
+          "paper_showing_bytes": 91756,
+          "issuance_proving_ms": 1880.686,
+          "showing_proving_ms": 3799.993,
+          "issuance_verification_ms": 740.77,
+          "showing_verification_ms": 392.77,
+          "peak_rss_bytes": 605274112,
+          "issuance_theorem_bits": 131.25146007325387,
+          "showing_theorem_bits": 131.25146007325387,
+          "parameter_audit_status": "pass",
+          "issuance_zero_knowledge_eligible": true,
+          "showing_zero_knowledge_eligible": true,
+          "replay_rejected": true
+        },
+        {
+          "run": 3,
+          "artifact_directory": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3",
+          "report_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/report.json",
+          "report_sha256": "2143b1d6e69fd9e64c495b01408f2ab95911232237af6534bd0c11e9961999a8",
+          "resource_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/resource.txt",
+          "resource_sha256": "b54f35a2908ac9cf94dab9724da25b64385610e15e21a70297065b10f6761844",
+          "artifacts": {
+            "state_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/credential_state.intgenisis.v8",
+            "state_sha256": "b4033e414c4a93791b79454c094c4cf4197198284ffd773baceb49290bc02933",
+            "submission_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/presign_submission.json",
+            "submission_sha256": "dfae4574a64d253f56a9c5e3faff8ee392e7b2eddfda9cfcfa2c3e133d7a70a0",
+            "issuance_proof_sha256": "03409694c3ced2a6c42e45968e15b94e6d6188acb6e8a2ae69cb8ca43fbf35d1",
+            "presentation_path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/presentation.intgenisis.v3",
+            "presentation_sha256": "b2f14c696f642da13a3212232acc5309853cb959c2b1a8badbd5f70bdb5b75e0",
+            "showing_proof_sha256": "747397315bf9295384f8635b36122b6072a5ef8194cfc104ba7e08d9bafd760b",
+            "files": [
+              {
+                "role": "public_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/credential_public.intgenisis_profile_c.json",
+                "bytes": 35107,
+                "sha256": "e5b0bfdd8ae7a105f9cb83c0ab747494070853d78edf555a799a344232d135bf"
+              },
+              {
+                "role": "b_matrix",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/Bmatrix.intgenisis_profile_c.json",
+                "bytes": 57140,
+                "sha256": "b86b1808f83381ef9c468cf04178cb95558d01cdaccc96b0265a1ffb3dcffd1e"
+              },
+              {
+                "role": "holder_secret",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/holder_secret.json",
+                "bytes": 59261,
+                "sha256": "d8a19f0a23035a2113253d30405a029d327a7de25b32327fd7de3bfe4734ab5e"
+              },
+              {
+                "role": "commit_request",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/commit_request.json",
+                "bytes": 16045,
+                "sha256": "b4ad6c5ab28dea45c83fb76787c79d2091b5e5c5d492abb409ba0006c9d5ac8c"
+              },
+              {
+                "role": "presign_submission",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/presign_submission.json",
+                "bytes": 70026,
+                "sha256": "dfae4574a64d253f56a9c5e3faff8ee392e7b2eddfda9cfcfa2c3e133d7a70a0"
+              },
+              {
+                "role": "issue_response",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/issue_response.json",
+                "bytes": 63837,
+                "sha256": "afdf149366abcd536993adbda3eff1ee71e5d42a42eef52e57f44c014873ca01"
+              },
+              {
+                "role": "state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/credential_state.intgenisis.v8",
+                "bytes": 4926,
+                "sha256": "b4033e414c4a93791b79454c094c4cf4197198284ffd773baceb49290bc02933"
+              },
+              {
+                "role": "verifier_key",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/intgenisis_verifier_key.json",
+                "bytes": 15041,
+                "sha256": "aa8842c9d1e77518f1b36cd71219aa854778197cab0b6ac4635e1c815ab07e8c"
+              },
+              {
+                "role": "presentation",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/presentation.intgenisis.v3",
+                "bytes": 86834,
+                "sha256": "b2f14c696f642da13a3212232acc5309853cb959c2b1a8badbd5f70bdb5b75e0"
+              },
+              {
+                "role": "holder_usage_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/holder_usage_state.json",
+                "bytes": 636,
+                "sha256": "5f04b889acc24a50c8983c9d9a6886805f0785c814512db83dca30260ffef757"
+              },
+              {
+                "role": "verifier_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/verifier_state.json",
+                "bytes": 609,
+                "sha256": "a4fb77fab0e8be4586e2c7036e445394fdbbc86dfbddbbbcfdb55105e444b31f"
+              },
+              {
+                "role": "ntru_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/ntru_params.json",
+                "bytes": 194,
+                "sha256": "a344f807566b52a3323debab2eb583a956d27baf30c6aaf5416fd25b9b449169"
+              },
+              {
+                "role": "ntru_public",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/ntru_public.json",
+                "bytes": 12844,
+                "sha256": "5efa0c5257cdbfc4707afab7e8497f45a39a80ac1f956cc4fbaa14cea4aa4d14"
+              },
+              {
+                "role": "ntru_private",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/ntru_private.json",
+                "bytes": 35724,
+                "sha256": "e969c08306be73c0b8237404a2c68fc38badfa509658df74c6a5a6ff35aaec01"
+              },
+              {
+                "role": "ntru_signature",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/bq128/run-3/ntru_signature.json",
+                "bytes": 68955,
+                "sha256": "1d590e250f5455107a570878e0a7dfe4b0f04229aec752807d8ea371c71f65fc"
+              }
+            ]
+          },
+          "persistent_state_bytes": 4926,
+          "issuance_proof_wire_bytes": 52385,
+          "showing_proof_wire_bytes": 86801,
+          "presentation_wire_bytes": 86834,
+          "paper_issuance_bytes": 57271,
+          "paper_showing_bytes": 91756,
+          "issuance_proving_ms": 1991.228,
+          "showing_proving_ms": 3785.032,
+          "issuance_verification_ms": 610.428,
+          "showing_verification_ms": 389.893,
+          "peak_rss_bytes": 580075520,
+          "issuance_theorem_bits": 131.25146007325387,
+          "showing_theorem_bits": 131.25146007325387,
+          "parameter_audit_status": "pass",
+          "issuance_zero_knowledge_eligible": true,
+          "showing_zero_knowledge_eligible": true,
+          "replay_rejected": true
+        }
+      ],
+      "medians": {
+        "persistent_state_bytes": 4926,
+        "issuance_proof_wire_bytes": 52385,
+        "showing_proof_wire_bytes": 86801,
+        "presentation_wire_bytes": 86834,
+        "paper_issuance_bytes": 57271,
+        "paper_showing_bytes": 91756,
+        "issuance_proving_ms": 1880.686,
+        "showing_proving_ms": 3785.032,
+        "peak_rss_bytes": 585973760
+      }
+    },
+    {
+      "canonical_id": "system-n1024-wf128-crom-v2",
+      "manifest_digest": "4063d1422055d5753355781160188abdb98dd683f5e42978abcb3d273e89e4c7",
+      "kappa": [
+        1,
+        0,
+        2,
+        13
+      ],
+      "prior_accepted": {
+        "persistent_state_bytes": 4894,
+        "issuance_proof_wire_bytes": 25935,
+        "showing_proof_wire_bytes": 38199,
+        "presentation_wire_bytes": 38240,
+        "paper_issuance_bytes": 27575,
+        "paper_showing_bytes": 39837,
+        "median_issuance_proving_ms": 573.129,
+        "median_showing_proving_ms": 1470.093,
+        "median_peak_rss_bytes": 299810816
+      },
+      "frozen_parameters": {
+        "issuance": {
+          "ncols": 32,
+          "lvcs_ncols": 42,
+          "nleaves": 327680,
+          "eta": 43,
+          "theta": 7,
+          "rho": 1,
+          "ell": 9,
+          "ell_prime": 1,
+          "dq_override": 0,
+          "kappa": [
+            1,
+            0,
+            2,
+            13
+          ],
+          "ro_query_caps": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ro_query_cap_bits": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "decs_collision_bits": 264,
+          "decs_hash_bits": 264,
+          "decs_tape_bits": 128,
+          "fs_collision_bits": 264,
+          "salt_bits": 256,
+          "prf_profile": "poseidon2-t20-tag13",
+          "prf_companion_mode": "",
+          "prf_group_rounds": 0,
+          "checkpoint_samples": 0,
+          "sig_shortness_radix": 0,
+          "sig_shortness_digits": 0,
+          "compressed_rows": 1,
+          "replay_projection": "",
+          "transcript_mode": "smallfield_2025_1085_salted_tapes_v3",
+          "transcript_omission_mode": "canonical_reconstruction_v3",
+          "fixed_transcript_size": true,
+          "soundness_gate": "smallwood_2025_1085_salted_tapes_v3_live",
+          "relation_version": 3,
+          "layout_version": 3
+        },
+        "showing": {
+          "ncols": 32,
+          "lvcs_ncols": 41,
+          "nleaves": 327680,
+          "eta": 43,
+          "theta": 7,
+          "rho": 1,
+          "ell": 9,
+          "ell_prime": 1,
+          "dq_override": 0,
+          "kappa": [
+            1,
+            0,
+            2,
+            13
+          ],
+          "ro_query_caps": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ro_query_cap_bits": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "decs_collision_bits": 264,
+          "decs_hash_bits": 264,
+          "decs_tape_bits": 128,
+          "fs_collision_bits": 264,
+          "salt_bits": 256,
+          "prf_profile": "poseidon2-t20-tag13",
+          "prf_companion_mode": "",
+          "prf_group_rounds": 0,
+          "checkpoint_samples": 0,
+          "sig_shortness_radix": 11,
+          "sig_shortness_digits": 4,
+          "compressed_rows": 1,
+          "replay_projection": "project_u_digits_y_bounded_sources_v6",
+          "transcript_mode": "smallfield_2025_1085_salted_tapes_v3",
+          "transcript_omission_mode": "canonical_reconstruction_v3",
+          "fixed_transcript_size": true,
+          "soundness_gate": "smallwood_2025_1085_salted_tapes_v3_live",
+          "relation_version": 3,
+          "layout_version": 3
+        }
+      },
+      "protocol_identity": {
+        "proof_schema_version": 3,
+        "canonical_proof_codec_version": 5,
+        "canonical_proof_codec_profile": "SPRUCE/canonical-proof-codec/v5;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1",
+        "canonical_proof_field_encoding": "radix-q-v1;group=1024",
+        "canonical_proof_q_kernel_encoding": "ker-sum-omega-constant-v1",
+        "canonical_proof_radix_q_group_elements": 1024,
+        "canonical_proof_merkle_topology": "exact-n-largest-lower-power-v3",
+        "issuance_layout_version": "intgenisis_presign_source_only_ternary_carrier_v3",
+        "issuance_relation_version": "intgenisis_presign_full_ring_source_only_v3",
+        "showing_layout_version": "intgenisis_showing_input_trace_ternary_carrier_v3",
+        "showing_input_trace_relation_version": 3
+      },
+      "issuance_geometry": {
+        "logical_rows": 49,
+        "layers": 2,
+        "mask_rows": 77,
+        "replay_rows": 78,
+        "physical_rows": 155,
+        "queries": 21,
+        "opening_p_columns": 134,
+        "parallel_degree": 9,
+        "aggregated_degree": 8,
+        "q_degree": 391
+      },
+      "showing_geometry": {
+        "logical_rows": 423,
+        "layers": 11,
+        "mask_rows": 91,
+        "replay_rows": 429,
+        "physical_rows": 520,
+        "queries": 84,
+        "opening_p_columns": 436,
+        "parallel_degree": 11,
+        "aggregated_degree": 8,
+        "q_degree": 471
+      },
+      "runs": [
+        {
+          "run": 1,
+          "artifact_directory": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1",
+          "report_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/report.json",
+          "report_sha256": "d9592dc8e648845d062bf471f6e775ba1da285567448985d64ac1bad908b79e6",
+          "resource_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/resource.txt",
+          "resource_sha256": "056cdea27f1b8cdf8c3dab46dad0d23252b89dd569a8800c71190a34bb7096f5",
+          "artifacts": {
+            "state_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/credential_state.intgenisis.v8",
+            "state_sha256": "f4fa3cde3d5986bafd41cb8b37f2921f98ed3b15ac23e4c9c07a5859b2d4c13f",
+            "submission_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/presign_submission.json",
+            "submission_sha256": "598835eea80d70bf02bd153db36230e08160f822d5adfc060d2ca9784b4b8617",
+            "issuance_proof_sha256": "fc9d74a1cc531c444607359ebec2bde222a7c505aac26e9adf7c4aef3e7dbb72",
+            "presentation_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/presentation.intgenisis.v3",
+            "presentation_sha256": "a01a396d7cd91280239d56c1c938ab46fdc9fe42ea360609e8a045ff60991b31",
+            "showing_proof_sha256": "06a17b8a31c8bcd25be5971533d2bd0a34b0adc374c19064ed6547f2e2f8c765",
+            "files": [
+              {
+                "role": "public_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/credential_public.intgenisis_profile_c.json",
+                "bytes": 35084,
+                "sha256": "211b445d4a771af1ccc38f0392ed1cba22908fc42871064ea5c9aee06e0e6f50"
+              },
+              {
+                "role": "b_matrix",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/Bmatrix.intgenisis_profile_c.json",
+                "bytes": 57146,
+                "sha256": "f4ecb5021a7c269fd667b87e8ef6489d210231739bb01ef912544cca06dcd7d8"
+              },
+              {
+                "role": "holder_secret",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/holder_secret.json",
+                "bytes": 59217,
+                "sha256": "8ab8a0e54cbc18e7d3eb5cebb01448567cca63e0bd4c16da75152d67e67c09f0"
+              },
+              {
+                "role": "commit_request",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/commit_request.json",
+                "bytes": 15967,
+                "sha256": "5e6bee237a26bf3718b9c648dd81d32ded1e3a8e68d9721b493ca35bcefc58f3"
+              },
+              {
+                "role": "presign_submission",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/presign_submission.json",
+                "bytes": 29582,
+                "sha256": "598835eea80d70bf02bd153db36230e08160f822d5adfc060d2ca9784b4b8617"
+              },
+              {
+                "role": "issue_response",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/issue_response.json",
+                "bytes": 63834,
+                "sha256": "e5c912615b3225f9b1f22d7550a5e9ecfc1ee38fd2864f9242c9a1c753371261"
+              },
+              {
+                "role": "state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/credential_state.intgenisis.v8",
+                "bytes": 4894,
+                "sha256": "f4fa3cde3d5986bafd41cb8b37f2921f98ed3b15ac23e4c9c07a5859b2d4c13f"
+              },
+              {
+                "role": "verifier_key",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/intgenisis_verifier_key.json",
+                "bytes": 15007,
+                "sha256": "8cacfe7b818c89bc1e93b4ddfe6d99548dbedd41e9590fd85833c1f866a39477"
+              },
+              {
+                "role": "presentation",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/presentation.intgenisis.v3",
+                "bytes": 38110,
+                "sha256": "a01a396d7cd91280239d56c1c938ab46fdc9fe42ea360609e8a045ff60991b31"
+              },
+              {
+                "role": "holder_usage_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/holder_usage_state.json",
+                "bytes": 508,
+                "sha256": "490ea301bf46531b748b0f60e5ddb297aea925455b731b8098c324f756094033"
+              },
+              {
+                "role": "verifier_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/verifier_state.json",
+                "bytes": 481,
+                "sha256": "85f9c244aee8b8cdd8f30708925e048cacef84847d3bffb57eb15e69f3b0fe58"
+              },
+              {
+                "role": "ntru_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/ntru_params.json",
+                "bytes": 194,
+                "sha256": "a344f807566b52a3323debab2eb583a956d27baf30c6aaf5416fd25b9b449169"
+              },
+              {
+                "role": "ntru_public",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/ntru_public.json",
+                "bytes": 12807,
+                "sha256": "22d47bf25f608bcaea4087f941a063c82ddf39e2ab3490b6ad1f90503461f229"
+              },
+              {
+                "role": "ntru_private",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/ntru_private.json",
+                "bytes": 35715,
+                "sha256": "3f4fc7a1f0966ed36958a091312ed5b2d65f7ba9d2d691554b64742e4a3f249b"
+              },
+              {
+                "role": "ntru_signature",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-1/ntru_signature.json",
+                "bytes": 68960,
+                "sha256": "fa572ff6e69c9346d6c1271438b6acce7d0f8cd5faea6a7b0f9f102326011cca"
+              }
+            ]
+          },
+          "persistent_state_bytes": 4894,
+          "issuance_proof_wire_bytes": 22051,
+          "showing_proof_wire_bytes": 38069,
+          "presentation_wire_bytes": 38110,
+          "paper_issuance_bytes": 23790,
+          "paper_showing_bytes": 39837,
+          "issuance_proving_ms": 818.367,
+          "showing_proving_ms": 1780.037,
+          "issuance_verification_ms": 292.275,
+          "showing_verification_ms": 185.2,
+          "peak_rss_bytes": 289865728,
+          "issuance_theorem_bits": 128.06002366298887,
+          "showing_theorem_bits": 128.42126043151222,
+          "parameter_audit_status": "pass",
+          "issuance_zero_knowledge_eligible": true,
+          "showing_zero_knowledge_eligible": true,
+          "replay_rejected": true
+        },
+        {
+          "run": 2,
+          "artifact_directory": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2",
+          "report_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/report.json",
+          "report_sha256": "d37484209cd273945e1ae0696d240f8c20bfc4ffb8b8069a05fc4cd2cbba6149",
+          "resource_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/resource.txt",
+          "resource_sha256": "96a8f994d2f75764a538354ac7df3b0737917d6c5d476f7fbcbc690a87d09b96",
+          "artifacts": {
+            "state_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/credential_state.intgenisis.v8",
+            "state_sha256": "389388c6e8c3b571436bb8916b648810eb123e81bc0f15b8b1c80e9bcc7bc008",
+            "submission_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/presign_submission.json",
+            "submission_sha256": "89d7eac8d0df0c561e79bb31dd45c10b6f5d7e4152129fc6393976ed3748249d",
+            "issuance_proof_sha256": "f59d714f9406150f77d2c1e0a99b7a1d98a6b83dcb9afd439245fbffa16f8505",
+            "presentation_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/presentation.intgenisis.v3",
+            "presentation_sha256": "20ecbfc9e6ace8b90b51263cc85572339f5aacf361a4ebb97b514773afe2f1bf",
+            "showing_proof_sha256": "e5f58ad84fca2b518e9143683ef2902a10f10938ece75332230ccef4ddabeff3",
+            "files": [
+              {
+                "role": "public_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/credential_public.intgenisis_profile_c.json",
+                "bytes": 35118,
+                "sha256": "04301e54c5ec95e516507d1f56afa7eebc86951eec1d05dbc77b297b991a2520"
+              },
+              {
+                "role": "b_matrix",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/Bmatrix.intgenisis_profile_c.json",
+                "bytes": 57177,
+                "sha256": "95bd5ebee32bff33f33362a8e007beb87c784422b1e97100bfa6403cfa46632a"
+              },
+              {
+                "role": "holder_secret",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/holder_secret.json",
+                "bytes": 59197,
+                "sha256": "1eb966658f4b9daf543af14228464298b54f668418b5295d38b15e81a882a8b2"
+              },
+              {
+                "role": "commit_request",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/commit_request.json",
+                "bytes": 15982,
+                "sha256": "6ab19b45ecac73e393238023c5f530828e3bb7ec998d0af90bbc7584349612bb"
+              },
+              {
+                "role": "presign_submission",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/presign_submission.json",
+                "bytes": 29578,
+                "sha256": "89d7eac8d0df0c561e79bb31dd45c10b6f5d7e4152129fc6393976ed3748249d"
+              },
+              {
+                "role": "issue_response",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/issue_response.json",
+                "bytes": 63791,
+                "sha256": "89023f66b0a060ef432f716480e21bd987e9530e647522bb255d29fb8c6a5057"
+              },
+              {
+                "role": "state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/credential_state.intgenisis.v8",
+                "bytes": 4894,
+                "sha256": "389388c6e8c3b571436bb8916b648810eb123e81bc0f15b8b1c80e9bcc7bc008"
+              },
+              {
+                "role": "verifier_key",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/intgenisis_verifier_key.json",
+                "bytes": 15028,
+                "sha256": "da18193563f20be161be67bbe3eb4d8af791368ef13080a59772375d0575ed90"
+              },
+              {
+                "role": "presentation",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/presentation.intgenisis.v3",
+                "bytes": 38109,
+                "sha256": "20ecbfc9e6ace8b90b51263cc85572339f5aacf361a4ebb97b514773afe2f1bf"
+              },
+              {
+                "role": "holder_usage_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/holder_usage_state.json",
+                "bytes": 508,
+                "sha256": "6026590b0619b2fb9dd8495ebbb63dd88fe197c6231761e866193307cf4ef1c1"
+              },
+              {
+                "role": "verifier_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/verifier_state.json",
+                "bytes": 481,
+                "sha256": "274cf0d1142e7f7e81eaf336a6fab10bb64a49036c3497335be3ce7aefcb288d"
+              },
+              {
+                "role": "ntru_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/ntru_params.json",
+                "bytes": 194,
+                "sha256": "a344f807566b52a3323debab2eb583a956d27baf30c6aaf5416fd25b9b449169"
+              },
+              {
+                "role": "ntru_public",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/ntru_public.json",
+                "bytes": 12828,
+                "sha256": "93ceed12b31feb2fd3f4bd10b028ebe7dcbf8f4572e6fd8f1aaa136990797d19"
+              },
+              {
+                "role": "ntru_private",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/ntru_private.json",
+                "bytes": 35627,
+                "sha256": "dbda3002a9589289e9460bda8d5ba9309f8311df230d2021e4f3efda3c354c9d"
+              },
+              {
+                "role": "ntru_signature",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-2/ntru_signature.json",
+                "bytes": 68935,
+                "sha256": "38be5f7ba917c5f32b849597657d4da7598b68b4e0f16a57f57347e831f278fc"
+              }
+            ]
+          },
+          "persistent_state_bytes": 4894,
+          "issuance_proof_wire_bytes": 22050,
+          "showing_proof_wire_bytes": 38068,
+          "presentation_wire_bytes": 38109,
+          "paper_issuance_bytes": 23790,
+          "paper_showing_bytes": 39837,
+          "issuance_proving_ms": 658.564,
+          "showing_proving_ms": 1657.617,
+          "issuance_verification_ms": 284.372,
+          "showing_verification_ms": 182.738,
+          "peak_rss_bytes": 308314112,
+          "issuance_theorem_bits": 128.06002366298887,
+          "showing_theorem_bits": 128.42126043151222,
+          "parameter_audit_status": "pass",
+          "issuance_zero_knowledge_eligible": true,
+          "showing_zero_knowledge_eligible": true,
+          "replay_rejected": true
+        },
+        {
+          "run": 3,
+          "artifact_directory": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3",
+          "report_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/report.json",
+          "report_sha256": "cd7b65b2938caf316508d31653cc508452f8156f984dcf28ad93459abc1bae8f",
+          "resource_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/resource.txt",
+          "resource_sha256": "a421e93452ba5de1e11a025620a0770395d154bd5dc60b5ed60b66542736e6ff",
+          "artifacts": {
+            "state_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/credential_state.intgenisis.v8",
+            "state_sha256": "af503ca7928a9dea916c28c5fdcf81522371b7c1be82d052964e06e320ae1f12",
+            "submission_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/presign_submission.json",
+            "submission_sha256": "bfa235133ddbfb7e5afb1ad4a97ebb492f2f5ae0670fc129e458e2624274810e",
+            "issuance_proof_sha256": "016a4ba23605179ed491399d947c56f1199953a0c4c3a71f589b16f183bc2879",
+            "presentation_path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/presentation.intgenisis.v3",
+            "presentation_sha256": "8cdf5771431f15bfa22592b1e01aef54bcc5cf02f7cfb0e5d0bfe112ae89b342",
+            "showing_proof_sha256": "5143d9b7abc31b369dca0146c427597482764a5cc7926f1f452bc28dc943c892",
+            "files": [
+              {
+                "role": "public_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/credential_public.intgenisis_profile_c.json",
+                "bytes": 35096,
+                "sha256": "f4c54af286c857d7000875e1ba136952ec6488219f26c8d2cfc106e97984e9e9"
+              },
+              {
+                "role": "b_matrix",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/Bmatrix.intgenisis_profile_c.json",
+                "bytes": 57177,
+                "sha256": "e37198d423011d1804c3e8a825a78e538d0e413bedf2aeaf45669025c38f9696"
+              },
+              {
+                "role": "holder_secret",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/holder_secret.json",
+                "bytes": 59216,
+                "sha256": "7f6383fd7654d72305ac5b355e1df7af23076fdfaa183897275ec7c39a02661c"
+              },
+              {
+                "role": "commit_request",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/commit_request.json",
+                "bytes": 15956,
+                "sha256": "1516d35c32fe8ac96dd3bfe8560be15f6755bac9fa803f8ca490026ee726f458"
+              },
+              {
+                "role": "presign_submission",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/presign_submission.json",
+                "bytes": 29578,
+                "sha256": "bfa235133ddbfb7e5afb1ad4a97ebb492f2f5ae0670fc129e458e2624274810e"
+              },
+              {
+                "role": "issue_response",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/issue_response.json",
+                "bytes": 63816,
+                "sha256": "1a88b0816c57573be39808b7a9d9da9b525c706254605db6166aef21469c5b73"
+              },
+              {
+                "role": "state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/credential_state.intgenisis.v8",
+                "bytes": 4894,
+                "sha256": "af503ca7928a9dea916c28c5fdcf81522371b7c1be82d052964e06e320ae1f12"
+              },
+              {
+                "role": "verifier_key",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/intgenisis_verifier_key.json",
+                "bytes": 15020,
+                "sha256": "800798ec4d812e655476e8236735b6c5d06219eadd88a49397671366d52da1f2"
+              },
+              {
+                "role": "presentation",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/presentation.intgenisis.v3",
+                "bytes": 38109,
+                "sha256": "8cdf5771431f15bfa22592b1e01aef54bcc5cf02f7cfb0e5d0bfe112ae89b342"
+              },
+              {
+                "role": "holder_usage_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/holder_usage_state.json",
+                "bytes": 508,
+                "sha256": "ee6d72e0acb245fa8d248d560b5acaa9ccc0c82145f0f949c47ee057a4981972"
+              },
+              {
+                "role": "verifier_state",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/verifier_state.json",
+                "bytes": 481,
+                "sha256": "8bfdeccd92ac5d318330e9acd8b349224ba33954572b10b3c29886934b198c4e"
+              },
+              {
+                "role": "ntru_params",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/ntru_params.json",
+                "bytes": 194,
+                "sha256": "a344f807566b52a3323debab2eb583a956d27baf30c6aaf5416fd25b9b449169"
+              },
+              {
+                "role": "ntru_public",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/ntru_public.json",
+                "bytes": 12820,
+                "sha256": "b3dbfad3d1bdb2213f4d19f0d43f09fad6c3d748d84cc6585ada7f5a80a7ed8d"
+              },
+              {
+                "role": "ntru_private",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/ntru_private.json",
+                "bytes": 35616,
+                "sha256": "02c6b4161ce5c017672fc8e31da38f97f5460b89c9355eb83b36eaf1e515a0ad"
+              },
+              {
+                "role": "ntru_signature",
+                "path": "artifacts/smallwood-v3/nonresearch-optimization/wf128/run-3/ntru_signature.json",
+                "bytes": 68988,
+                "sha256": "4f6f1b6faaee2c4fc61bdf8824a2fe84f29bc5435a535019d48dad840d1b918a"
+              }
+            ]
+          },
+          "persistent_state_bytes": 4894,
+          "issuance_proof_wire_bytes": 22050,
+          "showing_proof_wire_bytes": 38068,
+          "presentation_wire_bytes": 38109,
+          "paper_issuance_bytes": 23790,
+          "paper_showing_bytes": 39837,
+          "issuance_proving_ms": 697.362,
+          "showing_proving_ms": 1574.939,
+          "issuance_verification_ms": 282.809,
+          "showing_verification_ms": 191.359,
+          "peak_rss_bytes": 298876928,
+          "issuance_theorem_bits": 128.06002366298887,
+          "showing_theorem_bits": 128.42126043151222,
+          "parameter_audit_status": "pass",
+          "issuance_zero_knowledge_eligible": true,
+          "showing_zero_knowledge_eligible": true,
+          "replay_rejected": true
+        }
+      ],
+      "medians": {
+        "persistent_state_bytes": 4894,
+        "issuance_proof_wire_bytes": 22050,
+        "showing_proof_wire_bytes": 38068,
+        "presentation_wire_bytes": 38109,
+        "paper_issuance_bytes": 23790,
+        "paper_showing_bytes": 39837,
+        "issuance_proving_ms": 697.362,
+        "showing_proving_ms": 1657.617,
+        "peak_rss_bytes": 298876928
+      }
+    }
+  ]
+}

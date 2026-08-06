@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"time"
 
 	"vSIS-Signature/PIOP"
 	"vSIS-Signature/commitment"
@@ -37,28 +38,33 @@ type intGenISISHolderWitnessSpec struct {
 }
 
 type smallWoodTuningSpec struct {
-	NCols                  int        `json:"ncols,omitempty"`
-	LVCSNCols              int        `json:"lvcs_ncols,omitempty"`
-	NLeaves                int        `json:"nleaves,omitempty"`
-	Ell                    int        `json:"ell,omitempty"`
-	EllPrime               int        `json:"ell_prime,omitempty"`
-	Eta                    int        `json:"eta,omitempty"`
-	Theta                  int        `json:"theta,omitempty"`
-	Rho                    int        `json:"rho,omitempty"`
-	DQOverride             int        `json:"dq_override,omitempty"`
-	Kappa                  [4]int     `json:"kappa,omitempty"`
-	ROQueryCaps            [5]int     `json:"ro_query_caps,omitempty"`
-	ROQueryCapsSet         bool       `json:"ro_query_caps_set,omitempty"`
-	ROQueryCapBits         [5]float64 `json:"ro_query_cap_bits,omitempty"`
-	ROQueryCapBitsSet      bool       `json:"ro_query_cap_bits_set,omitempty"`
-	DECSCollisionBits      int        `json:"decs_collision_bits,omitempty"`
-	DECSHashBits           int        `json:"decs_hash_bits,omitempty"`
-	DECSTapeBits           int        `json:"decs_tape_bits,omitempty"`
-	FSCollisionBits        int        `json:"fs_collision_bits,omitempty"`
-	SaltBits               int        `json:"salt_bits,omitempty"`
-	TranscriptMode         string     `json:"transcript_mode,omitempty"`
-	TranscriptOmissionMode string     `json:"transcript_omission_mode,omitempty"`
-	FixedTranscriptSize    bool       `json:"fixed_transcript_size,omitempty"`
+	PresetID                   string     `json:"preset_id,omitempty"`
+	NCols                      int        `json:"ncols,omitempty"`
+	LVCSNCols                  int        `json:"lvcs_ncols,omitempty"`
+	NLeaves                    int        `json:"nleaves,omitempty"`
+	Ell                        int        `json:"ell,omitempty"`
+	EllPrime                   int        `json:"ell_prime,omitempty"`
+	Eta                        int        `json:"eta,omitempty"`
+	Theta                      int        `json:"theta,omitempty"`
+	Rho                        int        `json:"rho,omitempty"`
+	DQOverride                 int        `json:"dq_override,omitempty"`
+	Kappa                      [4]int     `json:"kappa,omitempty"`
+	ROQueryCaps                [5]int     `json:"ro_query_caps,omitempty"`
+	ROQueryCapsSet             bool       `json:"ro_query_caps_set,omitempty"`
+	ROQueryCapBits             [5]float64 `json:"ro_query_cap_bits,omitempty"`
+	ROQueryCapBitsSet          bool       `json:"ro_query_cap_bits_set,omitempty"`
+	AggregateROQueryCapLog2    float64    `json:"aggregate_ro_query_cap_log2,omitempty"`
+	AggregateROQueryCapLog2Set bool       `json:"aggregate_ro_query_cap_log2_set,omitempty"`
+	DECSCollisionBits          int        `json:"decs_collision_bits,omitempty"`
+	DECSHashBits               int        `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits               int        `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits            int        `json:"fs_collision_bits,omitempty"`
+	FSOutputBits               int        `json:"fs_output_bits,omitempty"`
+	SaltBits                   int        `json:"salt_bits,omitempty"`
+	CompressedRows             int        `json:"compressed_rows,omitempty"`
+	TranscriptMode             string     `json:"transcript_mode,omitempty"`
+	TranscriptOmissionMode     string     `json:"transcript_omission_mode,omitempty"`
+	FixedTranscriptSize        bool       `json:"fixed_transcript_size,omitempty"`
 }
 
 type holderSecretFile struct {
@@ -85,9 +91,16 @@ type commitRequestFile struct {
 }
 
 type preSignSubmissionFile struct {
-	Version              int         `json:"version"`
-	CredentialPublicPath string      `json:"credential_public_path"`
-	Proof                *PIOP.Proof `json:"proof"`
+	Version              int    `json:"version"`
+	CredentialPublicPath string `json:"credential_public_path"`
+	// Proof is the historical v2 JSON representation. Issuance artifact v4
+	// forbids it and carries only CanonicalProof.
+	Proof *PIOP.Proof `json:"proof,omitempty"`
+	// CanonicalProof is the strict schema-3 proof encoded by canonical wire
+	// codec v5. The enclosing JSON base64 encoding is only artifact transport;
+	// these bytes are decoded and reconstructed by PIOP against trusted public
+	// inputs before use.
+	CanonicalProof []byte `json:"canonical_proof,omitempty"`
 }
 
 type issueResponseFile struct {
@@ -113,29 +126,34 @@ type issuanceRuntime struct {
 }
 
 type issuanceRuntimeOverrides struct {
-	NCols                  int
-	LVCSNCols              int
-	NLeaves                int
-	Ell                    int
-	EllPrime               int
-	Eta                    int
-	Theta                  int
-	Rho                    int
-	DQOverride             int
-	Kappa                  [4]int
-	ROQueryCaps            [5]int
-	ROQueryCapsSet         bool
-	ROQueryCapBits         [5]float64
-	ROQueryCapBitsSet      bool
-	DECSCollisionBits      int
-	DECSHashBits           int
-	DECSTapeBits           int
-	FSCollisionBits        int
-	SaltBits               int
-	TranscriptMode         string
-	TranscriptOmissionMode string
-	FixedTranscriptSize    bool
-	RingDegree             int
+	PresetID                   string
+	NCols                      int
+	LVCSNCols                  int
+	NLeaves                    int
+	Ell                        int
+	EllPrime                   int
+	Eta                        int
+	Theta                      int
+	Rho                        int
+	DQOverride                 int
+	Kappa                      [4]int
+	ROQueryCaps                [5]int
+	ROQueryCapsSet             bool
+	ROQueryCapBits             [5]float64
+	ROQueryCapBitsSet          bool
+	AggregateROQueryCapLog2    float64
+	AggregateROQueryCapLog2Set bool
+	DECSCollisionBits          int
+	DECSHashBits               int
+	DECSTapeBits               int
+	FSCollisionBits            int
+	FSOutputBits               int
+	SaltBits                   int
+	CompressedRows             int
+	TranscriptMode             string
+	TranscriptOmissionMode     string
+	FixedTranscriptSize        bool
+	RingDegree                 int
 }
 
 func ntruSigningPaths(paramsPath, publicPath, privatePath, signaturePath string) signverify.SignPaths {
@@ -147,13 +165,96 @@ func ntruSigningPaths(paramsPath, publicPath, privatePath, signaturePath string)
 	}
 }
 
-const issuanceArtifactVersion = 3
+const (
+	issuanceArtifactVersion   = 3 // historical v2 preset artifacts
+	issuanceArtifactVersionV4 = credential.IntGenISISIssuanceArtifactFormatVersionV4
+)
 
 func requireIssuanceArtifactVersion(kind string, got int) error {
-	if got == issuanceArtifactVersion {
+	if got == issuanceArtifactVersion || got == issuanceArtifactVersionV4 {
 		return nil
 	}
-	return fmt.Errorf("unsupported %s schema %d; this build requires schema %d. No migration is supported; rerun setup and issuance", kind, got, issuanceArtifactVersion)
+	return fmt.Errorf("unsupported %s schema %d; no migration is supported; rerun setup and issuance", kind, got)
+}
+
+func issuanceArtifactVersionForTranscript(mode string) int {
+	if mode == credential.IntGenISISTranscriptProtocolV3 || mode == credential.IntGenISISTranscriptProtocolV4 {
+		return issuanceArtifactVersionV4
+	}
+	return issuanceArtifactVersion
+}
+
+func issuanceArtifactVersionForPublic(public credential.PublicParams) int {
+	return issuanceArtifactVersionForTranscript(public.TranscriptMode)
+
+}
+
+func validatePreSignSubmissionEncoding(submission preSignSubmissionFile) error {
+	switch submission.Version {
+	case issuanceArtifactVersion:
+		if submission.Proof == nil || submission.Proof.SchemaVersion != PIOP.ProofSchemaVersionV2 {
+			return fmt.Errorf("issuance submission v2 requires a schema-2 JSON proof")
+		}
+		if len(submission.CanonicalProof) != 0 {
+			return fmt.Errorf("issuance submission v2 must not contain canonical schema-3 proof bytes")
+		}
+	case issuanceArtifactVersionV4:
+		if submission.Proof != nil {
+			return fmt.Errorf("issuance submission v4 rejects JSON proof material; canonical schema-3 bytes are required")
+		}
+		if len(submission.CanonicalProof) == 0 {
+			return fmt.Errorf("issuance submission v4 is missing canonical schema-3 proof bytes")
+		}
+	default:
+		return requireIssuanceArtifactVersion("issuance submission", submission.Version)
+	}
+	return nil
+}
+
+func preSignSubmissionProof(
+	submission preSignSubmissionFile,
+	pub PIOP.PublicInputs,
+	opts PIOP.SimOpts,
+	prepared ...*PIOP.PreparedExecutionContext,
+) (*PIOP.Proof, error) {
+	if len(prepared) > 1 {
+		return nil, fmt.Errorf("multiple prepared pre-sign contexts supplied")
+	}
+	if err := validatePreSignSubmissionEncoding(submission); err != nil {
+		return nil, err
+	}
+	if submission.Version == issuanceArtifactVersion {
+		return submission.Proof, nil
+	}
+	var proof *PIOP.Proof
+	var err error
+	if len(prepared) == 1 && prepared[0] != nil {
+		proof, err = PIOP.UnmarshalCanonicalProofPrepared(submission.CanonicalProof, prepared[0], opts.PhaseRecorder)
+	} else {
+		proof, err = PIOP.UnmarshalCanonicalProof(submission.CanonicalProof, PIOP.CanonicalProofContext{
+			Kind:    PIOP.PreSign,
+			Public:  pub,
+			Options: opts,
+		})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("decode canonical pre-sign proof: %w", err)
+	}
+	return proof, nil
+}
+
+func requireIssuanceArtifactVersionForSmallWood(kind string, got int, spec *smallWoodTuningSpec) error {
+	if err := requireIssuanceArtifactVersion(kind, got); err != nil {
+		return err
+	}
+	if spec == nil {
+		return fmt.Errorf("%s is missing its persisted SmallWood transcript tuple", kind)
+	}
+	want := issuanceArtifactVersionForTranscript(spec.TranscriptMode)
+	if got != want {
+		return fmt.Errorf("%s schema=%d want=%d for transcript %q; target legacy artifacts are rejected", kind, got, want, spec.TranscriptMode)
+	}
+	return nil
 }
 
 func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves int, omega []uint64, spec *smallWoodTuningSpec) issuanceRuntimeOverrides {
@@ -161,6 +262,7 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 		RingDegree: 0,
 	}
 	if spec != nil {
+		out.PresetID = spec.PresetID
 		out.NCols = spec.NCols
 		out.LVCSNCols = spec.LVCSNCols
 		out.NLeaves = spec.NLeaves
@@ -175,11 +277,15 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 		out.ROQueryCapsSet = spec.ROQueryCapsSet
 		out.ROQueryCapBits = spec.ROQueryCapBits
 		out.ROQueryCapBitsSet = spec.ROQueryCapBitsSet
+		out.AggregateROQueryCapLog2 = spec.AggregateROQueryCapLog2
+		out.AggregateROQueryCapLog2Set = spec.AggregateROQueryCapLog2Set
 		out.DECSCollisionBits = spec.DECSCollisionBits
 		out.DECSHashBits = spec.DECSHashBits
 		out.DECSTapeBits = spec.DECSTapeBits
 		out.FSCollisionBits = spec.FSCollisionBits
+		out.FSOutputBits = spec.FSOutputBits
 		out.SaltBits = spec.SaltBits
+		out.CompressedRows = spec.CompressedRows
 		out.TranscriptMode = spec.TranscriptMode
 		out.TranscriptOmissionMode = spec.TranscriptOmissionMode
 		out.FixedTranscriptSize = spec.FixedTranscriptSize
@@ -189,36 +295,55 @@ func persistedIssuanceRuntimeOverridesWithSmallWood(ncols, lvcsNCols, nLeaves in
 
 func smallWoodTuningSpecFromOpts(opts PIOP.SimOpts) *smallWoodTuningSpec {
 	transcriptMode := ""
-	if opts.TranscriptProtocolMode == PIOP.TranscriptProtocolSmallField2025V2 {
+	presetID := ""
+	switch opts.TranscriptProtocolMode {
+	case PIOP.TranscriptProtocolSmallField2025V2:
 		transcriptMode = intGenISISTranscriptModeSmallField2025
+	case PIOP.TranscriptProtocolSmallField2025V3:
+		transcriptMode = intGenISISTranscriptModeSmallField2025V3
+	case PIOP.TranscriptProtocolSmallField2025V4:
+		transcriptMode = credential.IntGenISISTranscriptProtocolV4
+		// Trusted preset identity is a v4 transcript-policy field. Keeping it
+		// out of historical tuning payloads preserves byte-for-byte v2/v3
+		// artifact replay while the separately bound public parameters still
+		// authenticate their canonical legacy preset.
+		presetID = opts.PresetID
 	}
 	return &smallWoodTuningSpec{
-		NCols:                  opts.NCols,
-		LVCSNCols:              opts.LVCSNCols,
-		NLeaves:                opts.NLeaves,
-		Ell:                    opts.Ell,
-		EllPrime:               opts.EllPrime,
-		Eta:                    opts.Eta,
-		Theta:                  opts.Theta,
-		Rho:                    opts.Rho,
-		DQOverride:             opts.DQOverride,
-		Kappa:                  opts.Kappa,
-		ROQueryCaps:            opts.ROQueryCaps,
-		ROQueryCapsSet:         opts.ROQueryCapsSet,
-		ROQueryCapBits:         opts.ROQueryCapBits,
-		ROQueryCapBitsSet:      opts.ROQueryCapBitsSet,
-		DECSCollisionBits:      opts.DECSCollisionBits,
-		DECSHashBits:           opts.DECSHashBits,
-		DECSTapeBits:           opts.DECSTapeBits,
-		FSCollisionBits:        opts.FSCollisionBits,
-		SaltBits:               opts.SaltBits,
-		TranscriptMode:         transcriptMode,
-		TranscriptOmissionMode: opts.TranscriptOmissionMode,
-		FixedTranscriptSize:    opts.FixedTranscriptSize,
+		PresetID:                   presetID,
+		NCols:                      opts.NCols,
+		LVCSNCols:                  opts.LVCSNCols,
+		NLeaves:                    opts.NLeaves,
+		Ell:                        opts.Ell,
+		EllPrime:                   opts.EllPrime,
+		Eta:                        opts.Eta,
+		Theta:                      opts.Theta,
+		Rho:                        opts.Rho,
+		DQOverride:                 opts.DQOverride,
+		Kappa:                      opts.Kappa,
+		ROQueryCaps:                opts.ROQueryCaps,
+		ROQueryCapsSet:             opts.ROQueryCapsSet,
+		ROQueryCapBits:             opts.ROQueryCapBits,
+		ROQueryCapBitsSet:          opts.ROQueryCapBitsSet,
+		AggregateROQueryCapLog2:    opts.AggregateROQueryCapLog2,
+		AggregateROQueryCapLog2Set: opts.AggregateROQueryCapLog2Set,
+		DECSCollisionBits:          opts.DECSCollisionBits,
+		DECSHashBits:               opts.DECSHashBits,
+		DECSTapeBits:               opts.DECSTapeBits,
+		FSCollisionBits:            opts.FSCollisionBits,
+		FSOutputBits:               opts.FSOutputBits,
+		SaltBits:                   opts.SaltBits,
+		CompressedRows:             opts.IntGenISISMSECompression,
+		TranscriptMode:             transcriptMode,
+		TranscriptOmissionMode:     opts.TranscriptOmissionMode,
+		FixedTranscriptSize:        opts.FixedTranscriptSize,
 	}
 }
 
 func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeOverrides) PIOP.SimOpts {
+	if overrides.PresetID != "" {
+		opts.PresetID = overrides.PresetID
+	}
 	if overrides.NCols > 0 {
 		opts.NCols = overrides.NCols
 	}
@@ -261,6 +386,10 @@ func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeO
 		opts.ROQueryCapBits = overrides.ROQueryCapBits
 		opts.ROQueryCapBitsSet = true
 	}
+	if overrides.AggregateROQueryCapLog2Set {
+		opts.AggregateROQueryCapLog2 = overrides.AggregateROQueryCapLog2
+		opts.AggregateROQueryCapLog2Set = true
+	}
 	if overrides.DECSCollisionBits > 0 {
 		opts.DECSCollisionBits = overrides.DECSCollisionBits
 	}
@@ -273,13 +402,32 @@ func applyIssuanceRuntimeOverrides(opts PIOP.SimOpts, overrides issuanceRuntimeO
 	if overrides.FSCollisionBits > 0 {
 		opts.FSCollisionBits = overrides.FSCollisionBits
 	}
+	if overrides.FSOutputBits > 0 {
+		opts.FSOutputBits = overrides.FSOutputBits
+	}
 	if overrides.SaltBits > 0 {
 		opts.SaltBits = overrides.SaltBits
 	}
+	opts.IntGenISISMSECompression = overrides.CompressedRows
 	if overrides.TranscriptMode != "" {
 		opts.TranscriptCodec = intGenISISLiveTranscriptCodecOrDefault(overrides.TranscriptMode)
 		opts.TranscriptProtocolMode = intGenISISLiveTranscriptProtocolOrDefault(overrides.TranscriptMode)
 		opts.TranscriptVersion = intGenISISLiveTranscriptVersionOrDefault(overrides.TranscriptMode)
+	}
+	if overrides.TranscriptMode == credential.IntGenISISTranscriptProtocolV4 {
+		// defaultIssuanceOpts is resolved before persisted preset overrides are
+		// applied, so it may carry historical [1,1,1,1,1] query caps. V4 has
+		// no per-domain budgets: bounded lanes use only AggregateROQueryCapLog2
+		// and WF128 uses no query scalar. Clear every inherited legacy slot at
+		// this phase boundary.
+		opts.ROQueryCaps = [5]int{}
+		opts.ROQueryCapsSet = false
+		opts.ROQueryCapBits = [5]float64{}
+		opts.ROQueryCapBitsSet = false
+		if !overrides.AggregateROQueryCapLog2Set {
+			opts.AggregateROQueryCapLog2 = 0
+			opts.AggregateROQueryCapLog2Set = false
+		}
 	}
 	if overrides.TranscriptOmissionMode != "" {
 		opts.TranscriptOmissionMode = overrides.TranscriptOmissionMode
@@ -542,8 +690,9 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 	if err != nil {
 		return fmt.Errorf("prepare IntGenISIS commit: %w", err)
 	}
+	artifactVersion := issuanceArtifactVersionForPublic(rt.public)
 	secret := holderSecretFile{
-		Version:              issuanceArtifactVersion,
+		Version:              artifactVersion,
 		CredentialPublicPath: publicPath,
 		PRFParamsPath:        prfPath,
 		PackedNCols:          rt.opts.NCols,
@@ -560,7 +709,7 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 		},
 	}
 	request := commitRequestFile{
-		Version:              issuanceArtifactVersion,
+		Version:              artifactVersion,
 		CredentialPublicPath: publicPath,
 		PackedNCols:          rt.opts.NCols,
 		LVCSNCols:            rt.opts.LVCSNCols,
@@ -580,11 +729,21 @@ func holderCommitIntGenISIS(rt *issuanceRuntime, publicPath, prfPath, holderSecr
 }
 
 func holderProve(holderSecretPath, challengePath, submissionPath string) error {
+	return holderProveWithPhaseRecorder(holderSecretPath, challengePath, submissionPath, nil)
+}
+
+// holderProveWithPhaseRecorder is the benchmark-aware issuance entry point.
+// The regular CLI delegates with a nil recorder, so disabled instrumentation
+// performs no clock reads and does not affect artifact construction.
+func holderProveWithPhaseRecorder(holderSecretPath, challengePath, submissionPath string, phase *PIOP.PhaseRecorder, execution ...PIOP.ExecutionPolicy) error {
+	if len(execution) > 1 {
+		return fmt.Errorf("multiple execution policies supplied")
+	}
 	var secret holderSecretFile
 	if err := readJSONFile(holderSecretPath, &secret); err != nil {
 		return fmt.Errorf("read holder secret: %w", err)
 	}
-	if err := requireIssuanceArtifactVersion("holder secret", secret.Version); err != nil {
+	if err := requireIssuanceArtifactVersionForSmallWood("holder secret", secret.Version, secret.SmallWood); err != nil {
 		return err
 	}
 	if err := validatePersistedSmallWoodV2("holder secret", secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega, secret.SmallWood); err != nil {
@@ -600,11 +759,48 @@ func holderProve(holderSecretPath, challengePath, submissionPath string) error {
 	if !rt.public.UsesIntGenISIS() {
 		return fmt.Errorf("holder-prove supports only IntGenISIS public params")
 	}
+	rt.opts.PhaseRecorder = phase
+	if len(execution) == 1 {
+		if err := execution[0].Validate(); err != nil {
+			return err
+		}
+		rt.opts.ExecutionPolicy = execution[0]
+	}
 	_ = challengePath
-	return holderProveIntGenISIS(rt, secret, submissionPath)
+	return holderProveIntGenISIS(rt, secret, submissionPath, false, nil)
 }
 
-func holderProveIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, submissionPath string) error {
+func holderProveWithPreparedContext(holderSecretPath, challengePath, submissionPath string, phase *PIOP.PhaseRecorder, execution PIOP.ExecutionPolicy, preparedOut **PIOP.PreparedExecutionContext) error {
+	var secret holderSecretFile
+	if err := readJSONFile(holderSecretPath, &secret); err != nil {
+		return fmt.Errorf("read holder secret: %w", err)
+	}
+	if err := requireIssuanceArtifactVersionForSmallWood("holder secret", secret.Version, secret.SmallWood); err != nil {
+		return err
+	}
+	if err := validatePersistedSmallWoodV2("holder secret", secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega, secret.SmallWood); err != nil {
+		return err
+	}
+	rt, err := loadIssuanceRuntime(secret.CredentialPublicPath, secret.PRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega, secret.SmallWood))
+	if err != nil {
+		return err
+	}
+	if err := validatePersistedOmegaV2("holder secret", secret.Omega, rt.omega); err != nil {
+		return err
+	}
+	if !rt.public.UsesIntGenISIS() {
+		return fmt.Errorf("holder-prove supports only IntGenISIS public params")
+	}
+	if err := execution.Validate(); err != nil {
+		return err
+	}
+	rt.opts.PhaseRecorder = phase
+	rt.opts.ExecutionPolicy = execution
+	_ = challengePath
+	return holderProveIntGenISIS(rt, secret, submissionPath, true, preparedOut)
+}
+
+func holderProveIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, submissionPath string, prepareContext bool, preparedOut **PIOP.PreparedExecutionContext) error {
 	inputs, err := intGenISISInputsFromSecret(rt.ringQ, secret)
 	if err != nil {
 		return err
@@ -629,6 +825,24 @@ func holderProveIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, submiss
 		IntGenISIS:     true,
 		Extras:         rt.public.PresetTranscriptExtras(nil),
 	}
+	var prepared *PIOP.PreparedExecutionContext
+	if prepareContext && secret.Version == issuanceArtifactVersionV4 {
+		started := time.Now()
+		prepared, err = PIOP.PrepareExecutionContext(PIOP.CanonicalProofContext{Kind: PIOP.PreSign, Public: pub, Options: rt.opts})
+		if rt.opts.PhaseRecorder != nil {
+			rt.opts.PhaseRecorder.RecordDuration("issuance.context_prepare", time.Since(started))
+		}
+		if err != nil {
+			return fmt.Errorf("prepare canonical IntGenISIS pre-sign context: %w", err)
+		}
+		if preparedOut != nil {
+			*preparedOut = prepared
+		}
+	}
+	var proveStart time.Time
+	if rt.opts.PhaseRecorder != nil {
+		proveStart = time.Now()
+	}
 	proof, err := PIOP.BuildIntGenISISPreSign(rt.ringQ, pub, PIOP.WitnessInputs{
 		M:     inputs.M,
 		MAttr: inputs.MAttr,
@@ -636,13 +850,31 @@ func holderProveIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, submiss
 		S:     inputs.S,
 		E:     inputs.E,
 	}, rt.opts)
+	if rt.opts.PhaseRecorder != nil {
+		rt.opts.PhaseRecorder.RecordDuration("issuance.prove_total", time.Since(proveStart))
+	}
 	if err != nil {
 		return fmt.Errorf("prove IntGenISIS pre-sign: %w", err)
 	}
 	out := preSignSubmissionFile{
-		Version:              issuanceArtifactVersion,
+		Version:              secret.Version,
 		CredentialPublicPath: secret.CredentialPublicPath,
-		Proof:                proof,
+	}
+	if secret.Version == issuanceArtifactVersionV4 {
+		if prepared != nil {
+			out.CanonicalProof, err = PIOP.MarshalCanonicalProofPrepared(proof, prepared, rt.opts.PhaseRecorder)
+		} else {
+			out.CanonicalProof, err = PIOP.MarshalCanonicalProof(proof, PIOP.CanonicalProofContext{
+				Kind:    PIOP.PreSign,
+				Public:  pub,
+				Options: rt.opts,
+			})
+		}
+		if err != nil {
+			return fmt.Errorf("encode canonical IntGenISIS pre-sign proof: %w", err)
+		}
+	} else {
+		out.Proof = proof
 	}
 	if err := writeJSONFile(submissionPath, out, 0o644); err != nil {
 		return fmt.Errorf("write IntGenISIS submission: %w", err)
@@ -656,7 +888,7 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 	if err := readJSONFile(commitRequestPath, &req); err != nil {
 		return fmt.Errorf("read commit request: %w", err)
 	}
-	if err := requireIssuanceArtifactVersion("issuance request", req.Version); err != nil {
+	if err := requireIssuanceArtifactVersionForSmallWood("issuance request", req.Version, req.SmallWood); err != nil {
 		return err
 	}
 	if err := validatePersistedSmallWoodV2("issuance request", req.PackedNCols, req.LVCSNCols, req.NLeaves, req.Omega, req.SmallWood); err != nil {
@@ -669,11 +901,14 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 	if err := requireIssuanceArtifactVersion("issuance submission", submission.Version); err != nil {
 		return err
 	}
+	if submission.Version != req.Version {
+		return fmt.Errorf("issuance submission schema=%d want request schema=%d", submission.Version, req.Version)
+	}
 	if submission.CredentialPublicPath != req.CredentialPublicPath {
 		return fmt.Errorf("issuance request and submission public-parameter paths differ")
 	}
-	if submission.Proof == nil || submission.Proof.SchemaVersion != PIOP.ProofSchemaVersionV2 {
-		return fmt.Errorf("issuance submission contains a non-v2 PIOP proof. No migration is supported; rerun setup and issuance")
+	if err := validatePreSignSubmissionEncoding(submission); err != nil {
+		return err
 	}
 	prfPath := defaultPRFParamsPath
 	public, err := credential.LoadPublicParams(req.CredentialPublicPath)
@@ -702,9 +937,6 @@ func issuerVerifySign(commitRequestPath, challengePath, submissionPath, response
 }
 
 func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, submission preSignSubmissionFile, responsePath string, maxTrials int, ntruPaths signverify.SignPaths, verifierKeyOut string) error {
-	if submission.Proof == nil {
-		return fmt.Errorf("IntGenISIS pre-sign submission missing proof")
-	}
 	if err := validateInt64RowsExact("commit_request.com", req.Com, int(rt.ringQ.N)); err != nil {
 		return err
 	}
@@ -725,7 +957,11 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 		IntGenISIS:     true,
 		Extras:         rt.public.PresetTranscriptExtras(nil),
 	}
-	ok, err := PIOP.VerifyIntGenISISPreSign(pub, submission.Proof, rt.opts)
+	proof, err := preSignSubmissionProof(submission, pub, rt.opts)
+	if err != nil {
+		return err
+	}
+	ok, err := PIOP.VerifyIntGenISISPreSign(pub, proof, rt.opts)
 	if err != nil {
 		return fmt.Errorf("verify IntGenISIS pre-sign: %w", err)
 	}
@@ -770,7 +1006,7 @@ func issuerVerifySignIntGenISIS(rt *issuanceRuntime, req commitRequestFile, subm
 		return fmt.Errorf("load public key: %w", err)
 	}
 	resp := issueResponseFile{
-		Version:              issuanceArtifactVersion,
+		Version:              req.Version,
 		CredentialPublicPath: req.CredentialPublicPath,
 		MuSig:                polyVecToInt64(rt.ringQ, data.MuSig, false),
 		X0:                   polyVecToInt64(rt.ringQ, data.X0, false),
@@ -811,7 +1047,7 @@ func holderFinalize(holderSecretPath, commitRequestPath, challengePath, response
 	if err := readJSONFile(holderSecretPath, &secretProbe); err != nil {
 		return fmt.Errorf("read holder secret: %w", err)
 	}
-	if err := requireIssuanceArtifactVersion("holder secret", secretProbe.Version); err != nil {
+	if err := requireIssuanceArtifactVersionForSmallWood("holder secret", secretProbe.Version, secretProbe.SmallWood); err != nil {
 		return err
 	}
 	if err := validatePersistedSmallWoodV2("holder secret", secretProbe.PackedNCols, secretProbe.LVCSNCols, secretProbe.NLeaves, secretProbe.Omega, secretProbe.SmallWood); err != nil {
@@ -840,11 +1076,14 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 	if err := readJSONFile(responsePath, &resp); err != nil {
 		return fmt.Errorf("read issue response: %w", err)
 	}
-	if err := requireIssuanceArtifactVersion("issuance request", req.Version); err != nil {
+	if err := requireIssuanceArtifactVersionForSmallWood("issuance request", req.Version, req.SmallWood); err != nil {
 		return err
 	}
 	if err := requireIssuanceArtifactVersion("issuance response", resp.Version); err != nil {
 		return err
+	}
+	if resp.Version != req.Version || secret.Version != req.Version {
+		return fmt.Errorf("issuance artifact schemas disagree: secret=%d request=%d response=%d", secret.Version, req.Version, resp.Version)
 	}
 	if err := validatePersistedSmallWoodV2("issuance request", req.PackedNCols, req.LVCSNCols, req.NLeaves, req.Omega, req.SmallWood); err != nil {
 		return err
@@ -945,8 +1184,17 @@ func holderFinalizeIntGenISIS(rt *issuanceRuntime, secret holderSecretFile, comm
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		return fmt.Errorf("mkdir state dir: %w", err)
 	}
-	if err := credential.SaveIntGenISISState(statePath, state); err != nil {
-		return fmt.Errorf("save IntGenISIS credential state: %w", err)
+	if rt.public.PresetVersion == credential.IntGenISISPresetManifestVersionV3 || rt.public.PresetVersion == credential.IntGenISISPresetManifestVersionV4 {
+		ctx := credential.IntGenISISStateCodecContext{
+			Public:           rt.public,
+			VerifierKey:      verifierKey,
+			PublicParamsPath: secret.CredentialPublicPath,
+		}
+		if err := credential.SaveIntGenISISStateV8(statePath, state, ctx); err != nil {
+			return fmt.Errorf("save canonical IntGenISIS credential state-v8: %w", err)
+		}
+	} else if err := credential.SaveIntGenISISState(statePath, state); err != nil {
+		return fmt.Errorf("save legacy IntGenISIS credential state: %w", err)
 	}
 	log.Printf("[issuance-cli] IntGenISIS holder finalize wrote %s", statePath)
 	return nil

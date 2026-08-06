@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"vSIS-Signature/PIOP"
 	"vSIS-Signature/credential"
 )
 
@@ -31,8 +32,14 @@ func intGenISISPresetHelp() string {
 	return strings.Join(credential.IntGenISISDefaultPresetNames(), ", ")
 }
 
-func intGenISISV2ArtifactDir(preset credential.IntGenISISPreset) string {
-	return filepath.Join("artifacts", "smallwood-salted-v2", preset.CanonicalID)
+func intGenISISArtifactDir(preset credential.IntGenISISPreset) string {
+	root := "smallwood-salted-v2"
+	if preset.PresetVersion == credential.IntGenISISPresetManifestVersionV3 {
+		root = "smallwood-v3"
+	} else if preset.PresetVersion == credential.IntGenISISPresetManifestVersionV4 {
+		root = "publication-v4"
+	}
+	return filepath.Join("artifacts", root, preset.CanonicalID)
 }
 
 func requiredIntGenISISCLIPreset(selector string) (credential.IntGenISISPreset, error) {
@@ -51,7 +58,10 @@ func usage() {
 
 Primary commands:
   list-presets                  List every executable PoC preset
+  list-publication-presets      List the exact five publication-v4 presets
   benchmark-intgenisis-e2e      Run issuance and showing for one preset
+  tune-publication-presets      Deterministically search and lock publication candidates
+  benchmark-publication-presets Run a rotated fresh-run batch for all five presets
   gate-functional-presets       Functionally validate every executable preset
 
 Manual protocol stages:
@@ -84,6 +94,14 @@ func run(args []string) error {
 	switch args[0] {
 	case "list-presets":
 		return runListIntGenISISPresets(args[1:])
+	case "list-publication-presets":
+		return runListPublicationPresets(args[1:])
+	case "tune-publication-presets":
+		return runTunePublicationPresets(args[1:])
+	case "benchmark-publication-presets":
+		return runBenchmarkPublicationPresets(args[1:])
+	case "benchmark-publication-candidate":
+		return runBenchmarkPublicationCandidate(args[1:])
 	case "setup-intgenisis-public":
 		return runSetupIntGenISISPublic(args[1:])
 	case "setup-ntru-keys":
@@ -154,9 +172,14 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	if preset, ok := credential.LookupIntGenISISPreset(cfg.PresetName); ok {
 		warnIntGenISISPreset(preset)
 	}
+	var report benchmarkIntGenISISE2EReport
+	run := func() error {
+		var runErr error
+		report, runErr = benchmarkIntGenISISE2E(cfg)
+		return runErr
+	}
 	if cfg.Verbose {
-		report, err := benchmarkIntGenISISE2E(cfg)
-		if err != nil {
+		if err := withInternalTargetedEntropy(run); err != nil {
 			return err
 		}
 		benchmarkIntGenISISE2EPrintReport(report, true)
@@ -164,7 +187,7 @@ func runBenchmarkIntGenISISE2E(args []string) error {
 	}
 	oldLog := log.Writer()
 	log.SetOutput(io.Discard)
-	report, err := benchmarkIntGenISISE2E(cfg)
+	err = withInternalTargetedEntropy(run)
 	log.SetOutput(oldLog)
 	if err != nil {
 		return err
@@ -181,8 +204,45 @@ func parseBenchmarkIntGenISISE2EConfig(args []string) (benchmarkIntGenISISE2ECon
 	presetName := fs.String("preset", "", "named IntGenISIS preset: "+intGenISISPresetHelp())
 	force := fs.Bool("force", false, "overwrite existing artifacts")
 	verbose := fs.Bool("verbose", false, "print detailed benchmark diagnostics")
+	executionProfile := fs.String("execution-profile", "baseline", "local execution profile: baseline or candidate")
+	workers := fs.Int("workers", 0, "candidate worker budget; zero uses GOMAXPROCS")
+	decsWorkers := fs.Int("decs-workers", 0, "candidate DECS workers; zero uses the worker budget")
+	semanticWorkers := fs.Int("semantic-workers", 0, "candidate semantic-Q workers; zero uses the worker budget")
+	issuancePlanWorkers := fs.Int("issuance-plan-workers", 0, "candidate issuance-plan workers; zero uses the worker budget")
+	decsChunkLeaves := fs.Int("decs-chunk-leaves", 32, "candidate dynamic DECS leaf chunk size")
+	contextMode := fs.String("context-mode", "warm", "canonical context mode: cold or warm")
 	if err := fs.Parse(args); err != nil {
 		return benchmarkIntGenISISE2EConfig{}, err
+	}
+	if *contextMode != "cold" && *contextMode != "warm" {
+		return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("unsupported -context-mode %q", *contextMode)
+	}
+	var executionPolicy PIOP.ExecutionPolicy
+	var err error
+	switch *executionProfile {
+	case "baseline":
+		if *workers != 0 || *decsWorkers != 0 || *semanticWorkers != 0 || *issuancePlanWorkers != 0 {
+			return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("worker overrides require -execution-profile=candidate")
+		}
+	case "candidate":
+		executionPolicy, err = PIOP.TargetedLatencyExecutionPolicy(*workers, *decsChunkLeaves)
+		if err != nil {
+			return benchmarkIntGenISISE2EConfig{}, err
+		}
+		if *decsWorkers != 0 {
+			executionPolicy.DECSWorkers = *decsWorkers
+		}
+		if *semanticWorkers != 0 {
+			executionPolicy.SemanticWorkers = *semanticWorkers
+		}
+		if *issuancePlanWorkers != 0 {
+			executionPolicy.IssuancePlanWorkers = *issuancePlanWorkers
+		}
+		if err := executionPolicy.Validate(); err != nil {
+			return benchmarkIntGenISISE2EConfig{}, err
+		}
+	default:
+		return benchmarkIntGenISISE2EConfig{}, fmt.Errorf("unsupported -execution-profile %q", *executionProfile)
 	}
 	selectedPresetName, err := credential.ResolveIntGenISISPresetSelector(*presetName, false)
 	if err != nil {
@@ -195,6 +255,10 @@ func parseBenchmarkIntGenISISE2EConfig(args []string) (benchmarkIntGenISISE2ECon
 	if err != nil {
 		return benchmarkIntGenISISE2EConfig{}, err
 	}
+	issuanceTuning := intGenISISTuningFromPresetSpec(preset.Issuance)
+	issuanceTuning.PresetID = preset.CanonicalID
+	showingTuning := intGenISISTuningFromPresetSpec(preset.Showing)
+	showingTuning.PresetID = preset.CanonicalID
 	return benchmarkIntGenISISE2EConfig{
 		ArtifactDir:          *artifactDir,
 		PresetName:           selectedPresetName,
@@ -216,13 +280,16 @@ func parseBenchmarkIntGenISISE2EConfig(args []string) (benchmarkIntGenISISE2ECon
 		JSONOut:              *jsonOut,
 		Force:                *force,
 		Verbose:              *verbose,
-		Issuance:             intGenISISTuningFromPresetSpec(preset.Issuance),
-		Showing:              intGenISISTuningFromPresetSpec(preset.Showing),
+		Issuance:             issuanceTuning,
+		Showing:              showingTuning,
 		KeygenTrials:         10000,
 		KeygenAttempts:       defaultNTRUKeygenAttempts,
 		NTRUBeta:             preset.NTRUBeta,
 		MaxTrials:            2048,
 		MaxNLeaves:           preset.MaxNLeaves,
+		ExecutionProfile:     *executionProfile,
+		ExecutionPolicy:      executionPolicy,
+		ContextMode:          *contextMode,
 	}, nil
 }
 
@@ -248,7 +315,7 @@ func runSetupIntGenISISPublic(args []string) error {
 	}
 	warnIntGenISISPreset(preset)
 	if strings.TrimSpace(*outPath) == "" {
-		*outPath = filepath.Join(intGenISISV2ArtifactDir(preset), fmt.Sprintf("credential_public.%s.json", preset.Profile))
+		*outPath = filepath.Join(intGenISISArtifactDir(preset), fmt.Sprintf("credential_public.%s.json", preset.Profile))
 	}
 	profile, ok := credential.LookupIntGenISISProfile(preset.Profile)
 	if !ok {
@@ -284,7 +351,7 @@ func runSetupNTRUKeys(args []string) error {
 	if !ok {
 		return fmt.Errorf("unsupported IntGenISIS profile %q", preset.Profile)
 	}
-	artifactDir := intGenISISV2ArtifactDir(preset)
+	artifactDir := intGenISISArtifactDir(preset)
 	if *paramsOut == "" {
 		*paramsOut = filepath.Join(artifactDir, "ntru_params.json")
 	}
@@ -320,7 +387,7 @@ func runHolderCommit(args []string) error {
 		return err
 	}
 	warnIntGenISISPreset(preset)
-	artifactDir := intGenISISV2ArtifactDir(preset)
+	artifactDir := intGenISISArtifactDir(preset)
 	if *publicPath == "" {
 		*publicPath = filepath.Join(artifactDir, fmt.Sprintf("credential_public.%s.json", preset.Profile))
 	}
@@ -361,7 +428,7 @@ func runHolderProve(args []string) error {
 	if err != nil {
 		return err
 	}
-	artifactDir := intGenISISV2ArtifactDir(preset)
+	artifactDir := intGenISISArtifactDir(preset)
 	if *holderSecretPath == "" {
 		*holderSecretPath = filepath.Join(artifactDir, "holder_secret.json")
 	}
@@ -391,7 +458,7 @@ func runIssuerVerifySign(args []string) error {
 	if err != nil {
 		return err
 	}
-	artifactDir := intGenISISV2ArtifactDir(preset)
+	artifactDir := intGenISISArtifactDir(preset)
 	if *commitRequestPath == "" {
 		*commitRequestPath = filepath.Join(artifactDir, "commit_request.json")
 	}
@@ -437,7 +504,7 @@ func runHolderFinalize(args []string) error {
 	if err != nil {
 		return err
 	}
-	artifactDir := intGenISISV2ArtifactDir(preset)
+	artifactDir := intGenISISArtifactDir(preset)
 	if *holderSecretPath == "" {
 		*holderSecretPath = filepath.Join(artifactDir, "holder_secret.json")
 	}
@@ -448,7 +515,11 @@ func runHolderFinalize(args []string) error {
 		*responsePath = filepath.Join(artifactDir, "issue_response.json")
 	}
 	if *statePath == "" {
-		*statePath = filepath.Join(artifactDir, "credential_state.intgenisis.json")
+		stateName := "credential_state.intgenisis.json"
+		if preset.StateFormatVersion == credential.IntGenISISStateFormatVersionV8 {
+			stateName = "credential_state.intgenisis.v8"
+		}
+		*statePath = filepath.Join(artifactDir, stateName)
 	}
 	if *signaturePath == "" {
 		*signaturePath = filepath.Join(artifactDir, "credential_signature.json")

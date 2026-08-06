@@ -28,7 +28,7 @@ func TestPendingLockIsStableAndExplicit(t *testing.T) {
 	if string(left) != string(right) {
 		t.Fatal("pending lock is not stable")
 	}
-	if one.Status != "pending" || len(one.Presets) != 9 {
+	if one.Status != "pending" || len(one.Presets) != 7 {
 		t.Fatalf("status=%q presets=%d", one.Status, len(one.Presets))
 	}
 	for _, preset := range one.Presets {
@@ -63,7 +63,7 @@ func TestCompleteLockReportsAndGeneratedTeXRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if lock.Status != "complete" || lock.ReportsDigest == "" || lock.RunReportsDigest == "" ||
-		lock.RunCount != 3 || lock.RunDigestCount != 27 || lock.EvidenceDigest == "" {
+		lock.RunCount != 3 || lock.RunDigestCount != 21 || lock.EvidenceDigest == "" {
 		t.Fatalf("incomplete lock metadata: %+v", lock)
 	}
 	encodedLock, err := MarshalArtifactLock(lock)
@@ -270,11 +270,46 @@ func TestLockedV2IdentitiesAndPresetOrder(t *testing.T) {
 	want := []string{
 		"poc-n512-sc96-v2", "artifact-n1024-sc125-v2", "artifact-n1024-bq10-r96-v2",
 		"artifact-n1024-bq16-r96-v2", "pilot-n1024-bq32-r96-v2", "poc-n1024-bq64-r128-v2",
-		"poc-n1024-bq96-r128-v2", "poc-n1024-bq128-r128-v3", "system-n1024-wf128-crom-v2",
+		"poc-n1024-bq96-r128-v2",
 	}
 	got := CanonicalV2PresetIDs()
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("canonical preset order=%v", got)
+	}
+}
+
+func TestFocusedV3TargetsAreDisjointAndStrict(t *testing.T) {
+	want := []string{
+		credential.IntGenISISPresetPoCN1024BQ128R128V3,
+		credential.IntGenISISPresetSystemN1024WF128CROMV2,
+	}
+	got := FocusedV3TargetPresetIDs()
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("focused v3 target order=%v", got)
+	}
+	historical := make(map[string]bool, len(canonicalV2PresetIDs))
+	for _, id := range canonicalV2PresetIDs {
+		historical[id] = true
+	}
+	for _, id := range got {
+		if historical[id] {
+			t.Fatalf("focused v3 target %s also appears in the historical-v2 lock", id)
+		}
+		preset, ok := credential.LookupIntGenISISPreset(id)
+		if !ok {
+			t.Fatalf("missing focused v3 target %s", id)
+		}
+		if err := ValidateFocusedV3TargetPreset(preset); err != nil {
+			t.Fatalf("focused v3 target %s: %v", id, err)
+		}
+	}
+
+	nontarget, ok := credential.LookupIntGenISISPreset(canonicalV2PresetIDs[0])
+	if !ok {
+		t.Fatal("missing historical-v2 preset")
+	}
+	if err := ValidateFocusedV3TargetPreset(nontarget); err == nil || !strings.Contains(err.Error(), "not a focused v3 target") {
+		t.Fatalf("historical-v2 preset accepted as focused v3 evidence: %v", err)
 	}
 }
 

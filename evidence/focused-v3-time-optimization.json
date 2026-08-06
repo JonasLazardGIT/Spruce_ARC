@@ -1,0 +1,3210 @@
+{
+  "schema": "spruce.focused-v3-time-optimization",
+  "version": 1,
+  "status": "pending",
+  "pending_reason": "six fresh optimized runs are authenticated; awaiting seven paired fixed-entropy end-to-end trials with allocation counters; BQ128 executable-preset engineering gate unresolved: algebraic_total_bits issuance=131.548362, showing=131.511683, manifest TargetTheoremBits=131.540568; showing is 0.028885 bits below that engineering target while the required 128-bit phase gate passes with 3.511683 bits of slack",
+  "measured_on": "2026-08-05",
+  "claim_scope": "proof_only",
+  "implementation_base_commit": "f8973f05473c9110081324a0f2671fa410fb12f3",
+  "source_input": {
+    "algorithm": "sha256-length-framed-go-list-build-inputs-v2",
+    "digest": "c9cf9e245014143c2716aac276498de774ccd0d4af57f4a410f02ac87fb06d56",
+    "file_count": 204
+  },
+  "environment": {
+    "go_version": "go1.23.12",
+    "goos": "darwin",
+    "goarch": "arm64",
+    "num_cpu": 15,
+    "gomaxprocs": 15
+  },
+  "prior_evidence": {
+    "path": "evidence/focused-v3-final-size-optimization.json",
+    "sha256": "430ea6d8cfc30136009d69af6fabe1b0fc943d708938164b1528090292abd102",
+    "schema": "spruce.focused-v3-final-size-optimization",
+    "version": 1
+  },
+  "paper_repository": {
+    "head_before": "d19818571f04c8c12425e2e7c10ceb41f7a1762d",
+    "clean_before": true,
+    "head_after": "d19818571f04c8c12425e2e7c10ceb41f7a1762d",
+    "clean_after": true
+  },
+  "claims": {
+    "full_game_security": false,
+    "qrom_security": false,
+    "unconditional_security": false,
+    "accounting_status": "deferred_proof_only",
+    "optimization_boundary": "prover_only_exact_output_v1"
+  },
+  "protocol": {
+    "proof_schema_version": 3,
+    "canonical_proof_codec_version": 6,
+    "canonical_proof_codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+    "merkle_topology": "exact-n-largest-lower-power-v3",
+    "transcript_domain": "strict-v3",
+    "counter_encoding": "minimal_unsigned_leb128_to_uint64_fs_v1",
+    "fixed_entropy_equality_policy": "fixed_entropy_complete_canonical_bytes_and_counters_v1"
+  },
+  "measurement_policy": {
+    "warmups_excluded": 1,
+    "alternating_paired_runs": 7,
+    "fresh_production_runs": 3,
+    "gomaxprocs": 15,
+    "minimum_top_level_improvement_percent": 3,
+    "minimum_agreeing_pairs": 5,
+    "maximum_phase_regression_percent": 2,
+    "maximum_peak_rss_factor": 2,
+    "entropy_policy": "seven_fixed_test_only_seeds_paired_baseline_candidate_v1"
+  },
+  "targets": [
+    {
+      "canonical_id": "poc-n1024-bq128-r128-v3",
+      "manifest_digest": "ed2ef5aebe3fe38c07fd85f02b15cd2f0f9ee56c3be4ca49cd1fe83cc802a193",
+      "kappa": [
+        5,
+        6,
+        12,
+        13
+      ],
+      "baseline_accepted": {
+        "persistent_state_bytes": 4926,
+        "issuance_proof_wire_bytes": 51895,
+        "showing_proof_wire_bytes": 84717,
+        "presentation_wire_bytes": 84750,
+        "paper_issuance_bytes": 57271,
+        "paper_showing_bytes": 90494,
+        "median_issuance_proving_ms": 1706.772,
+        "median_showing_proving_ms": 3692.639,
+        "median_peak_rss_bytes": 601784320
+      },
+      "issuance_geometry": {
+        "logical_rows": 49,
+        "layers": 2,
+        "mask_rows": 156,
+        "replay_rows": 90,
+        "physical_rows": 246,
+        "queries": 39,
+        "opening_p_columns": 207,
+        "parallel_degree": 9,
+        "aggregated_degree": 8,
+        "q_degree": 472
+      },
+      "showing_geometry": {
+        "logical_rows": 423,
+        "layers": 10,
+        "mask_rows": 195,
+        "replay_rows": 450,
+        "physical_rows": 645,
+        "queries": 143,
+        "opening_p_columns": 502,
+        "parallel_degree": 11,
+        "aggregated_degree": 8,
+        "q_degree": 570
+      },
+      "fresh_runs": [
+        {
+          "run": 1,
+          "artifact_directory": "artifacts/smallwood-v3/time-optimization-v1/bq128/run-1",
+          "report_path": "artifacts/smallwood-v3/time-optimization-v1/bq128/run-1/report.json",
+          "report_sha256": "3e5df1ac4c76c327694d1c8edd76788e80080189ccfec98741f0e6f43b9ae263",
+          "resource_path": "artifacts/smallwood-v3/time-optimization-v1/bq128/run-1/resource.txt",
+          "resource_sha256": "f15079116e42669db0229282fc7c95ad7d9a6033853df9f70125405c42743ecb",
+          "state_bytes": 4926,
+          "state_sha256": "f4aff910201b6cb7ed5d94895ec580f4c395a161ff36ee23d9f300df65ac2e92",
+          "presentation_bytes": 84995,
+          "presentation_sha256": "3a46d2ff163d397935f64039378841d9eaa8f19b89308e34ecb754b9f1d80081",
+          "peak_rss_bytes": 369557504,
+          "parameter_audit_status": "pass",
+          "replay_rejected": true,
+          "issuance": {
+            "proving_ms": 1313.105,
+            "verification_ms": 499.882,
+            "verification_passed": true,
+            "measurement_status": "e2e_presign",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              21,
+              10,
+              655,
+              6997
+            ],
+            "phase_timings": [
+              {
+                "label": "issuance.domain_preparation",
+                "ms": 33.402333
+              },
+              {
+                "label": "issuance.rows",
+                "ms": 34.24175
+              },
+              {
+                "label": "issuance.replay_preparation",
+                "ms": 0.034167
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 4.595916
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.220334
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 685.288083
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 46.296791
+              },
+              {
+                "label": "issuance.lvcs_commit_total",
+                "ms": 747.95775
+              },
+              {
+                "label": "issuance.fs.round1.prefix",
+                "ms": 0.138292
+              },
+              {
+                "label": "issuance.fs.round1.counter_loop",
+                "ms": 0.009458
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 2.104375
+              },
+              {
+                "label": "issuance.fs.round2.prefix",
+                "ms": 0.055666
+              },
+              {
+                "label": "issuance.fs.round2.counter_loop",
+                "ms": 0.003375
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 0.943125
+              },
+              {
+                "label": "issuance.semantic_q.plan",
+                "ms": 340.536167
+              },
+              {
+                "label": "issuance.semantic_q.evaluation",
+                "ms": 54.093833
+              },
+              {
+                "label": "issuance.semantic_q.interpolation",
+                "ms": 17.377333
+              },
+              {
+                "label": "issuance.semantic_q.audit",
+                "ms": 1.172458
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 413.610125
+              },
+              {
+                "label": "issuance.fs.round3.prefix",
+                "ms": 0.032584
+              },
+              {
+                "label": "issuance.fs.round3.counter_loop",
+                "ms": 0.232416
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 2.685583
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000125
+              },
+              {
+                "label": "issuance.fs.round4.prefix",
+                "ms": 0.0145
+              },
+              {
+                "label": "issuance.fs.round4.counter_loop",
+                "ms": 2.157666
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 3.86
+              },
+              {
+                "label": "issuance.prove_total",
+                "ms": 1246.174417
+              },
+              {
+                "label": "issuance.canonical_encode",
+                "ms": 43.444792
+              },
+              {
+                "label": "issuance.canonical_decode",
+                "ms": 49.470209
+              },
+              {
+                "label": "issuance.verify_total",
+                "ms": 499.882209
+              },
+              {
+                "label": "issuance.report",
+                "ms": 0.519
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 49,
+              "salt_bytes": 25,
+              "counter_bytes": 6,
+              "r_bytes": 8980,
+              "q_bytes": 15310,
+              "vtargets_bytes": 2985,
+              "barsets_bytes": 1752,
+              "opening_p_bytes": 9297,
+              "tape_bytes": 594,
+              "authentication_bytes": 12740,
+              "total_bytes": 51748,
+              "q_full_field_elements": 6149,
+              "q_wire_field_elements": 6136,
+              "q_omitted_field_elements": 13,
+              "merkle_nodes_used": 260,
+              "merkle_nodes_bound": 273,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 680,
+              "r_bytes": 8979,
+              "q_bytes": 15308,
+              "pdecs_bytes": 9315,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 17640,
+              "tape_bytes": 594,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 2990,
+              "barsets_bytes": 1765,
+              "total_bytes": 57271
+            },
+            "theorem": {
+              "algebraic_terms": [
+                1.022286313933453e-41,
+                4.224073736447645e-42,
+                3.11525438063024e-41,
+                2.0558743298581774e-40
+              ],
+              "algebraic_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.55970191695934,
+                131.83737171638663
+              ],
+              "algebraic_total_bits": 131.54836249081197,
+              "theorem_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.55970191695934,
+                131.83737171638663
+              ],
+              "theorem_total_bits": 131.25146007325387
+            },
+            "proof_sha256": "dcb23e7dd76b5973a3727d38d54b09a340dc84d3cdd7fece0685311987c233bb"
+          },
+          "showing": {
+            "proving_ms": 2785.502,
+            "verification_ms": 262.917,
+            "verification_passed": true,
+            "measurement_status": "e2e_showing_standalone",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              40,
+              39,
+              2860,
+              10986
+            ],
+            "phase_timings": [
+              {
+                "label": "showing.domain_preparation",
+                "ms": 30.140583
+              },
+              {
+                "label": "showing.rows.validate",
+                "ms": 0.148292
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.39675
+              },
+              {
+                "label": "showing.rows.shortness_digits",
+                "ms": 1.801709
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.802708
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.007292
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.001041
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.007709
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.007041
+              },
+              {
+                "label": "showing.rows.carriers",
+                "ms": 0.311959
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.02625
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.03575
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.338708
+              },
+              {
+                "label": "showing.rows.hats.x1",
+                "ms": 1.339
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.221875
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.019167
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.538709
+              },
+              {
+                "label": "showing.rows.hats.Z",
+                "ms": 1.538959
+              },
+              {
+                "label": "showing.rows.prf_input_trace_v3",
+                "ms": 0.815417
+              },
+              {
+                "label": "showing.rows",
+                "ms": 7.318875
+              },
+              {
+                "label": "showing.rows_ntt",
+                "ms": 1.448541
+              },
+              {
+                "label": "showing.constraints.replay_plan",
+                "ms": 88.127541
+              },
+              {
+                "label": "showing.constraints.semantic_metadata_v3",
+                "ms": 0.02075
+              },
+              {
+                "label": "showing.constraints.total",
+                "ms": 88.1925
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 13.123083
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.220583
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 1466.503125
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 46.807417
+              },
+              {
+                "label": "showing.lvcs_commit_total",
+                "ms": 1551.682417
+              },
+              {
+                "label": "showing.fs.round1.prefix",
+                "ms": 0.189916
+              },
+              {
+                "label": "showing.fs.round1.counter_loop",
+                "ms": 0.015
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 4.935959
+              },
+              {
+                "label": "showing.fs.round2.prefix",
+                "ms": 0.050791
+              },
+              {
+                "label": "showing.fs.round2.counter_loop",
+                "ms": 0.014125
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 5.145167
+              },
+              {
+                "label": "showing.semantic_q.plan",
+                "ms": 8.693208
+              },
+              {
+                "label": "showing.semantic_q.evaluation",
+                "ms": 1012.036125
+              },
+              {
+                "label": "showing.semantic_q.interpolation",
+                "ms": 24.929584
+              },
+              {
+                "label": "showing.semantic_q.audit",
+                "ms": 23.7165
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 1069.806916
+              },
+              {
+                "label": "showing.fs.round3.prefix",
+                "ms": 0.046791
+              },
+              {
+                "label": "showing.fs.round3.counter_loop",
+                "ms": 0.807708
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 6.0715
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000125
+              },
+              {
+                "label": "showing.fs.round4.prefix",
+                "ms": 0.03825
+              },
+              {
+                "label": "showing.fs.round4.counter_loop",
+                "ms": 3.432416
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 8.842667
+              },
+              {
+                "label": "showing.prove_total",
+                "ms": 2785.502
+              },
+              {
+                "label": "showing.verify_total",
+                "ms": 262.917166
+              },
+              {
+                "label": "showing.canonical_encode",
+                "ms": 98.494083
+              },
+              {
+                "label": "showing.canonical_decode",
+                "ms": 113.936209
+              },
+              {
+                "label": "showing.report",
+                "ms": 0.417792
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 49,
+              "salt_bytes": 25,
+              "counter_bytes": 6,
+              "r_bytes": 8980,
+              "q_bytes": 18489,
+              "vtargets_bytes": 15051,
+              "barsets_bytes": 6423,
+              "opening_p_bytes": 22546,
+              "tape_bytes": 594,
+              "authentication_bytes": 12789,
+              "total_bytes": 84962,
+              "q_full_field_elements": 7423,
+              "q_wire_field_elements": 7410,
+              "q_omitted_field_elements": 13,
+              "merkle_nodes_used": 261,
+              "merkle_nodes_bound": 273,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 680,
+              "r_bytes": 8979,
+              "q_bytes": 18486,
+              "pdecs_bytes": 22590,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 17640,
+              "tape_bytes": 594,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 15080,
+              "barsets_bytes": 6445,
+              "total_bytes": 90494
+            },
+            "theorem": {
+              "algebraic_terms": [
+                1.022286313933453e-41,
+                4.224073736447645e-42,
+                3.762065671523862e-41,
+                2.0558743298581774e-40
+              ],
+              "algebraic_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.28752685726906,
+                131.83737171638663
+              ],
+              "algebraic_total_bits": 131.51168305727586,
+              "theorem_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.28752685726906,
+                131.83737171638663
+              ],
+              "theorem_total_bits": 131.22153285804552
+            },
+            "proof_sha256": "10a191447d260f00fdbe47978bafa41a4956193beb1693097751f23db8761540"
+          }
+        },
+        {
+          "run": 2,
+          "artifact_directory": "artifacts/smallwood-v3/time-optimization-v1/bq128/run-2",
+          "report_path": "artifacts/smallwood-v3/time-optimization-v1/bq128/run-2/report.json",
+          "report_sha256": "188c71788848752852b75b6eb4d0cb977de0666d05e2242b39040033660cc14c",
+          "resource_path": "artifacts/smallwood-v3/time-optimization-v1/bq128/run-2/resource.txt",
+          "resource_sha256": "fafc87200dcafc43baaed1450c728a89ad2b660d22ce0ab05c28793d13ec7000",
+          "state_bytes": 4926,
+          "state_sha256": "1d90bd79b056f67e8a26f56b883ce05a7ac658ff449bc7aec00bc27b0c978bcb",
+          "presentation_bytes": 84751,
+          "presentation_sha256": "1d6748aa5f4a8a69c7fa10cc73d5838151c4ba6671d86f8aca5c5be3b8a8a6a8",
+          "peak_rss_bytes": 369393664,
+          "parameter_audit_status": "pass",
+          "replay_rejected": true,
+          "issuance": {
+            "proving_ms": 1349.588,
+            "verification_ms": 519.354,
+            "verification_passed": true,
+            "measurement_status": "e2e_presign",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              24,
+              26,
+              2913,
+              1287
+            ],
+            "phase_timings": [
+              {
+                "label": "issuance.domain_preparation",
+                "ms": 48.336083
+              },
+              {
+                "label": "issuance.rows",
+                "ms": 49.329625
+              },
+              {
+                "label": "issuance.replay_preparation",
+                "ms": 0.043875
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 4.627334
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.225209
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 697.037625
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 47.22125
+              },
+              {
+                "label": "issuance.lvcs_commit_total",
+                "ms": 760.950167
+              },
+              {
+                "label": "issuance.fs.round1.prefix",
+                "ms": 0.106458
+              },
+              {
+                "label": "issuance.fs.round1.counter_loop",
+                "ms": 0.031917
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 2.1245
+              },
+              {
+                "label": "issuance.fs.round2.prefix",
+                "ms": 0.050083
+              },
+              {
+                "label": "issuance.fs.round2.counter_loop",
+                "ms": 0.008583
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 0.964
+              },
+              {
+                "label": "issuance.semantic_q.plan",
+                "ms": 338.951583
+              },
+              {
+                "label": "issuance.semantic_q.evaluation",
+                "ms": 56.452958
+              },
+              {
+                "label": "issuance.semantic_q.interpolation",
+                "ms": 17.63425
+              },
+              {
+                "label": "issuance.semantic_q.audit",
+                "ms": 1.437584
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 414.84825
+              },
+              {
+                "label": "issuance.fs.round3.prefix",
+                "ms": 0.033917
+              },
+              {
+                "label": "issuance.fs.round3.counter_loop",
+                "ms": 0.922458
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 3.602583
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000292
+              },
+              {
+                "label": "issuance.fs.round4.prefix",
+                "ms": 0.017417
+              },
+              {
+                "label": "issuance.fs.round4.counter_loop",
+                "ms": 0.50525
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 2.2095
+              },
+              {
+                "label": "issuance.prove_total",
+                "ms": 1284.742833
+              },
+              {
+                "label": "issuance.canonical_encode",
+                "ms": 44.570125
+              },
+              {
+                "label": "issuance.canonical_decode",
+                "ms": 58.999458
+              },
+              {
+                "label": "issuance.verify_total",
+                "ms": 519.354791
+              },
+              {
+                "label": "issuance.report",
+                "ms": 0.595917
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 49,
+              "salt_bytes": 25,
+              "counter_bytes": 6,
+              "r_bytes": 8980,
+              "q_bytes": 15310,
+              "vtargets_bytes": 2985,
+              "barsets_bytes": 1752,
+              "opening_p_bytes": 9297,
+              "tape_bytes": 594,
+              "authentication_bytes": 13034,
+              "total_bytes": 52042,
+              "q_full_field_elements": 6149,
+              "q_wire_field_elements": 6136,
+              "q_omitted_field_elements": 13,
+              "merkle_nodes_used": 266,
+              "merkle_nodes_bound": 273,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 680,
+              "r_bytes": 8979,
+              "q_bytes": 15308,
+              "pdecs_bytes": 9315,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 17640,
+              "tape_bytes": 594,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 2990,
+              "barsets_bytes": 1765,
+              "total_bytes": 57271
+            },
+            "theorem": {
+              "algebraic_terms": [
+                1.022286313933453e-41,
+                4.224073736447645e-42,
+                3.11525438063024e-41,
+                2.0558743298581774e-40
+              ],
+              "algebraic_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.55970191695934,
+                131.83737171638663
+              ],
+              "algebraic_total_bits": 131.54836249081197,
+              "theorem_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.55970191695934,
+                131.83737171638663
+              ],
+              "theorem_total_bits": 131.25146007325387
+            },
+            "proof_sha256": "e52f4645e9186152395dfc04433e5a9b385987add9e6eaf293812dffae55872a"
+          },
+          "showing": {
+            "proving_ms": 2902.833,
+            "verification_ms": 273.419,
+            "verification_passed": true,
+            "measurement_status": "e2e_showing_standalone",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              14,
+              180,
+              4994,
+              5786
+            ],
+            "phase_timings": [
+              {
+                "label": "showing.domain_preparation",
+                "ms": 34.63575
+              },
+              {
+                "label": "showing.rows.validate",
+                "ms": 0.140292
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.000083
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.428041
+              },
+              {
+                "label": "showing.rows.shortness_digits",
+                "ms": 1.915208
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.91025
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.006709
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.001
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.010125
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.006625
+              },
+              {
+                "label": "showing.rows.carriers",
+                "ms": 0.310666
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.028917
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.029625
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.294
+              },
+              {
+                "label": "showing.rows.hats.x1",
+                "ms": 1.294167
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.217
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.037292
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.289625
+              },
+              {
+                "label": "showing.rows.hats.Z",
+                "ms": 1.289791
+              },
+              {
+                "label": "showing.rows.prf_input_trace_v3",
+                "ms": 0.842458
+              },
+              {
+                "label": "showing.rows",
+                "ms": 7.2595
+              },
+              {
+                "label": "showing.rows_ntt",
+                "ms": 1.47075
+              },
+              {
+                "label": "showing.constraints.replay_plan",
+                "ms": 80.726958
+              },
+              {
+                "label": "showing.constraints.semantic_metadata_v3",
+                "ms": 0.014625
+              },
+              {
+                "label": "showing.constraints.total",
+                "ms": 80.768167
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 13.178333
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.222375
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 1488.27775
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 59.472125
+              },
+              {
+                "label": "showing.lvcs_commit_total",
+                "ms": 1586.056208
+              },
+              {
+                "label": "showing.fs.round1.prefix",
+                "ms": 0.175166
+              },
+              {
+                "label": "showing.fs.round1.counter_loop",
+                "ms": 0.006459
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 5.055792
+              },
+              {
+                "label": "showing.fs.round2.prefix",
+                "ms": 0.048417
+              },
+              {
+                "label": "showing.fs.round2.counter_loop",
+                "ms": 0.065167
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 5.034917
+              },
+              {
+                "label": "showing.semantic_q.plan",
+                "ms": 8.703958
+              },
+              {
+                "label": "showing.semantic_q.evaluation",
+                "ms": 1092.05075
+              },
+              {
+                "label": "showing.semantic_q.interpolation",
+                "ms": 28.380375
+              },
+              {
+                "label": "showing.semantic_q.audit",
+                "ms": 25.854292
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 1155.467833
+              },
+              {
+                "label": "showing.fs.round3.prefix",
+                "ms": 0.0375
+              },
+              {
+                "label": "showing.fs.round3.counter_loop",
+                "ms": 1.520916
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 7.207042
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.00025
+              },
+              {
+                "label": "showing.fs.round4.prefix",
+                "ms": 0.044542
+              },
+              {
+                "label": "showing.fs.round4.counter_loop",
+                "ms": 1.9085
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 7.893708
+              },
+              {
+                "label": "showing.prove_total",
+                "ms": 2902.833834
+              },
+              {
+                "label": "showing.verify_total",
+                "ms": 273.419542
+              },
+              {
+                "label": "showing.canonical_encode",
+                "ms": 99.271916
+              },
+              {
+                "label": "showing.canonical_decode",
+                "ms": 117.972417
+              },
+              {
+                "label": "showing.report",
+                "ms": 0.127667
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 49,
+              "salt_bytes": 25,
+              "counter_bytes": 7,
+              "r_bytes": 8980,
+              "q_bytes": 18489,
+              "vtargets_bytes": 15051,
+              "barsets_bytes": 6423,
+              "opening_p_bytes": 22546,
+              "tape_bytes": 594,
+              "authentication_bytes": 12544,
+              "total_bytes": 84718,
+              "q_full_field_elements": 7423,
+              "q_wire_field_elements": 7410,
+              "q_omitted_field_elements": 13,
+              "merkle_nodes_used": 256,
+              "merkle_nodes_bound": 273,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 680,
+              "r_bytes": 8979,
+              "q_bytes": 18486,
+              "pdecs_bytes": 22590,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 17640,
+              "tape_bytes": 594,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 15080,
+              "barsets_bytes": 6445,
+              "total_bytes": 90494
+            },
+            "theorem": {
+              "algebraic_terms": [
+                1.022286313933453e-41,
+                4.224073736447645e-42,
+                3.762065671523862e-41,
+                2.0558743298581774e-40
+              ],
+              "algebraic_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.28752685726906,
+                131.83737171638663
+              ],
+              "algebraic_total_bits": 131.51168305727586,
+              "theorem_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.28752685726906,
+                131.83737171638663
+              ],
+              "theorem_total_bits": 131.22153285804552
+            },
+            "proof_sha256": "b720a3cd188ed48377e800b75553dde40fef09c6edca156653c8e4dfb42205df"
+          }
+        },
+        {
+          "run": 3,
+          "artifact_directory": "artifacts/smallwood-v3/time-optimization-v1/bq128/run-3",
+          "report_path": "artifacts/smallwood-v3/time-optimization-v1/bq128/run-3/report.json",
+          "report_sha256": "f204e85bcc25e63fde984d306a79f3a84f6efec601403c0d831bde40cc8f0d2d",
+          "resource_path": "artifacts/smallwood-v3/time-optimization-v1/bq128/run-3/resource.txt",
+          "resource_sha256": "3fa1419fbbf0ddd5cb26096b1ec73a0e5dbe69901427c8ebe9eec28f0d0dd66b",
+          "state_bytes": 4926,
+          "state_sha256": "6f02780cf788eee7856bbb795e1d6e1d07b9905cfceef7b5ed57fe2ed6dbd928",
+          "presentation_bytes": 85289,
+          "presentation_sha256": "9d8f74a292f9b8a1a97431a3502e6dd83fa8e8607fd4cbd6bf3dad62dd0950b7",
+          "peak_rss_bytes": 368394240,
+          "parameter_audit_status": "pass",
+          "replay_rejected": true,
+          "issuance": {
+            "proving_ms": 1432.924,
+            "verification_ms": 497.572,
+            "verification_passed": true,
+            "measurement_status": "e2e_presign",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              9,
+              25,
+              632,
+              773
+            ],
+            "phase_timings": [
+              {
+                "label": "issuance.domain_preparation",
+                "ms": 31.855625
+              },
+              {
+                "label": "issuance.rows",
+                "ms": 32.941667
+              },
+              {
+                "label": "issuance.replay_preparation",
+                "ms": 0.033
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 5.171583
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.224708
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 786.612958
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 48.351375
+              },
+              {
+                "label": "issuance.lvcs_commit_total",
+                "ms": 853.188084
+              },
+              {
+                "label": "issuance.fs.round1.prefix",
+                "ms": 0.108208
+              },
+              {
+                "label": "issuance.fs.round1.counter_loop",
+                "ms": 0.004959
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 1.930833
+              },
+              {
+                "label": "issuance.fs.round2.prefix",
+                "ms": 0.047542
+              },
+              {
+                "label": "issuance.fs.round2.counter_loop",
+                "ms": 0.008833
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 0.941042
+              },
+              {
+                "label": "issuance.semantic_q.plan",
+                "ms": 356.921667
+              },
+              {
+                "label": "issuance.semantic_q.evaluation",
+                "ms": 55.869042
+              },
+              {
+                "label": "issuance.semantic_q.interpolation",
+                "ms": 18.034167
+              },
+              {
+                "label": "issuance.semantic_q.audit",
+                "ms": 1.36475
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 432.564583
+              },
+              {
+                "label": "issuance.fs.round3.prefix",
+                "ms": 0.030959
+              },
+              {
+                "label": "issuance.fs.round3.counter_loop",
+                "ms": 0.216584
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 2.521416
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000291
+              },
+              {
+                "label": "issuance.fs.round4.prefix",
+                "ms": 0.015709
+              },
+              {
+                "label": "issuance.fs.round4.counter_loop",
+                "ms": 0.23825
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 2.104917
+              },
+              {
+                "label": "issuance.prove_total",
+                "ms": 1366.252541
+              },
+              {
+                "label": "issuance.canonical_encode",
+                "ms": 45.40125
+              },
+              {
+                "label": "issuance.canonical_decode",
+                "ms": 48.418541
+              },
+              {
+                "label": "issuance.verify_total",
+                "ms": 497.572375
+              },
+              {
+                "label": "issuance.report",
+                "ms": 0.492292
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 49,
+              "salt_bytes": 25,
+              "counter_bytes": 6,
+              "r_bytes": 8980,
+              "q_bytes": 15310,
+              "vtargets_bytes": 2985,
+              "barsets_bytes": 1752,
+              "opening_p_bytes": 9297,
+              "tape_bytes": 594,
+              "authentication_bytes": 12495,
+              "total_bytes": 51503,
+              "q_full_field_elements": 6149,
+              "q_wire_field_elements": 6136,
+              "q_omitted_field_elements": 13,
+              "merkle_nodes_used": 255,
+              "merkle_nodes_bound": 273,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 680,
+              "r_bytes": 8979,
+              "q_bytes": 15308,
+              "pdecs_bytes": 9315,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 17640,
+              "tape_bytes": 594,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 2990,
+              "barsets_bytes": 1765,
+              "total_bytes": 57271
+            },
+            "theorem": {
+              "algebraic_terms": [
+                1.022286313933453e-41,
+                4.224073736447645e-42,
+                3.11525438063024e-41,
+                2.0558743298581774e-40
+              ],
+              "algebraic_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.55970191695934,
+                131.83737171638663
+              ],
+              "algebraic_total_bits": 131.54836249081197,
+              "theorem_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.55970191695934,
+                131.83737171638663
+              ],
+              "theorem_total_bits": 131.25146007325387
+            },
+            "proof_sha256": "d7080dd7493b0d416c588cdbea5518a7c578546b78c875b89b22ca5831320f75"
+          },
+          "showing": {
+            "proving_ms": 3000.015,
+            "verification_ms": 281.509,
+            "verification_passed": true,
+            "measurement_status": "e2e_showing_standalone",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              19,
+              70,
+              5231,
+              7081
+            ],
+            "phase_timings": [
+              {
+                "label": "showing.domain_preparation",
+                "ms": 34.725208
+              },
+              {
+                "label": "showing.rows.validate",
+                "ms": 0.151833
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.000084
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.395209
+              },
+              {
+                "label": "showing.rows.shortness_digits",
+                "ms": 2.001584
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.868875
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.007416
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.001208
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.012291
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.007292
+              },
+              {
+                "label": "showing.rows.carriers",
+                "ms": 0.337709
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.025917
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.043208
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.39825
+              },
+              {
+                "label": "showing.rows.hats.x1",
+                "ms": 1.398458
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.269083
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.031625
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.336958
+              },
+              {
+                "label": "showing.rows.hats.Z",
+                "ms": 1.337291
+              },
+              {
+                "label": "showing.rows.prf_input_trace_v3",
+                "ms": 0.988042
+              },
+              {
+                "label": "showing.rows",
+                "ms": 7.695917
+              },
+              {
+                "label": "showing.rows_ntt",
+                "ms": 1.545958
+              },
+              {
+                "label": "showing.constraints.replay_plan",
+                "ms": 80.38825
+              },
+              {
+                "label": "showing.constraints.semantic_metadata_v3",
+                "ms": 0.016375
+              },
+              {
+                "label": "showing.constraints.total",
+                "ms": 80.434917
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 13.445458
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.216
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 1547.006292
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 61.197334
+              },
+              {
+                "label": "showing.lvcs_commit_total",
+                "ms": 1649.841834
+              },
+              {
+                "label": "showing.fs.round1.prefix",
+                "ms": 0.195125
+              },
+              {
+                "label": "showing.fs.round1.counter_loop",
+                "ms": 0.008459
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 5.337166
+              },
+              {
+                "label": "showing.fs.round2.prefix",
+                "ms": 0.052625
+              },
+              {
+                "label": "showing.fs.round2.counter_loop",
+                "ms": 0.023833
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 5.806292
+              },
+              {
+                "label": "showing.semantic_q.plan",
+                "ms": 9.781292
+              },
+              {
+                "label": "showing.semantic_q.evaluation",
+                "ms": 1127.437416
+              },
+              {
+                "label": "showing.semantic_q.interpolation",
+                "ms": 26.057708
+              },
+              {
+                "label": "showing.semantic_q.audit",
+                "ms": 23.637083
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 1187.396792
+              },
+              {
+                "label": "showing.fs.round3.prefix",
+                "ms": 0.040709
+              },
+              {
+                "label": "showing.fs.round3.counter_loop",
+                "ms": 1.502167
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 6.777958
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000042
+              },
+              {
+                "label": "showing.fs.round4.prefix",
+                "ms": 0.039709
+              },
+              {
+                "label": "showing.fs.round4.counter_loop",
+                "ms": 2.438459
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 7.944584
+              },
+              {
+                "label": "showing.prove_total",
+                "ms": 3000.015083
+              },
+              {
+                "label": "showing.verify_total",
+                "ms": 281.509667
+              },
+              {
+                "label": "showing.canonical_encode",
+                "ms": 101.461875
+              },
+              {
+                "label": "showing.canonical_decode",
+                "ms": 118.618666
+              },
+              {
+                "label": "showing.report",
+                "ms": 0.141792
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 49,
+              "salt_bytes": 25,
+              "counter_bytes": 6,
+              "r_bytes": 8980,
+              "q_bytes": 18489,
+              "vtargets_bytes": 15051,
+              "barsets_bytes": 6423,
+              "opening_p_bytes": 22546,
+              "tape_bytes": 594,
+              "authentication_bytes": 13083,
+              "total_bytes": 85256,
+              "q_full_field_elements": 7423,
+              "q_wire_field_elements": 7410,
+              "q_omitted_field_elements": 13,
+              "merkle_nodes_used": 267,
+              "merkle_nodes_bound": 273,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 680,
+              "r_bytes": 8979,
+              "q_bytes": 18486,
+              "pdecs_bytes": 22590,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 17640,
+              "tape_bytes": 594,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 15080,
+              "barsets_bytes": 6445,
+              "total_bytes": 90494
+            },
+            "theorem": {
+              "algebraic_terms": [
+                1.022286313933453e-41,
+                4.224073736447645e-42,
+                3.762065671523862e-41,
+                2.0558743298581774e-40
+              ],
+              "algebraic_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.28752685726906,
+                131.83737171638663
+              ],
+              "algebraic_total_bits": 131.51168305727586,
+              "theorem_bits": [
+                136.16725257880034,
+                137.44234496632123,
+                134.28752685726906,
+                131.83737171638663
+              ],
+              "theorem_total_bits": 131.22153285804552
+            },
+            "proof_sha256": "fac890e60b4cf94ff422b80c2dd93dfa18d7e32131cc885084494f1042d0be71"
+          }
+        }
+      ],
+      "fresh_medians": {
+        "issuance_proving_ms": 1349.588,
+        "showing_proving_ms": 2902.833,
+        "issuance_verification_ms": 499.882,
+        "showing_verification_ms": 273.419,
+        "peak_rss_bytes": 369393664
+      },
+      "counter_width_explanation": "minimal_uleb128_value_dependent_width_v1"
+    },
+    {
+      "canonical_id": "system-n1024-wf128-crom-v2",
+      "manifest_digest": "4063d1422055d5753355781160188abdb98dd683f5e42978abcb3d273e89e4c7",
+      "kappa": [
+        1,
+        0,
+        2,
+        13
+      ],
+      "baseline_accepted": {
+        "persistent_state_bytes": 4894,
+        "issuance_proof_wire_bytes": 21720,
+        "showing_proof_wire_bytes": 37936,
+        "presentation_wire_bytes": 37977,
+        "paper_issuance_bytes": 23790,
+        "paper_showing_bytes": 39837,
+        "median_issuance_proving_ms": 729.139,
+        "median_showing_proving_ms": 1421.167,
+        "median_peak_rss_bytes": 326336512
+      },
+      "issuance_geometry": {
+        "logical_rows": 49,
+        "layers": 2,
+        "mask_rows": 77,
+        "replay_rows": 78,
+        "physical_rows": 155,
+        "queries": 21,
+        "opening_p_columns": 134,
+        "parallel_degree": 9,
+        "aggregated_degree": 8,
+        "q_degree": 391
+      },
+      "showing_geometry": {
+        "logical_rows": 423,
+        "layers": 11,
+        "mask_rows": 91,
+        "replay_rows": 429,
+        "physical_rows": 520,
+        "queries": 84,
+        "opening_p_columns": 436,
+        "parallel_degree": 11,
+        "aggregated_degree": 8,
+        "q_degree": 471
+      },
+      "fresh_runs": [
+        {
+          "run": 1,
+          "artifact_directory": "artifacts/smallwood-v3/time-optimization-v1/wf128/run-1",
+          "report_path": "artifacts/smallwood-v3/time-optimization-v1/wf128/run-1/report.json",
+          "report_sha256": "6abce3441f5c3963c3a1233a2105d9a1f20302f140f8f11953d0e5b3c994b4d0",
+          "resource_path": "artifacts/smallwood-v3/time-optimization-v1/wf128/run-1/resource.txt",
+          "resource_sha256": "9e2b404274fb4a305d726d13b1b92d5a182301146ebb6137b2582a79076a00cd",
+          "state_bytes": 4894,
+          "state_sha256": "12425155d106c27134ca1285b9b26ff08eaec31abdaeb56b8d18b9f0a7f70c93",
+          "presentation_bytes": 37813,
+          "presentation_sha256": "b92bea5e9876c18f12dc62447f49e9ae7c8a7c4667fac0b7670a2cae0477e3e6",
+          "peak_rss_bytes": 194871296,
+          "parameter_audit_status": "pass",
+          "replay_rejected": true,
+          "issuance": {
+            "proving_ms": 521.758,
+            "verification_ms": 236.125,
+            "verification_passed": true,
+            "measurement_status": "e2e_presign",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              0,
+              0,
+              5,
+              14065
+            ],
+            "phase_timings": [
+              {
+                "label": "issuance.domain_preparation",
+                "ms": 11.32925
+              },
+              {
+                "label": "issuance.rows",
+                "ms": 12.209583
+              },
+              {
+                "label": "issuance.replay_preparation",
+                "ms": 0.026625
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 2.013625
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.138584
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 198.124625
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 14.351958
+              },
+              {
+                "label": "issuance.lvcs_commit_total",
+                "ms": 220.527375
+              },
+              {
+                "label": "issuance.fs.round1.prefix",
+                "ms": 0.105917
+              },
+              {
+                "label": "issuance.fs.round1.counter_loop",
+                "ms": 0.001042
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 0.847208
+              },
+              {
+                "label": "issuance.fs.round2.prefix",
+                "ms": 0.028625
+              },
+              {
+                "label": "issuance.fs.round2.counter_loop",
+                "ms": 0.0005
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 0.552666
+              },
+              {
+                "label": "issuance.semantic_q.plan",
+                "ms": 181.643542
+              },
+              {
+                "label": "issuance.semantic_q.evaluation",
+                "ms": 22.18275
+              },
+              {
+                "label": "issuance.semantic_q.interpolation",
+                "ms": 6.214792
+              },
+              {
+                "label": "issuance.semantic_q.audit",
+                "ms": 0.552541
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 210.762334
+              },
+              {
+                "label": "issuance.fs.round3.prefix",
+                "ms": 0.021167
+              },
+              {
+                "label": "issuance.fs.round3.counter_loop",
+                "ms": 0.003
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 1.163417
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000333
+              },
+              {
+                "label": "issuance.fs.round4.prefix",
+                "ms": 0.009541
+              },
+              {
+                "label": "issuance.fs.round4.counter_loop",
+                "ms": 4.480042
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 4.94175
+              },
+              {
+                "label": "issuance.prove_total",
+                "ms": 488.246167
+              },
+              {
+                "label": "issuance.canonical_encode",
+                "ms": 16.006125
+              },
+              {
+                "label": "issuance.canonical_decode",
+                "ms": 17.975458
+              },
+              {
+                "label": "issuance.verify_total",
+                "ms": 236.125375
+              },
+              {
+                "label": "issuance.report",
+                "ms": 0.484
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 33,
+              "salt_bytes": 32,
+              "counter_bytes": 5,
+              "r_bytes": 5472,
+              "q_bytes": 6829,
+              "vtargets_bytes": 1555,
+              "barsets_bytes": 472,
+              "opening_p_bytes": 3010,
+              "tape_bytes": 144,
+              "authentication_bytes": 4422,
+              "total_bytes": 21984,
+              "q_full_field_elements": 2744,
+              "q_wire_field_elements": 2737,
+              "q_omitted_field_elements": 7,
+              "merkle_nodes_used": 134,
+              "merkle_nodes_bound": 136,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 648,
+              "r_bytes": 5471,
+              "q_bytes": 6828,
+              "pdecs_bytes": 3015,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 5643,
+              "tape_bytes": 144,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 1558,
+              "barsets_bytes": 483,
+              "total_bytes": 23790
+            },
+            "theorem": {
+              "algebraic_terms": [
+                1.8341282363210565e-40,
+                8.834716665941153e-43,
+                8.63593554095747e-41,
+                2.5483219952606024e-39
+              ],
+              "algebraic_bits": [
+                132.0020292844586,
+                139.6997242126345,
+                133.08869941532714,
+                128.20564811861115
+              ],
+              "algebraic_total_bits": 128.06002366298887,
+              "theorem_bits": [
+                132.0020292844586,
+                139.6997242126345,
+                133.08869941532714,
+                128.20564811861115
+              ],
+              "theorem_total_bits": 128.06002366298887
+            },
+            "proof_sha256": "4f473989cbe2e31c96af0a63c4b64d0f7702f9afe2afa7acec32364e790dd1be"
+          },
+          "showing": {
+            "proving_ms": 1233.894,
+            "verification_ms": 148.445,
+            "verification_passed": true,
+            "measurement_status": "e2e_showing_standalone",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              3,
+              0,
+              1,
+              21299
+            ],
+            "phase_timings": [
+              {
+                "label": "showing.domain_preparation",
+                "ms": 11.9225
+              },
+              {
+                "label": "showing.rows.validate",
+                "ms": 0.155
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.000042
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.184291
+              },
+              {
+                "label": "showing.rows.shortness_digits",
+                "ms": 2.006125
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.984542
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.015292
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.001959
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.015667
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.019917
+              },
+              {
+                "label": "showing.rows.carriers",
+                "ms": 0.400584
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.054375
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.115458
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.459709
+              },
+              {
+                "label": "showing.rows.hats.x1",
+                "ms": 1.460459
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.454167
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.015542
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.246625
+              },
+              {
+                "label": "showing.rows.hats.Z",
+                "ms": 1.246833
+              },
+              {
+                "label": "showing.rows.prf_input_trace_v3",
+                "ms": 8.332666
+              },
+              {
+                "label": "showing.rows",
+                "ms": 15.456875
+              },
+              {
+                "label": "showing.rows_ntt",
+                "ms": 1.765417
+              },
+              {
+                "label": "showing.constraints.replay_plan",
+                "ms": 83.394625
+              },
+              {
+                "label": "showing.constraints.semantic_metadata_v3",
+                "ms": 0.013167
+              },
+              {
+                "label": "showing.constraints.total",
+                "ms": 83.441334
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 6.841875
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.128208
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 518.542875
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 16.999833
+              },
+              {
+                "label": "showing.lvcs_commit_total",
+                "ms": 556.916833
+              },
+              {
+                "label": "showing.fs.round1.prefix",
+                "ms": 0.168333
+              },
+              {
+                "label": "showing.fs.round1.counter_loop",
+                "ms": 0.001667
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 2.534792
+              },
+              {
+                "label": "showing.fs.round2.prefix",
+                "ms": 0.030042
+              },
+              {
+                "label": "showing.fs.round2.counter_loop",
+                "ms": 0.000792
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 2.859833
+              },
+              {
+                "label": "showing.semantic_q.plan",
+                "ms": 6.401583
+              },
+              {
+                "label": "showing.semantic_q.evaluation",
+                "ms": 508.791916
+              },
+              {
+                "label": "showing.semantic_q.interpolation",
+                "ms": 10.029041
+              },
+              {
+                "label": "showing.semantic_q.audit",
+                "ms": 12.103167
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 537.534084
+              },
+              {
+                "label": "showing.fs.round3.prefix",
+                "ms": 0.021334
+              },
+              {
+                "label": "showing.fs.round3.counter_loop",
+                "ms": 0.001542
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 2.611542
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000292
+              },
+              {
+                "label": "showing.fs.round4.prefix",
+                "ms": 0.024375
+              },
+              {
+                "label": "showing.fs.round4.counter_loop",
+                "ms": 7.354459
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 9.235959
+              },
+              {
+                "label": "showing.prove_total",
+                "ms": 1233.894834
+              },
+              {
+                "label": "showing.verify_total",
+                "ms": 148.445542
+              },
+              {
+                "label": "showing.canonical_encode",
+                "ms": 68.417833
+              },
+              {
+                "label": "showing.canonical_decode",
+                "ms": 73.503541
+              },
+              {
+                "label": "showing.report",
+                "ms": 0.089042
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 33,
+              "salt_bytes": 32,
+              "counter_bytes": 6,
+              "r_bytes": 5365,
+              "q_bytes": 8227,
+              "vtargets_bytes": 8087,
+              "barsets_bytes": 1886,
+              "opening_p_bytes": 9791,
+              "tape_bytes": 144,
+              "authentication_bytes": 4191,
+              "total_bytes": 37772,
+              "q_full_field_elements": 3304,
+              "q_wire_field_elements": 3297,
+              "q_omitted_field_elements": 7,
+              "merkle_nodes_used": 127,
+              "merkle_nodes_bound": 136,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 648,
+              "r_bytes": 5364,
+              "q_bytes": 8225,
+              "pdecs_bytes": 9810,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 5643,
+              "tape_bytes": 144,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 8103,
+              "barsets_bytes": 1900,
+              "total_bytes": 39837
+            },
+            "theorem": {
+              "algebraic_terms": [
+                2.911056966529056e-44,
+                8.834716665941153e-43,
+                1.0402878874145674e-40,
+                2.0896240361136985e-39
+              ],
+              "algebraic_bits": [
+                144.62329310318037,
+                139.6997242126345,
+                132.82014096302171,
+                128.4919523037678
+              ],
+              "algebraic_total_bits": 128.42126043151222,
+              "theorem_bits": [
+                144.62329310318037,
+                139.6997242126345,
+                132.82014096302171,
+                128.4919523037678
+              ],
+              "theorem_total_bits": 128.42126043151222
+            },
+            "proof_sha256": "a4a39d3c69ce246d64d0bde826a7ad9868a7ecae959a795bbe7d6f97f4775159"
+          }
+        },
+        {
+          "run": 2,
+          "artifact_directory": "artifacts/smallwood-v3/time-optimization-v1/wf128/run-2",
+          "report_path": "artifacts/smallwood-v3/time-optimization-v1/wf128/run-2/report.json",
+          "report_sha256": "01cf59c8e1878a449083fae0ffc25b3ba1d23a243fb6c7b63abefe612b75c46d",
+          "resource_path": "artifacts/smallwood-v3/time-optimization-v1/wf128/run-2/resource.txt",
+          "resource_sha256": "8861dbb0a065126d9ec92353d81404742e9d8d933f7e0ec5637b644fae0ff3a7",
+          "state_bytes": 4894,
+          "state_sha256": "f3abab3437bc8b026c624584bd3ab24e73215d4452809854e5b2399bc30bb41e",
+          "presentation_bytes": 37812,
+          "presentation_sha256": "f07c0546b12bb969ca1fe29b6ae02c1a3fef3a1bf7f459a9c24a2dd72c9b74ec",
+          "peak_rss_bytes": 196788224,
+          "parameter_audit_status": "pass",
+          "replay_rejected": true,
+          "issuance": {
+            "proving_ms": 517.548,
+            "verification_ms": 242.452,
+            "verification_passed": true,
+            "measurement_status": "e2e_presign",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              3,
+              0,
+              6,
+              52
+            ],
+            "phase_timings": [
+              {
+                "label": "issuance.domain_preparation",
+                "ms": 10.028125
+              },
+              {
+                "label": "issuance.rows",
+                "ms": 10.832833
+              },
+              {
+                "label": "issuance.replay_preparation",
+                "ms": 0.023459
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 1.722542
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.127625
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 198.316834
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 15.35
+              },
+              {
+                "label": "issuance.lvcs_commit_total",
+                "ms": 221.650708
+              },
+              {
+                "label": "issuance.fs.round1.prefix",
+                "ms": 0.109333
+              },
+              {
+                "label": "issuance.fs.round1.counter_loop",
+                "ms": 0.001917
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 0.909334
+              },
+              {
+                "label": "issuance.fs.round2.prefix",
+                "ms": 0.029458
+              },
+              {
+                "label": "issuance.fs.round2.counter_loop",
+                "ms": 0.0005
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 0.577458
+              },
+              {
+                "label": "issuance.semantic_q.plan",
+                "ms": 180.215375
+              },
+              {
+                "label": "issuance.semantic_q.evaluation",
+                "ms": 21.60725
+              },
+              {
+                "label": "issuance.semantic_q.interpolation",
+                "ms": 6.208792
+              },
+              {
+                "label": "issuance.semantic_q.audit",
+                "ms": 0.556834
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 208.761125
+              },
+              {
+                "label": "issuance.fs.round3.prefix",
+                "ms": 0.017208
+              },
+              {
+                "label": "issuance.fs.round3.counter_loop",
+                "ms": 0.003667
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 1.479542
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000167
+              },
+              {
+                "label": "issuance.fs.round4.prefix",
+                "ms": 0.005958
+              },
+              {
+                "label": "issuance.fs.round4.counter_loop",
+                "ms": 0.016459
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 0.503125
+              },
+              {
+                "label": "issuance.prove_total",
+                "ms": 484.866459
+              },
+              {
+                "label": "issuance.canonical_encode",
+                "ms": 14.78975
+              },
+              {
+                "label": "issuance.canonical_decode",
+                "ms": 18.068
+              },
+              {
+                "label": "issuance.verify_total",
+                "ms": 242.452542
+              },
+              {
+                "label": "issuance.report",
+                "ms": 0.442333
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 33,
+              "salt_bytes": 32,
+              "counter_bytes": 4,
+              "r_bytes": 5472,
+              "q_bytes": 6829,
+              "vtargets_bytes": 1555,
+              "barsets_bytes": 472,
+              "opening_p_bytes": 3010,
+              "tape_bytes": 144,
+              "authentication_bytes": 4191,
+              "total_bytes": 21752,
+              "q_full_field_elements": 2744,
+              "q_wire_field_elements": 2737,
+              "q_omitted_field_elements": 7,
+              "merkle_nodes_used": 127,
+              "merkle_nodes_bound": 136,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 648,
+              "r_bytes": 5471,
+              "q_bytes": 6828,
+              "pdecs_bytes": 3015,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 5643,
+              "tape_bytes": 144,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 1558,
+              "barsets_bytes": 483,
+              "total_bytes": 23790
+            },
+            "theorem": {
+              "algebraic_terms": [
+                1.8341282363210565e-40,
+                8.834716665941153e-43,
+                8.63593554095747e-41,
+                2.5483219952606024e-39
+              ],
+              "algebraic_bits": [
+                132.0020292844586,
+                139.6997242126345,
+                133.08869941532714,
+                128.20564811861115
+              ],
+              "algebraic_total_bits": 128.06002366298887,
+              "theorem_bits": [
+                132.0020292844586,
+                139.6997242126345,
+                133.08869941532714,
+                128.20564811861115
+              ],
+              "theorem_total_bits": 128.06002366298887
+            },
+            "proof_sha256": "131c4d477d3dcc228731e9d3f1039d0ff95eebe5ac753ece339649d2df92dd04"
+          },
+          "showing": {
+            "proving_ms": 1256.464,
+            "verification_ms": 142.873,
+            "verification_passed": true,
+            "measurement_status": "e2e_showing_standalone",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              0,
+              0,
+              2,
+              4242
+            ],
+            "phase_timings": [
+              {
+                "label": "showing.domain_preparation",
+                "ms": 10.846125
+              },
+              {
+                "label": "showing.rows.validate",
+                "ms": 0.150875
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.000042
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.168875
+              },
+              {
+                "label": "showing.rows.shortness_digits",
+                "ms": 2.093375
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.921917
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.01725
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.001708
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.017583
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.01375
+              },
+              {
+                "label": "showing.rows.carriers",
+                "ms": 0.361458
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.027375
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.238833
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 2.059875
+              },
+              {
+                "label": "showing.rows.hats.x1",
+                "ms": 2.060541
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.421292
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.030375
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.623667
+              },
+              {
+                "label": "showing.rows.hats.Z",
+                "ms": 1.624
+              },
+              {
+                "label": "showing.rows.prf_input_trace_v3",
+                "ms": 0.809959
+              },
+              {
+                "label": "showing.rows",
+                "ms": 8.79025
+              },
+              {
+                "label": "showing.rows_ntt",
+                "ms": 1.916417
+              },
+              {
+                "label": "showing.constraints.replay_plan",
+                "ms": 81.927125
+              },
+              {
+                "label": "showing.constraints.semantic_metadata_v3",
+                "ms": 0.014333
+              },
+              {
+                "label": "showing.constraints.total",
+                "ms": 81.974541
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 6.83325
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.133458
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 544.311791
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 16.832042
+              },
+              {
+                "label": "showing.lvcs_commit_total",
+                "ms": 584.509375
+              },
+              {
+                "label": "showing.fs.round1.prefix",
+                "ms": 0.210083
+              },
+              {
+                "label": "showing.fs.round1.counter_loop",
+                "ms": 0.001042
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 2.722458
+              },
+              {
+                "label": "showing.fs.round2.prefix",
+                "ms": 0.032708
+              },
+              {
+                "label": "showing.fs.round2.counter_loop",
+                "ms": 0.001542
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 2.950333
+              },
+              {
+                "label": "showing.semantic_q.plan",
+                "ms": 7.275375
+              },
+              {
+                "label": "showing.semantic_q.evaluation",
+                "ms": 517.569917
+              },
+              {
+                "label": "showing.semantic_q.interpolation",
+                "ms": 9.710458
+              },
+              {
+                "label": "showing.semantic_q.audit",
+                "ms": 11.945459
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 546.709167
+              },
+              {
+                "label": "showing.fs.round3.prefix",
+                "ms": 0.020583
+              },
+              {
+                "label": "showing.fs.round3.counter_loop",
+                "ms": 0.002
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 2.314208
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000167
+              },
+              {
+                "label": "showing.fs.round4.prefix",
+                "ms": 0.021709
+              },
+              {
+                "label": "showing.fs.round4.counter_loop",
+                "ms": 1.372041
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 3.136459
+              },
+              {
+                "label": "showing.prove_total",
+                "ms": 1256.46425
+              },
+              {
+                "label": "showing.verify_total",
+                "ms": 142.873959
+              },
+              {
+                "label": "showing.canonical_encode",
+                "ms": 67.484417
+              },
+              {
+                "label": "showing.canonical_decode",
+                "ms": 73.342709
+              },
+              {
+                "label": "showing.report",
+                "ms": 0.081333
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 33,
+              "salt_bytes": 32,
+              "counter_bytes": 5,
+              "r_bytes": 5365,
+              "q_bytes": 8227,
+              "vtargets_bytes": 8087,
+              "barsets_bytes": 1886,
+              "opening_p_bytes": 9791,
+              "tape_bytes": 144,
+              "authentication_bytes": 4191,
+              "total_bytes": 37771,
+              "q_full_field_elements": 3304,
+              "q_wire_field_elements": 3297,
+              "q_omitted_field_elements": 7,
+              "merkle_nodes_used": 127,
+              "merkle_nodes_bound": 136,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 648,
+              "r_bytes": 5364,
+              "q_bytes": 8225,
+              "pdecs_bytes": 9810,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 5643,
+              "tape_bytes": 144,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 8103,
+              "barsets_bytes": 1900,
+              "total_bytes": 39837
+            },
+            "theorem": {
+              "algebraic_terms": [
+                2.911056966529056e-44,
+                8.834716665941153e-43,
+                1.0402878874145674e-40,
+                2.0896240361136985e-39
+              ],
+              "algebraic_bits": [
+                144.62329310318037,
+                139.6997242126345,
+                132.82014096302171,
+                128.4919523037678
+              ],
+              "algebraic_total_bits": 128.42126043151222,
+              "theorem_bits": [
+                144.62329310318037,
+                139.6997242126345,
+                132.82014096302171,
+                128.4919523037678
+              ],
+              "theorem_total_bits": 128.42126043151222
+            },
+            "proof_sha256": "ccf726df521318d18b7003c0ffaf6510aa889948e7bda8f5a528b8e62ca526ae"
+          }
+        },
+        {
+          "run": 3,
+          "artifact_directory": "artifacts/smallwood-v3/time-optimization-v1/wf128/run-3",
+          "report_path": "artifacts/smallwood-v3/time-optimization-v1/wf128/run-3/report.json",
+          "report_sha256": "5dc90d760b22ce5d91b1f8b7d8921b56face3449a534e5f5a9f6bd76b2fe9d0f",
+          "resource_path": "artifacts/smallwood-v3/time-optimization-v1/wf128/run-3/resource.txt",
+          "resource_sha256": "ae38e6638f102015fc0cf00bf51395de22b7b33ce310688a943f1e4e07a4b75f",
+          "state_bytes": 4894,
+          "state_sha256": "27c7566c7880e765bd719d4278dffa2cd099ef7af77da4c3dd01a898401ecd33",
+          "presentation_bytes": 37878,
+          "presentation_sha256": "4300ca9bba0388d66da4a9ff983329439839fdfe0e470d521edc2db3ca3edb16",
+          "peak_rss_bytes": 194772992,
+          "parameter_audit_status": "pass",
+          "replay_rejected": true,
+          "issuance": {
+            "proving_ms": 549.27,
+            "verification_ms": 241.098,
+            "verification_passed": true,
+            "measurement_status": "e2e_presign",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              0,
+              0,
+              5,
+              10760
+            ],
+            "phase_timings": [
+              {
+                "label": "issuance.domain_preparation",
+                "ms": 10.461209
+              },
+              {
+                "label": "issuance.rows",
+                "ms": 11.315958
+              },
+              {
+                "label": "issuance.replay_preparation",
+                "ms": 0.027375
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 1.8585
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.137333
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 217.533167
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 14.626334
+              },
+              {
+                "label": "issuance.lvcs_commit_total",
+                "ms": 240.498208
+              },
+              {
+                "label": "issuance.fs.round1.prefix",
+                "ms": 0.111875
+              },
+              {
+                "label": "issuance.fs.round1.counter_loop",
+                "ms": 0.001209
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 0.889917
+              },
+              {
+                "label": "issuance.fs.round2.prefix",
+                "ms": 0.031125
+              },
+              {
+                "label": "issuance.fs.round2.counter_loop",
+                "ms": 0.000541
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 0.615042
+              },
+              {
+                "label": "issuance.semantic_q.plan",
+                "ms": 186.894833
+              },
+              {
+                "label": "issuance.semantic_q.evaluation",
+                "ms": 22.238292
+              },
+              {
+                "label": "issuance.semantic_q.interpolation",
+                "ms": 6.211958
+              },
+              {
+                "label": "issuance.semantic_q.audit",
+                "ms": 0.568834
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 216.087667
+              },
+              {
+                "label": "issuance.fs.round3.prefix",
+                "ms": 0.017625
+              },
+              {
+                "label": "issuance.fs.round3.counter_loop",
+                "ms": 0.002917
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 1.098917
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000167
+              },
+              {
+                "label": "issuance.fs.round4.prefix",
+                "ms": 0.007875
+              },
+              {
+                "label": "issuance.fs.round4.counter_loop",
+                "ms": 3.453041
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 3.912417
+              },
+              {
+                "label": "issuance.prove_total",
+                "ms": 514.221083
+              },
+              {
+                "label": "issuance.canonical_encode",
+                "ms": 15.415417
+              },
+              {
+                "label": "issuance.canonical_decode",
+                "ms": 18.914542
+              },
+              {
+                "label": "issuance.verify_total",
+                "ms": 241.098583
+              },
+              {
+                "label": "issuance.report",
+                "ms": 0.59425
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 33,
+              "salt_bytes": 32,
+              "counter_bytes": 5,
+              "r_bytes": 5472,
+              "q_bytes": 6829,
+              "vtargets_bytes": 1555,
+              "barsets_bytes": 472,
+              "opening_p_bytes": 3010,
+              "tape_bytes": 144,
+              "authentication_bytes": 3894,
+              "total_bytes": 21456,
+              "q_full_field_elements": 2744,
+              "q_wire_field_elements": 2737,
+              "q_omitted_field_elements": 7,
+              "merkle_nodes_used": 118,
+              "merkle_nodes_bound": 136,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 648,
+              "r_bytes": 5471,
+              "q_bytes": 6828,
+              "pdecs_bytes": 3015,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 5643,
+              "tape_bytes": 144,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 1558,
+              "barsets_bytes": 483,
+              "total_bytes": 23790
+            },
+            "theorem": {
+              "algebraic_terms": [
+                1.8341282363210565e-40,
+                8.834716665941153e-43,
+                8.63593554095747e-41,
+                2.5483219952606024e-39
+              ],
+              "algebraic_bits": [
+                132.0020292844586,
+                139.6997242126345,
+                133.08869941532714,
+                128.20564811861115
+              ],
+              "algebraic_total_bits": 128.06002366298887,
+              "theorem_bits": [
+                132.0020292844586,
+                139.6997242126345,
+                133.08869941532714,
+                128.20564811861115
+              ],
+              "theorem_total_bits": 128.06002366298887
+            },
+            "proof_sha256": "e89a07a5a7c855befb26da63f5ec5c734f46047d8560ecc31f9935a085fa71a6"
+          },
+          "showing": {
+            "proving_ms": 1264.591,
+            "verification_ms": 149.969,
+            "verification_passed": true,
+            "measurement_status": "e2e_showing_standalone",
+            "zero_knowledge_eligible": true,
+            "fs_counters": [
+              1,
+              0,
+              6,
+              8610
+            ],
+            "phase_timings": [
+              {
+                "label": "showing.domain_preparation",
+                "ms": 12.456459
+              },
+              {
+                "label": "showing.rows.validate",
+                "ms": 0.162
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.000042
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.15525
+              },
+              {
+                "label": "showing.rows.shortness_digits",
+                "ms": 2.225667
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 1.017667
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.01525
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.002125
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.019083
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.013958
+              },
+              {
+                "label": "showing.rows.carriers",
+                "ms": 0.362125
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.062583
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.079167
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.721584
+              },
+              {
+                "label": "showing.rows.hats.x1",
+                "ms": 1.722
+              },
+              {
+                "label": "showing.rows.coeff_views",
+                "ms": 0.66275
+              },
+              {
+                "label": "showing.rows.row_inputs",
+                "ms": 0.02275
+              },
+              {
+                "label": "showing.rows.hats",
+                "ms": 1.318125
+              },
+              {
+                "label": "showing.rows.hats.Z",
+                "ms": 1.31825
+              },
+              {
+                "label": "showing.rows.prf_input_trace_v3",
+                "ms": 0.987875
+              },
+              {
+                "label": "showing.rows",
+                "ms": 8.884291
+              },
+              {
+                "label": "showing.rows_ntt",
+                "ms": 1.717792
+              },
+              {
+                "label": "showing.constraints.replay_plan",
+                "ms": 85.24125
+              },
+              {
+                "label": "showing.constraints.semantic_metadata_v3",
+                "ms": 0.017375
+              },
+              {
+                "label": "showing.constraints.total",
+                "ms": 85.2885
+              },
+              {
+                "label": "lvcs.row_interpolation",
+                "ms": 6.962208
+              },
+              {
+                "label": "decs.mask_sampling",
+                "ms": 0.129709
+              },
+              {
+                "label": "decs.eval_hash",
+                "ms": 535.884125
+              },
+              {
+                "label": "decs.merkle",
+                "ms": 15.537333
+              },
+              {
+                "label": "showing.lvcs_commit_total",
+                "ms": 574.101417
+              },
+              {
+                "label": "showing.fs.round1.prefix",
+                "ms": 0.180667
+              },
+              {
+                "label": "showing.fs.round1.counter_loop",
+                "ms": 0.001542
+              },
+              {
+                "label": "RunMaskFS.Round1Gamma",
+                "ms": 2.741834
+              },
+              {
+                "label": "showing.fs.round2.prefix",
+                "ms": 0.030291
+              },
+              {
+                "label": "showing.fs.round2.counter_loop",
+                "ms": 0.000542
+              },
+              {
+                "label": "RunMaskFS.Round2GammaPrime",
+                "ms": 3.101625
+              },
+              {
+                "label": "showing.semantic_q.plan",
+                "ms": 6.584667
+              },
+              {
+                "label": "showing.semantic_q.evaluation",
+                "ms": 528.768833
+              },
+              {
+                "label": "showing.semantic_q.interpolation",
+                "ms": 10.651084
+              },
+              {
+                "label": "showing.semantic_q.audit",
+                "ms": 12.8945
+              },
+              {
+                "label": "RunMaskFS.BuildQAndMasks",
+                "ms": 559.106667
+              },
+              {
+                "label": "showing.fs.round3.prefix",
+                "ms": 0.020709
+              },
+              {
+                "label": "showing.fs.round3.counter_loop",
+                "ms": 0.0035
+              },
+              {
+                "label": "RunMaskFS.Round3Eval",
+                "ms": 2.173458
+              },
+              {
+                "label": "RunMaskFS.PRFCompanionOpenings",
+                "ms": 0.000167
+              },
+              {
+                "label": "showing.fs.round4.prefix",
+                "ms": 0.022292
+              },
+              {
+                "label": "showing.fs.round4.counter_loop",
+                "ms": 3.178875
+              },
+              {
+                "label": "RunMaskFS.Round4TailOpen",
+                "ms": 4.972542
+              },
+              {
+                "label": "showing.prove_total",
+                "ms": 1264.591708
+              },
+              {
+                "label": "showing.verify_total",
+                "ms": 149.969
+              },
+              {
+                "label": "showing.canonical_encode",
+                "ms": 67.545625
+              },
+              {
+                "label": "showing.canonical_decode",
+                "ms": 72.357458
+              },
+              {
+                "label": "showing.report",
+                "ms": 0.072
+              }
+            ],
+            "canonical_wire": {
+              "codec_version": 6,
+              "codec_profile": "SPRUCE/canonical-proof-codec/v6;fq=radix-q-v1;group=1024;q=ker-sum-omega-constant-v1;merkle=exact-tail-frontier-unpadded-v1",
+              "proof_schema_version": 3,
+              "field_encoding": "radix-q-v1;group=1024",
+              "q_kernel_encoding": "ker-sum-omega-constant-v1",
+              "radix_q_group_elements": 1024,
+              "merkle_topology": "exact-n-largest-lower-power-v3",
+              "header_bytes": 10,
+              "root_bytes": 33,
+              "salt_bytes": 32,
+              "counter_bytes": 5,
+              "r_bytes": 5365,
+              "q_bytes": 8227,
+              "vtargets_bytes": 8087,
+              "barsets_bytes": 1886,
+              "opening_p_bytes": 9791,
+              "tape_bytes": 144,
+              "authentication_bytes": 4257,
+              "total_bytes": 37837,
+              "q_full_field_elements": 3304,
+              "q_wire_field_elements": 3297,
+              "q_omitted_field_elements": 7,
+              "merkle_nodes_used": 129,
+              "merkle_nodes_bound": 136,
+              "merkle_padding_nodes": 0
+            },
+            "paper": {
+              "fixed_bytes": 648,
+              "r_bytes": 5364,
+              "q_bytes": 8225,
+              "pdecs_bytes": 9810,
+              "mdecs_bytes": 0,
+              "authentication_bytes": 5643,
+              "tape_bytes": 144,
+              "signature_shortness_bytes": 0,
+              "vtargets_bytes": 8103,
+              "barsets_bytes": 1900,
+              "total_bytes": 39837
+            },
+            "theorem": {
+              "algebraic_terms": [
+                2.911056966529056e-44,
+                8.834716665941153e-43,
+                1.0402878874145674e-40,
+                2.0896240361136985e-39
+              ],
+              "algebraic_bits": [
+                144.62329310318037,
+                139.6997242126345,
+                132.82014096302171,
+                128.4919523037678
+              ],
+              "algebraic_total_bits": 128.42126043151222,
+              "theorem_bits": [
+                144.62329310318037,
+                139.6997242126345,
+                132.82014096302171,
+                128.4919523037678
+              ],
+              "theorem_total_bits": 128.42126043151222
+            },
+            "proof_sha256": "105011facc1420b11ff455f4c4434788e1f164697f8bf511aff5a81e8a670145"
+          }
+        }
+      ],
+      "fresh_medians": {
+        "issuance_proving_ms": 521.758,
+        "showing_proving_ms": 1256.464,
+        "issuance_verification_ms": 241.098,
+        "showing_verification_ms": 148.445,
+        "peak_rss_bytes": 194871296
+      },
+      "counter_width_explanation": "minimal_uleb128_value_dependent_width_v1"
+    }
+  ]
+}

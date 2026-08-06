@@ -162,9 +162,19 @@ func parseShowingCLIArgs(args []string) (showingCLIConfig, error) {
 	if err != nil {
 		return showingCLIConfig{}, err
 	}
-	artifactDir := filepath.Join("artifacts", "smallwood-salted-v2", preset.CanonicalID)
+	artifactRoot := "smallwood-salted-v2"
+	if preset.PresetVersion == credential.IntGenISISPresetManifestVersionV3 {
+		artifactRoot = "smallwood-v3"
+	} else if preset.PresetVersion == credential.IntGenISISPresetManifestVersionV4 {
+		artifactRoot = "publication-v4"
+	}
+	artifactDir := filepath.Join("artifacts", artifactRoot, preset.CanonicalID)
 	if *statePathFlag == "" {
-		*statePathFlag = filepath.Join(artifactDir, "credential_state.intgenisis.json")
+		stateName := "credential_state.intgenisis.json"
+		if preset.StateFormatVersion == credential.IntGenISISStateFormatVersionV8 {
+			stateName = "credential_state.intgenisis.v8"
+		}
+		*statePathFlag = filepath.Join(artifactDir, stateName)
 	}
 	if *intGenISISPublicParamsPath == "" {
 		*intGenISISPublicParamsPath = filepath.Join(artifactDir, fmt.Sprintf("credential_public.%s.json", preset.Profile))
@@ -173,7 +183,11 @@ func parseShowingCLIArgs(args []string) (showingCLIConfig, error) {
 		*intGenISISVerifierKeyPath = filepath.Join(artifactDir, "intgenisis_verifier_key.json")
 	}
 	if *presentationOut == "" && *verifyPresentation == "" {
-		*presentationOut = filepath.Join(artifactDir, "presentation.intgenisis.json")
+		presentationName := "presentation.intgenisis.json"
+		if preset.PresentationVersion == credential.IntGenISISPresentationFormatVersionV3 {
+			presentationName = "presentation.intgenisis.v3"
+		}
+		*presentationOut = filepath.Join(artifactDir, presentationName)
 	}
 	return showingCLIConfig{
 		StatePath:           *statePathFlag,
@@ -266,7 +280,10 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 		if err != nil {
 			return fmt.Errorf("load ring: %w", err)
 		}
-		opts := intGenISISShowingOpts(publicParams.RingDegree, preset.Showing)
+		opts := intGenISISShowingOpts(publicParams.RingDegree, preset.Showing, preset.CanonicalID)
+		if preset.PresentationVersion == credential.IntGenISISPresentationFormatVersionV3 {
+			return verifyIntGenISISPresentationV3CLI(verifyPresentationPath, expectedContextFile, verifierStatePath, cfg.ProofOnly, verifierKey, publicParams, ringQ, opts)
+		}
 		return verifyIntGenISISPresentationCLI(verifyPresentationPath, expectedContextFile, verifierStatePath, cfg.ProofOnly, verifierKey, publicParams, ringQ, opts)
 	}
 	if cfg.ProofOnly {
@@ -281,13 +298,39 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 	if verifierKeyPath == "" {
 		return fmt.Errorf("IntGenISIS presentation creation requires -verifier-key")
 	}
-	st, err := credential.LoadIntGenISISState(statePath)
-	if err != nil {
-		return fmt.Errorf("load IntGenISIS credential state: %w", err)
-	}
-	publicParams, err := credential.LoadPublicParams(st.CredentialPublicPath)
-	if err != nil {
-		return fmt.Errorf("load IntGenISIS public params: %w", err)
+	var st credential.IntGenISISState
+	var publicParams credential.PublicParams
+	var verifierKey credential.IntGenISISVerifierKey
+	var err error
+	if preset.StateFormatVersion == credential.IntGenISISStateFormatVersionV8 {
+		publicParams, err = credential.LoadPublicParams(publicParamsPath)
+		if err != nil {
+			return fmt.Errorf("load trusted IntGenISIS public params for state-v8: %w", err)
+		}
+		if err := publicParams.ValidateIntGenISISPreset(preset); err != nil {
+			return err
+		}
+		verifierKey, err = credential.LoadIntGenISISVerifierKey(verifierKeyPath)
+		if err != nil {
+			return fmt.Errorf("load trusted IntGenISIS verifier key for state-v8: %w", err)
+		}
+		st, err = credential.LoadIntGenISISStateV8(statePath, credential.IntGenISISStateCodecContext{
+			Public:           publicParams,
+			VerifierKey:      verifierKey,
+			PublicParamsPath: publicParamsPath,
+		})
+		if err != nil {
+			return fmt.Errorf("load canonical IntGenISIS credential state-v8: %w", err)
+		}
+	} else {
+		st, err = credential.LoadIntGenISISState(statePath)
+		if err != nil {
+			return fmt.Errorf("load legacy IntGenISIS credential state: %w", err)
+		}
+		publicParams, err = credential.LoadPublicParams(st.CredentialPublicPath)
+		if err != nil {
+			return fmt.Errorf("load IntGenISIS public params: %w", err)
+		}
 	}
 	if !publicParams.UsesIntGenISIS() {
 		return fmt.Errorf("state references non-IntGenISIS public params")
@@ -317,7 +360,7 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 	if !ok || params.LenTag != wantTag {
 		return fmt.Errorf("loaded PRF tag elements=%d do not match bound profile %s (%d)", params.LenTag, preset.PRFProfile, wantTag)
 	}
-	opts := intGenISISShowingOpts(st.RingDegree, preset.Showing)
+	opts := intGenISISShowingOpts(st.RingDegree, preset.Showing, preset.CanonicalID)
 	if st.PRFParamsPath != "" {
 		opts.PRFParamsPath = st.PRFParamsPath
 	}
@@ -330,9 +373,11 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 	if verifyPresentationPath != "" {
 		return fmt.Errorf("unreachable IntGenISIS presentation verification branch")
 	}
-	verifierKey, err := credential.LoadIntGenISISVerifierKey(verifierKeyPath)
-	if err != nil {
-		return err
+	if verifierKey.Version == 0 {
+		verifierKey, err = credential.LoadIntGenISISVerifierKey(verifierKeyPath)
+		if err != nil {
+			return err
+		}
 	}
 	if err := st.ValidateAgainst(publicParams, verifierKey); err != nil {
 		return fmt.Errorf("credential/verifier binding: %w", err)
@@ -377,9 +422,9 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 	var pub PIOP.PublicInputs
 	var proofDur time.Duration
 	var verifyDur time.Duration
-	pres, err := credential.CreatePresentation(publicParams, verifierKey, st, rawContext, holderUsageState, func(contextBinding credential.PresentationContextBinding, slot uint8) ([]int64, json.RawMessage, error) {
+	proveShowing := func(contextBinding credential.PresentationContextBinding, slot uint8) ([]int64, error) {
 		if wit.CoeffNativeShowing == nil {
-			return nil, nil, fmt.Errorf("missing coefficient-native showing witness")
+			return nil, fmt.Errorf("missing coefficient-native showing witness")
 		}
 		wit.CoeffNativeShowing.HiddenSlot = uint64(slot)
 		for i := range wit.CoeffNativeShowing.HiddenBits {
@@ -391,7 +436,7 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 		}
 		tag, err := prf.TagContextSlot(key, contextElems, prf.Elem(slot), params)
 		if err != nil {
-			return nil, nil, fmt.Errorf("compute IntGenISIS tag: %w", err)
+			return nil, fmt.Errorf("compute IntGenISIS tag: %w", err)
 		}
 		tagScalars := elemsToCanonicalScalars(tag)
 		pub = PIOP.PublicInputs{
@@ -414,13 +459,88 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 		proof, err = PIOP.BuildIntGenISISShowingCombined(pub, wit, opts)
 		proofDur = time.Since(proofStart)
 		if err != nil {
-			return nil, nil, fmt.Errorf("build IntGenISIS showing: %w", err)
+			return nil, fmt.Errorf("build IntGenISIS showing: %w", err)
 		}
 		verifyStart := time.Now()
 		verified, verifyErr := PIOP.VerifyIntGenISISShowing(pub, proof, opts)
 		verifyDur = time.Since(verifyStart)
 		if verifyErr != nil || !verified {
-			return nil, nil, fmt.Errorf("verify IntGenISIS showing failed: ok=%v err=%v", verified, verifyErr)
+			return nil, fmt.Errorf("verify IntGenISIS showing failed: ok=%v err=%v", verified, verifyErr)
+		}
+		return tagScalars, nil
+	}
+	if preset.PresentationVersion == credential.IntGenISISPresentationFormatVersionV3 {
+		stateCtx := credential.IntGenISISStateCodecContext{Public: publicParams, VerifierKey: verifierKey, PublicParamsPath: publicParamsPath}
+		var canonicalProof []byte
+		presV3, createErr := credential.CreatePresentationV3(publicParams, verifierKey, st, stateCtx, rawContext, holderUsageState, func(contextBinding credential.PresentationContextBinding, slot uint8) ([]int64, []byte, error) {
+			tagScalars, proveErr := proveShowing(contextBinding, slot)
+			if proveErr != nil {
+				return nil, nil, proveErr
+			}
+			canonicalProof, proveErr = PIOP.MarshalCanonicalProof(proof, PIOP.CanonicalProofContext{Kind: PIOP.Showing, Public: pub, Options: opts})
+			if proveErr != nil {
+				return nil, nil, fmt.Errorf("marshal canonical IntGenISIS proof: %w", proveErr)
+			}
+			reconstructed, decodeErr := PIOP.UnmarshalCanonicalProof(canonicalProof, PIOP.CanonicalProofContext{Kind: PIOP.Showing, Public: pub, Options: opts})
+			if decodeErr != nil {
+				return nil, nil, fmt.Errorf("reconstruct canonical IntGenISIS proof: %w", decodeErr)
+			}
+			verified, verifyErr := PIOP.VerifyIntGenISISShowing(pub, reconstructed, opts)
+			if verifyErr != nil || !verified {
+				return nil, nil, fmt.Errorf("verify reconstructed canonical IntGenISIS proof failed: ok=%v err=%v", verified, verifyErr)
+			}
+			proof = reconstructed
+			return tagScalars, canonicalProof, nil
+		})
+		if createErr != nil {
+			return createErr
+		}
+		_, presentationCtx, ctxErr := credential.DeriveIntGenISISPresentationV3Context(publicParams, verifierKey, rawContext)
+		if ctxErr != nil {
+			return ctxErr
+		}
+		if presentationOut != "" {
+			if err := credential.SaveIntGenISISPresentationV3(presentationOut, presV3, presentationCtx); err != nil {
+				return fmt.Errorf("save canonical IntGenISIS presentation-v3: %w", err)
+			}
+			cli.printf(categoryStatus, "[showing-cli] ", "canonical IntGenISIS presentation-v3 wrote %s", presentationOut)
+		}
+		cli.printf(categoryStatus, "[showing-cli] ", "IntGenISIS showing proof verified after canonical reconstruction")
+		if cfg.Verbose {
+			printLogicalWitnessRowBreakdown("[showing-cli] ", proof)
+			printCommittedWitnessRowBreakdown("[showing-cli] ", proof)
+		}
+		report, reportOK := printProofReport("[showing-cli] ", proof, opts, publicParams.CommitmentBound, ringQ, proofDur, verifyDur, cfg.Verbose)
+		if presentationOut != "" && reportOK {
+			wire, marshalErr := credential.MarshalIntGenISISPresentationV3(presV3, presentationCtx)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			diagnosticReport, marshalErr := json.Marshal(map[string]interface{}{
+				"verified":                          true,
+				"canonical_proof_wire_bytes":        len(canonicalProof),
+				"canonical_presentation_wire_bytes": len(wire),
+				"modeled_verifier_message_bytes":    report.ProofBytes,
+				"paper_transcript_bytes":            report.PaperTranscript.OptimizedBytes,
+			})
+			if marshalErr != nil {
+				return marshalErr
+			}
+			diagnostic, diagnosticErr := credential.NewIntGenISISPresentationV3Diagnostic(wire, diagnosticReport, presentationCtx)
+			if diagnosticErr != nil {
+				return diagnosticErr
+			}
+			if diagnosticErr = credential.SaveIntGenISISPresentationV3Diagnostic(presentationOut+".json", diagnostic); diagnosticErr != nil {
+				return diagnosticErr
+			}
+			cli.printf(categoryTranscript, "[showing-cli] ", "canonical_proof_wire_bytes=%d canonical_presentation_wire_bytes=%d paper_transcript_bytes=%d", len(canonicalProof), len(wire), report.PaperTranscript.OptimizedBytes)
+		}
+		return nil
+	}
+	pres, err := credential.CreatePresentation(publicParams, verifierKey, st, rawContext, holderUsageState, func(contextBinding credential.PresentationContextBinding, slot uint8) ([]int64, json.RawMessage, error) {
+		tagScalars, err := proveShowing(contextBinding, slot)
+		if err != nil {
+			return nil, nil, err
 		}
 		proofRaw, err := json.Marshal(proof)
 		if err != nil {
@@ -446,8 +566,12 @@ func runIntGenISISShowingCLI(cfg showingCLIConfig) error {
 	return nil
 }
 
-func intGenISISShowingOpts(ringDegree int, tuning credential.IntGenISISTuningPreset) PIOP.SimOpts {
+func intGenISISShowingOpts(ringDegree int, tuning credential.IntGenISISTuningPreset, presetIDs ...string) PIOP.SimOpts {
 	protocol, version, _ := credential.ResolveIntGenISISTranscript(tuning.TranscriptMode)
+	presetID := ""
+	if len(presetIDs) > 0 {
+		presetID = strings.TrimSpace(presetIDs[0])
+	}
 	ncols := tuning.NCols
 	lvcsNCols := tuning.LVCSNCols
 	if lvcsNCols < ncols {
@@ -472,10 +596,14 @@ func intGenISISShowingOpts(ringDegree int, tuning credential.IntGenISISTuningPre
 		ROQueryCapsSet:             tuning.ROQueryCapsSet,
 		ROQueryCapBits:             tuning.ROQueryCapBits,
 		ROQueryCapBitsSet:          tuning.ROQueryCapBitsSet,
+		AggregateROQueryCapLog2:    tuning.AggregateROQueryCapLog2,
+		AggregateROQueryCapLog2Set: tuning.AggregateROQueryCapLog2Set,
 		DECSCollisionBits:          tuning.DECSCollisionBits,
 		DECSHashBits:               tuning.DECSHashBits,
 		DECSTapeBits:               tuning.DECSTapeBits,
 		FSCollisionBits:            tuning.FSCollisionBits,
+		FSOutputBits:               tuning.FSOutputBits,
+		PresetID:                   presetID,
 		SaltBits:                   tuning.SaltBits,
 		PRFParamsPath:              tuning.PRFParamsPath,
 		DomainMode:                 PIOP.DomainModeExplicit,
@@ -554,6 +682,78 @@ func verifyIntGenISISPresentationCLI(path, expectedContextPath, verifierStatePat
 		return fmt.Errorf("rate-limit acceptance failed: accepted=%v err=%v", accepted, err)
 	}
 	cli.printf(categoryStatus, "[showing-cli] ", "IntGenISIS proof valid; rate-limit presentation accepted")
+	return nil
+}
+
+func verifyIntGenISISPresentationV3CLI(path, expectedContextPath, verifierStatePath string, proofOnly bool, verifierKey credential.IntGenISISVerifierKey, publicParams credential.PublicParams, ringQ *ring.Ring, opts PIOP.SimOpts) error {
+	rawContext, err := readPresentationContextFile(expectedContextPath)
+	if err != nil {
+		return err
+	}
+	contextBinding, codecCtx, err := credential.DeriveIntGenISISPresentationV3Context(publicParams, verifierKey, rawContext)
+	if err != nil {
+		return fmt.Errorf("derive trusted presentation-v3 context: %w", err)
+	}
+	pres, err := credential.LoadIntGenISISPresentationV3(path, codecCtx)
+	if err != nil {
+		return err
+	}
+	B, err := loadBForIntGenISISShowing(ringQ, publicParams)
+	if err != nil {
+		return err
+	}
+	A, err := buildIntGenISISSignatureMatrixFromRows(ringQ, verifierKey.NTRUPublic)
+	if err != nil {
+		return err
+	}
+	cm, err := commitment.MatrixFromCoeff(ringQ, publicParams.CM)
+	if err != nil {
+		return fmt.Errorf("lift C_M: %w", err)
+	}
+	as, err := commitment.MatrixFromCoeff(ringQ, publicParams.AS)
+	if err != nil {
+		return fmt.Errorf("lift A_s: %w", err)
+	}
+	contextDigest, err := hex.DecodeString(contextBinding.Digest)
+	if err != nil || len(contextDigest) != 32 {
+		return fmt.Errorf("decode trusted presentation-v3 context digest")
+	}
+	verifyProof := func(bound credential.IntGenISISPresentationV3, trusted credential.IntGenISISPresentationCodecContext) (bool, error) {
+		pub := PIOP.PublicInputs{
+			A:              A,
+			B:              B,
+			CM:             cm,
+			AS:             as,
+			Tag:            append([]int64(nil), bound.Tag...),
+			Context:        append([]int64(nil), trusted.Context...),
+			ContextDigest:  append([]byte(nil), contextDigest...),
+			BoundB:         publicParams.CommitmentBound,
+			HashInputBound: publicParams.HashInputBound,
+			X0Len:          publicParams.EllX0,
+			RingDegree:     int(ringQ.N),
+			HashRelation:   publicParams.HashRelation,
+			IntGenISIS:     true,
+			Extras:         publicParams.PresetTranscriptExtras(intGenISISSignatureBoundExtras(verifierKey.SignatureBound)),
+		}
+		proof, decodeErr := PIOP.UnmarshalCanonicalProof(bound.CanonicalProof, PIOP.CanonicalProofContext{Kind: PIOP.Showing, Public: pub, Options: opts})
+		if decodeErr != nil {
+			return false, fmt.Errorf("decode canonical presentation-v3 proof: %w", decodeErr)
+		}
+		return PIOP.VerifyIntGenISISShowing(pub, proof, opts)
+	}
+	if proofOnly {
+		verified, verifyErr := credential.VerifyProofV3(pres, publicParams, verifierKey, rawContext, verifyProof)
+		if verifyErr != nil || !verified {
+			return fmt.Errorf("verify canonical IntGenISIS presentation-v3 failed: ok=%v err=%v", verified, verifyErr)
+		}
+		cli.printf(categoryStatus, "[showing-cli] ", "canonical IntGenISIS proof valid; rate-limit acceptance not evaluated")
+		return nil
+	}
+	accepted, verifyErr := credential.VerifyAndAcceptV3(pres, publicParams, verifierKey, rawContext, verifierStatePath, verifyProof)
+	if verifyErr != nil || !accepted {
+		return fmt.Errorf("rate-limit presentation-v3 acceptance failed: accepted=%v err=%v", accepted, verifyErr)
+	}
+	cli.printf(categoryStatus, "[showing-cli] ", "canonical IntGenISIS proof valid; rate-limit presentation accepted")
 	return nil
 }
 

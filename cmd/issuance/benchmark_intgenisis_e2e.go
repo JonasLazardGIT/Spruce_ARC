@@ -1,15 +1,18 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 	"vSIS-Signature/commitment"
 	"vSIS-Signature/credential"
 	vsishash "vSIS-Signature/internal/hash"
+	"vSIS-Signature/internal/sourceintegrity"
 	"vSIS-Signature/prf"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -57,41 +61,48 @@ type benchmarkIntGenISISE2EConfig struct {
 	NTRUBeta             uint64
 	MaxTrials            int
 	MaxNLeaves           int
+	ExecutionProfile     string
+	ExecutionPolicy      PIOP.ExecutionPolicy
+	ContextMode          string
 }
 
 type intGenISISTuning struct {
-	NCols                  int                   `json:"ncols"`
-	LVCSNCols              int                   `json:"lvcs_ncols"`
-	NLeaves                int                   `json:"nleaves"`
-	Eta                    int                   `json:"eta"`
-	Theta                  int                   `json:"theta"`
-	Rho                    int                   `json:"rho"`
-	Ell                    int                   `json:"ell"`
-	EllPrime               int                   `json:"ell_prime"`
-	DQOverride             int                   `json:"dq_override,omitempty"`
-	Kappa                  [4]int                `json:"kappa"`
-	ROQueryCaps            [5]int                `json:"ro_query_caps,omitempty"`
-	ROQueryCapsSet         bool                  `json:"-"`
-	ROQueryCapBits         [5]float64            `json:"ro_query_cap_bits,omitempty"`
-	ROQueryCapBitsSet      bool                  `json:"-"`
-	DECSCollisionBits      int                   `json:"decs_collision_bits,omitempty"`
-	DECSHashBits           int                   `json:"decs_hash_bits,omitempty"`
-	DECSTapeBits           int                   `json:"decs_tape_bits,omitempty"`
-	FSCollisionBits        int                   `json:"fs_collision_bits,omitempty"`
-	SaltBits               int                   `json:"salt_bits,omitempty"`
-	PRFProfile             string                `json:"prf_profile,omitempty"`
-	PRFParamsPath          string                `json:"prf_params_path,omitempty"`
-	PRFCompanionMode       PIOP.PRFCompanionMode `json:"prf_companion_mode,omitempty"`
-	PRFGroupRounds         int                   `json:"prf_group_rounds,omitempty"`
-	CheckpointSamples      int                   `json:"prf_checkpoint_samples,omitempty"`
-	SigShortnessRadix      int                   `json:"sig_shortness_radix,omitempty"`
-	SigShortnessDigits     int                   `json:"sig_shortness_digits,omitempty"`
-	CompressedRows         int                   `json:"compressed_rows,omitempty"`
-	ReplayProjection       string                `json:"replay_projection,omitempty"`
-	TranscriptMode         string                `json:"transcript_mode,omitempty"`
-	TranscriptOmissionMode string                `json:"transcript_omission_mode,omitempty"`
-	FixedTranscriptSize    bool                  `json:"fixed_transcript_size,omitempty"`
-	FixedTranscriptSizeSet bool                  `json:"-"`
+	PresetID                   string                `json:"preset_id,omitempty"`
+	NCols                      int                   `json:"ncols"`
+	LVCSNCols                  int                   `json:"lvcs_ncols"`
+	NLeaves                    int                   `json:"nleaves"`
+	Eta                        int                   `json:"eta"`
+	Theta                      int                   `json:"theta"`
+	Rho                        int                   `json:"rho"`
+	Ell                        int                   `json:"ell"`
+	EllPrime                   int                   `json:"ell_prime"`
+	DQOverride                 int                   `json:"dq_override,omitempty"`
+	Kappa                      [4]int                `json:"kappa"`
+	ROQueryCaps                [5]int                `json:"ro_query_caps,omitempty"`
+	ROQueryCapsSet             bool                  `json:"-"`
+	ROQueryCapBits             [5]float64            `json:"ro_query_cap_bits,omitempty"`
+	ROQueryCapBitsSet          bool                  `json:"-"`
+	AggregateROQueryCapLog2    float64               `json:"aggregate_ro_query_cap_log2,omitempty"`
+	AggregateROQueryCapLog2Set bool                  `json:"-"`
+	DECSCollisionBits          int                   `json:"decs_collision_bits,omitempty"`
+	DECSHashBits               int                   `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits               int                   `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits            int                   `json:"fs_collision_bits,omitempty"`
+	FSOutputBits               int                   `json:"fs_output_bits,omitempty"`
+	SaltBits                   int                   `json:"salt_bits,omitempty"`
+	PRFProfile                 string                `json:"prf_profile,omitempty"`
+	PRFParamsPath              string                `json:"prf_params_path,omitempty"`
+	PRFCompanionMode           PIOP.PRFCompanionMode `json:"prf_companion_mode,omitempty"`
+	PRFGroupRounds             int                   `json:"prf_group_rounds,omitempty"`
+	CheckpointSamples          int                   `json:"prf_checkpoint_samples,omitempty"`
+	SigShortnessRadix          int                   `json:"sig_shortness_radix,omitempty"`
+	SigShortnessDigits         int                   `json:"sig_shortness_digits,omitempty"`
+	CompressedRows             int                   `json:"compressed_rows,omitempty"`
+	ReplayProjection           string                `json:"replay_projection,omitempty"`
+	TranscriptMode             string                `json:"transcript_mode,omitempty"`
+	TranscriptOmissionMode     string                `json:"transcript_omission_mode,omitempty"`
+	FixedTranscriptSize        bool                  `json:"fixed_transcript_size,omitempty"`
+	FixedTranscriptSizeSet     bool                  `json:"-"`
 }
 
 type benchmarkIntGenISISE2ETimings struct {
@@ -109,15 +120,28 @@ type benchmarkIntGenISISE2EOptions struct {
 }
 
 type benchmarkIntGenISISE2EEnvironment struct {
-	GoVersion  string `json:"go_version"`
-	GOOS       string `json:"goos"`
-	GOARCH     string `json:"goarch"`
-	NumCPU     int    `json:"num_cpu"`
-	GOMAXPROCS int    `json:"gomaxprocs"`
-	VCS        string `json:"vcs,omitempty"`
-	Commit     string `json:"commit,omitempty"`
-	CommitTime string `json:"commit_time,omitempty"`
-	Modified   *bool  `json:"modified,omitempty"`
+	GoVersion           string `json:"go_version"`
+	GOOS                string `json:"goos"`
+	GOARCH              string `json:"goarch"`
+	NumCPU              int    `json:"num_cpu"`
+	GOMAXPROCS          int    `json:"gomaxprocs"`
+	VCS                 string `json:"vcs,omitempty"`
+	Commit              string `json:"commit,omitempty"`
+	CommitTime          string `json:"commit_time,omitempty"`
+	Modified            *bool  `json:"modified,omitempty"`
+	SourceTreeAlgorithm string `json:"source_tree_algorithm,omitempty"`
+	SourceTreeDigest    string `json:"source_tree_digest,omitempty"`
+	SourceTreeFileCount int    `json:"source_tree_file_count,omitempty"`
+	BuildSHA256         string `json:"build_sha256"`
+	CPUModel            string `json:"cpu_model"`
+	CPUFeatures         string `json:"cpu_features"`
+	MachineDigest       string `json:"machine_digest"`
+}
+
+type benchmarkIntGenISISE2EResources struct {
+	AllocatedBytes uint64 `json:"allocated_bytes"`
+	Allocations    uint64 `json:"allocations"`
+	PeakRSSBytes   uint64 `json:"peak_rss_bytes"`
 }
 
 type benchmarkIntGenISISE2EArtifacts struct {
@@ -136,6 +160,17 @@ type benchmarkIntGenISISE2EArtifacts struct {
 	NTRUPublic       string `json:"ntru_public"`
 	NTRUPrivate      string `json:"ntru_private"`
 	NTRUSignature    string `json:"ntru_signature"`
+}
+
+// benchmarkIntGenISISCanonicalSizes keeps the four non-interchangeable size
+// metrics explicit. It is emitted only by the strict target v3 path.
+type benchmarkIntGenISISCanonicalSizes struct {
+	CredentialStateBytes   int `json:"persistent_credential_state_bytes"`
+	IssuanceProofWireBytes int `json:"issuance_proof_wire_bytes"`
+	ShowingProofWireBytes  int `json:"showing_proof_wire_bytes"`
+	PresentationWireBytes  int `json:"presentation_wire_bytes"`
+	IssuancePaperBytes     int `json:"issuance_paper_transcript_bytes"`
+	ShowingPaperBytes      int `json:"showing_paper_transcript_bytes"`
 }
 
 type benchmarkIntGenISISE2EReport struct {
@@ -180,16 +215,27 @@ type benchmarkIntGenISISE2EReport struct {
 	ArtifactDir                string                                      `json:"artifact_dir"`
 	MaxNLeaves                 int                                         `json:"max_nleaves,omitempty"`
 	Options                    benchmarkIntGenISISE2EOptions               `json:"options"`
+	ExecutionProfile           string                                      `json:"execution_profile,omitempty"`
+	ExecutionPolicy            PIOP.ExecutionPolicy                        `json:"execution_policy"`
+	ContextMode                string                                      `json:"context_mode"`
+	ARM64SHA3Instructions      bool                                        `json:"arm64_sha3_instructions"`
+	PairedEntropySeedDigest    string                                      `json:"paired_entropy_seed_digest,omitempty"`
 	Environment                benchmarkIntGenISISE2EEnvironment           `json:"environment"`
 	Timings                    benchmarkIntGenISISE2ETimings               `json:"timings"`
+	Resources                  benchmarkIntGenISISE2EResources             `json:"resources"`
 	Issuance                   benchmarkIntGenISISMetrics                  `json:"issuance"`
 	Showing                    benchmarkIntGenISISMetrics                  `json:"showing"`
 	FullGame                   PIOP.FullGameSoundnessReport                `json:"full_game"`
+	FullGameAccountingStatus   string                                      `json:"full_game_accounting_status,omitempty"`
 	SecurityLedger             credential.SystemSecurityLedger             `json:"security_ledger"`
 	ParameterAudit             credential.IntGenISISSecurityParameterAudit `json:"parameter_audit"`
 	ValidPrefixCost            credential.ValidPrefixCostReport            `json:"valid_prefix_cost,omitempty"`
 	Artifacts                  benchmarkIntGenISISE2EArtifacts             `json:"artifacts"`
+	CanonicalSizes             *benchmarkIntGenISISCanonicalSizes          `json:"canonical_sizes,omitempty"`
 	ReplayRejected             bool                                        `json:"replay_rejected"`
+	TamperRejected             bool                                        `json:"tamper_rejected"`
+	ArtifactHashesVerified     bool                                        `json:"artifact_hashes_verified"`
+	ArtifactSHA256             map[string]string                           `json:"artifact_sha256"`
 	Notes                      []string                                    `json:"notes"`
 }
 
@@ -209,7 +255,7 @@ func defaultIntGenISISTuning() intGenISISTuning {
 	}
 }
 
-func benchmarkIntGenISISE2EEnvironmentSnapshot() benchmarkIntGenISISE2EEnvironment {
+func benchmarkIntGenISISE2EEnvironmentSnapshot() (benchmarkIntGenISISE2EEnvironment, error) {
 	env := benchmarkIntGenISISE2EEnvironment{
 		GoVersion:  runtime.Version(),
 		GOOS:       runtime.GOOS,
@@ -232,10 +278,164 @@ func benchmarkIntGenISISE2EEnvironmentSnapshot() benchmarkIntGenISISE2EEnvironme
 			}
 		}
 	}
-	return env
+	rootBytes, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return benchmarkIntGenISISE2EEnvironment{}, fmt.Errorf("resolve benchmark source tree: %w", err)
+	}
+	root := strings.TrimSpace(string(rootBytes))
+	if root == "" {
+		return benchmarkIntGenISISE2EEnvironment{}, fmt.Errorf("resolve benchmark source tree: empty Git root")
+	}
+	source, err := sourceintegrity.Compute(root)
+	if err != nil {
+		return benchmarkIntGenISISE2EEnvironment{}, fmt.Errorf("snapshot benchmark source tree: %w", err)
+	}
+	env.SourceTreeAlgorithm = source.Algorithm
+	env.SourceTreeDigest = source.Digest
+	env.SourceTreeFileCount = source.FileCount
+	gitOutput := func(args ...string) (string, error) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		out, runErr := cmd.Output()
+		return strings.TrimSpace(string(out)), runErr
+	}
+	// `go run` can omit VCS build settings for a dirty local module. Evidence
+	// still needs the base revision in addition to the exact production-source
+	// snapshot, so fill only missing fields from read-only Git plumbing.
+	if env.VCS == "" || env.Commit == "" || env.CommitTime == "" || env.Modified == nil {
+		if env.VCS == "" {
+			env.VCS = "git"
+		}
+		if env.Commit == "" {
+			env.Commit, _ = gitOutput("rev-parse", "HEAD")
+		}
+		if env.CommitTime == "" {
+			env.CommitTime, _ = gitOutput("show", "-s", "--format=%cI", "HEAD")
+		}
+		if env.Modified == nil {
+			status, statusErr := gitOutput("status", "--porcelain", "--untracked-files=normal")
+			if statusErr == nil {
+				modified := status != ""
+				env.Modified = &modified
+			}
+		}
+	}
+	if env.VCS == "" || env.Commit == "" || env.CommitTime == "" || env.Modified == nil {
+		return benchmarkIntGenISISE2EEnvironment{}, fmt.Errorf("benchmark source environment is incomplete")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return benchmarkIntGenISISE2EEnvironment{}, fmt.Errorf("resolve benchmark executable: %w", err)
+	}
+	executableBytes, err := os.ReadFile(executable)
+	if err != nil {
+		return benchmarkIntGenISISE2EEnvironment{}, fmt.Errorf("read benchmark executable: %w", err)
+	}
+	buildSum := sha256.Sum256(executableBytes)
+	env.BuildSHA256 = hex.EncodeToString(buildSum[:])
+	env.CPUModel, env.CPUFeatures = benchmarkCPUIdentity()
+	env.MachineDigest, err = benchmarkMachineDigest(env)
+	if err != nil {
+		return benchmarkIntGenISISE2EEnvironment{}, err
+	}
+	return env, nil
+}
+
+func benchmarkMachineDigest(env benchmarkIntGenISISE2EEnvironment) (string, error) {
+	machineBytes, err := json.Marshal(struct {
+		GoVersion, GOOS, GOARCH, CPUModel, CPUFeatures string
+		NumCPU, GOMAXPROCS                             int
+	}{env.GoVersion, env.GOOS, env.GOARCH, env.CPUModel, env.CPUFeatures, env.NumCPU, env.GOMAXPROCS})
+	if err != nil {
+		return "", err
+	}
+	machineSum := sha256.Sum256(machineBytes)
+	return hex.EncodeToString(machineSum[:]), nil
+}
+
+func benchmarkCPUIdentity() (string, string) {
+	readRawCommand := func(name string, args ...string) string {
+		out, err := exec.Command(name, args...).Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+	readCommand := func(name string, args ...string) string {
+		return strings.Join(strings.Fields(readRawCommand(name, args...)), " ")
+	}
+	if runtime.GOOS == "darwin" {
+		return benchmarkNormalizeDarwinCPUIdentity(
+			runtime.GOARCH,
+			readCommand("sysctl", "-n", "machdep.cpu.brand_string"),
+			readCommand("sysctl", "-n", "machdep.cpu.features"),
+			readCommand("sysctl", "-n", "machdep.cpu.leaf7_features"),
+			readRawCommand("sysctl", "-a"),
+		)
+	}
+	if runtime.GOOS == "linux" {
+		if data, err := os.ReadFile("/proc/cpuinfo"); err == nil {
+			model, features := "", ""
+			for _, line := range strings.Split(string(data), "\n") {
+				key, value, ok := strings.Cut(line, ":")
+				if !ok {
+					continue
+				}
+				switch strings.TrimSpace(key) {
+				case "model name", "Processor":
+					if model == "" {
+						model = strings.TrimSpace(value)
+					}
+				case "flags", "Features":
+					if features == "" {
+						features = strings.Join(strings.Fields(value), " ")
+					}
+				}
+			}
+			if model != "" || features != "" {
+				return model, features
+			}
+		}
+	}
+	return runtime.GOARCH, "isa=" + strings.ToLower(runtime.GOARCH)
+}
+
+func benchmarkNormalizeDarwinCPUIdentity(goarch, model, features, leaf7, optional string) (string, string) {
+	model = strings.Join(strings.Fields(model), " ")
+	goarch = strings.ToLower(strings.TrimSpace(goarch))
+	if goarch == "" {
+		goarch = "unknown"
+	}
+	if model == "" {
+		model = goarch
+	}
+	featureSet := map[string]struct{}{"isa=" + goarch: {}}
+	for _, raw := range append(strings.Fields(features), strings.Fields(leaf7)...) {
+		if token := strings.ToLower(strings.TrimSpace(raw)); token != "" {
+			featureSet["machdep."+token] = struct{}{}
+		}
+	}
+	for _, line := range strings.Split(optional, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		key = strings.ToLower(strings.TrimSpace(key))
+		if !ok || !strings.HasPrefix(key, "hw.optional.") || strings.TrimSpace(value) != "1" {
+			continue
+		}
+		featureSet[key] = struct{}{}
+	}
+	normalized := make([]string, 0, len(featureSet))
+	for feature := range featureSet {
+		normalized = append(normalized, feature)
+	}
+	sort.Strings(normalized)
+	return model, strings.Join(normalized, " ")
 }
 
 func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) intGenISISTuning {
+	strictCanonical := t.TranscriptMode == credential.IntGenISISTranscriptProtocolV3 || t.TranscriptMode == credential.IntGenISISTranscriptProtocolV4
+	if t.PresetID == "" {
+		t.PresetID = fallback.PresetID
+	}
 	if t.NCols <= 0 {
 		t.NCols = fallback.NCols
 	}
@@ -274,6 +474,10 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		t.ROQueryCapBits = fallback.ROQueryCapBits
 		t.ROQueryCapBitsSet = true
 	}
+	if !t.AggregateROQueryCapLog2Set && fallback.AggregateROQueryCapLog2Set {
+		t.AggregateROQueryCapLog2 = fallback.AggregateROQueryCapLog2
+		t.AggregateROQueryCapLog2Set = true
+	}
 	if t.DECSCollisionBits <= 0 {
 		t.DECSCollisionBits = fallback.DECSCollisionBits
 	}
@@ -286,6 +490,9 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 	if t.FSCollisionBits <= 0 {
 		t.FSCollisionBits = fallback.FSCollisionBits
 	}
+	if t.FSOutputBits <= 0 {
+		t.FSOutputBits = fallback.FSOutputBits
+	}
 	if t.SaltBits <= 0 {
 		t.SaltBits = fallback.SaltBits
 	}
@@ -296,18 +503,20 @@ func normalizeIntGenISISTuning(t, fallback intGenISISTuning, includePRF bool) in
 		t.PRFProfile = fallback.PRFProfile
 	}
 	if includePRF {
-		if t.PRFCompanionMode == "" {
-			t.PRFCompanionMode = fallback.PRFCompanionMode
-		}
-		if t.PRFGroupRounds <= 0 {
-			if fallback.PRFGroupRounds > 0 {
-				t.PRFGroupRounds = fallback.PRFGroupRounds
-			} else {
-				t.PRFGroupRounds = defaultIntGenISISTuning().PRFGroupRounds
+		if !strictCanonical {
+			if t.PRFCompanionMode == "" {
+				t.PRFCompanionMode = fallback.PRFCompanionMode
 			}
-		}
-		if t.CheckpointSamples <= 0 {
-			t.CheckpointSamples = fallback.CheckpointSamples
+			if t.PRFGroupRounds <= 0 {
+				if fallback.PRFGroupRounds > 0 {
+					t.PRFGroupRounds = fallback.PRFGroupRounds
+				} else {
+					t.PRFGroupRounds = defaultIntGenISISTuning().PRFGroupRounds
+				}
+			}
+			if t.CheckpointSamples <= 0 {
+				t.CheckpointSamples = fallback.CheckpointSamples
+			}
 		}
 		if t.SigShortnessRadix <= 0 {
 			t.SigShortnessRadix = fallback.SigShortnessRadix
@@ -371,29 +580,34 @@ func validateIntGenISISLeafCap(label string, t intGenISISTuning, maxNLeaves int)
 
 func intGenISISTuningToIssuanceOverrides(t intGenISISTuning, ringDegree int) issuanceRuntimeOverrides {
 	return issuanceRuntimeOverrides{
-		NCols:                  t.NCols,
-		LVCSNCols:              t.LVCSNCols,
-		NLeaves:                t.NLeaves,
-		Ell:                    t.Ell,
-		EllPrime:               t.EllPrime,
-		Eta:                    t.Eta,
-		Theta:                  t.Theta,
-		Rho:                    t.Rho,
-		DQOverride:             t.DQOverride,
-		Kappa:                  t.Kappa,
-		ROQueryCaps:            t.ROQueryCaps,
-		ROQueryCapsSet:         t.ROQueryCapsSet,
-		ROQueryCapBits:         t.ROQueryCapBits,
-		ROQueryCapBitsSet:      t.ROQueryCapBitsSet,
-		DECSCollisionBits:      t.DECSCollisionBits,
-		DECSHashBits:           t.DECSHashBits,
-		DECSTapeBits:           t.DECSTapeBits,
-		FSCollisionBits:        t.FSCollisionBits,
-		SaltBits:               t.SaltBits,
-		TranscriptMode:         t.TranscriptMode,
-		TranscriptOmissionMode: t.TranscriptOmissionMode,
-		FixedTranscriptSize:    t.FixedTranscriptSize,
-		RingDegree:             ringDegree,
+		NCols:                      t.NCols,
+		LVCSNCols:                  t.LVCSNCols,
+		NLeaves:                    t.NLeaves,
+		Ell:                        t.Ell,
+		EllPrime:                   t.EllPrime,
+		Eta:                        t.Eta,
+		Theta:                      t.Theta,
+		Rho:                        t.Rho,
+		DQOverride:                 t.DQOverride,
+		Kappa:                      t.Kappa,
+		ROQueryCaps:                t.ROQueryCaps,
+		ROQueryCapsSet:             t.ROQueryCapsSet,
+		ROQueryCapBits:             t.ROQueryCapBits,
+		ROQueryCapBitsSet:          t.ROQueryCapBitsSet,
+		AggregateROQueryCapLog2:    t.AggregateROQueryCapLog2,
+		AggregateROQueryCapLog2Set: t.AggregateROQueryCapLog2Set,
+		DECSCollisionBits:          t.DECSCollisionBits,
+		DECSHashBits:               t.DECSHashBits,
+		DECSTapeBits:               t.DECSTapeBits,
+		FSCollisionBits:            t.FSCollisionBits,
+		FSOutputBits:               t.FSOutputBits,
+		PresetID:                   t.PresetID,
+		SaltBits:                   t.SaltBits,
+		CompressedRows:             t.CompressedRows,
+		TranscriptMode:             t.TranscriptMode,
+		TranscriptOmissionMode:     t.TranscriptOmissionMode,
+		FixedTranscriptSize:        t.FixedTranscriptSize,
+		RingDegree:                 ringDegree,
 	}
 }
 
@@ -422,10 +636,14 @@ func intGenISISTuningToShowingOpts(ringDegree int, t intGenISISTuning) PIOP.SimO
 		ROQueryCapsSet:             t.ROQueryCapsSet,
 		ROQueryCapBits:             t.ROQueryCapBits,
 		ROQueryCapBitsSet:          t.ROQueryCapBitsSet,
+		AggregateROQueryCapLog2:    t.AggregateROQueryCapLog2,
+		AggregateROQueryCapLog2Set: t.AggregateROQueryCapLog2Set,
 		DECSCollisionBits:          t.DECSCollisionBits,
 		DECSHashBits:               t.DECSHashBits,
 		DECSTapeBits:               t.DECSTapeBits,
 		FSCollisionBits:            t.FSCollisionBits,
+		FSOutputBits:               t.FSOutputBits,
+		PresetID:                   t.PresetID,
 		SaltBits:                   t.SaltBits,
 		PRFParamsPath:              t.PRFParamsPath,
 		DomainMode:                 PIOP.DomainModeExplicit,
@@ -479,6 +697,8 @@ func intGenISISLiveTranscriptVersionOrDefault(mode string) string {
 }
 
 func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenISISE2EReport, error) {
+	var memoryBefore runtime.MemStats
+	runtime.ReadMemStats(&memoryBefore)
 	if preset, ok := credential.LookupIntGenISISPreset(cfg.PresetName); ok {
 		if cfg.PRFProfile != "" && cfg.PRFProfile != preset.PRFProfile {
 			return benchmarkIntGenISISE2EReport{}, fmt.Errorf("PRF profile %q does not match bound preset profile %q", cfg.PRFProfile, preset.PRFProfile)
@@ -549,10 +769,8 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	if _, err := credential.ResolveIntGenISISTranscriptOmission(cfg.Showing.TranscriptOmissionMode); err != nil {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("showing transcript omission mode: %w", err)
 	}
-	switch cfg.Showing.PRFCompanionMode {
-	case PIOP.PRFCompanionModeDirectFull:
-	default:
-		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("unsupported prf companion mode %q", cfg.Showing.PRFCompanionMode)
+	if err := validateBenchmarkPRFRelationMetadata(cfg.Showing); err != nil {
+		return benchmarkIntGenISISE2EReport{}, err
 	}
 	if cfg.KeygenTrials <= 0 {
 		cfg.KeygenTrials = 10000
@@ -569,12 +787,19 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		if !ok {
 			return benchmarkIntGenISISE2EReport{}, fmt.Errorf("benchmark output requires a canonical v2 preset")
 		}
-		artifactDir = intGenISISV2ArtifactDir(preset)
+		artifactDir = intGenISISArtifactDir(preset)
 	}
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("mkdir artifact dir: %w", err)
 	}
 
+	stateName := "credential_state.intgenisis.json"
+	presentationName := "presentation.intgenisis.json"
+	if selected, ok := credential.LookupIntGenISISPreset(cfg.PresetName); ok &&
+		(selected.PresetVersion == credential.IntGenISISPresetManifestVersionV3 || selected.PresetVersion == credential.IntGenISISPresetManifestVersionV4) {
+		stateName = "credential_state.intgenisis.v8"
+		presentationName = "presentation.intgenisis.v3"
+	}
 	paths := benchmarkIntGenISISE2EArtifacts{
 		PublicParams:     filepath.Join(artifactDir, fmt.Sprintf("credential_public.%s.json", profile.Name)),
 		BMatrix:          filepath.Join(artifactDir, fmt.Sprintf("Bmatrix.%s.json", profile.Name)),
@@ -582,9 +807,9 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		CommitRequest:    filepath.Join(artifactDir, "commit_request.json"),
 		Submission:       filepath.Join(artifactDir, "presign_submission.json"),
 		Response:         filepath.Join(artifactDir, "issue_response.json"),
-		State:            filepath.Join(artifactDir, "credential_state.intgenisis.json"),
+		State:            filepath.Join(artifactDir, stateName),
 		VerifierKey:      filepath.Join(artifactDir, "intgenisis_verifier_key.json"),
-		Presentation:     filepath.Join(artifactDir, "presentation.intgenisis.json"),
+		Presentation:     filepath.Join(artifactDir, presentationName),
 		HolderUsageState: filepath.Join(artifactDir, "holder_usage_state.json"),
 		VerifierState:    filepath.Join(artifactDir, "verifier_state.json"),
 		NTRUParams:       filepath.Join(artifactDir, "ntru_params.json"),
@@ -624,14 +849,22 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	}
 	timings.HolderCommitMS = millisSince(t0)
 
+	issuancePhases := PIOP.NewPhaseRecorder()
 	t0 = time.Now()
-	if err := holderProve(paths.HolderSecret, "", paths.Submission); err != nil {
-		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("holder prove: %w", err)
+	var holderProveErr error
+	var issuancePrepared *PIOP.PreparedExecutionContext
+	if cfg.ContextMode == "warm" {
+		holderProveErr = holderProveWithPreparedContext(paths.HolderSecret, "", paths.Submission, issuancePhases, cfg.ExecutionPolicy, &issuancePrepared)
+	} else {
+		holderProveErr = holderProveWithPhaseRecorder(paths.HolderSecret, "", paths.Submission, issuancePhases, cfg.ExecutionPolicy)
+	}
+	if holderProveErr != nil {
+		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("holder prove: %w", holderProveErr)
 	}
 	holderProveDur := time.Since(t0)
 	timings.HolderProveMS = durationMS(holderProveDur)
 
-	issuanceMetrics, err := benchmarkIntGenISISE2EPreSignMetrics(paths.HolderSecret, paths.CommitRequest, paths.Submission, holderProveDur)
+	issuanceMetrics, err := benchmarkIntGenISISE2EPreSignMetrics(paths.HolderSecret, paths.CommitRequest, paths.Submission, holderProveDur, issuancePhases, issuancePrepared)
 	if err != nil {
 		return benchmarkIntGenISISE2EReport{}, err
 	}
@@ -659,11 +892,69 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 	}
 	fullGame := PIOP.ComposeFullGameSoundness(issuanceMetrics.Soundness, showingMetrics.Soundness, acceptedIssuance, acceptedShowing)
 	ledger := benchmarkIntGenISISE2ESecurityLedger(cfg, profile, issuanceMetrics, showingMetrics, fullGame, replayRejected)
+	fullGameAccountingStatus := "historical_v2_model"
+	if cfg.PresetVersion == credential.IntGenISISPresetManifestVersionV3 {
+		// The v3 claim is intentionally per-proof only. Do not turn the two
+		// measured proofs into a credential-game claim until the deferred
+		// extraction/composition accounting has been completed.
+		fullGame = PIOP.FullGameSoundnessReport{}
+		fullGameAccountingStatus = "deferred_proof_only"
+		ledger.CompleteSystemClaim = false
+		ledger.FullGameBits = 0
+		ledger.LedgerStatus = string(credential.SecurityProfileProofOnly)
+		ledger.RejectionReasons = append(ledger.RejectionReasons, "full-game credential accounting is deliberately deferred for strict v3 targets")
+		filtered := ledger.Terms[:0]
+		for _, term := range ledger.Terms {
+			if term.Name != "full_game" {
+				filtered = append(filtered, term)
+			}
+		}
+		ledger.Terms = filtered
+	} else if cfg.PresetVersion == credential.IntGenISISPresetManifestVersionV4 {
+		fullGameAccountingStatus = "aggregate_composed_game_v4"
+		fullGame = benchmarkFiniteFullGameReport(fullGame)
+	}
 	issuanceMetrics.ValidPrefixCost = benchmarkValidPrefixCostReportFromBudget(ledger.ROBudgetLogs, issuanceMetrics.PhaseTimings, [4]float64{}, false)
 	showingMetrics.ValidPrefixCost = benchmarkValidPrefixCostReportFromBudget(ledger.ROBudgetLogs, showingMetrics.PhaseTimings, [4]float64{}, false)
 	requiredPhaseAlgebraicBits := benchmarkRequiredPhaseAlgebraicBits(ledger.TargetBits, fullGame)
-	phaseAlgebraicSlackBits := minPositiveFloat64Local(issuanceMetrics.AlgebraicTotalBits, showingMetrics.AlgebraicTotalBits) - requiredPhaseAlgebraicBits
+	if cfg.PresetVersion == credential.IntGenISISPresetManifestVersionV3 || cfg.PresetVersion == credential.IntGenISISPresetManifestVersionV4 {
+		requiredPhaseAlgebraicBits = ledger.TargetBits
+	}
+	phaseAlgebraicSlackBits := minPositiveFloat64Local(benchmarkPhaseAlgebraicBits(issuanceMetrics), benchmarkPhaseAlgebraicBits(showingMetrics)) - requiredPhaseAlgebraicBits
+	var canonicalSizes *benchmarkIntGenISISCanonicalSizes
+	if cfg.PresetVersion == credential.IntGenISISPresetManifestVersionV3 || cfg.PresetVersion == credential.IntGenISISPresetManifestVersionV4 {
+		stateInfo, statErr := os.Stat(paths.State)
+		if statErr != nil {
+			return benchmarkIntGenISISE2EReport{}, fmt.Errorf("stat canonical credential state: %w", statErr)
+		}
+		presentationInfo, statErr := os.Stat(paths.Presentation)
+		if statErr != nil {
+			return benchmarkIntGenISISE2EReport{}, fmt.Errorf("stat canonical presentation: %w", statErr)
+		}
+		canonicalSizes = &benchmarkIntGenISISCanonicalSizes{
+			CredentialStateBytes:   int(stateInfo.Size()),
+			IssuanceProofWireBytes: issuanceMetrics.CanonicalProofWireBytes,
+			ShowingProofWireBytes:  showingMetrics.CanonicalProofWireBytes,
+			PresentationWireBytes:  int(presentationInfo.Size()),
+			IssuancePaperBytes:     issuanceMetrics.PaperTranscriptBytes,
+			ShowingPaperBytes:      showingMetrics.PaperTranscriptBytes,
+		}
+	}
+	tamperRejected := issuanceMetrics.CanonicalTamperRejected && showingMetrics.CanonicalTamperRejected
+	if cfg.PresetVersion == credential.IntGenISISPresetManifestVersionV4 && !tamperRejected {
+		return benchmarkIntGenISISE2EReport{}, fmt.Errorf("publication-v4 canonical tamper test was not rejected in both phases")
+	}
+	artifactSHA256, err := benchmarkIntGenISISE2EArtifactHashes(paths)
+	if err != nil {
+		return benchmarkIntGenISISE2EReport{}, err
+	}
 
+	environment, err := benchmarkIntGenISISE2EEnvironmentSnapshot()
+	if err != nil {
+		return benchmarkIntGenISISE2EReport{}, err
+	}
+	var memoryAfter runtime.MemStats
+	runtime.ReadMemStats(&memoryAfter)
 	report := benchmarkIntGenISISE2EReport{
 		Version:                    benchmarkIntGenISISE2EVersion,
 		Generated:                  time.Now().UTC().Format(time.RFC3339),
@@ -706,16 +997,30 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		ArtifactDir:                artifactDir,
 		MaxNLeaves:                 cfg.MaxNLeaves,
 		Options:                    benchmarkIntGenISISE2EReportOptions(cfg),
-		Environment:                benchmarkIntGenISISE2EEnvironmentSnapshot(),
+		ExecutionProfile:           cfg.ExecutionProfile,
+		ExecutionPolicy:            cfg.ExecutionPolicy,
+		ContextMode:                cfg.ContextMode,
+		ARM64SHA3Instructions:      PIOP.ARM64CPUHasSHA3Instructions(),
+		PairedEntropySeedDigest:    internalTargetedEntropyDigest(),
+		Environment:                environment,
 		Timings:                    timings,
-		Issuance:                   issuanceMetrics,
-		Showing:                    showingMetrics,
-		FullGame:                   fullGame,
-		SecurityLedger:             ledger,
-		ParameterAudit:             ledger.ParameterAudit,
-		ValidPrefixCost:            showingMetrics.ValidPrefixCost,
-		Artifacts:                  paths,
-		ReplayRejected:             replayRejected,
+		Resources: benchmarkIntGenISISE2EResources{
+			AllocatedBytes: memoryAfter.TotalAlloc - memoryBefore.TotalAlloc,
+			Allocations:    memoryAfter.Mallocs - memoryBefore.Mallocs,
+		},
+		Issuance:                 issuanceMetrics,
+		Showing:                  showingMetrics,
+		FullGame:                 fullGame,
+		FullGameAccountingStatus: fullGameAccountingStatus,
+		SecurityLedger:           ledger,
+		ParameterAudit:           ledger.ParameterAudit,
+		ValidPrefixCost:          showingMetrics.ValidPrefixCost,
+		Artifacts:                paths,
+		CanonicalSizes:           canonicalSizes,
+		ReplayRejected:           replayRejected,
+		TamperRejected:           tamperRejected,
+		ArtifactHashesVerified:   len(artifactSHA256) == 15,
+		ArtifactSHA256:           artifactSHA256,
 		Notes: []string{
 			fmt.Sprintf("semantic layout uses ternary ordinary coefficients [0,N-%d), a reserved-zero tail prefix, and a %d-coefficient B=%d PRF seed packed into %d Poseidon key lanes", credential.IntGenISISPRFSeedTailReserve, credential.IntGenISISPRFSeedLen, credential.IntGenISISPRFSeedBound, credential.IntGenISISPRFPoseidonKeyLen),
 			fmt.Sprintf("live IntGenISIS ordinary M,s,e membership uses public B=%d; only PRF seed-tail rows use B=%d membership", credential.IntGenISISLiveBound, credential.IntGenISISPRFSeedBound),
@@ -730,6 +1035,54 @@ func benchmarkIntGenISISE2E(cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenIS
 		log.Printf("[issuance-cli] benchmark-intgenisis-e2e wrote %s", cfg.JSONOut)
 	}
 	return report, nil
+}
+
+func benchmarkFiniteFullGameReport(report PIOP.FullGameSoundnessReport) PIOP.FullGameSoundnessReport {
+	for _, vector := range []*[5]float64{&report.IssuanceQueryCapBits, &report.ShowingQueryCapBits, &report.GlobalQueryCapBits} {
+		for i, bits := range vector {
+			if math.IsInf(bits, 0) || math.IsNaN(bits) {
+				vector[i] = -1 // finite, existing non-applicable query-cap sentinel
+			}
+		}
+	}
+	return report
+}
+
+func benchmarkIntGenISISE2EArtifactHashes(paths benchmarkIntGenISISE2EArtifacts) (map[string]string, error) {
+	artifacts := map[string]string{
+		"public_params": paths.PublicParams, "b_matrix": paths.BMatrix, "holder_secret": paths.HolderSecret,
+		"commit_request": paths.CommitRequest, "presign_submission": paths.Submission, "issue_response": paths.Response,
+		"state": paths.State, "verifier_key": paths.VerifierKey, "presentation": paths.Presentation,
+		"holder_usage_state": paths.HolderUsageState, "verifier_state": paths.VerifierState,
+		"ntru_params": paths.NTRUParams, "ntru_public": paths.NTRUPublic, "ntru_private": paths.NTRUPrivate,
+		"ntru_signature": paths.NTRUSignature,
+	}
+	out := make(map[string]string, len(artifacts))
+	for role, path := range artifacts {
+		if strings.TrimSpace(path) == "" {
+			return nil, fmt.Errorf("artifact role %s has no path", role)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("hash artifact %s (%s): %w", role, path, err)
+		}
+		sum := sha256.Sum256(data)
+		out[role] = hex.EncodeToString(sum[:])
+	}
+	return out, nil
+}
+
+func validateBenchmarkPRFRelationMetadata(showing intGenISISTuning) error {
+	if showing.TranscriptMode == credential.IntGenISISTranscriptProtocolV3 || showing.TranscriptMode == credential.IntGenISISTranscriptProtocolV4 {
+		if showing.PRFCompanionMode != "" || showing.PRFGroupRounds != 0 || showing.CheckpointSamples != 0 {
+			return fmt.Errorf("strict canonical input-trace relation rejects retired PRF companion metadata mode=%q group_rounds=%d checkpoints=%d", showing.PRFCompanionMode, showing.PRFGroupRounds, showing.CheckpointSamples)
+		}
+		return nil
+	}
+	if showing.PRFCompanionMode != PIOP.PRFCompanionModeDirectFull {
+		return fmt.Errorf("unsupported prf companion mode %q", showing.PRFCompanionMode)
+	}
+	return nil
 }
 
 func benchmarkIntGenISISE2EReportOptions(cfg benchmarkIntGenISISE2EConfig) benchmarkIntGenISISE2EOptions {
@@ -806,6 +1159,9 @@ func benchmarkIntGenISISE2ESecurityLedger(
 		globalCollisionBits = phaseCollisionBits
 	}
 	proofBits := minPositiveFloat64Local(issuanceMetrics.TheoremTotalBits, showingMetrics.TheoremTotalBits)
+	if fullGame.AccountingMode == PIOP.FullGameAccountingWorkFactorV4 {
+		proofBits = fullGame.WorkFactorBits
+	}
 	fullGameBits := fullGame.GlobalCollisionFullGameBits
 	if fullGameBits <= 0 {
 		fullGameBits = minPositiveFloat64Local(proofBits, globalCollisionBits)
@@ -859,6 +1215,7 @@ func benchmarkIntGenISISE2ESecurityLedger(
 			"transcript_mode":   credential.SecurityEvidenceMeasured,
 		},
 	}
+	benchmarkPopulatePublicationV4AuditActuals(cfg, issuanceMetrics, showingMetrics, &actual)
 	if !queryCapsKnown {
 		delete(actual.Evidence, "ro_query_cap_log2")
 	}
@@ -896,6 +1253,14 @@ func benchmarkIntGenISISE2ESecurityLedger(
 	if multiContextRequired {
 		multiContextNote = "multi-context lift is active for this resource scope and remains conservative until theorem/accounting is finalized"
 	}
+	issuanceAlgebraicEvidence := "benchmark.issuance.algebraic_total_bits"
+	showingAlgebraicEvidence := "benchmark.showing.algebraic_total_bits"
+	if issuanceMetrics.WorkFactorMode {
+		issuanceAlgebraicEvidence = "benchmark.issuance.native_algebraic_bits"
+	}
+	if showingMetrics.WorkFactorMode {
+		showingAlgebraicEvidence = "benchmark.showing.native_algebraic_bits"
+	}
 	return credential.EvaluateIntGenISISSystemSecurityLedger(credential.SystemSecurityLedgerInput{
 		SecurityProfile:     cfg.SecurityProfile,
 		SecurityMode:        cfg.SecurityMode,
@@ -927,8 +1292,8 @@ func benchmarkIntGenISISE2ESecurityLedger(
 		ParameterAudit:      parameterAudit,
 		Terms: []credential.SystemSecurityLedgerTerm{
 			credential.LedgerTermWithEvidence(credential.ReportOnlyLedgerTerm(credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "proof_theorem", proofBits, true, "proof theorem bits below target")), "benchmark.full_game.proof_theorem", "issuance+showing"),
-			credential.LedgerTermWithEvidence(credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "issuance_smallwood_extraction", issuanceMetrics.AlgebraicTotalBits, true, "issuance SmallWood extraction bits below target"), "benchmark.issuance.algebraic_total_bits", "issuance"),
-			credential.LedgerTermWithEvidence(credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "showing_smallwood_extraction", showingMetrics.AlgebraicTotalBits, true, "showing SmallWood extraction bits below target"), "benchmark.showing.algebraic_total_bits", "showing"),
+			credential.LedgerTermWithEvidence(credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "issuance_smallwood_extraction", benchmarkPhaseAlgebraicBits(issuanceMetrics), true, "issuance SmallWood extraction bits below target"), issuanceAlgebraicEvidence, "issuance"),
+			credential.LedgerTermWithEvidence(credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "showing_smallwood_extraction", benchmarkPhaseAlgebraicBits(showingMetrics), true, "showing SmallWood extraction bits below target"), showingAlgebraicEvidence, "showing"),
 			credential.LedgerTermWithEvidence(credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "ro_collision", globalCollisionBits, true, "global RO/Merkle collision bits below target"), "benchmark.full_game.global_collision_bits", "issuance+showing"),
 			credential.LedgerTermWithEvidence(credential.LedgerTermWithNote(credential.ReportOnlyLedgerTerm(credential.ExactLedgerTerm(credential.SystemLedgerTermSoundness, "full_game", fullGameBits, true, "full-game bits below target")), fullGameNote), "benchmark.full_game.global_collision_full_game_bits", "issuance+showing"),
 			credential.LedgerTermWithEvidence(credential.ConservativeLedgerTerm(credential.SystemLedgerTermSoundness, "challenge_bias", challengeBiasBits, true, "challenge-bias bits below target"), "executed.fs_collision_bits", "all Fiat-Shamir challenges"),
@@ -1068,6 +1433,39 @@ func minPositiveFloat64Local(vals ...float64) float64 {
 	return out
 }
 
+func benchmarkPopulatePublicationV4AuditActuals(cfg benchmarkIntGenISISE2EConfig, issuance, showing benchmarkIntGenISISMetrics, actual *credential.IntGenISISSecurityParameterActuals) {
+	if actual == nil || cfg.PresetVersion != credential.IntGenISISPresetManifestVersionV4 {
+		return
+	}
+	if actual.Evidence == nil {
+		actual.Evidence = make(map[string]string)
+	}
+	actual.ROQueryCapScope = cfg.ThreatModel.ROQueryCapScope
+	if actual.ROQueryCapScope != "" {
+		actual.Evidence["ro_query_cap_scope"] = credential.SecurityEvidenceExecutedPreset
+	}
+	actual.FSOutputBits = minPositiveIntLocal(issuance.FSOutputBits, showing.FSOutputBits)
+	if actual.FSOutputBits > 0 {
+		actual.Evidence["fs_output_bits"] = credential.SecurityEvidenceMeasured
+	}
+	if issuance.AggregateQueryBudget && showing.AggregateQueryBudget &&
+		issuance.AggregateQueryCapLog2 > 0 &&
+		math.Abs(issuance.AggregateQueryCapLog2-showing.AggregateQueryCapLog2) <= 1e-9 &&
+		cfg.ThreatModel.AggregateROQueryCapLog2Set &&
+		math.Abs(issuance.AggregateQueryCapLog2-cfg.ThreatModel.AggregateROQueryCapLog2) <= 1e-9 {
+		actual.AggregateROQueryCapLog2Set = true
+		actual.AggregateROQueryCapLog2 = issuance.AggregateQueryCapLog2
+		actual.Evidence["aggregate_ro_query_cap_log2"] = credential.SecurityEvidenceMeasured
+	}
+}
+
+func benchmarkPhaseAlgebraicBits(metrics benchmarkIntGenISISMetrics) float64 {
+	if !metrics.WorkFactorMode {
+		return metrics.AlgebraicTotalBits
+	}
+	return minPositiveFloat64Local(metrics.NativeAlgebraicBits[:]...)
+}
+
 func minPositiveIntLocal(vals ...int) int {
 	out := 0
 	for _, v := range vals {
@@ -1081,7 +1479,7 @@ func minPositiveIntLocal(vals ...int) int {
 	return out
 }
 
-func benchmarkIntGenISISE2EPreSignMetrics(holderSecretPath, commitRequestPath, submissionPath string, proveDur time.Duration) (benchmarkIntGenISISMetrics, error) {
+func benchmarkIntGenISISE2EPreSignMetrics(holderSecretPath, commitRequestPath, submissionPath string, proveDur time.Duration, phase *PIOP.PhaseRecorder, prepared ...*PIOP.PreparedExecutionContext) (benchmarkIntGenISISMetrics, error) {
 	var secret holderSecretFile
 	if err := readJSONFile(holderSecretPath, &secret); err != nil {
 		return benchmarkIntGenISISMetrics{}, fmt.Errorf("read holder secret for metrics: %w", err)
@@ -1094,14 +1492,20 @@ func benchmarkIntGenISISE2EPreSignMetrics(holderSecretPath, commitRequestPath, s
 	if err := readJSONFile(submissionPath, &sub); err != nil {
 		return benchmarkIntGenISISMetrics{}, fmt.Errorf("read pre-sign submission for metrics: %w", err)
 	}
-	if sub.Proof == nil {
-		return benchmarkIntGenISISMetrics{}, fmt.Errorf("pre-sign submission missing proof")
+	if sub.Version != secret.Version || sub.Version != req.Version {
+		return benchmarkIntGenISISMetrics{}, fmt.Errorf("pre-sign artifact schemas disagree: holder=%d request=%d submission=%d", secret.Version, req.Version, sub.Version)
+	}
+	if sub.CredentialPublicPath != secret.CredentialPublicPath || sub.CredentialPublicPath != req.CredentialPublicPath {
+		return benchmarkIntGenISISMetrics{}, fmt.Errorf("pre-sign artifact public-parameter paths disagree")
 	}
 	rt, err := loadIssuanceRuntime(secret.CredentialPublicPath, secret.PRFParamsPath, persistedIssuanceRuntimeOverridesWithSmallWood(secret.PackedNCols, secret.LVCSNCols, secret.NLeaves, secret.Omega, secret.SmallWood))
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, err
 	}
-	rt.opts.PhaseRecorder = PIOP.NewPhaseRecorder()
+	if phase == nil {
+		phase = PIOP.NewPhaseRecorder()
+	}
+	rt.opts.PhaseRecorder = phase
 	cm, as, err := intGenISISCommitmentMatricesNTT(rt.ringQ, rt.public)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, err
@@ -1118,27 +1522,51 @@ func benchmarkIntGenISISE2EPreSignMetrics(holderSecretPath, commitRequestPath, s
 		IntGenISIS:     true,
 		Extras:         rt.public.PresetTranscriptExtras(nil),
 	}
+	proof, err := preSignSubmissionProof(sub, pub, rt.opts, prepared...)
+	if err != nil {
+		return benchmarkIntGenISISMetrics{}, fmt.Errorf("reconstruct pre-sign proof for metrics: %w", err)
+	}
 	verifyStart := time.Now()
-	ok, err := PIOP.VerifyIntGenISISPreSign(pub, sub.Proof, rt.opts)
+	ok, err := PIOP.VerifyIntGenISISPreSign(pub, proof, rt.opts)
 	verifyDur := time.Since(verifyStart)
 	rt.opts.PhaseRecorder.RecordDuration("issuance.verify_total", verifyDur)
 	if err != nil || !ok {
 		return benchmarkIntGenISISMetrics{}, fmt.Errorf("verify e2e pre-sign proof for metrics: ok=%v err=%v", ok, err)
 	}
 	reportStart := time.Now()
-	rep, err := PIOP.BuildProofReport(sub.Proof, rt.opts, rt.ringQ)
+	rep, err := PIOP.BuildProofReport(proof, rt.opts, rt.ringQ)
 	rt.opts.PhaseRecorder.RecordDuration("issuance.report", time.Since(reportStart))
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, fmt.Errorf("pre-sign proof report: %w", err)
 	}
-	return intGenISISMetricsFromProof(sub.Proof, rep, pub, rt.opts, proveDur, verifyDur, "e2e_presign"), nil
+	metrics := intGenISISMetricsFromProof(proof, rep, pub, rt.opts, proveDur, verifyDur, "e2e_presign")
+	if len(prepared) == 1 && prepared[0] != nil {
+		metrics.PreparedContextDigest = prepared[0].BindingDigest()
+	}
+	if sub.Version == issuanceArtifactVersionV4 {
+		// For v3 this is the actual canonical proof wire length, not the
+		// historical modeled verifier-message estimate.
+		metrics.ProofSizeBytes = len(sub.CanonicalProof)
+		metrics.CanonicalProofWireBytes = len(sub.CanonicalProof)
+		audit, auditErr := PIOP.BuildCanonicalProofWireAuditV6(proof, PIOP.CanonicalProofContext{Kind: PIOP.PreSign, Public: pub, Options: rt.opts})
+		if auditErr != nil {
+			return benchmarkIntGenISISMetrics{}, fmt.Errorf("audit canonical pre-sign wire: %w", auditErr)
+		}
+		if err := attachCanonicalProofIdentity(&metrics, "presign", audit); err != nil {
+			return benchmarkIntGenISISMetrics{}, fmt.Errorf("record canonical pre-sign identity: %w", err)
+		}
+		metrics.CanonicalTamperRejected = benchmarkCanonicalTamperRejected(
+			sub.CanonicalProof,
+			PIOP.CanonicalProofContext{Kind: PIOP.PreSign, Public: pub, Options: rt.opts},
+			func(candidate *PIOP.Proof) (bool, error) {
+				return PIOP.VerifyIntGenISISPreSign(pub, candidate, rt.opts)
+			},
+		)
+	}
+	return metrics, nil
 }
 
 func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg benchmarkIntGenISISE2EConfig) (benchmarkIntGenISISMetrics, bool, error) {
-	st, err := credential.LoadIntGenISISState(paths.State)
-	if err != nil {
-		return benchmarkIntGenISISMetrics{}, false, err
-	}
 	publicParams, err := credential.LoadPublicParams(paths.PublicParams)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("load IntGenISIS public params: %w", err)
@@ -1146,6 +1574,22 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	verifierKey, err := credential.LoadIntGenISISVerifierKey(paths.VerifierKey)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, err
+	}
+	var st credential.IntGenISISState
+	if publicParams.PresetVersion == credential.IntGenISISPresetManifestVersionV3 || publicParams.PresetVersion == credential.IntGenISISPresetManifestVersionV4 {
+		st, err = credential.LoadIntGenISISStateV8(paths.State, credential.IntGenISISStateCodecContext{
+			Public:           publicParams,
+			VerifierKey:      verifierKey,
+			PublicParamsPath: paths.PublicParams,
+		})
+		if err != nil {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("load canonical IntGenISIS state-v8: %w", err)
+		}
+	} else {
+		st, err = credential.LoadIntGenISISState(paths.State)
+		if err != nil {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("load legacy IntGenISIS state: %w", err)
+		}
 	}
 	if preset, ok := credential.LookupIntGenISISPreset(cfg.PresetName); ok {
 		if err := st.ValidateIntGenISISPreset(publicParams, preset); err != nil {
@@ -1174,6 +1618,7 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 		opts.PRFParamsPath = st.PRFParamsPath
 	}
 	opts.PhaseRecorder = PIOP.NewPhaseRecorder()
+	opts.ExecutionPolicy = cfg.ExecutionPolicy
 	if opts.NCols < params.LenKey {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("ncols=%d is too small for PRF key width %d", opts.NCols, params.LenKey)
 	}
@@ -1221,15 +1666,28 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("digest IntGenISIS verifier key: %w", err)
 	}
-	contextBinding, err := credential.DerivePresentationContext([]byte("ARC-SPRUCE benchmark context v2"), params.Q, publicParams.PresetManifestDigest, publicParamsDigest, verifierKeyDigest)
+	isCanonical := publicParams.PresetVersion == credential.IntGenISISPresetManifestVersionV3 || publicParams.PresetVersion == credential.IntGenISISPresetManifestVersionV4
+	rawBenchmarkContext := []byte("ARC-SPRUCE benchmark context v2")
+	if publicParams.PresetVersion == credential.IntGenISISPresetManifestVersionV3 {
+		rawBenchmarkContext = []byte("ARC-SPRUCE benchmark context v3")
+	} else if publicParams.PresetVersion == credential.IntGenISISPresetManifestVersionV4 {
+		rawBenchmarkContext = []byte("ARC-SPRUCE benchmark context v4")
+	}
+	contextBinding, err := credential.DerivePresentationContext(rawBenchmarkContext, params.Q, publicParams.PresetManifestDigest, publicParamsDigest, verifierKeyDigest)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("derive benchmark presentation context: %w", err)
 	}
-	credentialFingerprint, err := credential.IntGenISISCredentialFingerprint(st)
-	if err != nil {
-		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("fingerprint benchmark credential: %w", err)
+	var slot uint8
+	if isCanonical {
+		stateCtx := credential.IntGenISISStateCodecContext{Public: publicParams, VerifierKey: verifierKey, PublicParamsPath: paths.PublicParams}
+		slot, err = credential.ReserveIntGenISISSlotV3(paths.HolderUsageState, st, stateCtx, contextBinding)
+	} else {
+		credentialFingerprint, fingerprintErr := credential.IntGenISISCredentialFingerprint(st)
+		if fingerprintErr != nil {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("fingerprint benchmark credential: %w", fingerprintErr)
+		}
+		slot, err = credential.ReserveIntGenISISSlot(paths.HolderUsageState, publicParamsDigest, publicParams.PresetManifestDigest, credentialFingerprint, contextBinding.Digest)
 	}
-	slot, err := credential.ReserveIntGenISISSlot(paths.HolderUsageState, publicParamsDigest, publicParams.PresetManifestDigest, credentialFingerprint, contextBinding.Digest)
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("reserve benchmark hidden slot: %w", err)
 	}
@@ -1268,6 +1726,22 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 		IntGenISIS:     true,
 		Extras:         publicParams.PresetTranscriptExtras(benchmarkIntGenISISE2ESignatureBoundExtras(st.SignatureBound)),
 	}
+	verifyPub := pub
+	verifyPub.A, err = benchmarkIntGenISISE2ESignatureMatrixFromRows(ringQ, verifierKey.NTRUPublic)
+	if err != nil {
+		return benchmarkIntGenISISMetrics{}, false, err
+	}
+	verifyPub.Extras = publicParams.PresetTranscriptExtras(benchmarkIntGenISISE2ESignatureBoundExtras(verifierKey.SignatureBound))
+	canonicalCtx := PIOP.CanonicalProofContext{Kind: PIOP.Showing, Public: verifyPub, Options: opts}
+	var prepared *PIOP.PreparedExecutionContext
+	if isCanonical && cfg.ContextMode == "warm" {
+		started := time.Now()
+		prepared, err = PIOP.PrepareExecutionContext(canonicalCtx)
+		opts.PhaseRecorder.RecordDuration("showing.context_prepare", time.Since(started))
+		if err != nil {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("prepare canonical showing context: %w", err)
+		}
+	}
 	proveStart := time.Now()
 	proof, err := PIOP.BuildIntGenISISShowingCombined(pub, wit, opts)
 	proveDur := time.Since(proveStart)
@@ -1275,12 +1749,6 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("build IntGenISIS showing: %w", err)
 	}
-	verifyPub := pub
-	verifyPub.A, err = benchmarkIntGenISISE2ESignatureMatrixFromRows(ringQ, verifierKey.NTRUPublic)
-	if err != nil {
-		return benchmarkIntGenISISMetrics{}, false, err
-	}
-	verifyPub.Extras = publicParams.PresetTranscriptExtras(benchmarkIntGenISISE2ESignatureBoundExtras(verifierKey.SignatureBound))
 	verifyStart := time.Now()
 	ok, err = PIOP.VerifyIntGenISISShowing(verifyPub, proof, opts)
 	verifyDur := time.Since(verifyStart)
@@ -1288,38 +1756,117 @@ func benchmarkIntGenISISE2EShowing(paths benchmarkIntGenISISE2EArtifacts, cfg be
 	if err != nil || !ok {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("standalone verify IntGenISIS showing: ok=%v err=%v", ok, err)
 	}
+	var canonicalProof []byte
+	if isCanonical {
+		if prepared != nil {
+			canonicalProof, err = PIOP.MarshalCanonicalProofPrepared(proof, prepared, opts.PhaseRecorder)
+		} else {
+			canonicalProof, err = PIOP.MarshalCanonicalProof(proof, canonicalCtx)
+		}
+		if err != nil {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("marshal canonical showing proof: %w", err)
+		}
+		if prepared != nil {
+			proof, err = PIOP.UnmarshalCanonicalProofPrepared(canonicalProof, prepared, opts.PhaseRecorder)
+		} else {
+			proof, err = PIOP.UnmarshalCanonicalProof(canonicalProof, canonicalCtx)
+		}
+		if err != nil {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("reconstruct canonical showing proof: %w", err)
+		}
+		ok, err = PIOP.VerifyIntGenISISShowing(verifyPub, proof, opts)
+		if err != nil || !ok {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("verify reconstructed canonical showing proof: ok=%v err=%v", ok, err)
+		}
+	}
 	reportStart := time.Now()
 	rep, err := PIOP.BuildProofReport(proof, opts, ringQ)
 	opts.PhaseRecorder.RecordDuration("showing.report", time.Since(reportStart))
 	if err != nil {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("showing proof report: %w", err)
 	}
-	proofRaw, err := json.Marshal(proof)
-	if err != nil {
-		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("marshal IntGenISIS proof: %w", err)
+	metrics := intGenISISMetricsFromProof(proof, rep, verifyPub, opts, proveDur, verifyDur, "e2e_showing_standalone")
+	if prepared != nil {
+		metrics.PreparedContextDigest = prepared.BindingDigest()
 	}
-	pres := credential.IntGenISISPresentation{
-		Version:              credential.IntGenISISPresentationVersion,
-		PresetManifestDigest: publicParams.PresetManifestDigest,
-		PublicParamsDigest:   publicParamsDigest,
-		VerifierKeyDigest:    verifierKeyDigest,
-		ContextDigest:        contextBinding.Digest,
-		Context:              append([]int64(nil), contextBinding.Lanes...),
-		Tag:                  intGenISISBenchmarkScalarsFromElems(tag),
-		Proof:                proofRaw,
+	var replayErr error
+	if isCanonical {
+		_, presentationCtx, ctxErr := credential.DeriveIntGenISISPresentationV3Context(publicParams, verifierKey, rawBenchmarkContext)
+		if ctxErr != nil {
+			return benchmarkIntGenISISMetrics{}, false, ctxErr
+		}
+		pres := credential.IntGenISISPresentationV3{Tag: intGenISISBenchmarkScalarsFromElems(tag), CanonicalProof: canonicalProof}
+		if err := credential.SaveIntGenISISPresentationV3(paths.Presentation, pres, presentationCtx); err != nil {
+			return benchmarkIntGenISISMetrics{}, false, err
+		}
+		if err := credential.CheckAndMarkIntGenISISPresentationV3(paths.VerifierState, pres, presentationCtx); err != nil {
+			return benchmarkIntGenISISMetrics{}, false, err
+		}
+		replayErr = credential.CheckAndMarkIntGenISISPresentationV3(paths.VerifierState, pres, presentationCtx)
+		metrics.ProofSizeBytes = len(canonicalProof)
+		metrics.CanonicalProofWireBytes = len(canonicalProof)
+		audit, auditErr := PIOP.BuildCanonicalProofWireAuditV6(proof, PIOP.CanonicalProofContext{Kind: PIOP.Showing, Public: verifyPub, Options: opts})
+		if auditErr != nil {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("audit canonical showing wire: %w", auditErr)
+		}
+		if err := attachCanonicalProofIdentity(&metrics, "showing", audit); err != nil {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("record canonical showing identity: %w", err)
+		}
+		metrics.CanonicalTamperRejected = benchmarkCanonicalTamperRejected(
+			canonicalProof,
+			PIOP.CanonicalProofContext{Kind: PIOP.Showing, Public: verifyPub, Options: opts},
+			func(candidate *PIOP.Proof) (bool, error) {
+				return PIOP.VerifyIntGenISISShowing(verifyPub, candidate, opts)
+			},
+		)
+		if info, statErr := os.Stat(paths.Presentation); statErr == nil {
+			metrics.CanonicalPresentationWireBytes = int(info.Size())
+		}
+	} else {
+		proofRaw, marshalErr := json.Marshal(proof)
+		if marshalErr != nil {
+			return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("marshal IntGenISIS proof: %w", marshalErr)
+		}
+		pres := credential.IntGenISISPresentation{
+			Version:              credential.IntGenISISPresentationVersion,
+			PresetManifestDigest: publicParams.PresetManifestDigest,
+			PublicParamsDigest:   publicParamsDigest,
+			VerifierKeyDigest:    verifierKeyDigest,
+			ContextDigest:        contextBinding.Digest,
+			Context:              append([]int64(nil), contextBinding.Lanes...),
+			Tag:                  intGenISISBenchmarkScalarsFromElems(tag),
+			Proof:                proofRaw,
+		}
+		if err := credential.SaveIntGenISISPresentation(paths.Presentation, pres); err != nil {
+			return benchmarkIntGenISISMetrics{}, false, err
+		}
+		if err := credential.CheckAndMarkIntGenISISPresentation(paths.VerifierState, pres); err != nil {
+			return benchmarkIntGenISISMetrics{}, false, err
+		}
+		replayErr = credential.CheckAndMarkIntGenISISPresentation(paths.VerifierState, pres)
 	}
-	if err := credential.SaveIntGenISISPresentation(paths.Presentation, pres); err != nil {
-		return benchmarkIntGenISISMetrics{}, false, err
-	}
-	if err := credential.CheckAndMarkIntGenISISPresentation(paths.VerifierState, pres); err != nil {
-		return benchmarkIntGenISISMetrics{}, false, err
-	}
-	replayErr := credential.CheckAndMarkIntGenISISPresentation(paths.VerifierState, pres)
 	replayRejected := replayErr != nil
 	if !replayRejected {
 		return benchmarkIntGenISISMetrics{}, false, fmt.Errorf("verifier replay state accepted repeated nonce/tag")
 	}
-	return intGenISISMetricsFromProof(proof, rep, verifyPub, opts, proveDur, verifyDur, "e2e_showing_standalone"), replayRejected, nil
+	return metrics, replayRejected, nil
+}
+
+func benchmarkCanonicalTamperRejected(wire []byte, ctx PIOP.CanonicalProofContext, verify func(*PIOP.Proof) (bool, error)) bool {
+	if len(wire) <= 10 || verify == nil {
+		return false
+	}
+	tampered := append([]byte(nil), wire...)
+	// Byte ten is the first payload byte after the canonical fixed header. It
+	// is part of the committed root, rather than a syntactic version byte, so
+	// rejection exercises transcript/authentication verification.
+	tampered[10] ^= 1
+	proof, err := PIOP.UnmarshalCanonicalProof(tampered, ctx)
+	if err != nil {
+		return true
+	}
+	ok, err := verify(proof)
+	return err != nil || !ok
 }
 
 func benchmarkIntGenISISE2EShowingOpts(ringDegree int, cfg benchmarkIntGenISISE2EConfig) PIOP.SimOpts {
@@ -1404,15 +1951,19 @@ func benchmarkIntGenISISE2EPrintReport(report benchmarkIntGenISISE2EReport, verb
 	log.Printf("[issuance-cli] IntGenISIS e2e artifact_dir=%s profile=%s q=%d", report.ArtifactDir, report.Profile, report.Modulus)
 	benchmarkIntGenISISE2EPrintPhase("issuance", report.Issuance)
 	benchmarkIntGenISISE2EPrintPhase("showing", report.Showing)
-	log.Printf("[issuance-cli] IntGenISIS full_game accepted_issuance=%d accepted_showing=%d conservative_bits=%.2f global_collision_bits=%.2f global_collision_full_game_bits=%.2f global_query_caps=%v collision_space_bits=%d",
-		report.FullGame.AcceptedIssuance,
-		report.FullGame.AcceptedShowing,
-		displayBits(report.FullGame.ConservativeFullGameBits),
-		displayBits(report.FullGame.GlobalCollisionBits),
-		displayBits(report.FullGame.GlobalCollisionFullGameBits),
-		report.FullGame.GlobalQueryCaps,
-		report.FullGame.CollisionSpaceBits,
-	)
+	if report.FullGameAccountingStatus == "deferred_proof_only" {
+		log.Printf("[issuance-cli] IntGenISIS full_game status=deferred_proof_only (no credential-game security claim)")
+	} else {
+		log.Printf("[issuance-cli] IntGenISIS full_game accepted_issuance=%d accepted_showing=%d conservative_bits=%.2f global_collision_bits=%.2f global_collision_full_game_bits=%.2f global_query_caps=%v collision_space_bits=%d",
+			report.FullGame.AcceptedIssuance,
+			report.FullGame.AcceptedShowing,
+			displayBits(report.FullGame.ConservativeFullGameBits),
+			displayBits(report.FullGame.GlobalCollisionBits),
+			displayBits(report.FullGame.GlobalCollisionFullGameBits),
+			report.FullGame.GlobalQueryCaps,
+			report.FullGame.CollisionSpaceBits,
+		)
+	}
 	log.Printf("[issuance-cli] IntGenISIS security_ledger profile=%s mode=%s status=%s full_game_bits=%.2f tag_collision_bits=%.2f core_available_bits=%.2f reasons=%v",
 		report.SecurityLedger.SecurityProfile,
 		report.SecurityLedger.SecurityMode,
@@ -1426,9 +1977,12 @@ func benchmarkIntGenISISE2EPrintReport(report benchmarkIntGenISISE2EReport, verb
 }
 
 func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics) {
-	log.Printf("[issuance-cli] IntGenISIS %s proof_bytes=%d paper_transcript_bytes=%d paper_transcript_kb=%.2f prove_ms=%.2f verify_ms=%.2f rows=%d rows_block=%d audit_rows=%d opening_cols=%d prf_rows=%d bound_rows=%d shortness_rows=%d hat_rows=%d theta=%d rho=%d ell_prime=%d smallfield_replay_rows=%d q_split_rows=%d q_limb_rows=%d dq=%d soundness_eq8_bits=%.2f",
+	log.Printf("[issuance-cli] IntGenISIS %s proof_bytes=%d canonical_proof_wire_bytes=%d modeled_verifier_message_bytes=%d canonical_presentation_wire_bytes=%d paper_transcript_bytes=%d paper_transcript_kb=%.2f prove_ms=%.2f verify_ms=%.2f rows=%d rows_block=%d audit_rows=%d opening_cols=%d prf_rows=%d bound_rows=%d shortness_rows=%d hat_rows=%d theta=%d rho=%d ell_prime=%d smallfield_replay_rows=%d q_split_rows=%d q_limb_rows=%d dq=%d soundness_eq8_bits=%.2f",
 		label,
 		m.ProofSizeBytes,
+		m.CanonicalProofWireBytes,
+		m.ModeledVerifierMessageBytes,
+		m.CanonicalPresentationWireBytes,
 		m.PaperTranscriptBytes,
 		m.PaperTranscriptKB,
 		m.ProvingMS,
@@ -1534,6 +2088,13 @@ func benchmarkIntGenISISE2EPrintPhase(label string, m benchmarkIntGenISISMetrics
 		}
 		log.Printf("[issuance-cli] IntGenISIS %s phase_timings %s", label, b.String())
 	}
+	log.Printf("[issuance-cli] IntGenISIS %s fs_counters=%d,%d,%d,%d",
+		label,
+		m.FSCounters[0],
+		m.FSCounters[1],
+		m.FSCounters[2],
+		m.FSCounters[3],
+	)
 	log.Printf("[issuance-cli] IntGenISIS %s audit views total=%d u=%d u_digit_only=%v semantic=%d commitment=%d y=%d issuer=%d constraints fpar_int=%d range=%d shortness=%d y_linear=%d bridge_total=%d bridge_u=%d bridge_commitment=%d bridge_issuer=%d prf_key=%d",
 		label,
 		m.CoefficientViewRows,

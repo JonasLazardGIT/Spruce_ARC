@@ -27,12 +27,23 @@ var canonicalV2PresetIDs = []string{
 	"pilot-n1024-bq32-r96-v2",
 	"poc-n1024-bq64-r128-v2",
 	"poc-n1024-bq96-r128-v2",
-	"poc-n1024-bq128-r128-v3",
-	"system-n1024-wf128-crom-v2",
+}
+
+var focusedV3TargetPresetIDs = []string{
+	credential.IntGenISISPresetPoCN1024BQ128R128V3,
+	credential.IntGenISISPresetSystemN1024WF128CROMV2,
 }
 
 func CanonicalV2PresetIDs() []string {
 	return append([]string(nil), canonicalV2PresetIDs...)
+}
+
+// FocusedV3TargetPresetIDs returns the two maintained presets whose current
+// manifests select the strict v3 proof path. They are deliberately excluded
+// from CanonicalV2PresetIDs: reports produced for their former v2 manifests
+// are historical artifacts, not evidence for the current executable presets.
+func FocusedV3TargetPresetIDs() []string {
+	return append([]string(nil), focusedV3TargetPresetIDs...)
 }
 
 func ResolveSPRUCE_DIR(flagValue string) (string, error) {
@@ -157,18 +168,86 @@ func BuildArtifactLock(opts BuildOptions) (ArtifactLock, error) {
 
 func validatePresetRegistryV2() error {
 	registered := credential.IntGenISISDefaultPresetNames()
-	expected := CanonicalV2PresetIDs()
+	expected := append(CanonicalV2PresetIDs(), FocusedV3TargetPresetIDs()...)
+	// Publication v4 is an additional evidence partition.  Its five manifests
+	// must not make the historical v2 lock believe that the maintained preset
+	// registry has drifted, and they must never be folded into the v2 lock.
+	expected = append(expected, credential.IntGenISISPublicationPresetNamesV4()...)
 	sort.Strings(registered)
 	sort.Strings(expected)
 	if len(registered) != len(expected) {
-		return fmt.Errorf("maintained preset registry has %d identities; v2 evidence requires exactly %d", len(registered), len(expected))
+		return fmt.Errorf("maintained preset registry has %d identities; evidence partition requires exactly %d", len(registered), len(expected))
 	}
 	for i := range expected {
 		if registered[i] != expected[i] {
-			return fmt.Errorf("maintained preset registry identity %q does not match v2 evidence identity %q", registered[i], expected[i])
+			return fmt.Errorf("maintained preset registry identity %q does not match evidence partition identity %q", registered[i], expected[i])
+		}
+	}
+	for _, canonicalID := range focusedV3TargetPresetIDs {
+		preset, ok := credential.LookupIntGenISISPreset(canonicalID)
+		if !ok {
+			return fmt.Errorf("focused v3 target %q is not registered", canonicalID)
+		}
+		if err := ValidateFocusedV3TargetPreset(preset); err != nil {
+			return err
+		}
+	}
+	for _, canonicalID := range credential.IntGenISISPublicationPresetNamesV4() {
+		preset, ok := credential.LookupIntGenISISPublicationPreset(canonicalID)
+		if !ok {
+			return fmt.Errorf("publication v4 target %q is not registered", canonicalID)
+		}
+		if err := credential.ValidateIntGenISISPresetManifest(preset); err != nil {
+			return fmt.Errorf("publication v4 target %s has an invalid manifest: %w", canonicalID, err)
 		}
 	}
 	return nil
+}
+
+// ValidateFocusedV3TargetPreset validates the current, preset-level evidence
+// boundary for BQ128/WF128. It intentionally does not validate benchmark
+// measurements: those are admitted only after fresh strict-v3 reports exist.
+// In particular, it never treats an old v2 report as a migration source.
+func ValidateFocusedV3TargetPreset(preset credential.IntGenISISPreset) error {
+	if !isFocusedV3TargetPresetID(preset.CanonicalID) {
+		return fmt.Errorf("preset %q is not a focused v3 target", preset.CanonicalID)
+	}
+	if err := credential.ValidateIntGenISISPresetManifest(preset); err != nil {
+		return fmt.Errorf("focused v3 target %s has an invalid manifest: %w", preset.CanonicalID, err)
+	}
+	if preset.PresetVersion != credential.IntGenISISPresetManifestVersionV3 ||
+		preset.ProofSchemaVersion != credential.IntGenISISProofSchemaVersionV3 ||
+		preset.RelationVersion != 3 || preset.LayoutVersion != 3 ||
+		preset.StateFormatVersion != credential.IntGenISISStateFormatVersionV8 ||
+		preset.PresentationVersion != credential.IntGenISISPresentationFormatVersionV3 ||
+		preset.IssuanceVersion != credential.IntGenISISIssuanceArtifactFormatVersionV4 ||
+		preset.HolderUsageVersion != credential.IntGenISISHolderUsageFormatVersionV3 {
+		return fmt.Errorf("focused v3 target %s has an incomplete schema/format tuple", preset.CanonicalID)
+	}
+	if preset.ClaimScope != credential.ClaimProofOnly || preset.CompleteSystemClaim {
+		return fmt.Errorf("focused v3 target %s is not proof-only", preset.CanonicalID)
+	}
+	for phase, tuning := range map[string]credential.IntGenISISTuningPreset{"issuance": preset.Issuance, "showing": preset.Showing} {
+		if tuning.TranscriptMode != credential.IntGenISISTranscriptProtocolV3 ||
+			tuning.TranscriptOmissionMode != credential.IntGenISISTranscriptOmissionModeV3 ||
+			tuning.SoundnessGate != credential.IntGenISISSecurityGateV3 ||
+			tuning.RelationVersion != 3 || tuning.LayoutVersion != 3 || !tuning.FixedTranscriptSize {
+			return fmt.Errorf("focused v3 target %s %s tuple is not strict v3", preset.CanonicalID, phase)
+		}
+	}
+	if preset.FieldProfileID == "" || preset.FieldProfileDigest == "" {
+		return fmt.Errorf("focused v3 target %s lacks a fixed field-profile binding", preset.CanonicalID)
+	}
+	return nil
+}
+
+func isFocusedV3TargetPresetID(id string) bool {
+	for _, candidate := range focusedV3TargetPresetIDs {
+		if id == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func validateCanonicalPreset(preset credential.IntGenISISPreset, canonicalID string) error {

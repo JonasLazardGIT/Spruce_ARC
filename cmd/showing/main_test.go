@@ -102,8 +102,24 @@ func TestShowingCLIPropagatesWF128PoCPreset(t *testing.T) {
 	if opts.DECSCollisionBits != 264 || opts.DECSHashBits != 264 || opts.DECSTapeBits != 128 || opts.FSCollisionBits != 264 || opts.SaltBits != 256 {
 		t.Fatalf("WF-128 widths=%+v", opts)
 	}
-	if opts.LVCSNCols != 42 || opts.NLeaves != 327680 || opts.Eta != 43 || opts.Theta != 7 || opts.Ell != 9 || opts.Kappa != [4]int{1, 0, 2, 13} || opts.PRFParamsPath != credential.IntGenISISPRFParamsTag13 {
+	if opts.LVCSNCols != 41 || opts.NLeaves != 327680 || opts.Eta != 43 || opts.Theta != 7 || opts.Ell != 9 || opts.Kappa != [4]int{1, 0, 2, 13} || opts.PRFParamsPath != credential.IntGenISISPRFParamsTag13 {
 		t.Fatalf("WF-128 shape=%+v", opts)
+	}
+}
+
+func TestShowingCLIPropagatesPublicationV4ManifestPolicy(t *testing.T) {
+	cfg, err := parseShowingCLIArgs([]string{
+		"-preset", credential.IntGenISISPublicationPresetBQ128Q64V4,
+	})
+	if err != nil {
+		t.Fatalf("parse publication-v4 preset: %v", err)
+	}
+	opts := intGenISISShowingOpts(1024, cfg.Preset.Showing, cfg.Preset.CanonicalID)
+	if opts.PresetID != cfg.Preset.CanonicalID || !opts.AggregateROQueryCapLog2Set || opts.AggregateROQueryCapLog2 != 64 {
+		t.Fatalf("publication identity/query policy=%+v", opts)
+	}
+	if opts.FSOutputBits != 264 || opts.FSCollisionBits != 264 || opts.DECSHashBits != 264 {
+		t.Fatalf("publication FS/hash widths=(%d,%d,%d)", opts.FSOutputBits, opts.FSCollisionBits, opts.DECSHashBits)
 	}
 }
 

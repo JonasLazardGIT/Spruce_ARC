@@ -109,8 +109,16 @@ func benchmarkValidPrefixPredicates() [4]benchmarkValidPrefixPredicate {
 
 func benchmarkValidPrefixCumulativeMS(timings []PIOP.PhaseTiming) [4]float64 {
 	base := benchmarkPhaseTimingMS(timings,
+		"issuance.domain_prepare",
+		"issuance.rows",
+		"issuance.rows_ntt",
+		"issuance.replay_prepare",
+		"issuance.constraints.total",
+		"issuance.lvcs_commit_total",
+		"showing.domain_prepare",
 		"showing.rows",
 		"showing.rows_ntt",
+		"showing.replay_prepare",
 		"showing.constraints.total",
 		"showing.lvcs_commit_total",
 	)
