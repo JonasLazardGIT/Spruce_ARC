@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	kf "vSIS-Signature/internal/kfield"
 )
 
 type PresetLifecycle string
@@ -36,6 +38,10 @@ const (
 	// queries made against one proof-system phase. Cross-phase composition adds
 	// the issuance and showing caps in the log domain.
 	ROQueryCapPerPhaseGlobal ROQueryCapScope = "per_phase_global"
+	// ROQueryCapAggregateComposedGame binds one scalar Q shared by every
+	// domain-separated oracle call in the complete accepted issuance+showing
+	// proof-system game. It is not a per-domain or per-phase multiplier.
+	ROQueryCapAggregateComposedGame ROQueryCapScope = "aggregate_composed_game"
 )
 
 type ProofVolumeScope string
@@ -58,23 +64,25 @@ const (
 // statement applies. Counts are represented as base-two logarithms so profiles
 // beyond uint64, including BQ128, are represented exactly.
 type PresetThreatModel struct {
-	ROM                       ROMModel         `json:"rom"`
-	SecurityMode              SecurityMode     `json:"security_mode"`
-	TargetSingleCandidateBits float64          `json:"target_single_candidate_bits,omitempty"`
-	TargetWorkFactorBits      float64          `json:"target_work_factor_bits,omitempty"`
-	TargetResidualBits        float64          `json:"target_residual_bits,omitempty"`
-	ROQueryCapLog2            [5]float64       `json:"ro_query_cap_log2"`
-	ROQueryCapScope           ROQueryCapScope  `json:"ro_query_cap_scope"`
-	MaxProofsLog2             float64          `json:"max_proofs_log2"`
-	MaxIssuanceProofsLog2     float64          `json:"max_issuance_proofs_log2"`
-	MaxShowingProofsLog2      float64          `json:"max_showing_proofs_log2"`
-	MaxTagsPerContextLog2     float64          `json:"max_tags_per_context_log2"`
-	MaxUsersLog2              float64          `json:"max_users_log2"`
-	MaxContextsLog2           float64          `json:"max_contexts_log2"`
-	DomainSeparatedContexts   bool             `json:"domain_separated_contexts"`
-	ProofVolumeScope          ProofVolumeScope `json:"proof_volume_scope"`
-	AcceptedIssuance          int              `json:"accepted_issuance"`
-	AcceptedShowing           int              `json:"accepted_showing"`
+	ROM                        ROMModel         `json:"rom"`
+	SecurityMode               SecurityMode     `json:"security_mode"`
+	TargetSingleCandidateBits  float64          `json:"target_single_candidate_bits,omitempty"`
+	TargetWorkFactorBits       float64          `json:"target_work_factor_bits,omitempty"`
+	TargetResidualBits         float64          `json:"target_residual_bits,omitempty"`
+	ROQueryCapLog2             [5]float64       `json:"ro_query_cap_log2"`
+	AggregateROQueryCapLog2    float64          `json:"aggregate_ro_query_cap_log2,omitempty"`
+	AggregateROQueryCapLog2Set bool             `json:"aggregate_ro_query_cap_log2_set,omitempty"`
+	ROQueryCapScope            ROQueryCapScope  `json:"ro_query_cap_scope"`
+	MaxProofsLog2              float64          `json:"max_proofs_log2"`
+	MaxIssuanceProofsLog2      float64          `json:"max_issuance_proofs_log2"`
+	MaxShowingProofsLog2       float64          `json:"max_showing_proofs_log2"`
+	MaxTagsPerContextLog2      float64          `json:"max_tags_per_context_log2"`
+	MaxUsersLog2               float64          `json:"max_users_log2"`
+	MaxContextsLog2            float64          `json:"max_contexts_log2"`
+	DomainSeparatedContexts    bool             `json:"domain_separated_contexts"`
+	ProofVolumeScope           ProofVolumeScope `json:"proof_volume_scope"`
+	AcceptedIssuance           int              `json:"accepted_issuance"`
+	AcceptedShowing            int              `json:"accepted_showing"`
 }
 
 type intGenISISPresetMetadata struct {
@@ -129,6 +137,31 @@ func intGenISISPresetMetadataRegistry() map[string]intGenISISPresetMetadata {
 			lifecycle: PresetPoC, claimScope: ClaimProofOnly,
 			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31,
 		},
+		IntGenISISPublicationPresetBQ96Q32V4: {
+			canonicalID: IntGenISISPublicationPresetBQ96Q32V4, purpose: "publication comparison",
+			lifecycle: PresetCandidate, claimScope: ClaimProofOnly,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31,
+		},
+		IntGenISISPublicationPresetBQ96Q96V4: {
+			canonicalID: IntGenISISPublicationPresetBQ96Q96V4, purpose: "publication comparison",
+			lifecycle: PresetCandidate, claimScope: ClaimProofOnly,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31,
+		},
+		IntGenISISPublicationPresetWF128V4: {
+			canonicalID: IntGenISISPublicationPresetWF128V4, purpose: "publication comparison",
+			lifecycle: PresetCandidate, claimScope: ClaimProofOnly,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31,
+		},
+		IntGenISISPublicationPresetBQ128Q64V4: {
+			canonicalID: IntGenISISPublicationPresetBQ128Q64V4, purpose: "publication comparison",
+			lifecycle: PresetCandidate, claimScope: ClaimProofOnly,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31,
+		},
+		IntGenISISPublicationPresetBQ128Q128V4: {
+			canonicalID: IntGenISISPublicationPresetBQ128Q128V4, purpose: "publication comparison",
+			lifecycle: PresetCandidate, claimScope: ClaimProofOnly,
+			proofsLog2: 32, issuanceLog2: 31, showingLog2: 31,
+		},
 	}
 }
 
@@ -161,6 +194,38 @@ func intGenISISPresetApplyMetadata(reg map[string]IntGenISISPreset) {
 		}
 		preset.CanonicalID = meta.canonicalID
 		preset.PresetVersion = 2
+		if name == IntGenISISPresetPoCN1024BQ128R128V3 || name == IntGenISISPresetSystemN1024WF128CROMV2 {
+			preset.PresetVersion = IntGenISISPresetManifestVersionV3
+			preset.ProofSchemaVersion = IntGenISISProofSchemaVersionV3
+			preset.RelationVersion = 3
+			preset.LayoutVersion = 3
+			preset.StateFormatVersion = IntGenISISStateFormatVersionV8
+			preset.PresentationVersion = IntGenISISPresentationFormatVersionV3
+			preset.IssuanceVersion = IntGenISISIssuanceArtifactFormatVersionV4
+			preset.HolderUsageVersion = IntGenISISHolderUsageFormatVersionV3
+			profile, ok := kf.LookupSmallWoodFieldProfileV3(IntGenISISSharedModulusQ, preset.Showing.Theta)
+			if !ok {
+				panic(fmt.Sprintf("missing v3 field profile for IntGenISIS preset %s", name))
+			}
+			preset.FieldProfileID = profile.ID
+			preset.FieldProfileDigest, _ = profile.DigestHex(32)
+		}
+		if isIntGenISISPublicationPresetV4ID(name) {
+			preset.PresetVersion = IntGenISISPresetManifestVersionV4
+			preset.ProofSchemaVersion = IntGenISISProofSchemaVersionV3
+			preset.RelationVersion = 3
+			preset.LayoutVersion = 3
+			preset.StateFormatVersion = IntGenISISStateFormatVersionV8
+			preset.PresentationVersion = IntGenISISPresentationFormatVersionV3
+			preset.IssuanceVersion = IntGenISISIssuanceArtifactFormatVersionV4
+			preset.HolderUsageVersion = IntGenISISHolderUsageFormatVersionV3
+			profile, ok := kf.LookupSmallWoodFieldProfileV3(IntGenISISSharedModulusQ, preset.Showing.Theta)
+			if !ok {
+				panic(fmt.Sprintf("missing publication-v4 field profile for IntGenISIS preset %s", name))
+			}
+			preset.FieldProfileID = profile.ID
+			preset.FieldProfileDigest, _ = profile.DigestHex(32)
+		}
 		preset.Purpose = meta.purpose
 		preset.Lifecycle = meta.lifecycle
 		preset.ClaimScope = meta.claimScope
@@ -182,6 +247,9 @@ func ValidateIntGenISISPresetManifest(preset IntGenISISPreset) error {
 	if preset.Name == "" || preset.CanonicalID == "" || preset.PresetVersion <= 0 {
 		return fmt.Errorf("missing selector, canonical ID, or version")
 	}
+	if preset.PresetVersion == IntGenISISPresetManifestVersionV4 && preset.PublicationLabel == "" {
+		return fmt.Errorf("publication-v4 preset is missing its paper label")
+	}
 	if preset.Profile == "" || preset.PrimitiveProfileID != preset.Profile {
 		return fmt.Errorf("primitive profile ID does not match executable profile")
 	}
@@ -192,20 +260,50 @@ func ValidateIntGenISISPresetManifest(preset IntGenISISPreset) error {
 	if err := ValidatePresetThreatModel(preset.ThreatModel); err != nil {
 		return fmt.Errorf("invalid threat model: %w", err)
 	}
+	if spec.ROQueryCapScope != "" && preset.ThreatModel.ROQueryCapScope != spec.ROQueryCapScope {
+		return fmt.Errorf("threat-model query scope does not match security profile")
+	}
 	if !presetThreatTargetMatchesProfile(preset.ThreatModel, spec) {
 		return fmt.Errorf("threat-model target does not match security profile target")
 	}
-	issuanceCaps := intGenISISTuningROQueryCapLog2(preset.Issuance)
-	showingCaps := intGenISISTuningROQueryCapLog2(preset.Showing)
-	if !equalLog2Vectors(issuanceCaps, showingCaps) || !equalLog2Vectors(showingCaps, preset.ThreatModel.ROQueryCapLog2) {
-		return fmt.Errorf("issuance, showing, and threat-model query caps differ")
-	}
-	if spec.Mode == SecurityModeResidualAtBudget {
-		var requiredCaps [5]float64
-		copy(requiredCaps[:], spec.ROQueryCapBits)
-		if !equalLog2Vectors(preset.ThreatModel.ROQueryCapLog2, requiredCaps) {
-			return fmt.Errorf("threat-model query caps do not match security profile")
+	switch preset.ThreatModel.ROQueryCapScope {
+	case ROQueryCapPerPhaseGlobal:
+		issuanceCaps := intGenISISTuningROQueryCapLog2(preset.Issuance)
+		showingCaps := intGenISISTuningROQueryCapLog2(preset.Showing)
+		if !equalLog2Vectors(issuanceCaps, showingCaps) || !equalLog2Vectors(showingCaps, preset.ThreatModel.ROQueryCapLog2) {
+			return fmt.Errorf("issuance, showing, and threat-model query caps differ")
 		}
+		if preset.Issuance.AggregateROQueryCapLog2Set || preset.Showing.AggregateROQueryCapLog2Set || preset.ThreatModel.AggregateROQueryCapLog2Set {
+			return fmt.Errorf("legacy query scope carries an aggregate query cap")
+		}
+		if spec.Mode == SecurityModeResidualAtBudget {
+			var requiredCaps [5]float64
+			copy(requiredCaps[:], spec.ROQueryCapBits)
+			if !equalLog2Vectors(preset.ThreatModel.ROQueryCapLog2, requiredCaps) {
+				return fmt.Errorf("threat-model query caps do not match security profile")
+			}
+		}
+	case ROQueryCapAggregateComposedGame:
+		if preset.Issuance.ROQueryCapsSet || preset.Issuance.ROQueryCapBitsSet || preset.Showing.ROQueryCapsSet || preset.Showing.ROQueryCapBitsSet ||
+			preset.Issuance.ROQueryCaps != [5]int{} || preset.Showing.ROQueryCaps != [5]int{} || preset.Issuance.ROQueryCapBits != [5]float64{} || preset.Showing.ROQueryCapBits != [5]float64{} ||
+			preset.ThreatModel.ROQueryCapLog2 != [5]float64{} {
+			return fmt.Errorf("aggregate composed-game query scope carries legacy vector caps")
+		}
+		if preset.Issuance.AggregateROQueryCapLog2Set != preset.Showing.AggregateROQueryCapLog2Set ||
+			preset.Showing.AggregateROQueryCapLog2Set != preset.ThreatModel.AggregateROQueryCapLog2Set ||
+			math.Abs(preset.Issuance.AggregateROQueryCapLog2-preset.Showing.AggregateROQueryCapLog2) > 1e-9 ||
+			math.Abs(preset.Showing.AggregateROQueryCapLog2-preset.ThreatModel.AggregateROQueryCapLog2) > 1e-9 {
+			return fmt.Errorf("issuance, showing, and threat-model aggregate query caps differ")
+		}
+		if spec.Mode == SecurityModeResidualAtBudget {
+			if !spec.AggregateROQueryCapLog2Set || !preset.ThreatModel.AggregateROQueryCapLog2Set || math.Abs(spec.AggregateROQueryCapLog2-preset.ThreatModel.AggregateROQueryCapLog2) > 1e-9 {
+				return fmt.Errorf("aggregate threat-model query cap does not match security profile")
+			}
+		} else if preset.ThreatModel.AggregateROQueryCapLog2Set || spec.AggregateROQueryCapLog2Set {
+			return fmt.Errorf("unbounded work-factor profile carries an aggregate query cap")
+		}
+	default:
+		return fmt.Errorf("unsupported RO query-cap scope %q", preset.ThreatModel.ROQueryCapScope)
 	}
 	if preset.PRFProfile == "" || preset.PRFParamsPath == "" || preset.PRFParamsDigest == "" {
 		return fmt.Errorf("missing executable PRF binding")
@@ -250,6 +348,52 @@ func ValidateIntGenISISPresetManifest(preset IntGenISISPreset) error {
 	}
 	if preset.TargetTheoremBits <= 0 || preset.MaxNLeaves <= 0 {
 		return fmt.Errorf("invalid theorem target or degree-enforcing domain cap")
+	}
+	if preset.PresetVersion == IntGenISISPresetManifestVersionV3 {
+		if preset.CanonicalID != IntGenISISPresetPoCN1024BQ128R128V3 && preset.CanonicalID != IntGenISISPresetSystemN1024WF128CROMV2 {
+			return fmt.Errorf("preset manifest v3 is restricted to the BQ128/WF128 targets")
+		}
+		if preset.ClaimScope != ClaimProofOnly || preset.CompleteSystemClaim {
+			return fmt.Errorf("v3 target must retain proof_only claim scope")
+		}
+		if preset.ProofSchemaVersion != IntGenISISProofSchemaVersionV3 || preset.RelationVersion != 3 || preset.LayoutVersion != 3 ||
+			preset.StateFormatVersion != IntGenISISStateFormatVersionV8 || preset.PresentationVersion != IntGenISISPresentationFormatVersionV3 ||
+			preset.IssuanceVersion != IntGenISISIssuanceArtifactFormatVersionV4 || preset.HolderUsageVersion != IntGenISISHolderUsageFormatVersionV3 {
+			return fmt.Errorf("incomplete v3 schema/format version tuple")
+		}
+		for phase, tuning := range map[string]IntGenISISTuningPreset{"issuance": preset.Issuance, "showing": preset.Showing} {
+			if tuning.TranscriptMode != IntGenISISTranscriptProtocolV3 || tuning.TranscriptOmissionMode != IntGenISISTranscriptOmissionModeV3 ||
+				tuning.SoundnessGate != IntGenISISSecurityGateV3 || tuning.RelationVersion != 3 || tuning.LayoutVersion != 3 {
+				return fmt.Errorf("%s does not select the strict v3 proof path", phase)
+			}
+		}
+		profile, ok := kf.LookupSmallWoodFieldProfileV3(IntGenISISSharedModulusQ, preset.Showing.Theta)
+		if !ok {
+			return fmt.Errorf("missing fixed v3 field profile")
+		}
+		digest, err := profile.DigestHex(32)
+		if err != nil || preset.FieldProfileID != profile.ID || preset.FieldProfileDigest != digest {
+			return fmt.Errorf("v3 field profile binding mismatch")
+		}
+		var frozen [4]int
+		maxLeaves := 0
+		switch preset.CanonicalID {
+		case IntGenISISPresetPoCN1024BQ128R128V3:
+			frozen, maxLeaves = [4]int{5, 6, 12, 13}, 688128
+		case IntGenISISPresetSystemN1024WF128CROMV2:
+			frozen, maxLeaves = [4]int{1, 0, 2, 13}, 327680
+		}
+		if preset.Issuance.Kappa != frozen || preset.Showing.Kappa != frozen {
+			return fmt.Errorf("v3 target kappa is not frozen")
+		}
+		if preset.Issuance.NLeaves > maxLeaves || preset.Showing.NLeaves > maxLeaves || preset.MaxNLeaves > maxLeaves {
+			return fmt.Errorf("v3 target exceeds frozen NLeaves ceiling %d", maxLeaves)
+		}
+	}
+	if preset.PresetVersion == IntGenISISPresetManifestVersionV4 {
+		if err := validateIntGenISISPublicationPresetManifestV4(preset, spec); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -297,6 +441,12 @@ func intGenISISPresetThreatModel(preset IntGenISISPreset, meta intGenISISPresetM
 		AcceptedIssuance:        1,
 		AcceptedShowing:         1,
 	}
+	if preset.PresetVersion == IntGenISISPresetManifestVersionV4 {
+		model.ROQueryCapLog2 = [5]float64{}
+		model.ROQueryCapScope = ROQueryCapAggregateComposedGame
+		model.AggregateROQueryCapLog2 = preset.Showing.AggregateROQueryCapLog2
+		model.AggregateROQueryCapLog2Set = preset.Showing.AggregateROQueryCapLog2Set
+	}
 	if meta.proofsLog2 == 0 {
 		// Artifact and proof-only manifests cover one issuance and one showing.
 		model.MaxProofsLog2 = 1
@@ -333,7 +483,23 @@ func ValidatePresetThreatModel(model PresetThreatModel) error {
 	if model.ROM == "" || model.SecurityMode == "" {
 		return fmt.Errorf("threat model is missing ROM or security mode")
 	}
-	if model.ROQueryCapScope != ROQueryCapPerPhaseGlobal {
+	switch model.ROQueryCapScope {
+	case ROQueryCapPerPhaseGlobal:
+		if model.AggregateROQueryCapLog2Set || model.AggregateROQueryCapLog2 != 0 {
+			return fmt.Errorf("legacy per-phase query scope carries aggregate cap metadata")
+		}
+	case ROQueryCapAggregateComposedGame:
+		if model.ROQueryCapLog2 != [5]float64{} {
+			return fmt.Errorf("aggregate composed-game query scope carries legacy vector caps")
+		}
+		if model.SecurityMode == SecurityModeResidualAtBudget {
+			if !model.AggregateROQueryCapLog2Set || !finitePositive(model.AggregateROQueryCapLog2) {
+				return fmt.Errorf("residual aggregate query scope is missing a positive scalar cap")
+			}
+		} else if model.AggregateROQueryCapLog2Set || model.AggregateROQueryCapLog2 != 0 {
+			return fmt.Errorf("unbounded aggregate query scope carries a scalar cap")
+		}
+	default:
 		return fmt.Errorf("unsupported RO query-cap scope %q", model.ROQueryCapScope)
 	}
 	if model.ProofVolumeScope != ProofVolumeHonestTranscripts {
@@ -402,53 +568,104 @@ func IntGenISISDefaultPresetNames() []string {
 }
 
 type intGenISISCanonicalManifest struct {
-	Schema             string                 `json:"schema"`
-	CanonicalID        string                 `json:"canonical_id"`
-	PresetVersion      int                    `json:"preset_version"`
-	PrimitiveProfileID string                 `json:"primitive_profile_id"`
-	SecurityProfile    string                 `json:"security_profile"`
-	SecurityMode       string                 `json:"security_mode"`
-	Lifecycle          PresetLifecycle        `json:"lifecycle"`
-	ClaimScope         ClaimScope             `json:"claim_scope"`
-	PRFProfile         string                 `json:"prf_profile"`
-	PRFParamsDigest    string                 `json:"prf_params_digest"`
-	NTRUBeta           uint64                 `json:"ntru_beta"`
-	MaxNLeaves         int                    `json:"max_nleaves"`
-	Issuance           IntGenISISTuningPreset `json:"issuance"`
-	Showing            IntGenISISTuningPreset `json:"showing"`
-	ThreatModel        PresetThreatModel      `json:"threat_model"`
-	RateLimitPolicy    RateLimitPolicy        `json:"rate_limit_policy"`
+	Schema              string                 `json:"schema"`
+	CanonicalID         string                 `json:"canonical_id"`
+	PublicationLabel    string                 `json:"publication_label,omitempty"`
+	PresetVersion       int                    `json:"preset_version"`
+	ProofSchemaVersion  int                    `json:"proof_schema_version,omitempty"`
+	RelationVersion     int                    `json:"relation_version,omitempty"`
+	LayoutVersion       int                    `json:"layout_version,omitempty"`
+	StateFormatVersion  int                    `json:"state_format_version,omitempty"`
+	PresentationVersion int                    `json:"presentation_format_version,omitempty"`
+	IssuanceVersion     int                    `json:"issuance_artifact_format_version,omitempty"`
+	HolderUsageVersion  int                    `json:"holder_usage_format_version,omitempty"`
+	PrimitiveProfileID  string                 `json:"primitive_profile_id"`
+	SecurityProfile     string                 `json:"security_profile"`
+	SecurityMode        string                 `json:"security_mode"`
+	Lifecycle           PresetLifecycle        `json:"lifecycle"`
+	ClaimScope          ClaimScope             `json:"claim_scope"`
+	PRFProfile          string                 `json:"prf_profile"`
+	PRFParamsDigest     string                 `json:"prf_params_digest"`
+	FieldProfileID      string                 `json:"field_profile_id,omitempty"`
+	FieldProfileDigest  string                 `json:"field_profile_digest,omitempty"`
+	FieldProfile        []byte                 `json:"field_profile,omitempty"`
+	NTRUBeta            uint64                 `json:"ntru_beta"`
+	MaxNLeaves          int                    `json:"max_nleaves"`
+	Issuance            IntGenISISTuningPreset `json:"issuance"`
+	Showing             IntGenISISTuningPreset `json:"showing"`
+	ThreatModel         PresetThreatModel      `json:"threat_model"`
+	RateLimitPolicy     RateLimitPolicy        `json:"rate_limit_policy"`
 }
 
-func IntGenISISPresetManifestDigest(preset IntGenISISPreset) string {
+// IntGenISISPresetManifestCanonicalBytes returns the injective manifest bytes
+// used both for the legacy identifier digest and, on strict v3 targets, for
+// direct Fiat--Shamir absorption. Operational file paths are excluded.
+func IntGenISISPresetManifestCanonicalBytes(preset IntGenISISPreset) []byte {
 	issuance := preset.Issuance
 	showing := preset.Showing
 	// Parameter-file locations are operational configuration. The digest and
 	// profile IDs bind file contents independently of where they are installed.
 	issuance.PRFParamsPath = ""
 	showing.PRFParamsPath = ""
+	manifestSchema := "spruce.intgenisis.preset.v2"
+	if preset.PresetVersion == IntGenISISPresetManifestVersionV3 {
+		manifestSchema = "spruce.intgenisis.preset.v3"
+	} else if preset.PresetVersion == IntGenISISPresetManifestVersionV4 {
+		manifestSchema = "spruce.intgenisis.preset.v4"
+	}
+	var fieldProfileID, fieldProfileDigest string
+	var fieldProfileBytes []byte
+	if preset.PresetVersion == IntGenISISPresetManifestVersionV3 || preset.PresetVersion == IntGenISISPresetManifestVersionV4 {
+		profile, ok := kf.LookupSmallWoodFieldProfileV3(IntGenISISSharedModulusQ, preset.Showing.Theta)
+		if !ok {
+			panic(fmt.Sprintf("missing field profile for v3 preset %q", preset.CanonicalID))
+		}
+		digest, err := profile.DigestHex(32)
+		if err != nil || preset.FieldProfileID != profile.ID || preset.FieldProfileDigest != digest {
+			panic(fmt.Sprintf("invalid field profile binding for v3 preset %q", preset.CanonicalID))
+		}
+		fieldProfileID = profile.ID
+		fieldProfileDigest = digest
+		fieldProfileBytes = profile.CanonicalBytes()
+	}
 	manifest := intGenISISCanonicalManifest{
-		Schema:             "spruce.intgenisis.preset.v2",
-		CanonicalID:        preset.CanonicalID,
-		PresetVersion:      preset.PresetVersion,
-		PrimitiveProfileID: preset.PrimitiveProfileID,
-		SecurityProfile:    preset.SecurityProfile,
-		SecurityMode:       preset.SecurityMode,
-		Lifecycle:          preset.Lifecycle,
-		ClaimScope:         preset.ClaimScope,
-		PRFProfile:         preset.PRFProfile,
-		PRFParamsDigest:    preset.PRFParamsDigest,
-		NTRUBeta:           preset.NTRUBeta,
-		MaxNLeaves:         preset.MaxNLeaves,
-		Issuance:           issuance,
-		Showing:            showing,
-		ThreatModel:        preset.ThreatModel,
-		RateLimitPolicy:    preset.RateLimitPolicy,
+		Schema:              manifestSchema,
+		CanonicalID:         preset.CanonicalID,
+		PublicationLabel:    preset.PublicationLabel,
+		PresetVersion:       preset.PresetVersion,
+		ProofSchemaVersion:  preset.ProofSchemaVersion,
+		RelationVersion:     preset.RelationVersion,
+		LayoutVersion:       preset.LayoutVersion,
+		StateFormatVersion:  preset.StateFormatVersion,
+		PresentationVersion: preset.PresentationVersion,
+		IssuanceVersion:     preset.IssuanceVersion,
+		HolderUsageVersion:  preset.HolderUsageVersion,
+		PrimitiveProfileID:  preset.PrimitiveProfileID,
+		SecurityProfile:     preset.SecurityProfile,
+		SecurityMode:        preset.SecurityMode,
+		Lifecycle:           preset.Lifecycle,
+		ClaimScope:          preset.ClaimScope,
+		PRFProfile:          preset.PRFProfile,
+		PRFParamsDigest:     preset.PRFParamsDigest,
+		FieldProfileID:      fieldProfileID,
+		FieldProfileDigest:  fieldProfileDigest,
+		FieldProfile:        fieldProfileBytes,
+		NTRUBeta:            preset.NTRUBeta,
+		MaxNLeaves:          preset.MaxNLeaves,
+		Issuance:            issuance,
+		Showing:             showing,
+		ThreatModel:         preset.ThreatModel,
+		RateLimitPolicy:     preset.RateLimitPolicy,
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
 		panic("marshal IntGenISIS preset manifest: " + err.Error())
 	}
+	return encoded
+}
+
+func IntGenISISPresetManifestDigest(preset IntGenISISPreset) string {
+	encoded := IntGenISISPresetManifestCanonicalBytes(preset)
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:])
 }

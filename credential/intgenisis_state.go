@@ -45,6 +45,9 @@ func SaveIntGenISISState(path string, st IntGenISISState) error {
 	if err := st.Validate(); err != nil {
 		return err
 	}
+	if err := rejectTargetLegacyIntGenISISStateIO(st); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal IntGenISIS state: %w", err)
@@ -67,7 +70,25 @@ func LoadIntGenISISState(path string) (IntGenISISState, error) {
 	if err := st.Validate(); err != nil {
 		return st, fmt.Errorf("validate IntGenISIS state %s: %w", path, err)
 	}
+	if err := rejectTargetLegacyIntGenISISStateIO(st); err != nil {
+		return st, fmt.Errorf("validate IntGenISIS state %s: %w", path, err)
+	}
 	return st, nil
+}
+
+// rejectTargetLegacyIntGenISISStateIO keeps the exported JSON helpers from
+// becoming an implicit migration or fallback path for strict-v3 credentials.
+// State-v8 deliberately decodes into the existing in-memory IntGenISISState
+// type, so this guard belongs at the legacy I/O boundary rather than Validate.
+func rejectTargetLegacyIntGenISISStateIO(st IntGenISISState) error {
+	preset, ok := LookupIntGenISISPreset(st.PresetID)
+	if !ok {
+		return fmt.Errorf("unknown state preset_id %q", st.PresetID)
+	}
+	if preset.StateFormatVersion == IntGenISISStateFormatVersionV8 {
+		return fmt.Errorf("preset %q rejects legacy JSON credential-state I/O; use the canonical state-v8 codec (no automatic migration)", preset.CanonicalID)
+	}
+	return nil
 }
 
 func (st IntGenISISState) Validate() error {

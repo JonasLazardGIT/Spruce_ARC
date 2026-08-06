@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func testVerifierKeyV2(t *testing.T, public PublicParams) IntGenISISVerifierKey {
+func testVerifierKeyV2(t testing.TB, public PublicParams) IntGenISISVerifierKey {
 	t.Helper()
 	digest, err := PublicParamsDigest(public)
 	if err != nil {

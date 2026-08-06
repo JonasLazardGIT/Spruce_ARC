@@ -1,6 +1,9 @@
 package credential
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func TestSemanticMessagePack9SeedRoundTrip(t *testing.T) {
 	for _, profile := range []IntGenISISProfile{PrimaryIntGenISISProfile(), Ternary1024IntGenISISProfile()} {
@@ -119,6 +122,31 @@ func TestSemanticMessageProfileDigestsDiffer(t *testing.T) {
 	}
 	if string(a.Digest()) == string(b.Digest()) {
 		t.Fatal("profile B and C semantic layout digests match")
+	}
+}
+
+func TestSemanticMessageCanonicalBytesV3BindSlotsAndBoundary(t *testing.T) {
+	layout, err := DefaultSemanticMessageLayout(Ternary1024IntGenISISProfile(), IntGenISISPRFPoseidonKeyLen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := layout.CanonicalBytesV3()
+	if len(canonical) == 0 {
+		t.Fatal("empty canonical semantic layout")
+	}
+
+	mutated := layout
+	mutated.Attribute = append([]MessageSlot(nil), layout.Attribute...)
+	mutated.Attribute[0].Coeff++
+	if bytes.Equal(canonical, mutated.CanonicalBytesV3()) {
+		t.Fatal("canonical semantic layout did not bind an attribute slot")
+	}
+
+	mutated = layout
+	mutated.Attribute = append([]MessageSlot(nil), layout.Attribute[:len(layout.Attribute)-1]...)
+	mutated.Key = append([]MessageSlot{layout.Attribute[len(layout.Attribute)-1]}, layout.Key...)
+	if bytes.Equal(canonical, mutated.CanonicalBytesV3()) {
+		t.Fatal("canonical semantic layout did not bind the attribute/key boundary")
 	}
 }
 

@@ -112,6 +112,9 @@ func (pres IntGenISISPresentation) Validate() error {
 	if !ok {
 		return fmt.Errorf("presentation is bound to an unknown preset manifest")
 	}
+	if preset.PresentationVersion == IntGenISISPresentationFormatVersionV3 {
+		return fmt.Errorf("legacy presentation v2 is forbidden for strict-v3 preset %q; no migration or fallback is supported", preset.CanonicalID)
+	}
 	profile, ok := LookupIntGenISISProfile(preset.Profile)
 	if !ok {
 		return fmt.Errorf("presentation preset has unsupported profile %q", preset.Profile)

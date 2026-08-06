@@ -13,6 +13,18 @@ const (
 	IntGenISISPresetN1024Q10_96     = "n1024-q10-96"
 	IntGenISISPresetN1024Q16_96     = "n1024-q16-96"
 
+	IntGenISISPublicationPresetBQ96Q32V4   = "publication-n1024-bq-r96-q32-v4"
+	IntGenISISPublicationPresetBQ96Q96V4   = "publication-n1024-bq-r96-q96-v4"
+	IntGenISISPublicationPresetWF128V4     = "publication-n1024-wf128-v4"
+	IntGenISISPublicationPresetBQ128Q64V4  = "publication-n1024-bq-r128-q64-v4"
+	IntGenISISPublicationPresetBQ128Q128V4 = "publication-n1024-bq-r128-q128-v4"
+
+	IntGenISISPublicationLabelBQ96Q32   = "BQ96-32"
+	IntGenISISPublicationLabelBQ96Q96   = "BQ96-96"
+	IntGenISISPublicationLabelWF128     = "WF128"
+	IntGenISISPublicationLabelBQ128Q64  = "BQ128-64"
+	IntGenISISPublicationLabelBQ128Q128 = "BQ128-128"
+
 	IntGenISISPRFProfileDefault      = "poseidon2-t20-tag7"
 	IntGenISISPRFProfileTag9         = "poseidon2-t20-tag9"
 	IntGenISISPRFProfileTag10        = "poseidon2-t20-tag10"
@@ -60,39 +72,45 @@ func IntGenISISPRFProfileParamsDigest(profile string) (string, bool) {
 // IntGenISISTuningPreset is the CLI-stable, package-neutral representation of
 // the SmallWood knobs used by maintained IntGenISIS issuance and showing presets.
 type IntGenISISTuningPreset struct {
-	NCols                  int        `json:"ncols"`
-	LVCSNCols              int        `json:"lvcs_ncols"`
-	NLeaves                int        `json:"nleaves"`
-	Eta                    int        `json:"eta"`
-	Theta                  int        `json:"theta"`
-	Rho                    int        `json:"rho"`
-	Ell                    int        `json:"ell"`
-	EllPrime               int        `json:"ell_prime"`
-	Kappa                  [4]int     `json:"kappa"`
-	ROQueryCaps            [5]int     `json:"ro_query_caps,omitempty"`
-	ROQueryCapsSet         bool       `json:"ro_query_caps_set,omitempty"`
-	ROQueryCapBits         [5]float64 `json:"ro_query_cap_bits,omitempty"`
-	ROQueryCapBitsSet      bool       `json:"ro_query_cap_bits_set,omitempty"`
-	DECSCollisionBits      int        `json:"decs_collision_bits,omitempty"`
-	DECSHashBits           int        `json:"decs_hash_bits,omitempty"`
-	DECSTapeBits           int        `json:"decs_tape_bits,omitempty"`
-	FSCollisionBits        int        `json:"fs_collision_bits,omitempty"`
-	SaltBits               int        `json:"salt_bits,omitempty"`
-	PRFProfile             string     `json:"prf_profile,omitempty"`
-	PRFParamsPath          string     `json:"prf_params_path,omitempty"`
-	PRFCompanionMode       string     `json:"prf_companion_mode,omitempty"`
-	PRFGroupRounds         int        `json:"prf_group_rounds,omitempty"`
-	CheckpointSamples      int        `json:"prf_checkpoint_samples,omitempty"`
-	SigShortnessRadix      int        `json:"sig_shortness_radix,omitempty"`
-	SigShortnessDigits     int        `json:"sig_shortness_digits,omitempty"`
-	CompressedRows         int        `json:"compressed_rows,omitempty"`
-	ReplayProjection       string     `json:"replay_projection,omitempty"`
-	TranscriptMode         string     `json:"transcript_mode,omitempty"`
-	TranscriptOmissionMode string     `json:"transcript_omission_mode,omitempty"`
-	FixedTranscriptSize    bool       `json:"fixed_transcript_size,omitempty"`
-	TargetEq8Bits          float64    `json:"target_eq8_bits,omitempty"`
-	TargetTheoremBits      float64    `json:"target_theorem_bits,omitempty"`
-	SoundnessGate          string     `json:"soundness_gate,omitempty"`
+	PresetID                   string     `json:"preset_id,omitempty"`
+	NCols                      int        `json:"ncols"`
+	LVCSNCols                  int        `json:"lvcs_ncols"`
+	NLeaves                    int        `json:"nleaves"`
+	Eta                        int        `json:"eta"`
+	Theta                      int        `json:"theta"`
+	Rho                        int        `json:"rho"`
+	Ell                        int        `json:"ell"`
+	EllPrime                   int        `json:"ell_prime"`
+	Kappa                      [4]int     `json:"kappa"`
+	ROQueryCaps                [5]int     `json:"ro_query_caps,omitempty"`
+	ROQueryCapsSet             bool       `json:"ro_query_caps_set,omitempty"`
+	ROQueryCapBits             [5]float64 `json:"ro_query_cap_bits,omitempty"`
+	ROQueryCapBitsSet          bool       `json:"ro_query_cap_bits_set,omitempty"`
+	AggregateROQueryCapLog2    float64    `json:"aggregate_ro_query_cap_log2,omitempty"`
+	AggregateROQueryCapLog2Set bool       `json:"aggregate_ro_query_cap_log2_set,omitempty"`
+	DECSCollisionBits          int        `json:"decs_collision_bits,omitempty"`
+	DECSHashBits               int        `json:"decs_hash_bits,omitempty"`
+	DECSTapeBits               int        `json:"decs_tape_bits,omitempty"`
+	FSCollisionBits            int        `json:"fs_collision_bits,omitempty"`
+	FSOutputBits               int        `json:"fs_output_bits,omitempty"`
+	SaltBits                   int        `json:"salt_bits,omitempty"`
+	PRFProfile                 string     `json:"prf_profile,omitempty"`
+	PRFParamsPath              string     `json:"prf_params_path,omitempty"`
+	PRFCompanionMode           string     `json:"prf_companion_mode,omitempty"`
+	PRFGroupRounds             int        `json:"prf_group_rounds,omitempty"`
+	CheckpointSamples          int        `json:"prf_checkpoint_samples,omitempty"`
+	SigShortnessRadix          int        `json:"sig_shortness_radix,omitempty"`
+	SigShortnessDigits         int        `json:"sig_shortness_digits,omitempty"`
+	CompressedRows             int        `json:"compressed_rows,omitempty"`
+	ReplayProjection           string     `json:"replay_projection,omitempty"`
+	TranscriptMode             string     `json:"transcript_mode,omitempty"`
+	TranscriptOmissionMode     string     `json:"transcript_omission_mode,omitempty"`
+	FixedTranscriptSize        bool       `json:"fixed_transcript_size,omitempty"`
+	TargetEq8Bits              float64    `json:"target_eq8_bits,omitempty"`
+	TargetTheoremBits          float64    `json:"target_theorem_bits,omitempty"`
+	SoundnessGate              string     `json:"soundness_gate,omitempty"`
+	RelationVersion            int        `json:"relation_version,omitempty"`
+	LayoutVersion              int        `json:"layout_version,omitempty"`
 }
 
 type intGenISISScopedR128Tuning struct {
@@ -155,6 +173,7 @@ func intGenISISScopedR128ShowingTuning(cfg intGenISISScopedR128Tuning) IntGenISI
 type IntGenISISPreset struct {
 	Name                string                 `json:"name"`
 	CanonicalID         string                 `json:"canonical_id"`
+	PublicationLabel    string                 `json:"publication_label,omitempty"`
 	PresetVersion       int                    `json:"preset_version"`
 	Description         string                 `json:"description"`
 	Purpose             string                 `json:"purpose"`
@@ -179,6 +198,15 @@ type IntGenISISPreset struct {
 	Showing             IntGenISISTuningPreset `json:"showing"`
 	ThreatModel         PresetThreatModel      `json:"threat_model"`
 	RateLimitPolicy     RateLimitPolicy        `json:"rate_limit_policy"`
+	ProofSchemaVersion  int                    `json:"proof_schema_version,omitempty"`
+	RelationVersion     int                    `json:"relation_version,omitempty"`
+	LayoutVersion       int                    `json:"layout_version,omitempty"`
+	StateFormatVersion  int                    `json:"state_format_version,omitempty"`
+	PresentationVersion int                    `json:"presentation_format_version,omitempty"`
+	IssuanceVersion     int                    `json:"issuance_artifact_format_version,omitempty"`
+	HolderUsageVersion  int                    `json:"holder_usage_format_version,omitempty"`
+	FieldProfileID      string                 `json:"field_profile_id,omitempty"`
+	FieldProfileDigest  string                 `json:"field_profile_digest,omitempty"`
 	Notes               []string               `json:"notes,omitempty"`
 }
 
@@ -186,6 +214,9 @@ func LookupIntGenISISPreset(name string) (IntGenISISPreset, bool) {
 	selector := normalizeIntGenISISPresetName(name)
 	if target, ok := intGenISISPresetAliases()[selector]; ok {
 		selector = target
+	}
+	if candidate, ok := lookupIntGenISISPublicationEvidenceCandidate(selector); ok {
+		return candidate, true
 	}
 	p, ok := intGenISISPresetRegistry()[selector]
 	return p, ok
@@ -214,6 +245,57 @@ func IntGenISISPresetNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// IntGenISISPublicationPresetNamesV4 returns the authoritative exact-five
+// publication family in paper order. The returned slice is a fresh copy.
+func IntGenISISPublicationPresetNamesV4() []string {
+	return []string{
+		IntGenISISPublicationPresetBQ96Q32V4,
+		IntGenISISPublicationPresetBQ96Q96V4,
+		IntGenISISPublicationPresetWF128V4,
+		IntGenISISPublicationPresetBQ128Q64V4,
+		IntGenISISPublicationPresetBQ128Q128V4,
+	}
+}
+
+// IntGenISISPublicationPresetNames is a compatibility spelling for callers
+// that do not need to name the manifest epoch explicitly.
+func IntGenISISPublicationPresetNames() []string {
+	return IntGenISISPublicationPresetNamesV4()
+}
+
+// IntGenISISPublicationPresetsV4 resolves the exact-five publication family
+// and returns value copies in paper order.
+func IntGenISISPublicationPresetsV4() []IntGenISISPreset {
+	names := IntGenISISPublicationPresetNamesV4()
+	presets := make([]IntGenISISPreset, 0, len(names))
+	for _, name := range names {
+		preset, ok := LookupIntGenISISPreset(name)
+		if !ok {
+			panic("missing publication-v4 IntGenISIS preset " + name)
+		}
+		presets = append(presets, preset)
+	}
+	return presets
+}
+
+func IntGenISISPublicationPresets() []IntGenISISPreset {
+	return IntGenISISPublicationPresetsV4()
+}
+
+// LookupIntGenISISPublicationPreset accepts only exact publication-v4
+// canonical IDs (not historical aliases or short selectors).
+func LookupIntGenISISPublicationPreset(name string) (IntGenISISPreset, bool) {
+	selector := normalizeIntGenISISPresetName(name)
+	for _, canonicalID := range IntGenISISPublicationPresetNamesV4() {
+		if selector != canonicalID {
+			continue
+		}
+		preset, ok := LookupIntGenISISPreset(canonicalID)
+		return preset, ok && preset.PresetVersion == IntGenISISPresetManifestVersionV4
+	}
+	return IntGenISISPreset{}, false
 }
 
 func normalizeIntGenISISPresetName(name string) string {
@@ -301,6 +383,12 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		SoundnessGate:          "smallwood_2025_1085_salted_tapes_v2_live",
 	}
 	n1024WF128Issuance := intGenISISIssuanceTuning(n1024WF128Show)
+	n1024WF128Show = intGenISISStrictV3Tuning(n1024WF128Show)
+	// The frozen-kappa v3 search has exactly one analytically eligible showing
+	// improvement for WF128. Issuance deliberately remains at L=42; only the
+	// showing PCS width is reduced after the issuance tuning has been copied.
+	n1024WF128Show.LVCSNCols = 41
+	n1024WF128Issuance = intGenISISStrictV3Tuning(n1024WF128Issuance)
 
 	n1024Q10Show96 := IntGenISISTuningPreset{
 		NCols:                  32,
@@ -432,10 +520,12 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 		QueryCapBits:    128,
 		HashBits:        392,
 		TapeBits:        264,
-		SignatureRadix:  7,
-		SignatureDigits: 5,
+		SignatureRadix:  11,
+		SignatureDigits: 4,
 	})
 	n1024BQ128Issuance128 := intGenISISIssuanceTuning(n1024BQ128Show128)
+	n1024BQ128Show128 = intGenISISStrictV3Tuning(n1024BQ128Show128)
+	n1024BQ128Issuance128 = intGenISISStrictV3Tuning(n1024BQ128Issuance128)
 
 	reg := map[string]IntGenISISPreset{
 		IntGenISISPresetN512Compact96: {
@@ -579,6 +669,17 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 			},
 		},
 	}
+	for name, preset := range intGenISISPublicationPresetRegistryV4(
+		n1024BQ32Show96,
+		n1024BQ64Show128,
+		n1024WF128Show,
+		n1024BQ128Show128,
+	) {
+		if _, exists := reg[name]; exists {
+			panic("duplicate publication-v4 IntGenISIS preset " + name)
+		}
+		reg[name] = preset
+	}
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN512Compact96, "SC-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Compact125, "SC-125")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetSystemN1024WF128CROMV2, "WF-128")
@@ -588,12 +689,22 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetPoCN1024BQ128R128V3, "BQ128-128")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q10_96, "BQ10-96")
 	intGenISISPresetApplySecurityProfile(reg, IntGenISISPresetN1024Q16_96, "BQ16-96")
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPublicationPresetBQ96Q32V4, intGenISISPublicationSecurityProfileBQ96Q32V4)
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPublicationPresetBQ96Q96V4, intGenISISPublicationSecurityProfileBQ96Q96V4)
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPublicationPresetWF128V4, intGenISISPublicationSecurityProfileWF128V4)
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPublicationPresetBQ128Q64V4, intGenISISPublicationSecurityProfileBQ128Q64V4)
+	intGenISISPresetApplySecurityProfile(reg, IntGenISISPublicationPresetBQ128Q128V4, intGenISISPublicationSecurityProfileBQ128Q128V4)
 	intGenISISPresetApplyDefaultPRF(reg)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetN1024BQ32_96, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ64R128V2, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ96R128V2, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetPoCN1024BQ128R128V3, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
 	intGenISISPresetApplyPRF(reg, IntGenISISPresetSystemN1024WF128CROMV2, IntGenISISPRFProfileTag13, IntGenISISPRFParamsTag13)
+	intGenISISPresetApplyPRF(reg, IntGenISISPublicationPresetBQ96Q32V4, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
+	intGenISISPresetApplyPRF(reg, IntGenISISPublicationPresetBQ96Q96V4, IntGenISISPRFProfileTag9, IntGenISISPRFParamsTag9)
+	intGenISISPresetApplyPRF(reg, IntGenISISPublicationPresetWF128V4, IntGenISISPRFProfileTag13, IntGenISISPRFParamsTag13)
+	intGenISISPresetApplyPRF(reg, IntGenISISPublicationPresetBQ128Q64V4, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
+	intGenISISPresetApplyPRF(reg, IntGenISISPublicationPresetBQ128Q128V4, IntGenISISPRFProfileTag10, IntGenISISPRFParamsTag10)
 	intGenISISPresetApplyMetadata(reg)
 	if err := validateIntGenISISPresetSecurityTupleUniqueness(reg); err != nil {
 		panic(err)
@@ -602,10 +713,13 @@ func intGenISISPresetRegistry() map[string]IntGenISISPreset {
 }
 
 type intGenISISPresetSecurityTuple struct {
-	ROM        ROMModel
-	Mode       SecurityMode
-	TargetBits float64
-	QueryCaps  [5]float64
+	ROM                      ROMModel
+	Mode                     SecurityMode
+	TargetBits               float64
+	QueryCaps                [5]float64
+	QueryScope               ROQueryCapScope
+	AggregateQueryCapLog2    float64
+	AggregateQueryCapLog2Set bool
 }
 
 func validateIntGenISISPresetSecurityTupleUniqueness(reg map[string]IntGenISISPreset) error {
@@ -625,9 +739,12 @@ func validateIntGenISISPresetSecurityTupleUniqueness(reg map[string]IntGenISISPr
 
 func intGenISISPresetSecurityTupleFor(preset IntGenISISPreset) (intGenISISPresetSecurityTuple, error) {
 	tuple := intGenISISPresetSecurityTuple{
-		ROM:       preset.ThreatModel.ROM,
-		Mode:      preset.ThreatModel.SecurityMode,
-		QueryCaps: preset.ThreatModel.ROQueryCapLog2,
+		ROM:                      preset.ThreatModel.ROM,
+		Mode:                     preset.ThreatModel.SecurityMode,
+		QueryCaps:                preset.ThreatModel.ROQueryCapLog2,
+		QueryScope:               preset.ThreatModel.ROQueryCapScope,
+		AggregateQueryCapLog2:    preset.ThreatModel.AggregateROQueryCapLog2,
+		AggregateQueryCapLog2Set: preset.ThreatModel.AggregateROQueryCapLog2Set,
 	}
 	switch tuple.Mode {
 	case SecurityModeSingleCandidate:
@@ -696,6 +813,32 @@ func intGenISISIssuanceTuning(showing IntGenISISTuningPreset) IntGenISISTuningPr
 	issuance.CompressedRows = 0
 	issuance.ReplayProjection = ""
 	return issuance
+}
+
+func intGenISISStrictV3Tuning(tuning IntGenISISTuningPreset) IntGenISISTuningPreset {
+	// Input-trace v3 has no companion oracle, companion bridge matrices, or
+	// checkpoint openings. Do not carry their retired v2-only metadata into the
+	// manifest-bound target configuration.
+	tuning.PRFCompanionMode = ""
+	tuning.PRFGroupRounds = 0
+	tuning.CheckpointSamples = 0
+	// Strict-v3 issuance uses the same exact ternary pair-carrier codec as the
+	// showing relation. This is relation structure, not a tunable grinding
+	// parameter; level 1 means two ternary source rows per base-9 carrier.
+	tuning.CompressedRows = 1
+	tuning.TranscriptMode = IntGenISISTranscriptProtocolV3
+	tuning.TranscriptOmissionMode = IntGenISISTranscriptOmissionModeV3
+	tuning.SoundnessGate = IntGenISISSecurityGateV3
+	tuning.RelationVersion = 3
+	tuning.LayoutVersion = 3
+	return tuning
+}
+
+func intGenISISStrictV4Tuning(tuning IntGenISISTuningPreset) IntGenISISTuningPreset {
+	tuning = intGenISISStrictV3Tuning(tuning)
+	tuning.TranscriptMode = IntGenISISTranscriptProtocolV4
+	tuning.SoundnessGate = IntGenISISSecurityGateV4
+	return tuning
 }
 
 func intGenISISPow2QueryCap(exp uint) int {

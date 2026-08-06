@@ -149,6 +149,55 @@ func (l SemanticMessageLayout) Digest() []byte {
 	return h.Sum(nil)
 }
 
+// CanonicalBytesV3 returns the complete injectively framed semantic layout
+// consumed by the strict-v3 relation. Digest remains the historical v2
+// identifier; v3 absorbs these bytes directly so SHA-256 is never its sole
+// statement binding.
+func (l SemanticMessageLayout) CanonicalBytesV3() []byte {
+	const domain = "ARC-SPRUCE/intgenisis-semantic-layout/v3"
+	out := make([]byte, 0, 256+16*(len(l.Attribute)+len(l.Key)))
+	appendUint64 := func(value uint64) {
+		var encoded [8]byte
+		binary.LittleEndian.PutUint64(encoded[:], value)
+		out = append(out, encoded[:]...)
+	}
+	appendInt := func(value int) { appendUint64(uint64(value)) }
+	appendString := func(value string) {
+		appendUint64(uint64(len(value)))
+		out = append(out, value...)
+	}
+	appendSlots := func(slots []MessageSlot) {
+		appendUint64(uint64(len(slots)))
+		for _, slot := range slots {
+			appendInt(slot.Poly)
+			appendInt(slot.Coeff)
+		}
+	}
+
+	appendString(domain)
+	appendInt(l.Version)
+	appendString(l.Name)
+	appendString(l.Profile)
+	appendInt(l.RingDegree)
+	appendInt(l.MessageRows)
+	appendInt(l.AttributeRows)
+	appendInt(l.KeyRows)
+	appendSlots(l.Attribute)
+	appendSlots(l.Key)
+	appendUint64(uint64(l.Bound))
+	appendUint64(uint64(l.OrdinaryBound))
+	appendUint64(uint64(l.SeedBound))
+	appendInt(l.PackedKeyLen)
+	appendInt(l.DigitsPerLane)
+	appendUint64(uint64(l.PackBase))
+	appendInt(l.TailReserve)
+	appendString(l.KeyModel)
+	appendString(l.MSEDomain)
+	appendString(l.KeyDomain)
+	appendString(l.DegreeMode)
+	return out
+}
+
 func EncodeSemanticMessage(layout SemanticMessageLayout, m [][]int64, key []int64) (SemanticMessage, error) {
 	if err := layout.validate(); err != nil {
 		return SemanticMessage{}, err

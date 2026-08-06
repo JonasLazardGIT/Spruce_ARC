@@ -43,6 +43,25 @@ func (p IntGenISISPolicy) CanonicalBytes() ([]byte, error) {
 	if p.ID == "" {
 		p = NoopIntGenISISPolicy()
 	}
+	switch p.ID {
+	case IntGenISISPolicyNoop:
+		if len(p.Data) != 0 && string(p.Data) != "null" {
+			return nil, fmt.Errorf("noop IntGenISIS policy must not carry data")
+		}
+		p.Data = nil
+	case IntGenISISPolicyMEquals:
+		var typed IntGenISISMEqualsPolicyData
+		if err := decodeStrictJSON(p.Data, &typed); err != nil {
+			return nil, fmt.Errorf("canonicalize m_eq policy data: %w", err)
+		}
+		canonicalData, err := json.Marshal(typed)
+		if err != nil {
+			return nil, fmt.Errorf("marshal canonical m_eq policy data: %w", err)
+		}
+		p.Data = canonicalData
+	default:
+		return nil, fmt.Errorf("unsupported IntGenISIS policy %q", p.ID)
+	}
 	data, err := json.Marshal(p)
 	if err != nil {
 		return nil, fmt.Errorf("marshal IntGenISIS policy: %w", err)
@@ -59,6 +78,43 @@ func (p IntGenISISPolicy) DigestHex() (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// ValidateIntGenISISMEqualsPolicyData strictly decodes and validates the
+// public m_eq statement independently of any honest witness. Attribute slots
+// are canonical signed ternary values and every key/reserved slot is exactly
+// zero. This prevents verifier-side Fq lifting from silently identifying
+// invalid integers such as q-1 with -1 or q with 0.
+func ValidateIntGenISISMEqualsPolicyData(layout SemanticMessageLayout, p IntGenISISPolicy) (IntGenISISMEqualsPolicyData, error) {
+	var zero IntGenISISMEqualsPolicyData
+	if p.ID != IntGenISISPolicyMEquals {
+		return zero, fmt.Errorf("policy id=%q want %q", p.ID, IntGenISISPolicyMEquals)
+	}
+	if err := layout.validate(); err != nil {
+		return zero, fmt.Errorf("validate m_eq semantic layout: %w", err)
+	}
+	var data IntGenISISMEqualsPolicyData
+	if err := decodeStrictJSON(p.Data, &data); err != nil {
+		return zero, fmt.Errorf("decode m_eq policy data: %w", err)
+	}
+	if err := validateRows("policy.m", data.MAttr, layout.AttributeRows, layout.RingDegree); err != nil {
+		return zero, err
+	}
+	allowed := slotSet(layout.Attribute)
+	for row := range data.MAttr {
+		for coefficient, value := range data.MAttr[row] {
+			if allowed[slotKey(row, coefficient)] {
+				if !isTernaryInt64(value) {
+					return zero, fmt.Errorf("policy.m[%d][%d]=%d outside ternary domain {-1,0,1}", row, coefficient, value)
+				}
+				continue
+			}
+			if value != 0 {
+				return zero, fmt.Errorf("policy.m reserved/key slot row=%d coeff=%d is non-zero", row, coefficient)
+			}
+		}
+	}
+	return data, nil
+}
+
 func ValidateIntGenISISPolicy(layout SemanticMessageLayout, p IntGenISISPolicy, msg SemanticMessage) error {
 	if p.ID == "" {
 		p = NoopIntGenISISPolicy()
@@ -67,11 +123,8 @@ func ValidateIntGenISISPolicy(layout SemanticMessageLayout, p IntGenISISPolicy, 
 	case IntGenISISPolicyNoop:
 		return nil
 	case IntGenISISPolicyMEquals:
-		var data IntGenISISMEqualsPolicyData
-		if err := decodeStrictJSON(p.Data, &data); err != nil {
-			return fmt.Errorf("decode m_eq policy data: %w", err)
-		}
-		if err := validateRows("policy.m", data.MAttr, layout.AttributeRows, layout.RingDegree); err != nil {
+		data, err := ValidateIntGenISISMEqualsPolicyData(layout, p)
+		if err != nil {
 			return err
 		}
 		for r := range data.MAttr {

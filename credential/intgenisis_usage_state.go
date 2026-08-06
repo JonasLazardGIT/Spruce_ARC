@@ -23,6 +23,9 @@ func IntGenISISCredentialFingerprint(st IntGenISISState) (string, error) {
 	if err := st.Validate(); err != nil {
 		return "", err
 	}
+	if preset, ok := LookupIntGenISISPreset(st.PresetID); ok && preset.HolderUsageVersion == IntGenISISHolderUsageFormatVersionV3 {
+		return "", fmt.Errorf("legacy JSON credential fingerprint is unavailable for strict-v3 preset %q; use IntGenISISCredentialFingerprintV3 with canonical state-v8", st.PresetID)
+	}
 	data, err := json.Marshal(st)
 	if err != nil {
 		return "", fmt.Errorf("marshal credential state fingerprint: %w", err)
@@ -53,6 +56,9 @@ func (st *IntGenISISHolderUsageState) Validate() error {
 		if err := validateDigestHex(name, digest); err != nil {
 			return err
 		}
+	}
+	if preset, ok := lookupIntGenISISPresetByManifestDigest(st.PresetManifestDigest); ok && preset.HolderUsageVersion == IntGenISISHolderUsageFormatVersionV3 {
+		return fmt.Errorf("legacy holder-usage-state v2 is forbidden for strict-v3 preset %q; no migration or fallback is supported", preset.CanonicalID)
 	}
 	if st.NextSlotByContext == nil {
 		return fmt.Errorf("holder usage state missing context map")

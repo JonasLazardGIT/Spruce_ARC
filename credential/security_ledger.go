@@ -57,14 +57,17 @@ type AdversaryScope struct {
 }
 
 type AdversaryScopeLog2 struct {
-	IssuanceQueriesLog2 float64 `json:"issuance_queries_log2"`
-	PresentationsLog2   float64 `json:"presentations_log2"`
-	VerificationsLog2   float64 `json:"verifications_log2"`
-	PRFAttemptsLog2     float64 `json:"prf_attempts_log2"`
-	UsersLog2           float64 `json:"users_log2"`
-	ContextsLog2        float64 `json:"contexts_log2"`
-	TagsPerContextLog2  float64 `json:"tags_per_context_log2"`
-	ProofsLog2          float64 `json:"proofs_log2"`
+	IssuanceQueriesLog2        float64         `json:"issuance_queries_log2"`
+	PresentationsLog2          float64         `json:"presentations_log2"`
+	VerificationsLog2          float64         `json:"verifications_log2"`
+	PRFAttemptsLog2            float64         `json:"prf_attempts_log2"`
+	UsersLog2                  float64         `json:"users_log2"`
+	ContextsLog2               float64         `json:"contexts_log2"`
+	TagsPerContextLog2         float64         `json:"tags_per_context_log2"`
+	ProofsLog2                 float64         `json:"proofs_log2"`
+	ROQueryCapScope            ROQueryCapScope `json:"ro_query_cap_scope,omitempty"`
+	AggregateROQueryCapLog2    float64         `json:"aggregate_ro_query_cap_log2,omitempty"`
+	AggregateROQueryCapLog2Set bool            `json:"aggregate_ro_query_cap_log2_set,omitempty"`
 }
 
 type SystemSecurityLedgerTerm struct {
@@ -414,14 +417,17 @@ func IntGenISISTapeGuessingBitsLog(tapeBits int, guessLog2 float64) float64 {
 
 func AdversaryScopesFromThreatModel(model PresetThreatModel) (AdversaryScope, AdversaryScopeLog2) {
 	logs := AdversaryScopeLog2{
-		IssuanceQueriesLog2: model.MaxIssuanceProofsLog2,
-		PresentationsLog2:   model.MaxShowingProofsLog2,
-		VerificationsLog2:   model.MaxProofsLog2,
-		PRFAttemptsLog2:     model.MaxTagsPerContextLog2,
-		UsersLog2:           model.MaxUsersLog2,
-		ContextsLog2:        model.MaxContextsLog2,
-		TagsPerContextLog2:  model.MaxTagsPerContextLog2,
-		ProofsLog2:          model.MaxProofsLog2,
+		IssuanceQueriesLog2:        model.MaxIssuanceProofsLog2,
+		PresentationsLog2:          model.MaxShowingProofsLog2,
+		VerificationsLog2:          model.MaxProofsLog2,
+		PRFAttemptsLog2:            model.MaxTagsPerContextLog2,
+		UsersLog2:                  model.MaxUsersLog2,
+		ContextsLog2:               model.MaxContextsLog2,
+		TagsPerContextLog2:         model.MaxTagsPerContextLog2,
+		ProofsLog2:                 model.MaxProofsLog2,
+		ROQueryCapScope:            model.ROQueryCapScope,
+		AggregateROQueryCapLog2:    model.AggregateROQueryCapLog2,
+		AggregateROQueryCapLog2Set: model.AggregateROQueryCapLog2Set,
 	}
 	scope := AdversaryScope{
 		IssuanceQueries: countFromLog2(model.MaxIssuanceProofsLog2),

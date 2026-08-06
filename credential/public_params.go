@@ -3,10 +3,13 @@ package credential
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
 
 	"vSIS-Signature/commitment"
+	kf "vSIS-Signature/internal/kfield"
+	"vSIS-Signature/prf"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -159,7 +162,7 @@ func (pp PublicParams) ValidateIntGenISISPreset(preset IntGenISISPreset) error {
 // PresetTranscriptExtras returns canonical byte values suitable for PIOP's
 // public-input Fiat-Shamir binding. Existing entries are copied.
 func (pp PublicParams) PresetTranscriptExtras(existing map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(existing)+8)
+	out := make(map[string]interface{}, len(existing)+19)
 	for key, value := range existing {
 		out[key] = value
 	}
@@ -168,8 +171,57 @@ func (pp PublicParams) PresetTranscriptExtras(existing map[string]interface{}) m
 	out["IntGenISIS.primitive_profile_id"] = []byte(pp.PrimitiveProfileID)
 	out["IntGenISIS.prf_profile"] = []byte(pp.PRFProfile)
 	out["IntGenISIS.transcript_mode"] = []byte(pp.TranscriptMode)
-	out["IntGenISIS.transcript_version"] = []byte(IntGenISISTranscriptVersionV2)
+	_, transcriptVersion, err := ResolveIntGenISISTranscript(pp.TranscriptMode)
+	if err != nil {
+		panic("resolve bound IntGenISIS transcript: " + err.Error())
+	}
+	out["IntGenISIS.transcript_version"] = []byte(transcriptVersion)
 	out["IntGenISIS.preset_manifest_digest"] = []byte(pp.PresetManifestDigest)
+	if transcriptVersion == IntGenISISTranscriptVersionV3 || transcriptVersion == IntGenISISTranscriptVersionV4 {
+		preset, ok := LookupIntGenISISPreset(pp.PresetID)
+		wantManifestVersion := IntGenISISPresetManifestVersionV3
+		if transcriptVersion == IntGenISISTranscriptVersionV4 {
+			wantManifestVersion = IntGenISISPresetManifestVersionV4
+		}
+		if !ok || preset.PresetVersion != wantManifestVersion {
+			panic("strict public parameters do not resolve to the matching preset-manifest epoch")
+		}
+		profile, ok := kf.LookupSmallWoodFieldProfileV3(pp.Modulus, preset.Showing.Theta)
+		if !ok || profile.ID != preset.FieldProfileID {
+			panic("strict public parameters do not resolve to their fixed field profile")
+		}
+		out["IntGenISIS.field_profile_id"] = []byte(profile.ID)
+		out["IntGenISIS.field_profile_digest"] = []byte(preset.FieldProfileDigest)
+		// The complete profile is absorbed. Its digest is an identity/checksum,
+		// not a security-critical compression of Chi or omegaExtra.
+		out["IntGenISIS.field_profile"] = profile.CanonicalBytes()
+		params, canonicalPRF, err := prf.LoadEmbeddedTargetParamsV3(preset.PRFParamsPath)
+		if err != nil {
+			panic("load bound strict PRF profile: " + err.Error())
+		}
+		embeddedDigest, err := prf.EmbeddedTargetParamsFileDigestV3(preset.PRFParamsPath)
+		if err != nil || embeddedDigest != preset.PRFParamsDigest {
+			panic("embedded strict PRF source does not match its pinned preset digest")
+		}
+		wantTag, ok := IntGenISISPRFProfileTagElements(preset.PRFProfile)
+		if !ok || params.Q != pp.Modulus || params.LenTag != wantTag {
+			panic("strict PRF profile does not match its preset/public field binding")
+		}
+		// As with the field profile, absorb every executed PRF constant. The
+		// historical SHA-256 file digest remains an identifier/checksum only.
+		out["IntGenISIS.prf_params"] = canonicalPRF
+		// Bind the complete schema-v3 manifest directly. The historical
+		// SHA-256 manifest digest remains an identifier, never the sole
+		// security-critical statement binding on the v3 path.
+		out["IntGenISIS.preset_manifest"] = IntGenISISPresetManifestCanonicalBytes(preset)
+		out["IntGenISIS.proof_schema_version"] = []byte(fmt.Sprintf("%d", preset.ProofSchemaVersion))
+		out["IntGenISIS.relation_version"] = []byte(fmt.Sprintf("%d", preset.RelationVersion))
+		out["IntGenISIS.layout_version"] = []byte(fmt.Sprintf("%d", preset.LayoutVersion))
+		out["IntGenISIS.state_format_version"] = []byte(fmt.Sprintf("%d", preset.StateFormatVersion))
+		out["IntGenISIS.presentation_format_version"] = []byte(fmt.Sprintf("%d", preset.PresentationVersion))
+		out["IntGenISIS.issuance_artifact_format_version"] = []byte(fmt.Sprintf("%d", preset.IssuanceVersion))
+		out["IntGenISIS.holder_usage_format_version"] = []byte(fmt.Sprintf("%d", preset.HolderUsageVersion))
+	}
 	policy, err := json.Marshal(pp.RateLimitPolicy)
 	if err != nil {
 		panic("marshal fixed IntGenISIS rate-limit policy: " + err.Error())
@@ -236,7 +288,7 @@ func (pp *PublicParams) validateIntGenISIS() error {
 	if pp.X0Len != pp.EllX0 {
 		return fmt.Errorf("stored X0Len=%d must match ell_x0=%d", pp.X0Len, pp.EllX0)
 	}
-	if pp.MLWEHidingBits != profile.MLWEHidingBits || pp.MSISBindingBits != profile.MSISBindingBits || pp.CommitmentSecurity == nil || !reflect.DeepEqual(*pp.CommitmentSecurity, profile.CommitmentSecurity) {
+	if !closeSecurityFloat(pp.MLWEHidingBits, profile.MLWEHidingBits) || !closeSecurityFloat(pp.MSISBindingBits, profile.MSISBindingBits) || pp.CommitmentSecurity == nil || !equalIntGenISISCommitmentSecurity(*pp.CommitmentSecurity, profile.CommitmentSecurity) {
 		return fmt.Errorf("commitment security metadata does not match profile %q", profile.Name)
 	}
 	if err := validateCoeffMatrixDims("C_M", pp.CM, pp.NC, pp.EllM, pp.RingDegree); err != nil {
@@ -246,6 +298,30 @@ func (pp *PublicParams) validateIntGenISIS() error {
 		return err
 	}
 	return nil
+}
+
+func closeSecurityFloat(a, b float64) bool {
+	const tolerance = 1e-9
+	return math.Abs(a-b) <= tolerance
+}
+
+// equalIntGenISISCommitmentSecurity keeps exact checks for identities,
+// assumptions, bounds, and models while allowing harmless decimal round-trip
+// differences in estimator outputs stored in JSON fixtures.
+func equalIntGenISISCommitmentSecurity(a, b IntGenISISCommitmentSecurity) bool {
+	floatFieldsEqual := closeSecurityFloat(a.MLWEHidingBits, b.MLWEHidingBits) &&
+		closeSecurityFloat(a.MSISBindingBits, b.MSISBindingBits) &&
+		closeSecurityFloat(a.MSISBindingL2Bound, b.MSISBindingL2Bound) &&
+		closeSecurityFloat(a.BindingDiffSpaceBits, b.BindingDiffSpaceBits) &&
+		closeSecurityFloat(a.StatisticalHidingSlackBits, b.StatisticalHidingSlackBits) &&
+		closeSecurityFloat(a.StatisticalBindingSlackBits, b.StatisticalBindingSlackBits)
+	a.MLWEHidingBits, b.MLWEHidingBits = 0, 0
+	a.MSISBindingBits, b.MSISBindingBits = 0, 0
+	a.MSISBindingL2Bound, b.MSISBindingL2Bound = 0, 0
+	a.BindingDiffSpaceBits, b.BindingDiffSpaceBits = 0, 0
+	a.StatisticalHidingSlackBits, b.StatisticalHidingSlackBits = 0, 0
+	a.StatisticalBindingSlackBits, b.StatisticalBindingSlackBits = 0, 0
+	return floatFieldsEqual && reflect.DeepEqual(a, b)
 }
 
 func validateCoeffMatrixDims(name string, mat commitment.CoeffMatrix, rows, cols, degree int) error {

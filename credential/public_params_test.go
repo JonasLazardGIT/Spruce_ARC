@@ -55,7 +55,7 @@ func TestPublicParamsRoundTripAndLift(t *testing.T) {
 	}
 }
 
-func testPublicParamsV2(t *testing.T, presetName string) PublicParams {
+func testPublicParamsV2(t testing.TB, presetName string) PublicParams {
 	t.Helper()
 	preset, err := MustLookupIntGenISISPreset(presetName)
 	if err != nil {

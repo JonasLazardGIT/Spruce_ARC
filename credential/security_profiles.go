@@ -31,22 +31,26 @@ const (
 )
 
 type IntGenISISSecurityProfileSpec struct {
-	Label              string                `json:"label"`
-	Mode               SecurityMode          `json:"mode"`
-	ROM                ROMModel              `json:"rom"`
-	TargetBits         float64               `json:"target_bits"`
-	CoreBitsRequired   float64               `json:"core_bits_required"`
-	ROQueryCaps        []uint64              `json:"ro_query_caps,omitempty"`
-	ROQueryCapBits     []float64             `json:"ro_query_cap_bits,omitempty"`
-	MinDECSHashBits    int                   `json:"min_decs_hash_bits,omitempty"`
-	MinDECSTapeBits    int                   `json:"min_decs_tape_bits,omitempty"`
-	MinFSCollisionBits int                   `json:"min_fs_collision_bits,omitempty"`
-	MinSaltBits        int                   `json:"min_salt_bits,omitempty"`
-	MinPRFTagElements  int                   `json:"min_prf_tag_elements,omitempty"`
-	SeedSlots          int                   `json:"seed_slots,omitempty"`
-	PackedKeyCoords    int                   `json:"packed_key_coords,omitempty"`
-	Status             SecurityProfileStatus `json:"status"`
-	Notes              string                `json:"notes,omitempty"`
+	Label                      string                `json:"label"`
+	Mode                       SecurityMode          `json:"mode"`
+	ROM                        ROMModel              `json:"rom"`
+	TargetBits                 float64               `json:"target_bits"`
+	CoreBitsRequired           float64               `json:"core_bits_required"`
+	ROQueryCaps                []uint64              `json:"ro_query_caps,omitempty"`
+	ROQueryCapBits             []float64             `json:"ro_query_cap_bits,omitempty"`
+	ROQueryCapScope            ROQueryCapScope       `json:"ro_query_cap_scope,omitempty"`
+	AggregateROQueryCapLog2    float64               `json:"aggregate_ro_query_cap_log2,omitempty"`
+	AggregateROQueryCapLog2Set bool                  `json:"aggregate_ro_query_cap_log2_set,omitempty"`
+	MinDECSHashBits            int                   `json:"min_decs_hash_bits,omitempty"`
+	MinDECSTapeBits            int                   `json:"min_decs_tape_bits,omitempty"`
+	MinFSCollisionBits         int                   `json:"min_fs_collision_bits,omitempty"`
+	MinFSOutputBits            int                   `json:"min_fs_output_bits,omitempty"`
+	MinSaltBits                int                   `json:"min_salt_bits,omitempty"`
+	MinPRFTagElements          int                   `json:"min_prf_tag_elements,omitempty"`
+	SeedSlots                  int                   `json:"seed_slots,omitempty"`
+	PackedKeyCoords            int                   `json:"packed_key_coords,omitempty"`
+	Status                     SecurityProfileStatus `json:"status"`
+	Notes                      string                `json:"notes,omitempty"`
 }
 
 func LookupIntGenISISSecurityProfile(label string) (IntGenISISSecurityProfileSpec, bool) {
@@ -86,12 +90,29 @@ func validateIntGenISISSecurityProfileSpec(profile IntGenISISSecurityProfileSpec
 	}
 	switch profile.Mode {
 	case SecurityModeSingleCandidate, SecurityModeQueryWorkFactor:
-		if len(profile.ROQueryCaps) != 0 || len(profile.ROQueryCapBits) != 0 {
+		if len(profile.ROQueryCaps) != 0 || len(profile.ROQueryCapBits) != 0 || profile.AggregateROQueryCapLog2Set || profile.AggregateROQueryCapLog2 != 0 {
 			return fmt.Errorf("mode %q must not carry bounded-query caps", profile.Mode)
 		}
 	case SecurityModeResidualAtBudget:
+		legacyVector := len(profile.ROQueryCapBits) != 0 || len(profile.ROQueryCaps) != 0
+		aggregateScalar := profile.AggregateROQueryCapLog2Set
+		if legacyVector == aggregateScalar {
+			return fmt.Errorf("residual-budget profile must carry exactly one legacy-vector or aggregate-scalar query budget")
+		}
+		if aggregateScalar {
+			if profile.ROQueryCapScope != "" && profile.ROQueryCapScope != ROQueryCapAggregateComposedGame {
+				return fmt.Errorf("aggregate query scalar has incompatible scope %q", profile.ROQueryCapScope)
+			}
+			if profile.AggregateROQueryCapLog2 <= 0 || math.IsNaN(profile.AggregateROQueryCapLog2) || math.IsInf(profile.AggregateROQueryCapLog2, 0) {
+				return fmt.Errorf("invalid aggregate logarithmic query cap %v", profile.AggregateROQueryCapLog2)
+			}
+			break
+		}
 		if len(profile.ROQueryCapBits) != 5 {
-			return fmt.Errorf("residual-budget profile must carry five logarithmic caps")
+			return fmt.Errorf("legacy residual-budget profile must carry five logarithmic caps")
+		}
+		if profile.ROQueryCapScope != "" && profile.ROQueryCapScope != ROQueryCapPerPhaseGlobal {
+			return fmt.Errorf("legacy query vector has incompatible scope %q", profile.ROQueryCapScope)
 		}
 		for i, bits := range profile.ROQueryCapBits {
 			if bits <= 0 || math.IsNaN(bits) || math.IsInf(bits, 0) {
@@ -111,12 +132,15 @@ func validateIntGenISISSecurityProfileSpec(profile IntGenISISSecurityProfileSpec
 	default:
 		return fmt.Errorf("unsupported security mode %q", profile.Mode)
 	}
+	if profile.ROQueryCapScope != "" && profile.ROQueryCapScope != ROQueryCapPerPhaseGlobal && profile.ROQueryCapScope != ROQueryCapAggregateComposedGame {
+		return fmt.Errorf("unsupported security-profile query scope %q", profile.ROQueryCapScope)
+	}
 	switch profile.Status {
 	case SecurityProfileCompleteLive, SecurityProfileProofOnly, SecurityProfileCandidate, SecurityProfileRequiresNewPrimitives, SecurityProfileRequiresTheory:
 	default:
 		return fmt.Errorf("unsupported profile status %q", profile.Status)
 	}
-	if profile.MinDECSHashBits < 0 || profile.MinDECSTapeBits < 0 || profile.MinFSCollisionBits < 0 || profile.MinSaltBits < 0 || profile.MinPRFTagElements <= 0 {
+	if profile.MinDECSHashBits < 0 || profile.MinDECSTapeBits < 0 || profile.MinFSCollisionBits < 0 || profile.MinFSOutputBits < 0 || profile.MinSaltBits < 0 || profile.MinPRFTagElements <= 0 {
 		return fmt.Errorf("invalid minimum security parameters")
 	}
 	if profile.SeedSlots != IntGenISISPRFSeedLen || profile.PackedKeyCoords != IntGenISISPRFPoseidonKeyLen {
@@ -130,7 +154,7 @@ func finitePositive(value float64) bool {
 }
 
 func intGenISISSecurityProfileSpecs() []IntGenISISSecurityProfileSpec {
-	return []IntGenISISSecurityProfileSpec{
+	profiles := []IntGenISISSecurityProfileSpec{
 		{
 			Label:             "SC-96",
 			Mode:              SecurityModeSingleCandidate,
@@ -368,6 +392,7 @@ func intGenISISSecurityProfileSpecs() []IntGenISISSecurityProfileSpec {
 			Notes:              "NIZK-only residual target under raw 2^128 caps for the five proof-system oracle domains; primitive security is an independent assumption.",
 		},
 	}
+	return append(profiles, intGenISISPublicationSecurityProfileSpecsV4()...)
 }
 
 func intGenISISSecurityProfileROQueryCaps(exp uint) []uint64 {

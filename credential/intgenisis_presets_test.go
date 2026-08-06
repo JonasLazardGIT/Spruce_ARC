@@ -12,6 +12,11 @@ func TestIntGenISISPresetRegistryContainsOnlyCoherentUniquePresets(t *testing.T)
 		IntGenISISPresetPoCN1024BQ128R128V3,
 		IntGenISISPresetPoCN1024BQ64R128V2,
 		IntGenISISPresetPoCN1024BQ96R128V2,
+		IntGenISISPublicationPresetBQ128Q128V4,
+		IntGenISISPublicationPresetBQ128Q64V4,
+		IntGenISISPublicationPresetBQ96Q32V4,
+		IntGenISISPublicationPresetBQ96Q96V4,
+		IntGenISISPublicationPresetWF128V4,
 		IntGenISISPresetSystemN1024WF128CROMV2,
 	}
 	names := IntGenISISPresetNames()
@@ -32,17 +37,39 @@ func TestIntGenISISPresetRegistryContainsOnlyCoherentUniquePresets(t *testing.T)
 		if p.TargetTheoremBits == 0 {
 			t.Fatalf("preset %s has invalid target: %+v", name, p)
 		}
-		if p.SoundnessGate != "smallwood_2025_1085_salted_tapes_v2_live" {
+		v3Target := name == IntGenISISPresetPoCN1024BQ128R128V3 || name == IntGenISISPresetSystemN1024WF128CROMV2
+		v4Target := isIntGenISISPublicationPresetV4ID(name)
+		wantGate := IntGenISISSecurityGateV2
+		wantTranscript := IntGenISISTranscriptProtocolV2
+		wantOmission := IntGenISISTranscriptOmissionModeV2
+		if v3Target {
+			wantGate = IntGenISISSecurityGateV3
+			wantTranscript = IntGenISISTranscriptProtocolV3
+			wantOmission = IntGenISISTranscriptOmissionModeV3
+		}
+		if v4Target {
+			wantGate = IntGenISISSecurityGateV4
+			wantTranscript = IntGenISISTranscriptProtocolV4
+			wantOmission = IntGenISISTranscriptOmissionModeV3
+		}
+		wantCompanionMode := "direct_full"
+		if v3Target || v4Target {
+			wantCompanionMode = ""
+		}
+		if p.SoundnessGate != wantGate {
 			t.Fatalf("maintained preset %s has invalid gate: %+v", name, p)
 		}
-		if p.Showing.TranscriptMode != IntGenISISTranscriptProtocolV2 || p.Showing.TranscriptOmissionMode != IntGenISISTranscriptOmissionModeV2 || p.Showing.PRFCompanionMode != "direct_full" || !p.Showing.FixedTranscriptSize {
+		if p.Showing.TranscriptMode != wantTranscript || p.Showing.TranscriptOmissionMode != wantOmission || p.Showing.PRFCompanionMode != wantCompanionMode || !p.Showing.FixedTranscriptSize {
 			t.Fatalf("maintained preset %s showing tuple=%+v", name, p.Showing)
 		}
-		if p.Issuance.PRFCompanionMode != "" || p.Issuance.SigShortnessRadix != 0 || p.Issuance.TranscriptMode != IntGenISISTranscriptProtocolV2 || p.Issuance.TranscriptOmissionMode != IntGenISISTranscriptOmissionModeV2 || !p.Issuance.FixedTranscriptSize {
+		if (v3Target || v4Target) && (p.Showing.PRFGroupRounds != 0 || p.Showing.CheckpointSamples != 0) {
+			t.Fatalf("strict-v3 preset %s retained companion bridge metadata: %+v", name, p.Showing)
+		}
+		if p.Issuance.PRFCompanionMode != "" || p.Issuance.SigShortnessRadix != 0 || p.Issuance.TranscriptMode != wantTranscript || p.Issuance.TranscriptOmissionMode != wantOmission || !p.Issuance.FixedTranscriptSize {
 			t.Fatalf("maintained preset %s issuance tuple=%+v", name, p.Issuance)
 		}
 		for phase, tuning := range map[string]IntGenISISTuningPreset{"issuance": p.Issuance, "showing": p.Showing} {
-			if got, err := ResolveIntGenISISTranscriptOmission(tuning.TranscriptOmissionMode); err != nil || got != IntGenISISTranscriptOmissionModeV2 {
+			if got, err := ResolveIntGenISISTranscriptOmission(tuning.TranscriptOmissionMode); err != nil || got != wantOmission {
 				t.Fatalf("maintained preset %s %s omission mode did not resolve exactly: got=%q err=%v", name, phase, got, err)
 			}
 		}
@@ -60,6 +87,11 @@ func TestIntGenISISPresetSecurityProfileMetadata(t *testing.T) {
 		IntGenISISPresetPoCN1024BQ96R128V2:     "BQ96-128",
 		IntGenISISPresetPoCN1024BQ128R128V3:    "BQ128-128",
 		IntGenISISPresetSystemN1024WF128CROMV2: "WF-128",
+		IntGenISISPublicationPresetBQ96Q32V4:   intGenISISPublicationSecurityProfileBQ96Q32V4,
+		IntGenISISPublicationPresetBQ96Q96V4:   intGenISISPublicationSecurityProfileBQ96Q96V4,
+		IntGenISISPublicationPresetWF128V4:     intGenISISPublicationSecurityProfileWF128V4,
+		IntGenISISPublicationPresetBQ128Q64V4:  intGenISISPublicationSecurityProfileBQ128Q64V4,
+		IntGenISISPublicationPresetBQ128Q128V4: intGenISISPublicationSecurityProfileBQ128Q128V4,
 	}
 	for _, name := range IntGenISISPresetNames() {
 		preset, ok := LookupIntGenISISPreset(name)
@@ -103,8 +135,11 @@ func TestN1024WF128CROMPresetIsExecutableCandidate(t *testing.T) {
 	if p.Showing.ROQueryCapsSet || p.Showing.ROQueryCaps != [5]int{} || p.Showing.ROQueryCapBitsSet || p.Showing.ROQueryCapBits != [5]float64{} {
 		t.Fatalf("WF-128 must not carry bounded-query caps: %+v", p.Showing)
 	}
-	if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 42 || p.Showing.NLeaves != 327680 || p.Showing.Eta != 43 || p.Showing.Theta != 7 || p.Showing.Rho != 1 || p.Showing.Ell != 9 || p.Showing.EllPrime != 1 || p.Showing.Kappa != [4]int{1, 0, 2, 13} {
+	if p.Showing.NCols != 32 || p.Showing.LVCSNCols != 41 || p.Showing.NLeaves != 327680 || p.Showing.Eta != 43 || p.Showing.Theta != 7 || p.Showing.Rho != 1 || p.Showing.Ell != 9 || p.Showing.EllPrime != 1 || p.Showing.Kappa != [4]int{1, 0, 2, 13} {
 		t.Fatalf("WF-128 showing geometry=%+v", p.Showing)
+	}
+	if p.Issuance.LVCSNCols != 42 {
+		t.Fatalf("WF-128 issuance L=%d want frozen incumbent 42", p.Issuance.LVCSNCols)
 	}
 	if p.Showing.DECSCollisionBits != 264 || p.Showing.DECSHashBits != 264 || p.Showing.DECSTapeBits != 128 || p.Showing.FSCollisionBits != 264 || p.Showing.SaltBits != 256 {
 		t.Fatalf("WF-128 widths=%+v", p.Showing)
@@ -112,7 +147,7 @@ func TestN1024WF128CROMPresetIsExecutableCandidate(t *testing.T) {
 	if p.PRFProfile != IntGenISISPRFProfileTag13 || p.PRFParamsPath != IntGenISISPRFParamsTag13 || p.PRFParamsDigest != IntGenISISPRFParamsTag13Digest {
 		t.Fatalf("WF-128 PRF binding=(%q,%q,%q)", p.PRFProfile, p.PRFParamsPath, p.PRFParamsDigest)
 	}
-	if p.Issuance.PRFCompanionMode != "" || p.Issuance.SigShortnessRadix != 0 || p.Issuance.CompressedRows != 0 || p.Issuance.DECSHashBits != p.Showing.DECSHashBits || p.Issuance.PRFProfile != p.PRFProfile {
+	if p.Issuance.PRFCompanionMode != "" || p.Issuance.SigShortnessRadix != 0 || p.Issuance.CompressedRows != 1 || p.Issuance.DECSHashBits != p.Showing.DECSHashBits || p.Issuance.PRFProfile != p.PRFProfile {
 		t.Fatalf("WF-128 issuance tuple=%+v", p.Issuance)
 	}
 	if p.ThreatModel.TargetWorkFactorBits != 128 || p.ThreatModel.ROQueryCapLog2 != [5]float64{} || p.ThreatModel.AcceptedIssuance != 1 || p.ThreatModel.AcceptedShowing != 1 {
@@ -173,6 +208,13 @@ func TestN1024NIZKScopedR128Presets(t *testing.T) {
 				showing.Rho != 1 || showing.EllPrime != 1 || showing.Kappa != tc.kappa {
 				t.Fatalf("incorrect measured SmallWood geometry: %+v", showing)
 			}
+			wantRadix, wantDigits := 7, 5
+			if tc.name == IntGenISISPresetPoCN1024BQ128R128V3 {
+				wantRadix, wantDigits = 11, 4
+			}
+			if showing.SigShortnessRadix != wantRadix || showing.SigShortnessDigits != wantDigits {
+				t.Fatalf("incorrect signature shortness R/L=%d/%d want %d/%d", showing.SigShortnessRadix, showing.SigShortnessDigits, wantRadix, wantDigits)
+			}
 			if showing.DECSCollisionBits != tc.hashBits || showing.DECSHashBits != tc.hashBits ||
 				showing.FSCollisionBits != tc.hashBits || showing.DECSTapeBits != tc.tapeBits ||
 				showing.SaltBits != 200 {
@@ -185,6 +227,7 @@ func TestN1024NIZKScopedR128Presets(t *testing.T) {
 			}
 			if preset.Issuance.PRFCompanionMode != "" ||
 				preset.Issuance.SigShortnessRadix != 0 ||
+				(tc.name == IntGenISISPresetPoCN1024BQ128R128V3 && preset.Issuance.CompressedRows != 1) ||
 				preset.Issuance.ROQueryCapBits != wantCaps ||
 				preset.Issuance.PRFProfile != IntGenISISPRFProfileTag10 {
 				t.Fatalf("incorrect derived issuance geometry: %+v", preset.Issuance)
