@@ -5,6 +5,7 @@ import (
 
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
+	swDomain "vSIS-Signature/internal/domain"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -98,6 +99,14 @@ func requiredExplicitPCSNColsForRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell
 // commitRows creates a v2 LVCS commitment and assigns the witness and mask
 // layout for a retained proof slice. The returned root is always full-width.
 func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs.Params, witnessCount, maskOffset, maskCount int, points []uint64, ctx decs.CommitmentContext, phase decs.CommitPhaseRecorder) (rootHash []byte, pk *lvcs.ProverKey, oracleLayout lvcs.OracleLayout, err error) {
+	return commitRowsPrepared(ringQ, rows, ell, decsParams, witnessCount, maskOffset, maskCount, points, nil, ctx, phase, false)
+}
+
+// commitRowsPrepared is the strict proving path. A non-nil prepared domain has
+// already passed range, distinctness, and structural validation, so LVCS and
+// DECS consume that immutable object instead of independently copying and
+// validating a raw point slice. Legacy callers retain commitRows above.
+func commitRowsPrepared(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs.Params, witnessCount, maskOffset, maskCount int, points []uint64, prepared *swDomain.Prepared, ctx decs.CommitmentContext, phase decs.CommitPhaseRecorder, deferNTT bool, execution ...ExecutionPolicy) (rootHash []byte, pk *lvcs.ProverKey, oracleLayout lvcs.OracleLayout, err error) {
 	if ringQ == nil {
 		err = fmt.Errorf("nil ring")
 		return
@@ -106,10 +115,32 @@ func commitRows(ringQ *ring.Ring, rows []lvcs.RowInput, ell int, decsParams decs
 		err = fmt.Errorf("no rows to commit")
 		return
 	}
-	rootHash, pk, err = lvcs.CommitInitWithParamsAndPointsV2(ringQ, rows, ell, decsParams, points, ctx, lvcs.CommitOptions{
-		PhaseRecorder:      phase,
-		DecsFormalEvalMode: decs.FormalEvalCombined,
-	})
+	recordDECSSubphases := false
+	if detailed, ok := phase.(interface{ DECSSubphasesEnabled() bool }); ok {
+		recordDECSSubphases = detailed.DECSSubphasesEnabled()
+	}
+	opts := lvcs.CommitOptions{
+		PhaseRecorder:           phase,
+		DecsRecordSubphases:     recordDECSSubphases,
+		DecsFormalEvalMode:      decs.FormalEvalCombined,
+		DeferNTTMaterialization: deferNTT,
+	}
+	if len(execution) > 1 {
+		err = fmt.Errorf("multiple execution policies supplied")
+		return
+	}
+	if len(execution) == 1 {
+		if err = execution[0].Validate(); err != nil {
+			return
+		}
+		opts.DecsWorkerCount = execution[0].decsWorkerCount()
+		opts.DecsChunkLeaves = execution[0].DECSChunkLeaves
+	}
+	if prepared != nil {
+		rootHash, pk, err = lvcs.CommitInitWithParamsAndPreparedDomainV2(ringQ, rows, ell, decsParams, prepared, ctx, opts)
+	} else {
+		rootHash, pk, err = lvcs.CommitInitWithParamsAndPointsV2(ringQ, rows, ell, decsParams, points, ctx, opts)
+	}
 	if err != nil {
 		return
 	}

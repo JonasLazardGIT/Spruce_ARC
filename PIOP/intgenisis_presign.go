@@ -11,8 +11,10 @@ import (
 )
 
 // BuildIntGenISISPreSign builds the committed-message pre-sign proof surface.
-// The witness rows are M, m, k, s, and e. The algebraic residuals enforce the
-// commitment equation plus the deterministic semantic binding M=m||k.
+// Legacy v2 commits core M/m/k/s/e rows plus coefficient views. Strict v3
+// instead commits only packed coefficient sources for M/s/e, derives m and k
+// from M's authenticated semantic layout, and enforces the full 1024-coordinate
+// commitment equation through the source-only relation.
 func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInputs, opts SimOpts) (*Proof, error) {
 	opts.applyDefaults()
 	if err := validateIntGenISISV2TranscriptOpts(opts); err != nil {
@@ -23,9 +25,18 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 	}
 	pub.IntGenISIS = true
 	var err error
-	pub, err = bindIntGenISISPublicExtras(pub, int(ringQ.N))
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		pub, err = bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), opts)
+	} else {
+		pub, err = bindIntGenISISPublicExtras(pub, int(ringQ.N))
+	}
 	if err != nil {
 		return nil, err
+	}
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		if err := validateCanonicalTargetPublicBindingsV3(pub, opts, CanonicalProofPreSign); err != nil {
+			return nil, fmt.Errorf("PIOP: strict-v3 pre-sign target binding: %w", err)
+		}
 	}
 	if err := validateIntGenISISPreSignInputs(ringQ, pub, wit); err != nil {
 		return nil, err
@@ -33,6 +44,9 @@ func BuildIntGenISISPreSign(ringQ *ring.Ring, pub PublicInputs, wit WitnessInput
 	x0Len, err := intGenISISX0LenFromPublic(pub)
 	if err != nil {
 		return nil, err
+	}
+	if intGenISISOptsUseStructuralV3(opts) {
+		return buildIntGenISISPreSignSourceOnlyV3(ringQ, pub, wit, opts, x0Len)
 	}
 	witnessRows := append([]*ring.Poly{}, wit.M...)
 	witnessRows = append(witnessRows, wit.MAttr...)
@@ -208,9 +222,19 @@ func VerifyIntGenISISPreSign(pub PublicInputs, proof *Proof, opts SimOpts) (bool
 	if err := validateIntGenISISVerifierOptionsV2(pub, opts); err != nil {
 		return false, err
 	}
-	pub, err := bindIntGenISISPublicExtras(pub, pub.RingDegree)
+	var err error
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		pub, err = bindIntGenISISPublicExtrasWithOpts(pub, pub.RingDegree, opts)
+	} else {
+		pub, err = bindIntGenISISPublicExtras(pub, pub.RingDegree)
+	}
 	if err != nil {
 		return false, err
+	}
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		if err := validateCanonicalTargetPublicBindingsV3(pub, opts, CanonicalProofPreSign); err != nil {
+			return false, fmt.Errorf("PIOP: strict-v3 pre-sign target binding: %w", err)
+		}
 	}
 	ringQ, err := credential.LoadRingWithDegree(pub.RingDegree)
 	if err != nil {
@@ -312,6 +336,13 @@ func buildIntGenISISPreSignConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 	l := layout.IntGenISISPreSign
 	if l == nil {
 		return ConstraintSet{}, fmt.Errorf("missing IntGenISIS pre-sign layout")
+	}
+	if l.LayoutVersion == intGenISISPreSignLayoutVersionSourceOnlyCarrierV3 {
+		// Strict v3 enters through buildIntGenISISPreSignSourceOnlyV3 with a
+		// count-only compiler shape and semantic-Q evaluator. Reaching this
+		// generic rebuild surface would otherwise materialize the 1,024 formal
+		// aggregate polynomials that are retained solely as a test/audit oracle.
+		return ConstraintSet{}, fmt.Errorf("strict-v3 source-only formal constraint rebuild is audit-only")
 	}
 	if l.WitnessRows() > len(rowsNTT) {
 		return ConstraintSet{}, fmt.Errorf("rows=%d want at least %d", len(rowsNTT), l.WitnessRows())

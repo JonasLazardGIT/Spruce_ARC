@@ -79,6 +79,59 @@ func TestFormalEvalPlanMatchesEvalPoly(t *testing.T) {
 	}
 }
 
+func TestFormalEvalDenseRowMajorStructuralSelectionAndEquality(t *testing.T) {
+	const q = uint64(1017857)
+	red := newModReducer64(q)
+	tests := []struct {
+		name   string
+		rows   int
+		degree int
+		want64 bool
+		want32 bool
+	}{
+		{name: "BQ issuance fallback", rows: 305, degree: 60},
+		{name: "BQ showing row64", rows: 704, degree: 60, want64: true},
+		{name: "WF issuance row32", rows: 198, degree: 50, want32: true},
+		{name: "WF showing row64", rows: 563, degree: 49, want64: true},
+		{name: "high degree fallback", rows: 704, degree: 65},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rows := make([][]uint64, test.rows)
+			for rowIndex := range rows {
+				rows[rowIndex] = make([]uint64, test.degree+1)
+				for degree := range rows[rowIndex] {
+					rows[rowIndex][degree] = (uint64(rowIndex+1)*104729+uint64(degree+1)*13007)%(q-1) + 1
+				}
+			}
+			plan := newFormalEvalPlanWithDenseRowMajor(rows, q, true)
+			if got := len(plan.denseRows64) > 0; got != test.want64 {
+				t.Fatalf("row64 selected=%v want=%v", got, test.want64)
+			}
+			if got := len(plan.denseRows32) > 0; got != test.want32 {
+				t.Fatalf("row32 selected=%v want=%v", got, test.want32)
+			}
+			got := make([]uint64, test.rows)
+			powers := make([]uint64, plan.maxDeg+1)
+			for _, point := range []uint64{0, 1, 255, 65537, q - 1} {
+				computeFormalEvalPowers(powers, point, red)
+				plan.evalIntoPrepared(got, point, red, powers)
+				for rowIndex := range rows {
+					if want := evalPoly(rows[rowIndex], point, q); got[rowIndex] != want {
+						t.Fatalf("point=%d row=%d got=%d want=%d", point, rowIndex, got[rowIndex], want)
+					}
+				}
+				plan.evalIntoHorner(got, point, red)
+				for rowIndex := range rows {
+					if want := evalPoly(rows[rowIndex], point, q); got[rowIndex] != want {
+						t.Fatalf("horner point=%d row=%d got=%d want=%d", point, rowIndex, got[rowIndex], want)
+					}
+				}
+			}
+		})
+	}
+}
+
 func evalFormalPlanForTest(plan formalEvalPlan, dst []uint64, x uint64, red modReducer64) {
 	if plan.usesPowerEval() {
 		powers := make([]uint64, plan.maxDeg+1)

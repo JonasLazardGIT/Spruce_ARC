@@ -13,8 +13,14 @@ const (
 	// a small integer so that similarly numbered transcript families cannot be
 	// confused.
 	TranscriptVersionV2 = "smallwood_2025_1085_salted_decs_v2"
+	// TranscriptVersionV3 is the strict proof-only transcript used by the two
+	// size-optimised SmallWood instantiations.  The opening container remains
+	// the independently-taped v2 container; the commitment codec and every
+	// hash domain are nevertheless versioned separately below.
+	TranscriptVersionV3 = "smallwood_2025_1085_salted_decs_v3"
 
 	commitmentCodecVersionV2 uint16 = 2
+	commitmentCodecVersionV3 uint16 = 3
 
 	MinSaltBytes = 16
 	MaxSaltBytes = 64
@@ -23,6 +29,11 @@ const (
 	nodeDomainV2    = "SPRUCE/SmallWood/DECS/node/v2"
 	paddingDomainV2 = "SPRUCE/SmallWood/DECS/padding/v2"
 	gammaDomainV2   = "SPRUCE/SmallWood/DECS/gamma/v2"
+
+	leafDomainV3    = "SPRUCE/SmallWood/DECS/leaf/v3"
+	nodeDomainV3    = "SPRUCE/SmallWood/DECS/node/v3"
+	paddingDomainV3 = "SPRUCE/SmallWood/DECS/padding/v3"
+	gammaDomainV3   = "SPRUCE/SmallWood/DECS/gamma/v3"
 )
 
 // CommitmentRole is a canonical, application-selected label distinguishing
@@ -50,8 +61,8 @@ type CommitmentContext struct {
 // layer remains responsible for checking the exact salt width declared by its
 // manifest; DECS accepts the maintained 16..64-byte range.
 func (c CommitmentContext) Validate() error {
-	if c.TranscriptVersion != TranscriptVersionV2 {
-		return fmt.Errorf("decs: transcript version=%q want=%q", c.TranscriptVersion, TranscriptVersionV2)
+	if c.TranscriptVersion != TranscriptVersionV2 && c.TranscriptVersion != TranscriptVersionV3 {
+		return fmt.Errorf("decs: unsupported transcript version=%q", c.TranscriptVersion)
 	}
 	if err := validateCommitmentRole(c.Role); err != nil {
 		return err
@@ -60,6 +71,41 @@ func (c CommitmentContext) Validate() error {
 		return fmt.Errorf("decs: salt width=%d outside %d..%d", len(c.Salt), MinSaltBytes, MaxSaltBytes)
 	}
 	return nil
+}
+
+func commitmentCodecVersion(ctx CommitmentContext) uint16 {
+	if ctx.TranscriptVersion == TranscriptVersionV3 {
+		return commitmentCodecVersionV3
+	}
+	return commitmentCodecVersionV2
+}
+
+func leafDomain(ctx CommitmentContext) string {
+	if ctx.TranscriptVersion == TranscriptVersionV3 {
+		return leafDomainV3
+	}
+	return leafDomainV2
+}
+
+func nodeDomain(ctx CommitmentContext) string {
+	if ctx.TranscriptVersion == TranscriptVersionV3 {
+		return nodeDomainV3
+	}
+	return nodeDomainV2
+}
+
+func paddingDomain(ctx CommitmentContext) string {
+	if ctx.TranscriptVersion == TranscriptVersionV3 {
+		return paddingDomainV3
+	}
+	return paddingDomainV2
+}
+
+func gammaDomain(ctx CommitmentContext) string {
+	if ctx.TranscriptVersion == TranscriptVersionV3 {
+		return gammaDomainV3
+	}
+	return gammaDomainV2
 }
 
 func validateCommitmentRole(role CommitmentRole) error {
@@ -106,10 +152,40 @@ func writeLengthPrefixed(h sha3.ShakeHash, value []byte) {
 
 func writeContextV2(h sha3.ShakeHash, domain string, ctx CommitmentContext) {
 	writeLengthPrefixed(h, []byte(domain))
-	writeUint16(h, commitmentCodecVersionV2)
+	writeUint16(h, commitmentCodecVersion(ctx))
 	writeLengthPrefixed(h, []byte(ctx.TranscriptVersion))
 	writeLengthPrefixed(h, []byte(ctx.Role))
 	writeLengthPrefixed(h, ctx.Salt)
+}
+
+// The append helpers below encode exactly the same framing as the write
+// helpers above, but let the hot commitment paths reuse one backing buffer per
+// worker. Passing small stack arrays through the sha3.ShakeHash interface made
+// every integer write escape to the heap; a single buffered write avoids those
+// allocations without changing the transcript bytes.
+func appendUint16(dst []byte, v uint16) []byte {
+	return binary.BigEndian.AppendUint16(dst, v)
+}
+
+func appendUint32(dst []byte, v uint32) []byte {
+	return binary.BigEndian.AppendUint32(dst, v)
+}
+
+func appendUint64(dst []byte, v uint64) []byte {
+	return binary.BigEndian.AppendUint64(dst, v)
+}
+
+func appendLengthPrefixed(dst, value []byte) []byte {
+	dst = appendUint32(dst, uint32(len(value)))
+	return append(dst, value...)
+}
+
+func appendContextV2(dst []byte, domain string, ctx CommitmentContext) []byte {
+	dst = appendLengthPrefixed(dst, []byte(domain))
+	dst = appendUint16(dst, commitmentCodecVersion(ctx))
+	dst = appendLengthPrefixed(dst, []byte(ctx.TranscriptVersion))
+	dst = appendLengthPrefixed(dst, []byte(ctx.Role))
+	return appendLengthPrefixed(dst, ctx.Salt)
 }
 
 // HashLeafV2 returns the canonical v2 leaf hash. All indices, evaluation
@@ -155,46 +231,95 @@ func hashLeafV2With(
 	tape []byte,
 	hashBytes int,
 ) []byte {
-	h.Reset()
-	writeContextV2(h, leafDomainV2, ctx)
-	writeUint64(h, index)
-	writeUint64(h, point)
-	writeUint64(h, modulus)
-	writeUint32(h, uint32(len(pvals)))
-	for _, value := range pvals {
-		writeUint64(h, value)
-	}
-	writeUint32(h, uint32(len(mvals)))
-	for _, value := range mvals {
-		writeUint64(h, value)
-	}
-	writeLengthPrefixed(h, tape)
 	out := make([]byte, hashBytes)
-	_, _ = h.Read(out)
+	hashLeafV2Into(h, nil, out, ctx, index, point, modulus, pvals, mvals, tape)
 	return out
+}
+
+// hashLeafV2Into writes a canonical leaf hash into out and returns scratch for
+// reuse by the caller. out must have the configured hash width.
+func hashLeafV2Into(
+	h sha3.ShakeHash,
+	scratch, out []byte,
+	ctx CommitmentContext,
+	index, point, modulus uint64,
+	pvals, mvals []uint64,
+	tape []byte,
+) []byte {
+	scratch = frameLeafV2Into(scratch, ctx, index, point, modulus, pvals, mvals, tape)
+	shakeFrameV2Into(h, out, scratch)
+	return scratch
+}
+
+func frameLeafV2Into(
+	scratch []byte,
+	ctx CommitmentContext,
+	index, point, modulus uint64,
+	pvals, mvals []uint64,
+	tape []byte,
+) []byte {
+	scratch = scratch[:0]
+	scratch = appendContextV2(scratch, leafDomain(ctx), ctx)
+	scratch = appendUint64(scratch, index)
+	scratch = appendUint64(scratch, point)
+	scratch = appendUint64(scratch, modulus)
+	scratch = appendUint32(scratch, uint32(len(pvals)))
+	for _, value := range pvals {
+		scratch = appendUint64(scratch, value)
+	}
+	scratch = appendUint32(scratch, uint32(len(mvals)))
+	for _, value := range mvals {
+		scratch = appendUint64(scratch, value)
+	}
+	scratch = appendLengthPrefixed(scratch, tape)
+	return scratch
+}
+
+func shakeFrameV2Into(h sha3.ShakeHash, out, frame []byte) {
+	h.Reset()
+	_, _ = h.Write(frame)
+	_, _ = h.Read(out)
 }
 
 func hashNodeV2With(h sha3.ShakeHash, ctx CommitmentContext, level, index uint64, left, right []byte, hashBytes int) []byte {
-	h.Reset()
-	writeContextV2(h, nodeDomainV2, ctx)
-	writeUint64(h, level)
-	writeUint64(h, index)
-	writeUint32(h, uint32(hashBytes))
-	writeLengthPrefixed(h, left)
-	writeLengthPrefixed(h, right)
 	out := make([]byte, hashBytes)
-	_, _ = h.Read(out)
+	hashNodeV2Into(h, nil, out, ctx, level, index, left, right)
 	return out
 }
 
-func hashPaddingV2With(h sha3.ShakeHash, ctx CommitmentContext, index uint64, hashBytes int) []byte {
+// hashNodeV2Into writes a canonical internal-node hash into out and returns
+// scratch for reuse by the caller.
+func hashNodeV2Into(h sha3.ShakeHash, scratch, out []byte, ctx CommitmentContext, level, index uint64, left, right []byte) []byte {
+	scratch = scratch[:0]
+	scratch = appendContextV2(scratch, nodeDomain(ctx), ctx)
+	scratch = appendUint64(scratch, level)
+	scratch = appendUint64(scratch, index)
+	scratch = appendUint32(scratch, uint32(len(out)))
+	scratch = appendLengthPrefixed(scratch, left)
+	scratch = appendLengthPrefixed(scratch, right)
 	h.Reset()
-	writeContextV2(h, paddingDomainV2, ctx)
-	writeUint64(h, index)
-	writeUint32(h, uint32(hashBytes))
-	out := make([]byte, hashBytes)
+	_, _ = h.Write(scratch)
 	_, _ = h.Read(out)
+	return scratch
+}
+
+func hashPaddingV2With(h sha3.ShakeHash, ctx CommitmentContext, index uint64, hashBytes int) []byte {
+	out := make([]byte, hashBytes)
+	hashPaddingV2Into(h, nil, out, ctx, index)
 	return out
+}
+
+// hashPaddingV2Into writes a canonical padding hash into out and returns
+// scratch for reuse by the caller.
+func hashPaddingV2Into(h sha3.ShakeHash, scratch, out []byte, ctx CommitmentContext, index uint64) []byte {
+	scratch = scratch[:0]
+	scratch = appendContextV2(scratch, paddingDomain(ctx), ctx)
+	scratch = appendUint64(scratch, index)
+	scratch = appendUint32(scratch, uint32(len(out)))
+	h.Reset()
+	_, _ = h.Write(scratch)
+	_, _ = h.Read(out)
+	return scratch
 }
 
 func validateOpeningV2(ctx CommitmentContext, open *DECSOpening, tapeBytes int) error {
@@ -218,6 +343,15 @@ func validateOpeningV2(ctx CommitmentContext, open *DECSOpening, tapeBytes int) 
 	}
 	if open.FormatVersion > OpeningFormatColumnWidths || open.MFormatVersion > OpeningFormatColumnWidths {
 		return fmt.Errorf("decs: unsupported v2 residue encoding")
+	}
+	if open.AuthFormat != OpeningAuthPaths && open.AuthFormat != OpeningAuthPositionalFrontierV3 {
+		return fmt.Errorf("decs: unsupported authentication encoding %d", open.AuthFormat)
+	}
+	if open.AuthFormat == OpeningAuthPositionalFrontierV3 && ctx.TranscriptVersion != TranscriptVersionV3 {
+		return fmt.Errorf("decs: exact-N positional frontier requires transcript v3")
+	}
+	if open.AuthFormat == OpeningAuthPositionalFrontierV3 && (len(open.PathIndex) != 0 || len(open.PathBits) != 0 || open.PathDepth != 0 || open.PathBitWidth != 0) {
+		return fmt.Errorf("decs: positional frontier opening carries legacy path metadata")
 	}
 	n := open.EntryCount()
 	if len(open.Tapes) != n {

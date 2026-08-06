@@ -1,6 +1,7 @@
 package PIOP
 
 import (
+	"fmt"
 	"math"
 
 	decs "vSIS-Signature/DECS"
@@ -9,6 +10,13 @@ import (
 // FullGameSoundnessReport composes issuance/showing one-proof budgets under
 // accepted-proof counts.
 type FullGameSoundnessReport struct {
+	AccountingMode                string     `json:"accounting_mode"`
+	AggregateQueryCapLog2         float64    `json:"aggregate_query_cap_log2,omitempty"`
+	MaxNativeAlgebraicError       float64    `json:"max_native_algebraic_error,omitempty"`
+	MaxNativeAlgebraicBits        float64    `json:"max_native_algebraic_bits,omitempty"`
+	WorkFactorBits                float64    `json:"work_factor_bits,omitempty"`
+	IssuanceWorkFactorBits        float64    `json:"issuance_work_factor_bits,omitempty"`
+	ShowingWorkFactorBits         float64    `json:"showing_work_factor_bits,omitempty"`
 	AcceptedIssuance              int        `json:"accepted_issuance"`
 	AcceptedShowing               int        `json:"accepted_showing"`
 	IssuanceQueryCaps             [5]int     `json:"issuance_query_caps"`
@@ -26,6 +34,35 @@ type FullGameSoundnessReport struct {
 	GlobalCollisionBits           float64    `json:"global_collision_bits"`
 	IssuanceAlgebraicContribution float64    `json:"issuance_algebraic_contribution"`
 	ShowingAlgebraicContribution  float64    `json:"showing_algebraic_contribution"`
+}
+
+const (
+	FullGameAccountingLegacyPerDomain = "legacy_per_domain_phase_composition"
+	FullGameAccountingAggregateV4     = "aggregate_q_whole_game_v4"
+	FullGameAccountingWorkFactorV4    = "native_work_factor_curve_v4"
+)
+
+// ValidateAggregateROQueryBudget enforces v4's single whole-game Q. The five
+// legacy per-domain slots are not part of the publication-v4 threat model:
+// bounded-query presets use exactly one aggregate scalar, while WF128 uses no
+// query-budget scalar at all.
+func ValidateAggregateROQueryBudget(opts SimOpts) error {
+	if !transcriptUsesPublicationV4(opts.TranscriptVersion) {
+		return nil
+	}
+	if opts.ROQueryCapsSet || opts.ROQueryCapBitsSet || opts.ROQueryCaps != [5]int{} || opts.ROQueryCapBits != [5]float64{} {
+		return fmt.Errorf("publication-v4 does not use legacy per-domain RO query caps")
+	}
+	if publicationV4UsesWorkFactor(opts) {
+		if opts.AggregateROQueryCapLog2Set {
+			return fmt.Errorf("WF128 uses native work-factor accounting and must not declare an aggregate-Q residual budget")
+		}
+		return nil
+	}
+	if !opts.AggregateROQueryCapLog2Set || math.IsNaN(opts.AggregateROQueryCapLog2) || math.IsInf(opts.AggregateROQueryCapLog2, 0) || opts.AggregateROQueryCapLog2 < 0 {
+		return fmt.Errorf("publication-v4 requires a finite nonnegative aggregate RO query cap log2")
+	}
+	return nil
 }
 
 func ResolveDECSCollisionBits(bits int) int {
@@ -208,6 +245,12 @@ func ComposeFullGameSoundness(issuance, showing SoundnessBudget, acceptedIssuanc
 	if collisionBits <= 0 {
 		collisionBits = decs.DefaultHashBytes * 8
 	}
+	if workFactorSoundnessInputsValid(issuance, showing, acceptedIssuance, acceptedShowing) {
+		return composeWorkFactorFullGameSoundness(issuance, showing, acceptedIssuance, acceptedShowing, collisionBits)
+	}
+	if aggregateSoundnessInputsValid(issuance, showing, acceptedIssuance, acceptedShowing) {
+		return composeAggregateFullGameSoundness(issuance, showing, acceptedIssuance, acceptedShowing, collisionBits)
+	}
 	var globalCaps [5]int
 	issuanceCapBits := soundnessQueryCapBits(issuance)
 	showingCapBits := soundnessQueryCapBits(showing)
@@ -226,6 +269,7 @@ func ComposeFullGameSoundness(issuance, showing SoundnessBudget, acceptedIssuanc
 	conservative := clampProbability(float64(acceptedIssuance)*issuanceOneProof + float64(acceptedShowing)*showingOneProof)
 	global := clampProbability(globalCollision + issuanceAlg + showingAlg)
 	return FullGameSoundnessReport{
+		AccountingMode:                FullGameAccountingLegacyPerDomain,
 		AcceptedIssuance:              acceptedIssuance,
 		AcceptedShowing:               acceptedShowing,
 		IssuanceQueryCaps:             issuance.QueryCaps,
@@ -244,6 +288,164 @@ func ComposeFullGameSoundness(issuance, showing SoundnessBudget, acceptedIssuanc
 		IssuanceAlgebraicContribution: issuanceAlg,
 		ShowingAlgebraicContribution:  showingAlg,
 	}
+}
+
+func workFactorSoundnessInputsValid(issuance, showing SoundnessBudget, acceptedIssuance, acceptedShowing int) bool {
+	return (acceptedIssuance == 0 || issuance.WorkFactorMode) &&
+		(acceptedShowing == 0 || showing.WorkFactorMode) &&
+		(acceptedIssuance > 0 || acceptedShowing > 0)
+}
+
+func composeWorkFactorFullGameSoundness(issuance, showing SoundnessBudget, acceptedIssuance, acceptedShowing, collisionBits int) FullGameSoundnessReport {
+	bits := math.Inf(1)
+	maxNativeBits := math.Inf(1)
+	issuanceBits, showingBits := 0.0, 0.0
+	includeNative := func(budget SoundnessBudget) {
+		for _, branchBits := range budget.NativeAlgebraicBits {
+			if branchBits >= 0 && !math.IsNaN(branchBits) && !math.IsInf(branchBits, 0) && branchBits < maxNativeBits {
+				maxNativeBits = branchBits
+			}
+		}
+	}
+	if acceptedIssuance > 0 {
+		issuanceBits = issuance.WorkFactorBits
+		includeNative(issuance)
+		if issuanceBits < bits {
+			bits = issuanceBits
+		}
+	}
+	if acceptedShowing > 0 {
+		showingBits = showing.WorkFactorBits
+		includeNative(showing)
+		if showingBits < bits {
+			bits = showingBits
+		}
+	}
+	if math.IsInf(bits, 1) {
+		bits = 0
+	}
+	maxNativeError := 0.0
+	if math.IsInf(maxNativeBits, 1) {
+		maxNativeBits = 0
+	} else {
+		maxNativeError = probabilityFromLog2(-maxNativeBits)
+	}
+	err := probabilityFromLog2(-bits)
+	noQueryCap := [5]float64{math.Inf(-1), math.Inf(-1), math.Inf(-1), math.Inf(-1), math.Inf(-1)}
+	return FullGameSoundnessReport{
+		AccountingMode:               FullGameAccountingWorkFactorV4,
+		MaxNativeAlgebraicError:      maxNativeError,
+		MaxNativeAlgebraicBits:       maxNativeBits,
+		WorkFactorBits:               bits,
+		IssuanceWorkFactorBits:       issuanceBits,
+		ShowingWorkFactorBits:        showingBits,
+		AcceptedIssuance:             acceptedIssuance,
+		AcceptedShowing:              acceptedShowing,
+		IssuanceQueryCaps:            issuance.QueryCaps,
+		ShowingQueryCaps:             showing.QueryCaps,
+		IssuanceQueryCapBits:         soundnessQueryCapBits(issuance),
+		ShowingQueryCapBits:          soundnessQueryCapBits(showing),
+		GlobalQueryCapBits:           noQueryCap,
+		CollisionSpaceBits:           collisionBits,
+		ConservativeFullGameError:    err,
+		ConservativeFullGameBits:     bits,
+		GlobalCollisionFullGameError: err,
+		GlobalCollisionFullGameBits:  bits,
+		GlobalCollisionError:         probabilityFromLog2(-float64(collisionBits) / 2),
+		GlobalCollisionBits:          float64(collisionBits) / 2,
+	}
+}
+
+func aggregateSoundnessInputsValid(issuance, showing SoundnessBudget, acceptedIssuance, acceptedShowing int) bool {
+	return (acceptedIssuance == 0 || issuance.AggregateQueryBudget) &&
+		(acceptedShowing == 0 || showing.AggregateQueryBudget) &&
+		(acceptedIssuance > 0 || acceptedShowing > 0)
+}
+
+func composeAggregateFullGameSoundness(issuance, showing SoundnessBudget, acceptedIssuance, acceptedShowing, collisionBits int) FullGameSoundnessReport {
+	queryBits := math.Inf(-1)
+	maxNative := 0.0
+	maxPhase := ""
+	include := func(name string, accepted int, budget SoundnessBudget) {
+		if accepted <= 0 {
+			return
+		}
+		if budget.AggregateQueryCapBits > queryBits {
+			queryBits = budget.AggregateQueryCapBits
+		}
+		for _, term := range nativeAlgebraicTerms(budget) {
+			if term > maxNative {
+				maxNative = term
+				maxPhase = name
+			}
+		}
+	}
+	include("issuance", acceptedIssuance, issuance)
+	include("showing", acceptedShowing, showing)
+	if math.IsInf(queryBits, -1) {
+		queryBits = 0
+	}
+	collision := probabilityFromLog2(2*queryBits - float64(collisionBits))
+	algebraic := 0.0
+	if maxNative > 0 {
+		algebraic = probabilityFromLog2(queryBits + math.Log2(maxNative))
+	}
+	full := clampProbability(collision + algebraic)
+	var globalCapBits [5]float64
+	for i := range globalCapBits {
+		globalCapBits[i] = math.Inf(-1)
+	}
+	issuanceContribution, showingContribution := 0.0, 0.0
+	if maxPhase == "issuance" {
+		issuanceContribution = algebraic
+	} else if maxPhase == "showing" {
+		showingContribution = algebraic
+	}
+	return FullGameSoundnessReport{
+		AccountingMode:                FullGameAccountingAggregateV4,
+		AggregateQueryCapLog2:         queryBits,
+		MaxNativeAlgebraicError:       maxNative,
+		MaxNativeAlgebraicBits:        probabilityBits(maxNative),
+		AcceptedIssuance:              acceptedIssuance,
+		AcceptedShowing:               acceptedShowing,
+		IssuanceQueryCaps:             issuance.QueryCaps,
+		ShowingQueryCaps:              showing.QueryCaps,
+		IssuanceQueryCapBits:          soundnessQueryCapBits(issuance),
+		ShowingQueryCapBits:           soundnessQueryCapBits(showing),
+		GlobalQueryCapBits:            globalCapBits,
+		CollisionSpaceBits:            collisionBits,
+		ConservativeFullGameError:     full,
+		ConservativeFullGameBits:      probabilityBits(full),
+		GlobalCollisionFullGameError:  full,
+		GlobalCollisionFullGameBits:   probabilityBits(full),
+		GlobalCollisionError:          collision,
+		GlobalCollisionBits:           probabilityBits(collision),
+		IssuanceAlgebraicContribution: issuanceContribution,
+		ShowingAlgebraicContribution:  showingContribution,
+	}
+}
+
+func nativeAlgebraicTerms(b SoundnessBudget) [4]float64 {
+	for _, term := range b.NativeAlgebraicTerms {
+		if term > 0 {
+			return b.NativeAlgebraicTerms
+		}
+	}
+	var out [4]float64
+	for i := range out {
+		out[i] = clampProbability(b.Eps[i] * b.Grinding[i])
+	}
+	return out
+}
+
+func probabilityFromLog2(logProb float64) float64 {
+	if math.IsInf(logProb, -1) {
+		return 0
+	}
+	if logProb >= 0 {
+		return 1
+	}
+	return clampProbability(math.Exp2(logProb))
 }
 
 func soundnessAlgebraicTotal(b SoundnessBudget) float64 {
@@ -306,6 +508,9 @@ func queryCapBitsFromCaps(caps [5]int) [5]float64 {
 }
 
 func soundnessQueryCapBits(b SoundnessBudget) [5]float64 {
+	if b.AggregateQueryBudget || b.WorkFactorMode {
+		return b.QueryCapBits
+	}
 	for _, bits := range b.QueryCapBits {
 		if bits > 0 {
 			return b.QueryCapBits

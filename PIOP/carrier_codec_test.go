@@ -2,6 +2,95 @@ package PIOP
 
 import "testing"
 
+func TestTernaryCarrierV3ExhaustiveEncodingAndDecoding(t *testing.T) {
+	seen := make(map[uint64]bool, ternaryCarrierV3Alphabet)
+	for b := int64(-1); b <= 1; b++ {
+		for a := int64(-1); a <= 1; a++ {
+			code, err := encodeTernaryCarrierV3(a, b)
+			if err != nil {
+				t.Fatalf("encode (%d,%d): %v", a, b, err)
+			}
+			want := uint64((a + 1) + 3*(b+1))
+			if code != want {
+				t.Fatalf("Enc(%d,%d)=%d want %d", a, b, code, want)
+			}
+			if seen[code] {
+				t.Fatalf("duplicate code %d", code)
+			}
+			seen[code] = true
+			gotA, gotB, err := decodeTernaryCarrierV3(code)
+			if err != nil {
+				t.Fatalf("decode %d: %v", code, err)
+			}
+			if gotA != a || gotB != b {
+				t.Fatalf("decode %d=(%d,%d) want (%d,%d)", code, gotA, gotB, a, b)
+			}
+		}
+	}
+	if len(seen) != ternaryCarrierV3Alphabet {
+		t.Fatalf("codes=%d want %d", len(seen), ternaryCarrierV3Alphabet)
+	}
+	for _, bad := range []uint64{9, 10, 255, 1017856} {
+		if _, _, err := decodeTernaryCarrierV3(bad); err == nil {
+			t.Fatalf("invalid carrier %d accepted", bad)
+		}
+	}
+	for _, pair := range [][2]int64{{-2, 0}, {2, 0}, {0, -2}, {0, 2}} {
+		if _, err := encodeTernaryCarrierV3(pair[0], pair[1]); err == nil {
+			t.Fatalf("invalid pair %v accepted", pair)
+		}
+	}
+}
+
+func TestTernaryCarrierV3Polynomials(t *testing.T) {
+	const q = uint64(1017857)
+	decode, err := buildTernaryCarrierV3DecodePolys(q)
+	if err != nil {
+		t.Fatalf("decode polys: %v", err)
+	}
+	member, err := buildTernaryCarrierV3MembershipPoly(q)
+	if err != nil {
+		t.Fatalf("membership poly: %v", err)
+	}
+	if got := degreeOfPoly(member, q); got != 9 {
+		t.Fatalf("membership degree=%d want 9", got)
+	}
+	for lane := range decode {
+		if got := degreeOfPoly(decode[lane], q); got > 8 {
+			t.Fatalf("decode lane %d degree=%d want <=8", lane, got)
+		}
+	}
+	for code := uint64(0); code < 9; code++ {
+		if got := EvalPoly(member, code, q); got != 0 {
+			t.Fatalf("member(%d)=%d want 0", code, got)
+		}
+		a, b, _ := decodeTernaryCarrierV3(code)
+		if got := EvalPoly(decode[0], code, q); got != liftToField(q, a) {
+			t.Fatalf("decode0(%d)=%d want %d", code, got, liftToField(q, a))
+		}
+		if got := EvalPoly(decode[1], code, q); got != liftToField(q, b) {
+			t.Fatalf("decode1(%d)=%d want %d", code, got, liftToField(q, b))
+		}
+	}
+	for _, bad := range []uint64{9, 10, 11, 101} {
+		if got := EvalPoly(member, bad, q); got == 0 {
+			t.Fatalf("invalid carrier %d passed membership", bad)
+		}
+	}
+	// A one-unit carrier mutation either changes at least one decoded lane or
+	// leaves the valid alphabet, so it cannot preserve both authenticated
+	// source lanes.
+	for code := uint64(0); code < 9; code++ {
+		for _, mutated := range []uint64{(code + 1) % 9, (code + 8) % 9} {
+			a0, b0, _ := decodeTernaryCarrierV3(code)
+			a1, b1, _ := decodeTernaryCarrierV3(mutated)
+			if a0 == a1 && b0 == b1 {
+				t.Fatalf("carrier tamper %d->%d preserved both lanes", code, mutated)
+			}
+		}
+	}
+}
+
 func TestCarrierEncodeMatchesPairAlphabet(t *testing.T) {
 	bound := int64(2)
 	base, err := carrierBase(bound)

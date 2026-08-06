@@ -133,9 +133,17 @@ func FindIrreducible(q uint64, theta int, rnd io.Reader) ([]uint64, error) {
 	for try := 0; try < maxTries; try++ {
 		chi := make([]uint64, theta+1)
 		chi[theta] = 1 % q
-		chi[0] = 1 + randU64(rnd)%(q-1)
+		constant, err := randUint64ModExact(rnd, q-1)
+		if err != nil {
+			return nil, fmt.Errorf("kfield: sample irreducible constant coefficient: %w", err)
+		}
+		chi[0] = 1 + constant
 		for i := 1; i < theta; i++ {
-			chi[i] = randU64(rnd) % q
+			coefficient, err := randUint64ModExact(rnd, q)
+			if err != nil {
+				return nil, fmt.Errorf("kfield: sample irreducible coefficient %d: %w", i, err)
+			}
+			chi[i] = coefficient
 		}
 		if isIrreducible(q, chi) {
 			return chi, nil
@@ -146,21 +154,112 @@ func FindIrreducible(q uint64, theta int, rnd io.Reader) ([]uint64, error) {
 
 // Zero returns the additive identity in K.
 func (f *Field) Zero() Elem {
-	return Elem{Limb: make([]uint64, f.Theta)}
+	var out Elem
+	f.ZeroInto(&out)
+	return out
 }
 
 // One returns the multiplicative identity in K.
 func (f *Field) One() Elem {
-	e := f.Zero()
-	e.Limb[0] = 1 % f.Q
-	return e
+	var out Elem
+	f.OneInto(&out)
+	return out
 }
 
 // EmbedF lifts an F_q element into K via the canonical embedding.
 func (f *Field) EmbedF(x uint64) Elem {
-	e := f.Zero()
-	e.Limb[0] = x % f.Q
-	return e
+	var out Elem
+	f.EmbedFInto(&out, x)
+	return out
+}
+
+// ZeroInto sets dst to the additive identity. A correctly sized destination
+// is reused, which is important in the semantic-Q point evaluator where field
+// elements otherwise dominate heap traffic.
+func (f *Field) ZeroInto(dst *Elem) {
+	if dst == nil {
+		panic("kfield: nil ZeroInto destination")
+	}
+	f.ensureElem(dst)
+	clear(dst.Limb)
+}
+
+// OneInto sets dst to the multiplicative identity.
+func (f *Field) OneInto(dst *Elem) {
+	f.ZeroInto(dst)
+	dst.Limb[0] = 1 % f.Q
+}
+
+// SetInto normalizes src into dst. It is safe when the source and destination
+// are the same element or are overlapping views of the same backing array.
+func (f *Field) SetInto(dst *Elem, src Elem) {
+	if dst == nil {
+		panic("kfield: nil SetInto destination")
+	}
+	deg := f.Theta
+	if deg <= stackMulDeg {
+		var normalized [stackMulDeg]uint64
+		n := len(src.Limb)
+		if n > deg {
+			n = deg
+		}
+		for i := 0; i < n; i++ {
+			normalized[i] = src.Limb[i] % f.Q
+		}
+		f.ensureElem(dst)
+		copy(dst.Limb, normalized[:deg])
+		return
+	}
+	normalized := make([]uint64, deg)
+	n := len(src.Limb)
+	if n > deg {
+		n = deg
+	}
+	for i := 0; i < n; i++ {
+		normalized[i] = src.Limb[i] % f.Q
+	}
+	f.ensureElem(dst)
+	copy(dst.Limb, normalized)
+}
+
+// EmbedFInto lifts an F_q element into a reusable K destination.
+func (f *Field) EmbedFInto(dst *Elem, x uint64) {
+	f.ZeroInto(dst)
+	dst.Limb[0] = x % f.Q
+}
+
+// ScaleBaseInto sets dst = scalar*src for scalar in F_q. Multiplication by an
+// embedded base-field value is coordinate-wise, so this avoids a full
+// extension-field product. Like SetInto, it is safe for overlapping views.
+func (f *Field) ScaleBaseInto(dst *Elem, src Elem, scalar uint64) {
+	if dst == nil {
+		panic("kfield: nil ScaleBaseInto destination")
+	}
+	deg := f.Theta
+	scalar %= f.Q
+	if deg <= stackMulDeg {
+		var scaled [stackMulDeg]uint64
+		n := len(src.Limb)
+		if n > deg {
+			n = deg
+		}
+		for i := 0; i < n; i++ {
+			scaled[i] = f.mulReduced(src.Limb[i]%f.Q, scalar)
+		}
+		f.ensureElem(dst)
+		copy(dst.Limb, scaled[:deg])
+		return
+	}
+	scaled := make([]uint64, deg)
+	n := len(src.Limb)
+	if n > deg {
+		n = deg
+	}
+	for i := 0; i < n; i++ {
+		scaled[i] = f.mulReduced(src.Limb[i]%f.Q, scalar)
+	}
+	f.ensureElem(dst)
+	copy(dst.Limb, scaled)
 }
 
 // Phi builds the power-basis element from its coordinate vector (truncated/padded as needed).
@@ -310,6 +409,20 @@ func (f *Field) AddMulBaseInto(acc *Elem, src Elem, scalar uint64) {
 	}
 }
 
+// SubMulBaseInto subtracts scalar * src from acc for a base-field scalar.
+// It avoids promoting scalar to K and performing a full quadratic extension-
+// field multiplication.
+func (f *Field) SubMulBaseInto(acc *Elem, src Elem, scalar uint64) {
+	f.ensureElem(acc)
+	scalar %= f.Q
+	if scalar == 0 {
+		return
+	}
+	for i := 0; i < f.Theta; i++ {
+		acc.Limb[i] = f.subReduced(acc.Limb[i]%f.Q, f.mulReduced(src.Limb[i]%f.Q, scalar))
+	}
+}
+
 // stackMulDeg is the largest theta whose multiply scratch fits on the stack
 // (tmp needs 2*theta words). Covers the maintained presets (theta<=16) and this
 // theta=32 headroom without a per-multiply heap allocation.
@@ -401,7 +514,11 @@ func (f *Field) RandomElement(r io.Reader) (Elem, error) {
 	}
 	limb := make([]uint64, f.Theta)
 	for i := 0; i < f.Theta; i++ {
-		limb[i] = randU64(r) % f.Q
+		v, err := randUint64ModExact(r, f.Q)
+		if err != nil {
+			return Elem{}, fmt.Errorf("kfield: sample random element limb %d: %w", i, err)
+		}
+		limb[i] = v
 	}
 	return Elem{Limb: limb}, nil
 }
@@ -456,7 +573,35 @@ func (f *Field) Inv(a Elem) Elem {
 
 // EvalFPolyAtK evaluates an F_q-coefficient polynomial at a K-element using Horner's method.
 func (f *Field) EvalFPolyAtK(coeff []uint64, e Elem) Elem {
-	acc := f.Zero()
+	var out Elem
+	f.EvalFPolyAtKInto(&out, coeff, e)
+	return out
+}
+
+// EvalFPolyAtKInto evaluates an F_q-coefficient polynomial at a K-element
+// using Horner's method and writes into dst. The accumulator is independent of
+// dst until the final copy, making dst/e aliasing safe. Maintained theta values
+// use stack storage and perform no heap allocation when dst is pre-sized.
+func (f *Field) EvalFPolyAtKInto(dst *Elem, coeff []uint64, e Elem) {
+	if dst == nil {
+		panic("kfield: nil EvalFPolyAtKInto destination")
+	}
+	deg := f.Theta
+	if deg <= stackMulDeg {
+		var limbs [stackMulDeg]uint64
+		acc := Elem{Limb: limbs[:deg]}
+		for i := len(coeff) - 1; i >= 0; i-- {
+			f.MulInto(&acc, acc, e)
+			acc.Limb[0] = f.addReduced(acc.Limb[0]%f.Q, coeff[i]%f.Q)
+			if i == 0 {
+				break
+			}
+		}
+		f.ensureElem(dst)
+		copy(dst.Limb, acc.Limb)
+		return
+	}
+	acc := Elem{Limb: make([]uint64, deg)}
 	for i := len(coeff) - 1; i >= 0; i-- {
 		f.MulInto(&acc, acc, e)
 		acc.Limb[0] = f.addReduced(acc.Limb[0]%f.Q, coeff[i]%f.Q)
@@ -464,7 +609,8 @@ func (f *Field) EvalFPolyAtK(coeff []uint64, e Elem) Elem {
 			break
 		}
 	}
-	return acc
+	f.ensureElem(dst)
+	copy(dst.Limb, acc.Limb)
 }
 
 func (f *Field) addReduced(a, b uint64) uint64 {
@@ -507,6 +653,29 @@ func randU64(r io.Reader) uint64 {
 	}
 	return uint64(buf[0]) | uint64(buf[1])<<8 | uint64(buf[2])<<16 | uint64(buf[3])<<24 |
 		uint64(buf[4])<<32 | uint64(buf[5])<<40 | uint64(buf[6])<<48 | uint64(buf[7])<<56
+}
+
+// randUint64ModExact samples uniformly from [0, modulus) using rejection
+// sampling. The threshold is 2^64 mod modulus, computed with uint64 wraparound;
+// accepting values in [threshold, 2^64) leaves an interval whose size is an
+// exact multiple of modulus.
+func randUint64ModExact(r io.Reader, modulus uint64) (uint64, error) {
+	if modulus == 0 {
+		return 0, fmt.Errorf("kfield: sample modulo zero")
+	}
+	threshold := (-modulus) % modulus
+	for {
+		var buf [8]byte
+		if _, err := io.ReadFull(r, buf[:]); err != nil {
+			return 0, err
+		}
+		v := uint64(buf[0]) | uint64(buf[1])<<8 | uint64(buf[2])<<16 | uint64(buf[3])<<24 |
+			uint64(buf[4])<<32 | uint64(buf[5])<<40 | uint64(buf[6])<<48 | uint64(buf[7])<<56
+		if v < threshold {
+			continue
+		}
+		return v % modulus, nil
+	}
 }
 
 func modAdd(a, b, q uint64) uint64 {

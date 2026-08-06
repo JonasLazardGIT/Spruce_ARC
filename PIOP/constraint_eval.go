@@ -25,14 +25,22 @@ type EvalInput struct {
 
 // EvalKInput carries K-point data for Eq.(4) replay.
 type EvalKInput struct {
-	K                *kf.Field
-	KPoints          [][]uint64
-	VTargets         [][]uint64
-	AuxVTargets      [][]uint64
-	QK               []*KPoly
-	MK               []*KPoly
+	K           *kf.Field
+	KPoints     [][]uint64
+	VTargets    [][]uint64
+	AuxVTargets [][]uint64
+	QK          []*KPoly
+	MK          []*KPoly
+	// MaskValues is the authenticated semantic alternative to MK.  Values are
+	// laid out point-major, then Q row: MaskValues[kp*rho+i] = M_i(e_kp).
+	// Strict v3 proofs populate this from the final theta LVCS queries; older
+	// proof versions continue to evaluate the proof/debug-carried MK value.
+	MaskValues       []kf.Elem
 	GammaPrimeK      [][][]KScalar
 	GammaAggK        [][]KScalar
+	EvalParallel     KParallelConstraintEvaluator
+	AggregateDot     KAggregateDotFactory
+	AggregateCount   int
 	WitnessCount     int
 	AuxWitnessCount  int
 	Ring             *ring.Ring
@@ -73,9 +81,25 @@ type ConstraintEvaluator func(evalIdx uint64, rowVals []uint64) (fpar []uint64, 
 
 type KConstraintEvaluator func(e kf.Elem, rowVals []kf.Elem) (fpar []kf.Elem, fagg []kf.Elem, err error)
 
+// KParallelConstraintEvaluator evaluates only the pointwise constraint
+// family. Strict-v3 relations with a large aggregate family may pair this with
+// KAggregateDotFactory so Eq. (4) never has to materialize every aggregate
+// residual at every interpolation point.
+type KParallelConstraintEvaluator func(e kf.Elem, rowVals []kf.Elem) (fpar []kf.Elem, err error)
+
+// KAggregateDotEvaluator evaluates sum_j gamma_j*fagg_j(e) for one fixed,
+// verifier-derived gamma row. The factory is allowed to precompute a reordered
+// linear circuit from gamma, but it must preserve the declared aggregate count
+// and exact constraint ordering.
+type KAggregateDotEvaluator func(e kf.Elem, rowVals []kf.Elem) (kf.Elem, error)
+type KAggregateDotFactory func(gamma []KScalar) (KAggregateDotEvaluator, error)
+
 type ConstraintReplay struct {
 	Eval             ConstraintEvaluator
 	EvalK            KConstraintEvaluator
+	EvalKParallel    KParallelConstraintEvaluator
+	AggregateDotK    KAggregateDotFactory
+	AggregateCount   int
 	RowCount         int
 	BoundRows        []int
 	CarryRows        []int
@@ -87,6 +111,10 @@ type ConstraintReplay struct {
 	FaggCoeffs       [][]uint64
 	FparOverrideIdxs []int
 	FaggOverrideIdxs []int
+	// PublicStatementBytes is the complete canonical public statement absorbed
+	// by strict v3 Fiat--Shamir. It is verifier-reconstructed, never trusted
+	// from the proof wire.
+	PublicStatementBytes []byte
 }
 
 func composeEvaluators(a, b ConstraintEvaluator) ConstraintEvaluator {
@@ -223,7 +251,12 @@ func ringDomainSlots(r *ring.Ring) ([]uint64, error) {
 // EvaluateConstraintsOnKPoints replays Eq.(4) at K-points using row values
 // reconstructed from VTargets and the provided constraint evaluator.
 func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (bool, error) {
-	if eval == nil {
+	directAggregate := in.EvalParallel != nil || in.AggregateDot != nil || in.AggregateCount != 0
+	if directAggregate {
+		if in.EvalParallel == nil || in.AggregateDot == nil || in.AggregateCount <= 0 {
+			return false, fmt.Errorf("incomplete direct K aggregate evaluator")
+		}
+	} else if eval == nil {
 		return false, fmt.Errorf("nil K evaluator")
 	}
 	if in.K == nil {
@@ -235,8 +268,8 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 	if in.WitnessCount <= 0 {
 		return false, fmt.Errorf("invalid witness count")
 	}
-	if len(in.QK) == 0 || len(in.MK) == 0 {
-		return false, fmt.Errorf("missing QK/MK")
+	if len(in.QK) == 0 {
+		return false, fmt.Errorf("missing QK")
 	}
 	if len(in.VTargets) == 0 || len(in.VTargets[0]) == 0 {
 		return false, fmt.Errorf("missing VTargets for K replay")
@@ -249,6 +282,29 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 		return false, fmt.Errorf("invalid rowsPerPoint=%d", rowsPerPoint)
 	}
 	rho := len(in.QK)
+	var aggregateDots []KAggregateDotEvaluator
+	if directAggregate {
+		if len(in.GammaAggK) < rho {
+			return false, fmt.Errorf("direct aggregate gamma rows=%d want at least %d", len(in.GammaAggK), rho)
+		}
+		aggregateDots = make([]KAggregateDotEvaluator, rho)
+		for i := 0; i < rho; i++ {
+			if len(in.GammaAggK[i]) != in.AggregateCount {
+				return false, fmt.Errorf("direct aggregate gamma width=%d want %d", len(in.GammaAggK[i]), in.AggregateCount)
+			}
+			var err error
+			aggregateDots[i], err = in.AggregateDot(in.GammaAggK[i])
+			if err != nil {
+				return false, fmt.Errorf("bind direct aggregate row %d: %w", i, err)
+			}
+		}
+	}
+	if len(in.MaskValues) == 0 && len(in.MK) == 0 {
+		return false, fmt.Errorf("missing authenticated mask values/MK")
+	}
+	if len(in.MaskValues) > 0 && len(in.MaskValues) != len(in.KPoints)*rho {
+		return false, fmt.Errorf("mask value count=%d want kpoints*rho=%d", len(in.MaskValues), len(in.KPoints)*rho)
+	}
 	debugEq4K := os.Getenv("PIOP_DEBUG_EQ4_K") == "1"
 	for kpIdx, limbs := range in.KPoints {
 		e := in.K.Phi(limbs)
@@ -266,7 +322,12 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 			}
 			rowVals = append(rowVals, auxVals...)
 		}
-		fpar, fagg, err := eval(e, rowVals)
+		var fpar, fagg []kf.Elem
+		if directAggregate {
+			fpar, err = in.EvalParallel(e, rowVals)
+		} else {
+			fpar, fagg, err = eval(e, rowVals)
+		}
 		if err != nil {
 			return false, err
 		}
@@ -308,11 +369,18 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 		g := in.K.Zero()
 		term := in.K.Zero()
 		for i := 0; i < rho; i++ {
-			if i >= len(in.MK) || in.QK[i] == nil || in.MK[i] == nil {
-				return false, fmt.Errorf("missing K polys at row %d", i)
+			if in.QK[i] == nil {
+				return false, fmt.Errorf("missing Q K polynomial at row %d", i)
 			}
 			evalKPolyAtKInto(in.K, &lhs, in.QK[i], e)
-			evalKPolyAtKInto(in.K, &rhs, in.MK[i], e)
+			if len(in.MaskValues) > 0 {
+				copy(rhs.Limb, in.MaskValues[kpIdx*rho+i].Limb)
+			} else {
+				if i >= len(in.MK) || in.MK[i] == nil {
+					return false, fmt.Errorf("missing mask K polynomial at row %d", i)
+				}
+				evalKPolyAtKInto(in.K, &rhs, in.MK[i], e)
+			}
 			if debugEq4K {
 				copy(rhsMask.Limb, rhs.Limb)
 				clear(rhsPar.Limb)
@@ -332,7 +400,16 @@ func EvaluateConstraintsOnKPoints(eval KConstraintEvaluator, in EvalKInput) (boo
 					in.K.AddInto(&rhs, rhs, term)
 				}
 			}
-			if i < len(in.GammaAggK) {
+			if directAggregate {
+				dot, dotErr := aggregateDots[i](e, rowVals)
+				if dotErr != nil {
+					return false, dotErr
+				}
+				if debugEq4K {
+					copy(rhsAgg.Limb, dot.Limb)
+				}
+				in.K.AddInto(&rhs, rhs, dot)
+			} else if i < len(in.GammaAggK) {
 				rowGamma := in.GammaAggK[i]
 				for j, val := range fagg {
 					if j >= len(rowGamma) {

@@ -33,6 +33,9 @@ type ProofReport struct {
 	FieldModulus          uint64
 	Lambda                int
 	Kappa                 [4]int
+	FSOutputBits          int    `json:"fs_output_bits"`
+	ObservedFSDigestBits  [4]int `json:"observed_fs_digest_bits"`
+	FSOutputWidthValid    bool   `json:"fs_output_width_valid"`
 	TapeBytes             int    `json:"tape_bytes"`
 	TapeCount             int    `json:"tape_count"`
 	TapeWidthBytes        int    `json:"tape_width_bytes"`
@@ -173,6 +176,31 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		return ProofReport{}, fmt.Errorf("nil ring")
 	}
 	opts.applyDefaults()
+	wantFSOutputBits, err := ResolveFSOutputBits(opts)
+	if err != nil {
+		return ProofReport{}, err
+	}
+	if err := ValidateAggregateROQueryBudget(opts); err != nil {
+		return ProofReport{}, err
+	}
+	if err := ValidatePublicationV4Widths(opts); err != nil {
+		return ProofReport{}, err
+	}
+	fsWidthValid := true
+	if transcriptUsesPublicationV4(proof.TranscriptVersion) {
+		if err := validateProofFSDigestWidths(proof); err != nil {
+			return ProofReport{}, err
+		}
+	} else {
+		for _, digest := range proof.Digests {
+			if len(digest) != 0 && len(digest)*8 != wantFSOutputBits {
+				fsWidthValid = false
+			}
+		}
+	}
+	if transcriptUsesPublicationV4(proof.TranscriptVersion) && proof.FSOutputBits != wantFSOutputBits {
+		return ProofReport{}, fmt.Errorf("proof FS output bits=%d want manifest-bound %d", proof.FSOutputBits, wantFSOutputBits)
+	}
 	if err := validateProofRingDegree(proof, int(ringQ.N)); err != nil {
 		return ProofReport{}, err
 	}
@@ -245,7 +273,51 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 	decsHashBits := proofDECSHashBits(proof)
 	decsTapeBits := proofDECSTapeBits(proof)
 	sb := computeSoundnessBudget(reportOpts, q, fieldSize, fsCollisionSpaceBits(reportOpts.Lambda, len(proof.Salt)), decsHashBits, decsTapeBits, dQ, ncols, lvcsNCols, ell, ellPrime, eta, nLeaves, witnessPolys)
-	size := MeasureProofSize(proof)
+	for i := range proof.Digests {
+		sb.ObservedFSDigestBits[i] = len(proof.Digests[i]) * 8
+		if sb.ObservedFSDigestBits[i] == 0 && !transcriptUsesPublicationV4(proof.TranscriptVersion) {
+			sb.ObservedFSDigestBits[i] = wantFSOutputBits
+		}
+	}
+	if err := validatePublicationV4SoundnessBudget(reportOpts, sb); err != nil {
+		return ProofReport{}, err
+	}
+	if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+		rhoEff := rho
+		if rhoEff < 1 {
+			rhoEff = 1
+		}
+		maskScale := theta * rhoEff
+		wantMaskChunks := smallFieldMaskChunkCount(dQ, lvcsNCols, proof.TranscriptVersion)
+		if maskScale <= 0 || geometry.MaskRowsCommitted <= 0 || geometry.MaskRowsCommitted%maskScale != 0 {
+			return ProofReport{}, fmt.Errorf(
+				"strict-v3 mask geometry is not chunk-aligned: mask_rows=%d theta=%d rho=%d",
+				geometry.MaskRowsCommitted, theta, rhoEff,
+			)
+		}
+		gotMaskChunks := geometry.MaskRowsCommitted / maskScale
+		if gotMaskChunks != wantMaskChunks {
+			return ProofReport{}, fmt.Errorf(
+				"strict-v3 mask chunks=%d from PCS geometry, want ceil(dQ/L)+1=%d (dQ=%d L=%d)",
+				gotMaskChunks, wantMaskChunks, dQ, lvcsNCols,
+			)
+		}
+		actualNRows := geometry.WitnessRowsCommitted + geometry.MaskRowsCommitted
+		if actualNRows <= 0 {
+			return ProofReport{}, fmt.Errorf("strict-v3 PCS geometry has no committed rows")
+		}
+		if proof.SmallField2025 != nil && proof.SmallField2025.NRows != actualNRows {
+			return ProofReport{}, fmt.Errorf(
+				"strict-v3 SmallField2025 nrows=%d differs from PCS geometry=%d",
+				proof.SmallField2025.NRows, actualNRows,
+			)
+		}
+		// The live PCS geometry is authoritative once the expected Eq. (2)
+		// chunk count has been checked. This keeps theorem work accounting tied
+		// to the rows the prover actually committed.
+		sb.NRows = actualNRows
+	}
+	size := EstimateVerifierMessageSize(proof)
 	packing, err := BuildProofPackingAudit(proof, q)
 	if err != nil {
 		return ProofReport{}, fmt.Errorf("packing audit: %w", err)
@@ -259,6 +331,7 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		Lambda:       reportOpts.Lambda,
 		SaltBits:     reportOpts.SaltBits,
 		DECSHashBits: decsHashBits,
+		DECSTapeBits: decsTapeBits,
 		RingDegree:   int(ringQ.N),
 		X0Len:        x0Len,
 		Eta:          eta,
@@ -285,7 +358,8 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 	// The broad paper buckets historically modeled only the main opening and
 	// source replay bridge. Reclassify every other retained opening's tape
 	// disclosure into the canonical tape bucket/audit so it exactly matches the
-	// proof-wide serialized accounting without inventing residue/auth formulas.
+	// proof-wide modeled verifier-message accounting without inventing
+	// residue/auth formulas. This is not a canonical wire-size calculation.
 	for _, retained := range retainedDECSOpenings(proof) {
 		if retained.Kind == retainedDECSOpeningMain || retained.Kind == retainedDECSOpeningSourceReplay {
 			continue
@@ -321,6 +395,9 @@ func BuildProofReport(proof *Proof, opts SimOpts, ringQ *ring.Ring) (ProofReport
 		FieldModulus:          q,
 		Lambda:                reportOpts.Lambda,
 		Kappa:                 reportOpts.Kappa,
+		FSOutputBits:          wantFSOutputBits,
+		ObservedFSDigestBits:  sb.ObservedFSDigestBits,
+		FSOutputWidthValid:    fsWidthValid,
 		TapeBytes:             disclosure.TapeBytes,
 		TapeCount:             disclosure.TapeCount,
 		TapeWidthBytes:        disclosure.TapeWidthBytes,
@@ -458,7 +535,19 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 	if out.LVCSNCols > 0 {
 		out.RowsBlock = ceilDiv(out.WitnessRows, out.LVCSNCols)
 		if dQ > 0 {
-			out.MaskChunks = dQ/out.LVCSNCols + 1
+			out.MaskChunks = smallFieldMaskChunkCount(dQ, out.LVCSNCols, proof.TranscriptVersion)
+			if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+				rhoEff := opts.Rho
+				if rhoEff < 1 {
+					rhoEff = 1
+				}
+				maskScale := opts.Theta * rhoEff
+				if maskScale > 0 && geometry.MaskRowsCommitted > 0 {
+					// BuildProofReport already checked divisibility and equality to
+					// ceil(dQ/L)+1; report the actual committed geometry.
+					out.MaskChunks = geometry.MaskRowsCommitted / maskScale
+				}
+			}
 		}
 	}
 	if opts.EllPrime > 0 {
@@ -498,17 +587,26 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 			}
 		}
 	}
-	out.TranscriptSecurityStatus = SmallField2025StatusRejected
+	liveStatus := SmallField2025StatusLive
+	rejectedStatus := SmallField2025StatusRejected
+	if transcriptUsesPublicationV4(proof.TranscriptVersion) {
+		liveStatus = SmallField2025StatusLiveV4
+		rejectedStatus = SmallField2025StatusRejectedV4
+	} else if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+		liveStatus = SmallField2025StatusLiveV3
+		rejectedStatus = SmallField2025StatusRejectedV3
+	}
+	out.TranscriptSecurityStatus = rejectedStatus
 	if out.ZeroKnowledgeEligible {
-		out.TranscriptSecurityStatus = SmallField2025StatusLive
+		out.TranscriptSecurityStatus = liveStatus
 	}
 	if proof.SmallField2025 != nil {
 		if out.ZeroKnowledgeEligible && proof.SmallField2025.Status == SmallField2025StatusLive {
-			out.TranscriptSecurityStatus = proof.SmallField2025.Status
-			out.SmallField2025Status = proof.SmallField2025.Status
+			out.TranscriptSecurityStatus = liveStatus
+			out.SmallField2025Status = liveStatus
 		} else {
-			out.TranscriptSecurityStatus = SmallField2025StatusRejected
-			out.SmallField2025Status = SmallField2025StatusRejected
+			out.TranscriptSecurityStatus = rejectedStatus
+			out.SmallField2025Status = rejectedStatus
 		}
 		out.SmallField2025ReductionEnabled = proof.SmallField2025.ReductionEnabled
 		out.SmallField2025QueryCount = proof.SmallField2025.QueryCount
@@ -519,7 +617,12 @@ func buildTranscriptOptimizationReport(proof *Proof, paper PaperTranscriptReport
 		out.SmallField2025Notes = proof.SmallField2025.Notes
 		if proof.SmallField2025.ReductionEnabled {
 			out.AuditRows = proof.SmallField2025.QueryCount
-			out.MaskRows = proof.SmallField2025.MaskRows
+			// SmallField2025.MaskRows is the VBar width (ell), despite its
+			// historical field name. Strict v3 reports physical committed mask
+			// rows from PCSGeometry; preserve the legacy v2 report behavior.
+			if !transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+				out.MaskRows = proof.SmallField2025.MaskRows
+			}
 			if out.PCols > 0 {
 				out.OpeningCols = out.PCols
 			}

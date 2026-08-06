@@ -58,6 +58,47 @@ func TestPaperTranscriptReportLeafUsesFormulaicRAndQ(t *testing.T) {
 	}
 }
 
+func TestProofReportPreservesStructuralV3AndPublicationV4Status(t *testing.T) {
+	tests := []struct {
+		name     string
+		version  string
+		protocol string
+		want     string
+	}{
+		{"v3-unchanged", TranscriptVersionSmallWood2025V3, TranscriptProtocolSmallField2025V3, SmallField2025StatusLiveV3},
+		{"v4-exact", TranscriptVersionSmallWood2025V4, TranscriptProtocolSmallField2025V4, SmallField2025StatusLiveV4},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			proof := v2AccountingProofForTest()
+			proof.SchemaVersion = ProofSchemaVersionV3
+			proof.TranscriptVersion = tc.version
+			proof.TranscriptProtocolMode = tc.protocol
+			proof.SmallField2025.Mode = tc.protocol
+			proof.SmallField2025.TranscriptOmission = &SmallField2025TranscriptOmission{
+				Version:                      smallField2025TranscriptOmissionVersionV3,
+				Mode:                         SmallField2025TranscriptOmissionModeCanonicalV3,
+				OmitPdecsReconstructibleCols: true,
+				AuthMultiproofCompact:        true,
+			}
+			focus := buildTranscriptOptimizationReport(
+				proof,
+				PaperTranscriptReport{},
+				ProofPackingAudit{},
+				SoundnessBudget{},
+				WitnessGeometrySnapshot{},
+				proof.PCSNColsUsed,
+				proof.QDegreeBound,
+				SimOpts{},
+				12289,
+			)
+			if !focus.ZeroKnowledgeEligible || focus.TranscriptSecurityStatus != tc.want || focus.SmallField2025Status != tc.want {
+				t.Fatalf("report status/metadata=%q/%q eligible=%v want %q", focus.TranscriptSecurityStatus, focus.SmallField2025Status, focus.ZeroKnowledgeEligible, tc.want)
+			}
+		})
+	}
+}
+
 func TestPaperTranscriptReportIncludesRingDegree(t *testing.T) {
 	ringQ, err := ring.NewRing(1024, []uint64{12289})
 	if err != nil {
@@ -131,6 +172,162 @@ func TestPaperTranscriptReportOptimizedTotalSumsAllBuckets(t *testing.T) {
 	if rep.OptimizedBytes != bitsToBytes(wantBits) {
 		t.Fatalf("optimized bytes=%d want rounded bucket sum %d", rep.OptimizedBytes, bitsToBytes(wantBits))
 	}
+}
+
+func TestStrictV3PaperAccountingExactTargetComponents(t *testing.T) {
+	type targetCase struct {
+		name                                              string
+		L, ell, theta, eta, dQ, nLeaves                   int
+		saltBits, hashBits, tapeBits                      int
+		logicalRows, layers, queries, nRows, pCols        int
+		wantTotal, wantFixed, wantR, wantQ, wantP         int
+		wantAuth, wantTapes, wantV, wantBar, wantPosFrame int
+	}
+	cases := []targetCase{
+		{"WF128/issuance", 42, 9, 7, 43, 391, 327680, 256, 264, 128, 165, 4, 35, 233, 198, 27575, 648, 5471, 6828, 4455, 5643, 144, 3588, 798, 25},
+		{"WF128/showing", 42, 9, 7, 43, 471, 327680, 256, 264, 128, 423, 11, 84, 520, 436, 39944, 648, 5471, 8225, 9810, 5643, 144, 8103, 1900, 25},
+		{"WF128/showing-L41", 41, 9, 7, 43, 471, 327680, 256, 264, 128, 423, 11, 84, 520, 436, 39837, 648, 5364, 8225, 9810, 5643, 144, 8103, 1900, 25},
+		{"BQ128/issuance", 43, 18, 13, 59, 472, 688128, 200, 392, 264, 165, 4, 65, 336, 271, 65091, 680, 8979, 15308, 12195, 17640, 594, 6760, 2935, 48},
+		{"BQ128/showing", 43, 18, 13, 59, 570, 688128, 200, 392, 264, 423, 10, 143, 645, 502, 90494, 680, 8979, 18486, 22590, 17640, 594, 15080, 6445, 48},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mu := ceilDiv(tc.dQ, tc.L)
+			maskRows := (mu + 1) * tc.theta
+			replayRows := tc.layers * (32 + tc.theta)
+			if got := ceilDiv(tc.logicalRows, tc.L); got != tc.layers {
+				t.Fatalf("witness layers=%d want %d", got, tc.layers)
+			}
+			if got := (tc.layers + 1) * tc.theta; got != tc.queries {
+				t.Fatalf("query rows=%d want %d", got, tc.queries)
+			}
+			if got := replayRows + maskRows; got != tc.nRows {
+				t.Fatalf("opening rows=%d want %d (replay=%d mask=%d)", got, tc.nRows, replayRows, maskRows)
+			}
+			if got := tc.nRows - tc.queries; got != tc.pCols {
+				t.Fatalf("P columns=%d want %d", got, tc.pCols)
+			}
+
+			omission := &SmallField2025TranscriptOmission{
+				Version:                      smallField2025TranscriptOmissionVersionV3,
+				Mode:                         SmallField2025TranscriptOmissionModeCanonicalV3,
+				OmitPdecsReconstructibleCols: true,
+				AuthMultiproofCompact:        true,
+			}
+			meta := &SmallField2025LVCSProof{
+				Version:            smallField2025LVCSProofVersionV2,
+				Mode:               TranscriptProtocolSmallField2025V3,
+				Status:             SmallField2025StatusLive,
+				ReductionEnabled:   true,
+				HeadDomainMode:     SmallField2025HeadDomainV2,
+				NRows:              tc.nRows,
+				NCols:              tc.L,
+				Theta:              tc.theta,
+				WitnessLayers:      tc.layers,
+				MaskRows:           tc.ell,
+				QueryCount:         tc.queries,
+				VHeadRows:          tc.queries,
+				VHeadCols:          tc.L,
+				VBarRows:           tc.queries,
+				VBarCols:           tc.ell,
+				MatrixDigest:       make([]byte, 32),
+				PayloadDigest:      make([]byte, 32),
+				TranscriptOmission: omission,
+			}
+			if got := len(smallField2025TranscriptBytes(meta)); got != 476 {
+				t.Fatalf("strict-v3 fixed metadata bytes=%d want 476", got)
+			}
+			proof := &Proof{
+				TranscriptVersion: TranscriptVersionSmallWood2025V3,
+				SmallField2025:    meta,
+				NLeavesUsed:       tc.nLeaves,
+				RowLayout:         RowLayout{SigCount: tc.logicalRows},
+				PCSGeometry: PCSGeometry{
+					LogicalWitnessPolys: tc.logicalRows,
+				},
+				PCSOpening: &decs.DECSOpening{
+					PColsEncoded: tc.pCols,
+					R:            tc.nRows,
+				},
+			}
+			proof.setVTargets(makeUint64Matrix(tc.queries, tc.L))
+			proof.setBarSets(makeUint64Matrix(tc.queries, tc.ell))
+			report := buildPaperTranscriptReportLeaf(proof, 1017857, paperTranscriptParams{
+				Lambda: 256, SaltBits: tc.saltBits, DECSHashBits: tc.hashBits, DECSTapeBits: tc.tapeBits,
+				Eta: tc.eta, Ell: tc.ell, EllPrime: 1, Rho: 1, Theta: tc.theta,
+				DQ: tc.dQ, DDECS: tc.L + tc.ell - 1,
+			})
+			logQ := math.Log2(1017857)
+			wantRBits := float64(tc.eta*(tc.L+tc.ell)) * logQ
+			wantQNaiveBits := float64((tc.dQ+1)*tc.theta) * logQ
+			wantQOptimizedBits := float64(tc.dQ*tc.theta) * logQ
+			if math.Abs(report.R.NaiveBits-wantRBits) > 1e-9 || math.Abs(report.R.OptimizedBits-wantRBits) > 1e-9 ||
+				math.Abs(report.Q.NaiveBits-wantQNaiveBits) > 1e-9 || math.Abs(report.Q.OptimizedBits-wantQOptimizedBits) > 1e-9 {
+				t.Fatalf("strict-v3 R/Q formulas mismatch: R=%+v Q=%+v", report.R, report.Q)
+			}
+			fixed := report.Audit.FixedV3
+			if fixed.CounterBytes != 16 || fixed.SaltBytes != (tc.saltBits+7)/8 || fixed.RootBytes != (tc.hashBits+7)/8 ||
+				fixed.RoundDigestBytes != 64 || fixed.SmallFieldMetadataBytes != 476 ||
+				fixed.DECSOpeningFrameBytes != tc.wantPosFrame || fixed.EmptyMOpeningFrameBytes != 1 ||
+				fixed.TapeWidthFrameBytes != 1 || fixed.TotalBytes != tc.wantFixed {
+				t.Fatalf("fixed paper frame mismatch: %+v", fixed)
+			}
+			if report.OptimizedBytes != tc.wantTotal || report.R.OptimizedBytes != tc.wantR || report.Q.OptimizedBytes != tc.wantQ ||
+				report.Pdecs.OptimizedBytes != tc.wantP || report.Mdecs.OptimizedBytes != 0 ||
+				report.Auth.OptimizedBytes != tc.wantAuth || report.Tapes.OptimizedBytes != tc.wantTapes ||
+				report.VTargets.OptimizedBytes != tc.wantV || report.BarSets.OptimizedBytes != tc.wantBar {
+				t.Fatalf("strict-v3 paper components mismatch: %+v", report)
+			}
+			shape, err := deriveSmallFieldMaskShapeV3(tc.dQ, tc.L, tc.theta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, wantVElements, err := deriveCanonicalVTargetRowWidthsV3(tc.logicalRows, tc.layers, tc.L, tc.theta, shape.Nu)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantDenseVBytes := bitsToBytes(float64(tc.queries * tc.L * canonicalFqBitWidth))
+			if report.VTargets.OptimizedBits != float64(wantVElements*canonicalFqBitWidth) ||
+				report.Audit.VTargets.Bytes != tc.wantV || report.Audit.VTargets.OmissionMapBytes != 0 ||
+				report.Audit.VTargets.ReconstructedBytesSaved != wantDenseVBytes-tc.wantV {
+				t.Fatalf("strict-v3 trusted ragged VTargets mismatch: bucket=%+v audit=%+v", report.VTargets, report.Audit.VTargets)
+			}
+		})
+	}
+}
+
+func TestStrictV3PaperAccountingFailsClosedWithoutTrustedGeometry(t *testing.T) {
+	base := &Proof{
+		TranscriptVersion: TranscriptVersionSmallWood2025V3,
+		NLeavesUsed:       327680,
+		SmallField2025: &SmallField2025LVCSProof{
+			QueryCount: 35,
+		},
+	}
+	params := paperTranscriptParams{
+		Lambda: 256, SaltBits: 256, DECSHashBits: 264, DECSTapeBits: 128,
+		Eta: 43, Ell: 9, EllPrime: 1, Rho: 1, Theta: 7, DQ: 391, DDECS: 50,
+	}
+
+	if got := buildPaperTranscriptReportLeaf(base, 1017857, params); got.OptimizedBytes != 0 || got.R.OptimizedBits != 0 || got.Q.OptimizedBits != 0 {
+		t.Fatalf("strict-v3 report with no authoritative opening did not fail closed: %+v", got)
+	}
+
+	withOpening := cloneProofForPaperTest(base)
+	withOpening.PCSOpening = &decs.DECSOpening{R: 233, PColsEncoded: 198}
+	badDegree := params
+	badDegree.DQ = 0
+	if got := buildPaperTranscriptReportLeaf(withOpening, 1017857, badDegree); got.OptimizedBytes != 0 || got.R.OptimizedBits != 0 || got.Q.OptimizedBits != 0 {
+		t.Fatalf("strict-v3 report with invalid Q degree did not fail closed: %+v", got)
+	}
+}
+
+func makeUint64Matrix(rows, cols int) [][]uint64 {
+	out := make([][]uint64, rows)
+	for i := range out {
+		out[i] = make([]uint64, cols)
+	}
+	return out
 }
 
 func TestStrictSmallWoodProofSizeExcludesLegacyQDECS(t *testing.T) {
@@ -302,7 +499,7 @@ func TestBuildOpeningPaperReportUnpackedUsesPackedFieldWidthNotUint64Limbs(t *te
 	}
 }
 
-func TestMeasureProofSizeUnaffectedByPaperTranscriptReport(t *testing.T) {
+func TestEstimateVerifierMessageSizeUnaffectedByPaperTranscriptReport(t *testing.T) {
 	ringQ, err := ring.NewRing(2048, []uint64{12289})
 	if err != nil {
 		t.Fatalf("ring: %v", err)
@@ -324,13 +521,13 @@ func TestMeasureProofSizeUnaffectedByPaperTranscriptReport(t *testing.T) {
 		PCSOpening:   testOpening(),
 		QOpening:     testOpening(),
 	}
-	before := MeasureProofSize(proof)
+	before := EstimateVerifierMessageSize(proof)
 	if _, err := BuildProofReport(proof, opts, ringQ); err != nil {
 		t.Fatalf("paper report: %v", err)
 	}
-	after := MeasureProofSize(proof)
+	after := EstimateVerifierMessageSize(proof)
 	if before.Total != after.Total {
-		t.Fatalf("MeasureProofSize changed after paper transcript report: before=%d after=%d", before.Total, after.Total)
+		t.Fatalf("modeled verifier-message estimate changed after paper transcript report: before=%d after=%d", before.Total, after.Total)
 	}
 }
 

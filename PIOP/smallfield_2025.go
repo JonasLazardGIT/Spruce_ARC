@@ -17,9 +17,21 @@ const (
 	SmallField2025HeadDomainV2       = lvcs.SmallField2025HeadDomainV2
 	SmallField2025StatusLive         = "smallwood_2025_1085_salted_tapes_v2_live"
 	SmallField2025StatusRejected     = "smallwood_2025_1085_salted_tapes_v2_rejected"
+	// V3 status labels are used by proof/evidence reporting. The embedded
+	// SmallField2025 metadata schema remains version 2 and is reconstructed by
+	// the canonical codec; changing its stored status would alter the transcript.
+	SmallField2025StatusLiveV3     = "smallwood_2025_1085_salted_tapes_v3_live"
+	SmallField2025StatusRejectedV3 = "smallwood_2025_1085_salted_tapes_v3_rejected"
+	// V4 retains the structural-v3 proof schema but has a distinct aggregate-Q
+	// CROM theorem and Fiat--Shamir domain. Reporting must preserve that policy
+	// identity instead of collapsing it into the V3 label.
+	SmallField2025StatusLiveV4     = "smallwood_2025_1085_aggregate_q_v4_live"
+	SmallField2025StatusRejectedV4 = "smallwood_2025_1085_aggregate_q_v4_rejected"
 
 	SmallField2025TranscriptOmissionModeDigestBoundV2 = "digest_bound_payload_v2"
 	smallField2025TranscriptOmissionVersionV2         = 2
+	SmallField2025TranscriptOmissionModeCanonicalV3   = "canonical_reconstruction_v3"
+	smallField2025TranscriptOmissionVersionV3         = 3
 )
 
 // SmallField2025TranscriptOmission describes reconstructible paper-transcript
@@ -84,7 +96,7 @@ func smallField2025AllCols(n int) []int {
 
 func proofUsesSmallField2025LVCS(proof *Proof) bool {
 	return proof != nil &&
-		normalizeTranscriptProtocolMode(proof.TranscriptProtocolMode) == TranscriptProtocolSmallField2025V2 &&
+		transcriptUsesStrictSmallField2025(proof.TranscriptVersion, proof.TranscriptProtocolMode) &&
 		proof.SmallField2025 != nil &&
 		proof.SmallField2025.ReductionEnabled
 }
@@ -94,38 +106,35 @@ func ValidateSmallField2025Proof(proof *Proof) error {
 		return nil
 	}
 	mode := normalizeTranscriptProtocolMode(proof.TranscriptProtocolMode)
-	if mode != TranscriptProtocolSmallField2025V2 {
+	if !transcriptUsesStrictSmallField2025(proof.TranscriptVersion, mode) {
 		if proof.SmallField2025 != nil {
-			return fmt.Errorf("smallfield2025 metadata present without %s protocol mode", TranscriptProtocolSmallField2025V2)
+			return fmt.Errorf("smallfield2025 metadata present without a supported strict transcript tuple")
 		}
 		return nil
 	}
 	if proof.SmallField2025 == nil {
-		return fmt.Errorf("%s requires SmallField2025 metadata", TranscriptProtocolSmallField2025V2)
+		return fmt.Errorf("%s requires SmallField2025 metadata", mode)
 	}
 	meta := proof.SmallField2025
 	if meta.Version != smallField2025LVCSProofVersionV2 ||
-		meta.Mode != TranscriptProtocolSmallField2025V2 ||
+		meta.Mode != mode ||
 		meta.HeadDomainMode != SmallField2025HeadDomainV2 {
 		return fmt.Errorf("smallfield2025 metadata header mismatch")
 	}
-	if normalizeTranscriptVersion(proof.TranscriptVersion) != TranscriptVersionSmallWood2025V2 {
-		return fmt.Errorf("%s requires transcript version %s", TranscriptProtocolSmallField2025V2, TranscriptVersionSmallWood2025V2)
-	}
 	if proof.Theta <= 1 {
-		return fmt.Errorf("%s requires theta>1", TranscriptProtocolSmallField2025V2)
+		return fmt.Errorf("%s requires theta>1", mode)
 	}
 	if proof.PCSGeometry.Kind != PCSGeometryKindSmallFieldMatrixV2 {
-		return fmt.Errorf("%s requires %s geometry", TranscriptProtocolSmallField2025V2, PCSGeometryKindSmallFieldMatrixV2)
+		return fmt.Errorf("%s requires %s geometry", mode, PCSGeometryKindSmallFieldMatrixV2)
 	}
 	if proofHasLegacyQDECS(proof) {
-		return fmt.Errorf("%s requires paper Q payload only", TranscriptProtocolSmallField2025V2)
+		return fmt.Errorf("%s requires paper Q payload only", mode)
 	}
 	if rows := proof.QPayloadMatrix(); len(rows) != proof.Theta {
-		return fmt.Errorf("%s requires rho=1 Q payload rows=%d theta=%d", TranscriptProtocolSmallField2025V2, len(rows), proof.Theta)
+		return fmt.Errorf("%s requires rho=1 Q payload rows=%d theta=%d", mode, len(rows), proof.Theta)
 	}
 	if len(proof.KPoint) != 1 {
-		return fmt.Errorf("%s requires ell_prime=1 K point count, got %d", TranscriptProtocolSmallField2025V2, len(proof.KPoint))
+		return fmt.Errorf("%s requires ell_prime=1 K point count, got %d", mode, len(proof.KPoint))
 	}
 	if !meta.ReductionEnabled {
 		if meta.Status != SmallField2025StatusRejected {
@@ -282,6 +291,9 @@ func attachSmallField2025Proof(proof *Proof, plan smallField2025CoeffPlan, eta i
 	if proof == nil {
 		return fmt.Errorf("nil proof")
 	}
+	if !transcriptUsesStrictSmallField2025(proof.TranscriptVersion, proof.TranscriptProtocolMode) {
+		return fmt.Errorf("smallfield2025 metadata requires a supported strict transcript tuple")
+	}
 	if len(plan.C) == 0 || len(plan.POmitCols) != len(plan.C) {
 		return fmt.Errorf("invalid smallfield2025 plan")
 	}
@@ -304,7 +316,7 @@ func attachSmallField2025Proof(proof *Proof, plan smallField2025CoeffPlan, eta i
 	}
 	meta := &SmallField2025LVCSProof{
 		Version:            smallField2025LVCSProofVersionV2,
-		Mode:               TranscriptProtocolSmallField2025V2,
+		Mode:               proof.TranscriptProtocolMode,
 		Status:             SmallField2025StatusLive,
 		ReductionEnabled:   true,
 		HeadDomainMode:     SmallField2025HeadDomainV2,
@@ -362,19 +374,36 @@ func verifySmallField2025CoeffPlan(proof *Proof, ringQ *ring.Ring, omegaWitness 
 	if len(proof.KPoint) != 1 {
 		return fmt.Errorf("strict smallfield2025 expects exactly one K point")
 	}
-	K, err := kf.New(ringQ.Modulus[0], proof.Theta, proof.Chi)
-	if err != nil {
-		return fmt.Errorf("kfield.New: %w", err)
+	var (
+		K     *kf.Field
+		zeta  kf.Elem
+		muInv kf.Elem
+		err   error
+	)
+	if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+		if len(proof.Chi) != 0 || len(proof.Zeta) != 0 {
+			return fmt.Errorf("v3 proof must not transmit Chi or omegaExtra")
+		}
+		params, profileErr := deriveSmallFieldParamsNoRowsV3(ringQ, omegaWitness, proof.Theta)
+		if profileErr != nil {
+			return profileErr
+		}
+		K, zeta, muInv = params.K, params.OmegaS1, params.MuInv
+	} else {
+		K, err = kf.New(ringQ.Modulus[0], proof.Theta, proof.Chi)
+		if err != nil {
+			return fmt.Errorf("kfield.New: %w", err)
+		}
+		if len(proof.Zeta) != proof.Theta {
+			return fmt.Errorf("invalid zeta limb count=%d theta=%d", len(proof.Zeta), proof.Theta)
+		}
+		zeta = K.Phi(proof.Zeta)
+		muInv, err = smallFieldMuDenomInv(K, omegaWitness, zeta)
+		if err != nil {
+			return err
+		}
 	}
-	if len(proof.Zeta) != proof.Theta {
-		return fmt.Errorf("invalid zeta limb count=%d theta=%d", len(proof.Zeta), proof.Theta)
-	}
-	zeta := K.Phi(proof.Zeta)
-	muInv, err := smallFieldMuDenomInv(K, omegaWitness, zeta)
-	if err != nil {
-		return err
-	}
-	expectedKPoints, expectedElems, err := sampleSmallFieldKPoints(K, omegaWitness, 1, newFSRNG("EvalKPoint", seed3))
+	expectedKPoints, expectedElems, err := sampleSmallFieldKPoints(K, omegaWitness, 1, newFSRNGForTranscript(proof.TranscriptVersion, "EvalKPoint", seed3))
 	if err != nil {
 		return err
 	}
@@ -382,18 +411,30 @@ func verifySmallField2025CoeffPlan(proof *Proof, ringQ *ring.Ring, omegaWitness 
 		return fmt.Errorf("smallfield2025 K point mismatch")
 	}
 	rows := make([][]uint64, rowCount)
-	plan, err := buildSmallField2025CoeffPlan(
-		ringQ,
-		K,
-		omegaWitness,
-		rows,
-		expectedElems[0],
-		zeta,
-		muInv,
-		proof.PCSGeometry.ReplayWitnessRows,
-		proof.MaskRowOffset,
-		proof.MaskRowCount,
-	)
+	if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+		// V3 derives the mask-query shape from the trusted PCS width. The
+		// coefficient plan only needs the matrix dimensions here (its values
+		// are irrelevant), so materialize zero rows with that exact width.
+		if proof.PCSNColsUsed <= 0 {
+			return fmt.Errorf("invalid v3 PCS width %d", proof.PCSNColsUsed)
+		}
+		for i := range rows {
+			rows[i] = make([]uint64, proof.PCSNColsUsed)
+		}
+	}
+	var plan smallField2025CoeffPlan
+	if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+		plan, err = buildSmallField2025CoeffPlanV3(
+			ringQ, K, omegaWitness, rows, expectedElems[0], zeta, muInv,
+			proof.PCSGeometry.ReplayWitnessRows, proof.MaskRowOffset,
+			proof.MaskRowCount, proof.MaskDegreeBound,
+		)
+	} else {
+		plan, err = buildSmallField2025CoeffPlan(
+			ringQ, K, omegaWitness, rows, expectedElems[0], zeta, muInv,
+			proof.PCSGeometry.ReplayWitnessRows, proof.MaskRowOffset, proof.MaskRowCount,
+		)
+	}
 	if err != nil {
 		return err
 	}
@@ -441,13 +482,22 @@ func sampleSmallFieldKPoints(K *kf.Field, omega []uint64, count int, rng *fsRNG)
 	for len(elems) < count {
 		limbs := make([]uint64, K.Theta)
 		for i := 0; i < K.Theta; i++ {
-			limbs[i] = rng.nextU64() % K.Q
+			limbs[i] = rng.nextMod(K.Q)
 		}
-		zeroTail := true
-		for i := 1; i < len(limbs); i++ {
-			if limbs[i]%K.Q != 0 {
-				zeroTail = false
-				break
+		// V2 historically sampled from K\F. V3 follows the paper's exact
+		// challenge space K\Omega and therefore permits embedded base-field
+		// elements that are not themselves in Omega.
+		rejectEmbeddedBaseField := !rng.exact
+		if rejectEmbeddedBaseField {
+			zeroTail := true
+			for i := 1; i < len(limbs); i++ {
+				if limbs[i]%K.Q != 0 {
+					zeroTail = false
+					break
+				}
+			}
+			if zeroTail {
+				continue
 			}
 		}
 		candidate := K.Phi(limbs)
@@ -466,7 +516,7 @@ func sampleSmallFieldKPoints(K *kf.Field, omega []uint64, count int, rng *fsRNG)
 				}
 			}
 		}
-		if zeroTail || conflict {
+		if conflict {
 			continue
 		}
 		limbRows = append(limbRows, limbs)
@@ -532,9 +582,26 @@ func newSmallField2025TranscriptOmission(mode string) (*SmallField2025Transcript
 			Mode:                         SmallField2025TranscriptOmissionModeDigestBoundV2,
 			OmitPdecsReconstructibleCols: true,
 		}, nil
+	case SmallField2025TranscriptOmissionModeCanonicalV3:
+		return &SmallField2025TranscriptOmission{
+			Version:                      smallField2025TranscriptOmissionVersionV3,
+			Mode:                         SmallField2025TranscriptOmissionModeCanonicalV3,
+			OmitPdecsReconstructibleCols: true,
+			AuthMultiproofCompact:        true,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown smallfield2025 transcript omission mode %q", mode)
 	}
+}
+
+func isExactSmallField2025TranscriptOmissionV3(desc *SmallField2025TranscriptOmission) bool {
+	return desc != nil &&
+		desc.Version == smallField2025TranscriptOmissionVersionV3 &&
+		desc.Mode == SmallField2025TranscriptOmissionModeCanonicalV3 &&
+		!desc.OmitVTargets &&
+		!desc.OmitBarSets &&
+		desc.OmitPdecsReconstructibleCols &&
+		desc.AuthMultiproofCompact
 }
 
 func isExactSmallField2025TranscriptOmissionV2(desc *SmallField2025TranscriptOmission) bool {
@@ -547,24 +614,31 @@ func isExactSmallField2025TranscriptOmissionV2(desc *SmallField2025TranscriptOmi
 		!desc.AuthMultiproofCompact
 }
 
-func proofHasExactSmallField2025LiveV2Metadata(proof *Proof) bool {
+func proofHasExactSmallField2025LiveMetadata(proof *Proof) bool {
 	if proof == nil || proof.SmallField2025 == nil {
 		return false
 	}
 	meta := proof.SmallField2025
-	return meta.Version == smallField2025LVCSProofVersionV2 &&
-		meta.Mode == TranscriptProtocolSmallField2025V2 &&
+	omissionOK := isExactSmallField2025TranscriptOmissionV2(meta.TranscriptOmission)
+	if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+		omissionOK = isExactSmallField2025TranscriptOmissionV3(meta.TranscriptOmission)
+	}
+	return transcriptUsesStrictSmallField2025(proof.TranscriptVersion, proof.TranscriptProtocolMode) &&
+		meta.Version == smallField2025LVCSProofVersionV2 &&
+		meta.Mode == normalizeTranscriptProtocolMode(proof.TranscriptProtocolMode) &&
 		meta.Status == SmallField2025StatusLive &&
 		meta.ReductionEnabled &&
 		meta.HeadDomainMode == SmallField2025HeadDomainV2 &&
-		isExactSmallField2025TranscriptOmissionV2(meta.TranscriptOmission)
+		omissionOK
 }
 
 func validateSmallField2025TranscriptOmission(proof *Proof, desc *SmallField2025TranscriptOmission) error {
 	if desc == nil {
-		return fmt.Errorf("smallfield2025 live v2 transcript requires an omission descriptor")
+		return fmt.Errorf("smallfield2025 live transcript requires an omission descriptor")
 	}
-	if !isExactSmallField2025TranscriptOmissionV2(desc) {
+	wantV3 := proof != nil && transcriptUsesSmallWood2025V3(proof.TranscriptVersion)
+	if (wantV3 && !isExactSmallField2025TranscriptOmissionV3(desc)) ||
+		(!wantV3 && !isExactSmallField2025TranscriptOmissionV2(desc)) {
 		return fmt.Errorf("smallfield2025 transcript omission descriptor mismatch")
 	}
 	if desc.OmitPdecsReconstructibleCols {
@@ -598,7 +672,11 @@ func smallField2025TranscriptOmissionBytes(desc *SmallField2025TranscriptOmissio
 		binary.LittleEndian.PutUint64(buf[:], v)
 		out = append(out, buf[:]...)
 	}
-	appendString("smallfield_2025_transcript_omission_v2")
+	domain := "smallfield_2025_transcript_omission_v2"
+	if desc.Version == smallField2025TranscriptOmissionVersionV3 {
+		domain = "smallfield_2025_transcript_omission_v3"
+	}
+	appendString(domain)
 	appendString(desc.Mode)
 	appendU64(uint64(desc.Version))
 	appendU64(boolToUint64(desc.OmitVTargets))

@@ -48,6 +48,9 @@ func expectedIntGenISISPreSignLayoutV2(ringQ *ring.Ring, pub PublicInputs, opts 
 	if ringQ == nil {
 		return RowLayout{}, fmt.Errorf("PIOP: nil ring")
 	}
+	if intGenISISOptsUseStructuralV3(opts) {
+		return expectedIntGenISISPreSignSourceOnlyLayoutV3(ringQ, pub, opts)
+	}
 	if len(pub.Com) == 0 || len(pub.CM) != len(pub.Com) || len(pub.AS) != len(pub.Com) {
 		return RowLayout{}, fmt.Errorf("PIOP: malformed trusted commitment geometry")
 	}
@@ -148,6 +151,10 @@ func expectedIntGenISISShowingLayoutsV2(ringQ *ring.Ring, pub PublicInputs, opts
 		return RowLayout{}, nil, err
 	}
 	rpp := int(ringQ.N) / opts.NCols
+	structuralV3 := intGenISISOptsUseStructuralV3(opts)
+	if structuralV3 && opts.NCols != prfInputTraceV3PackWidth {
+		return RowLayout{}, nil, fmt.Errorf("PIOP: strict v3 showing requires ncols=%d", prfInputTraceV3PackWidth)
+	}
 	projection := normalizeIntGenISISReplayProjection(opts.IntGenISISReplayProjection)
 	digitOnlyU := projection == IntGenISISReplayProjectionProjectUDigitsYViewV3 || projection == IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 	projectedUY := digitOnlyU
@@ -164,6 +171,12 @@ func expectedIntGenISISShowingLayoutsV2(ringQ *ring.Ring, pub PublicInputs, opts
 		layoutProjection = projection
 	default:
 		return RowLayout{}, nil, fmt.Errorf("PIOP: unsupported verifier replay projection %q", projection)
+	}
+	if structuralV3 {
+		if projection != IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 {
+			return RowLayout{}, nil, fmt.Errorf("PIOP: strict v3 showing requires replay projection %q", IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6)
+		}
+		layoutVersion = intGenISISShowingLayoutVersionInputTraceCarrierV3
 	}
 
 	cursor := 0
@@ -208,12 +221,30 @@ func expectedIntGenISISShowingLayoutsV2(ringQ *ring.Ring, pub PublicInputs, opts
 		eViewStart = cursor
 		cursor += eCount * rpp
 	}
-	muSigViewStart := cursor
-	cursor += rpp
-	x0ViewStart := cursor
-	cursor += x0Count * rpp
-	x1ViewStart := cursor
-	cursor += rpp
+	muSigViewStart, x0ViewStart, x1ViewStart := -1, -1, -1
+	muSigCarrierStart, x0CarrierStart, x1CarrierStart := -1, -1, -1
+	muSigCarrierCount, x0CarrierCount, x1CarrierCount := 0, 0, 0
+	if structuralV3 {
+		if rpp%ternaryCarrierV3PackWidth != 0 || x0Count*rpp%ternaryCarrierV3PackWidth != 0 {
+			return RowLayout{}, nil, fmt.Errorf("PIOP: strict v3 hash source rows are not pair-packable")
+		}
+		muSigCarrierStart = cursor
+		muSigCarrierCount = rpp / ternaryCarrierV3PackWidth
+		cursor += muSigCarrierCount
+		x0CarrierStart = cursor
+		x0CarrierCount = x0Count * rpp / ternaryCarrierV3PackWidth
+		cursor += x0CarrierCount
+		x1CarrierStart = cursor
+		x1CarrierCount = rpp / ternaryCarrierV3PackWidth
+		cursor += x1CarrierCount
+	} else {
+		muSigViewStart = cursor
+		cursor += rpp
+		x0ViewStart = cursor
+		cursor += x0Count * rpp
+		x1ViewStart = cursor
+		cursor += rpp
+	}
 	boundViewCount := cursor - boundViewStart
 
 	yViewStart, yViewCount := -1, 0
@@ -231,12 +262,16 @@ func expectedIntGenISISShowingLayoutsV2(ringQ *ring.Ring, pub PublicInputs, opts
 		yHatCount = rpp
 		cursor += yHatCount
 	}
-	muSigHatStart := cursor
-	muSigHatCount := rpp
-	cursor += muSigHatCount
-	x0HatStart := cursor
-	x0HatCount := x0Count * rpp
-	cursor += x0HatCount
+	muSigHatStart, muSigHatCount := -1, 0
+	x0HatStart, x0HatCount := -1, 0
+	if !structuralV3 {
+		muSigHatStart = cursor
+		muSigHatCount = rpp
+		cursor += muSigHatCount
+		x0HatStart = cursor
+		x0HatCount = x0Count * rpp
+		cursor += x0HatCount
+	}
 	x1HatStart := cursor
 	x1HatCount := rpp
 	cursor += x1HatCount
@@ -244,31 +279,69 @@ func expectedIntGenISISShowingLayoutsV2(ringQ *ring.Ring, pub PublicInputs, opts
 	zHatCount := rpp
 	cursor += zHatCount
 
-	companion, companionRows, err := expectedPRFCompanionLayoutV2(ringQ, pub, opts, cursor, mViewStart, mSeedViewStart, compression.Level > 0)
-	if err != nil {
-		return RowLayout{}, nil, err
+	var companion *PRFCompanionLayout
+	prfInputTraceStart, prfInputTraceRows := -1, 0
+	prfInputTraceLogical, prfInputTracePadding, prfInputTraceTagCount := 0, 0, 0
+	if structuralV3 {
+		prfInputTraceStart = cursor
+		payload, perr := canonicalPRFInputTraceV3Layout(cursor, len(pub.Tag))
+		if perr != nil {
+			return RowLayout{}, nil, perr
+		}
+		prfInputTraceRows = payload.PackedRows
+		prfInputTraceLogical = payload.LogicalScalars
+		prfInputTracePadding = payload.PaddingScalars
+		prfInputTraceTagCount = len(pub.Tag)
+		cursor += payload.PackedRows
+	} else {
+		var companionRows int
+		companion, companionRows, err = expectedPRFCompanionLayoutV2(ringQ, pub, opts, cursor, mViewStart, mSeedViewStart, compression.Level > 0)
+		if err != nil {
+			return RowLayout{}, nil, err
+		}
+		cursor += companionRows
 	}
-	cursor += companionRows
 	l := &IntGenISISShowingRowLayout{
-		LayoutVersion:              layoutVersion,
-		ReplayProjection:           layoutProjection,
-		UStart:                     -1,
-		UCount:                     uCount,
-		MStart:                     -1,
-		MCount:                     1,
-		MAttrStart:                 -1,
-		MAttrCount:                 1,
-		KStart:                     -1,
-		KCount:                     1,
-		SStart:                     -1,
-		SCount:                     sCount,
-		EStart:                     -1,
-		ECount:                     eCount,
-		MuSigStart:                 muSigViewStart,
-		MuSigCount:                 1,
-		X0Start:                    x0ViewStart,
-		X0Count:                    x0Count,
-		X1Start:                    x1ViewStart,
+		LayoutVersion:    layoutVersion,
+		ReplayProjection: layoutProjection,
+		LinearHatSourceMode: func() string {
+			if structuralV3 {
+				return intGenISISLinearHatSourceMuX0AggregateFused
+			}
+			return ""
+		}(),
+		UStart:     -1,
+		UCount:     uCount,
+		MStart:     -1,
+		MCount:     1,
+		MAttrStart: -1,
+		MAttrCount: 1,
+		KStart:     -1,
+		KCount:     1,
+		SStart:     -1,
+		SCount:     sCount,
+		EStart:     -1,
+		ECount:     eCount,
+		MuSigStart: func() int {
+			if structuralV3 {
+				return muSigCarrierStart
+			}
+			return muSigViewStart
+		}(),
+		MuSigCount: 1,
+		X0Start: func() int {
+			if structuralV3 {
+				return x0CarrierStart
+			}
+			return x0ViewStart
+		}(),
+		X0Count: x0Count,
+		X1Start: func() int {
+			if structuralV3 {
+				return x1CarrierStart
+			}
+			return x1ViewStart
+		}(),
 		X1Count:                    1,
 		ZStart:                     -1,
 		ZCount:                     1,
@@ -288,46 +361,76 @@ func expectedIntGenISISShowingLayoutsV2(ringQ *ring.Ring, pub PublicInputs, opts
 		ECarrierStart:              eCarrierStart,
 		ECarrierCount:              eCarrierCount,
 		MSECarrierCount:            mCarrierCount + sCarrierCount + eCarrierCount,
-		UViewStart:                 uViewStart,
-		UShortnessStart:            uShortnessStart,
-		UShortnessGroupCount:       uCount * rpp,
-		UShortnessRowsPerGroup:     shortSpec.L,
-		UShortnessRadix:            int(shortSpec.R),
-		UShortnessDigits:           shortSpec.L,
-		UShortnessSourceViewStart:  uViewStart,
-		UShortnessSourceViewRows:   uShortnessSourceRows,
-		UShortnessCapacity:         int64(shortSpec.MaxAbs),
-		UShortnessProofMode:        intGenISISUShortnessMode,
-		MViewStart:                 mViewStart,
-		MAttrViewStart:             -1,
-		KViewStart:                 -1,
-		SViewStart:                 sViewStart,
-		EViewStart:                 eViewStart,
-		YViewStart:                 yViewStart,
-		YViewCount:                 yViewCount,
-		MuSigViewStart:             muSigViewStart,
-		X0ViewStart:                x0ViewStart,
-		X1ViewStart:                x1ViewStart,
-		ZViewStart:                 -1,
-		UHatStart:                  uHatStart,
-		UHatCount:                  uHatCount,
-		MHatStart:                  -1,
-		SHatStart:                  -1,
-		EHatStart:                  -1,
-		YHatStart:                  yHatStart,
-		YHatCount:                  yHatCount,
-		MuSigHatStart:              muSigHatStart,
-		MuSigHatCount:              muSigHatCount,
-		X0HatStart:                 x0HatStart,
-		X0HatCount:                 x0HatCount,
-		WHatStart:                  -1,
-		X1HatStart:                 x1HatStart,
-		X1HatCount:                 x1HatCount,
-		ZHatStart:                  zHatStart,
-		ZHatCount:                  zHatCount,
-		HatRowsPerPoly:             rpp,
-		ViewRowsPerPoly:            rpp,
-		CoreRowCount:               0,
+		HashSourceCarrierV3:        structuralV3,
+		HashCarrierPackWidth: func() int {
+			if structuralV3 {
+				return ternaryCarrierV3PackWidth
+			}
+			return 0
+		}(),
+		HashCarrierDecodeDegree: func() int {
+			if structuralV3 {
+				return ternaryCarrierV3Alphabet - 1
+			}
+			return 0
+		}(),
+		HashCarrierMembershipDegree: func() int {
+			if structuralV3 {
+				return ternaryCarrierV3Alphabet
+			}
+			return 0
+		}(),
+		MuSigCarrierStart:         muSigCarrierStart,
+		MuSigCarrierCount:         muSigCarrierCount,
+		X0CarrierStart:            x0CarrierStart,
+		X0CarrierCount:            x0CarrierCount,
+		X1CarrierStart:            x1CarrierStart,
+		X1CarrierCount:            x1CarrierCount,
+		UViewStart:                uViewStart,
+		UShortnessStart:           uShortnessStart,
+		UShortnessGroupCount:      uCount * rpp,
+		UShortnessRowsPerGroup:    shortSpec.L,
+		UShortnessRadix:           int(shortSpec.R),
+		UShortnessDigits:          shortSpec.L,
+		UShortnessSourceViewStart: uViewStart,
+		UShortnessSourceViewRows:  uShortnessSourceRows,
+		UShortnessCapacity:        int64(shortSpec.MaxAbs),
+		UShortnessProofMode:       intGenISISUShortnessMode,
+		MViewStart:                mViewStart,
+		MAttrViewStart:            -1,
+		KViewStart:                -1,
+		SViewStart:                sViewStart,
+		EViewStart:                eViewStart,
+		YViewStart:                yViewStart,
+		YViewCount:                yViewCount,
+		MuSigViewStart:            muSigViewStart,
+		X0ViewStart:               x0ViewStart,
+		X1ViewStart:               x1ViewStart,
+		ZViewStart:                -1,
+		UHatStart:                 uHatStart,
+		UHatCount:                 uHatCount,
+		MHatStart:                 -1,
+		SHatStart:                 -1,
+		EHatStart:                 -1,
+		YHatStart:                 yHatStart,
+		YHatCount:                 yHatCount,
+		MuSigHatStart:             muSigHatStart,
+		MuSigHatCount:             muSigHatCount,
+		X0HatStart:                x0HatStart,
+		X0HatCount:                x0HatCount,
+		WHatStart:                 -1,
+		X1HatStart:                x1HatStart,
+		X1HatCount:                x1HatCount,
+		ZHatStart:                 zHatStart,
+		ZHatCount:                 zHatCount,
+		PRFInputTraceV3Start:      prfInputTraceStart,
+		PRFInputTraceV3Rows:       prfInputTraceRows,
+		PRFInputTraceV3Logical:    prfInputTraceLogical,
+		PRFInputTraceV3Padding:    prfInputTracePadding,
+		PRFInputTraceV3TagCount:   prfInputTraceTagCount,
+		HatRowsPerPoly:            rpp,
+		ViewRowsPerPoly:           rpp,
+		CoreRowCount:              0,
 	}
 	return RowLayout{
 		RingDegree:         int(ringQ.N),
@@ -343,7 +446,7 @@ func expectedPRFCompanionLayoutV2(ringQ *ring.Ring, pub PublicInputs, opts SimOp
 	if mode != PRFCompanionModeDirectFull {
 		return nil, 0, fmt.Errorf("PIOP: verifier requires PRF companion mode %q, got %q", PRFCompanionModeDirectFull, mode)
 	}
-	params, err := loadPRFParamsForOpts(opts)
+	params, err := loadBoundPRFParamsForOpts(opts)
 	if err != nil {
 		return nil, 0, fmt.Errorf("PIOP: load PRF params: %w", err)
 	}
@@ -430,8 +533,9 @@ func validateIntGenISISProofEnvelopeV2(proof *Proof, expectedLayout RowLayout, e
 	if proof == nil {
 		return fmt.Errorf("PIOP: nil proof")
 	}
-	if proof.SchemaVersion != ProofSchemaVersionV2 {
-		return fmt.Errorf("PIOP: proof schema=%d want=%d; no migration, rerun setup and issuance", proof.SchemaVersion, ProofSchemaVersionV2)
+	expectedSchema := proofSchemaVersionForTranscript(opts.TranscriptVersion)
+	if proof.SchemaVersion != expectedSchema {
+		return fmt.Errorf("PIOP: proof schema=%d want=%d; no migration, rerun setup and issuance", proof.SchemaVersion, expectedSchema)
 	}
 	if proof.RingDegree != pub.RingDegree || proof.RowLayout.RingDegree != pub.RingDegree {
 		return fmt.Errorf("PIOP: proof ring geometry does not match trusted ring degree %d", pub.RingDegree)
@@ -439,15 +543,36 @@ func validateIntGenISISProofEnvelopeV2(proof *Proof, expectedLayout RowLayout, e
 	if proof.HashRelation != pub.HashRelation || proof.HashRelation != credential.HashRelationBBTran {
 		return fmt.Errorf("PIOP: proof hash relation %q does not match trusted BB-tran relation", proof.HashRelation)
 	}
-	if proof.TranscriptVersion != opts.TranscriptVersion || proof.TranscriptVersion != TranscriptVersionSmallWood2025V2 ||
-		proof.TranscriptProtocolMode != opts.TranscriptProtocolMode || proof.TranscriptProtocolMode != TranscriptProtocolSmallField2025V2 {
-		return fmt.Errorf("PIOP: proof transcript tuple does not match the verifier-selected v2 tuple")
+	if proof.TranscriptVersion != opts.TranscriptVersion || proof.TranscriptProtocolMode != opts.TranscriptProtocolMode ||
+		!transcriptUsesStrictSmallField2025(proof.TranscriptVersion, proof.TranscriptProtocolMode) {
+		return fmt.Errorf("PIOP: proof transcript tuple does not match the verifier-selected strict tuple")
 	}
 	if proof.FixedTranscriptSize != opts.FixedTranscriptSize {
 		return fmt.Errorf("PIOP: proof fixed-transcript flag does not match verifier options")
 	}
 	if proof.Lambda != opts.Lambda || proof.Kappa != opts.Kappa || proof.Theta != opts.Theta {
 		return fmt.Errorf("PIOP: proof Fiat-Shamir parameters do not match verifier options")
+	}
+	wantFSOutputBits, err := ResolveFSOutputBits(opts)
+	if err != nil {
+		return fmt.Errorf("PIOP: verifier Fiat-Shamir policy: %w", err)
+	}
+	if err := ValidatePublicationV4Widths(opts); err != nil {
+		return fmt.Errorf("PIOP: verifier Fiat-Shamir policy: %w", err)
+	}
+	if err := ValidateAggregateROQueryBudget(opts); err != nil {
+		return fmt.Errorf("PIOP: verifier Fiat-Shamir policy: %w", err)
+	}
+	if transcriptUsesPublicationV4(opts.TranscriptVersion) && proof.FSOutputBits != wantFSOutputBits {
+		return fmt.Errorf("PIOP: proof FS output bits=%d want manifest-bound %d", proof.FSOutputBits, wantFSOutputBits)
+	}
+	if !transcriptUsesPublicationV4(opts.TranscriptVersion) && proof.FSOutputBits != 0 && proof.FSOutputBits != wantFSOutputBits {
+		return fmt.Errorf("PIOP: historical proof FS output bits=%d want zero or %d", proof.FSOutputBits, wantFSOutputBits)
+	}
+	if transcriptUsesPublicationV4(opts.TranscriptVersion) {
+		if err := validateProofFSDigestWidths(proof); err != nil {
+			return fmt.Errorf("PIOP: %w", err)
+		}
 	}
 	if len(proof.Salt) != fsSaltBytesForOpts(opts) {
 		return fmt.Errorf("PIOP: proof salt width=%d want=%d", len(proof.Salt), fsSaltBytesForOpts(opts))
@@ -459,7 +584,23 @@ func validateIntGenISISProofEnvelopeV2(proof *Proof, expectedLayout RowLayout, e
 	if len(proof.Tail) != opts.Ell {
 		return fmt.Errorf("PIOP: proof tail count=%d want ell=%d", len(proof.Tail), opts.Ell)
 	}
-	if len(proof.LabelsDigest) != 32 {
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		if proof.PRFCompanion != nil || proof.SourceProductBridge != nil {
+			return fmt.Errorf("PIOP: v3 proof carries forbidden PRF/source-product bridge auxiliary")
+		}
+		if len(proof.LabelsDigest) != 0 {
+			return fmt.Errorf("PIOP: v3 proof carries forbidden labels digest")
+		}
+		if len(proof.Chi) != 0 || len(proof.Zeta) != 0 || len(proof.QCoeffDebug) != 0 ||
+			len(proof.MaskCoeffDebug) != 0 || len(proof.FparCoeffDebug) != 0 ||
+			len(proof.FaggCoeffDebug) != 0 || len(proof.MKData) != 0 || len(proof.QKData) != 0 {
+			return fmt.Errorf("PIOP: v3 proof carries forbidden field/debug polynomial material")
+		}
+		expectedRowDegree := opts.LVCSNCols + opts.Ell - 1
+		if proof.RowDegreeBound != expectedRowDegree {
+			return fmt.Errorf("PIOP: proof row_degree_bound=%d want verifier-derived %d", proof.RowDegreeBound, expectedRowDegree)
+		}
+	} else if len(proof.LabelsDigest) != 32 {
 		return fmt.Errorf("PIOP: proof labels digest width=%d want=32", len(proof.LabelsDigest))
 	}
 	if !reflect.DeepEqual(proof.RowLayout, expectedLayout) {
@@ -512,6 +653,13 @@ func validateExpectedPCSGeometryV2(proof *Proof, logicalRows int, opts SimOpts) 
 	blocks := ceilDiv(logicalRows, opts.LVCSNCols)
 	replayRows := blocks * (opts.NCols + opts.Theta)
 	maskRows := opts.Rho * (proof.MaskDegreeBound/opts.LVCSNCols + 1) * opts.Theta
+	if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+		shape, err := deriveSmallFieldMaskShapeV3(proof.MaskDegreeBound, opts.LVCSNCols, opts.Theta)
+		if err != nil {
+			return fmt.Errorf("PIOP: derive verifier v3 mask geometry: %w", err)
+		}
+		maskRows = opts.Rho * shape.RowsPerMask
+	}
 	g := proof.PCSGeometry
 	if g.Kind != PCSGeometryKindSmallFieldMatrixV2 || g.SmallFieldSource != PCSGeometrySmallFieldSourceLiteralRowsV2 ||
 		g.WitnessPackingCols != opts.NCols || g.PCSNCols != opts.LVCSNCols || g.Theta != opts.Theta || g.Ell != opts.Ell ||

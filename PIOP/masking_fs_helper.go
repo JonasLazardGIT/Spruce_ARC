@@ -156,9 +156,11 @@ type maskFSArgs struct {
 	oracleLayout  lvcs.OracleLayout
 	decsParams    decs.Params
 
-	labelsDigest              []byte
-	sigShortnessBindingDigest []byte
-	sigShortness              *SigShortnessProof
+	labelsDigest               []byte
+	publicStatementBytes       []byte
+	sigShortnessBindingDigest  []byte
+	sigShortness               *SigShortnessProof
+	semanticKConstraintFactory semanticKRelationFactoryV3
 
 	// Optional ncols override (head length) for theta>1
 	ncolsOverride int
@@ -226,6 +228,25 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	}
 	o := args.opts
 	o.applyDefaults()
+	o, err := optsWithTrustedPresetID(o, args.public)
+	if err != nil {
+		return out, err
+	}
+	args.opts = o
+	fsOutputBits, err := ResolveFSOutputBits(o)
+	if err != nil {
+		return out, err
+	}
+	if err := ValidateAggregateROQueryBudget(o); err != nil {
+		return out, err
+	}
+	if err := ValidatePublicationV4Widths(o); err != nil {
+		return out, err
+	}
+	structuralV3 := transcriptUsesSmallWood2025V3(o.TranscriptVersion)
+	if structuralV3 && (args.prfCompanionLayout != nil || len(args.prfCompanionRows) != 0 || args.prfCompanionBridgeChecks != 0) {
+		return out, fmt.Errorf("strict v3 masking path forbids PRF companion layouts, rows, and bridge checks")
+	}
 	ringQ := args.ringQ
 	q := args.q
 	if q == 0 && ringQ != nil {
@@ -236,7 +257,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		return out, fmt.Errorf("missing or invalid full v2 root")
 	}
 	stage := func(label string, fn func() error) error {
-		start := time.Now()
+		start := phaseTimingStart(o.PhaseRecorder)
 		err := fn()
 		if o.PhaseRecorder != nil {
 			o.PhaseRecorder.RecordDuration(label, time.Since(start))
@@ -244,12 +265,11 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		return err
 	}
 	// FS initialization
-	baseXOF := NewShake256XOF(fsDigestBytes)
 	salt := append([]byte(nil), args.salt...)
 	if len(salt) != fsSaltBytesForOpts(o) {
 		return out, fmt.Errorf("proof-global salt width=%d want=%d", len(salt), fsSaltBytesForOpts(o))
 	}
-	mainCtx, err := mainCommitmentContextV2(salt)
+	mainCtx, err := mainCommitmentContextForTranscript(salt, o.TranscriptVersion)
 	if err != nil {
 		return out, err
 	}
@@ -259,35 +279,50 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	if err := validateProverCommitmentContextV2(args.PK.Context, mainCtx); err != nil {
 		return out, err
 	}
-	fs := NewFS(baseXOF, salt, FSParams{Lambda: o.Lambda, Kappa: o.Kappa, TranscriptVersion: o.TranscriptVersion, TranscriptProtocol: o.TranscriptProtocolMode})
+	fs, err := newFSForOpts(o, salt, args.rowLayout, args.hashRelation)
+	if err != nil {
+		return out, fmt.Errorf("Fiat-Shamir policy: %w", err)
+	}
+	fs.setPhaseRecorder(o.PhaseRecorder, phasePrefixForRowLayout(args.rowLayout))
+	proofFSOutputBits := 0
+	if transcriptUsesPublicationV4(o.TranscriptVersion) {
+		proofFSOutputBits = fsOutputBits
+	}
 	proof := &Proof{
-		SchemaVersion:       ProofSchemaVersionV2,
-		RootHash:            append([]byte(nil), rootBytes...),
-		RingDegree:          int(ringQ.N),
-		Salt:                append([]byte(nil), salt...),
-		Lambda:              o.Lambda,
-		Theta:               o.Theta,
-		Kappa:               o.Kappa,
-		RowLayout:           args.rowLayout,
-		MaskRowOffset:       args.maskRowOffset,
-		MaskRowCount:        args.maskRowCount,
-		RowDegreeBound:      args.decsParams.Degree,
-		MaskDegreeBound:     args.maskDegreeBound,
-		NColsUsed:           args.witnessNCols,
-		PCSNColsUsed:        args.ncols,
-		LVCSNColsUsed:       args.ncols,
-		PCSGeometry:         args.pcsGeometry,
-		LabelsDigest:        append([]byte(nil), args.labelsDigest...),
+		SchemaVersion:   proofSchemaVersionForTranscript(o.TranscriptVersion),
+		RootHash:        append([]byte(nil), rootBytes...),
+		RingDegree:      int(ringQ.N),
+		HashRelation:    args.hashRelation,
+		Salt:            append([]byte(nil), salt...),
+		Lambda:          o.Lambda,
+		FSOutputBits:    proofFSOutputBits,
+		Theta:           o.Theta,
+		Kappa:           o.Kappa,
+		RowLayout:       args.rowLayout,
+		MaskRowOffset:   args.maskRowOffset,
+		MaskRowCount:    args.maskRowCount,
+		RowDegreeBound:  args.decsParams.Degree,
+		MaskDegreeBound: args.maskDegreeBound,
+		NColsUsed:       args.witnessNCols,
+		PCSNColsUsed:    args.ncols,
+		LVCSNColsUsed:   args.ncols,
+		PCSGeometry:     args.pcsGeometry,
+		LabelsDigest: func() []byte {
+			if transcriptUsesSmallWood2025V3(o.TranscriptVersion) {
+				return nil
+			}
+			return append([]byte(nil), args.labelsDigest...)
+		}(),
 		SigShortness:        args.sigShortness,
 		FixedTranscriptSize: o.FixedTranscriptSize,
 	}
 	proof.TranscriptVersion = normalizeTranscriptVersion(o.TranscriptVersion)
 	proof.TranscriptProtocolMode = normalizeTranscriptProtocolMode(o.TranscriptProtocolMode)
 	paperQPayloadOnly := proofUsesPaperQPayloadOnly(proof)
-	strictSmallField2025 := proof.TranscriptProtocolMode == TranscriptProtocolSmallField2025V2
+	strictSmallField2025 := transcriptUsesStrictSmallField2025(proof.TranscriptVersion, proof.TranscriptProtocolMode)
 	if strictSmallField2025 {
 		if !paperQPayloadOnly {
-			return out, fmt.Errorf("%s requires transcript version %s", TranscriptProtocolSmallField2025V2, TranscriptVersionSmallWood2025V2)
+			return out, fmt.Errorf("%s requires its matching SmallWood transcript version", proof.TranscriptProtocolMode)
 		}
 		if o.Theta <= 1 || o.Rho != 1 || o.EllPrime != 1 {
 			return out, fmt.Errorf("%s requires theta>1, rho=1, ell_prime=1 (got theta=%d rho=%d ell_prime=%d)", TranscriptProtocolSmallField2025V2, o.Theta, o.Rho, o.EllPrime)
@@ -313,15 +348,11 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	proof.DomainMode = DomainModeExplicit
 	proof.NLeavesUsed = len(domainPoints)
 	if o.Theta > 1 {
-		proof.Chi = append([]uint64(nil), args.smallFieldChi...)
-		proof.Zeta = append([]uint64(nil), args.smallFieldOmegaS1.Limb...)
+		if !transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			proof.Chi = append([]uint64(nil), args.smallFieldChi...)
+			proof.Zeta = append([]uint64(nil), args.smallFieldOmegaS1.Limb...)
+		}
 	}
-	// Verifier init
-	vrf, err := lvcs.NewVerifierWithParamsAndPointsV2(ringQ, len(args.rowInputs), args.decsParams, args.ncols, domainPoints, mainCtx)
-	if err != nil {
-		return out, fmt.Errorf("build v2 LVCS verifier: %w", err)
-	}
-	vrf.RootHash = rootBytes
 	var (
 		Gamma       [][]uint64
 		gammaBytes  []byte
@@ -330,7 +361,12 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	// Round 1: Gamma
 	if err := stage("RunMaskFS.Round1Gamma", func() error {
 		material0 := [][]byte{rootBytes}
-		if len(args.labelsDigest) > 0 {
+		if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			if len(args.publicStatementBytes) == 0 {
+				return fmt.Errorf("missing canonical v3 public statement")
+			}
+			material0 = append(material0, args.publicStatementBytes)
+		} else if len(args.labelsDigest) > 0 {
 			material0 = append(material0, args.labelsDigest)
 		}
 		if len(args.sigShortnessBindingDigest) > 0 {
@@ -340,12 +376,15 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		gammaRNG := round1.RNG
 		Gamma = sampleFSMatrix(o.Eta, len(args.rowInputs), q, gammaRNG)
 		gammaBytes = bytesFromUint64Matrix(Gamma)
-		vrf.AcceptGamma(Gamma)
 		rFormal := args.PK.DecsProver.CommitStep2Formal(Gamma)
-		proof.R = copyMatrix(rFormal)
+		if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			proof.R = canonicalPadMatrixRows(rFormal, args.decsParams.Degree+1)
+		} else {
+			proof.R = copyMatrix(rFormal)
+		}
 		rTranscript = bytesFromUint64Matrix(proof.R)
-		if !vrf.CommitStep2Formal(rFormal) {
-			return fmt.Errorf("deg-check R failed")
+		if err := decs.ValidateFormalRowsDegree(rFormal, args.decsParams.Degree, q); err != nil {
+			return fmt.Errorf("deg-check R failed: %w", err)
 		}
 		return nil
 	}); err != nil {
@@ -356,6 +395,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 	var GammaAgg [][]uint64
 	var GammaPrimeK [][][]KScalar
 	var GammaAggK [][]KScalar
+	var semanticSeed2 []byte
 	if err := stage("RunMaskFS.Round2GammaPrime", func() error {
 		totalParallel := len(args.FparAll)
 		totalAgg := len(args.FaggAll)
@@ -366,18 +406,27 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			totalAgg += args.prfCompanionBridgeChecks
 		}
 		transcript2 := [][]byte{rootBytes, gammaBytes, rTranscript}
-		if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025V2 {
+		if proofUsesPaperQPayloadOnly(proof) {
 			transcript2 = [][]byte{rTranscript}
 		} else if len(args.labelsDigest) > 0 {
 			transcript2 = append(transcript2, args.labelsDigest)
 		}
 		if proof.Theta > 1 {
-			transcript2 = append(transcript2, encodeUint64Slice(proof.Chi), encodeUint64Slice(proof.Zeta))
+			if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+				profileBytes, profileErr := smallFieldProfileTranscriptBytesV3(q, proof.Theta)
+				if profileErr != nil {
+					return profileErr
+				}
+				transcript2 = append(transcript2, profileBytes)
+			} else {
+				transcript2 = append(transcript2, encodeUint64Slice(proof.Chi), encodeUint64Slice(proof.Zeta))
+			}
 		}
 		round2 := fsRound(fs, proof, 1, "GammaPrime", transcript2...)
 		seed2 := round2.Seed
+		semanticSeed2 = append([]byte(nil), seed2...)
 		gammaPrimeRNG := round2.RNG
-		gammaAggRNG := newFSRNG("GammaPrimeAgg", seed2, []byte{1})
+		gammaAggRNG := newFSRNGForTranscript(proof.TranscriptVersion, "GammaPrimeAgg", seed2, []byte{1})
 		if proof.Theta > 1 {
 			GammaPrimeK = sampleFSPolyTensorK(args.rho, totalParallel, args.witnessNCols, proof.Theta, q, gammaPrimeRNG)
 			GammaAggK = sampleFSVectorK(args.rho, totalAgg, proof.Theta, q, gammaAggRNG)
@@ -389,8 +438,10 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			GammaPrime = sampleFSPolyTensor(args.rho, totalParallel, args.witnessNCols, q, gammaPrimeRNG)
 			GammaAgg = sampleFSMatrix(args.rho, totalAgg, q, gammaAggRNG)
 		}
-		proof.GammaPrime = copyTensor3(GammaPrime)
-		proof.GammaAgg = copyMatrix(GammaAgg)
+		if !transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			proof.GammaPrime = copyTensor3(GammaPrime)
+			proof.GammaAgg = copyMatrix(GammaAgg)
+		}
 		if args.prfCompanionLayout != nil {
 			bridgeLayout, lerr := resolvePRFCompanionBridgeLayout(args.prfCompanionLayout, companionMode)
 			if lerr != nil {
@@ -406,6 +457,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				args.prfCompanionBridgeChecks,
 				companionMode,
 				checkpointSamples,
+				proof.TranscriptVersion,
 			)
 			if berr != nil {
 				return fmt.Errorf("build prf companion bridge: %w", berr)
@@ -502,52 +554,87 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 				return fmt.Errorf("missing mask coefficients for row %d", i)
 			}
 		}
-		proof.MaskCoeffDebug = maskCoeffs
-		proof.FparCoeffDebug = args.FparAllCoeffs
-		proof.FaggCoeffDebug = args.FaggAllCoeffs
+		if !transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			proof.MaskCoeffDebug = maskCoeffs
+			proof.FparCoeffDebug = args.FparAllCoeffs
+			proof.FaggCoeffDebug = args.FaggAllCoeffs
+		}
 
 		var qCoeffs [][]uint64
 		if proof.Theta > 1 {
-			MK := args.independentMasksK
-			if len(MK) == 0 {
-				maskOmega := args.omegaWitness
-				if len(maskOmega) == 0 {
-					maskOmega = args.omega
+			if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+				if args.semanticKConstraintFactory == nil {
+					return fmt.Errorf("strict v3 requires a shared semantic K evaluator")
 				}
-				MK = SampleIndependentMaskPolynomialsK(ringQ, args.smallFieldK, args.rho, args.maskDegreeTarget, maskOmega)
+				relationK, evalErr := args.semanticKConstraintFactory(proof, semanticSeed2)
+				if evalErr != nil {
+					return fmt.Errorf("build strict v3 semantic evaluator: %w", evalErr)
+				}
+				out.QK, evalErr = buildSemanticQKV3(semanticQBuildV3Input{
+					Ring:                ringQ,
+					K:                   args.smallFieldK,
+					OmegaWitness:        args.omegaWitness,
+					OmegaExtra:          args.smallFieldOmegaS1,
+					MuInv:               args.smallFieldMuInv,
+					PhysicalRows:        args.rows,
+					ReplayWitnessRows:   args.pcsGeometry.ReplayWitnessRows,
+					LogicalWitnessCount: args.pcsGeometry.LogicalWitnessPolys,
+					MaskRowOffset:       args.maskRowOffset,
+					MaskRowCount:        args.maskRowCount,
+					MaskDegreeBound:     args.maskDegreeBound,
+					DegreeBound:         args.maskDegreeBound,
+					Eval:                relationK.Eval,
+					EvalParallel:        relationK.EvalParallel,
+					AggregateDot:        relationK.AggregateDot,
+					EvalInto:            relationK.EvalInto,
+					EvalParallelInto:    relationK.EvalParallelInto,
+					AggregateDotInto:    relationK.AggregateDotInto,
+					AggregateCount:      relationK.AggregateCount,
+					GammaPrimeK:         GammaPrimeK,
+					GammaAggK:           GammaAggK,
+					PhaseRecorder:       o.PhaseRecorder,
+					PhasePrefix:         phasePrefixForRowLayout(args.rowLayout),
+					ExecutionPolicy:     o.ExecutionPolicy,
+				})
+				if evalErr != nil {
+					return evalErr
+				}
+			} else {
+				MK := args.independentMasksK
+				if len(MK) == 0 {
+					maskOmega := args.omegaWitness
+					if len(maskOmega) == 0 {
+						maskOmega = args.omega
+					}
+					MK = SampleIndependentMaskPolynomialsK(ringQ, args.smallFieldK, args.rho, args.maskDegreeTarget, maskOmega)
+				}
+				if len(MK) != args.rho {
+					return fmt.Errorf("expected %d K masks, got %d", args.rho, len(MK))
+				}
+				out.MK = MK
+				proof.MKData = snapshotKPolys(MK)
+				proof.MaskCoeffDebug = splitKPolysToCoeffRows(MK, proof.Theta, q)
+				out.QK = BuildQK(
+					ringQ, args.opts.DomainMode, args.smallFieldK, MK,
+					args.FparAll, args.FaggAll, args.FparAllCoeffs,
+					args.FaggAllCoeffs, GammaPrimeK, GammaAggK,
+				)
+				proof.QKData = snapshotKPolys(out.QK)
 			}
-			if len(MK) != args.rho {
-				return fmt.Errorf("expected %d K masks, got %d", args.rho, len(MK))
-			}
-			out.MK = MK
-			proof.MKData = snapshotKPolys(MK)
-			proof.MaskCoeffDebug = splitKPolysToCoeffRows(MK, proof.Theta, q)
-			out.QK = BuildQK(
-				ringQ,
-				args.opts.DomainMode,
-				args.smallFieldK,
-				MK,
-				args.FparAll,
-				args.FaggAll,
-				args.FparAllCoeffs,
-				args.FaggAllCoeffs,
-				GammaPrimeK,
-				GammaAggK,
-			)
-			proof.QKData = snapshotKPolys(out.QK)
 			qCoeffs = splitKPolysToCoeffRows(out.QK, proof.Theta, q)
 			if len(qCoeffs) != args.rho*proof.Theta {
 				return fmt.Errorf("split Q rows=%d want rho*theta=%d", len(qCoeffs), args.rho*proof.Theta)
 			}
-			// Mask degree check.
-			maskDegreeMax := -1
-			for _, kp := range MK {
-				if kp != nil && kp.Degree > maskDegreeMax {
-					maskDegreeMax = kp.Degree
+			if !transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+				maskDegreeMax := -1
+				for _, kp := range out.MK {
+					if kp != nil && kp.Degree > maskDegreeMax {
+						maskDegreeMax = kp.Degree
+					}
 				}
-			}
-			if maskDegreeMax > args.maskDegreeBound {
-				return fmt.Errorf("mask degree %d exceeds bound %d", maskDegreeMax, args.maskDegreeBound)
+				if maskDegreeMax > args.maskDegreeBound {
+					return fmt.Errorf("mask degree %d exceeds bound %d", maskDegreeMax, args.maskDegreeBound)
+				}
 			}
 		} else {
 			qLayout := BuildQLayout{
@@ -586,12 +673,14 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			}
 		}
 		out.QCoeffs = qCoeffs
-		proof.setQPayload(qCoeffs)
-		proof.QCoeffDebug = qCoeffs
 		if deg := maxDegreeFromCoeffRows(qCoeffs); deg > qDecsParams.Degree {
 			qDecsParams.Degree = deg
 		}
 		proof.QDegreeBound = qDecsParams.Degree
+		proof.setQPayload(qCoeffs)
+		if !transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			proof.QCoeffDebug = qCoeffs
+		}
 		qDomainPoints = domainPoints
 		if len(qDomainPoints) == 0 {
 			return fmt.Errorf("explicit-domain mode requires non-empty Q domain points")
@@ -607,12 +696,14 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		if qErr != nil {
 			return fmt.Errorf("build q prover: %w", qErr)
 		}
-		qCtx, qErr := qCommitmentContextV2(salt)
+		qCtx, qErr := qCommitmentContextForTranscript(salt, o.TranscriptVersion)
 		if qErr != nil {
 			return qErr
 		}
 		qRootHash, qErr := qProver.CommitInitV2WithOptions(qCtx, decs.CommitOptions{
 			PhaseRecorder: o.PhaseRecorder,
+			WorkerCount:   o.ExecutionPolicy.decsWorkerCount(),
+			ChunkLeaves:   o.ExecutionPolicy.DECSChunkLeaves,
 		})
 		if qErr != nil {
 			return fmt.Errorf("commit Q: %w", qErr)
@@ -648,14 +739,26 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 		}
 		var round3Material [][]byte
 		if paperQPayloadOnly {
-			round3Material = [][]byte{proof.QPayloadBytes()}
+			if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+				omegaWitness := args.omega
+				if args.witnessNCols > 0 && len(omegaWitness) > args.witnessNCols {
+					omegaWitness = omegaWitness[:args.witnessNCols]
+				}
+				qTranscript, qTranscriptErr := canonicalQKernelTranscriptFromFullV5(proof.QPayloadMatrix(), omegaWitness, q)
+				if qTranscriptErr != nil {
+					return fmt.Errorf("frame compact QPayload for round 3: %w", qTranscriptErr)
+				}
+				round3Material = [][]byte{qTranscript}
+			} else {
+				round3Material = [][]byte{proof.QPayloadBytes()}
+			}
 		} else {
 			round3Material = [][]byte{rootBytes, gammaBytes, gammaPrimeBytes, gammaAggBytes, proofQRootBytes(proof), proof.QPayloadBytes()}
 		}
 		if proof.PRFCompanion != nil && len(proof.PRFCompanion.CoordDigest) > 0 {
 			round3Material = append(round3Material, proof.PRFCompanion.CoordDigest)
 		}
-		if normalizeTranscriptVersion(proof.TranscriptVersion) != TranscriptVersionSmallWood2025V2 && len(args.labelsDigest) > 0 {
+		if !proofUsesPaperQPayloadOnly(proof) && len(args.labelsDigest) > 0 {
 			round3Material = append(round3Material, args.labelsDigest)
 		}
 		round3 := fsRound(fs, proof, 2, func() string {
@@ -671,7 +774,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			if qProver == nil {
 				return fmt.Errorf("missing Q prover")
 			}
-			gammaQRNG := newFSRNG("GammaQ", seed3)
+			gammaQRNG := newFSRNGForTranscript(proof.TranscriptVersion, "GammaQ", seed3)
 			qRows := args.rho
 			if proof.Theta > 1 {
 				qRows *= proof.Theta
@@ -692,7 +795,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			for len(smallFieldEvals) < ellPrime {
 				limbs := make([]uint64, proof.Theta)
 				for i := 0; i < proof.Theta; i++ {
-					limbs[i] = kPointRNG.nextU64() % q
+					limbs[i] = kPointRNG.nextMod(q)
 				}
 				zeroTail := true
 				for i := 1; i < len(limbs); i++ {
@@ -721,12 +824,27 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 						}
 					}
 				}
-				if zeroTail || conflict {
+				if (!kPointRNG.exact && zeroTail) || conflict {
 					continue
 				}
 				var coeffBlock [][]uint64
 				if strictSmallField2025 {
-					plan, planErr := buildSmallField2025CoeffPlan(ringQ, args.smallFieldK, omegaWitness, args.rows, candidate, args.smallFieldOmegaS1, args.smallFieldMuInv, args.pcsGeometry.ReplayWitnessRows, args.maskRowOffset, args.maskRowCount)
+					var plan smallField2025CoeffPlan
+					var planErr error
+					if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+						plan, planErr = buildSmallField2025CoeffPlanV3(
+							ringQ, args.smallFieldK, omegaWitness, args.rows, candidate,
+							args.smallFieldOmegaS1, args.smallFieldMuInv,
+							args.pcsGeometry.ReplayWitnessRows, args.maskRowOffset,
+							args.maskRowCount, args.maskDegreeBound,
+						)
+					} else {
+						plan, planErr = buildSmallField2025CoeffPlan(
+							ringQ, args.smallFieldK, omegaWitness, args.rows, candidate,
+							args.smallFieldOmegaS1, args.smallFieldMuInv,
+							args.pcsGeometry.ReplayWitnessRows, args.maskRowOffset, args.maskRowCount,
+						)
+					}
 					if planErr != nil {
 						return fmt.Errorf("build smallfield2025 coefficient plan: %w", planErr)
 					}
@@ -777,9 +895,9 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			out.barSetsBitWidth = proof.BarSetsBitWidth
 			out.evalReqs = evalReqs
 		} else {
-			points := sampleDistinctFieldElemsAvoid(ellPrime, q, newFSRNG("EvalPoints", seed3), args.omega)
+			points := sampleDistinctFieldElemsAvoid(ellPrime, q, newFSRNGForTranscript(proof.TranscriptVersion, "EvalPoints", seed3), args.omega)
 			coeffMatrix = make([][]uint64, ellPrime)
-			coeffRNG := newFSRNG("EvalCoeffs", seed3, []byte{1})
+			coeffRNG := newFSRNGForTranscript(proof.TranscriptVersion, "EvalCoeffs", seed3, []byte{1})
 			maskStart := args.maskRowOffset
 			maskEnd := args.maskRowOffset + args.maskRowCount
 			rRows := len(args.rows)
@@ -793,7 +911,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 					if j >= maskStart && j < maskEnd {
 						row[j] = 0
 					} else {
-						row[j] = coeffRNG.nextU64() % q
+						row[j] = coeffRNG.nextMod(q)
 					}
 				}
 				coeffMatrix[i] = row
@@ -844,6 +962,7 @@ func runMaskFS(args maskFSArgs) (maskFSOutput, error) {
 			ringQ,
 			args.omegaWitness,
 			params,
+			proof.TranscriptVersion,
 			proof.Digests[2],
 			proof.PRFCompanion.CoordDigest,
 			args.prfTagPublic,

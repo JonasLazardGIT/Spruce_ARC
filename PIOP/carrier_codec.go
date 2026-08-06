@@ -8,6 +8,78 @@ import (
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
+const (
+	ternaryCarrierV3Bound     int64 = 1
+	ternaryCarrierV3PackWidth       = 2
+	ternaryCarrierV3Alphabet        = 9
+)
+
+// encodeTernaryCarrierV3 is the strict two-lane carrier used by the v3
+// IntGenISIS showing relation.  For a,b in {-1,0,1}, it implements
+//
+//	Enc(a,b) = (a+1) + 3(b+1).
+//
+// Keeping this wrapper separate from the configurable legacy carrier helpers
+// makes the degree-9 membership and degree-at-most-8 decoders part of the v3
+// relation definition rather than a tuning knob.
+func encodeTernaryCarrierV3(a, b int64) (uint64, error) {
+	return encodePackedMuCarrier([]int64{a, b}, ternaryCarrierV3Bound)
+}
+
+func decodeTernaryCarrierV3(code uint64) (int64, int64, error) {
+	a, err := decodePackedMuCarrierLane(code, ternaryCarrierV3Bound, ternaryCarrierV3PackWidth, 0)
+	if err != nil {
+		return 0, 0, err
+	}
+	b, err := decodePackedMuCarrierLane(code, ternaryCarrierV3Bound, ternaryCarrierV3PackWidth, 1)
+	if err != nil {
+		return 0, 0, err
+	}
+	return a, b, nil
+}
+
+func buildTernaryCarrierV3DecodePolys(q uint64) ([][]uint64, error) {
+	decode, err := buildPackedMuCarrierDecodePolys(ternaryCarrierV3Bound, ternaryCarrierV3PackWidth, q)
+	if err != nil {
+		return nil, err
+	}
+	if len(decode) != ternaryCarrierV3PackWidth {
+		return nil, fmt.Errorf("ternary v3 decode lanes=%d want %d", len(decode), ternaryCarrierV3PackWidth)
+	}
+	for lane := range decode {
+		if degreeOfPoly(decode[lane], q) > ternaryCarrierV3Alphabet-1 {
+			return nil, fmt.Errorf("ternary v3 decode lane %d degree=%d exceeds %d", lane, degreeOfPoly(decode[lane], q), ternaryCarrierV3Alphabet-1)
+		}
+	}
+	return decode, nil
+}
+
+func buildTernaryCarrierV3MembershipPoly(q uint64) ([]uint64, error) {
+	member, err := buildPackedMuCarrierMembershipPoly(ternaryCarrierV3Bound, ternaryCarrierV3PackWidth, q)
+	if err != nil {
+		return nil, err
+	}
+	if degreeOfPoly(member, q) != ternaryCarrierV3Alphabet {
+		return nil, fmt.Errorf("ternary v3 membership degree=%d want %d", degreeOfPoly(member, q), ternaryCarrierV3Alphabet)
+	}
+	return member, nil
+}
+
+func degreeOfPoly(coeffs []uint64, q uint64) int {
+	for i := len(coeffs) - 1; i >= 0; i-- {
+		if q == 0 {
+			if coeffs[i] != 0 {
+				return i
+			}
+			continue
+		}
+		if coeffs[i]%q != 0 {
+			return i
+		}
+	}
+	return -1
+}
+
 func carrierBase(bound int64) (int64, error) {
 	if bound < 0 {
 		return 0, fmt.Errorf("invalid carrier bound %d", bound)

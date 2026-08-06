@@ -32,6 +32,72 @@ type PublicInputs struct {
 	Extras             map[string]interface{}
 }
 
+// clonePublicInputsOwned returns an independently owned public statement for
+// reusable prepared contexts. PublicInputs is otherwise a shallow value: its
+// slices, polynomials, and Extras map can all be mutated by a caller after
+// preparation. Prepared strict-v3 paths must never retain those aliases.
+func clonePublicInputsOwned(in PublicInputs) (PublicInputs, error) {
+	clonePoly := func(poly *ring.Poly) *ring.Poly {
+		if poly == nil {
+			return nil
+		}
+		return poly.CopyNew()
+	}
+	clonePolys := func(polys []*ring.Poly) []*ring.Poly {
+		if polys == nil {
+			return nil
+		}
+		out := make([]*ring.Poly, len(polys))
+		for i, poly := range polys {
+			out[i] = clonePoly(poly)
+		}
+		return out
+	}
+	cloneMatrix := func(matrix [][]*ring.Poly) [][]*ring.Poly {
+		if matrix == nil {
+			return nil
+		}
+		out := make([][]*ring.Poly, len(matrix))
+		for i := range matrix {
+			out[i] = clonePolys(matrix[i])
+		}
+		return out
+	}
+
+	out := in
+	out.Com = clonePolys(in.Com)
+	out.RI0 = clonePolys(in.RI0)
+	out.RI1 = clonePolys(in.RI1)
+	out.Ac = cloneMatrix(in.Ac)
+	out.CM = cloneMatrix(in.CM)
+	out.AS = cloneMatrix(in.AS)
+	out.A = cloneMatrix(in.A)
+	out.B = clonePolys(in.B)
+	out.T = append([]int64(nil), in.T...)
+	out.Tag = append([]int64(nil), in.Tag...)
+	out.Context = append([]int64(nil), in.Context...)
+	out.ContextDigest = append([]byte(nil), in.ContextDigest...)
+	if in.Extras != nil {
+		out.Extras = make(map[string]interface{}, len(in.Extras))
+		for key, value := range in.Extras {
+			switch typed := value.(type) {
+			case nil, string, bool, int, int8, int16, int32, int64,
+				uint, uint8, uint16, uint32, uint64, float32, float64:
+				out.Extras[key] = typed
+			case []byte:
+				out.Extras[key] = append([]byte(nil), typed...)
+			case []int64:
+				out.Extras[key] = append([]int64(nil), typed...)
+			case []uint64:
+				out.Extras[key] = append([]uint64(nil), typed...)
+			default:
+				return PublicInputs{}, fmt.Errorf("public input extra %q has mutable or unsupported type %T", key, value)
+			}
+		}
+	}
+	return out, nil
+}
+
 func publicInputsWithRingDegree(pub PublicInputs, ringDegree int) (PublicInputs, error) {
 	if ringDegree <= 0 {
 		return pub, nil

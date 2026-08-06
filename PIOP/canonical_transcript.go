@@ -2,6 +2,7 @@ package PIOP
 
 import (
 	"math"
+	mathbits "math/bits"
 
 	decs "vSIS-Signature/DECS"
 	"vSIS-Signature/internal/packedwidth"
@@ -46,12 +47,30 @@ type PaperTranscriptReport struct {
 // concrete serializer subcomponents that are most useful for transcript-reduction
 // research. It is diagnostic only; it does not alter the proof payload.
 type PaperTranscriptAudit struct {
+	FixedV3  FixedV3PaperAudit        `json:"fixed_v3,omitempty"`
 	Pdecs    OpeningResiduePaperAudit `json:"pdecs,omitempty"`
 	Mdecs    OpeningResiduePaperAudit `json:"mdecs,omitempty"`
 	Auth     OpeningAuthPaperAudit    `json:"auth,omitempty"`
 	Tapes    OpeningTapePaperAudit    `json:"tapes,omitempty"`
 	VTargets MatrixPayloadPaperAudit  `json:"vtargets,omitempty"`
 	BarSets  MatrixPayloadPaperAudit  `json:"barsets,omitempty"`
+}
+
+// FixedV3PaperAudit names every phase-independent byte retained by the
+// strict-v3 paper accounting. These are paper/verifier-message accounting
+// frames, not a claim about fields serialized by the canonical proof codec.
+// In particular, DECSOpeningFrameBytes preserves the historical fixed
+// positional-opening frame while the canonical v3 wire derives positions.
+type FixedV3PaperAudit struct {
+	CounterBytes            int `json:"counter_bytes,omitempty"`
+	SaltBytes               int `json:"salt_bytes,omitempty"`
+	RootBytes               int `json:"root_bytes,omitempty"`
+	RoundDigestBytes        int `json:"round_digest_bytes,omitempty"`
+	SmallFieldMetadataBytes int `json:"smallfield_metadata_bytes,omitempty"`
+	DECSOpeningFrameBytes   int `json:"decs_opening_frame_bytes,omitempty"`
+	EmptyMOpeningFrameBytes int `json:"empty_m_opening_frame_bytes,omitempty"`
+	TapeWidthFrameBytes     int `json:"tape_width_frame_bytes,omitempty"`
+	TotalBytes              int `json:"total_bytes,omitempty"`
 }
 
 type OpeningResiduePaperAudit struct {
@@ -114,6 +133,7 @@ type paperTranscriptParams struct {
 	Lambda       int
 	SaltBits     int
 	DECSHashBits int
+	DECSTapeBits int
 	RingDegree   int
 	X0Len        int
 	Eta          int
@@ -195,6 +215,15 @@ func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptPar
 	}
 	out.Audit.VTargets = matrixPayloadPaperAudit(proof.VTargetsBits, proof.VTargets, proof.VTargetsRows, proof.VTargetsCols, proof.VTargetsBitWidth)
 	out.Audit.BarSets = matrixPayloadPaperAudit(proof.BarSetsBits, proof.BarSets, proof.BarSetsRows, proof.BarSetsCols, proof.BarSetsBitWidth)
+	if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+		// A strict-v3 report must never fall back to the older optimistic R/Q
+		// formulas when its trusted geometry is incomplete. Returning an empty
+		// report makes every size/evidence gate fail closed instead of publishing
+		// an undercounted transcript.
+		if !applyStrictV3PaperAccounting(proof, q, p, rowOpening, &out) {
+			return PaperTranscriptReport{}
+		}
+	}
 	if omission != nil && omission.OmitPdecsReconstructibleCols {
 		out.Audit.Pdecs.Omitted = true
 		out.Audit.Pdecs.ReconstructedBytesSaved = openingReconstructedResidueBytesSaved(rowOpening, out.Audit.Pdecs)
@@ -203,6 +232,184 @@ func buildPaperTranscriptReportLeaf(proof *Proof, q uint64, p paperTranscriptPar
 	}
 	finalizePaperTranscriptReport(&out)
 	return out
+}
+
+// applyStrictV3PaperAccounting replaces serializer-residue accounting with
+// the maintained strict-v3 paper projection. The varying part is derived
+// solely from trusted geometry: exact 20-bit Fq payloads, the public
+// worst-case Merkle path bound, and independent full-width tapes. The fixed
+// part is decomposed explicitly in FixedV3PaperAudit instead of being a
+// target-total calibration constant.
+func applyStrictV3PaperAccounting(proof *Proof, q uint64, p paperTranscriptParams, open *decs.DECSOpening, out *PaperTranscriptReport) bool {
+	if proof == nil || proof.SmallField2025 == nil || open == nil || out == nil || q <= 1 ||
+		p.Eta <= 0 || p.Ell <= 0 || p.EllPrime <= 0 || p.Rho <= 0 || p.Theta <= 0 ||
+		p.DQ < p.EllPrime || p.DDECS < p.Ell ||
+		p.SaltBits <= 0 || p.DECSHashBits <= 0 || p.DECSTapeBits <= 0 {
+		return false
+	}
+	nLeaves := proof.NLeavesUsed
+	if nLeaves <= 1 {
+		return false
+	}
+	depth := mathbits.Len(uint(nLeaves - 1))
+	if depth <= 0 {
+		return false
+	}
+
+	meta := proof.SmallField2025
+	if meta.QueryCount <= 0 || open.R <= meta.QueryCount || (meta.NRows > 0 && meta.NRows != open.R) {
+		return false
+	}
+	expectedPCols := open.R - meta.QueryCount
+	pCols := open.PColsEncoded
+	if pCols <= 0 {
+		pCols = expectedPCols
+	}
+	if pCols != expectedPCols {
+		return false
+	}
+
+	logQ := math.Log2(float64(q))
+	// The canonical v3 representation transmits all d_DECS+1 coefficients of
+	// every R polynomial and omits M(e) from the DECS opening. The paper's
+	// alternative representation trims ell R coefficients only because it
+	// transmits those ell M(e) values instead. Mixing trimmed R with omitted M
+	// loses eta*ell independent field elements, so the two choices must remain
+	// mutually exclusive in the accounting.
+	fullRBits := float64(p.Eta*(p.DDECS+1)) * logQ
+	out.R = newPaperBucket(fullRBits, fullRBits)
+
+	// Degree dQ means dQ+1 coefficients. K is represented by theta base-field
+	// limbs in the strict small-field profile.
+	qNaiveBits := float64(p.Rho*(p.DQ+1)*qThetaMultiplier(p.Theta)) * logQ
+	// Q is sent before the verifier samples the ellPrime evaluation points.
+	// Those later values therefore cannot justify omitting free Q coordinates:
+	// doing so would let a prover repair Q(e) after seeing e.  The only safe
+	// omission here is the one constant K coefficient fixed in advance by
+	// sum_{omega in Omega} Q(omega)=0.
+	qOptimizedBits := float64(p.Rho*p.DQ*qThetaMultiplier(p.Theta)) * logQ
+	out.Q = newPaperBucket(qNaiveBits, qOptimizedBits)
+
+	// VTargets uses the same trusted ragged geometry as the canonical wire.
+	// Each theta-fold witness query needs only the logical columns present in
+	// its layer, while the mask query needs only the nu columns of Eq. (2).
+	// These suffixes are fixed zeroes, so they carry no independently necessary
+	// verifier message. Derive every width from the validated relation/PCS
+	// geometry; never infer it from a serializer frame or a prover-supplied map.
+	ncols := p.DDECS - p.Ell + 1
+	logicalRows := proof.RowLayout.SigCount
+	if ncols <= 0 || logicalRows <= 0 || proof.PCSGeometry.LogicalWitnessPolys != logicalRows {
+		return false
+	}
+	witnessLayers := ceilDiv(logicalRows, ncols)
+	queryCount := (witnessLayers + 1) * p.Theta
+	if meta.NCols != ncols || meta.Theta != p.Theta || meta.WitnessLayers != witnessLayers ||
+		meta.QueryCount != queryCount || meta.VHeadRows != queryCount || meta.VHeadCols != ncols {
+		return false
+	}
+	maskShape, err := deriveSmallFieldMaskShapeV3(p.DQ, ncols, p.Theta)
+	if err != nil {
+		return false
+	}
+	vRowWidths, vElements, err := deriveCanonicalVTargetRowWidthsV3(
+		logicalRows, witnessLayers, ncols, p.Theta, maskShape.Nu,
+	)
+	if err != nil || len(vRowWidths) != queryCount {
+		return false
+	}
+	vTargets := proof.VTargetsMatrix()
+	if len(vTargets) != queryCount {
+		return false
+	}
+	for i, row := range vTargets {
+		if len(row) != ncols {
+			return false
+		}
+		for j := vRowWidths[i]; j < ncols; j++ {
+			if row[j] != 0 {
+				return false
+			}
+		}
+	}
+	denseVBits := float64(queryCount * ncols * canonicalFqBitWidth)
+	compactVBits := float64(vElements * canonicalFqBitWidth)
+	out.VTargets = newPaperBucket(denseVBits, compactVBits)
+	out.Audit.VTargets = MatrixPayloadPaperAudit{
+		Bytes:                   bitsToBytes(compactVBits),
+		Rows:                    queryCount,
+		Cols:                    ncols,
+		BitWidth:                canonicalFqBitWidth,
+		Omitted:                 compactVBits < denseVBits,
+		ReconstructedBytesSaved: bitsToBytes(denseVBits) - bitsToBytes(compactVBits),
+		NonReconstructibleBytes: bitsToBytes(compactVBits),
+	}
+
+	pBits := float64(p.Ell * pCols * canonicalFqBitWidth)
+	authNodes := p.Ell * depth
+	authBits := float64(authNodes * p.DECSHashBits)
+	tapeBits := float64(p.Ell * p.DECSTapeBits)
+
+	// The paper report historically used a fixed positional-opening frame:
+	// packed tail positions, their width, the tail count, and path depth. V3's
+	// canonical wire derives these values, but the accepted paper projection
+	// retains this phase-independent frame for like-for-like paper accounting.
+	positionBitsBytes := (p.Ell*depth + 7) / 8
+	decsOpeningFrameBytes := positionBitsBytes + 1 + varintSize(p.Ell) + varintSize(depth)
+	metadataBytes := len(smallField2025TranscriptBytes(meta))
+	rootBytes := (p.DECSHashBits + 7) / 8
+	saltBytes := (p.SaltBits + 7) / 8
+	fixed := FixedV3PaperAudit{
+		CounterBytes:            16, // four paper-accounted uint32 counters
+		SaltBytes:               saltBytes,
+		RootBytes:               rootBytes,
+		RoundDigestBytes:        (2*p.Lambda + 7) / 8,
+		SmallFieldMetadataBytes: metadataBytes,
+		DECSOpeningFrameBytes:   decsOpeningFrameBytes,
+		EmptyMOpeningFrameBytes: 1,
+		TapeWidthFrameBytes:     1,
+	}
+	fixed.TotalBytes = fixed.CounterBytes + fixed.SaltBytes + fixed.RootBytes +
+		fixed.RoundDigestBytes + fixed.SmallFieldMetadataBytes +
+		fixed.DECSOpeningFrameBytes + fixed.EmptyMOpeningFrameBytes + fixed.TapeWidthFrameBytes
+	out.Audit.FixedV3 = fixed
+
+	out.Counters = newPaperBucket(float64(fixed.CounterBytes*8), float64(fixed.CounterBytes*8))
+	out.SaltRoot = newPaperBucket(float64((fixed.SaltBytes+fixed.RootBytes)*8), float64((fixed.SaltBytes+fixed.RootBytes)*8))
+	extraBytes := fixed.RoundDigestBytes + fixed.SmallFieldMetadataBytes + fixed.DECSOpeningFrameBytes +
+		fixed.EmptyMOpeningFrameBytes + fixed.TapeWidthFrameBytes
+	out.ExtraHash = newPaperBucket(float64(extraBytes*8), float64(extraBytes*8))
+	out.Pdecs = newPaperBucket(pBits, pBits)
+	out.Mdecs = newPaperBucket(0, 0)
+	out.Auth = newPaperBucket(authBits, authBits)
+	out.Tapes = newPaperBucket(tapeBits, tapeBits)
+
+	pBytes := bitsToBytes(pBits)
+	omittedCols := []int(nil)
+	omittedCols = append(omittedCols, meta.POmitCols...)
+	out.Audit.Pdecs = OpeningResiduePaperAudit{
+		StreamBytes:             pBytes,
+		TotalBytes:              pBytes,
+		EncodedCols:             pCols,
+		OmittedCols:             omittedCols,
+		BitWidth:                canonicalFqBitWidth,
+		Rows:                    p.Ell,
+		Omitted:                 true,
+		NonReconstructibleBytes: pBytes,
+	}
+	out.Audit.Mdecs = OpeningResiduePaperAudit{Omitted: true}
+	out.Audit.Auth = OpeningAuthPaperAudit{
+		NodeBytes:  bitsToBytes(authBits),
+		NodeCount:  authNodes,
+		PathDepth:  depth,
+		EntryCount: p.Ell,
+		TotalBytes: bitsToBytes(authBits),
+	}
+	out.Audit.Tapes = OpeningTapePaperAudit{
+		TapeBytes:  bitsToBytes(tapeBits),
+		TapeCount:  p.Ell,
+		TotalBytes: bitsToBytes(tapeBits),
+	}
+	return true
 }
 
 // BuildOpeningPaperReport decomposes a DECS opening into the four paper-facing
@@ -474,6 +681,18 @@ func finalizePaperTranscriptReport(r *PaperTranscriptReport) {
 	}
 	r.NaiveBytes = bitsToBytes(r.NaiveBits)
 	r.OptimizedBytes = bitsToBytes(r.OptimizedBits)
+	if r.Audit.FixedV3.TotalBytes > 0 {
+		// Strict-v3 buckets are independently byte-framed verifier messages.
+		// Their padding bits cannot be shared across adjacent messages, so the
+		// exact paper byte total is the sum of each bucket's own ceiling. Keep
+		// the aggregate bit counts above as the unpadded algebraic diagnostic.
+		r.NaiveBytes = 0
+		r.OptimizedBytes = 0
+		for _, bucket := range buckets {
+			r.NaiveBytes += bucket.NaiveBytes
+			r.OptimizedBytes += bucket.OptimizedBytes
+		}
+	}
 }
 
 func sigShortnessPayloadBits(sig *SigShortnessProof) float64 {

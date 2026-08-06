@@ -19,6 +19,11 @@ import (
 // profiles benchmark faster with uint64 coefficient rows on current hardware.
 const enableFormalEvalUint32 = false
 
+const (
+	formalEvalDenseRowMajorMinRows = 512
+	formalEvalDenseRowMajorMaxRows = 200
+)
+
 type formalEvalPlan struct {
 	rowCount    int
 	maxDeg      int
@@ -28,6 +33,8 @@ type formalEvalPlan struct {
 	coeffs32    []uint32
 	rowOffsets  []int
 	rowCoeffs   []uint64
+	denseRows64 []uint64
+	denseRows32 []uint32
 	dotSafe     bool
 	sparseTerms []formalEvalTerm
 }
@@ -39,6 +46,13 @@ type formalEvalTerm struct {
 }
 
 func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
+	// Dense row-major kernels remain an R&D candidate until the required
+	// fixed-entropy paired end-to-end adoption gate is available. Production
+	// therefore retains the established combined evaluator.
+	return newFormalEvalPlanWithDenseRowMajor(rows, q, false)
+}
+
+func newFormalEvalPlanWithDenseRowMajor(rows [][]uint64, q uint64, enableDenseRowMajor bool) formalEvalPlan {
 	rowCount := len(rows)
 	rowDeg := make([]int, rowCount)
 	for i := range rowDeg {
@@ -84,14 +98,22 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 	dotSafe := formalEvalDotSafe(maxDeg, q)
 	useSparse := dotSafe && nnz*4 < denseSlots
 	useUint32 := enableFormalEvalUint32 && dotSafe && q <= uint64(^uint32(0))
-	useRowMajor := dotSafe && !useSparse && !useUint32 && rowSlots*4 < denseSlots*3
+	useDenseRow64 := enableDenseRowMajor && dotSafe && nnz == denseSlots && maxDeg <= 64 && rowCount >= formalEvalDenseRowMajorMinRows
+	useDenseRow32 := enableDenseRowMajor && dotSafe && nnz == denseSlots && maxDeg <= 64 && rowCount <= formalEvalDenseRowMajorMaxRows && q <= uint64(^uint32(0))
+	useRowMajor := dotSafe && !useSparse && !useUint32 && !useDenseRow64 && !useDenseRow32 && rowSlots*4 < denseSlots*3
 	var coeffs []uint64
 	var coeffs32 []uint32
 	var rowOffsets []int
 	var rowCoeffs []uint64
+	var denseRows64 []uint64
+	var denseRows32 []uint32
 	if useRowMajor {
 		rowOffsets = make([]int, rowCount+1)
 		rowCoeffs = make([]uint64, 0, rowSlots)
+	} else if useDenseRow64 {
+		denseRows64 = make([]uint64, denseSlots)
+	} else if useDenseRow32 {
+		denseRows32 = make([]uint32, denseSlots)
 	} else if useUint32 {
 		coeffs32 = make([]uint32, (maxDeg+1)*rowCount)
 	} else {
@@ -129,7 +151,11 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 			if c == 0 {
 				continue
 			}
-			if useUint32 {
+			if useDenseRow64 {
+				denseRows64[j*(maxDeg+1)+d] = c
+			} else if useDenseRow32 {
+				denseRows32[j*(maxDeg+1)+d] = uint32(c)
+			} else if useUint32 {
 				coeffs32[d*rowCount+j] = uint32(c)
 			} else {
 				coeffs[d*rowCount+j] = c
@@ -148,6 +174,8 @@ func newFormalEvalPlan(rows [][]uint64, q uint64) formalEvalPlan {
 		coeffs32:    coeffs32,
 		rowOffsets:  rowOffsets,
 		rowCoeffs:   rowCoeffs,
+		denseRows64: denseRows64,
+		denseRows32: denseRows32,
 		dotSafe:     dotSafe,
 		sparseTerms: sparseTerms,
 	}
@@ -199,6 +227,23 @@ func (p formalEvalPlan) evalIntoHorner(dst []uint64, x uint64, red modReducer64)
 		return
 	}
 	q := red.mod
+	if len(p.denseRows64) > 0 || len(p.denseRows32) > 0 {
+		width := p.maxDeg + 1
+		for rowIndex := 0; rowIndex < p.rowCount; rowIndex++ {
+			value := uint64(0)
+			for degree := p.maxDeg; degree >= 0; degree-- {
+				coefficient := uint64(0)
+				if len(p.denseRows32) > 0 {
+					coefficient = uint64(p.denseRows32[rowIndex*width+degree])
+				} else {
+					coefficient = p.denseRows64[rowIndex*width+degree]
+				}
+				value = addMod64Reduced(red.mulReduced(value, x), coefficient, q)
+			}
+			dst[rowIndex] = value
+		}
+		return
+	}
 	if len(p.coeffs32) > 0 {
 		top := p.coeffs32[p.maxDeg*p.rowCount : (p.maxDeg+1)*p.rowCount]
 		for j, c := range top {
@@ -235,6 +280,14 @@ func (p formalEvalPlan) evalIntoPowers(dst []uint64, red modReducer64, powers []
 			}
 			dst[j] = red.reduceUint64(acc)
 		}
+		return
+	}
+	if len(p.denseRows64) > 0 {
+		p.evalDenseRowMajor64Into(dst, red, powers)
+		return
+	}
+	if len(p.denseRows32) > 0 {
+		p.evalDenseRowMajor32Into(dst, red, powers)
 		return
 	}
 	denseSlots := (p.maxDeg + 1) * p.rowCount
@@ -302,6 +355,46 @@ func (p formalEvalPlan) evalIntoPowers(dst []uint64, red modReducer64, powers []
 	}
 }
 
+func (p formalEvalPlan) evalDenseRowMajor64Into(dst []uint64, red modReducer64, powers []uint64) {
+	width := p.maxDeg + 1
+	for rowIndex := 0; rowIndex < p.rowCount; rowIndex++ {
+		coefficients := p.denseRows64[rowIndex*width : (rowIndex+1)*width]
+		var acc0, acc1, acc2, acc3 uint64
+		degree := 0
+		limit := width - width%4
+		for ; degree < limit; degree += 4 {
+			acc0 += coefficients[degree] * powers[degree]
+			acc1 += coefficients[degree+1] * powers[degree+1]
+			acc2 += coefficients[degree+2] * powers[degree+2]
+			acc3 += coefficients[degree+3] * powers[degree+3]
+		}
+		for ; degree < width; degree++ {
+			acc0 += coefficients[degree] * powers[degree]
+		}
+		dst[rowIndex] = red.reduceUint64((acc0 + acc1) + (acc2 + acc3))
+	}
+}
+
+func (p formalEvalPlan) evalDenseRowMajor32Into(dst []uint64, red modReducer64, powers []uint64) {
+	width := p.maxDeg + 1
+	for rowIndex := 0; rowIndex < p.rowCount; rowIndex++ {
+		coefficients := p.denseRows32[rowIndex*width : (rowIndex+1)*width]
+		var acc0, acc1, acc2, acc3 uint64
+		degree := 0
+		limit := width - width%4
+		for ; degree < limit; degree += 4 {
+			acc0 += uint64(coefficients[degree]) * powers[degree]
+			acc1 += uint64(coefficients[degree+1]) * powers[degree+1]
+			acc2 += uint64(coefficients[degree+2]) * powers[degree+2]
+			acc3 += uint64(coefficients[degree+3]) * powers[degree+3]
+		}
+		for ; degree < width; degree++ {
+			acc0 += uint64(coefficients[degree]) * powers[degree]
+		}
+		dst[rowIndex] = red.reduceUint64((acc0 + acc1) + (acc2 + acc3))
+	}
+}
+
 func (p formalEvalPlan) evalDenseLowDegreeUint64Into(dst []uint64, red modReducer64, powers []uint64) {
 	rowCount := p.rowCount
 	copy(dst[:rowCount], p.coeffs[:rowCount])
@@ -363,6 +456,16 @@ func (p formalEvalPlan) evalTileIntoPrepared(dst []uint64, points []uint64, red 
 				}
 				tDst[j] = red.reduceUint64(acc)
 			}
+		}
+		return
+	}
+	if len(p.denseRows64) > 0 || len(p.denseRows32) > 0 {
+		for t := 0; t < tileLen; t++ {
+			p.evalIntoPowers(
+				dst[t*p.rowCount:(t+1)*p.rowCount],
+				red,
+				powers[t*powerCount:(t+1)*powerCount],
+			)
 		}
 		return
 	}
@@ -434,6 +537,10 @@ type Prover struct {
 // NewProverWithParamsAndPointsFormalChecked is the error-returning variant of
 // NewProverWithParamsAndPointsFormal for library callers.
 func NewProverWithParamsAndPointsFormalChecked(ringQ *ring.Ring, coeffs [][]uint64, params Params, points []uint64) (*Prover, error) {
+	return newProverWithParamsAndPointsFormalChecked(ringQ, coeffs, params, points, true)
+}
+
+func newProverWithParamsAndPointsFormalChecked(ringQ *ring.Ring, coeffs [][]uint64, params Params, points []uint64, validateDomain bool) (*Prover, error) {
 	if points == nil {
 		return nil, fmt.Errorf("decs: formal constructor requires explicit points")
 	}
@@ -446,11 +553,13 @@ func NewProverWithParamsAndPointsFormalChecked(ringQ *ring.Ring, coeffs [][]uint
 	if !IsSupportedTapeBytes(params.TapeBytes) {
 		return nil, fmt.Errorf("decs: invalid TapeBytes (supported: %s)", SupportedTapeBytesList())
 	}
-	if len(ringQ.Modulus) != 1 {
+	if ringQ == nil || len(ringQ.Modulus) != 1 {
 		return nil, fmt.Errorf("decs: only single-modulus rings are supported (len(Modulus) must be 1)")
 	}
-	if err := validatePoints(points, ringQ.Modulus[0]); err != nil {
-		return nil, err
+	if validateDomain {
+		if err := validatePoints(points, ringQ.Modulus[0]); err != nil {
+			return nil, err
+		}
 	}
 	pFormal := normalizeFormalRows(coeffs, ringQ.Modulus[0])
 	return &Prover{
@@ -476,6 +585,11 @@ type CommitOptions struct {
 	RecordSubphases    bool
 	FormalEvalMode     FormalEvalMode
 	FormalEvalTileSize int
+	// ChunkLeaves enables deterministic dynamic leaf scheduling when positive.
+	// Workers keep their scratch buffers while claiming successive chunks, so
+	// finer load balancing does not multiply the dominant per-worker allocations.
+	// Zero preserves the historical equal contiguous ranges.
+	ChunkLeaves int
 	// MaxTapeBufferBytes is an operational allocation ceiling for independent
 	// v2 tapes. Zero selects DefaultMaxTapeBufferBytes.
 	MaxTapeBufferBytes int
@@ -504,6 +618,7 @@ type commitInitOptions struct {
 	forceScalarFormalEval bool
 	recordSubphases       bool
 	maxTapeBufferBytes    int
+	chunkLeaves           int
 }
 
 type commitInitPhaseTimings struct {
@@ -511,6 +626,7 @@ type commitInitPhaseTimings struct {
 	formalEvalNs    int64
 	leafEncodingNs  int64
 	leafHashNs      int64
+	exactLeafWrapNs int64
 	merkleNs        int64
 	evalHashNs      int64
 	recordSubphases bool
@@ -528,7 +644,54 @@ func (t *commitInitPhaseTimings) record(rec CommitPhaseRecorder) {
 	}
 	rec.RecordDuration("decs.formal_evaluation_cpu", time.Duration(atomic.LoadInt64(&t.formalEvalNs)))
 	rec.RecordDuration("decs.leaf_encoding_cpu", time.Duration(atomic.LoadInt64(&t.leafEncodingNs)))
-	rec.RecordDuration("decs.leaf_hashing_cpu", time.Duration(atomic.LoadInt64(&t.leafHashNs)))
+	leafShake := time.Duration(atomic.LoadInt64(&t.leafHashNs))
+	rec.RecordDuration("decs.leaf_shake_cpu", leafShake)
+	// Compatibility alias for existing profile readers.
+	rec.RecordDuration("decs.leaf_hashing_cpu", leafShake)
+	rec.RecordDuration("decs.exact_leaf_wrapping_cpu", time.Duration(atomic.LoadInt64(&t.exactLeafWrapNs)))
+}
+
+type leafHashTargets struct {
+	hashBytes int
+	flat      []byte
+	exact     *exactMerkleBuilderV3
+}
+
+func newLeafHashTargets(ctx CommitmentContext, nLeaves, hashBytes int, exactTimings *exactMerklePhaseTimingsV3) (*leafHashTargets, error) {
+	if ctx.TranscriptVersion == TranscriptVersionV3 {
+		exact, err := newExactMerkleBuilderV3(ctx, nLeaves, hashBytes, exactTimings)
+		if err != nil {
+			return nil, err
+		}
+		return &leafHashTargets{hashBytes: hashBytes, exact: exact}, nil
+	}
+	if nLeaves > 0 && hashBytes > int(^uint(0)>>1)/nLeaves {
+		return nil, fmt.Errorf("decs: leaf hash buffer size overflows int")
+	}
+	return &leafHashTargets{hashBytes: hashBytes, flat: make([]byte, nLeaves*hashBytes)}, nil
+}
+
+func (t *leafHashTargets) at(index int) []byte {
+	if t.exact != nil {
+		return t.exact.leafHashAt(index)
+	}
+	start := index * t.hashBytes
+	return t.flat[start : start+t.hashBytes]
+}
+
+func (t *leafHashTargets) wrapExactLeaf(h sha3.ShakeHash, scratch []byte, index int) []byte {
+	if t.exact == nil {
+		return scratch
+	}
+	return t.exact.wrapLeafHashInto(h, scratch, index)
+}
+
+func (t *leafHashTargets) legacyViews(nLeaves int) [][]byte {
+	views := make([][]byte, nLeaves)
+	for index := range views {
+		views[index] = t.at(index)
+	}
+	return views
 }
 
 // CommitInitV2WithOptions commits using independent per-leaf tapes and the
@@ -568,6 +731,10 @@ func normalizeCommitOptions(opts CommitOptions) (commitInitOptions, error) {
 		forceScalarFormalEval: true,
 		recordSubphases:       opts.RecordSubphases,
 		maxTapeBufferBytes:    opts.MaxTapeBufferBytes,
+		chunkLeaves:           opts.ChunkLeaves,
+	}
+	if opts.ChunkLeaves < 0 || opts.ChunkLeaves > 1<<20 {
+		return commitInitOptions{}, fmt.Errorf("decs: invalid chunk leaf count %d", opts.ChunkLeaves)
 	}
 	switch opts.FormalEvalMode {
 	case FormalEvalScalar:
@@ -651,19 +818,25 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) error {
 	if timings != nil {
 		evalHashStart = time.Now()
 	}
-	leafHashes := make([][]byte, N)
+	var exactMerkleTimings *exactMerklePhaseTimingsV3
+	if timings != nil && timings.recordSubphases && pr.commitmentContext.TranscriptVersion == TranscriptVersionV3 {
+		exactMerkleTimings = &exactMerklePhaseTimingsV3{}
+	}
+	leafTargets, err := newLeafHashTargets(pr.commitmentContext, N, hashBytes, exactMerkleTimings)
+	if err != nil {
+		return err
+	}
 	if err := pr.ensureV2Tapes(opts.maxTapeBufferBytes); err != nil {
 		return err
 	}
-	leafBytes := 0
 	if pr.PFormal != nil {
 		if opts.forceScalarFormalEval {
-			pr.commitInitFormalScalarLeafHashes(leafHashes, leafBytes, timings)
+			pr.commitInitFormalScalarLeafHashes(leafTargets, opts, timings)
 		} else {
-			pr.commitInitFormalOptimizedLeafHashes(leafHashes, leafBytes, opts, timings)
+			pr.commitInitFormalOptimizedLeafHashes(leafTargets, opts, timings)
 		}
 	} else {
-		buildLeafHash := func(h sha3.ShakeHash, i int) []byte {
+		buildLeafHash := func(h sha3.ShakeHash, scratch []byte, i int) []byte {
 			x := pr.points[i] % q
 			pvals := make([]uint64, r)
 			for j := 0; j < r; j++ {
@@ -673,13 +846,15 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) error {
 			for k := 0; k < pr.params.Eta; k++ {
 				mvals[k] = evalPoly(pr.M[k].Coeffs[0], x, q)
 			}
-			return hashLeafV2With(h, pr.commitmentContext, uint64(i), pr.points[i], q, pvals, mvals, pr.tapeAt(i), hashBytes)
+			scratch = hashLeafV2Into(h, scratch, leafTargets.at(i), pr.commitmentContext, uint64(i), pr.points[i], q, pvals, mvals, pr.tapeAt(i))
+			return leafTargets.wrapExactLeaf(h, scratch, i)
 		}
 		workers := runtime.GOMAXPROCS(0)
 		if workers < 2 || N < 128 {
 			h := nilShake()
+			var scratch []byte
 			for i := 0; i < N; i++ {
-				leafHashes[i] = buildLeafHash(h, i)
+				scratch = buildLeafHash(h, scratch, i)
 			}
 		} else {
 			if workers > N {
@@ -697,8 +872,9 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) error {
 				go func(start, end int) {
 					defer wg.Done()
 					h := nilShake()
+					var scratch []byte
 					for i := start; i < end; i++ {
-						leafHashes[i] = buildLeafHash(h, i)
+						scratch = buildLeafHash(h, scratch, i)
 					}
 				}(start, end)
 			}
@@ -714,8 +890,14 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) error {
 	if timings != nil {
 		merkleStart = time.Now()
 	}
-	var err error
-	pr.mt, err = BuildMerkleTreeFromLeafHashBytesV2(pr.commitmentContext, leafHashes, hashBytes)
+	if exactMerkleTimings != nil {
+		exactMerkleTimings.leafWrapping = time.Duration(atomic.LoadInt64(&timings.exactLeafWrapNs))
+	}
+	if leafTargets.exact != nil {
+		pr.mt, err = leafTargets.exact.finishInternal(exactMerkleTimings)
+	} else {
+		pr.mt, err = buildMerkleTreeFromLeafHashBytesV2(pr.commitmentContext, leafTargets.legacyViews(N), hashBytes, exactMerkleTimings)
+	}
 	if err != nil {
 		return err
 	}
@@ -723,6 +905,7 @@ func (pr *Prover) commitInitWithOptions(opts commitInitOptions) error {
 	if timings != nil {
 		timings.merkleNs = int64(time.Since(merkleStart))
 		timings.record(opts.phaseRecorder)
+		exactMerkleTimings.record(opts.phaseRecorder)
 	}
 
 	return nil
@@ -789,7 +972,15 @@ func (pr *Prover) ReleaseTapes() {
 	pr.tapes = nil
 }
 
-func (pr *Prover) commitInitFormalScalarLeafHashes(leafHashes [][]byte, leafBytes int, timings *commitInitPhaseTimings) {
+type formalScalarWorkerScratch struct {
+	pValues     []uint64
+	mValues     []uint64
+	powers      []uint64
+	shake       sha3.ShakeHash
+	hashScratch []byte
+}
+
+func (pr *Prover) commitInitFormalScalarLeafHashes(leafTargets *leafHashTargets, opts commitInitOptions, timings *commitInitPhaseTimings) {
 	r := pr.rowCount()
 	N := pr.nLeaves
 	q := pr.ringQ.Modulus[0]
@@ -802,40 +993,47 @@ func (pr *Prover) commitInitFormalScalarLeafHashes(leafHashes [][]byte, leafByte
 		powerCount = mPlan.maxDeg + 1
 	}
 	workers := runtime.GOMAXPROCS(0)
+	if opts.workerCount > 0 {
+		workers = opts.workerCount
+	}
 	if workers < 2 || N < 128 {
-		pr.commitInitFormalScalarRange(0, N, leafHashes, leafBytes, r, red, pPlan, mPlan, usePowerEval, powerCount, timings)
+		pr.commitInitFormalScalarRange(0, N, leafTargets, r, red, pPlan, mPlan, usePowerEval, powerCount, timings)
 		return
 	}
 	if workers > N {
 		workers = N
 	}
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	chunk := (N + workers - 1) / workers
-	for worker := 0; worker < workers; worker++ {
-		start := worker * chunk
-		end := start + chunk
-		if end > N {
-			end = N
+	scratch := make([]formalScalarWorkerScratch, workers)
+	for worker := range scratch {
+		scratch[worker] = formalScalarWorkerScratch{
+			pValues: make([]uint64, r),
+			mValues: make([]uint64, pr.params.Eta),
+			shake:   nilShake(),
 		}
-		go func(start, end int) {
-			defer wg.Done()
-			pr.commitInitFormalScalarRange(start, end, leafHashes, leafBytes, r, red, pPlan, mPlan, usePowerEval, powerCount, timings)
-		}(start, end)
+		if usePowerEval {
+			scratch[worker].powers = make([]uint64, powerCount)
+		}
 	}
-	wg.Wait()
+	runDECSLeafRanges(workers, N, opts.chunkLeaves, func(worker, start, end int) {
+		pr.commitInitFormalScalarRangeWithScratch(start, end, leafTargets, r, red, pPlan, mPlan, usePowerEval, timings, &scratch[worker])
+	})
 }
 
-func (pr *Prover) commitInitFormalScalarRange(start, end int, leafHashes [][]byte, leafBytes, r int, red modReducer64, pPlan, mPlan formalEvalPlan, usePowerEval bool, powerCount int, timings *commitInitPhaseTimings) {
-	pScratch := make([]uint64, r)
-	mScratch := make([]uint64, pr.params.Eta)
-	var powerScratch []uint64
-	if usePowerEval {
-		powerScratch = make([]uint64, powerCount)
+func (pr *Prover) commitInitFormalScalarRange(start, end int, leafTargets *leafHashTargets, r int, red modReducer64, pPlan, mPlan formalEvalPlan, usePowerEval bool, powerCount int, timings *commitInitPhaseTimings) {
+	scratch := &formalScalarWorkerScratch{
+		pValues: make([]uint64, r),
+		mValues: make([]uint64, pr.params.Eta),
+		shake:   nilShake(),
 	}
-	shake := nilShake()
+	if usePowerEval {
+		scratch.powers = make([]uint64, powerCount)
+	}
+	pr.commitInitFormalScalarRangeWithScratch(start, end, leafTargets, r, red, pPlan, mPlan, usePowerEval, timings, scratch)
+}
+
+func (pr *Prover) commitInitFormalScalarRangeWithScratch(start, end int, leafTargets *leafHashTargets, r int, red modReducer64, pPlan, mPlan formalEvalPlan, usePowerEval bool, timings *commitInitPhaseTimings, scratch *formalScalarWorkerScratch) {
 	record := timings != nil && timings.recordSubphases
-	var evalNs, hashNs int64
+	var evalNs, encodingNs, hashNs, wrappingNs int64
 	for i := start; i < end; i++ {
 		x := pr.points[i] % red.mod
 		evalStart := time.Time{}
@@ -843,29 +1041,42 @@ func (pr *Prover) commitInitFormalScalarRange(start, end int, leafHashes [][]byt
 			evalStart = time.Now()
 		}
 		if usePowerEval {
-			computeFormalEvalPowers(powerScratch, x, red)
+			computeFormalEvalPowers(scratch.powers, x, red)
 		}
-		pPlan.evalIntoPrepared(pScratch, x, red, powerScratch)
-		mPlan.evalIntoPrepared(mScratch, x, red, powerScratch)
+		pPlan.evalIntoPrepared(scratch.pValues, x, red, scratch.powers)
+		mPlan.evalIntoPrepared(scratch.mValues, x, red, scratch.powers)
 		if record {
 			evalNs += int64(time.Since(evalStart))
 		}
-		hashStart := time.Time{}
 		if record {
-			hashStart = time.Now()
-		}
-		leafHashes[i] = hashLeafV2With(shake, pr.commitmentContext, uint64(i), pr.points[i], red.mod, pScratch, mScratch, pr.tapeAt(i), pr.params.HashBytes)
-		if record {
+			encodingStart := time.Now()
+			scratch.hashScratch = frameLeafV2Into(scratch.hashScratch, pr.commitmentContext, uint64(i), pr.points[i], red.mod, scratch.pValues, scratch.mValues, pr.tapeAt(i))
+			encodingNs += int64(time.Since(encodingStart))
+			hashStart := time.Now()
+			shakeFrameV2Into(scratch.shake, leafTargets.at(i), scratch.hashScratch)
 			hashNs += int64(time.Since(hashStart))
+		} else {
+			scratch.hashScratch = hashLeafV2Into(scratch.shake, scratch.hashScratch, leafTargets.at(i), pr.commitmentContext, uint64(i), pr.points[i], red.mod, scratch.pValues, scratch.mValues, pr.tapeAt(i))
+		}
+		if leafTargets.exact != nil {
+			if record {
+				wrapStart := time.Now()
+				scratch.hashScratch = leafTargets.wrapExactLeaf(scratch.shake, scratch.hashScratch, i)
+				wrappingNs += int64(time.Since(wrapStart))
+			} else {
+				scratch.hashScratch = leafTargets.wrapExactLeaf(scratch.shake, scratch.hashScratch, i)
+			}
 		}
 	}
 	if record {
 		atomic.AddInt64(&timings.formalEvalNs, evalNs)
+		atomic.AddInt64(&timings.leafEncodingNs, encodingNs)
 		atomic.AddInt64(&timings.leafHashNs, hashNs)
+		atomic.AddInt64(&timings.exactLeafWrapNs, wrappingNs)
 	}
 }
 
-func (pr *Prover) commitInitFormalTiledLeafHashes(leafHashes [][]byte, leafBytes int, opts commitInitOptions, timings *commitInitPhaseTimings) {
+func (pr *Prover) commitInitFormalTiledLeafHashes(leafTargets *leafHashTargets, opts commitInitOptions, timings *commitInitPhaseTimings) {
 	r := pr.rowCount()
 	N := pr.nLeaves
 	q := pr.ringQ.Modulus[0]
@@ -875,7 +1086,7 @@ func (pr *Prover) commitInitFormalTiledLeafHashes(leafHashes [][]byte, leafBytes
 	combinedRows = append(combinedRows, pr.MFormal...)
 	plan := newFormalEvalPlan(combinedRows, q)
 	if !plan.usesPowerEval() {
-		pr.commitInitFormalScalarLeafHashes(leafHashes, leafBytes, timings)
+		pr.commitInitFormalScalarLeafHashes(leafTargets, opts, timings)
 		return
 	}
 	tileSize := opts.tileSize
@@ -890,32 +1101,24 @@ func (pr *Prover) commitInitFormalTiledLeafHashes(leafHashes [][]byte, leafBytes
 		workers = runtime.GOMAXPROCS(0)
 	}
 	if workers < 2 || N < 128 {
-		pr.commitInitFormalTiledRange(0, N, tileSize, leafHashes, leafBytes, r, red, plan, timings)
+		pr.commitInitFormalTiledRange(0, N, tileSize, leafTargets, r, red, plan, timings)
 		return
 	}
 	if workers > N {
 		workers = N
 	}
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	chunk := (N + workers - 1) / workers
-	for worker := 0; worker < workers; worker++ {
-		start := worker * chunk
-		end := start + chunk
-		if end > N {
-			end = N
-		}
-		go func(start, end int) {
-			defer wg.Done()
-			pr.commitInitFormalTiledRange(start, end, tileSize, leafHashes, leafBytes, r, red, plan, timings)
-		}(start, end)
+	scratch := make([]formalCombinedWorkerScratch, workers)
+	for worker := range scratch {
+		scratch[worker] = newFormalCombinedWorkerScratch(tileSize*plan.rowCount, tileSize*(plan.maxDeg+1))
 	}
-	wg.Wait()
+	runDECSLeafRanges(workers, N, opts.chunkLeaves, func(worker, start, end int) {
+		pr.commitInitFormalTiledRangeWithScratch(start, end, tileSize, leafTargets, r, red, plan, timings, &scratch[worker])
+	})
 }
 
-func (pr *Prover) commitInitFormalOptimizedLeafHashes(leafHashes [][]byte, leafBytes int, opts commitInitOptions, timings *commitInitPhaseTimings) {
+func (pr *Prover) commitInitFormalOptimizedLeafHashes(leafTargets *leafHashTargets, opts commitInitOptions, timings *commitInitPhaseTimings) {
 	if opts.tileSize > 1 {
-		pr.commitInitFormalTiledLeafHashes(leafHashes, leafBytes, opts, timings)
+		pr.commitInitFormalTiledLeafHashes(leafTargets, opts, timings)
 		return
 	}
 	r := pr.rowCount()
@@ -927,7 +1130,7 @@ func (pr *Prover) commitInitFormalOptimizedLeafHashes(leafHashes [][]byte, leafB
 	combinedRows = append(combinedRows, pr.MFormal...)
 	plan := newFormalEvalPlan(combinedRows, q)
 	if !plan.usesPowerEval() {
-		pr.commitInitFormalScalarLeafHashes(leafHashes, leafBytes, timings)
+		pr.commitInitFormalScalarLeafHashes(leafTargets, opts, timings)
 		return
 	}
 	workers := opts.workerCount
@@ -935,68 +1138,92 @@ func (pr *Prover) commitInitFormalOptimizedLeafHashes(leafHashes [][]byte, leafB
 		workers = runtime.GOMAXPROCS(0)
 	}
 	if workers < 2 || N < 128 {
-		pr.commitInitFormalOptimizedRange(0, N, leafHashes, leafBytes, r, red, plan, timings)
+		pr.commitInitFormalOptimizedRange(0, N, leafTargets, r, red, plan, timings)
 		return
 	}
 	if workers > N {
 		workers = N
 	}
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	chunk := (N + workers - 1) / workers
-	for worker := 0; worker < workers; worker++ {
-		start := worker * chunk
-		end := start + chunk
-		if end > N {
-			end = N
-		}
-		go func(start, end int) {
-			defer wg.Done()
-			pr.commitInitFormalOptimizedRange(start, end, leafHashes, leafBytes, r, red, plan, timings)
-		}(start, end)
+	scratch := make([]formalCombinedWorkerScratch, workers)
+	for worker := range scratch {
+		scratch[worker] = newFormalCombinedWorkerScratch(plan.rowCount, plan.maxDeg+1)
 	}
-	wg.Wait()
+	runDECSLeafRanges(workers, N, opts.chunkLeaves, func(worker, start, end int) {
+		pr.commitInitFormalOptimizedRangeWithScratch(start, end, leafTargets, r, red, plan, timings, &scratch[worker])
+	})
 }
 
-func (pr *Prover) commitInitFormalOptimizedRange(start, end int, leafHashes [][]byte, leafBytes, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
-	values := make([]uint64, plan.rowCount)
-	powers := make([]uint64, plan.maxDeg+1)
-	shake := nilShake()
+type formalCombinedWorkerScratch struct {
+	values      []uint64
+	powers      []uint64
+	shake       sha3.ShakeHash
+	hashScratch []byte
+}
+
+func newFormalCombinedWorkerScratch(valueCount, powerCount int) formalCombinedWorkerScratch {
+	return formalCombinedWorkerScratch{
+		values: make([]uint64, valueCount),
+		powers: make([]uint64, powerCount),
+		shake:  nilShake(),
+	}
+}
+
+func (pr *Prover) commitInitFormalOptimizedRange(start, end int, leafTargets *leafHashTargets, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
+	scratch := newFormalCombinedWorkerScratch(plan.rowCount, plan.maxDeg+1)
+	pr.commitInitFormalOptimizedRangeWithScratch(start, end, leafTargets, r, red, plan, timings, &scratch)
+}
+
+func (pr *Prover) commitInitFormalOptimizedRangeWithScratch(start, end int, leafTargets *leafHashTargets, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings, scratch *formalCombinedWorkerScratch) {
 	record := timings != nil && timings.recordSubphases
-	var evalNs, hashNs int64
+	var evalNs, encodingNs, hashNs, wrappingNs int64
 	for i := start; i < end; i++ {
 		x := pr.points[i] % red.mod
 		evalStart := time.Time{}
 		if record {
 			evalStart = time.Now()
 		}
-		computeFormalEvalPowers(powers, x, red)
-		plan.evalIntoPrepared(values, x, red, powers)
+		computeFormalEvalPowers(scratch.powers, x, red)
+		plan.evalIntoPrepared(scratch.values, x, red, scratch.powers)
 		if record {
 			evalNs += int64(time.Since(evalStart))
 		}
-		hashStart := time.Time{}
 		if record {
-			hashStart = time.Now()
-		}
-		leafHashes[i] = hashLeafV2With(shake, pr.commitmentContext, uint64(i), pr.points[i], red.mod, values[:r], values[r:r+pr.params.Eta], pr.tapeAt(i), pr.params.HashBytes)
-		if record {
+			encodingStart := time.Now()
+			scratch.hashScratch = frameLeafV2Into(scratch.hashScratch, pr.commitmentContext, uint64(i), pr.points[i], red.mod, scratch.values[:r], scratch.values[r:r+pr.params.Eta], pr.tapeAt(i))
+			encodingNs += int64(time.Since(encodingStart))
+			hashStart := time.Now()
+			shakeFrameV2Into(scratch.shake, leafTargets.at(i), scratch.hashScratch)
 			hashNs += int64(time.Since(hashStart))
+		} else {
+			scratch.hashScratch = hashLeafV2Into(scratch.shake, scratch.hashScratch, leafTargets.at(i), pr.commitmentContext, uint64(i), pr.points[i], red.mod, scratch.values[:r], scratch.values[r:r+pr.params.Eta], pr.tapeAt(i))
+		}
+		if leafTargets.exact != nil {
+			if record {
+				wrapStart := time.Now()
+				scratch.hashScratch = leafTargets.wrapExactLeaf(scratch.shake, scratch.hashScratch, i)
+				wrappingNs += int64(time.Since(wrapStart))
+			} else {
+				scratch.hashScratch = leafTargets.wrapExactLeaf(scratch.shake, scratch.hashScratch, i)
+			}
 		}
 	}
 	if record {
 		atomic.AddInt64(&timings.formalEvalNs, evalNs)
+		atomic.AddInt64(&timings.leafEncodingNs, encodingNs)
 		atomic.AddInt64(&timings.leafHashNs, hashNs)
+		atomic.AddInt64(&timings.exactLeafWrapNs, wrappingNs)
 	}
 }
 
-func (pr *Prover) commitInitFormalTiledRange(start, end, tileSize int, leafHashes [][]byte, leafBytes, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
+func (pr *Prover) commitInitFormalTiledRange(start, end, tileSize int, leafTargets *leafHashTargets, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings) {
+	scratch := newFormalCombinedWorkerScratch(tileSize*plan.rowCount, tileSize*(plan.maxDeg+1))
+	pr.commitInitFormalTiledRangeWithScratch(start, end, tileSize, leafTargets, r, red, plan, timings, &scratch)
+}
+
+func (pr *Prover) commitInitFormalTiledRangeWithScratch(start, end, tileSize int, leafTargets *leafHashTargets, r int, red modReducer64, plan formalEvalPlan, timings *commitInitPhaseTimings, scratch *formalCombinedWorkerScratch) {
 	rowCount := plan.rowCount
-	values := make([]uint64, tileSize*rowCount)
-	powers := make([]uint64, tileSize*(plan.maxDeg+1))
-	shake := nilShake()
 	record := timings != nil && timings.recordSubphases
-	var evalNs, hashNs int64
+	var evalNs, encodingNs, hashNs, wrappingNs int64
 	for tileStart := start; tileStart < end; tileStart += tileSize {
 		tileEnd := tileStart + tileSize
 		if tileEnd > end {
@@ -1008,27 +1235,99 @@ func (pr *Prover) commitInitFormalTiledRange(start, end, tileSize int, leafHashe
 		if record {
 			evalStart = time.Now()
 		}
-		plan.evalTileIntoPrepared(values[:tileLen*rowCount], points, red, powers[:tileLen*(plan.maxDeg+1)])
+		plan.evalTileIntoPrepared(scratch.values[:tileLen*rowCount], points, red, scratch.powers[:tileLen*(plan.maxDeg+1)])
 		if record {
 			evalNs += int64(time.Since(evalStart))
 		}
 		for t := 0; t < tileLen; t++ {
 			i := tileStart + t
-			rowVals := values[t*rowCount : (t+1)*rowCount]
-			hashStart := time.Time{}
+			rowVals := scratch.values[t*rowCount : (t+1)*rowCount]
 			if record {
-				hashStart = time.Now()
-			}
-			leafHashes[i] = hashLeafV2With(shake, pr.commitmentContext, uint64(i), pr.points[i], red.mod, rowVals[:r], rowVals[r:r+pr.params.Eta], pr.tapeAt(i), pr.params.HashBytes)
-			if record {
+				encodingStart := time.Now()
+				scratch.hashScratch = frameLeafV2Into(scratch.hashScratch, pr.commitmentContext, uint64(i), pr.points[i], red.mod, rowVals[:r], rowVals[r:r+pr.params.Eta], pr.tapeAt(i))
+				encodingNs += int64(time.Since(encodingStart))
+				hashStart := time.Now()
+				shakeFrameV2Into(scratch.shake, leafTargets.at(i), scratch.hashScratch)
 				hashNs += int64(time.Since(hashStart))
+			} else {
+				scratch.hashScratch = hashLeafV2Into(scratch.shake, scratch.hashScratch, leafTargets.at(i), pr.commitmentContext, uint64(i), pr.points[i], red.mod, rowVals[:r], rowVals[r:r+pr.params.Eta], pr.tapeAt(i))
+			}
+			if leafTargets.exact != nil {
+				if record {
+					wrapStart := time.Now()
+					scratch.hashScratch = leafTargets.wrapExactLeaf(scratch.shake, scratch.hashScratch, i)
+					wrappingNs += int64(time.Since(wrapStart))
+				} else {
+					scratch.hashScratch = leafTargets.wrapExactLeaf(scratch.shake, scratch.hashScratch, i)
+				}
 			}
 		}
 	}
 	if record {
 		atomic.AddInt64(&timings.formalEvalNs, evalNs)
+		atomic.AddInt64(&timings.leafEncodingNs, encodingNs)
 		atomic.AddInt64(&timings.leafHashNs, hashNs)
+		atomic.AddInt64(&timings.exactLeafWrapNs, wrappingNs)
 	}
+}
+
+// runDECSLeafRanges assigns canonical leaf intervals to a fixed worker pool.
+// A positive dynamicChunk enables work stealing through one monotonic counter;
+// output locations and entropy have already been fixed by leaf index, so the
+// scheduling order cannot affect the commitment. The worker identifier is
+// stable and lets callers retain one scratch arena per goroutine.
+func runDECSLeafRanges(workers, total, dynamicChunk int, work func(worker, start, end int)) {
+	if total <= 0 {
+		return
+	}
+	if workers <= 1 {
+		work(0, 0, total)
+		return
+	}
+	if workers > total {
+		workers = total
+	}
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	if dynamicChunk <= 0 {
+		chunk := (total + workers - 1) / workers
+		for worker := 0; worker < workers; worker++ {
+			start := worker * chunk
+			end := start + chunk
+			if end > total {
+				end = total
+			}
+			go func(worker, start, end int) {
+				defer wg.Done()
+				if start < end {
+					work(worker, start, end)
+				}
+			}(worker, start, end)
+		}
+		wg.Wait()
+		return
+	}
+	if dynamicChunk > total {
+		dynamicChunk = total
+	}
+	var next atomic.Int64
+	for worker := 0; worker < workers; worker++ {
+		go func(worker int) {
+			defer wg.Done()
+			for {
+				end := int(next.Add(int64(dynamicChunk)))
+				start := end - dynamicChunk
+				if start >= total {
+					return
+				}
+				if end > total {
+					end = total
+				}
+				work(worker, start, end)
+			}
+		}(worker)
+	}
+	wg.Wait()
 }
 
 func nilShake() sha3.ShakeHash {
@@ -1133,12 +1432,24 @@ func (pr *Prover) EvalOpenV2(E []int) (*DECSOpening, error) {
 			open.Mvals[t][k] = pr.evalM(idx, k)
 		}
 		open.Tapes[t] = append([]byte(nil), pr.tapeAt(idx)...)
-		depth := len(pr.mt.layers) - 1
-		pathIndices := make([]int, depth)
-		cur := idx
-		for level := 0; level < depth; level++ {
-			pathIndices[level] = addNode(pr.mt.layers[level][cur^1])
-			cur >>= 1
+		var pathNodes [][]byte
+		if pr.commitmentContext.TranscriptVersion == TranscriptVersionV3 {
+			pathNodes, err = pr.mt.exactPathNodesV3(idx)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			depth := len(pr.mt.layers) - 1
+			pathNodes = make([][]byte, depth)
+			cur := idx
+			for level := 0; level < depth; level++ {
+				pathNodes[level] = pr.mt.layers[level][cur^1]
+				cur >>= 1
+			}
+		}
+		pathIndices := make([]int, len(pathNodes))
+		for level, node := range pathNodes {
+			pathIndices[level] = addNode(node)
 		}
 		open.PathIndex[t] = pathIndices
 	}
@@ -1615,7 +1926,7 @@ func DeriveGammaV2(ctx CommitmentContext, rootHash []byte, eta, r int, q uint64)
 		for j := 0; j < r; j++ {
 			for {
 				h := sha3.NewShake256()
-				writeContextV2(h, gammaDomainV2, ctx)
+				writeContextV2(h, gammaDomain(ctx), ctx)
 				writeLengthPrefixed(h, rootHash)
 				writeUint64(h, counter)
 				var buf [8]byte

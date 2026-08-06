@@ -258,6 +258,28 @@ func TestBuildSmallField2025CoeffPlanExtendsFullRankDeterministically(t *testing
 	}
 }
 
+func TestValidateSmallField2025ProofAcceptsMatchingV3Tuple(t *testing.T) {
+	proof := liveSmallField2025ProofForTest()
+	proof.TranscriptVersion = TranscriptVersionSmallWood2025V3
+	proof.TranscriptProtocolMode = TranscriptProtocolSmallField2025V3
+	proof.SmallField2025.Mode = TranscriptProtocolSmallField2025V3
+	proof.SmallField2025.TranscriptOmission = &SmallField2025TranscriptOmission{
+		Version:                      smallField2025TranscriptOmissionVersionV3,
+		Mode:                         SmallField2025TranscriptOmissionModeCanonicalV3,
+		OmitPdecsReconstructibleCols: true,
+		AuthMultiproofCompact:        true,
+	}
+	proof.SmallField2025.PayloadDigest = smallField2025PayloadDigest(proof, proof.SmallField2025)
+	if err := ValidateSmallField2025Proof(proof); err != nil {
+		t.Fatalf("ValidateSmallField2025Proof(v3): %v", err)
+	}
+
+	proof.SmallField2025.Mode = TranscriptProtocolSmallField2025V2
+	if err := ValidateSmallField2025Proof(proof); err == nil {
+		t.Fatal("ValidateSmallField2025Proof accepted mixed v2/v3 metadata")
+	}
+}
+
 func minimalSmallField2025Proof() *Proof {
 	proof := &Proof{
 		TranscriptVersion:      TranscriptVersionSmallWood2025V2,

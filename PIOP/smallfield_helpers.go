@@ -3,6 +3,7 @@ package PIOP
 import (
 	"crypto/rand"
 	"fmt"
+	"io"
 	"runtime"
 	"sync"
 
@@ -154,6 +155,42 @@ func buildSmallFieldWitnessRowsFromLiteralInputs(
 	omegaS1 kf.Elem,
 	logicalRows []lvcs.RowInput,
 ) ([][]uint64, error) {
+	return buildSmallFieldWitnessRowsFromLiteralInputsCore(ringQ, omega, ncols, K, omegaS1, logicalRows, nil, false)
+}
+
+func buildSmallFieldWitnessRowsFromLiteralInputsRandomized(
+	ringQ *ring.Ring,
+	omega []uint64,
+	ncols int,
+	K *kf.Field,
+	omegaS1 kf.Elem,
+	logicalRows []lvcs.RowInput,
+) ([][]uint64, error) {
+	return buildSmallFieldWitnessRowsFromLiteralInputsCore(ringQ, omega, ncols, K, omegaS1, logicalRows, rand.Reader, true)
+}
+
+func buildSmallFieldWitnessRowsFromLiteralInputsRandomizedWithReader(
+	ringQ *ring.Ring,
+	omega []uint64,
+	ncols int,
+	K *kf.Field,
+	omegaS1 kf.Elem,
+	logicalRows []lvcs.RowInput,
+	random io.Reader,
+) ([][]uint64, error) {
+	return buildSmallFieldWitnessRowsFromLiteralInputsCore(ringQ, omega, ncols, K, omegaS1, logicalRows, random, true)
+}
+
+func buildSmallFieldWitnessRowsFromLiteralInputsCore(
+	ringQ *ring.Ring,
+	omega []uint64,
+	ncols int,
+	K *kf.Field,
+	omegaS1 kf.Elem,
+	logicalRows []lvcs.RowInput,
+	random io.Reader,
+	randomizeExtra bool,
+) ([][]uint64, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -180,10 +217,24 @@ func buildSmallFieldWitnessRowsFromLiteralInputs(
 		blocks = 1
 	}
 
+	if randomizeExtra && random == nil {
+		random = rand.Reader
+	}
+	// SmallWood Appendix C samples an independent K-valued rho for every
+	// logical witness row at the extra support point. In particular, this value
+	// must not be the deterministic evaluation of a lower-degree F polynomial.
 	yVals := make([]kf.Elem, len(logicalRows))
 	for i, row := range logicalRows {
 		if len(row.Head) != s {
 			return nil, fmt.Errorf("logical row %d head width=%d want %d", i, len(row.Head), s)
+		}
+		if randomizeExtra {
+			elem, err := K.RandomElement(random)
+			if err != nil {
+				return nil, fmt.Errorf("logical row %d omegaS1 sample: %w", i, err)
+			}
+			yVals[i] = elem
+			continue
 		}
 		switch {
 		case len(row.PolyCoeffs) > 0:
@@ -295,6 +346,42 @@ func deriveSmallFieldParamsNoRows(ringQ *ring.Ring, omega []uint64, theta int) (
 		MuInv:   muDenomInv,
 	}
 	return out, nil
+}
+
+// deriveSmallFieldParamsNoRowsV3 loads the versioned public field profile.
+// Unlike the v2 helper, neither Chi nor the extra support point is sampled by
+// the prover or carried in the proof.
+func deriveSmallFieldParamsNoRowsV3(ringQ *ring.Ring, omega []uint64, theta int) (smallFieldParams, error) {
+	var out smallFieldParams
+	if ringQ == nil {
+		return out, fmt.Errorf("nil ring")
+	}
+	profile, ok := kf.LookupSmallWoodFieldProfileV3(ringQ.Modulus[0], theta)
+	if !ok {
+		return out, fmt.Errorf("no maintained SmallWood v3 field profile for q=%d theta=%d", ringQ.Modulus[0], theta)
+	}
+	K, omegaExtra, err := profile.Validate(omega)
+	if err != nil {
+		return out, err
+	}
+	muInv, err := smallFieldMuDenomInv(K, omega, omegaExtra)
+	if err != nil {
+		return out, err
+	}
+	return smallFieldParams{
+		K:       K,
+		Chi:     append([]uint64(nil), profile.Chi...),
+		OmegaS1: omegaExtra,
+		MuInv:   muInv,
+	}, nil
+}
+
+func smallFieldProfileTranscriptBytesV3(q uint64, theta int) ([]byte, error) {
+	profile, ok := kf.LookupSmallWoodFieldProfileV3(q, theta)
+	if !ok {
+		return nil, fmt.Errorf("no maintained SmallWood v3 field profile for q=%d theta=%d", q, theta)
+	}
+	return profile.CanonicalBytes(), nil
 }
 
 // buildSmallFieldMaskLayerRows expands K-mask polynomials into theta>1 mask rows.

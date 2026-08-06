@@ -89,8 +89,25 @@ func sampleProofSaltV2(opts SimOpts) ([]byte, error) {
 }
 
 func commitmentContextV2(salt []byte, role decs.CommitmentRole) (decs.CommitmentContext, error) {
+	return commitmentContextForTranscript(salt, role, TranscriptVersionSmallWood2025V2)
+}
+
+func commitmentContextForTranscript(salt []byte, role decs.CommitmentRole, transcriptVersion string) (decs.CommitmentContext, error) {
+	version := normalizeTranscriptVersion(transcriptVersion)
+	if version == "" {
+		version = TranscriptVersionSmallWood2025V2
+	}
+	// Publication v4 retains the audited DECS-v3 commitment codec and domains;
+	// the enclosing Fiat--Shamir initialization binds the v4 policy, phase,
+	// relation, manifest statement, and actual output width.
+	if version == TranscriptVersionSmallWood2025V4 {
+		version = TranscriptVersionSmallWood2025V3
+	}
+	if version != TranscriptVersionSmallWood2025V2 && version != TranscriptVersionSmallWood2025V3 {
+		return decs.CommitmentContext{}, fmt.Errorf("PIOP: unsupported DECS transcript version %q", version)
+	}
 	ctx := decs.CommitmentContext{
-		TranscriptVersion: TranscriptVersionSmallWood2025V2,
+		TranscriptVersion: version,
 		Role:              role,
 		Salt:              append([]byte(nil), salt...),
 	}
@@ -104,26 +121,50 @@ func mainCommitmentContextV2(salt []byte) (decs.CommitmentContext, error) {
 	return commitmentContextV2(salt, decs.CommitmentRoleMain)
 }
 
+func mainCommitmentContextForTranscript(salt []byte, transcriptVersion string) (decs.CommitmentContext, error) {
+	return commitmentContextForTranscript(salt, decs.CommitmentRoleMain, transcriptVersion)
+}
+
 func qCommitmentContextV2(salt []byte) (decs.CommitmentContext, error) {
 	return commitmentContextV2(salt, decs.CommitmentRoleQPayload)
 }
 
+func qCommitmentContextForTranscript(salt []byte, transcriptVersion string) (decs.CommitmentContext, error) {
+	return commitmentContextForTranscript(salt, decs.CommitmentRoleQPayload, transcriptVersion)
+}
+
 func validateIntGenISISV2TranscriptOpts(opts SimOpts) error {
+	if err := opts.ExecutionPolicy.Validate(); err != nil {
+		return err
+	}
 	version := normalizeTranscriptVersion(opts.TranscriptVersion)
 	protocol := normalizeTranscriptProtocolMode(opts.TranscriptProtocolMode)
-	if version != TranscriptVersionSmallWood2025V2 || protocol != TranscriptProtocolSmallField2025V2 {
+	wantOmission := ""
+	switch {
+	case version == TranscriptVersionSmallWood2025V2 && protocol == TranscriptProtocolSmallField2025V2:
+		wantOmission = SmallField2025TranscriptOmissionModeDigestBoundV2
+	case version == TranscriptVersionSmallWood2025V3 && protocol == TranscriptProtocolSmallField2025V3:
+		wantOmission = SmallField2025TranscriptOmissionModeCanonicalV3
+	case version == TranscriptVersionSmallWood2025V4 && protocol == TranscriptProtocolSmallField2025V4:
+		wantOmission = SmallField2025TranscriptOmissionModeCanonicalV3
+	default:
 		return fmt.Errorf(
-			"PIOP: IntGenISIS requires transcript tuple (%q,%q), got (%q,%q)",
-			TranscriptVersionSmallWood2025V2,
-			TranscriptProtocolSmallField2025V2,
+			"PIOP: IntGenISIS requires transcript tuple v2, v3, or v4 exactly; got (%q,%q) (v2=(%q,%q), v3=(%q,%q), v4=(%q,%q))",
 			version,
 			protocol,
+			TranscriptVersionSmallWood2025V2,
+			TranscriptProtocolSmallField2025V2,
+			TranscriptVersionSmallWood2025V3,
+			TranscriptProtocolSmallField2025V3,
+			TranscriptVersionSmallWood2025V4,
+			TranscriptProtocolSmallField2025V4,
 		)
 	}
-	if opts.TranscriptOmissionMode != SmallField2025TranscriptOmissionModeDigestBoundV2 {
+	if opts.TranscriptOmissionMode != wantOmission {
 		return fmt.Errorf(
-			"PIOP: IntGenISIS v2 requires transcript omission mode %q, got %q",
-			SmallField2025TranscriptOmissionModeDigestBoundV2,
+			"PIOP: IntGenISIS transcript %q requires transcript omission mode %q, got %q",
+			version,
+			wantOmission,
 			opts.TranscriptOmissionMode,
 		)
 	}
@@ -163,9 +204,11 @@ func validateOpeningRoleV2(open *decs.DECSOpening, role decs.CommitmentRole) err
 
 // buildDECSV2DisclosureAccounting reports the bytes actually disclosed by all
 // retained selective openings. Eligibility is deliberately fail-closed: a
-// report is live only for the exact v2 transcript tuple and omission descriptor,
-// a full declared-width root, and Version 2 openings containing one uniform
-// independent tape per selectively opened leaf under their exact protocol roles.
+// report is live only for an exact supported strict transcript tuple and
+// omission descriptor, a full declared-width root, and Version 2 DECS openings
+// containing one uniform independent tape per selectively opened leaf under
+// their exact protocol roles. Schema-3 proofs keep DECS opening version 2; only
+// the surrounding proof/transcript schema changes.
 func buildDECSV2DisclosureAccounting(proof *Proof) decsV2DisclosureAccounting {
 	var out decsV2DisclosureAccounting
 	if proof == nil {
@@ -193,15 +236,20 @@ func buildDECSV2DisclosureAccounting(proof *Proof) decsV2DisclosureAccounting {
 		out.TapeWidthBytes = 0
 		return out
 	}
-	if proof.SchemaVersion != ProofSchemaVersionV2 ||
-		normalizeTranscriptVersion(proof.TranscriptVersion) != TranscriptVersionSmallWood2025V2 ||
-		normalizeTranscriptProtocolMode(proof.TranscriptProtocolMode) != TranscriptProtocolSmallField2025V2 ||
+	version := normalizeTranscriptVersion(proof.TranscriptVersion)
+	protocol := normalizeTranscriptProtocolMode(proof.TranscriptProtocolMode)
+	strictTuple := (proof.SchemaVersion == ProofSchemaVersionV2 &&
+		version == TranscriptVersionSmallWood2025V2 && protocol == TranscriptProtocolSmallField2025V2) ||
+		(proof.SchemaVersion == ProofSchemaVersionV3 &&
+			((version == TranscriptVersionSmallWood2025V3 && protocol == TranscriptProtocolSmallField2025V3) ||
+				(version == TranscriptVersionSmallWood2025V4 && protocol == TranscriptProtocolSmallField2025V4)))
+	if !strictTuple ||
 		!decs.IsSupportedHashBytes(out.RootWidthBytes) ||
 		proofHasLegacyQDECS(proof) ||
-		!proofHasExactSmallField2025LiveV2Metadata(proof) {
+		!proofHasExactSmallField2025LiveMetadata(proof) {
 		return out
 	}
-	if _, err := mainCommitmentContextV2(proof.Salt); err != nil {
+	if _, err := mainCommitmentContextForTranscript(proof.Salt, version); err != nil {
 		return out
 	}
 	out.TapeDisclosureMode = tapeDisclosureModeIndependentSelective

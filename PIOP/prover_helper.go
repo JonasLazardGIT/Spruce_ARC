@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math/bits"
 
+	"golang.org/x/crypto/sha3"
+
 	lvcs "vSIS-Signature/LVCS"
 	kf "vSIS-Signature/internal/kfield"
 
@@ -94,12 +96,16 @@ func modInv(a, q uint64) uint64 {
 }
 
 // -----------------------------------------------------------------------------
-// Fiat–Shamir: tiny deterministic PRF stream (SHA‑256(counter || seed))
+// Fiat–Shamir challenge expansion. V2 retains the historical
+// SHA-256(counter || seed) stream. V3 uses a framed SHAKE-256 stream seeded by
+// the complete round digest and samples bounded values by rejection.
 // -----------------------------------------------------------------------------
 
 type fsRNG struct {
-	seed [32]byte
-	ctr  uint64
+	seed  [32]byte
+	ctr   uint64
+	shake sha3.ShakeHash
+	exact bool
 }
 
 // KScalar encodes an element of K ≅ F^θ in φ^{-1}-coordinates.
@@ -414,13 +420,91 @@ func newFSRNG(label string, material ...[]byte) *fsRNG {
 	return &fsRNG{seed: s}
 }
 
+const fsRNGExpansionDomainV3 = "SPRUCE/SmallWood/Fiat-Shamir/expand/v3"
+const fsRNGExpansionDomainV4 = "SPRUCE/SmallWood/Fiat-Shamir/expand/v4"
+
+// newFSRNGV3 derives a full-width, unambiguously framed SHAKE-256 stream. In
+// particular, it does not compress a wide Fiat-Shamir digest through a
+// 256-bit intermediate seed.
+func newFSRNGV3(label string, material ...[]byte) *fsRNG {
+	return newFSRNGStrict(fsRNGExpansionDomainV3, label, material...)
+}
+
+func newFSRNGStrict(domain, label string, material ...[]byte) *fsRNG {
+	h := sha3.NewShake256()
+	_, _ = h.Write(appendFSLengthPrefixed(nil, []byte(domain)))
+	_, _ = h.Write(appendFSLengthPrefixed(nil, []byte(label)))
+	var count [8]byte
+	binary.BigEndian.PutUint64(count[:], uint64(len(material)))
+	_, _ = h.Write(count[:])
+	for _, m := range material {
+		_, _ = h.Write(appendFSLengthPrefixed(nil, m))
+	}
+	return &fsRNG{shake: h, exact: true}
+}
+
+func newFSRNGForTranscript(version, label string, material ...[]byte) *fsRNG {
+	if transcriptUsesPublicationV4(version) {
+		return newFSRNGStrict(fsRNGExpansionDomainV4, label, material...)
+	}
+	if transcriptUsesSmallWood2025V3(version) {
+		return newFSRNGV3(label, material...)
+	}
+	return newFSRNG(label, material...)
+}
+
 func (r *fsRNG) nextU64() uint64 {
+	if r == nil {
+		panic("fsRNG.nextU64: nil RNG")
+	}
+	if r.shake != nil {
+		var out [8]byte
+		if _, err := r.shake.Read(out[:]); err != nil {
+			panic("fsRNG.nextU64: SHAKE read failed: " + err.Error())
+		}
+		return binary.LittleEndian.Uint64(out[:])
+	}
 	var in [40]byte
 	copy(in[:32], r.seed[:])
 	binary.LittleEndian.PutUint64(in[32:], r.ctr)
 	sum := sha256.Sum256(in[:])
 	r.ctr++
 	return binary.LittleEndian.Uint64(sum[:])
+}
+
+// uniformUint64From samples exactly from [0, modulus) using rejection. The
+// low rejection interval has size 2^64 mod modulus, leaving a multiple of the
+// modulus among accepted uint64 values.
+func uniformUint64From(next func() uint64, modulus uint64) uint64 {
+	if next == nil {
+		panic("uniformUint64From: nil source")
+	}
+	if modulus == 0 {
+		panic("uniformUint64From: zero modulus")
+	}
+	threshold := -modulus % modulus
+	for {
+		v := next()
+		if v >= threshold {
+			return v % modulus
+		}
+	}
+}
+
+func (r *fsRNG) nextUniform(modulus uint64) uint64 {
+	return uniformUint64From(r.nextU64, modulus)
+}
+
+// nextMod preserves the historical modulo expansion for V2 transcripts while
+// selecting exact rejection sampling for V3.
+func (r *fsRNG) nextMod(modulus uint64) uint64 {
+	if modulus == 0 {
+		panic("fsRNG.nextMod: zero modulus")
+	}
+	if r != nil && r.exact {
+		return r.nextUniform(modulus)
+	}
+	return r.nextU64() % modulus
 }
 
 // Helpers to serialize inputs for FS binding.
@@ -518,7 +602,7 @@ func sampleFSMatrix(rows, cols int, q uint64, rng *fsRNG) [][]uint64 {
 	for i := 0; i < rows; i++ {
 		M[i] = make([]uint64, cols)
 		for j := 0; j < cols; j++ {
-			M[i][j] = rng.nextU64() % q
+			M[i][j] = rng.nextMod(q)
 		}
 	}
 	return M
@@ -537,7 +621,7 @@ func sampleFSPolyTensor(rows, cols, nCoeffs int, q uint64, rng *fsRNG) [][][]uin
 		for j := 0; j < cols; j++ {
 			coeffs := make([]uint64, nCoeffs)
 			for k := 0; k < nCoeffs; k++ {
-				coeffs[k] = rng.nextU64() % q
+				coeffs[k] = rng.nextMod(q)
 			}
 			row[j] = coeffs
 		}
@@ -557,7 +641,7 @@ func sampleFSMatrixK(rows, cols, theta int, q uint64, rng *fsRNG) [][]KScalar {
 		for j := 0; j < cols; j++ {
 			k := make(KScalar, theta)
 			for t := 0; t < theta; t++ {
-				k[t] = rng.nextU64() % q
+				k[t] = rng.nextMod(q)
 			}
 			row[j] = k
 		}
@@ -580,7 +664,7 @@ func sampleFSPolyTensorK(rows, cols, nCoeffs, theta int, q uint64, rng *fsRNG) [
 			for k := 0; k < nCoeffs; k++ {
 				limbs := make(KScalar, theta)
 				for t := 0; t < theta; t++ {
-					limbs[t] = rng.nextU64() % q
+					limbs[t] = rng.nextMod(q)
 				}
 				poly[k] = limbs
 			}
@@ -707,13 +791,23 @@ func equalKPolys(a, b []*KPoly, q uint64) bool {
 	return true
 }
 
+const stackKFieldTheta = 32
+
+func localKFieldElem(K *kf.Field, stack *[stackKFieldTheta]uint64) kf.Elem {
+	if K.Theta <= len(stack) {
+		return kf.Elem{Limb: stack[:K.Theta]}
+	}
+	return kf.Elem{Limb: make([]uint64, K.Theta)}
+}
+
 func evalKPolyAtKInto(K *kf.Field, dst *kf.Elem, kp *KPoly, e kf.Elem) {
 	ensureKElem(K, dst)
 	clear(dst.Limb)
 	if kp == nil {
 		return
 	}
-	coeff := K.Zero()
+	var coeffStack [stackKFieldTheta]uint64
+	coeff := localKFieldElem(K, &coeffStack)
 	for k := kp.Degree; k >= 0; k-- {
 		K.MulInto(dst, *dst, e)
 		setKPolyCoeff(K, &coeff, kp, k)
@@ -727,7 +821,8 @@ func evalKPolyAtKInto(K *kf.Field, dst *kf.Elem, kp *KPoly, e kf.Elem) {
 func evalKScalarPolyAtKInto(K *kf.Field, dst *kf.Elem, coeffs []KScalar, e kf.Elem) {
 	ensureKElem(K, dst)
 	clear(dst.Limb)
-	coeff := K.Zero()
+	var coeffStack [stackKFieldTheta]uint64
+	coeff := localKFieldElem(K, &coeffStack)
 	for i := len(coeffs) - 1; i >= 0; i-- {
 		K.MulInto(dst, *dst, e)
 		setKCoords(K, &coeff, coeffs[i])
@@ -1494,6 +1589,47 @@ func buildInterpolationPlan(xs []uint64, q uint64) (*interpolationPlan, error) {
 	return &interpolationPlan{q: q, basis: basis}, nil
 }
 
+// interpolateInto applies the immutable Lagrange basis to one value vector.
+// Callers that interpolate many rows over the same points pay the quadratic
+// basis construction once. dst may be longer than the point set; its full
+// contents are cleared so it can be safely reused as a polynomial buffer.
+func (p *interpolationPlan) interpolateInto(dst, values []uint64) {
+	if p == nil {
+		panic("interpolationPlan: nil plan")
+	}
+	if len(values) != len(p.basis) {
+		panic("interpolationPlan: value length mismatch")
+	}
+	if len(dst) < len(p.basis) {
+		panic("interpolationPlan: destination too short")
+	}
+	clear(dst)
+	q := p.q
+	for i, v := range values {
+		if v >= q {
+			v %= q
+		}
+		if v == 0 {
+			continue
+		}
+		for degree, coefficient := range p.basis[i] {
+			if coefficient == 0 {
+				continue
+			}
+			dst[degree] = modAddReduced(dst[degree], modMulReduced(coefficient, v, q), q)
+		}
+	}
+}
+
+func (p *interpolationPlan) interpolate(values []uint64) []uint64 {
+	if p == nil {
+		panic("interpolationPlan: nil plan")
+	}
+	out := make([]uint64, len(p.basis))
+	p.interpolateInto(out, values)
+	return trimPoly(out, p.q)
+}
+
 // Interpolate returns the coefficients of the unique poly of degree <len(xs)
 // that satisfies P(xs[k]) = ys[k].  xs must be distinct.
 func Interpolate(xs, ys []uint64, q uint64) []uint64 {
@@ -1557,55 +1693,21 @@ func Interpolate(xs, ys []uint64, q uint64) []uint64 {
 	return trimPoly(res, q)
 }
 
-type omegaInterpolationPlan struct {
-	q     uint64
-	basis [][]uint64
-}
+type omegaInterpolationPlan interpolationPlan
 
 func newOmegaInterpolationPlan(omega []uint64, q uint64) (*omegaInterpolationPlan, error) {
 	plan, err := buildInterpolationPlan(omega, q)
 	if err != nil {
 		return nil, err
 	}
-	basis := make([][]uint64, len(plan.basis))
-	for i := range plan.basis {
-		basis[i] = append([]uint64(nil), plan.basis[i]...)
-	}
-	return &omegaInterpolationPlan{q: q, basis: basis}, nil
+	return (*omegaInterpolationPlan)(plan), nil
 }
 
 func (p *omegaInterpolationPlan) interpolateInto(dst, values []uint64) {
 	if p == nil {
 		panic("omegaInterpolationPlan: nil plan")
 	}
-	if len(values) != len(p.basis) {
-		panic("omegaInterpolationPlan: value length mismatch")
-	}
-	if len(dst) < len(p.basis) {
-		panic("omegaInterpolationPlan: destination too short")
-	}
-	for i := 0; i < len(p.basis); i++ {
-		dst[i] = 0
-	}
-	q := p.q
-	for i, v := range values {
-		if v >= q {
-			v %= q
-		}
-		if v == 0 {
-			continue
-		}
-		basis := p.basis[i]
-		for j, c := range basis {
-			if c == 0 {
-				continue
-			}
-			dst[j] = modAddReduced(dst[j], modMulReduced(c, v, q), q)
-		}
-	}
-	for i := len(p.basis); i < len(dst); i++ {
-		dst[i] = 0
-	}
+	(*interpolationPlan)(p).interpolateInto(dst, values)
 }
 
 func (p *omegaInterpolationPlan) coeffPolyFromHead(ringQ *ring.Ring, head []uint64) *ring.Poly {

@@ -20,8 +20,13 @@ import (
 const (
 	CoeffNativeSigModelLiteralPackedAggregatedV3 = "literal_packed_aggregated_v3"
 	TranscriptProtocolSmallField2025V2           = "smallfield_2025_1085_salted_tapes_v2"
+	TranscriptProtocolSmallField2025V3           = "smallfield_2025_1085_salted_tapes_v3"
+	TranscriptProtocolSmallField2025V4           = "smallfield_2025_1085_salted_tapes_v4"
 	TranscriptVersionSmallWood2025V2             = decs.TranscriptVersionV2
+	TranscriptVersionSmallWood2025V3             = "smallwood_2025_1085_salted_decs_v3"
+	TranscriptVersionSmallWood2025V4             = "smallwood_2025_1085_salted_decs_v4"
 	ProofSchemaVersionV2                         = 2
+	ProofSchemaVersionV3                         = 3
 )
 
 const (
@@ -85,8 +90,36 @@ func normalizeTranscriptVersion(version string) string {
 	return strings.TrimSpace(version)
 }
 
+func transcriptUsesSmallWood2025V3(version string) bool {
+	version = normalizeTranscriptVersion(version)
+	return version == TranscriptVersionSmallWood2025V3 || version == TranscriptVersionSmallWood2025V4
+}
+
+func transcriptUsesPublicationV4(version string) bool {
+	return normalizeTranscriptVersion(version) == TranscriptVersionSmallWood2025V4
+}
+
+func transcriptUsesStrictSmallField2025(version, protocol string) bool {
+	version = normalizeTranscriptVersion(version)
+	protocol = normalizeTranscriptProtocolMode(protocol)
+	return (version == TranscriptVersionSmallWood2025V2 && protocol == TranscriptProtocolSmallField2025V2) ||
+		(version == TranscriptVersionSmallWood2025V3 && protocol == TranscriptProtocolSmallField2025V3) ||
+		(version == TranscriptVersionSmallWood2025V4 && protocol == TranscriptProtocolSmallField2025V4)
+}
+
+func proofSchemaVersionForTranscript(version string) int {
+	if transcriptUsesSmallWood2025V3(version) {
+		return ProofSchemaVersionV3
+	}
+	return ProofSchemaVersionV2
+}
+
 func proofUsesPaperQPayloadOnly(proof *Proof) bool {
-	return proof != nil && normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025V2
+	if proof == nil {
+		return false
+	}
+	version := normalizeTranscriptVersion(proof.TranscriptVersion)
+	return version == TranscriptVersionSmallWood2025V2 || version == TranscriptVersionSmallWood2025V3 || version == TranscriptVersionSmallWood2025V4
 }
 
 func proofHasLegacyQDECS(proof *Proof) bool {
@@ -395,18 +428,31 @@ type SimOpts struct {
 	DECSHashBits      int
 	DECSTapeBits      int
 	FSCollisionBits   int
-	SaltBits          int
-	NCols             int
-	PCSNCols          int
-	LVCSNCols         int
-	PostSignLVCSNCols int
-	PostSignNLeaves   int
-	PRFLVCSNCols      int
-	PRFNLeaves        int
-	DQOverride        int
-	Lambda            int
-	ChainW            int
-	ChainL            int
+	// FSOutputBits is the actual per-round SHAKE-256 output width. Historical
+	// v2/v3 transcripts always use 512 bits regardless of this field. The
+	// publication-v4 transcript requires an explicit, byte-aligned value equal
+	// to both FSCollisionBits and DECSHashBits.
+	FSOutputBits int `json:"fs_output_bits,omitempty"`
+	// PresetID is the trusted manifest identity used by strict canonical
+	// profiles. It prevents same-theta presets from being inferred from field
+	// geometry alone.
+	PresetID string
+	// AggregateROQueryCapLog2 is log2(Q) for the single aggregate random-oracle
+	// budget spanning every domain and both credential phases in v4.
+	AggregateROQueryCapLog2    float64
+	AggregateROQueryCapLog2Set bool `json:"-"`
+	SaltBits                   int
+	NCols                      int
+	PCSNCols                   int
+	LVCSNCols                  int
+	PostSignLVCSNCols          int
+	PostSignNLeaves            int
+	PRFLVCSNCols               int
+	PRFNLeaves                 int
+	DQOverride                 int
+	Lambda                     int
+	ChainW                     int
+	ChainL                     int
 	// SigShortnessL overrides the default signature shortness digit count.
 	SigShortnessL int
 	// SigShortnessRadix overrides the balanced signature shortness radix.
@@ -480,9 +526,12 @@ type SimOpts struct {
 	// proof-size reporting. It does not change the algebraic statement.
 	FixedTranscriptSize bool
 	PRFParamsPath       string
-	PhaseRecorder       *PhaseRecorder                                                                               `json:"-"`
-	Mutate              func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
-	Credential          bool
+	PhaseRecorder       *PhaseRecorder `json:"-"`
+	// ExecutionPolicy is local scheduling metadata only. It is excluded from
+	// manifests, Fiat--Shamir input, proof schemas, and canonical encodings.
+	ExecutionPolicy ExecutionPolicy                                                                              `json:"-"`
+	Mutate          func(r *ring.Ring, omega []uint64, ell int, w1 []*ring.Poly, w2 *ring.Poly, w3 []*ring.Poly) `json:"-"`
+	Credential      bool
 }
 
 func defaultSimOpts() SimOpts {
@@ -649,7 +698,7 @@ func (o *SimOpts) applyDefaults() {
 			if o.ROQueryCaps[i] < 0 {
 				o.ROQueryCaps[i] = 0
 			}
-		} else if o.ROQueryCaps[i] <= 0 {
+		} else if o.ROQueryCaps[i] <= 0 && !transcriptUsesPublicationV4(o.TranscriptVersion) {
 			o.ROQueryCaps[i] = def.ROQueryCaps[i]
 		}
 		if o.ROQueryCapBitsSet {
@@ -670,6 +719,13 @@ func (o *SimOpts) applyDefaults() {
 	if o.FSCollisionBits < 0 {
 		o.FSCollisionBits = 0
 	}
+	if o.FSOutputBits < 0 {
+		o.FSOutputBits = 0
+	}
+	if o.AggregateROQueryCapLog2Set && o.AggregateROQueryCapLog2 < 0 {
+		o.AggregateROQueryCapLog2 = 0
+	}
+	o.PresetID = strings.TrimSpace(o.PresetID)
 	if o.SaltBits < 0 {
 		o.SaltBits = 0
 	}
@@ -697,10 +753,13 @@ func (o *SimOpts) applyDefaults() {
 	o.ShowingReplayMode = normalizeShowingReplayMode(o.ShowingReplayMode)
 	o.TranscriptProtocolMode = normalizeTranscriptProtocolMode(o.TranscriptProtocolMode)
 	o.TranscriptVersion = normalizeTranscriptVersion(o.TranscriptVersion)
-	if o.TranscriptProtocolMode == TranscriptProtocolSmallField2025V2 &&
-		o.TranscriptVersion == TranscriptVersionSmallWood2025V2 &&
+	if transcriptUsesStrictSmallField2025(o.TranscriptVersion, o.TranscriptProtocolMode) &&
 		o.TranscriptOmissionMode == "" {
-		o.TranscriptOmissionMode = SmallField2025TranscriptOmissionModeDigestBoundV2
+		if transcriptUsesSmallWood2025V3(o.TranscriptVersion) {
+			o.TranscriptOmissionMode = SmallField2025TranscriptOmissionModeCanonicalV3
+		} else {
+			o.TranscriptOmissionMode = SmallField2025TranscriptOmissionModeDigestBoundV2
+		}
 	}
 	if o.DomainMode != DomainModeExplicit {
 		o.DomainMode = DomainModeExplicit
@@ -929,36 +988,40 @@ type Proof struct {
 	HashRelation           string
 	TranscriptVersion      string
 	TranscriptProtocolMode string
-	FixedTranscriptSize    bool
-	Salt                   []byte
-	Ctr                    [4]uint64
-	Digests                [4][]byte
-	LabelsDigest           []byte
-	Lambda                 int
-	Kappa                  [4]int
-	Theta                  int
-	Chi                    []uint64
-	Zeta                   []uint64
-	Tail                   []int
-	VTargets               [][]uint64
-	VTargetsBits           []byte
-	VTargetsRows           int
-	VTargetsCols           int
-	VTargetsBitWidth       uint8
-	VTargetsWidthCodec     bool `json:"-"`
-	SmallField2025         *SmallField2025LVCSProof
-	BarSets                [][]uint64
-	BarSetsBits            []byte
-	BarSetsRows            int
-	BarSetsCols            int
-	BarSetsBitWidth        uint8
-	CoeffMatrix            [][]uint64
-	KPoint                 [][]uint64
-	GammaPrimeK            [][][]KScalar
-	GammaAggK              [][]KScalar
-	GammaPrime             [][][]uint64
-	GammaAgg               [][]uint64
-	R                      [][]uint64
+	// FSOutputBits records the manifest-selected actual digest width used in
+	// all four Fiat--Shamir rounds. It is omitted from the compact canonical
+	// wire and reconstructed from trusted context.
+	FSOutputBits        int `json:"fs_output_bits,omitempty"`
+	FixedTranscriptSize bool
+	Salt                []byte
+	Ctr                 [4]uint64
+	Digests             [4][]byte
+	LabelsDigest        []byte
+	Lambda              int
+	Kappa               [4]int
+	Theta               int
+	Chi                 []uint64
+	Zeta                []uint64
+	Tail                []int
+	VTargets            [][]uint64
+	VTargetsBits        []byte
+	VTargetsRows        int
+	VTargetsCols        int
+	VTargetsBitWidth    uint8
+	VTargetsWidthCodec  bool `json:"-"`
+	SmallField2025      *SmallField2025LVCSProof
+	BarSets             [][]uint64
+	BarSetsBits         []byte
+	BarSetsRows         int
+	BarSetsCols         int
+	BarSetsBitWidth     uint8
+	CoeffMatrix         [][]uint64
+	KPoint              [][]uint64
+	GammaPrimeK         [][][]KScalar
+	GammaAggK           [][]KScalar
+	GammaPrime          [][][]uint64
+	GammaAgg            [][]uint64
+	R                   [][]uint64
 	// Q material. Legacy proofs carry a redundant Q DECS commitment/opening here;
 	// smallwood_2025_1085_salted_decs_v2 proofs carry the paper-shaped
 	// QPayload only.
@@ -1072,7 +1135,7 @@ func fsRound(fs *FS, proof *Proof, round int, label string, material ...[]byte) 
 	proof.Digests[round] = append([]byte(nil), h...)
 	return fsRoundResult{
 		Seed: append([]byte(nil), seed...),
-		RNG:  newFSRNG(label, seed),
+		RNG:  newFSRNGForTranscript(proof.TranscriptVersion, label, seed),
 	}
 }
 
@@ -1083,6 +1146,10 @@ func (p *Proof) setBarSets(mat [][]uint64) {
 		p.BarSetsRows = 0
 		p.BarSetsCols = 0
 		p.BarSetsBitWidth = 0
+		return
+	}
+	if transcriptUsesSmallWood2025V3(p.TranscriptVersion) {
+		setCanonicalProofBarSets20(p, mat)
 		return
 	}
 	bits, rows, cols, width := decs.PackUintMatrix(mat)
@@ -1146,6 +1213,10 @@ func (p *Proof) setQPayload(mat [][]uint64) {
 		p.QPayloadRows = 0
 		p.QPayloadCols = 0
 		p.QPayloadBitWidth = 0
+		return
+	}
+	if transcriptUsesSmallWood2025V3(p.TranscriptVersion) {
+		setCanonicalProofQPayload20(p, mat)
 		return
 	}
 	bits, rows, cols, width := decs.PackUintMatrix(mat)
@@ -1212,39 +1283,48 @@ func (p *Proof) BarSetsMatrix() [][]uint64 {
 // SoundnessBudget captures the four Eq. (8) error components together with the
 // theorem-level ROM aggregation from Theorem 9 and the Eq. (10) size counters.
 type SoundnessBudget struct {
-	Eps                 [4]float64
-	RawBits             [4]float64
-	Bits                [4]float64
-	Clamped             [4]bool
-	Grinding            [4]float64
-	GrindingBits        [4]float64
-	TheoremTerms        [4]float64
-	TheoremBits         [4]float64
-	AlgebraicTerms      [4]float64
-	AlgebraicBits       [4]float64
-	AlgebraicTotal      float64
-	AlgebraicTotalBits  float64
-	Eq8Total            float64
-	Eq8TotalBits        float64
-	Collision           float64
-	CollisionBits       float64
-	Total               float64
-	TotalBits           float64
-	OneProofTotal       float64
-	OneProofTotalBits   float64
-	DQ                  int
-	DDECS               int
-	WitnessSupportCols  int
-	CommittedCols       int
-	FSLambdaBits        int
-	DECSHashBits        int
-	DECSTapeBits        int
-	EffectiveLambdaBits int
-	CollisionSpaceBits  int
-	QueryCaps           [5]int
-	QueryCapBits        [5]float64
-	NRows               int
-	M                   int
+	Eps                   [4]float64
+	RawBits               [4]float64
+	Bits                  [4]float64
+	Clamped               [4]bool
+	Grinding              [4]float64
+	GrindingBits          [4]float64
+	TheoremTerms          [4]float64
+	TheoremBits           [4]float64
+	AlgebraicTerms        [4]float64
+	AlgebraicBits         [4]float64
+	AlgebraicTotal        float64
+	AlgebraicTotalBits    float64
+	Eq8Total              float64
+	Eq8TotalBits          float64
+	Collision             float64
+	CollisionBits         float64
+	Total                 float64
+	TotalBits             float64
+	OneProofTotal         float64
+	OneProofTotalBits     float64
+	DQ                    int
+	DDECS                 int
+	WitnessSupportCols    int
+	CommittedCols         int
+	FSLambdaBits          int
+	DECSHashBits          int
+	DECSTapeBits          int
+	EffectiveLambdaBits   int
+	CollisionSpaceBits    int
+	FSOutputBits          int
+	ObservedFSDigestBits  [4]int
+	AggregateQueryBudget  bool
+	AggregateQueryCapBits float64
+	WorkFactorMode        bool
+	WorkFactorBits        float64
+	WorkFactorComponents  [6]float64
+	NativeAlgebraicTerms  [4]float64
+	NativeAlgebraicBits   [4]float64
+	QueryCaps             [5]int
+	QueryCapBits          [5]float64
+	NRows                 int
+	M                     int
 }
 
 func maxDegreeFromCoeffs(poly []uint64) int {
@@ -1277,6 +1357,20 @@ func ComputeDQBranchBounds(d, dPrime, s, ell int) (parallel int, aggregate int, 
 		return parallel, aggregate, parallel
 	}
 	return parallel, aggregate, aggregate
+}
+
+// smallFieldMaskChunkCount returns the number of coefficient-row chunks used
+// by one mask polynomial.  The historical v2 encoder used floor(dQ/L)+1.
+// SmallWood Eq. (2), as implemented by the strict-v3 mask encoder, instead has
+// mu=ceil(dQ/L) and commits rows 0..mu, hence ceil(dQ/L)+1 chunks.
+func smallFieldMaskChunkCount(dQ, ncols int, transcriptVersion string) int {
+	if dQ <= 0 || ncols <= 0 {
+		return 0
+	}
+	if transcriptUsesSmallWood2025V3(transcriptVersion) {
+		return ceilDiv(dQ, ncols) + 1
+	}
+	return dQ/ncols + 1
 }
 
 func computeDQFromConstraintDegrees(d, dPrime, s, ell int) int {
@@ -1697,6 +1791,7 @@ func cloneDECSOpening(op *decs.DECSOpening) *decs.DECSOpening {
 	}
 	clone.PathBitWidth = op.PathBitWidth
 	clone.PathDepth = op.PathDepth
+	clone.AuthFormat = op.AuthFormat
 	if len(op.Tapes) > 0 {
 		clone.Tapes = make([][]byte, len(op.Tapes))
 		for i := range op.Tapes {
@@ -2004,7 +2099,7 @@ func sampleDistinctFieldElemsAvoid(count int, q uint64, rng *fsRNG, forbid []uin
 		seen[w%q] = struct{}{}
 	}
 	for len(res) < count {
-		candidate := rng.nextU64() % q
+		candidate := rng.nextMod(q)
 		if _, ok := seen[candidate]; ok {
 			continue
 		}
@@ -2021,7 +2116,7 @@ func sampleDistinctIndices(start, length, count int, rng *fsRNG) []int {
 	res := make([]int, 0, count)
 	seen := make(map[int]struct{}, count)
 	for len(res) < count {
-		candidate := int(rng.nextU64()%uint64(length)) + start
+		candidate := int(rng.nextMod(uint64(length))) + start
 		if _, ok := seen[candidate]; ok {
 			continue
 		}
@@ -2150,8 +2245,28 @@ func computeSoundnessBudget(
 	sb.DECSTapeBits = decsTapeBits
 	sb.EffectiveLambdaBits = effectiveLambdaBits
 	sb.CollisionSpaceBits = collisionSpaceBits
-	sb.QueryCaps = o.ROQueryCaps
-	sb.QueryCapBits = queryCapBitsForOpts(o)
+	if fsBits, err := ResolveFSOutputBits(o); err == nil {
+		sb.FSOutputBits = fsBits
+	}
+	if transcriptUsesPublicationV4(o.TranscriptVersion) {
+		// Publication v4 has no per-domain query budgets. Bounded-query
+		// presets carry exactly one whole-game aggregate Q below, and WF128
+		// carries no query scalar. Keep the legacy slots explicitly
+		// non-applicable internally so reports cannot accidentally resurrect
+		// the historical [1,1,1,1,1] defaults.
+		for i := range sb.QueryCapBits {
+			sb.QueryCapBits[i] = math.Inf(-1)
+		}
+	} else {
+		sb.QueryCaps = o.ROQueryCaps
+		sb.QueryCapBits = queryCapBitsForOpts(o)
+	}
+	if transcriptUsesPublicationV4(o.TranscriptVersion) && !publicationV4UsesWorkFactor(o) {
+		sb.AggregateQueryBudget = true
+		sb.AggregateQueryCapBits = o.AggregateROQueryCapLog2
+	} else if publicationV4UsesWorkFactor(o) {
+		sb.WorkFactorMode = true
+	}
 
 	rawBits1 := float64(eta)*math.Log2(qf) - logComb2Stable(float64(nLeaves), ddecs+2)
 	sb.RawBits[0] = rawBits1
@@ -2218,10 +2333,23 @@ func computeSoundnessBudget(
 		kappa := o.Kappa[i]
 		sb.GrindingBits[i] = float64(kappa)
 		sb.Grinding[i] = math.Pow(2, -float64(kappa))
-		sb.TheoremTerms[i], sb.TheoremBits[i] = theoremTermLog2Cap(sb.QueryCapBits[i+1], sb.Eps[i], kappa)
+		nativeBits := sb.Bits[i] + float64(kappa)
+		sb.NativeAlgebraicBits[i] = nativeBits
+		sb.NativeAlgebraicTerms[i] = probabilityFromLog2(-nativeBits)
+		queryBits := sb.QueryCapBits[i+1]
+		if sb.AggregateQueryBudget {
+			queryBits = sb.AggregateQueryCapBits
+		}
+		sb.TheoremTerms[i], sb.TheoremBits[i] = theoremTermLog2Cap(queryBits, sb.Eps[i], kappa)
 		sb.AlgebraicTerms[i] = sb.TheoremTerms[i]
 		sb.AlgebraicBits[i] = sb.TheoremBits[i]
-		sb.AlgebraicTotal += sb.AlgebraicTerms[i]
+		if sb.AggregateQueryBudget {
+			if sb.AlgebraicTerms[i] > sb.AlgebraicTotal {
+				sb.AlgebraicTotal = sb.AlgebraicTerms[i]
+			}
+		} else {
+			sb.AlgebraicTotal += sb.AlgebraicTerms[i]
+		}
 	}
 	if sb.AlgebraicTotal <= 0 {
 		sb.AlgebraicTotalBits = math.Inf(1)
@@ -2232,7 +2360,11 @@ func computeSoundnessBudget(
 		sb.AlgebraicTotalBits = -math.Log2(sb.AlgebraicTotal)
 	}
 
-	sb.Collision = collisionErrorLog(sb.QueryCapBits, collisionSpaceBits)
+	if sb.AggregateQueryBudget {
+		sb.Collision = probabilityFromLog2(2*sb.AggregateQueryCapBits - float64(collisionSpaceBits))
+	} else {
+		sb.Collision = collisionErrorLog(sb.QueryCapBits, collisionSpaceBits)
+	}
 	if sb.Collision > 0 {
 		sb.CollisionBits = -math.Log2(sb.Collision)
 	} else {
@@ -2240,8 +2372,12 @@ func computeSoundnessBudget(
 	}
 
 	sb.Total = sb.Collision
-	for _, term := range sb.TheoremTerms {
-		sb.Total += term
+	if sb.AggregateQueryBudget {
+		sb.Total += sb.AlgebraicTotal
+	} else {
+		for _, term := range sb.TheoremTerms {
+			sb.Total += term
+		}
 	}
 	if sb.Total <= 0 {
 		sb.Total = math.SmallestNonzeroFloat64
@@ -2252,15 +2388,30 @@ func computeSoundnessBudget(
 	sb.TotalBits = -math.Log2(sb.Total)
 	sb.OneProofTotal = sb.Total
 	sb.OneProofTotalBits = sb.TotalBits
+	if sb.WorkFactorMode {
+		sb.WorkFactorComponents[0] = float64(sb.CollisionSpaceBits) / 2
+		for i := range sb.NativeAlgebraicBits {
+			sb.WorkFactorComponents[i+1] = sb.NativeAlgebraicBits[i]
+		}
+		sb.WorkFactorComponents[5] = float64(sb.DECSTapeBits)
+		sb.WorkFactorBits = sb.WorkFactorComponents[0]
+		for _, bits := range sb.WorkFactorComponents[1:] {
+			if bits < sb.WorkFactorBits {
+				sb.WorkFactorBits = bits
+			}
+		}
+	}
 
 	rowsBlock := ceilDiv(witnessRows, ncolsLVCS)
 	sb.NRows = rowsBlock * (sWitness + o.Theta)
 	if o.Theta > 1 {
-		// smallfield_matrix_v2 commits:
+		// The small-field matrix commits:
 		// - rowsBlock witness blocks of size (s + theta),
-		// - rho masks, each chunked into floor(dQ/ncols)+1 coefficient blocks,
+		// - rho masks, each chunked according to the transcript's mask encoding,
 		// - ell' coefficient matrices of size rowsBlock*theta for K-point replay.
-		maskChunks := dQ/ncolsLVCS + 1
+		// V2 keeps its historical floor(dQ/L)+1 geometry. Strict v3 uses the
+		// corrected Eq. (2) geometry ceil(dQ/L)+1.
+		maskChunks := smallFieldMaskChunkCount(dQ, ncolsLVCS, o.TranscriptVersion)
 		sb.NRows += maskChunks * o.Theta * rhoEff
 		sb.M = rowsBlock * o.Theta * ellPrime
 	} else {
@@ -2513,20 +2664,30 @@ func sizeSourceProductBridge(bridge *SourceProductBridge) int {
 	return size
 }
 
-// ProofSizeReport summarises the byte footprint of a proof as consumed by the verifier.
+// ProofSizeReport is a modeled verifier-message estimate. It is not a wire
+// encoding and must never be reported as serialized proof bytes.
 type ProofSizeReport struct {
 	Total int
 	Parts map[string]int
 }
 
-// MeasureProofSize returns a copy of the breakdown used by VerifyNIZK to reconstruct the proof.
-func MeasureProofSize(proof *Proof) ProofSizeReport {
+// EstimateVerifierMessageSize returns the historical accounting model used to
+// estimate verifier-visible messages. Canonical wire sizes must instead come
+// from MarshalCanonicalProof output.
+func EstimateVerifierMessageSize(proof *Proof) ProofSizeReport {
 	parts, total := proofSizeBreakdown(proof)
 	copyParts := make(map[string]int, len(parts))
 	for k, v := range parts {
 		copyParts[k] = v
 	}
 	return ProofSizeReport{Total: total, Parts: copyParts}
+}
+
+// MeasureProofSize is retained for source compatibility with historical v2
+// tooling. Deprecated: use EstimateVerifierMessageSize and label the result as
+// modeled; this function does not measure serialized bytes.
+func MeasureProofSize(proof *Proof) ProofSizeReport {
+	return EstimateVerifierMessageSize(proof)
 }
 
 func buildKPointCoeffMatrix(

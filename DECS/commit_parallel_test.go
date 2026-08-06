@@ -2,6 +2,7 @@ package decs
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"runtime"
 	"testing"
@@ -159,5 +160,55 @@ func TestCommitInitV2TiledMatchesScalarRoot(t *testing.T) {
 	}
 	if !reflect.DeepEqual(openScalar, openOptimized) {
 		t.Fatalf("opening mismatch between scalar and optimized commit init")
+	}
+}
+
+func TestCommitInitDynamicChunksPreserveRootAndOpening(t *testing.T) {
+	ctx := v2TestContext(CommitmentRoleMain, 23)
+	baseline := makeDeterministicFormalProver(t)
+	wantRoot, err := baseline.CommitInitV2WithOptions(ctx, CommitOptions{
+		FormalEvalMode: FormalEvalCombined,
+		WorkerCount:    4,
+	})
+	if err != nil {
+		t.Fatalf("baseline commit: %v", err)
+	}
+	wantOpening, err := baseline.EvalOpenV2([]int{0, 1, 63, 127, 255})
+	if err != nil {
+		t.Fatalf("baseline opening: %v", err)
+	}
+	for _, mode := range []FormalEvalMode{FormalEvalScalar, FormalEvalCombined, FormalEvalTiled} {
+		for _, chunkLeaves := range []int{1, 7, 32, 257} {
+			name := fmt.Sprintf("mode-%d/chunk-%d", mode, chunkLeaves)
+			t.Run(name, func(t *testing.T) {
+				candidate := makeDeterministicFormalProver(t)
+				gotRoot, err := candidate.CommitInitV2WithOptions(ctx, CommitOptions{
+					FormalEvalMode:     mode,
+					FormalEvalTileSize: 7,
+					WorkerCount:        4,
+					ChunkLeaves:        chunkLeaves,
+				})
+				if err != nil {
+					t.Fatalf("dynamic commit: %v", err)
+				}
+				gotOpening, err := candidate.EvalOpenV2([]int{0, 1, 63, 127, 255})
+				if err != nil {
+					t.Fatalf("dynamic opening: %v", err)
+				}
+				if !bytes.Equal(gotRoot, wantRoot) {
+					t.Fatalf("root mismatch: got=%x want=%x", gotRoot, wantRoot)
+				}
+				if !reflect.DeepEqual(gotOpening, wantOpening) {
+					t.Fatal("opening mismatch")
+				}
+			})
+		}
+	}
+}
+
+func TestCommitInitRejectsInvalidDynamicChunk(t *testing.T) {
+	prover := makeDeterministicFormalProver(t)
+	if _, err := prover.CommitInitV2WithOptions(v2TestContext(CommitmentRoleMain, 24), CommitOptions{ChunkLeaves: -1}); err == nil {
+		t.Fatal("expected negative chunk size rejection")
 	}
 }

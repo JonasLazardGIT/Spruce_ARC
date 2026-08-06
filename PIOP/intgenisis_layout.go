@@ -1,31 +1,71 @@
 package PIOP
 
 type IntGenISISPreSignRowLayout struct {
-	MStart          int `json:"m_start"`
-	MCount          int `json:"m_count"`
-	MAttrStart      int `json:"m_attr_start"`
-	MAttrCount      int `json:"m_attr_count"`
-	KStart          int `json:"k_start"`
-	KCount          int `json:"k_count"`
-	SStart          int `json:"s_start"`
-	SCount          int `json:"s_count"`
-	EStart          int `json:"e_start"`
-	ECount          int `json:"e_count"`
-	CoreRowCount    int `json:"core_row_count,omitempty"`
-	BoundViewStart  int `json:"bound_view_start,omitempty"`
-	BoundViewCount  int `json:"bound_view_count,omitempty"`
-	MViewStart      int `json:"m_view_start,omitempty"`
-	MAttrViewStart  int `json:"m_attr_view_start,omitempty"`
-	KViewStart      int `json:"k_view_start,omitempty"`
-	SViewStart      int `json:"s_view_start,omitempty"`
-	EViewStart      int `json:"e_view_start,omitempty"`
-	ViewRowsPerPoly int `json:"view_rows_per_poly,omitempty"`
-	CommitmentRows  int `json:"commitment_rows"`
+	// LayoutVersion is empty for the historical core-plus-coefficient-view
+	// relation. Strict v3 issuance uses a source-only carrier relation with a
+	// distinct identifier so that an old proof cannot be reinterpreted under
+	// the new evaluator.
+	LayoutVersion   string `json:"layout_version,omitempty"`
+	RelationVersion string `json:"relation_version,omitempty"`
+	MStart          int    `json:"m_start"`
+	MCount          int    `json:"m_count"`
+	MAttrStart      int    `json:"m_attr_start"`
+	MAttrCount      int    `json:"m_attr_count"`
+	KStart          int    `json:"k_start"`
+	KCount          int    `json:"k_count"`
+	SStart          int    `json:"s_start"`
+	SCount          int    `json:"s_count"`
+	EStart          int    `json:"e_start"`
+	ECount          int    `json:"e_count"`
+	CoreRowCount    int    `json:"core_row_count,omitempty"`
+	BoundViewStart  int    `json:"bound_view_start,omitempty"`
+	BoundViewCount  int    `json:"bound_view_count,omitempty"`
+	MViewStart      int    `json:"m_view_start,omitempty"`
+	MAttrViewStart  int    `json:"m_attr_view_start,omitempty"`
+	KViewStart      int    `json:"k_view_start,omitempty"`
+	SViewStart      int    `json:"s_view_start,omitempty"`
+	EViewStart      int    `json:"e_view_start,omitempty"`
+	ViewRowsPerPoly int    `json:"view_rows_per_poly,omitempty"`
+	CommitmentRows  int    `json:"commitment_rows"`
+
+	// Source-only strict-v3 inventory. The first N-64 message coefficients,
+	// and every s/e coefficient, are ternary values packed two per carrier.
+	// The final two message blocks remain unpacked because they contain the
+	// reserved-zero and base-9 seed tail.
+	MSECompressionLevel        int   `json:"mse_compression_level,omitempty"`
+	MSECompressionPackWidth    int   `json:"mse_compression_pack_width,omitempty"`
+	MSECompressionAlphabet     int64 `json:"mse_compression_alphabet,omitempty"`
+	MSECompressionDecodeDegree int   `json:"mse_compression_decode_degree,omitempty"`
+	MSEMembershipDegree        int   `json:"mse_membership_degree,omitempty"`
+	MCarrierStart              int   `json:"m_carrier_start,omitempty"`
+	MCarrierCount              int   `json:"m_carrier_count,omitempty"`
+	MCompressedSourceRows      int   `json:"m_compressed_source_rows,omitempty"`
+	MSeedViewStart             int   `json:"m_seed_view_start,omitempty"`
+	MSeedViewCount             int   `json:"m_seed_view_count,omitempty"`
+	SCarrierStart              int   `json:"s_carrier_start,omitempty"`
+	SCarrierCount              int   `json:"s_carrier_count,omitempty"`
+	SCompressedSourceRows      int   `json:"s_compressed_source_rows,omitempty"`
+	ECarrierStart              int   `json:"e_carrier_start,omitempty"`
+	ECarrierCount              int   `json:"e_carrier_count,omitempty"`
+	ECompressedSourceRows      int   `json:"e_compressed_source_rows,omitempty"`
 }
 
 func (l *IntGenISISPreSignRowLayout) WitnessRows() int {
 	if l == nil {
 		return 0
+	}
+	if l.LayoutVersion == intGenISISPreSignLayoutVersionSourceOnlyCarrierV3 {
+		end := l.MCarrierStart + l.MCarrierCount
+		if x := l.MSeedViewStart + l.MSeedViewCount; x > end {
+			end = x
+		}
+		if x := l.SCarrierStart + l.SCarrierCount; x > end {
+			end = x
+		}
+		if x := l.ECarrierStart + l.ECarrierCount; x > end {
+			end = x
+		}
+		return end
 	}
 	if l.BoundViewStart > 0 && l.BoundViewCount > 0 {
 		return l.BoundViewStart + l.BoundViewCount
@@ -50,6 +90,12 @@ func (l *IntGenISISPreSignRowLayout) ThetaRows() int {
 	if l == nil {
 		return 0
 	}
+	if l.LayoutVersion == intGenISISPreSignLayoutVersionSourceOnlyCarrierV3 {
+		// Source-only rows are already coefficient-block interpolation
+		// polynomials. Applying the historical ring-polynomial theta transform
+		// would silently change their meaning.
+		return 0
+	}
 	if l.CoreRowCount > 0 {
 		return l.CoreRowCount
 	}
@@ -70,89 +116,104 @@ func (l *IntGenISISPreSignRowLayout) ThetaRows() int {
 }
 
 type IntGenISISShowingRowLayout struct {
-	LayoutVersion              string `json:"layout_version,omitempty"`
-	ReplayProjection           string `json:"replay_projection,omitempty"`
-	LinearHatSourceMode        string `json:"linear_hat_source_mode,omitempty"`
-	UStart                     int    `json:"u_start"`
-	UCount                     int    `json:"u_count"`
-	MStart                     int    `json:"m_start"`
-	MCount                     int    `json:"m_count"`
-	MAttrStart                 int    `json:"m_attr_start"`
-	MAttrCount                 int    `json:"m_attr_count"`
-	KStart                     int    `json:"k_start"`
-	KCount                     int    `json:"k_count"`
-	SStart                     int    `json:"s_start"`
-	SCount                     int    `json:"s_count"`
-	EStart                     int    `json:"e_start"`
-	ECount                     int    `json:"e_count"`
-	MuSigStart                 int    `json:"mu_sig_start"`
-	MuSigCount                 int    `json:"mu_sig_count"`
-	X0Start                    int    `json:"x0_start"`
-	X0Count                    int    `json:"x0_count"`
-	X1Start                    int    `json:"x1_start"`
-	X1Count                    int    `json:"x1_count"`
-	ZStart                     int    `json:"z_start"`
-	ZCount                     int    `json:"z_count"`
-	BoundViewStart             int    `json:"bound_view_start,omitempty"`
-	BoundViewCount             int    `json:"bound_view_count,omitempty"`
-	MSECompressionLevel        int    `json:"mse_compression_level,omitempty"`
-	MSECompressionPackWidth    int    `json:"mse_compression_pack_width,omitempty"`
-	MSECompressionAlphabet     int64  `json:"mse_compression_alphabet,omitempty"`
-	MSECompressionDecodeDegree int    `json:"mse_compression_decode_degree,omitempty"`
-	MCarrierStart              int    `json:"m_carrier_start,omitempty"`
-	MCarrierCount              int    `json:"m_carrier_count,omitempty"`
-	MCompressedSourceRows      int    `json:"m_compressed_source_rows,omitempty"`
-	MSeedViewStart             int    `json:"m_seed_view_start,omitempty"`
-	MSeedViewCount             int    `json:"m_seed_view_count,omitempty"`
-	SCarrierStart              int    `json:"s_carrier_start,omitempty"`
-	SCarrierCount              int    `json:"s_carrier_count,omitempty"`
-	ECarrierStart              int    `json:"e_carrier_start,omitempty"`
-	ECarrierCount              int    `json:"e_carrier_count,omitempty"`
-	MSECarrierCount            int    `json:"mse_carrier_count,omitempty"`
-	UViewStart                 int    `json:"u_view_start,omitempty"`
-	UShortnessStart            int    `json:"u_shortness_start,omitempty"`
-	UShortnessGroupCount       int    `json:"u_shortness_group_count,omitempty"`
-	UShortnessRowsPerGroup     int    `json:"u_shortness_rows_per_group,omitempty"`
-	UShortnessRadix            int    `json:"u_shortness_radix,omitempty"`
-	UShortnessDigits           int    `json:"u_shortness_digits,omitempty"`
-	UShortnessSourceViewStart  int    `json:"u_shortness_source_view_start,omitempty"`
-	UShortnessSourceViewRows   int    `json:"u_shortness_source_view_rows,omitempty"`
-	UShortnessCapacity         int64  `json:"u_shortness_capacity,omitempty"`
-	UShortnessProofMode        string `json:"u_shortness_proof_mode,omitempty"`
-	MViewStart                 int    `json:"m_view_start,omitempty"`
-	MAttrViewStart             int    `json:"m_attr_view_start,omitempty"`
-	KViewStart                 int    `json:"k_view_start,omitempty"`
-	SViewStart                 int    `json:"s_view_start,omitempty"`
-	EViewStart                 int    `json:"e_view_start,omitempty"`
-	YViewStart                 int    `json:"y_view_start,omitempty"`
-	YViewCount                 int    `json:"y_view_count,omitempty"`
-	MuSigViewStart             int    `json:"mu_sig_view_start,omitempty"`
-	X0ViewStart                int    `json:"x0_view_start,omitempty"`
-	X1ViewStart                int    `json:"x1_view_start,omitempty"`
-	ZViewStart                 int    `json:"z_view_start,omitempty"`
-	UHatStart                  int    `json:"u_hat_start,omitempty"`
-	UHatCount                  int    `json:"u_hat_count,omitempty"`
-	MHatStart                  int    `json:"m_hat_start,omitempty"`
-	MHatCount                  int    `json:"m_hat_count,omitempty"`
-	SHatStart                  int    `json:"s_hat_start,omitempty"`
-	SHatCount                  int    `json:"s_hat_count,omitempty"`
-	EHatStart                  int    `json:"e_hat_start,omitempty"`
-	EHatCount                  int    `json:"e_hat_count,omitempty"`
-	YHatStart                  int    `json:"y_hat_start,omitempty"`
-	YHatCount                  int    `json:"y_hat_count,omitempty"`
-	MuSigHatStart              int    `json:"mu_sig_hat_start,omitempty"`
-	MuSigHatCount              int    `json:"mu_sig_hat_count,omitempty"`
-	X0HatStart                 int    `json:"x0_hat_start,omitempty"`
-	X0HatCount                 int    `json:"x0_hat_count,omitempty"`
-	WHatStart                  int    `json:"w_hat_start,omitempty"`
-	WHatCount                  int    `json:"w_hat_count,omitempty"`
-	X1HatStart                 int    `json:"x1_hat_start,omitempty"`
-	X1HatCount                 int    `json:"x1_hat_count,omitempty"`
-	ZHatStart                  int    `json:"z_hat_start,omitempty"`
-	ZHatCount                  int    `json:"z_hat_count,omitempty"`
-	HatRowsPerPoly             int    `json:"hat_rows_per_poly,omitempty"`
-	ViewRowsPerPoly            int    `json:"view_rows_per_poly,omitempty"`
-	CoreRowCount               int    `json:"core_row_count"`
+	LayoutVersion               string `json:"layout_version,omitempty"`
+	ReplayProjection            string `json:"replay_projection,omitempty"`
+	LinearHatSourceMode         string `json:"linear_hat_source_mode,omitempty"`
+	UStart                      int    `json:"u_start"`
+	UCount                      int    `json:"u_count"`
+	MStart                      int    `json:"m_start"`
+	MCount                      int    `json:"m_count"`
+	MAttrStart                  int    `json:"m_attr_start"`
+	MAttrCount                  int    `json:"m_attr_count"`
+	KStart                      int    `json:"k_start"`
+	KCount                      int    `json:"k_count"`
+	SStart                      int    `json:"s_start"`
+	SCount                      int    `json:"s_count"`
+	EStart                      int    `json:"e_start"`
+	ECount                      int    `json:"e_count"`
+	MuSigStart                  int    `json:"mu_sig_start"`
+	MuSigCount                  int    `json:"mu_sig_count"`
+	X0Start                     int    `json:"x0_start"`
+	X0Count                     int    `json:"x0_count"`
+	X1Start                     int    `json:"x1_start"`
+	X1Count                     int    `json:"x1_count"`
+	ZStart                      int    `json:"z_start"`
+	ZCount                      int    `json:"z_count"`
+	BoundViewStart              int    `json:"bound_view_start,omitempty"`
+	BoundViewCount              int    `json:"bound_view_count,omitempty"`
+	MSECompressionLevel         int    `json:"mse_compression_level,omitempty"`
+	MSECompressionPackWidth     int    `json:"mse_compression_pack_width,omitempty"`
+	MSECompressionAlphabet      int64  `json:"mse_compression_alphabet,omitempty"`
+	MSECompressionDecodeDegree  int    `json:"mse_compression_decode_degree,omitempty"`
+	MCarrierStart               int    `json:"m_carrier_start,omitempty"`
+	MCarrierCount               int    `json:"m_carrier_count,omitempty"`
+	MCompressedSourceRows       int    `json:"m_compressed_source_rows,omitempty"`
+	MSeedViewStart              int    `json:"m_seed_view_start,omitempty"`
+	MSeedViewCount              int    `json:"m_seed_view_count,omitempty"`
+	SCarrierStart               int    `json:"s_carrier_start,omitempty"`
+	SCarrierCount               int    `json:"s_carrier_count,omitempty"`
+	ECarrierStart               int    `json:"e_carrier_start,omitempty"`
+	ECarrierCount               int    `json:"e_carrier_count,omitempty"`
+	MSECarrierCount             int    `json:"mse_carrier_count,omitempty"`
+	HashSourceCarrierV3         bool   `json:"hash_source_carrier_v3,omitempty"`
+	HashCarrierPackWidth        int    `json:"hash_carrier_pack_width,omitempty"`
+	HashCarrierDecodeDegree     int    `json:"hash_carrier_decode_degree,omitempty"`
+	HashCarrierMembershipDegree int    `json:"hash_carrier_membership_degree,omitempty"`
+	MuSigCarrierStart           int    `json:"mu_sig_carrier_start,omitempty"`
+	MuSigCarrierCount           int    `json:"mu_sig_carrier_count,omitempty"`
+	X0CarrierStart              int    `json:"x0_carrier_start,omitempty"`
+	X0CarrierCount              int    `json:"x0_carrier_count,omitempty"`
+	X1CarrierStart              int    `json:"x1_carrier_start,omitempty"`
+	X1CarrierCount              int    `json:"x1_carrier_count,omitempty"`
+	UViewStart                  int    `json:"u_view_start,omitempty"`
+	UShortnessStart             int    `json:"u_shortness_start,omitempty"`
+	UShortnessGroupCount        int    `json:"u_shortness_group_count,omitempty"`
+	UShortnessRowsPerGroup      int    `json:"u_shortness_rows_per_group,omitempty"`
+	UShortnessRadix             int    `json:"u_shortness_radix,omitempty"`
+	UShortnessDigits            int    `json:"u_shortness_digits,omitempty"`
+	UShortnessSourceViewStart   int    `json:"u_shortness_source_view_start,omitempty"`
+	UShortnessSourceViewRows    int    `json:"u_shortness_source_view_rows,omitempty"`
+	UShortnessCapacity          int64  `json:"u_shortness_capacity,omitempty"`
+	UShortnessProofMode         string `json:"u_shortness_proof_mode,omitempty"`
+	MViewStart                  int    `json:"m_view_start,omitempty"`
+	MAttrViewStart              int    `json:"m_attr_view_start,omitempty"`
+	KViewStart                  int    `json:"k_view_start,omitempty"`
+	SViewStart                  int    `json:"s_view_start,omitempty"`
+	EViewStart                  int    `json:"e_view_start,omitempty"`
+	YViewStart                  int    `json:"y_view_start,omitempty"`
+	YViewCount                  int    `json:"y_view_count,omitempty"`
+	MuSigViewStart              int    `json:"mu_sig_view_start,omitempty"`
+	X0ViewStart                 int    `json:"x0_view_start,omitempty"`
+	X1ViewStart                 int    `json:"x1_view_start,omitempty"`
+	ZViewStart                  int    `json:"z_view_start,omitempty"`
+	UHatStart                   int    `json:"u_hat_start,omitempty"`
+	UHatCount                   int    `json:"u_hat_count,omitempty"`
+	MHatStart                   int    `json:"m_hat_start,omitempty"`
+	MHatCount                   int    `json:"m_hat_count,omitempty"`
+	SHatStart                   int    `json:"s_hat_start,omitempty"`
+	SHatCount                   int    `json:"s_hat_count,omitempty"`
+	EHatStart                   int    `json:"e_hat_start,omitempty"`
+	EHatCount                   int    `json:"e_hat_count,omitempty"`
+	YHatStart                   int    `json:"y_hat_start,omitempty"`
+	YHatCount                   int    `json:"y_hat_count,omitempty"`
+	MuSigHatStart               int    `json:"mu_sig_hat_start,omitempty"`
+	MuSigHatCount               int    `json:"mu_sig_hat_count,omitempty"`
+	X0HatStart                  int    `json:"x0_hat_start,omitempty"`
+	X0HatCount                  int    `json:"x0_hat_count,omitempty"`
+	WHatStart                   int    `json:"w_hat_start,omitempty"`
+	WHatCount                   int    `json:"w_hat_count,omitempty"`
+	X1HatStart                  int    `json:"x1_hat_start,omitempty"`
+	X1HatCount                  int    `json:"x1_hat_count,omitempty"`
+	ZHatStart                   int    `json:"z_hat_start,omitempty"`
+	ZHatCount                   int    `json:"z_hat_count,omitempty"`
+	PRFInputTraceV3Start        int    `json:"prf_input_trace_v3_start,omitempty"`
+	PRFInputTraceV3Rows         int    `json:"prf_input_trace_v3_rows,omitempty"`
+	PRFInputTraceV3Logical      int    `json:"prf_input_trace_v3_logical,omitempty"`
+	PRFInputTraceV3Padding      int    `json:"prf_input_trace_v3_padding,omitempty"`
+	PRFInputTraceV3TagCount     int    `json:"prf_input_trace_v3_tag_count,omitempty"`
+	HatRowsPerPoly              int    `json:"hat_rows_per_poly,omitempty"`
+	ViewRowsPerPoly             int    `json:"view_rows_per_poly,omitempty"`
+	CoreRowCount                int    `json:"core_row_count"`
 }
 
 func (l *IntGenISISShowingRowLayout) WitnessRows() int {
@@ -195,6 +256,9 @@ func (l *IntGenISISShowingRowLayout) WitnessRows() int {
 		{l.MSeedViewStart, l.MSeedViewCount},
 		{l.SCarrierStart, l.SCarrierCount},
 		{l.ECarrierStart, l.ECarrierCount},
+		{l.MuSigCarrierStart, l.MuSigCarrierCount},
+		{l.X0CarrierStart, l.X0CarrierCount},
+		{l.X1CarrierStart, l.X1CarrierCount},
 		{l.YViewStart, l.YViewCount},
 		{l.MuSigViewStart, l.MuSigCount * l.ViewRowsPerPoly},
 		{l.X0ViewStart, l.X0Count * l.ViewRowsPerPoly},
@@ -210,6 +274,7 @@ func (l *IntGenISISShowingRowLayout) WitnessRows() int {
 		{l.WHatStart, l.WHatCount},
 		{l.X1HatStart, l.X1HatCount},
 		{l.ZHatStart, l.ZHatCount},
+		{l.PRFInputTraceV3Start, l.PRFInputTraceV3Rows},
 	} {
 		if part.start < 0 || part.count <= 0 {
 			continue

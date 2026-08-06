@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
+	"golang.org/x/crypto/sha3"
 )
 
 // PublicLabel binds a public name to an encoded byte slice for FS.
@@ -153,4 +154,46 @@ func computeLabelsDigest(labels []PublicLabel) []byte {
 		h.Write(l.Data)
 	}
 	return h.Sum(nil)
+}
+
+const publicLabelsDigestDomainV3 = "SPRUCE/SmallWood/public-statement/v3"
+
+// canonicalPublicLabelsBytesV3 is the complete, uncompressed public-statement
+// frame absorbed by strict v3 Fiat--Shamir.  It deliberately is not a digest:
+// no fixed-width intermediate is the sole binding for the statement.
+func canonicalPublicLabelsBytesV3(labels []PublicLabel) []byte {
+	out := appendFSLengthPrefixed(nil, []byte(publicLabelsDigestDomainV3))
+	var count [8]byte
+	binary.BigEndian.PutUint64(count[:], uint64(len(labels)))
+	out = append(out, count[:]...)
+	for _, label := range labels {
+		out = appendFSLengthPrefixed(out, []byte(label.Name))
+		out = appendFSLengthPrefixed(out, label.Data)
+	}
+	return out
+}
+
+func computeLabelsDigestV3(labels []PublicLabel, outBytes int) []byte {
+	if outBytes <= 0 {
+		outBytes = fsDigestBytes
+	}
+	h := sha3.NewShake256()
+	_, _ = h.Write(canonicalPublicLabelsBytesV3(labels))
+	out := make([]byte, outBytes)
+	_, _ = h.Read(out)
+	return out
+}
+
+func fsBindingDigestBytesForOpts(opts SimOpts) int {
+	if opts.FSCollisionBits > 0 {
+		return (opts.FSCollisionBits + 7) / 8
+	}
+	return fsDigestBytes
+}
+
+func computeLabelsDigestForOpts(labels []PublicLabel, opts SimOpts) []byte {
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		return computeLabelsDigestV3(labels, fsBindingDigestBytesForOpts(opts))
+	}
+	return computeLabelsDigest(labels)
 }

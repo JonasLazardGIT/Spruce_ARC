@@ -98,7 +98,11 @@ func bindIntGenISISPublicExtrasWithOpts(pub PublicInputs, ringN int, opts SimOpt
 	if err != nil {
 		return pub, err
 	}
-	pub.Extras["IntGenISIS.semantic_message_layout"] = layout.Digest()
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		pub.Extras["IntGenISIS.semantic_message_layout"] = layout.CanonicalBytesV3()
+	} else {
+		pub.Extras["IntGenISIS.semantic_message_layout"] = layout.Digest()
+	}
 	pub.Extras["IntGenISIS.mse_domain"] = []byte(layout.MSEDomain)
 	pub.Extras["IntGenISIS.key_domain"] = []byte(layout.KeyDomain)
 	pub.Extras["IntGenISIS.key_model"] = []byte(layout.KeyModel)
@@ -106,6 +110,14 @@ func bindIntGenISISPublicExtrasWithOpts(pub PublicInputs, ringN int, opts SimOpt
 	pub.Extras["IntGenISIS.seed_len"] = []byte(strconv.Itoa(len(layout.Key)))
 	pub.Extras["IntGenISIS.packed_key_len"] = []byte(strconv.Itoa(layout.PackedKeyLen))
 	pub.Extras["IntGenISIS.degree_mode"] = []byte(intGenISISDegreeModePaperEq3V1)
+	if intGenISISOptsUseStructuralV3(opts) && len(pub.Tag) == 0 && len(pub.Context) == 0 && len(pub.ContextDigest) == 0 {
+		// Phase-specific relation identity. This is part of the complete
+		// canonical public statement in strict v3 and prevents an artifact for
+		// the retired core/view issuance relation from being interpreted as a
+		// source-only proof.
+		pub.Extras["IntGenISIS.issuance_relation"] = []byte(intGenISISPreSignRelationVersionSourceOnlyV3)
+		pub.Extras["IntGenISIS.issuance_layout"] = []byte(intGenISISPreSignLayoutVersionSourceOnlyCarrierV3)
+	}
 	compressionBytes, err := intGenISISMSECompressionDescriptorBytesForBound(opts.IntGenISISMSECompression, 0, pub.BoundB)
 	if err != nil {
 		return pub, err
@@ -125,7 +137,11 @@ func bindIntGenISISPublicExtrasWithOpts(pub PublicInputs, ringN int, opts SimOpt
 	}
 	pub.Extras["IntGenISIS.rate_limit_policy"] = ratePolicyBytes
 	pub.Extras["IntGenISIS.sampler_profile"] = []byte(credential.IntGenISISSamplerUniformRQV1)
-	pub.Extras["IntGenISIS.presentation_schema"] = []byte(credential.IntGenISISPresentationSchemaV2)
+	presentationSchema := credential.IntGenISISPresentationSchemaV2
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		presentationSchema = credential.IntGenISISPresentationSchemaV3
+	}
+	pub.Extras["IntGenISIS.presentation_schema"] = []byte(presentationSchema)
 	sigBound, err := intGenISISSignatureBoundFromPublic(pub)
 	if err != nil {
 		return pub, err
@@ -731,6 +747,23 @@ func intGenISISDegreeMetadataForLayout(ringQ *ring.Ring, pub PublicInputs, layou
 	}
 	switch {
 	case layout.IntGenISISPreSign != nil:
+		l := layout.IntGenISISPreSign
+		if l.LayoutVersion == intGenISISPreSignLayoutVersionSourceOnlyCarrierV3 {
+			if l.RelationVersion != intGenISISPreSignRelationVersionSourceOnlyV3 ||
+				l.MSECompressionLevel != 1 || l.MSECompressionPackWidth != 2 ||
+				l.MSECompressionAlphabet != 9 || l.MSECompressionDecodeDegree != 8 ||
+				l.MSEMembershipDegree != 9 {
+				return IntGenISISDegreeMetadata{}, fmt.Errorf("invalid strict v3 pre-sign source-only degree metadata")
+			}
+			meta.CompressionLevel = l.MSECompressionLevel
+			meta.CompressionPackWidth = l.MSECompressionPackWidth
+			meta.CompressionDegree = l.MSEMembershipDegree
+			meta.TernaryDegree = l.MSEMembershipDegree
+			meta.ParallelAlgDegree = 9
+			meta.AggregatedAlgDegree = 8
+			meta.DominantDegreeSource = "source_carrier_membership"
+			break
+		}
 		policy, err := intGenISISPolicyFromPublic(pub)
 		if err != nil {
 			return IntGenISISDegreeMetadata{}, err
@@ -748,8 +781,15 @@ func intGenISISDegreeMetadataForLayout(ringQ *ring.Ring, pub PublicInputs, layou
 		})
 	case layout.IntGenISISShowing != nil:
 		l := layout.IntGenISISShowing
+		structuralV3 := l.LayoutVersion == intGenISISShowingLayoutVersionInputTraceCarrierV3
 		if compressionDesc.Level > 0 {
 			meta.TernaryDegree = compressionDesc.MembershipDeg
+		}
+		if structuralV3 {
+			if !l.HashSourceCarrierV3 || l.HashCarrierMembershipDegree != ternaryCarrierV3Alphabet || l.HashCarrierDecodeDegree != ternaryCarrierV3Alphabet-1 {
+				return IntGenISISDegreeMetadata{}, fmt.Errorf("invalid strict v3 hash-carrier degree metadata")
+			}
+			meta.TernaryDegree = maxInt(meta.TernaryDegree, l.HashCarrierMembershipDegree)
 		}
 		sigBound, err := intGenISISSignatureBoundFromPublic(pub)
 		if err != nil {
@@ -766,7 +806,7 @@ func intGenISISDegreeMetadataForLayout(ringQ *ring.Ring, pub PublicInputs, layou
 		meta.ShortnessDegree = maxInt(shortDegree, intGenISISDirectSignatureRangeDegree(sigBound))
 		meta.SignatureDegree = 2
 		meta.ParallelAlgDegree = maxInt(maxInt(maxInt(meta.SignatureDegree, meta.TernaryDegree), meta.ShortnessDegree), meta.PolicyDegree)
-		params, err := loadPRFParamsForOpts(opts)
+		params, err := loadBoundPRFParamsForOpts(opts)
 		if err != nil {
 			return IntGenISISDegreeMetadata{}, fmt.Errorf("load direct PRF relation parameters: %w", err)
 		}
@@ -777,6 +817,9 @@ func intGenISISDegreeMetadataForLayout(ringQ *ring.Ring, pub PublicInputs, layou
 		meta.AggregatedAlgDegree = maxInt(2, meta.PRFDegree)
 		if compressionDesc.Level > 0 {
 			meta.AggregatedAlgDegree = maxInt(meta.AggregatedAlgDegree, compressionDesc.DecodeDegree)
+		}
+		if structuralV3 {
+			meta.AggregatedAlgDegree = maxInt(meta.AggregatedAlgDegree, l.HashCarrierDecodeDegree)
 		}
 		meta.DominantDegreeSource = intGenISISDominantDegreeSource([]struct {
 			name string
@@ -825,6 +868,14 @@ func IntGenISISDegreeMetadataForProof(proof *Proof, pub PublicInputs, opts SimOp
 }
 
 func validateIntGenISISProofDegreeMetadata(proof *Proof, pub PublicInputs, opts SimOpts) error {
+	if proof != nil && proof.RowLayout.IntGenISISPreSign != nil && proof.RowLayout.IntGenISISPreSign.LayoutVersion == intGenISISPreSignLayoutVersionSourceOnlyCarrierV3 {
+		if !intGenISISOptsUseStructuralV3(opts) {
+			return fmt.Errorf("strict v3 source-only pre-sign layout requires the strict v3 transcript")
+		}
+		if proof.RowLayout.IntGenISISPreSign.MSECompressionLevel != 1 {
+			return fmt.Errorf("strict v3 source-only pre-sign carrier compression level=%d want 1", proof.RowLayout.IntGenISISPreSign.MSECompressionLevel)
+		}
+	}
 	if proof != nil && proof.RowLayout.IntGenISISShowing != nil {
 		got := proof.RowLayout.IntGenISISShowing.MSECompressionLevel
 		want := opts.IntGenISISMSECompression
@@ -1001,26 +1052,25 @@ func intGenISISPolicyCoeffViewCoeffs(
 	if policy.ID != credential.IntGenISISPolicyMEquals {
 		return nil, fmt.Errorf("unsupported IntGenISIS policy %q", policy.ID)
 	}
-	var data credential.IntGenISISMEqualsPolicyData
-	if err := json.Unmarshal(policy.Data, &data); err != nil {
-		return nil, fmt.Errorf("decode m_eq policy data: %w", err)
-	}
-	if len(data.MAttr) != layout.AttributeRows {
-		return nil, fmt.Errorf("policy m rows=%d want %d", len(data.MAttr), layout.AttributeRows)
+	data, err := credential.ValidateIntGenISISMEqualsPolicyData(layout, policy)
+	if err != nil {
+		return nil, err
 	}
 	polys := make([]*ring.Poly, len(data.MAttr))
-	q := int64(ringQ.Modulus[0])
+	q := ringQ.Modulus[0]
 	for i := range data.MAttr {
-		if len(data.MAttr[i]) != layout.RingDegree {
-			return nil, fmt.Errorf("policy m[%d] length=%d want %d", i, len(data.MAttr[i]), layout.RingDegree)
-		}
 		polys[i] = ringQ.NewPoly()
 		for j, v := range data.MAttr[i] {
-			v %= q
-			if v < 0 {
-				v += q
+			switch v {
+			case -1:
+				polys[i].Coeffs[0][j] = q - 1
+			case 0, 1:
+				polys[i].Coeffs[0][j] = uint64(v)
+			default:
+				// The credential validator above owns the public integer
+				// statement boundary; this branch is defense in depth.
+				return nil, fmt.Errorf("policy m[%d][%d]=%d is not signed ternary", i, j, v)
 			}
-			polys[i].Coeffs[0][j] = uint64(v)
 		}
 	}
 	viewRows, err := intGenISISCoeffViewRows(ringQ, omega, polys, ncols)

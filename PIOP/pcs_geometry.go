@@ -222,6 +222,41 @@ func buildSmallFieldPCSRowsFromLiteralInputs(
 	maskPolysK []*KPoly,
 	maskDegreeBound int,
 ) (*builtPCSRows, error) {
+	return buildSmallFieldPCSRowsFromLiteralInputsCore(
+		ringQ, omegaWitness, pcsNCols, ell, K, omegaS1, logicalRows,
+		maskPolysK, maskDegreeBound, false,
+	)
+}
+
+func buildSmallFieldPCSRowsFromLiteralInputsV3(
+	ringQ *ring.Ring,
+	omegaWitness []uint64,
+	pcsNCols int,
+	ell int,
+	K *kf.Field,
+	omegaS1 kf.Elem,
+	logicalRows []lvcs.RowInput,
+	maskPolysK []*KPoly,
+	maskDegreeBound int,
+) (*builtPCSRows, error) {
+	return buildSmallFieldPCSRowsFromLiteralInputsCore(
+		ringQ, omegaWitness, pcsNCols, ell, K, omegaS1, logicalRows,
+		maskPolysK, maskDegreeBound, true,
+	)
+}
+
+func buildSmallFieldPCSRowsFromLiteralInputsCore(
+	ringQ *ring.Ring,
+	omegaWitness []uint64,
+	pcsNCols int,
+	ell int,
+	K *kf.Field,
+	omegaS1 kf.Elem,
+	logicalRows []lvcs.RowInput,
+	maskPolysK []*KPoly,
+	maskDegreeBound int,
+	randomizeExtra bool,
+) (*builtPCSRows, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -237,11 +272,22 @@ func buildSmallFieldPCSRowsFromLiteralInputs(
 	if len(logicalRows) == 0 {
 		return nil, fmt.Errorf("empty logical row set")
 	}
-	witnessRows, err := buildSmallFieldWitnessRowsFromLiteralInputs(ringQ, omegaWitness, pcsNCols, K, omegaS1, logicalRows)
+	var witnessRows [][]uint64
+	var err error
+	if randomizeExtra {
+		witnessRows, err = buildSmallFieldWitnessRowsFromLiteralInputsRandomized(ringQ, omegaWitness, pcsNCols, K, omegaS1, logicalRows)
+	} else {
+		witnessRows, err = buildSmallFieldWitnessRowsFromLiteralInputs(ringQ, omegaWitness, pcsNCols, K, omegaS1, logicalRows)
+	}
 	if err != nil {
 		return nil, err
 	}
-	maskRows, err := buildSmallFieldMaskLayerRows(K, maskPolysK, pcsNCols, maskDegreeBound)
+	var maskRows [][]uint64
+	if randomizeExtra {
+		maskRows, _, err = buildSmallFieldMaskLayerRowsV3(K, maskPolysK, pcsNCols, maskDegreeBound, nil)
+	} else {
+		maskRows, err = buildSmallFieldMaskLayerRows(K, maskPolysK, pcsNCols, maskDegreeBound)
+	}
 	if err != nil {
 		return nil, err
 	}

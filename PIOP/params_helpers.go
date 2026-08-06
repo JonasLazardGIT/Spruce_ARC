@@ -218,18 +218,18 @@ func sampleUniformModDeterministic(xof sha3.ShakeHash, q uint64) (uint64, error)
 	}
 }
 
-func deriveExplicitDomainWithWitnessPrefix(q uint64, nLeaves, witnessNCols, lvcsNCols, ell int, witnessOmega []uint64) ([]uint64, []uint64, error) {
+func prepareExplicitDomainWithWitnessPrefix(q uint64, nLeaves, witnessNCols, lvcsNCols, ell int, witnessOmega []uint64) (*swDomain.Prepared, error) {
 	if witnessNCols <= 0 {
-		return nil, nil, fmt.Errorf("invalid witness ncols %d", witnessNCols)
+		return nil, fmt.Errorf("invalid witness ncols %d", witnessNCols)
 	}
 	if lvcsNCols <= 0 {
 		lvcsNCols = witnessNCols
 	}
 	if lvcsNCols < witnessNCols {
-		return nil, nil, fmt.Errorf("invalid lvcs ncols %d < witness ncols %d", lvcsNCols, witnessNCols)
+		return nil, fmt.Errorf("invalid lvcs ncols %d < witness ncols %d", lvcsNCols, witnessNCols)
 	}
 	if len(witnessOmega) != witnessNCols {
-		return nil, nil, fmt.Errorf("witness omega len=%d want %d", len(witnessOmega), witnessNCols)
+		return nil, fmt.Errorf("witness omega len=%d want %d", len(witnessOmega), witnessNCols)
 	}
 	prefixLen := lvcsNCols + ell
 	prefix := make([]uint64, 0, prefixLen)
@@ -237,7 +237,7 @@ func deriveExplicitDomainWithWitnessPrefix(q uint64, nLeaves, witnessNCols, lvcs
 	for i, v := range witnessOmega {
 		v %= q
 		if _, dup := seen[v]; dup {
-			return nil, nil, fmt.Errorf("duplicate witness omega value %d at index %d", v, i)
+			return nil, fmt.Errorf("duplicate witness omega value %d at index %d", v, i)
 		}
 		seen[v] = struct{}{}
 		prefix = append(prefix, v)
@@ -262,7 +262,7 @@ func deriveExplicitDomainWithWitnessPrefix(q uint64, nLeaves, witnessNCols, lvcs
 	for len(prefix) < prefixLen {
 		v, err := sampleUniformModDeterministic(xof, q)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if _, dup := seen[v]; dup {
 			continue
@@ -270,22 +270,63 @@ func deriveExplicitDomainWithWitnessPrefix(q uint64, nLeaves, witnessNCols, lvcs
 		seen[v] = struct{}{}
 		prefix = append(prefix, v)
 	}
-	dom, err := swDomain.NewDomainWithPrefix(q, nLeaves, lvcsNCols, ell, prefix, nil)
+	prepared, err := swDomain.SamplePreparedWithPrefix(swDomain.Binding{
+		Q:         q,
+		NLeaves:   nLeaves,
+		OmegaSize: lvcsNCols,
+		Ell:       ell,
+	}, prefix, nil)
+	if err != nil {
+		return nil, err
+	}
+	return prepared, nil
+}
+
+func deriveExplicitDomainWithWitnessPrefix(q uint64, nLeaves, witnessNCols, lvcsNCols, ell int, witnessOmega []uint64) ([]uint64, []uint64, error) {
+	prepared, err := prepareExplicitDomainWithWitnessPrefix(q, nLeaves, witnessNCols, lvcsNCols, ell, witnessOmega)
 	if err != nil {
 		return nil, nil, err
 	}
-	return append([]uint64(nil), dom.Omega...), append([]uint64(nil), dom.E...), nil
+	return prepared.CopyRange(0, prepared.Binding().OmegaSize), prepared.CopyPoints(), nil
 }
 
 func deriveExplicitDomainForRelation(q uint64, nLeaves, witnessNCols, lvcsNCols, ell int, relation string) ([]uint64, []uint64, error) {
+	prepared, _, err := prepareExplicitDomainForRelation(q, nLeaves, witnessNCols, lvcsNCols, ell, relation)
+	if err != nil {
+		return nil, nil, err
+	}
+	return prepared.CopyRange(0, prepared.Binding().OmegaSize), prepared.CopyPoints(), nil
+}
+
+// prepareExplicitDomainForRelation derives the ordered explicit domain once
+// and retains its validated, immutable representation for all proving layers.
+// The BBTran prefix construction and SHAKE transcript are identical to the
+// legacy slice-returning helper above.
+func prepareExplicitDomainForRelation(q uint64, nLeaves, witnessNCols, lvcsNCols, ell int, relation string) (*swDomain.Prepared, []uint64, error) {
 	if !relationUsesBBTran(relation) {
-		return deriveExplicitDomain(q, nLeaves, lvcsNCols, ell)
+		prepared, err := swDomain.SamplePrepared(swDomain.Binding{
+			Q:         q,
+			NLeaves:   nLeaves,
+			OmegaSize: lvcsNCols,
+			Ell:       ell,
+		}, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		if witnessNCols > lvcsNCols {
+			return nil, nil, fmt.Errorf("invalid witness ncols %d > lvcs ncols %d", witnessNCols, lvcsNCols)
+		}
+		return prepared, prepared.CopyRange(0, witnessNCols), nil
 	}
 	witnessOmega, err := deriveRelationWitnessOmega(q, nLeaves, witnessNCols, lvcsNCols, ell, relation)
 	if err != nil {
 		return nil, nil, err
 	}
-	return deriveExplicitDomainWithWitnessPrefix(q, nLeaves, witnessNCols, lvcsNCols, ell, witnessOmega)
+	prepared, err := prepareExplicitDomainWithWitnessPrefix(q, nLeaves, witnessNCols, lvcsNCols, ell, witnessOmega)
+	if err != nil {
+		return nil, nil, err
+	}
+	return prepared, witnessOmega, nil
 }
 
 func loadParamsAndOmegaForRelation(opts SimOpts, relation string) (*ring.Ring, []uint64, int, error) {

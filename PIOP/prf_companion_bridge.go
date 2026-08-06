@@ -28,8 +28,9 @@ type prfCompanionBridgeBuild struct {
 	CoordDigest  []byte
 }
 
-func prfCompanionBridgeRNG(seed2 []byte, layout *PRFCompanionLayout, checks int) *fsRNG {
-	return newFSRNG(
+func prfCompanionBridgeRNG(transcriptVersion string, seed2 []byte, layout *PRFCompanionLayout, checks int) *fsRNG {
+	return newFSRNGForTranscript(
+		transcriptVersion,
 		"PRFCompanionBridge",
 		seed2,
 		prfCompanionLayoutDigest(layout),
@@ -37,7 +38,7 @@ func prfCompanionBridgeRNG(seed2 []byte, layout *PRFCompanionLayout, checks int)
 	)
 }
 
-func buildPRFCompanionBridgeCache(ringQ *ring.Ring, omega []uint64, layout *PRFCompanionLayout, seed2 []byte, checks int) (*prfCompanionBridgeCache, error) {
+func buildPRFCompanionBridgeCache(ringQ *ring.Ring, omega []uint64, layout *PRFCompanionLayout, transcriptVersion string, seed2 []byte, checks int) (*prfCompanionBridgeCache, error) {
 	if ringQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -64,7 +65,7 @@ func buildPRFCompanionBridgeCache(ringQ *ring.Ring, omega []uint64, layout *PRFC
 		return nil, err
 	}
 	q := ringQ.Modulus[0]
-	rng := prfCompanionBridgeRNG(seed2, layout, checks)
+	rng := prfCompanionBridgeRNG(transcriptVersion, seed2, layout, checks)
 	out := &prfCompanionBridgeCache{
 		q:            q,
 		alpha:        make([][]uint64, checks),
@@ -74,13 +75,13 @@ func buildPRFCompanionBridgeCache(ringQ *ring.Ring, omega []uint64, layout *PRFC
 	for t := 0; t < checks; t++ {
 		alpha := make([]uint64, layout.PackedRows)
 		for i := range alpha {
-			alpha[i] = rng.nextU64() % q
+			alpha[i] = rng.nextMod(q)
 		}
 		out.alpha[t] = alpha
 		beta := make([]uint64, layout.PackWidth)
 		betaSel := make([]uint64, 1)
 		for col := 0; col < layout.PackWidth; col++ {
-			b := rng.nextU64() % q
+			b := rng.nextMod(q)
 			beta[col] = b
 			if b == 0 {
 				continue
@@ -164,6 +165,7 @@ func buildPRFCompanionBridgeFamiliesFormal(
 	checks int,
 	mode PRFCompanionMode,
 	checkpointSamples int,
+	transcriptVersion string,
 ) (*prfCompanionBridgeBuild, error) {
 	if layout == nil {
 		return nil, nil
@@ -181,7 +183,7 @@ func buildPRFCompanionBridgeFamiliesFormal(
 	if err != nil {
 		return nil, err
 	}
-	cache, err := buildPRFCompanionBridgeCache(ringQ, omegaWitness, layout, seed2, checks)
+	cache, err := buildPRFCompanionBridgeCache(ringQ, omegaWitness, layout, transcriptVersion, seed2, checks)
 	if err != nil {
 		return nil, err
 	}
@@ -219,12 +221,13 @@ func buildPRFCompanionBridgeFamiliesFormal(
 }
 
 type PRFCompanionBridgeConfig struct {
-	Ring         *ring.Ring
-	Layout       *PRFCompanionLayout
-	DomainPoints []uint64
-	OmegaWitness []uint64
-	Seed2        []byte
-	BridgeChecks [][]uint64
+	Ring              *ring.Ring
+	Layout            *PRFCompanionLayout
+	DomainPoints      []uint64
+	OmegaWitness      []uint64
+	Seed2             []byte
+	BridgeChecks      [][]uint64
+	TranscriptVersion string
 }
 
 func resolvePRFCompanionBridgeLayout(layout *PRFCompanionLayout, mode PRFCompanionMode) (*PRFCompanionLayout, error) {
@@ -267,7 +270,7 @@ func (cfg PRFCompanionBridgeConfig) companionEvaluator(evalPoint func(evalIdx ui
 		if cfg.Layout == nil {
 			return nil, nil, nil
 		}
-		cache, err := buildPRFCompanionBridgeCache(cfg.Ring, cfg.OmegaWitness, cfg.Layout, cfg.Seed2, len(cfg.BridgeChecks))
+		cache, err := buildPRFCompanionBridgeCache(cfg.Ring, cfg.OmegaWitness, cfg.Layout, cfg.TranscriptVersion, cfg.Seed2, len(cfg.BridgeChecks))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -326,7 +329,7 @@ func (cfg PRFCompanionBridgeConfig) KEvaluator(K *kf.Field) (KConstraintEvaluato
 	if K == nil {
 		return nil, fmt.Errorf("nil K field")
 	}
-	cache, err := buildPRFCompanionBridgeCache(cfg.Ring, cfg.OmegaWitness, cfg.Layout, cfg.Seed2, len(cfg.BridgeChecks))
+	cache, err := buildPRFCompanionBridgeCache(cfg.Ring, cfg.OmegaWitness, cfg.Layout, cfg.TranscriptVersion, cfg.Seed2, len(cfg.BridgeChecks))
 	if err != nil {
 		return nil, err
 	}
@@ -381,16 +384,17 @@ func verifyPRFCompanionBridgeFromOpening(
 		return fmt.Errorf("empty row opening payload for direct-auth bridge verification")
 	}
 	cfg := PRFCompanionBridgeConfig{
-		Ring:         ringQ,
-		Layout:       layout,
-		OmegaWitness: omegaWitness,
-		Seed2:        append([]byte(nil), proof.Digests[1]...),
-		BridgeChecks: copyMatrix(proof.PRFCompanion.BridgeChecks),
+		Ring:              ringQ,
+		Layout:            layout,
+		OmegaWitness:      omegaWitness,
+		Seed2:             append([]byte(nil), proof.Digests[1]...),
+		BridgeChecks:      copyMatrix(proof.PRFCompanion.BridgeChecks),
+		TranscriptVersion: proof.TranscriptVersion,
 	}
 	if err := cfg.verifyDigest(proof.PRFCompanion); err != nil {
 		return err
 	}
-	cache, err := buildPRFCompanionBridgeCache(ringQ, omegaWitness, layout, cfg.Seed2, len(cfg.BridgeChecks))
+	cache, err := buildPRFCompanionBridgeCache(ringQ, omegaWitness, layout, cfg.TranscriptVersion, cfg.Seed2, len(cfg.BridgeChecks))
 	if err != nil {
 		return err
 	}

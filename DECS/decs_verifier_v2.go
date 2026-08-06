@@ -90,6 +90,10 @@ func (v *Verifier) verifyEvalFormalHashV2(rootHash []byte, gamma [][]uint64, rRo
 	}
 
 	seen := make(map[int]struct{}, n)
+	var frontierLeafHashes [][]byte
+	if open.AuthFormat == OpeningAuthPositionalFrontierV3 {
+		frontierLeafHashes = make([][]byte, n)
+	}
 	for t := 0; t < n; t++ {
 		idx := open.IndexAt(t)
 		if idx < 0 || idx >= v.nLeaves {
@@ -123,25 +127,43 @@ func (v *Verifier) verifyEvalFormalHashV2(rootHash []byte, gamma [][]uint64, rRo
 		if err != nil {
 			return err
 		}
-		ids, ok := pathRowIndices(open, t)
-		if !ok {
-			return fmt.Errorf("decs: malformed v2 authentication path")
-		}
-		if len(ids) != merkleDepthV2(v.nLeaves) {
-			return fmt.Errorf("decs: v2 authentication depth=%d want=%d", len(ids), merkleDepthV2(v.nLeaves))
-		}
-		path := make([][]byte, len(ids))
-		for level, id := range ids {
-			if id < 0 || id >= len(open.Nodes) {
-				return fmt.Errorf("decs: v2 authentication node index out of range")
+		if open.AuthFormat == OpeningAuthPositionalFrontierV3 {
+			frontierLeafHashes[t] = leafHash
+		} else {
+			ids, ok := pathRowIndices(open, t)
+			if !ok {
+				return fmt.Errorf("decs: malformed v2 authentication path")
 			}
-			if len(open.Nodes[id]) != v.params.HashBytes {
-				return fmt.Errorf("decs: v2 authentication node width mismatch")
+			wantDepth := merkleDepthV2(v.nLeaves)
+			if v.context.TranscriptVersion == TranscriptVersionV3 {
+				positions, pathErr := MerkleAuthenticationPathPositionsV3(idx, v.nLeaves)
+				if pathErr != nil {
+					return pathErr
+				}
+				wantDepth = len(positions)
 			}
-			path[level] = open.Nodes[id]
-		}
-		if !VerifyPathHashV2(v.context, leafHash, path, rootHash, uint64(idx)) {
-			return fmt.Errorf("decs: v2 Merkle path rejected")
+			if len(ids) != wantDepth {
+				return fmt.Errorf("decs: v2 authentication depth=%d want=%d", len(ids), wantDepth)
+			}
+			path := make([][]byte, len(ids))
+			for level, id := range ids {
+				if id < 0 || id >= len(open.Nodes) {
+					return fmt.Errorf("decs: v2 authentication node index out of range")
+				}
+				if len(open.Nodes[id]) != v.params.HashBytes {
+					return fmt.Errorf("decs: v2 authentication node width mismatch")
+				}
+				path[level] = open.Nodes[id]
+			}
+			verified := false
+			if v.context.TranscriptVersion == TranscriptVersionV3 {
+				verified = VerifyPathHashExactNV3(v.context, v.nLeaves, idx, leafHash, path, rootHash)
+			} else {
+				verified = VerifyPathHashV2(v.context, leafHash, path, rootHash, uint64(idx))
+			}
+			if !verified {
+				return fmt.Errorf("decs: v2 Merkle path rejected")
+			}
 		}
 		x := v.points[idx] % mod
 		for k := 0; k < v.params.Eta; k++ {
@@ -153,6 +175,11 @@ func (v *Verifier) verifyEvalFormalHashV2(rootHash []byte, gamma [][]uint64, rRo
 			if lhs != rhs {
 				return fmt.Errorf("decs: v2 low-degree relation rejected")
 			}
+		}
+	}
+	if open.AuthFormat == OpeningAuthPositionalFrontierV3 {
+		if err := VerifyMerkleFrontierV3(v.context, v.nLeaves, open.AllIndices(), frontierLeafHashes, open.Nodes, rootHash); err != nil {
+			return err
 		}
 	}
 	return nil

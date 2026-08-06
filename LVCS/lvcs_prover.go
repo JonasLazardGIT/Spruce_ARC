@@ -9,6 +9,7 @@ import (
 	"time"
 
 	decs "vSIS-Signature/DECS"
+	swdomain "vSIS-Signature/internal/domain"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
@@ -47,7 +48,8 @@ type RowInput struct {
 	// TrustedHead skips recomputing Ω values for direct-polynomial rows. It is
 	// only an internal prover-side optimization hint; callers that do not set it
 	// keep the full consistency check.
-	TrustedHead bool
+	TrustedHead    bool
+	headProvenance *directHeadProvenance
 }
 
 // LayoutSegment tracks a contiguous row slice within the global oracle.
@@ -99,18 +101,34 @@ type ProverKey struct {
 	Layout        OracleLayout // oracle segmentation metadata
 
 	// Points is the explicit DECS evaluation domain E.
-	Points  []uint64
-	NLeaves int
+	Points []uint64
+	// PreparedDomain is non-nil when this key was constructed through the
+	// immutable prepared-domain API. Points remains an owned compatibility copy.
+	PreparedDomain *swdomain.Prepared
+	NLeaves        int
+
+	nttOnce sync.Once
+	nttErr  error
+	// headMatchesCommitted records which retained heads were either used to
+	// interpolate the committed polynomial or checked against it. Legacy
+	// TrustedHead hints deliberately do not qualify for the EvalOracle fast path.
+	headMatchesCommitted []bool
 }
 
 // CommitOptions carries benchmark-only commit controls. The zero value keeps
 // the existing transcript and proof bytes.
 type CommitOptions struct {
-	PhaseRecorder      decs.CommitPhaseRecorder
-	DecsWorkerCount    int
-	DecsFormalEvalMode decs.FormalEvalMode
-	DecsMaxTapeBytes   int
-	commitmentContext  *decs.CommitmentContext
+	PhaseRecorder       decs.CommitPhaseRecorder
+	DecsWorkerCount     int
+	DecsChunkLeaves     int
+	DecsRecordSubphases bool
+	DecsFormalEvalMode  decs.FormalEvalMode
+	DecsMaxTapeBytes    int
+	// DeferNTTMaterialization skips construction of RowPolys and MaskPolys until
+	// MaterializeNTTPolys is called. The zero value preserves eager behavior.
+	DeferNTTMaterialization bool
+	commitmentContext       *decs.CommitmentContext
+	preparedDomain          *swdomain.Prepared
 }
 
 // CommitInitWithParamsAndPointsV2 commits rows under the explicit v2
@@ -137,6 +155,34 @@ func CommitInitWithParamsAndPointsV2(
 	return append([]byte(nil), prover.RootHash...), prover, nil
 }
 
+// CommitInitWithParamsAndPreparedDomainV2 commits against an immutable domain
+// whose range and distinctness checks have already succeeded.
+func CommitInitWithParamsAndPreparedDomainV2(
+	ringQ *ring.Ring,
+	rows []RowInput,
+	ell int,
+	params decs.Params,
+	prepared *swdomain.Prepared,
+	ctx decs.CommitmentContext,
+	opts CommitOptions,
+) ([]byte, *ProverKey, error) {
+	if err := ctx.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if prepared == nil {
+		return nil, nil, fmt.Errorf("CommitInitWithParamsAndPreparedDomainV2: nil prepared domain")
+	}
+	ctxCopy := ctx
+	ctxCopy.Salt = append([]byte(nil), ctx.Salt...)
+	opts.commitmentContext = &ctxCopy
+	opts.preparedDomain = prepared
+	prover, err := commitInitWithParamsAndPointsV2(ringQ, rows, ell, params, nil, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append([]byte(nil), prover.RootHash...), prover, nil
+}
+
 // commitInitWithParamsAndPointsV2 commits rows against an explicit
 // DECS domain E with benchmark-only controls:
 //   - points defines the DECS evaluation domain E (E[i] = points[i])
@@ -154,6 +200,10 @@ func commitInitWithParamsAndPointsV2(
 	prover *ProverKey,
 	err error,
 ) {
+	if ringQ == nil || len(ringQ.Modulus) != 1 {
+		err = fmt.Errorf("CommitInitWithParams: expected a single-modulus non-nil ring")
+		return
+	}
 	if ell <= 0 {
 		err = fmt.Errorf("CommitInitWithParams: ell must be > 0")
 		return
@@ -165,29 +215,48 @@ func commitInitWithParamsAndPointsV2(
 		return
 	}
 	q0 := ringQ.Modulus[0]
+	if opts.preparedDomain != nil {
+		binding := opts.preparedDomain.Binding()
+		if binding.Q != q0 {
+			err = fmt.Errorf("CommitInitWithParams: prepared domain modulus=%d want=%d", binding.Q, q0)
+			return
+		}
+		if binding.Ell != ell {
+			err = fmt.Errorf("CommitInitWithParams: prepared domain ell=%d want=%d", binding.Ell, ell)
+			return
+		}
+		points = opts.preparedDomain.CopyPoints()
+	}
 	if len(points) == 0 {
 		err = fmt.Errorf("CommitInitWithParams: points must be non-empty")
 		return
 	}
 	nLeaves := len(points)
-	seen := make(map[uint64]struct{}, nLeaves)
-	for i, p := range points {
-		if p >= q0 {
-			err = fmt.Errorf("CommitInitWithParams: points[%d]=%d out of range (q=%d)", i, p, q0)
-			return
+	if opts.preparedDomain == nil {
+		seen := make(map[uint64]struct{}, nLeaves)
+		for i, p := range points {
+			if p >= q0 {
+				err = fmt.Errorf("CommitInitWithParams: points[%d]=%d out of range (q=%d)", i, p, q0)
+				return
+			}
+			if _, ok := seen[p]; ok {
+				err = fmt.Errorf("CommitInitWithParams: duplicate domain point %d", p)
+				return
+			}
+			seen[p] = struct{}{}
 		}
-		if _, ok := seen[p]; ok {
-			err = fmt.Errorf("CommitInitWithParams: duplicate domain point %d", p)
-			return
-		}
-		seen[p] = struct{}{}
 	}
 
 	normalised := make([]RowInput, nrows)
 	rowCoeffPolys := make([][]uint64, nrows)
+	headMatchesCommitted := make([]bool, nrows)
 	ncols := len(rows[0].Head)
 	if ncols <= 0 {
 		err = fmt.Errorf("CommitInitWithParams: rows must have non-empty head")
+		return
+	}
+	if opts.preparedDomain != nil && opts.preparedDomain.Binding().OmegaSize != ncols {
+		err = fmt.Errorf("CommitInitWithParams: prepared domain omega size=%d want=%d", opts.preparedDomain.Binding().OmegaSize, ncols)
 		return
 	}
 	if len(points) < ncols+ell {
@@ -224,8 +293,10 @@ func commitInitWithParamsAndPointsV2(
 					return
 				}
 			}
+			authenticatedHead := directHeadProvenanceMatches(in, coeffs, opts.preparedDomain, ncols)
+			trustedWithoutCheck := (in.TrustedHead || authenticatedHead) && len(in.Head) > 0
 			var headVals []uint64
-			if in.TrustedHead && len(in.Head) > 0 {
+			if trustedWithoutCheck {
 				if len(in.Head) != ncols {
 					err = fmt.Errorf("CommitInitWithParams: inconsistent trusted head length for row %d (got %d want %d)", j, len(in.Head), ncols)
 					return
@@ -244,7 +315,7 @@ func commitInitWithParamsAndPointsV2(
 			for i := 0; i < ell; i++ {
 				tailVals[i] = evalPolyCoeffs(coeffs, points[ncols+i]%q0, q0)
 			}
-			if len(in.Head) > 0 && !in.TrustedHead {
+			if len(in.Head) > 0 && !trustedWithoutCheck {
 				if len(in.Head) != ncols {
 					err = fmt.Errorf("CommitInitWithParams: inconsistent head length for row %d (got %d want %d)", j, len(in.Head), ncols)
 					return
@@ -270,6 +341,7 @@ func commitInitWithParamsAndPointsV2(
 			}
 			normalised[j] = RowInput{Head: headVals, Tail: tailVals}
 			rowCoeffPolys[j] = coeffs
+			headMatchesCommitted[j] = authenticatedHead || !trustedWithoutCheck
 			continue
 		}
 
@@ -303,6 +375,7 @@ func commitInitWithParamsAndPointsV2(
 			Head: headCopy,
 			Tail: tailCopy,
 		}
+		headMatchesCommitted[j] = true
 	}
 
 	// 1b) interpolate each (r_j, mask_j) into P_j(X)
@@ -330,7 +403,11 @@ func commitInitWithParamsAndPointsV2(
 	// 2) DECS.CommitInit  (keeps P_j in coeff-form; we keep a *copy*
 	//    in NTT domain for the PACS layer → RowPolys)
 	var dprover *decs.Prover
-	dprover, err = decs.NewProverWithParamsAndPointsFormalChecked(ringQ, rowCoeffPolys, params, points)
+	if opts.preparedDomain != nil {
+		dprover, err = decs.NewProverWithParamsAndPreparedDomainFormalChecked(ringQ, rowCoeffPolys, params, opts.preparedDomain)
+	} else {
+		dprover, err = decs.NewProverWithParamsAndPointsFormalChecked(ringQ, rowCoeffPolys, params, points)
+	}
 	if err != nil {
 		return
 	}
@@ -342,6 +419,8 @@ func commitInitWithParamsAndPointsV2(
 	decsOpts := decs.CommitOptions{
 		PhaseRecorder:      opts.PhaseRecorder,
 		WorkerCount:        opts.DecsWorkerCount,
+		ChunkLeaves:        opts.DecsChunkLeaves,
+		RecordSubphases:    opts.DecsRecordSubphases,
 		FormalEvalMode:     opts.DecsFormalEvalMode,
 		MaxTapeBufferBytes: opts.DecsMaxTapeBytes,
 	}
@@ -358,56 +437,19 @@ func commitInitWithParamsAndPointsV2(
 		return
 	}
 
-	// lift P_j to NTT for later reuse when representable in ringQ.
-	rowNTTStart := time.Time{}
-	if opts.PhaseRecorder != nil {
-		rowNTTStart = time.Now()
-	}
-	rowsNTT := make([]*ring.Poly, nrows)
-	for j := range rowCoeffPolys {
-		if len(rowCoeffPolys[j]) == 0 || len(rowCoeffPolys[j]) > int(ringQ.N) {
-			continue
-		}
-		pj := ringQ.NewPoly()
-		copy(pj.Coeffs[0], rowCoeffPolys[j])
-		rowsNTT[j] = ringQ.NewPoly()
-		ringQ.NTT(pj, rowsNTT[j])
-	}
-
-	// Export DECS masks in NTT form when representable.
-	masksNTT := make([]*ring.Poly, params.Eta)
-	if dprover.MFormal != nil {
-		for i := 0; i < params.Eta; i++ {
-			if i >= len(dprover.MFormal) || len(dprover.MFormal[i]) > int(ringQ.N) {
-				continue
-			}
-			mi := ringQ.NewPoly()
-			copy(mi.Coeffs[0], dprover.MFormal[i])
-			masksNTT[i] = ringQ.NewPoly()
-			ringQ.NTT(mi, masksNTT[i])
-		}
-	} else {
-		for i := 0; i < params.Eta; i++ {
-			masksNTT[i] = ringQ.NewPoly()
-			ringQ.NTT(dprover.M[i], masksNTT[i])
-		}
-	}
-	if opts.PhaseRecorder != nil {
-		opts.PhaseRecorder.RecordDuration("lvcs.row_ntt", time.Since(rowNTTStart))
-	}
 	prover = &ProverKey{
-		RingQ:         ringQ,
-		DecsProver:    dprover,
-		Rows:          normalised,
-		RowPolys:      rowsNTT,
-		RowPolyCoeffs: rowCoeffPolys,
-		MaskPolys:     masksNTT,
-		Gamma:         Gamma,
-		Params:        params,
-		RootHash:      append([]byte(nil), rootHash...),
-		TailLen:       ell,
-		Points:        points,
-		NLeaves:       nLeaves,
+		RingQ:                ringQ,
+		DecsProver:           dprover,
+		Rows:                 normalised,
+		RowPolyCoeffs:        rowCoeffPolys,
+		Gamma:                Gamma,
+		Params:               params,
+		RootHash:             append([]byte(nil), rootHash...),
+		TailLen:              ell,
+		Points:               append([]uint64(nil), points...),
+		PreparedDomain:       opts.preparedDomain,
+		NLeaves:              nLeaves,
+		headMatchesCommitted: headMatchesCommitted,
 		Layout: OracleLayout{
 			Witness: LayoutSegment{Offset: 0, Count: nrows},
 			Mask:    LayoutSegment{Offset: nrows, Count: 0},
@@ -417,7 +459,73 @@ func commitInitWithParamsAndPointsV2(
 		prover.Context = *opts.commitmentContext
 		prover.Context.Salt = append([]byte(nil), opts.commitmentContext.Salt...)
 	}
+	if !opts.DeferNTTMaterialization {
+		rowNTTStart := time.Time{}
+		if opts.PhaseRecorder != nil {
+			rowNTTStart = time.Now()
+		}
+		if err = prover.MaterializeNTTPolys(); err != nil {
+			return
+		}
+		if opts.PhaseRecorder != nil {
+			opts.PhaseRecorder.RecordDuration("lvcs.row_ntt", time.Since(rowNTTStart))
+		}
+	}
 	return
+}
+
+// MaterializeNTTPolys constructs the compatibility NTT views exactly once.
+// It is safe for concurrent callers. Strict prepared proving paths that do not
+// rebuild constraints can leave these views deferred for the key's lifetime.
+func (pk *ProverKey) MaterializeNTTPolys() error {
+	if pk == nil {
+		return fmt.Errorf("MaterializeNTTPolys: nil ProverKey")
+	}
+	pk.nttOnce.Do(func() {
+		if pk.RingQ == nil || len(pk.RingQ.Modulus) != 1 {
+			pk.nttErr = fmt.Errorf("MaterializeNTTPolys: expected a single-modulus ring")
+			return
+		}
+		if pk.DecsProver == nil {
+			pk.nttErr = fmt.Errorf("MaterializeNTTPolys: nil DECS prover")
+			return
+		}
+		rowsNTT := make([]*ring.Poly, len(pk.RowPolyCoeffs))
+		for rowIndex, coefficients := range pk.RowPolyCoeffs {
+			if len(coefficients) == 0 || len(coefficients) > int(pk.RingQ.N) {
+				continue
+			}
+			coefficientPoly := pk.RingQ.NewPoly()
+			copy(coefficientPoly.Coeffs[0], coefficients)
+			rowsNTT[rowIndex] = pk.RingQ.NewPoly()
+			pk.RingQ.NTT(coefficientPoly, rowsNTT[rowIndex])
+		}
+
+		masksNTT := make([]*ring.Poly, pk.Params.Eta)
+		if pk.DecsProver.MFormal != nil {
+			for maskIndex := 0; maskIndex < pk.Params.Eta; maskIndex++ {
+				if maskIndex >= len(pk.DecsProver.MFormal) || len(pk.DecsProver.MFormal[maskIndex]) > int(pk.RingQ.N) {
+					continue
+				}
+				coefficientPoly := pk.RingQ.NewPoly()
+				copy(coefficientPoly.Coeffs[0], pk.DecsProver.MFormal[maskIndex])
+				masksNTT[maskIndex] = pk.RingQ.NewPoly()
+				pk.RingQ.NTT(coefficientPoly, masksNTT[maskIndex])
+			}
+		} else {
+			if len(pk.DecsProver.M) < pk.Params.Eta {
+				pk.nttErr = fmt.Errorf("MaterializeNTTPolys: mask polynomial count=%d want=%d", len(pk.DecsProver.M), pk.Params.Eta)
+				return
+			}
+			for maskIndex := 0; maskIndex < pk.Params.Eta; maskIndex++ {
+				masksNTT[maskIndex] = pk.RingQ.NewPoly()
+				pk.RingQ.NTT(pk.DecsProver.M[maskIndex], masksNTT[maskIndex])
+			}
+		}
+		pk.RowPolys = rowsNTT
+		pk.MaskPolys = masksNTT
+	})
+	return pk.nttErr
 }
 
 // EvalInitManyChecked is the error-returning variant of EvalInitMany for
@@ -643,7 +751,32 @@ func EvalOracle(
 		Mask:    make([][]uint64, effective.Mask.Count),
 	}
 
+	if len(ringQ.Modulus) != 1 {
+		return OracleResponses{}, fmt.Errorf("EvalOracle: expected a single-modulus ring")
+	}
 	q0 := ringQ.Modulus[0]
+	if isExactOmegaHeadRequest(prover, points) {
+		copyHeads := func(segment LayoutSegment, destination [][]uint64) error {
+			for rowIndex := segment.Offset; rowIndex < segment.End(); rowIndex++ {
+				if len(prover.Rows[rowIndex].Head) != len(points) {
+					return fmt.Errorf("EvalOracle: row %d head length=%d want=%d", rowIndex, len(prover.Rows[rowIndex].Head), len(points))
+				}
+				values := make([]uint64, len(points))
+				for pointIndex, value := range prover.Rows[rowIndex].Head {
+					values[pointIndex] = value % q0
+				}
+				destination[rowIndex-segment.Offset] = values
+			}
+			return nil
+		}
+		if err := copyHeads(effective.Witness, resp.Witness); err != nil {
+			return OracleResponses{}, err
+		}
+		if err := copyHeads(effective.Mask, resp.Mask); err != nil {
+			return OracleResponses{}, err
+		}
+		return resp, nil
+	}
 	tmp := ringQ.NewPoly()
 
 	evalSegment := func(seg LayoutSegment, dest [][]uint64) {
@@ -671,6 +804,45 @@ func EvalOracle(
 	evalSegment(effective.Witness, resp.Witness)
 	evalSegment(effective.Mask, resp.Mask)
 	return resp, nil
+}
+
+func isExactOmegaHeadRequest(prover *ProverKey, points []uint64) bool {
+	if prover == nil || len(prover.Rows) == 0 {
+		return false
+	}
+	ncols := len(prover.Rows[0].Head)
+	if ncols == 0 || len(points) != ncols {
+		return false
+	}
+	if len(prover.headMatchesCommitted) != len(prover.Rows) {
+		return false
+	}
+	for _, matches := range prover.headMatchesCommitted {
+		if !matches {
+			return false
+		}
+	}
+	if prover.PreparedDomain != nil {
+		binding := prover.PreparedDomain.Binding()
+		if binding.OmegaSize != ncols || prover.PreparedDomain.Len() < ncols {
+			return false
+		}
+		for pointIndex, point := range points {
+			if point != prover.PreparedDomain.At(pointIndex) {
+				return false
+			}
+		}
+		return true
+	}
+	if len(prover.Points) < ncols {
+		return false
+	}
+	for pointIndex, point := range points {
+		if point != prover.Points[pointIndex] {
+			return false
+		}
+	}
+	return true
 }
 
 func trimCoeffsMod(coeffs []uint64, mod uint64) []uint64 {

@@ -18,6 +18,7 @@ type intGenISISPreSignReplayConfig struct {
 	BoundRows    []int
 	BoundPolys   [][]uint64
 	PolicyRows   [][]uint64
+	SourceOnly   *intGenISISPreSignSourceOnlyReplayConfig
 }
 
 func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, omegaWitness, domainPoints []uint64) (*intGenISISPreSignReplayConfig, error) {
@@ -42,6 +43,18 @@ func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 	l := layout.IntGenISISPreSign
 	if l == nil {
 		return nil, fmt.Errorf("missing IntGenISIS pre-sign row layout")
+	}
+	if l.LayoutVersion == intGenISISPreSignLayoutVersionSourceOnlyCarrierV3 {
+		sourceOnly, err := newIntGenISISPreSignSourceOnlyReplayConfigV3(ringQ, pub, layout, omegaWitness, domainPoints)
+		if err != nil {
+			return nil, err
+		}
+		return &intGenISISPreSignReplayConfig{
+			Ring:         ringQ,
+			Layout:       *l,
+			DomainPoints: append([]uint64(nil), domainPoints...),
+			SourceOnly:   sourceOnly,
+		}, nil
 	}
 	if l.MStart != 0 ||
 		l.MAttrStart != l.MStart+l.MCount ||
@@ -161,6 +174,9 @@ func newIntGenISISPreSignReplayConfig(ringQ *ring.Ring, pub PublicInputs, layout
 }
 
 func (cfg *intGenISISPreSignReplayConfig) CoreEvaluator() ConstraintEvaluator {
+	if cfg != nil && cfg.SourceOnly != nil {
+		return cfg.SourceOnly.CoreEvaluator()
+	}
 	return func(evalIdx uint64, rows []uint64) ([]uint64, []uint64, error) {
 		if cfg == nil || cfg.Ring == nil {
 			return nil, nil, fmt.Errorf("nil IntGenISIS pre-sign replay config")
@@ -252,6 +268,9 @@ func (cfg *intGenISISPreSignReplayConfig) CoreEvaluator() ConstraintEvaluator {
 }
 
 func (cfg *intGenISISPreSignReplayConfig) CoreKEvaluator(K *kf.Field) (KConstraintEvaluator, error) {
+	if cfg != nil && cfg.SourceOnly != nil {
+		return cfg.SourceOnly.CoreKEvaluator(K)
+	}
 	if cfg == nil || cfg.Ring == nil {
 		return nil, fmt.Errorf("nil IntGenISIS pre-sign replay config")
 	}
@@ -337,4 +356,35 @@ func (cfg *intGenISISPreSignReplayConfig) CoreKEvaluator(K *kf.Field) (KConstrai
 		}
 		return fpar, nil, nil
 	}, nil
+}
+
+func (cfg *intGenISISPreSignReplayConfig) SemanticKRelationV3(K *kf.Field, execution ...ExecutionPolicy) (semanticKRelationV3, error) {
+	if cfg == nil {
+		return semanticKRelationV3{}, fmt.Errorf("nil IntGenISIS pre-sign replay config")
+	}
+	eval, err := cfg.CoreKEvaluator(K)
+	if err != nil {
+		return semanticKRelationV3{}, err
+	}
+	relation := semanticKRelationV3{Eval: eval}
+	if cfg.SourceOnly != nil {
+		relation.EvalParallel, err = cfg.SourceOnly.ParallelKEvaluator(K)
+		if err != nil {
+			return semanticKRelationV3{}, err
+		}
+		relation.EvalParallelInto, err = cfg.SourceOnly.ParallelKIntoEvaluatorV3(K)
+		if err != nil {
+			return semanticKRelationV3{}, err
+		}
+		relation.AggregateDot, err = cfg.SourceOnly.AggregateDotFactoryK(K, execution...)
+		if err != nil {
+			return semanticKRelationV3{}, err
+		}
+		relation.AggregateDotInto, err = cfg.SourceOnly.AggregateDotIntoFactoryK(K, execution...)
+		if err != nil {
+			return semanticKRelationV3{}, err
+		}
+		relation.AggregateCount = cfg.SourceOnly.AggregateConstraintCount()
+	}
+	return relation, nil
 }

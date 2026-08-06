@@ -105,7 +105,11 @@ func (r *benchPhaseRecorder) report(b *testing.B, n int) {
 		"decs.merkle",
 		"decs.formal_evaluation_cpu",
 		"decs.leaf_encoding_cpu",
+		"decs.leaf_shake_cpu",
 		"decs.leaf_hashing_cpu",
+		"decs.exact_leaf_wrapping_cpu",
+		"decs.internal_node_hashing",
+		"decs.exact_tree_storage",
 	} {
 		if d := r.durations[label]; d > 0 {
 			b.ReportMetric(float64(d.Nanoseconds())/float64(n)/1e6, label+"_ms/op")

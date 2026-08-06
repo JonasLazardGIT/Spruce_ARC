@@ -24,6 +24,10 @@ func (p *Proof) setVTargets(mat [][]uint64) {
 		p.VTargetsBitWidth = 0
 		return
 	}
+	if transcriptUsesSmallWood2025V3(p.TranscriptVersion) {
+		setCanonicalProofVTargets20(p, mat)
+		return
+	}
 	bits, rows, cols, width := packProofVTargets(p, mat)
 	p.VTargetsBits = bits
 	p.VTargetsRows = rows

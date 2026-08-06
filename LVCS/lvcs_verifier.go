@@ -5,19 +5,21 @@ import (
 	"os"
 
 	decs "vSIS-Signature/DECS"
+	swdomain "vSIS-Signature/internal/domain"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
 )
 
 // VerifierState holds verifier‐side LVCS state.
 type VerifierState struct {
-	RingQ   *ring.Ring
-	r       int
-	params  decs.Params
-	ncols   int // tail start boundary, supplied by caller
-	layout  OracleLayout
-	points  []uint64
-	nLeaves int
+	RingQ          *ring.Ring
+	r              int
+	params         decs.Params
+	ncols          int // tail start boundary, supplied by caller
+	layout         OracleLayout
+	points         []uint64
+	preparedDomain *swdomain.Prepared
+	nLeaves        int
 
 	RootHash []byte
 	Context  decs.CommitmentContext
@@ -29,6 +31,8 @@ type VerifierState struct {
 const (
 	SmallField2025MetadataVersionV2 = 2
 	SmallField2025ModeV2            = "smallfield_2025_1085_salted_tapes_v2"
+	SmallField2025ModeV3            = "smallfield_2025_1085_salted_tapes_v3"
+	SmallField2025ModeV4            = "smallfield_2025_1085_salted_tapes_v4"
 	SmallField2025HeadDomainV2      = "smallfield_head_v2"
 )
 
@@ -91,6 +95,36 @@ func NewVerifierWithParamsAndPointsV2(ringQ *ring.Ring, r int, params decs.Param
 	return v, nil
 }
 
+// NewVerifierWithParamsAndPreparedDomainV2 constructs an LVCS verifier from a
+// validated immutable domain. The raw-point constructor remains available for
+// compatibility.
+func NewVerifierWithParamsAndPreparedDomainV2(ringQ *ring.Ring, r int, params decs.Params, ncols int, prepared *swdomain.Prepared, ctx decs.CommitmentContext) (*VerifierState, error) {
+	if err := ctx.Validate(); err != nil {
+		return nil, err
+	}
+	if prepared == nil {
+		return nil, fmt.Errorf("NewVerifierWithParamsAndPreparedDomainV2: nil prepared domain")
+	}
+	binding := prepared.Binding()
+	if binding.OmegaSize != ncols {
+		return nil, fmt.Errorf("NewVerifierWithParamsAndPreparedDomainV2: omega size=%d want ncols=%d", binding.OmegaSize, ncols)
+	}
+	if _, err := decs.NewVerifierWithParamsAndPreparedDomainV2Checked(ringQ, r, params, prepared, ctx); err != nil {
+		return nil, err
+	}
+	v := &VerifierState{
+		RingQ: ringQ, r: r, params: params, ncols: ncols,
+		points: prepared.CopyPoints(), preparedDomain: prepared, nLeaves: prepared.Len(),
+		Context: ctx,
+	}
+	v.Context.Salt = append([]byte(nil), ctx.Salt...)
+	v.layout = OracleLayout{
+		Witness: LayoutSegment{Offset: 0, Count: r},
+		Mask:    LayoutSegment{Offset: r, Count: 0},
+	}
+	return v, nil
+}
+
 func (v *VerifierState) rootHashBytes() []byte {
 	if v == nil {
 		return nil
@@ -102,6 +136,9 @@ func (v *VerifierState) rootHashBytes() []byte {
 }
 
 func (v *VerifierState) newDECSVerifier() (*decs.Verifier, error) {
+	if v.preparedDomain != nil {
+		return decs.NewVerifierWithParamsAndPreparedDomainV2Checked(v.RingQ, v.r, v.params, v.preparedDomain, v.Context)
+	}
 	return decs.NewVerifierWithParamsAndPointsV2Checked(v.RingQ, v.r, v.params, v.points, v.Context)
 }
 
@@ -132,13 +169,13 @@ func (v *VerifierState) CommitStep2Formal(R [][]uint64) bool {
 	v.R = nil
 	v.RFormal = make([][]uint64, len(R))
 	for i := range R {
-		row := append([]uint64(nil), R[i]...)
-		v.RFormal[i] = row
-		for d := v.params.Degree + 1; d < len(row); d++ {
-			if row[d]%v.RingQ.Modulus[0] != 0 {
-				return false
-			}
-		}
+		v.RFormal[i] = append([]uint64(nil), R[i]...)
+	}
+	if v.RingQ == nil || len(v.RingQ.Modulus) != 1 {
+		return false
+	}
+	if err := decs.ValidateFormalRowsDegree(v.RFormal, v.params.Degree, v.RingQ.Modulus[0]); err != nil {
+		return false
 	}
 	return true
 }
@@ -184,7 +221,9 @@ func (v *VerifierState) EvalStep2SmallField2025(in SmallField2025EvalInput) bool
 
 func (v *VerifierState) validateSmallField2025EvalInput(in SmallField2025EvalInput, debug bool) (*smallField2025ReconstructionPlan, bool) {
 	meta := in.Metadata
-	if meta.Version != SmallField2025MetadataVersionV2 || meta.Mode != SmallField2025ModeV2 || meta.HeadDomainMode != SmallField2025HeadDomainV2 {
+	if meta.Version != SmallField2025MetadataVersionV2 ||
+		(meta.Mode != SmallField2025ModeV2 && meta.Mode != SmallField2025ModeV3 && meta.Mode != SmallField2025ModeV4) ||
+		meta.HeadDomainMode != SmallField2025HeadDomainV2 {
 		if debug {
 			fmt.Printf("[LVCS_DEBUG_EVALSTEP2] invalid smallfield2025 metadata version=%d mode=%q head=%q\n", meta.Version, meta.Mode, meta.HeadDomainMode)
 		}

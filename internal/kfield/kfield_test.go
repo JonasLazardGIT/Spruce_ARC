@@ -1,10 +1,15 @@
 package kfield
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"math/rand"
 	"testing"
+	"testing/iotest"
 )
 
 const testQ = 1017857 // the maintained ~20-bit prover modulus
@@ -212,6 +217,198 @@ func TestNewUncheckedTrustBoundary(t *testing.T) {
 	}
 	if _, err := NewUnchecked(testQ, 2, reducible); err != nil {
 		t.Fatalf("NewUnchecked rejected structurally valid trusted input: %v", err)
+	}
+}
+
+func TestRandomElementRejectsBiasedUint64Prefix(t *testing.T) {
+	const q = uint64(10)
+	f, err := NewUnchecked(q, 2, []uint64{1, 0, 1})
+	if err != nil {
+		t.Fatalf("NewUnchecked: %v", err)
+	}
+
+	// 2^64 mod 10 = 6. Values below 6 must be rejected; 27 and 8 are
+	// the first accepted draws for the two limbs.
+	var encoded bytes.Buffer
+	for _, v := range []uint64{0, 5, 27, 8} {
+		if err := binary.Write(&encoded, binary.LittleEndian, v); err != nil {
+			t.Fatalf("encode draw: %v", err)
+		}
+	}
+	got, err := f.RandomElement(&encoded)
+	if err != nil {
+		t.Fatalf("RandomElement: %v", err)
+	}
+	if len(got.Limb) != 2 || got.Limb[0] != 7 || got.Limb[1] != 8 {
+		t.Fatalf("RandomElement limbs=%v want [7 8]", got.Limb)
+	}
+	if encoded.Len() != 0 {
+		t.Fatalf("RandomElement left %d unread bytes", encoded.Len())
+	}
+}
+
+func TestRandomElementPropagatesReaderErrorAfterRejection(t *testing.T) {
+	const q = uint64(10)
+	f, err := NewUnchecked(q, 1, []uint64{1, 1})
+	if err != nil {
+		t.Fatalf("NewUnchecked: %v", err)
+	}
+
+	var rejected [8]byte
+	binary.LittleEndian.PutUint64(rejected[:], 5) // below 2^64 mod 10
+	wantErr := errors.New("entropy unavailable")
+	reader := io.MultiReader(bytes.NewReader(rejected[:]), iotest.ErrReader(wantErr))
+	if _, err := f.RandomElement(reader); !errors.Is(err, wantErr) {
+		t.Fatalf("RandomElement error=%v want wrapped %v", err, wantErr)
+	}
+}
+
+func testUncheckedField(t *testing.T, theta int) *Field {
+	t.Helper()
+	chi := make([]uint64, theta+1)
+	chi[0] = 1
+	chi[theta] = 1
+	f, err := NewUnchecked(testQ, theta, chi)
+	if err != nil {
+		t.Fatalf("NewUnchecked(theta=%d): %v", theta, err)
+	}
+	return f
+}
+
+func equalElemMod(f *Field, a, b Elem) bool {
+	if len(a.Limb) != f.Theta || len(b.Limb) != f.Theta {
+		return false
+	}
+	for i := 0; i < f.Theta; i++ {
+		if a.Limb[i]%f.Q != b.Limb[i]%f.Q {
+			return false
+		}
+	}
+	return true
+}
+
+func TestIdentityAndBaseFieldIntoPrimitives(t *testing.T) {
+	for _, theta := range []int{7, 13, 33} {
+		t.Run(fmt.Sprintf("theta%d", theta), func(t *testing.T) {
+			f := testUncheckedField(t, theta)
+			srcCoords := make([]uint64, theta)
+			for i := range srcCoords {
+				srcCoords[i] = testQ*uint64(i+1) + uint64(3*i+2)
+			}
+			src := Elem{Limb: srcCoords}
+
+			var zero, one, embedded, set, scaled Elem
+			f.ZeroInto(&zero)
+			f.OneInto(&one)
+			f.EmbedFInto(&embedded, testQ+41)
+			f.SetInto(&set, src)
+			f.ScaleBaseInto(&scaled, src, testQ+17)
+			if !equalElemMod(f, zero, f.Zero()) {
+				t.Fatal("ZeroInto differs from Zero")
+			}
+			if !equalElemMod(f, one, f.One()) {
+				t.Fatal("OneInto differs from One")
+			}
+			if !equalElemMod(f, embedded, f.EmbedF(testQ+41)) {
+				t.Fatal("EmbedFInto differs from EmbedF")
+			}
+			if !equalElemMod(f, set, f.Normalize(src)) {
+				t.Fatal("SetInto differs from Normalize")
+			}
+			wantScaled := f.Mul(f.EmbedF(17), f.Normalize(src))
+			if !equalElemMod(f, scaled, wantScaled) {
+				t.Fatal("ScaleBaseInto differs from embedded multiplication")
+			}
+			acc := f.Phi(srcCoords)
+			gotSub := f.Normalize(acc)
+			f.SubMulBaseInto(&gotSub, src, testQ+17)
+			wantSub := f.Sub(acc, wantScaled)
+			if !equalElemMod(f, gotSub, wantSub) {
+				t.Fatal("SubMulBaseInto differs from embedded multiplication")
+			}
+		})
+	}
+}
+
+func TestIntoPrimitivesAreSafeForOverlappingViews(t *testing.T) {
+	f := testUncheckedField(t, 7)
+
+	setBacking := []uint64{2, 3, 5, 7, 11, 13, 17, 19}
+	setSrc := Elem{Limb: setBacking[:7]}
+	wantSet := f.Normalize(setSrc)
+	setDst := Elem{Limb: setBacking[1:8]}
+	f.SetInto(&setDst, setSrc)
+	if !equalElemMod(f, setDst, wantSet) {
+		t.Fatalf("overlapping SetInto=%v want %v", setDst.Limb, wantSet.Limb)
+	}
+
+	scaleBacking := []uint64{23, 29, 31, 37, 41, 43, 47, 53}
+	scaleSrc := Elem{Limb: scaleBacking[:7]}
+	wantScale := f.Mul(f.EmbedF(59), f.Normalize(scaleSrc))
+	scaleDst := Elem{Limb: scaleBacking[1:8]}
+	f.ScaleBaseInto(&scaleDst, scaleSrc, 59)
+	if !equalElemMod(f, scaleDst, wantScale) {
+		t.Fatalf("overlapping ScaleBaseInto=%v want %v", scaleDst.Limb, wantScale.Limb)
+	}
+}
+
+func TestEvalFPolyAtKIntoMatchesWrapperAndAliasesPoint(t *testing.T) {
+	for _, theta := range []int{7, 13, 33} {
+		t.Run(fmt.Sprintf("theta%d", theta), func(t *testing.T) {
+			f := testUncheckedField(t, theta)
+			coords := make([]uint64, theta)
+			for i := range coords {
+				coords[i] = uint64(2*i + 1)
+			}
+			coeff := []uint64{testQ + 3, 5, 7, testQ*2 + 11, 13}
+			point := f.Phi(coords)
+			want := f.EvalFPolyAtK(coeff, point)
+
+			got := Elem{Limb: make([]uint64, theta)}
+			f.EvalFPolyAtKInto(&got, coeff, point)
+			if !equalElemMod(f, got, want) {
+				t.Fatalf("EvalFPolyAtKInto=%v want %v", got.Limb, want.Limb)
+			}
+
+			aliased := f.Phi(coords)
+			f.EvalFPolyAtKInto(&aliased, coeff, aliased)
+			if !equalElemMod(f, aliased, want) {
+				t.Fatalf("aliased EvalFPolyAtKInto=%v want %v", aliased.Limb, want.Limb)
+			}
+
+			backing := append(append([]uint64(nil), coords...), 0)
+			overlapPoint := Elem{Limb: backing[:theta]}
+			overlapDst := Elem{Limb: backing[1 : theta+1]}
+			f.EvalFPolyAtKInto(&overlapDst, coeff, overlapPoint)
+			if !equalElemMod(f, overlapDst, want) {
+				t.Fatalf("overlapping EvalFPolyAtKInto=%v want %v", overlapDst.Limb, want.Limb)
+			}
+		})
+	}
+}
+
+func TestMaintainedIntoPrimitivesDoNotAllocate(t *testing.T) {
+	for _, theta := range []int{7, 13} {
+		t.Run(fmt.Sprintf("theta%d", theta), func(t *testing.T) {
+			f := testUncheckedField(t, theta)
+			src := Elem{Limb: make([]uint64, theta)}
+			dst := Elem{Limb: make([]uint64, theta)}
+			for i := range src.Limb {
+				src.Limb[i] = uint64(i + 1)
+			}
+			coeff := []uint64{3, 5, 7, 11, 13}
+			allocs := testing.AllocsPerRun(1000, func() {
+				f.ZeroInto(&dst)
+				f.OneInto(&dst)
+				f.SetInto(&dst, src)
+				f.EmbedFInto(&dst, 17)
+				f.ScaleBaseInto(&dst, src, 19)
+				f.EvalFPolyAtKInto(&dst, coeff, src)
+			})
+			if allocs != 0 {
+				t.Fatalf("Into primitives allocate %.2f objects/run", allocs)
+			}
+		})
 	}
 }
 

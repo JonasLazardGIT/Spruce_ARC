@@ -5,6 +5,15 @@ const (
 	OpeningFormatOmitCols     uint8 = 1
 	OpeningFormatColumnWidths uint8 = 2
 
+	// OpeningAuthPaths is the legacy DECS representation: Nodes together with
+	// PathIndex/PathBits (or row-major Nodes) describe one path per leaf.
+	OpeningAuthPaths uint8 = 0
+	// OpeningAuthPositionalFrontierV3 is an in-memory marker reconstructed by
+	// the schema-3 proof decoder. Nodes then contains the canonical bottom-up
+	// Merkle frontier; positions are derived from AllIndices() and are never
+	// accepted from the proof wire.
+	OpeningAuthPositionalFrontierV3 uint8 = 1
+
 	DefaultHashBytes = 18
 	WideHashBytes    = 32
 
@@ -78,6 +87,11 @@ type DECSOpening struct {
 	PathBits          []byte  // packed path indices (row-major t×depth), optional
 	PathBitWidth      uint8   // bit width per path entry when PathBits is set
 	PathDepth         int     // path length when PathBits is set
+	// AuthFormat selects how Nodes is interpreted. The zero value preserves
+	// every legacy opening. The positional frontier value is only installed by
+	// the strict schema-3 canonical decoder and is batch-verified after the
+	// opened leaf hashes have been reconstructed.
+	AuthFormat uint8
 }
 
 // EntryCount returns the total number of opened indices.

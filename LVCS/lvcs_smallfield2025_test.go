@@ -41,6 +41,31 @@ func TestEvalStep2SmallField2025AcceptsReducedOpening(t *testing.T) {
 	}
 }
 
+func TestEvalStep2SmallField2025AcceptsV4ModeAndRejectsMutation(t *testing.T) {
+	fx := newSmallField2025Fixture(t)
+	open := omitAllMColumnsForSmallFieldTest(omitPColumnsForSmallFieldTest(fx.openTail, fx.meta.POmitCols), false)
+	meta := fx.meta
+	meta.Mode = SmallField2025ModeV4
+	meta.POmitCols = nil
+	meta.MOmitCols = nil
+	input := SmallField2025EvalInput{
+		VHead:    fx.vhead,
+		VBar:     fx.bar,
+		Tail:     fx.tail,
+		Opening:  open,
+		C:        fx.C,
+		Metadata: meta,
+	}
+	if !fx.vrf.EvalStep2SmallField2025(input) {
+		t.Fatalf("EvalStep2SmallField2025 rejected the explicitly supported V4 mode")
+	}
+
+	input.Metadata.Mode = SmallField2025ModeV4 + "-mutated"
+	if fx.vrf.EvalStep2SmallField2025(input) {
+		t.Fatalf("EvalStep2SmallField2025 accepted a mutated V4 mode")
+	}
+}
+
 func TestEvalStep2SmallField2025RejectsSerializedMaskOpening(t *testing.T) {
 	fx := newSmallField2025Fixture(t)
 	open := omitAllMColumnsForSmallFieldTest(omitPColumnsForSmallFieldTest(fx.openFull, fx.meta.POmitCols), false)

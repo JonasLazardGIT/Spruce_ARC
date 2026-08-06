@@ -204,11 +204,10 @@ func deriveMainPCSSubsetGamma(proof *Proof, rowCount int, q uint64) ([][]uint64,
 	if rowCount <= 0 {
 		return nil, fmt.Errorf("invalid row count %d", rowCount)
 	}
-	lambda := proof.Lambda
-	if lambda <= 0 {
-		lambda = 256
+	fs, err := newFSForProof(proof)
+	if err != nil {
+		return nil, fmt.Errorf("main Fiat-Shamir policy: %w", err)
 	}
-	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa, TranscriptVersion: proof.TranscriptVersion, TranscriptProtocol: proof.TranscriptProtocolMode})
 	material0 := [][]byte{append([]byte(nil), proofRootBytes(proof)...)}
 	if len(proof.LabelsDigest) > 0 {
 		material0 = append(material0, proof.LabelsDigest)
@@ -223,7 +222,7 @@ func deriveMainPCSSubsetGamma(proof *Proof, rowCount int, q uint64) ([][]uint64,
 		return nil, fmt.Errorf("main FS round 0: %w", err)
 	}
 	pcsOpening := resolveProofPCSOpening(proof)
-	return sampleFSMatrix(pcsOpening.Eta, rowCount, q, newFSRNG("Gamma", seed)), nil
+	return sampleFSMatrix(pcsOpening.Eta, rowCount, q, newFSRNGForTranscript(proof.TranscriptVersion, "Gamma", seed)), nil
 }
 
 func buildSigShortnessProofV18Metadata(

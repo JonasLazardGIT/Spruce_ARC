@@ -73,8 +73,9 @@ func prfCompanionOpeningLabels(mode PRFCompanionMode, checkpointSamples int) []s
 	return out
 }
 
-func prfCompanionOpeningRNG(seed3, coordDigest []byte, mode PRFCompanionMode, checkpointSamples int) *fsRNG {
-	return newFSRNG(
+func prfCompanionOpeningRNG(transcriptVersion string, seed3, coordDigest []byte, mode PRFCompanionMode, checkpointSamples int) *fsRNG {
+	return newFSRNGForTranscript(
+		transcriptVersion,
 		"PRFCompanionOpenings",
 		seed3,
 		coordDigest,
@@ -95,7 +96,13 @@ func nextNonZeroChallenge(rng *fsRNG, q uint64) uint64 {
 	if q == 0 {
 		return 0
 	}
-	v := rng.nextU64() % q
+	if rng != nil && rng.exact {
+		if q == 1 {
+			return 0
+		}
+		return 1 + rng.nextMod(q-1)
+	}
+	v := rng.nextMod(q)
 	if v == 0 {
 		return 1
 	}
@@ -294,7 +301,7 @@ func sampleDistinctCheckpointIndices(rng *fsRNG, checkpointCount int, want int) 
 	seen := make(map[int]struct{}, want)
 	out := make([]int, 0, want)
 	for len(out) < want {
-		idx := int(rng.nextU64() % uint64(checkpointCount))
+		idx := int(rng.nextMod(uint64(checkpointCount)))
 		if _, exists := seen[idx]; exists {
 			continue
 		}
@@ -309,6 +316,7 @@ func buildPRFCompanionOpeningPlan(
 	params *prf.Params,
 	mode PRFCompanionMode,
 	checkpointSamples int,
+	transcriptVersion string,
 	seed3 []byte,
 	coordDigest []byte,
 	tagPublic []int64,
@@ -324,7 +332,7 @@ func buildPRFCompanionOpeningPlan(
 		return nil, err
 	}
 	mode = prfCompanionModeDefault(mode)
-	rng := prfCompanionOpeningRNG(seed3, coordDigest, mode, checkpointSamples)
+	rng := prfCompanionOpeningRNG(transcriptVersion, seed3, coordDigest, mode, checkpointSamples)
 	q := params.Q
 	contextElems, err := publicContextElems(contextPublic, q)
 	if err != nil {
@@ -385,7 +393,7 @@ func buildPRFCompanionOpeningPlan(
 	descriptors = append(descriptors, keyTrunc)
 	masks := make([]uint64, len(descriptors))
 	for i := range masks {
-		masks[i] = rng.nextU64() % q
+		masks[i] = rng.nextMod(q)
 	}
 	return &prfCompanionOpeningPlan{
 		Mode:        mode,
@@ -438,6 +446,7 @@ func buildPRFCompanionOpeningPayload(
 	ringQ *ring.Ring,
 	omegaWitness []uint64,
 	params *prf.Params,
+	transcriptVersion string,
 	seed3 []byte,
 	coordDigest []byte,
 	tagPublic []int64,
@@ -452,7 +461,7 @@ func buildPRFCompanionOpeningPayload(
 	if layout.StartRow < 0 || layout.StartRow+layout.PackedRows > len(rows) {
 		return nil, nil, fmt.Errorf("companion row window [%d,%d) out of range for rows=%d", layout.StartRow, layout.StartRow+layout.PackedRows, len(rows))
 	}
-	plan, err := buildPRFCompanionOpeningPlan(layout, params, mode, checkpointSamples, seed3, coordDigest, tagPublic, contextPublic)
+	plan, err := buildPRFCompanionOpeningPlan(layout, params, mode, checkpointSamples, transcriptVersion, seed3, coordDigest, tagPublic, contextPublic)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -529,6 +538,7 @@ func verifyPRFCompanionOpenings(
 		params,
 		mode,
 		proof.PRFCompanion.CheckpointSamples,
+		proof.TranscriptVersion,
 		proof.Digests[2],
 		proof.PRFCompanion.CoordDigest,
 		tagPublic,

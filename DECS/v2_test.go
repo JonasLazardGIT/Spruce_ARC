@@ -20,6 +20,69 @@ func v2TestContext(role CommitmentRole, saltByte byte) CommitmentContext {
 	}
 }
 
+func TestBufferedV2HashingMatchesStreamingEncoding(t *testing.T) {
+	ctx := v2TestContext(CommitmentRoleMain, 0x5a)
+	pvals := []uint64{1, 7, 12288}
+	mvals := []uint64{9, 11}
+	tape := bytes.Repeat([]byte{0xa5}, 16)
+	const hashBytes = 21
+
+	streamLeaf := func() []byte {
+		h := sha3.NewShake256()
+		writeContextV2(h, leafDomainV2, ctx)
+		writeUint64(h, 65536)
+		writeUint64(h, 31337)
+		writeUint64(h, 12289)
+		writeUint32(h, uint32(len(pvals)))
+		for _, value := range pvals {
+			writeUint64(h, value)
+		}
+		writeUint32(h, uint32(len(mvals)))
+		for _, value := range mvals {
+			writeUint64(h, value)
+		}
+		writeLengthPrefixed(h, tape)
+		out := make([]byte, hashBytes)
+		_, _ = h.Read(out)
+		return out
+	}
+	streamNode := func(left, right []byte) []byte {
+		h := sha3.NewShake256()
+		writeContextV2(h, nodeDomainV2, ctx)
+		writeUint64(h, 17)
+		writeUint64(h, 65536)
+		writeUint32(h, hashBytes)
+		writeLengthPrefixed(h, left)
+		writeLengthPrefixed(h, right)
+		out := make([]byte, hashBytes)
+		_, _ = h.Read(out)
+		return out
+	}
+	streamPadding := func() []byte {
+		h := sha3.NewShake256()
+		writeContextV2(h, paddingDomainV2, ctx)
+		writeUint64(h, 65536)
+		writeUint32(h, hashBytes)
+		out := make([]byte, hashBytes)
+		_, _ = h.Read(out)
+		return out
+	}
+
+	leaf := hashLeafV2With(sha3.NewShake256(), ctx, 65536, 31337, 12289, pvals, mvals, tape, hashBytes)
+	if want := streamLeaf(); !bytes.Equal(leaf, want) {
+		t.Fatalf("buffered leaf hash changed transcript: got %x want %x", leaf, want)
+	}
+	right := bytes.Repeat([]byte{0x3c}, hashBytes)
+	node := hashNodeV2With(sha3.NewShake256(), ctx, 17, 65536, leaf, right, hashBytes)
+	if want := streamNode(leaf, right); !bytes.Equal(node, want) {
+		t.Fatalf("buffered node hash changed transcript: got %x want %x", node, want)
+	}
+	padding := hashPaddingV2With(sha3.NewShake256(), ctx, 65536, hashBytes)
+	if want := streamPadding(); !bytes.Equal(padding, want) {
+		t.Fatalf("buffered padding hash changed transcript: got %x want %x", padding, want)
+	}
+}
+
 func makeV2FormalProver(t *testing.T) *Prover {
 	t.Helper()
 	ringQ, err := ring.NewRing(16, []uint64{12289})

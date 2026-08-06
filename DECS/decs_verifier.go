@@ -19,6 +19,10 @@ type Verifier struct {
 // NewVerifierWithParamsAndPointsV2Checked constructs a verifier that accepts
 // only canonical v2 openings under ctx and a full declared-width root.
 func NewVerifierWithParamsAndPointsV2Checked(ringQ *ring.Ring, r int, params Params, points []uint64, ctx CommitmentContext) (*Verifier, error) {
+	return newVerifierWithParamsAndPointsV2Checked(ringQ, r, params, points, ctx, true)
+}
+
+func newVerifierWithParamsAndPointsV2Checked(ringQ *ring.Ring, r int, params Params, points []uint64, ctx CommitmentContext, validateDomain bool) (*Verifier, error) {
 	if err := ctx.Validate(); err != nil {
 		return nil, err
 	}
@@ -34,11 +38,13 @@ func NewVerifierWithParamsAndPointsV2Checked(ringQ *ring.Ring, r int, params Par
 	if params.Eta <= 0 {
 		return nil, fmt.Errorf("decs: invalid eta (must be > 0)")
 	}
-	if len(ringQ.Modulus) != 1 {
+	if ringQ == nil || len(ringQ.Modulus) != 1 {
 		return nil, fmt.Errorf("decs: only single-modulus rings are supported (len(Modulus) must be 1)")
 	}
-	if err := validatePoints(points, ringQ.Modulus[0]); err != nil {
-		return nil, err
+	if validateDomain {
+		if err := validatePoints(points, ringQ.Modulus[0]); err != nil {
+			return nil, err
+		}
 	}
 	return &Verifier{
 		ringQ: ringQ, r: r, params: params,

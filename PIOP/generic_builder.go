@@ -7,6 +7,7 @@ import (
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
 	"vSIS-Signature/credential"
+	swDomain "vSIS-Signature/internal/domain"
 	kf "vSIS-Signature/internal/kfield"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -16,6 +17,7 @@ import (
 const FSModeCredential = "PACS-Credential"
 
 type preparedCredentialBuild struct {
+	ringQ                 *ring.Ring
 	rows                  []*ring.Poly
 	rowInputs             []lvcs.RowInput
 	rowLayout             RowLayout
@@ -26,6 +28,10 @@ type preparedCredentialBuild struct {
 	omega                 []uint64
 	omegaWitness          []uint64
 	domainPoints          []uint64
+	preparedDomain        *swDomain.Prepared
+	relationIdentity      string
+	strictRowProvenance   bool
+	showingReplay         *intGenISISShowingReplayConfig
 	builtPK               *lvcs.ProverKey
 	skipConstraintRebuild bool
 }
@@ -34,20 +40,71 @@ func rowLayoutCanReusePreparedConstraintSet(layout RowLayout, opts SimOpts) bool
 	if rowLayoutHasCoeffNativeSig(layout) {
 		return true
 	}
+	if l := layout.IntGenISISPreSign; l != nil && l.LayoutVersion == intGenISISPreSignLayoutVersionSourceOnlyCarrierV3 {
+		return true
+	}
 	l := layout.IntGenISISShowing
 	return opts.Theta > 1 && l != nil && l.CoreRowCount == 0
 }
 
 func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set ConstraintSet, opts SimOpts, personalization string, prepared *preparedCredentialBuild) (*Proof, error) {
 	opts.applyDefaults()
+	opts, err := optsWithTrustedPresetID(opts, pub)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidatePublicationV4Widths(opts); err != nil {
+		return nil, err
+	}
+	if err := ValidateAggregateROQueryBudget(opts); err != nil {
+		return nil, err
+	}
+	strictV3 := transcriptUsesSmallWood2025V3(opts.TranscriptVersion)
+	if strictV3 && set.PRFCompanionLayout != nil {
+		return nil, fmt.Errorf("strict v3 relation must not carry a PRF companion layout")
+	}
 	if personalization == "" {
 		personalization = FSModeCredential
 	}
 	if opts.Credential {
 		// Credential path: build rows, commit, derive mask config, and run FS with supplied constraints/publics.
-		ringQ, omega, ncols, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
-		if err != nil {
-			return nil, fmt.Errorf("load params/omega: %w", err)
+		var (
+			ringQ        *ring.Ring
+			omega        []uint64
+			domainPoints []uint64
+			ncols        int
+			err          error
+		)
+		if prepared != nil && prepared.preparedDomain != nil {
+			ringQ = prepared.ringQ
+			if ringQ == nil || len(ringQ.Modulus) != 1 {
+				return nil, fmt.Errorf("prepared credential build has invalid ring")
+			}
+			nLeaves := opts.NLeaves
+			if nLeaves <= 0 {
+				nLeaves = int(ringQ.N)
+			}
+			ncols = resolvePCSNCols(opts, opts.NCols)
+			if ncols <= 0 {
+				ncols = opts.NCols
+			}
+			binding := swDomain.Binding{Q: ringQ.Modulus[0], NLeaves: nLeaves, OmegaSize: ncols, Ell: opts.Ell}
+			if err := prepared.preparedDomain.ValidateBinding(binding); err != nil {
+				return nil, fmt.Errorf("prepared credential domain: %w", err)
+			}
+			if prepared.relationIdentity != pub.HashRelation {
+				return nil, fmt.Errorf("prepared credential relation mismatch: got %q want %q", prepared.relationIdentity, pub.HashRelation)
+			}
+			omega = prepared.preparedDomain.CopyRange(0, ncols)
+			domainPoints = prepared.domainPoints
+			if len(domainPoints) != nLeaves {
+				return nil, fmt.Errorf("prepared credential domain cache len=%d want %d", len(domainPoints), nLeaves)
+			}
+		} else {
+			ringQ, omega, ncols, err = loadParamsAndOmegaForRelation(opts, pub.HashRelation)
+			if err != nil {
+				return nil, fmt.Errorf("load params/omega: %w", err)
+			}
 		}
 		pub, err = publicInputsWithRingDegree(pub, int(ringQ.N))
 		if err != nil {
@@ -60,8 +117,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if ncols < witnessNCols {
 			return nil, fmt.Errorf("invalid lvcs ncols=%d (must be >= witness ncols=%d)", ncols, witnessNCols)
 		}
-		var domainPoints []uint64
-		if opts.DomainMode == DomainModeExplicit {
+		if opts.DomainMode == DomainModeExplicit && (prepared == nil || prepared.preparedDomain == nil) {
 			if opts.NLeaves <= 0 {
 				opts.NLeaves = int(ringQ.N)
 			}
@@ -78,7 +134,7 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			return nil, fmt.Errorf("witness omega len=%d < witness ncols=%d", len(omega), witnessNCols)
 		}
 		omegaWitness := append([]uint64(nil), omega[:witnessNCols]...)
-		if opts.DomainMode == DomainModeExplicit && pub.HashRelation != "" {
+		if opts.DomainMode == DomainModeExplicit && pub.HashRelation != "" && (prepared == nil || len(prepared.omegaWitness) == 0) {
 			nLeaves := opts.NLeaves
 			if nLeaves <= 0 {
 				nLeaves = int(ringQ.N)
@@ -113,25 +169,25 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 				omegaWitness = append([]uint64(nil), omega[:witnessNCols]...)
 			}
 			if len(prepared.omega) > 0 {
-				omega = append([]uint64(nil), prepared.omega...)
+				omega = prepared.omega
 				ncols = len(omega)
 				if ncols < witnessNCols {
 					return nil, fmt.Errorf("prepared lvcs omega len=%d < witness ncols=%d", ncols, witnessNCols)
 				}
 			}
 			if len(prepared.domainPoints) > 0 {
-				domainPoints = append([]uint64(nil), prepared.domainPoints...)
+				domainPoints = prepared.domainPoints
 			}
 			if len(prepared.omegaWitness) > 0 {
 				if len(prepared.omegaWitness) != witnessNCols {
 					return nil, fmt.Errorf("prepared witness omega len=%d want %d", len(prepared.omegaWitness), witnessNCols)
 				}
-				omegaWitness = append([]uint64(nil), prepared.omegaWitness...)
+				omegaWitness = prepared.omegaWitness
 			}
 		} else {
 			useShowingRows := opts.CoeffPacking && wit.CoeffNativeShowing != nil
 			if useShowingRows {
-				params, perr := loadPRFParamsForOpts(opts)
+				params, perr := loadBoundPRFParamsForOpts(opts)
 				if perr != nil {
 					return nil, fmt.Errorf("load prf params: %w", perr)
 				}
@@ -160,6 +216,9 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if set.PRFLayout != nil {
 			return nil, fmt.Errorf("old PRF layout is no longer supported")
 		}
+		if strictV3 && set.PRFCompanionLayout != nil {
+			return nil, fmt.Errorf("strict v3 row builder produced a forbidden PRF companion layout")
+		}
 		if opts.DomainMode == DomainModeExplicit {
 			requiredPCSNCols := requiredExplicitPCSNColsForRows(ringQ, rowInputs, opts.Ell)
 			if requiredPCSNCols > ncols {
@@ -180,7 +239,14 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		var proofSalt []byte
 		var mainCommitmentContext decs.CommitmentContext
 		labels := BuildPublicLabels(pub)
-		labelsDigest := computeLabelsDigest(labels)
+		labelsDigest := computeLabelsDigestForOpts(labels, opts)
+		var publicStatementBytes []byte
+		if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+			publicStatementBytes, err = canonicalPublicStatementWithLayoutBytesV3(pub, rowLayout)
+			if err != nil {
+				return nil, fmt.Errorf("canonical v3 public statement: %w", err)
+			}
+		}
 
 		parAlg := set.ParallelAlgDeg
 		aggAlg := set.AggregatedAlgDeg
@@ -230,7 +296,13 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		pcsGeometry := makeLegacyPCSGeometry(witnessNCols, sfNCols, opts.Theta, opts.Ell, len(witnessPolys), witnessCount, maskRowOffset, maskRowCount)
 
 		if opts.Theta > 1 {
-			sf, sfErr := deriveSmallFieldParamsNoRows(ringQ, omegaWitness, opts.Theta)
+			var sf smallFieldParams
+			var sfErr error
+			if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+				sf, sfErr = deriveSmallFieldParamsNoRowsV3(ringQ, omegaWitness, opts.Theta)
+			} else {
+				sf, sfErr = deriveSmallFieldParamsNoRows(ringQ, omegaWitness, opts.Theta)
+			}
 			if sfErr != nil {
 				return nil, fmt.Errorf("small-field params: %w", sfErr)
 			}
@@ -302,7 +374,11 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			var pcsRows *builtPCSRows
 			var pcsErr error
 			if pub.IntGenISIS {
-				pcsRows, pcsErr = buildSmallFieldPCSRowsFromLiteralInputs(
+				buildLiteral := buildSmallFieldPCSRowsFromLiteralInputs
+				if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+					buildLiteral = buildSmallFieldPCSRowsFromLiteralInputsV3
+				}
+				pcsRows, pcsErr = buildLiteral(
 					ringQ,
 					omegaWitness,
 					len(omega),
@@ -408,19 +484,46 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		if rowDeg := rowOracleDegreeFloor(ringQ, rowInputs, opts.Ell); rowDeg >= 0 {
 			decsParams.Degree = rowDeg
 		}
+		if prepared != nil && prepared.strictRowProvenance {
+			if prepared.preparedDomain == nil {
+				return nil, fmt.Errorf("strict prepared rows require an immutable prepared domain")
+			}
+			for rowIndex := range rowInputs {
+				if rowInputs[rowIndex].Poly == nil && len(rowInputs[rowIndex].PolyCoeffs) == 0 {
+					// Interpolated Head/Tail rows are constructed canonically by
+					// LVCS itself and have no independently supplied polynomial to
+					// authenticate or reuse through the direct-row fast path.
+					continue
+				}
+				authenticated, authErr := lvcs.AuthenticateDirectRowHead(ringQ, prepared.preparedDomain, rowInputs[rowIndex])
+				if authErr != nil {
+					return nil, fmt.Errorf("authenticate strict row %d: %w", rowIndex, authErr)
+				}
+				rowInputs[rowIndex] = authenticated
+			}
+		}
 		// Commit rows to get root/pk/layout using possibly updated rowInputs/layout.
 		proofSalt, err = sampleProofSaltV2(opts)
 		if err != nil {
 			return nil, err
 		}
-		mainCommitmentContext, err = mainCommitmentContextV2(proofSalt)
+		mainCommitmentContext, err = mainCommitmentContextForTranscript(proofSalt, opts.TranscriptVersion)
 		if err != nil {
 			return nil, err
 		}
-		commitStart := time.Now()
-		rootHash, pk, oracleLayout, err = commitRows(ringQ, rowInputs, opts.Ell, decsParams, witnessCount, maskRowOffset, maskRowCount, domainPoints, mainCommitmentContext, opts.PhaseRecorder)
+		var commitStart time.Time
 		if opts.PhaseRecorder != nil {
-			opts.PhaseRecorder.RecordDuration("showing.lvcs_commit_total", time.Since(commitStart))
+			commitStart = time.Now()
+		}
+		var preparedDomain *swDomain.Prepared
+		deferNTT := false
+		if prepared != nil && prepared.strictRowProvenance && prepared.skipConstraintRebuild && rowLayoutCanReusePreparedConstraintSet(rowLayout, opts) {
+			preparedDomain = prepared.preparedDomain
+			deferNTT = preparedDomain != nil
+		}
+		rootHash, pk, oracleLayout, err = commitRowsPrepared(ringQ, rowInputs, opts.Ell, decsParams, witnessCount, maskRowOffset, maskRowCount, domainPoints, preparedDomain, mainCommitmentContext, opts.PhaseRecorder, deferNTT, opts.ExecutionPolicy)
+		if opts.PhaseRecorder != nil {
+			opts.PhaseRecorder.RecordDuration(phasePrefixForRowLayout(rowLayout)+".lvcs_commit_total", time.Since(commitStart))
 		}
 		if err != nil {
 			return nil, fmt.Errorf("commit rows: %w", err)
@@ -455,6 +558,9 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 		// replay constraint rebuilding must use the witness polynomials.
 		skipConstraintRebuild := prepared != nil && prepared.skipConstraintRebuild && rowLayoutCanReusePreparedConstraintSet(rowLayout, opts)
 		if !skipConstraintRebuild {
+			if err := pk.MaterializeNTTPolys(); err != nil {
+				return nil, fmt.Errorf("materialize LVCS NTT polynomials: %w", err)
+			}
 			constraintRows := pk.RowPolys
 			if opts.Theta > 1 {
 				constraintRows = make([]*ring.Poly, len(witnessPolys))
@@ -583,6 +689,19 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			}
 		}
 		// Assemble MaskingFSInput and run.
+		var semanticKFactory semanticKRelationFactoryV3
+		if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+			var preparedShowingReplay *intGenISISShowingReplayConfig
+			if prepared != nil {
+				preparedShowingReplay = prepared.showingReplay
+			}
+			semanticKFactory, err = intGenISISSemanticKFactoryV3(
+				ringQ, sfK, pub, rowLayout, omegaWitness, domainPoints, set, opts, preparedShowingReplay,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("strict v3 semantic relation: %w", err)
+			}
+		}
 		mfsIn := MaskingFSInput{
 			RingQ:              ringQ,
 			Opts:               opts,
@@ -604,40 +723,49 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 			FaggIntCoeffs:      set.FaggIntCoeffs,
 			FaggNormCoeffs:     set.FaggNormCoeffs,
 			PRFCompanionLayout: set.PRFCompanionLayout,
-			PRFCompanionRows:   companionRowInputs,
-			PRFTagPublic:       append([]int64(nil), pub.Tag...),
-			PRFContextPublic:   append([]int64(nil), pub.Context...),
-			HashRelation:       pub.HashRelation,
-			RowInputs:          rowInputs,
+			PRFCompanionRows: func() []lvcs.RowInput {
+				if set.PRFCompanionLayout == nil {
+					return nil
+				}
+				return companionRowInputs
+			}(),
+			PRFTagPublic:     append([]int64(nil), pub.Tag...),
+			PRFContextPublic: append([]int64(nil), pub.Context...),
+			HashRelation:     pub.HashRelation,
+			RowInputs:        rowInputs,
 			// Theta>1 derives row heads from PK and layout on Ω.
-			WitnessPolys:              witnessPolys,
-			MaskPolys:                 maskPolys,
-			MaskPolyCoeffs:            maskCoeffRows,
-			MaskPolysK:                maskPolysK,
-			MaskRowOffset:             maskRowOffset,
-			MaskRowCount:              maskRowCount,
-			PCSGeometry:               pcsGeometry,
-			MaskDegreeTarget:          maskTarget,
-			MaskDegreeBound:           maskBound,
-			Personalization:           personalization,
-			NCols:                     witnessNCols,
-			PCSNCols:                  sfNCols,
-			LVCSNCols:                 sfNCols,
-			DecsParams:                decsParams,
-			LabelsDigest:              labelsDigest,
-			SigShortnessBindingDigest: sigShortnessBindingDigest,
-			SigShortness:              sigShortness,
-			SmallFieldChi:             sfChi,
-			SmallFieldOmegaS1:         sfOmegaS1,
-			SmallFieldMuInv:           sfMuInv,
-			SmallFieldK:               sfK,
+			WitnessPolys:               witnessPolys,
+			MaskPolys:                  maskPolys,
+			MaskPolyCoeffs:             maskCoeffRows,
+			MaskPolysK:                 maskPolysK,
+			MaskRowOffset:              maskRowOffset,
+			MaskRowCount:               maskRowCount,
+			PCSGeometry:                pcsGeometry,
+			MaskDegreeTarget:           maskTarget,
+			MaskDegreeBound:            maskBound,
+			Personalization:            personalization,
+			NCols:                      witnessNCols,
+			PCSNCols:                   sfNCols,
+			LVCSNCols:                  sfNCols,
+			DecsParams:                 decsParams,
+			LabelsDigest:               labelsDigest,
+			PublicStatementBytes:       publicStatementBytes,
+			SigShortnessBindingDigest:  sigShortnessBindingDigest,
+			SigShortness:               sigShortness,
+			SmallFieldChi:              sfChi,
+			SmallFieldOmegaS1:          sfOmegaS1,
+			SmallFieldMuInv:            sfMuInv,
+			SmallFieldK:                sfK,
+			SemanticKConstraintFactory: semanticKFactory,
 		}
 		proof, err := RunMaskingFS(mfsIn)
 		if err != nil {
 			return nil, fmt.Errorf("RunMaskingFS: %w", err)
 		}
 		proof.HashRelation = pub.HashRelation
-		proof.LabelsDigest = labelsDigest
+		if !transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			proof.LabelsDigest = labelsDigest
+		}
 		proof.PRFLayout = nil
 		if proof.PRFCompanion != nil && proof.PRFCompanion.Layout == nil {
 			proof.PRFCompanion.Layout = clonePRFCompanionLayout(set.PRFCompanionLayout)
@@ -656,6 +784,17 @@ func buildWithConstraintsPrepared(pub PublicInputs, wit WitnessInputs, set Const
 // VerifyWithConstraints replays the verifier transcript for a built proof.
 func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, opts SimOpts, personalization string) (bool, error) {
 	opts.applyDefaults()
+	var err error
+	opts, err = optsWithTrustedPresetID(opts, pub)
+	if err != nil {
+		return false, err
+	}
+	if err := ValidatePublicationV4Widths(opts); err != nil {
+		return false, err
+	}
+	if err := ValidateAggregateROQueryBudget(opts); err != nil {
+		return false, err
+	}
 	if proof == nil {
 		return false, fmt.Errorf("nil proof")
 	}
@@ -668,6 +807,9 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 	if opts.Credential {
 		if proof.PRFLayout != nil {
 			return false, fmt.Errorf("old PRF layout is no longer supported")
+		}
+		if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) && (set.PRFCompanionLayout != nil || proof.PRFCompanion != nil) {
+			return false, fmt.Errorf("strict v3 proof must not carry a PRF companion layout or payload")
 		}
 		if (set.PRFCompanionLayout == nil) != (proof.PRFCompanion == nil) {
 			return false, fmt.Errorf("proof PRF companion presence does not match the verifier-selected relation")
@@ -684,9 +826,20 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			return false, err
 		}
 		labels := BuildPublicLabels(pub)
-		digest := computeLabelsDigest(labels)
-		if len(proof.LabelsDigest) != len(digest) || !equalByteSlices(digest, proof.LabelsDigest) {
-			return false, fmt.Errorf("labels digest mismatch")
+		var publicStatementBytes []byte
+		if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			if len(proof.LabelsDigest) != 0 {
+				return false, fmt.Errorf("v3 proof carries forbidden labels digest")
+			}
+			publicStatementBytes, err = canonicalPublicStatementWithLayoutBytesV3(pub, proof.RowLayout)
+			if err != nil {
+				return false, fmt.Errorf("canonical v3 public statement: %w", err)
+			}
+		} else {
+			digest := computeLabelsDigestForOpts(labels, opts)
+			if len(proof.LabelsDigest) != len(digest) || !equalByteSlices(digest, proof.LabelsDigest) {
+				return false, fmt.Errorf("labels digest mismatch")
+			}
 		}
 		var domainPoints []uint64
 		witnessNCols := opts.NCols
@@ -750,6 +903,9 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		var (
 			eval              ConstraintEvaluator
 			evalK             KConstraintEvaluator
+			evalKParallel     KParallelConstraintEvaluator
+			aggregateDotK     KAggregateDotFactory
+			aggregateCount    int
 			rowCount          int
 			haveCred          bool
 			havePRF           bool
@@ -763,14 +919,22 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			cfgPost           *transformBridgePostSignConfig
 		)
 		if proof.Theta > 1 {
-			if len(proof.Chi) == 0 {
-				return false, fmt.Errorf("missing Chi for K replay")
+			if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+				params, err := deriveSmallFieldParamsNoRowsV3(ringQ, omegaWitness, proof.Theta)
+				if err != nil {
+					return false, fmt.Errorf("fixed v3 K profile: %w", err)
+				}
+				K = params.K
+			} else {
+				if len(proof.Chi) == 0 {
+					return false, fmt.Errorf("missing Chi for K replay")
+				}
+				k, err := kf.New(ringQ.Modulus[0], proof.Theta, proof.Chi)
+				if err != nil {
+					return false, fmt.Errorf("kfield.New: %w", err)
+				}
+				K = k
 			}
-			k, err := kf.New(ringQ.Modulus[0], proof.Theta, proof.Chi)
-			if err != nil {
-				return false, fmt.Errorf("kfield.New: %w", err)
-			}
-			K = k
 		}
 		// Build post-sign evaluator when A is present.
 		var faggOverrideIdxs []int
@@ -792,7 +956,9 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 				if cfgShow.Layout.WitnessRows() > rowCount {
 					rowCount = cfgShow.Layout.WitnessRows()
 				}
-				faggOverrideIdxs = cfgShow.PRFDirectFullFaggOverrideIdxs()
+				if !transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+					faggOverrideIdxs = cfgShow.PRFDirectFullFaggOverrideIdxs()
+				}
 				haveCred = true
 			} else {
 				if !rowLayoutHasCoeffNativeSig(proof.RowLayout) {
@@ -839,11 +1005,14 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			}
 			eval = cfgPre.CoreEvaluator()
 			if proof.Theta > 1 && K != nil {
-				ek, err := cfgPre.CoreKEvaluator(K)
+				relation, err := cfgPre.SemanticKRelationV3(K)
 				if err != nil {
 					return false, err
 				}
-				evalK = ek
+				evalK = relation.Eval
+				evalKParallel = relation.EvalParallel
+				aggregateDotK = relation.AggregateDot
+				aggregateCount = relation.AggregateCount
 			}
 			rowCount = cfgPre.Layout.WitnessRows()
 			haveCred = true
@@ -931,12 +1100,13 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		}
 		if set.PRFCompanionLayout != nil && proof.PRFCompanion != nil {
 			cfgCompanion := PRFCompanionBridgeConfig{
-				Ring:         ringQ,
-				Layout:       set.PRFCompanionLayout,
-				DomainPoints: domainPoints,
-				OmegaWitness: omegaWitness,
-				Seed2:        append([]byte(nil), proof.Digests[1]...),
-				BridgeChecks: copyMatrix(proof.PRFCompanion.BridgeChecks),
+				Ring:              ringQ,
+				Layout:            set.PRFCompanionLayout,
+				DomainPoints:      domainPoints,
+				OmegaWitness:      omegaWitness,
+				Seed2:             append([]byte(nil), proof.Digests[1]...),
+				BridgeChecks:      copyMatrix(proof.PRFCompanion.BridgeChecks),
+				TranscriptVersion: proof.TranscriptVersion,
 			}
 			if err := cfgCompanion.verifyDigest(proof.PRFCompanion); err != nil {
 				return false, err
@@ -965,11 +1135,13 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 		}
 		staticZeroPar := 0
 		staticZeroAgg := 0
-		if coeffRowsAllZero(append(append([][]uint64{}, set.FparIntCoeffs...), set.FparNormCoeffs...)) {
-			staticZeroPar = len(set.FparInt) + len(set.FparNorm)
-		}
-		if coeffRowsAllZero(append(append([][]uint64{}, set.FaggIntCoeffs...), set.FaggNormCoeffs...)) {
-			staticZeroAgg = len(set.FaggInt) + len(set.FaggNorm)
+		if !transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			if coeffRowsAllZero(append(append([][]uint64{}, set.FparIntCoeffs...), set.FparNormCoeffs...)) {
+				staticZeroPar = len(set.FparInt) + len(set.FparNorm)
+			}
+			if coeffRowsAllZero(append(append([][]uint64{}, set.FaggIntCoeffs...), set.FaggNormCoeffs...)) {
+				staticZeroAgg = len(set.FaggInt) + len(set.FaggNorm)
+			}
 		}
 		if !haveCred && !havePRF {
 			formalParRows := append(append([][]uint64{}, set.FparIntCoeffs...), set.FparNormCoeffs...)
@@ -1011,18 +1183,32 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 			}
 		}
 		replay := &ConstraintReplay{
-			Eval:             eval,
-			EvalK:            evalK,
-			RowCount:         rowCount,
-			BoundRows:        boundRows,
-			CarryRows:        carryRows,
-			BoundB:           boundB,
-			CarryBound:       carryBound,
-			Fpar:             append(append([]*ring.Poly{}, set.FparInt...), set.FparNorm...),
-			Fagg:             append(append([]*ring.Poly{}, set.FaggInt...), set.FaggNorm...),
-			FparCoeffs:       replayFparCoeffs,
-			FaggCoeffs:       replayFaggCoeffs,
-			FaggOverrideIdxs: faggOverrideIdxs,
+			Eval:                 eval,
+			EvalK:                evalK,
+			EvalKParallel:        evalKParallel,
+			AggregateDotK:        aggregateDotK,
+			AggregateCount:       aggregateCount,
+			RowCount:             rowCount,
+			BoundRows:            boundRows,
+			CarryRows:            carryRows,
+			BoundB:               boundB,
+			CarryBound:           carryBound,
+			Fpar:                 append(append([]*ring.Poly{}, set.FparInt...), set.FparNorm...),
+			Fagg:                 append(append([]*ring.Poly{}, set.FaggInt...), set.FaggNorm...),
+			FparCoeffs:           replayFparCoeffs,
+			FaggCoeffs:           replayFaggCoeffs,
+			FaggOverrideIdxs:     faggOverrideIdxs,
+			PublicStatementBytes: publicStatementBytes,
+		}
+		if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			// Strict v3 consumes the semantic relation IR only. Formal coefficient
+			// families remain a legacy prover/debug implementation detail.
+			replay.Fpar = nil
+			replay.Fagg = nil
+			replay.FparCoeffs = nil
+			replay.FaggCoeffs = nil
+			replay.FparOverrideIdxs = nil
+			replay.FaggOverrideIdxs = nil
 		}
 		if proof.HashRelation == credential.HashRelationBBTran {
 			if len(pub.Ac) > 0 && len(pub.A) == 0 {
@@ -1056,7 +1242,7 @@ func VerifyWithConstraints(proof *Proof, set ConstraintSet, pub PublicInputs, op
 					return false, err
 				}
 			}
-			params, perr := loadPRFParamsForOpts(opts)
+			params, perr := loadBoundPRFParamsForOpts(opts)
 			if perr != nil {
 				return false, fmt.Errorf("load prf params: %w", perr)
 			}

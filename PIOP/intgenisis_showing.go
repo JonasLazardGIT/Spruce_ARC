@@ -1,9 +1,11 @@
 package PIOP
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"reflect"
 	"runtime"
 	"sync"
 	"time"
@@ -11,6 +13,7 @@ import (
 	decs "vSIS-Signature/DECS"
 	lvcs "vSIS-Signature/LVCS"
 	"vSIS-Signature/credential"
+	swDomain "vSIS-Signature/internal/domain"
 	"vSIS-Signature/prf"
 
 	"github.com/tuneinsight/lattigo/v4/ring"
@@ -20,6 +23,7 @@ const (
 	intGenISISShowingLayoutVersionYLinearBoundedV2                   = "intgenisis_showing_y_linear_bounded_sources_v2"
 	intGenISISShowingLayoutVersionProjectionUDigitsYViewBoundedV4    = "intgenisis_showing_project_u_digits_y_view_bounded_sources_v4"
 	intGenISISShowingLayoutVersionProjectionUDigitsYBoundedSourcesV6 = "intgenisis_showing_project_u_digits_y_bounded_sources_v6"
+	intGenISISShowingLayoutVersionInputTraceCarrierV3                = "intgenisis_showing_input_trace_ternary_carrier_v3"
 )
 
 type intGenISISShortnessMembershipBackend string
@@ -31,7 +35,12 @@ const (
 
 const (
 	intGenISISLinearHatSourceMaterialized = "materialized_hat"
-	intGenISISLinearHatSourceView         = "source_view"
+	// intGenISISLinearHatSourceMuX0AggregateFused is deliberately narrower
+	// than a generic virtual/source-view hat mode.  Only the public-linear
+	// mu_sig and x0 terms are substituted into the projected signature
+	// aggregate.  The nonlinear x1/Z inverse relation continues to consume
+	// independently committed, materialized hats.
+	intGenISISLinearHatSourceMuX0AggregateFused = "mu_x0_aggregate_fused"
 )
 
 // IntGenISISShowingPreparedContext stores public, transcript-independent
@@ -41,14 +50,16 @@ const (
 type IntGenISISShowingPreparedContext struct {
 	mu sync.Mutex
 
-	pub          PublicInputs
-	opts         SimOpts
-	ringQ        *ring.Ring
-	omega        []uint64
-	domainPoints []uint64
-	pcsNCols     int
-	prfParams    *prf.Params
-	groupRounds  int
+	pub            PublicInputs
+	opts           SimOpts
+	ringQ          *ring.Ring
+	omega          []uint64
+	domainPoints   []uint64
+	preparedDomain *swDomain.Prepared
+	publicBinding  []byte
+	pcsNCols       int
+	prfParams      *prf.Params
+	groupRounds    int
 
 	yLinearKey   [32]byte
 	yLinearCache *intGenISISYLinearMapCache
@@ -56,6 +67,47 @@ type IntGenISISShowingPreparedContext struct {
 	projectedBasisOutputCount  int
 	projectedBasisSourceBlocks int
 	projectedBasis             *transformBridgeBasisCache
+
+	// strictReplay is the witness-independent strict-v3 replay plan.  It owns
+	// the input-trace IR and all public transform tables used by both semantic
+	// metadata construction and semantic-Q evaluation.  The prepared context
+	// is the lifetime/binding boundary, so repeated proofs never rebuild it.
+	strictReplay *intGenISISShowingReplayConfig
+}
+
+func (ctx *IntGenISISShowingPreparedContext) loadOrBuildStrictReplay(
+	ringQ *ring.Ring,
+	pub PublicInputs,
+	layout RowLayout,
+	omegaWitness, domainPoints []uint64,
+	prfCompanionLayout *PRFCompanionLayout,
+) (*intGenISISShowingReplayConfig, error) {
+	if ctx == nil {
+		return newIntGenISISShowingReplayConfig(ringQ, pub, layout, omegaWitness, domainPoints, prfCompanionLayout)
+	}
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	if ctx.strictReplay != nil {
+		if layout.IntGenISISShowing == nil || !reflect.DeepEqual(ctx.strictReplay.Layout, *layout.IntGenISISShowing) {
+			return nil, fmt.Errorf("prepared IntGenISIS showing replay layout mismatch")
+		}
+		return ctx.strictReplay, nil
+	}
+	cfg, err := newIntGenISISShowingReplayConfig(ringQ, pub, layout, omegaWitness, domainPoints, prfCompanionLayout)
+	if err != nil {
+		return nil, err
+	}
+	ctx.strictReplay = cfg
+	return cfg, nil
+}
+
+func (ctx *IntGenISISShowingPreparedContext) strictReplayConfig() *intGenISISShowingReplayConfig {
+	if ctx == nil {
+		return nil
+	}
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	return ctx.strictReplay
 }
 
 func (ctx *IntGenISISShowingPreparedContext) loadYLinearCache(key [32]byte) *intGenISISYLinearMapCache {
@@ -108,7 +160,14 @@ func intGenISISShortnessMembershipBackendForOpts(_ SimOpts) intGenISISShortnessM
 }
 
 func intGenISISOptsUseStrictSmallField2025(opts SimOpts) bool {
-	return normalizeTranscriptProtocolMode(opts.TranscriptProtocolMode) == TranscriptProtocolSmallField2025V2
+	return transcriptUsesStrictSmallField2025(opts.TranscriptVersion, opts.TranscriptProtocolMode)
+}
+
+func intGenISISOptsUseStructuralV3(opts SimOpts) bool {
+	version := normalizeTranscriptVersion(opts.TranscriptVersion)
+	protocol := normalizeTranscriptProtocolMode(opts.TranscriptProtocolMode)
+	return (version == TranscriptVersionSmallWood2025V3 && protocol == TranscriptProtocolSmallField2025V3) ||
+		(version == TranscriptVersionSmallWood2025V4 && protocol == TranscriptProtocolSmallField2025V4)
 }
 
 func rejectIntGenISISUnsupportedDegreeCappedModes(opts SimOpts) error {
@@ -249,6 +308,28 @@ func BuildCredentialRowsShowingIntGenISIS(
 	maskRowOffset, maskRowCount, witnessCount, startIdx, ncols int,
 	err error,
 ) {
+	return buildCredentialRowsShowingIntGenISIS(
+		ringQ, pub, wit, prfParamsLenKey, prfParamsLenNonce, prfRF, prfRP, prfGroupRounds, opts, nil,
+	)
+}
+
+func buildCredentialRowsShowingIntGenISIS(
+	ringQ *ring.Ring,
+	pub PublicInputs,
+	wit WitnessInputs,
+	prfParamsLenKey, prfParamsLenNonce, prfRF, prfRP, prfGroupRounds int,
+	opts SimOpts,
+	preparedOmega []uint64,
+) (
+	rows []*ring.Poly,
+	rowInputs []lvcs.RowInput,
+	layout RowLayout,
+	prfLayout *PRFLayout,
+	prfCompanionLayout *PRFCompanionLayout,
+	decsParams decs.Params,
+	maskRowOffset, maskRowCount, witnessCount, startIdx, ncols int,
+	err error,
+) {
 	if ringQ == nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("nil ring")
 	}
@@ -257,7 +338,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 			opts.PhaseRecorder.RecordDuration(label, time.Since(start))
 		}
 	}
-	validateStart := time.Now()
+	validateStart := phaseTimingStart(opts.PhaseRecorder)
 	if !pub.IntGenISIS {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("IntGenISIS showing rows require IntGenISIS public inputs")
 	}
@@ -308,6 +389,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 	}
 	replayProjection := normalizeIntGenISISReplayProjection(opts.IntGenISISReplayProjection)
+	structuralV3 := intGenISISOptsUseStructuralV3(opts)
 	layoutVersion := intGenISISShowingLayoutVersionYLinearBoundedV2
 	layoutReplayProjection := ""
 	if replayProjection == IntGenISISReplayProjectionProjectUDigitsYViewV3 {
@@ -315,6 +397,13 @@ func BuildCredentialRowsShowingIntGenISIS(
 		layoutReplayProjection = replayProjection
 	} else if replayProjection == IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 {
 		layoutVersion = intGenISISShowingLayoutVersionProjectionUDigitsYBoundedSourcesV6
+		layoutReplayProjection = replayProjection
+	}
+	if structuralV3 {
+		if replayProjection != IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("strict v3 showing requires replay projection %q", IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6)
+		}
+		layoutVersion = intGenISISShowingLayoutVersionInputTraceCarrierV3
 		layoutReplayProjection = replayProjection
 	}
 	ncols = opts.NCols
@@ -326,6 +415,9 @@ func BuildCredentialRowsShowingIntGenISIS(
 	}
 	if ncols > int(ringQ.N) {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("ncols=%d exceeds ringN=%d", ncols, ringQ.N)
+	}
+	if structuralV3 && ncols != prfInputTraceV3PackWidth {
+		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("strict v3 showing requires ncols=%d, got %d", prfInputTraceV3PackWidth, ncols)
 	}
 	lvcsNCols := resolvePCSNCols(opts, ncols)
 	if lvcsNCols < ncols {
@@ -341,9 +433,16 @@ func BuildCredentialRowsShowingIntGenISIS(
 	}
 	var omegaWitness []uint64
 	if opts.DomainMode == DomainModeExplicit {
-		omegaWitness, err = deriveRelationWitnessOmega(ringQ.Modulus[0], nLeaves, ncols, lvcsNCols, ell, pub.HashRelation)
-		if err != nil {
-			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("derive witness omega: %w", err)
+		if len(preparedOmega) > 0 {
+			if len(preparedOmega) < ncols {
+				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("prepared witness omega len=%d want at least %d", len(preparedOmega), ncols)
+			}
+			omegaWitness = append([]uint64(nil), preparedOmega[:ncols]...)
+		} else {
+			omegaWitness, err = deriveRelationWitnessOmega(ringQ.Modulus[0], nLeaves, ncols, lvcsNCols, ell, pub.HashRelation)
+			if err != nil {
+				return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("derive witness omega: %w", err)
+			}
 		}
 	} else {
 		omegaWitness, err = ringDomainSlots(ringQ)
@@ -395,7 +494,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	zStart := -1
 	rowInputs = make([]lvcs.RowInput, 0)
 	appendRowMaterialsWithInputs := func(label string, materials []intGenISISRowMaterial) error {
-		rowInputsStart := time.Now()
+		rowInputsStart := phaseTimingStart(opts.PhaseRecorder)
 		for _, material := range materials {
 			idx := len(rows)
 			if material.Poly == nil {
@@ -423,7 +522,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	}
 	digitOnlyU := replayProjection == IntGenISISReplayProjectionProjectUDigitsYViewV3 || replayProjection == IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6
 	uViewStart := -1
-	coeffViewsStart := time.Now()
+	coeffViewsStart := phaseTimingStart(opts.PhaseRecorder)
 	uViewRows := []intGenISISRowMaterial(nil)
 	if !digitOnlyU {
 		uViewStart = len(rows)
@@ -441,7 +540,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 		uShortnessSourceRows = 0
 	}
 	uShortnessStart := len(rows)
-	shortnessStart := time.Now()
+	shortnessStart := phaseTimingStart(opts.PhaseRecorder)
 	uShortnessRows, err := intGenISISUShortnessDigitRowMaterials(ringQ, omegaWitness, cn.Sig, ncols, shortSpec, rowInterp)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("u shortness digit rows: %w", err)
@@ -451,7 +550,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	}
 	recordRowPhase("showing.rows.shortness_digits", shortnessStart)
 	boundViewStart := len(rows)
-	coeffViewsStart = time.Now()
+	coeffViewsStart = phaseTimingStart(opts.PhaseRecorder)
 	mViewRows, err := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, []*ring.Poly{cn.M}, ncols, rowInterp)
 	if err != nil {
 		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("m coefficient views: %w", err)
@@ -490,7 +589,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	mSeedViewStart := -1
 	mSeedViewCount := 0
 	if mseCompressionDesc.Level > 0 {
-		carriersStart := time.Now()
+		carriersStart := phaseTimingStart(opts.PhaseRecorder)
 		mOrdinaryViewRows, mSeedViewRows, serr := intGenISISSplitMViewRowsForPack9Tail(mViewRows, int(ringQ.N), ncols)
 		if serr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, serr
@@ -543,17 +642,47 @@ func BuildCredentialRowsShowingIntGenISIS(
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
 		}
 	}
-	muSigStart = len(rows)
-	if err := appendRowMaterialsWithInputs("mu_sig coefficient view", muSigViewRows); err != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
-	}
-	x0Start = len(rows)
-	if err := appendRowMaterialsWithInputs("x0 coefficient view", x0ViewRows); err != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
-	}
-	x1Start = len(rows)
-	if err := appendRowMaterialsWithInputs("x1 coefficient view", x1ViewRows); err != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+	muSigCarrierStart, muSigCarrierCount := -1, 0
+	x0CarrierStart, x0CarrierCount := -1, 0
+	x1CarrierStart, x1CarrierCount := -1, 0
+	if structuralV3 {
+		if len(muSigViewRows)%ternaryCarrierV3PackWidth != 0 || len(x0ViewRows)%ternaryCarrierV3PackWidth != 0 || len(x1ViewRows)%ternaryCarrierV3PackWidth != 0 {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("strict v3 hash source row groups must be divisible by %d", ternaryCarrierV3PackWidth)
+		}
+		allHashSources := make([]intGenISISRowMaterial, 0, len(muSigViewRows)+len(x0ViewRows)+len(x1ViewRows))
+		allHashSources = append(allHashSources, muSigViewRows...)
+		allHashSources = append(allHashSources, x0ViewRows...)
+		allHashSources = append(allHashSources, x1ViewRows...)
+		carrierRows, carrierLayout, cerr := packTernarySourceRowsV3(ringQ, omegaWitness, allHashSources, rowInterp, makeRowFromHead)
+		if cerr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, cerr
+		}
+		if carrierLayout.CarrierRows*carrierLayout.PackWidth != len(allHashSources) {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("strict v3 hash carrier geometry mismatch")
+		}
+		muSigCarrierStart = len(rows)
+		muSigCarrierCount = len(muSigViewRows) / ternaryCarrierV3PackWidth
+		x0CarrierStart = muSigCarrierStart + muSigCarrierCount
+		x0CarrierCount = len(x0ViewRows) / ternaryCarrierV3PackWidth
+		x1CarrierStart = x0CarrierStart + x0CarrierCount
+		x1CarrierCount = len(x1ViewRows) / ternaryCarrierV3PackWidth
+		if err := appendRowMaterialsWithInputs("mu_sig/x0/x1 v3 carriers", carrierRows); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+		}
+		muSigStart, x0Start, x1Start = muSigCarrierStart, x0CarrierStart, x1CarrierStart
+	} else {
+		muSigStart = len(rows)
+		if err := appendRowMaterialsWithInputs("mu_sig coefficient view", muSigViewRows); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+		}
+		x0Start = len(rows)
+		if err := appendRowMaterialsWithInputs("x0 coefficient view", x0ViewRows); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+		}
+		x1Start = len(rows)
+		if err := appendRowMaterialsWithInputs("x1 coefficient view", x1ViewRows); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+		}
 	}
 	boundViewCount := len(rows) - boundViewStart
 	yViewStart := -1
@@ -564,7 +693,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("commitment-linear y: %w", yerr)
 		}
 		yViewStart = len(rows)
-		coeffViewsStart = time.Now()
+		coeffViewsStart = phaseTimingStart(opts.PhaseRecorder)
 		yViewRows, err = intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, []*ring.Poly{yCoeff}, ncols, rowInterp)
 		if err != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("y coefficient views: %w", err)
@@ -576,7 +705,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 	}
 	buildAndAppendHats := func(label string, coeffRows []intGenISISRowMaterial) (int, int, error) {
 		start := len(rows)
-		hatStart := time.Now()
+		hatStart := phaseTimingStart(opts.PhaseRecorder)
 		hatRows, herr := intGenISISHatRowMaterialsFromCoeffViews(ringQ, omegaWitness, coeffRows, viewRowsPerPoly, rowInterp, makeRowFromHead, label)
 		if herr != nil {
 			return 0, 0, herr
@@ -589,7 +718,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 		return start, len(hatRows), nil
 	}
 	buildAndAppendDirectHats := func(label string, polys []*ring.Poly) (int, int, error) {
-		coeffViewsStart := time.Now()
+		coeffViewsStart := phaseTimingStart(opts.PhaseRecorder)
 		coeffRows, cerr := intGenISISCoeffViewRowMaterials(ringQ, omegaWitness, polys, ncols, rowInterp)
 		if cerr != nil {
 			return 0, 0, cerr
@@ -611,13 +740,15 @@ func BuildCredentialRowsShowingIntGenISIS(
 	}
 	muSigHatStart, muSigHatCount := -1, 0
 	x0HatStart, x0HatCount := -1, 0
-	muSigHatStart, muSigHatCount, err = buildAndAppendHats("mu_sig", muSigViewRows)
-	if err != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("mu_sig hats: %w", err)
-	}
-	x0HatStart, x0HatCount, err = buildAndAppendHats("x0", x0ViewRows)
-	if err != nil {
-		return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("x0 hats: %w", err)
+	if !structuralV3 {
+		muSigHatStart, muSigHatCount, err = buildAndAppendHats("mu_sig", muSigViewRows)
+		if err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("mu_sig hats: %w", err)
+		}
+		x0HatStart, x0HatCount, err = buildAndAppendHats("x0", x0ViewRows)
+		if err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("x0 hats: %w", err)
+		}
 	}
 	x1HatStart, x1HatCount, err := buildAndAppendHats("x1", x1ViewRows)
 	if err != nil {
@@ -629,8 +760,52 @@ func BuildCredentialRowsShowingIntGenISIS(
 	}
 
 	companionMode := normalizePRFCompanionMode(opts.PRFCompanionMode)
-	if companionMode != "" {
-		prfCompanionStart := time.Now()
+	prfInputTraceV3Start, prfInputTraceV3Rows := -1, 0
+	prfInputTraceV3Logical, prfInputTraceV3Padding, prfInputTraceV3TagCount := 0, 0, 0
+	if structuralV3 {
+		prfTraceStart := phaseTimingStart(opts.PhaseRecorder)
+		key, kerr := extractIntGenISISPRFKeyElemsFromSemanticM(ringQ, pub.BoundB, []*ring.Poly{cn.M})
+		if kerr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("extract IntGenISIS PRF key from M: %w", kerr)
+		}
+		if len(key) != prfParamsLenKey {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("semantic key length=%d want %d", len(key), prfParamsLenKey)
+		}
+		params, perr := loadBoundPRFParamsForOpts(opts)
+		if perr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("load prf params: %w", perr)
+		}
+		contextElems, cerr := publicContextElems(pub.Context, params.Q)
+		if cerr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, cerr
+		}
+		trace, terr := prf.TraceInputWitnessContextSlotV3(key, contextElems, prf.Elem(cn.HiddenSlot), params)
+		if terr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("trace PRF input witness v3: %w", terr)
+		}
+		hiddenBits := [4]prf.Elem{}
+		for i, bit := range cn.HiddenBits {
+			hiddenBits[i] = prf.Elem(bit)
+		}
+		prfInputTraceV3Start = len(rows)
+		startIdx = prfInputTraceV3Start
+		packed, perr := packCanonicalPRFInputTraceV3Rows(ringQ, prfInputTraceV3Start, trace, hiddenBits, makeRowFromHead)
+		if perr != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("pack PRF input-trace v3 rows: %w", perr)
+		}
+		if err := appendRowMaterialsWithInputs("PRF input-trace v3", packed.Rows); err != nil {
+			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, err
+		}
+		prfInputTraceV3Rows = packed.Layout.PackedRows
+		prfInputTraceV3Logical = packed.Layout.LogicalScalars
+		prfInputTraceV3Padding = packed.Layout.PaddingScalars
+		prfInputTraceV3TagCount = len(pub.Tag)
+		// Strict v3 authenticates this relation directly through Q.  It has no
+		// companion bridge matrices and no PRFCompanion proof payload.
+		prfCompanionLayout = nil
+		recordRowPhase("showing.rows.prf_input_trace_v3", prfTraceStart)
+	} else if companionMode != "" {
+		prfCompanionStart := phaseTimingStart(opts.PhaseRecorder)
 		if prfGroupRounds <= 0 {
 			prfGroupRounds = 1
 		}
@@ -641,7 +816,7 @@ func BuildCredentialRowsShowingIntGenISIS(
 		if len(key) != prfParamsLenKey {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("semantic key length=%d want %d", len(key), prfParamsLenKey)
 		}
-		params, perr := loadPRFParamsForOpts(opts)
+		params, perr := loadBoundPRFParamsForOpts(opts)
 		if perr != nil {
 			return nil, nil, RowLayout{}, nil, nil, decs.Params{}, 0, 0, 0, 0, 0, fmt.Errorf("load prf params: %w", perr)
 		}
@@ -733,14 +908,24 @@ func BuildCredentialRowsShowingIntGenISIS(
 		recordRowPhase("showing.rows.prf_companion", prfCompanionStart)
 	}
 
+	muSigViewStartForLayout, x0ViewStartForLayout, x1ViewStartForLayout := muSigStart, x0Start, x1Start
+	if structuralV3 {
+		muSigViewStartForLayout, x0ViewStartForLayout, x1ViewStartForLayout = -1, -1, -1
+	}
 	layout = RowLayout{
 		RingDegree:         int(ringQ.N),
 		SigCount:           len(rows),
 		X0Len:              x0Len,
 		HasExplicitBaseIdx: true,
 		IntGenISISShowing: &IntGenISISShowingRowLayout{
-			LayoutVersion:              layoutVersion,
-			ReplayProjection:           layoutReplayProjection,
+			LayoutVersion:    layoutVersion,
+			ReplayProjection: layoutReplayProjection,
+			LinearHatSourceMode: func() string {
+				if structuralV3 {
+					return intGenISISLinearHatSourceMuX0AggregateFused
+				}
+				return ""
+			}(),
 			UStart:                     uStart,
 			UCount:                     len(cn.Sig),
 			MStart:                     mStart,
@@ -777,50 +962,80 @@ func BuildCredentialRowsShowingIntGenISIS(
 			ECarrierStart:              eCarrierStart,
 			ECarrierCount:              eCarrierCount,
 			MSECarrierCount:            mCarrierCount + sCarrierCount + eCarrierCount,
-			UViewStart:                 uViewStart,
-			UShortnessStart:            uShortnessStart,
-			UShortnessGroupCount:       len(cn.Sig) * viewRowsPerPoly,
-			UShortnessRowsPerGroup:     shortSpec.L,
-			UShortnessRadix:            int(shortSpec.R),
-			UShortnessDigits:           shortSpec.L,
-			UShortnessSourceViewStart:  uViewStart,
-			UShortnessSourceViewRows:   uShortnessSourceRows,
-			UShortnessCapacity:         int64(shortSpec.MaxAbs),
-			UShortnessProofMode:        intGenISISUShortnessMode,
-			MViewStart:                 mViewStart,
-			MAttrViewStart:             mAttrStart,
-			KViewStart:                 kStart,
-			SViewStart:                 sViewStart,
-			EViewStart:                 eViewStart,
-			YViewStart:                 yViewStart,
-			YViewCount:                 len(yViewRows),
-			MuSigViewStart:             muSigStart,
-			X0ViewStart:                x0Start,
-			X1ViewStart:                x1Start,
-			ZViewStart:                 zStart,
-			UHatStart:                  uHatStart,
-			UHatCount:                  uHatCount,
-			MHatStart:                  -1,
-			MHatCount:                  0,
-			SHatStart:                  -1,
-			SHatCount:                  0,
-			EHatStart:                  -1,
-			EHatCount:                  0,
-			YHatStart:                  yHatStart,
-			YHatCount:                  yHatCount,
-			MuSigHatStart:              muSigHatStart,
-			MuSigHatCount:              muSigHatCount,
-			X0HatStart:                 x0HatStart,
-			X0HatCount:                 x0HatCount,
-			WHatStart:                  -1,
-			WHatCount:                  0,
-			X1HatStart:                 x1HatStart,
-			X1HatCount:                 x1HatCount,
-			ZHatStart:                  zHatStart,
-			ZHatCount:                  zHatCount,
-			HatRowsPerPoly:             viewRowsPerPoly,
-			ViewRowsPerPoly:            viewRowsPerPoly,
-			CoreRowCount:               coreRowCount,
+			HashSourceCarrierV3:        structuralV3,
+			HashCarrierPackWidth: func() int {
+				if structuralV3 {
+					return ternaryCarrierV3PackWidth
+				}
+				return 0
+			}(),
+			HashCarrierDecodeDegree: func() int {
+				if structuralV3 {
+					return ternaryCarrierV3Alphabet - 1
+				}
+				return 0
+			}(),
+			HashCarrierMembershipDegree: func() int {
+				if structuralV3 {
+					return ternaryCarrierV3Alphabet
+				}
+				return 0
+			}(),
+			MuSigCarrierStart:         muSigCarrierStart,
+			MuSigCarrierCount:         muSigCarrierCount,
+			X0CarrierStart:            x0CarrierStart,
+			X0CarrierCount:            x0CarrierCount,
+			X1CarrierStart:            x1CarrierStart,
+			X1CarrierCount:            x1CarrierCount,
+			UViewStart:                uViewStart,
+			UShortnessStart:           uShortnessStart,
+			UShortnessGroupCount:      len(cn.Sig) * viewRowsPerPoly,
+			UShortnessRowsPerGroup:    shortSpec.L,
+			UShortnessRadix:           int(shortSpec.R),
+			UShortnessDigits:          shortSpec.L,
+			UShortnessSourceViewStart: uViewStart,
+			UShortnessSourceViewRows:  uShortnessSourceRows,
+			UShortnessCapacity:        int64(shortSpec.MaxAbs),
+			UShortnessProofMode:       intGenISISUShortnessMode,
+			MViewStart:                mViewStart,
+			MAttrViewStart:            mAttrStart,
+			KViewStart:                kStart,
+			SViewStart:                sViewStart,
+			EViewStart:                eViewStart,
+			YViewStart:                yViewStart,
+			YViewCount:                len(yViewRows),
+			MuSigViewStart:            muSigViewStartForLayout,
+			X0ViewStart:               x0ViewStartForLayout,
+			X1ViewStart:               x1ViewStartForLayout,
+			ZViewStart:                zStart,
+			UHatStart:                 uHatStart,
+			UHatCount:                 uHatCount,
+			MHatStart:                 -1,
+			MHatCount:                 0,
+			SHatStart:                 -1,
+			SHatCount:                 0,
+			EHatStart:                 -1,
+			EHatCount:                 0,
+			YHatStart:                 yHatStart,
+			YHatCount:                 yHatCount,
+			MuSigHatStart:             muSigHatStart,
+			MuSigHatCount:             muSigHatCount,
+			X0HatStart:                x0HatStart,
+			X0HatCount:                x0HatCount,
+			WHatStart:                 -1,
+			WHatCount:                 0,
+			X1HatStart:                x1HatStart,
+			X1HatCount:                x1HatCount,
+			ZHatStart:                 zHatStart,
+			ZHatCount:                 zHatCount,
+			PRFInputTraceV3Start:      prfInputTraceV3Start,
+			PRFInputTraceV3Rows:       prfInputTraceV3Rows,
+			PRFInputTraceV3Logical:    prfInputTraceV3Logical,
+			PRFInputTraceV3Padding:    prfInputTraceV3Padding,
+			PRFInputTraceV3TagCount:   prfInputTraceV3TagCount,
+			HatRowsPerPoly:            viewRowsPerPoly,
+			ViewRowsPerPoly:           viewRowsPerPoly,
+			CoreRowCount:              coreRowCount,
 		},
 	}
 	decsParams = applyDECSCollisionWidth(decs.Params{Degree: int(ringQ.N) - 1, Eta: opts.Eta, TapeBytes: 16}, opts)
@@ -999,6 +1214,10 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 		if projectionMode != IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 {
 			return fmt.Errorf("IntGenISIS showing projection layout requires replay projection %q, got %q", IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6, projectionMode)
 		}
+	case intGenISISShowingLayoutVersionInputTraceCarrierV3:
+		if projectionMode != IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6 {
+			return fmt.Errorf("IntGenISIS v3 input-trace layout requires replay projection %q, got %q", IntGenISISReplayProjectionProjectUDigitsYBoundedSourcesV6, projectionMode)
+		}
 	default:
 		return fmt.Errorf("unsupported IntGenISIS showing layout version %q", l.LayoutVersion)
 	}
@@ -1018,6 +1237,32 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 		return fmt.Errorf("IntGenISIS hat rows/poly=%d want %d", l.HatRowsPerPoly, l.ViewRowsPerPoly)
 	}
 	rpp := l.ViewRowsPerPoly
+	structuralV3 := l.LayoutVersion == intGenISISShowingLayoutVersionInputTraceCarrierV3
+	if structuralV3 {
+		if !l.HashSourceCarrierV3 || l.HashCarrierPackWidth != ternaryCarrierV3PackWidth ||
+			l.HashCarrierDecodeDegree != ternaryCarrierV3Alphabet-1 || l.HashCarrierMembershipDegree != ternaryCarrierV3Alphabet {
+			return fmt.Errorf("invalid strict v3 hash carrier metadata")
+		}
+		if l.MuSigViewStart >= 0 || l.X0ViewStart >= 0 || l.X1ViewStart >= 0 {
+			return fmt.Errorf("strict v3 must not retain raw mu_sig/x0/x1 source rows")
+		}
+		if l.MuSigCount*rpp%ternaryCarrierV3PackWidth != 0 || l.X0Count*rpp%ternaryCarrierV3PackWidth != 0 || l.X1Count*rpp%ternaryCarrierV3PackWidth != 0 ||
+			l.MuSigCarrierCount != l.MuSigCount*rpp/ternaryCarrierV3PackWidth ||
+			l.X0CarrierCount != l.X0Count*rpp/ternaryCarrierV3PackWidth ||
+			l.X1CarrierCount != l.X1Count*rpp/ternaryCarrierV3PackWidth {
+			return fmt.Errorf("strict v3 hash carrier counts mismatch")
+		}
+		if l.X0CarrierStart != l.MuSigCarrierStart+l.MuSigCarrierCount || l.X1CarrierStart != l.X0CarrierStart+l.X0CarrierCount {
+			return fmt.Errorf("strict v3 hash carriers are not canonical contiguous groups")
+		}
+		payload, err := canonicalPRFInputTraceV3Layout(l.PRFInputTraceV3Start, l.PRFInputTraceV3TagCount)
+		if err != nil {
+			return err
+		}
+		if l.PRFInputTraceV3Rows != payload.PackedRows || l.PRFInputTraceV3Logical != payload.LogicalScalars || l.PRFInputTraceV3Padding != payload.PaddingScalars {
+			return fmt.Errorf("strict v3 PRF input-trace geometry mismatch")
+		}
+	}
 	compressed := l.MSECompressionLevel > 0
 	if compressed {
 		desc, err := intGenISISMSECompressionDescriptorForBound(l.MSECompressionLevel, intGenISISTernaryBound)
@@ -1060,12 +1305,64 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 		count int
 	}{
 		{"Z hat", l.ZHatStart, l.ZHatCount},
-		{"mu_sig coefficient-view", l.MuSigViewStart, l.MuSigCount * rpp},
-		{"x0 coefficient-view", l.X0ViewStart, l.X0Count * rpp},
-		{"x1 coefficient-view", l.X1ViewStart, l.X1Count * rpp},
-		{"mu_sig hat", l.MuSigHatStart, l.MuSigHatCount},
-		{"x0 hat", l.X0HatStart, l.X0HatCount},
 		{"x1 hat", l.X1HatStart, l.X1HatCount},
+	}
+	linearHatMode := intGenISISLinearHatSourceMode(l)
+	if linearHatMode == intGenISISLinearHatSourceMaterialized {
+		required = append(required,
+			struct {
+				name  string
+				start int
+				count int
+			}{"mu_sig hat", l.MuSigHatStart, l.MuSigHatCount},
+			struct {
+				name  string
+				start int
+				count int
+			}{"x0 hat", l.X0HatStart, l.X0HatCount},
+		)
+	}
+	if structuralV3 {
+		required = append(required,
+			struct {
+				name  string
+				start int
+				count int
+			}{"mu_sig v3 carrier", l.MuSigCarrierStart, l.MuSigCarrierCount},
+			struct {
+				name  string
+				start int
+				count int
+			}{"x0 v3 carrier", l.X0CarrierStart, l.X0CarrierCount},
+			struct {
+				name  string
+				start int
+				count int
+			}{"x1 v3 carrier", l.X1CarrierStart, l.X1CarrierCount},
+			struct {
+				name  string
+				start int
+				count int
+			}{"PRF input-trace v3", l.PRFInputTraceV3Start, l.PRFInputTraceV3Rows},
+		)
+	} else {
+		required = append(required,
+			struct {
+				name  string
+				start int
+				count int
+			}{"mu_sig coefficient-view", l.MuSigViewStart, l.MuSigCount * rpp},
+			struct {
+				name  string
+				start int
+				count int
+			}{"x0 coefficient-view", l.X0ViewStart, l.X0Count * rpp},
+			struct {
+				name  string
+				start int
+				count int
+			}{"x1 coefficient-view", l.X1ViewStart, l.X1Count * rpp},
+		)
 	}
 	if l.WHatStart >= 0 || l.WHatCount != 0 {
 		return fmt.Errorf("IntGenISIS bounded BB-tran must not commit W hats, got start=%d count=%d", l.WHatStart, l.WHatCount)
@@ -1182,10 +1479,24 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 			return err
 		}
 	}
-	switch mode := intGenISISLinearHatSourceMode(l); mode {
+	switch mode := linearHatMode; mode {
 	case intGenISISLinearHatSourceMaterialized:
-	case intGenISISLinearHatSourceView:
-		return fmt.Errorf("IntGenISIS source-view linear hat provider is not implemented")
+	case intGenISISLinearHatSourceMuX0AggregateFused:
+		if !structuralV3 || !projectedUY {
+			return fmt.Errorf("IntGenISIS %q requires the strict-v3 projected showing relation", mode)
+		}
+		for _, part := range []struct {
+			name  string
+			start int
+			count int
+		}{
+			{"mu_sig", l.MuSigHatStart, l.MuSigHatCount},
+			{"x0", l.X0HatStart, l.X0HatCount},
+		} {
+			if part.start >= 0 || part.count != 0 {
+				return fmt.Errorf("IntGenISIS %q must not materialize %s hats start=%d count=%d", mode, part.name, part.start, part.count)
+			}
+		}
 	default:
 		return fmt.Errorf("unsupported IntGenISIS linear hat source mode %q", mode)
 	}
@@ -1216,10 +1527,12 @@ func validateIntGenISISShowingPackedLayout(l *IntGenISISShowingRowLayout, rowCou
 		}
 	}
 	expectedHatCounts := map[string][2]int{
-		"Z":      {l.ZHatCount, l.ZCount * rpp},
-		"mu_sig": {l.MuSigHatCount, l.MuSigCount * rpp},
-		"x0":     {l.X0HatCount, l.X0Count * rpp},
-		"x1":     {l.X1HatCount, l.X1Count * rpp},
+		"Z":  {l.ZHatCount, l.ZCount * rpp},
+		"x1": {l.X1HatCount, l.X1Count * rpp},
+	}
+	if linearHatMode == intGenISISLinearHatSourceMaterialized {
+		expectedHatCounts["mu_sig"] = [2]int{l.MuSigHatCount, l.MuSigCount * rpp}
+		expectedHatCounts["x0"] = [2]int{l.X0HatCount, l.X0Count * rpp}
 	}
 	if !projectedUY {
 		expectedHatCounts["u"] = [2]int{l.UHatCount, l.UCount * rpp}
@@ -1720,6 +2033,7 @@ type intGenISISProjectedSignaturePlan struct {
 	aAtOmega         [][][]uint64
 	bBlockCoeff      [][][]uint64
 	bBlockCoeffNTT   [][]*ring.Poly
+	bAtOmega         [][][]uint64
 	cmBlockCoeff     [][]uint64
 	cmAtOmega        [][]uint64
 	asBlockCoeff     [][][]uint64
@@ -1784,8 +2098,15 @@ func intGenISISLinearHatFormalCoeff(rowCache *intGenISISRowCoeffCache, l *IntGen
 			return nil, err
 		}
 		return rowCache.Row(row)
-	case intGenISISLinearHatSourceView:
-		return nil, fmt.Errorf("IntGenISIS source-linear %s provider %q is not implemented", kind, mode)
+	case intGenISISLinearHatSourceMuX0AggregateFused:
+		if kind != intGenISISLinearHatX1 {
+			return nil, fmt.Errorf("IntGenISIS %s hat is fused into the projected signature aggregate", kind)
+		}
+		row, err := intGenISISLinearHatMaterializedRow(l, kind, component, block)
+		if err != nil {
+			return nil, err
+		}
+		return rowCache.Row(row)
 	default:
 		return nil, fmt.Errorf("unsupported IntGenISIS linear hat source mode %q", mode)
 	}
@@ -1815,6 +2136,7 @@ func newIntGenISISProjectedSignaturePlan(ringQ *ring.Ring, pub PublicInputs, l *
 		aAtOmega:         make([][][]uint64, l.UCount),
 		bBlockCoeff:      make([][][]uint64, len(pub.B)),
 		bBlockCoeffNTT:   make([][]*ring.Poly, len(pub.B)),
+		bAtOmega:         make([][][]uint64, len(pub.B)),
 		cmBlockCoeff:     nil,
 		cmAtOmega:        nil,
 		asBlockCoeff:     nil,
@@ -1851,12 +2173,14 @@ func newIntGenISISProjectedSignaturePlan(ringQ *ring.Ring, pub PublicInputs, l *
 	for j := range pub.B {
 		out.bBlockCoeff[j] = make([][]uint64, blocks)
 		out.bBlockCoeffNTT[j] = make([]*ring.Poly, blocks)
+		out.bAtOmega[j] = make([][]uint64, blocks)
 		for block := 0; block < blocks; block++ {
 			coeff, err := intGenISISThetaBlockCoeff(ringQ, pub.B[j], omega, block, blocks, fmt.Sprintf("B[%d]", j))
 			if err != nil {
 				return nil, err
 			}
 			out.bBlockCoeff[j][block] = coeff
+			out.bAtOmega[j][block] = evalCoeffOnOmega(coeff, omega, q)
 			p, ok := nttPolyFromModXN1Coeffs(ringQ, coeff)
 			if !ok {
 				return nil, fmt.Errorf("projected signature B[%d] block %d exceeds ring dimension", j, block)
@@ -1927,7 +2251,7 @@ func intGenISISUDigitSourceFormalCoeff(rowCache *intGenISISRowCoeffCache, l *Int
 // transform into the signature equation. The transform bridge is an Ω-sum
 // identity, so public A terms are bound as lane scalars rather than as
 // pointwise row polynomials.
-func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs, rowsNTT []*ring.Poly, rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, basis *transformBridgeBasisCache, omega []uint64, yLinearCache *intGenISISYLinearMapCache, compressionSpec intGenISISMSECompressionSpec, phase *PhaseRecorder) ([]*ring.Poly, [][]uint64, error) {
+func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs, rowsNTT []*ring.Poly, rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, basis *transformBridgeBasisCache, omega []uint64, yLinearCache *intGenISISYLinearMapCache, compressionSpec, hashCompressionSpec intGenISISMSECompressionSpec, phase *PhaseRecorder) ([]*ring.Poly, [][]uint64, error) {
 	if ringQ == nil {
 		return nil, nil, fmt.Errorf("nil ring")
 	}
@@ -1947,7 +2271,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		return nil, nil, fmt.Errorf("IntGenISIS projected signature rows/poly*ncols=%d want ringN=%d", l.ViewRowsPerPoly*ncols, n)
 	}
 	stage := func(label string, fn func() error) error {
-		start := time.Now()
+		start := phaseTimingStart(phase)
 		err := fn()
 		if phase != nil {
 			phase.RecordDuration(label, time.Since(start))
@@ -2098,6 +2422,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	var uTrans [][][]uint64
 	var yTrans [][][][]uint64
 	var yViewTrans [][][]uint64
+	var fusedBTrans [][][]uint64
 	if err := stage("showing.constraints.projected.transform_cache", func() error {
 		uSourceCoeffs := make([][][]uint64, l.UCount)
 		for comp := 0; comp < l.UCount; comp++ {
@@ -2122,6 +2447,37 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 		uTrans, terr = buildFlatTransforms(uSourceCoeffs)
 		if terr != nil {
 			return terr
+		}
+		if intGenISISLinearHatSourceMode(l) == intGenISISLinearHatSourceMuX0AggregateFused {
+			if !l.HashSourceCarrierV3 || len(hashCompressionSpec.DecodePolys) < l.HashCarrierPackWidth {
+				return fmt.Errorf("projected signature fused mu/x0 source decoder is unavailable")
+			}
+			muDecoded, derr := intGenISISCompressedSourceFormalCoeffs(
+				ringQ, rowsNTT, l.MuSigCarrierStart, l.MuSigCount*l.ViewRowsPerPoly,
+				l.HashCarrierPackWidth, hashCompressionSpec.DecodePolys, "mu_sig fused source",
+			)
+			if derr != nil {
+				return derr
+			}
+			x0Decoded, derr := intGenISISCompressedSourceFormalCoeffs(
+				ringQ, rowsNTT, l.X0CarrierStart, l.X0Count*l.ViewRowsPerPoly,
+				l.HashCarrierPackWidth, hashCompressionSpec.DecodePolys, "x0 fused source",
+			)
+			if derr != nil {
+				return derr
+			}
+			bSourceCoeffs := make([][][]uint64, 1+l.X0Count)
+			bSourceCoeffs[0] = make([][]uint64, l.ViewRowsPerPoly)
+			copy(bSourceCoeffs[0], muDecoded)
+			for comp := 0; comp < l.X0Count; comp++ {
+				start := comp * l.ViewRowsPerPoly
+				bSourceCoeffs[1+comp] = make([][]uint64, l.ViewRowsPerPoly)
+				copy(bSourceCoeffs[1+comp], x0Decoded[start:start+l.ViewRowsPerPoly])
+			}
+			fusedBTrans, terr = buildFlatTransforms(bSourceCoeffs)
+			if terr != nil {
+				return terr
+			}
 		}
 		if intGenISISProjectionDerivesYView(l) {
 			yTrans = make([][][][]uint64, len(ySourceCoeffs))
@@ -2154,7 +2510,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	if err := stage("showing.constraints.projected.emit", func() error {
 		workers := minInt(runtime.GOMAXPROCS(0), l.ViewRowsPerPoly)
 		if workers <= 1 {
-			return emitProjectedSignatureCoeffRange(ringQ, rowCache, l, plan, basis, uTrans, yTrans, yViewTrans, outCoeff, q, 0, l.ViewRowsPerPoly)
+			return emitProjectedSignatureCoeffRange(ringQ, rowCache, l, plan, basis, uTrans, fusedBTrans, yTrans, yViewTrans, outCoeff, q, 0, l.ViewRowsPerPoly)
 		}
 		var wg sync.WaitGroup
 		var errOnce sync.Once
@@ -2175,7 +2531,7 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 			wg.Add(1)
 			go func(startBlock, endBlock int) {
 				defer wg.Done()
-				setErr(emitProjectedSignatureCoeffRange(ringQ, rowCache, l, plan, basis, uTrans, yTrans, yViewTrans, outCoeff, q, startBlock, endBlock))
+				setErr(emitProjectedSignatureCoeffRange(ringQ, rowCache, l, plan, basis, uTrans, fusedBTrans, yTrans, yViewTrans, outCoeff, q, startBlock, endBlock))
 			}(startBlock, endBlock)
 		}
 		wg.Wait()
@@ -2192,9 +2548,13 @@ func intGenISISProjectedSignatureFormalCoeffs(ringQ *ring.Ring, pub PublicInputs
 	return fagg, coeffs, nil
 }
 
-func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, plan *intGenISISProjectedSignaturePlan, basis *transformBridgeBasisCache, uTrans [][][]uint64, yTrans [][][][]uint64, yViewTrans [][][]uint64, outCoeff [][]uint64, q uint64, startBlock, endBlock int) error {
+func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowCoeffCache, l *IntGenISISShowingRowLayout, plan *intGenISISProjectedSignaturePlan, basis *transformBridgeBasisCache, uTrans, fusedBTrans [][][]uint64, yTrans [][][][]uint64, yViewTrans [][][]uint64, outCoeff [][]uint64, q uint64, startBlock, endBlock int) error {
 	n := plan.n
 	ncols := plan.ncols
+	fusedMuX0 := intGenISISLinearHatSourceMode(l) == intGenISISLinearHatSourceMuX0AggregateFused
+	if fusedMuX0 && len(fusedBTrans) != 1+l.X0Count {
+		return fmt.Errorf("projected signature fused B sources=%d want %d", len(fusedBTrans), 1+l.X0Count)
+	}
 	scratch := newNegacyclicProductScratch(ringQ)
 	for block := startBlock; block < endBlock; block++ {
 		zCoeff, err := rowCache.Row(l.ZHatStart + block)
@@ -2203,18 +2563,20 @@ func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowC
 		}
 		rhs := make([]uint64, n)
 		addScaledInto(rhs, plan.bBlockCoeff[0][block], 1, q)
-		bSources := make([][]uint64, 1+l.X0Count)
-		muCoeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatMuSig, 0, block)
-		if err != nil {
-			return err
-		}
-		bSources[0] = muCoeff
-		for i := 0; i < l.X0Count; i++ {
-			x0Coeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatX0, i, block)
+		bSources := make([][]uint64, 0, 1+l.X0Count)
+		if !fusedMuX0 {
+			muCoeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatMuSig, 0, block)
 			if err != nil {
 				return err
 			}
-			bSources[1+i] = x0Coeff
+			bSources = append(bSources, muCoeff)
+			for i := 0; i < l.X0Count; i++ {
+				x0Coeff, err := intGenISISLinearHatFormalCoeff(rowCache, l, intGenISISLinearHatX0, i, block)
+				if err != nil {
+					return err
+				}
+				bSources = append(bSources, x0Coeff)
+			}
 		}
 		accOK := scratch != nil && scratch.acc != nil && scratch.b != nil
 		if accOK {
@@ -2253,6 +2615,18 @@ func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowC
 				mulModXN1(laneRHS, basis.LagrangeBasis[lane], rhs, q)
 			}
 			subInto(res, laneRHS, q)
+			if fusedMuX0 {
+				for i := range fusedBTrans {
+					if t >= len(fusedBTrans[i]) {
+						return fmt.Errorf("projected signature fused B source %d transform t=%d outside %d", i, t, len(fusedBTrans[i]))
+					}
+					publicIdx := 1 + i
+					if publicIdx >= len(plan.bAtOmega) || block >= len(plan.bAtOmega[publicIdx]) || lane >= len(plan.bAtOmega[publicIdx][block]) {
+						return fmt.Errorf("projected signature fused B target coordinate [%d][%d][%d] unavailable", publicIdx, block, lane)
+					}
+					addScaledInto(res, fusedBTrans[i][t], q-plan.bAtOmega[publicIdx][block][lane], q)
+				}
+			}
 			if intGenISISProjectionDerivesYView(l) {
 				if len(yTrans) != 3 {
 					return fmt.Errorf("projected Y source terms=%d want 3", len(yTrans))
@@ -2275,7 +2649,7 @@ func emitProjectedSignatureCoeffRange(ringQ *ring.Ring, rowCache *intGenISISRowC
 }
 
 func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout, phase *PhaseRecorder, opts SimOpts) (ConstraintSet, error) {
-	params, err := loadPRFParamsForOpts(opts)
+	params, err := loadBoundPRFParamsForOpts(opts)
 	if err != nil {
 		return ConstraintSet{}, fmt.Errorf("load prf params: %w", err)
 	}
@@ -2284,14 +2658,78 @@ func buildIntGenISISShowingConstraintSetFromRows(ringQ *ring.Ring, pub PublicInp
 }
 
 func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout, phase *PhaseRecorder, prepared *IntGenISISShowingPreparedContext) (ConstraintSet, error) {
-	constraintsStart := time.Now()
+	return buildIntGenISISShowingConstraintSetFromRowsPreparedMode(ringQ, pub, layout, rowsNTT, omega, prfCompanionLayout, phase, prepared, false)
+}
+
+func buildIntGenISISShowingSemanticMetadataV3(
+	ringQ *ring.Ring,
+	pub PublicInputs,
+	layout RowLayout,
+	rowsNTT []*ring.Poly,
+	omega []uint64,
+	compressionSpec, hashCompressionSpec intGenISISMSECompressionSpec,
+	replay *intGenISISShowingReplayConfig,
+) (ConstraintSet, error) {
+	if ringQ == nil || layout.IntGenISISShowing == nil || len(omega) == 0 {
+		return ConstraintSet{}, fmt.Errorf("strict v3 semantic metadata: missing ring, layout, or omega")
+	}
+	// Strict v3 never feeds formal coefficient families into Q construction:
+	// one shared semantic evaluator is authoritative for both prover and
+	// verifier. Derive its family cardinalities structurally from the immutable
+	// replay plan; do not execute the relation on dummy witness rows.
+	if replay == nil {
+		return ConstraintSet{}, fmt.Errorf("strict v3 semantic metadata: missing prepared replay plan")
+	}
+	fparCount, faggCount, err := replay.semanticConstraintShapeV3()
+	if err != nil {
+		return ConstraintSet{}, fmt.Errorf("strict v3 semantic metadata shape: %w", err)
+	}
+	l := layout.IntGenISISShowing
+	fparIntCount := 2 * l.ViewRowsPerPoly
+	if intGenISISProjectionUsesProjectedUYHat(l) {
+		fparIntCount = l.ViewRowsPerPoly
+	}
+	if fparIntCount < 0 || fparIntCount > fparCount {
+		return ConstraintSet{}, fmt.Errorf("strict v3 semantic metadata: parallel integer count=%d outside total=%d", fparIntCount, fparCount)
+	}
+	sigBound, err := intGenISISSignatureBoundFromPublic(pub)
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	shortSpec, err := intGenISISUShortnessLayoutSpec(ringQ, l, sigBound)
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	shortDegree, err := signatureShortnessMaxDegree(shortSpec, SimOpts{})
+	if err != nil {
+		return ConstraintSet{}, err
+	}
+	shortDegree = maxInt(shortDegree, intGenISISDirectSignatureRangeDegree(sigBound))
+	parallelDegree := maxInt(maxInt(maxInt(maxInt(2, intGenISISMembershipDegree(pub.BoundB)), intGenISISMembershipDegree(intGenISISSeedBound)), ternaryCarrierV3Alphabet), maxInt(shortDegree, compressionSpec.Descriptor.MembershipDeg))
+	aggregateDegree := maxInt(maxInt(maxInt(2, compressionSpec.Descriptor.DecodeDegree), hashCompressionSpec.Descriptor.DecodeDegree), 3)
+	return ConstraintSet{
+		FparInt:          make([]*ring.Poly, fparIntCount),
+		FparIntCoeffs:    make([][]uint64, fparIntCount),
+		FparNorm:         make([]*ring.Poly, fparCount-fparIntCount),
+		FparNormCoeffs:   make([][]uint64, fparCount-fparIntCount),
+		FaggNorm:         make([]*ring.Poly, faggCount),
+		FaggNormCoeffs:   make([][]uint64, faggCount),
+		ParallelAlgDeg:   parallelDegree,
+		AggregatedAlgDeg: aggregateDegree,
+	}, nil
+}
+
+// forceFormalV3 exists only for equivalence tests. Production strict-v3 call
+// sites always use semantic metadata and never construct formal Q families.
+func buildIntGenISISShowingConstraintSetFromRowsPreparedMode(ringQ *ring.Ring, pub PublicInputs, layout RowLayout, rowsNTT []*ring.Poly, omega []uint64, prfCompanionLayout *PRFCompanionLayout, phase *PhaseRecorder, prepared *IntGenISISShowingPreparedContext, forceFormalV3 bool) (ConstraintSet, error) {
+	constraintsStart := phaseTimingStart(phase)
 	if phase != nil {
 		defer func() {
 			phase.RecordDuration("showing.constraints.total", time.Since(constraintsStart))
 		}()
 	}
 	stage := func(label string, fn func() error) error {
-		start := time.Now()
+		start := phaseTimingStart(phase)
 		err := fn()
 		if phase != nil {
 			phase.RecordDuration(label, time.Since(start))
@@ -2327,12 +2765,56 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 	projectedUY := intGenISISProjectionUsesProjectedUYHat(l)
 	derivedYView := intGenISISProjectionDerivesYView(l)
 	compressedMSE := l.MSECompressionLevel > 0
+	structuralV3 := l.LayoutVersion == intGenISISShowingLayoutVersionInputTraceCarrierV3
 	compressionSpec := intGenISISMSECompressionSpec{}
 	if compressedMSE {
 		var cerr error
 		compressionSpec, cerr = newIntGenISISMSECompressionSpecForBound(q, l.MSECompressionLevel, pub.BoundB)
 		if cerr != nil {
 			return ConstraintSet{}, cerr
+		}
+	}
+	hashCompressionSpec := intGenISISMSECompressionSpec{}
+	if structuralV3 {
+		var cerr error
+		hashCompressionSpec, cerr = newIntGenISISMSECompressionSpecForBound(q, 1, pub.HashInputBound)
+		if cerr != nil {
+			return ConstraintSet{}, cerr
+		}
+		if hashCompressionSpec.Descriptor.PackWidth != ternaryCarrierV3PackWidth || hashCompressionSpec.Descriptor.DecodeDegree != ternaryCarrierV3Alphabet-1 || hashCompressionSpec.Descriptor.MembershipDeg != ternaryCarrierV3Alphabet {
+			return ConstraintSet{}, fmt.Errorf("strict v3 hash carrier compiler mismatch")
+		}
+		if prfCompanionLayout != nil {
+			return ConstraintSet{}, fmt.Errorf("strict v3 semantic relation must not carry a PRF companion layout")
+		}
+		if !forceFormalV3 {
+			replayDomain := []uint64(nil)
+			if prepared != nil {
+				replayDomain = prepared.domainPoints
+			}
+			if len(replayDomain) == 0 {
+				// Compatibility-only callers that do not own a prepared domain
+				// still need a non-empty domain to construct the immutable shape.
+				// The target prepared path always supplies the complete domain.
+				replayDomain = []uint64{omega[0] % q}
+			}
+			var replay *intGenISISShowingReplayConfig
+			if err := stage("showing.constraints.replay_plan", func() error {
+				var rerr error
+				replay, rerr = prepared.loadOrBuildStrictReplay(ringQ, pub, layout, omega, replayDomain, prfCompanionLayout)
+				return rerr
+			}); err != nil {
+				return ConstraintSet{}, fmt.Errorf("strict v3 showing replay plan: %w", err)
+			}
+			var semanticSet ConstraintSet
+			if err := stage("showing.constraints.semantic_metadata_v3", func() error {
+				var serr error
+				semanticSet, serr = buildIntGenISISShowingSemanticMetadataV3(ringQ, pub, layout, rowsNTT, omega, compressionSpec, hashCompressionSpec, replay)
+				return serr
+			}); err != nil {
+				return ConstraintSet{}, err
+			}
+			return semanticSet, nil
 		}
 	}
 	var yLinearCache *intGenISISYLinearMapCache
@@ -2602,10 +3084,23 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 			boundCoeffs = append(boundCoeffs, seedCoeffs...)
 		}
 		hashRows := make([]int, 0, (l.MuSigCount+l.X0Count+l.X1Count)*l.ViewRowsPerPoly)
-		hashRows = append(hashRows, intGenISISViewRowIndices(l.MuSigViewStart, l.MuSigCount*l.ViewRowsPerPoly)...)
-		hashRows = append(hashRows, intGenISISViewRowIndices(l.X0ViewStart, l.X0Count*l.ViewRowsPerPoly)...)
-		hashRows = append(hashRows, intGenISISViewRowIndices(l.X1ViewStart, l.X1Count*l.ViewRowsPerPoly)...)
-		hashPolys, hashCoeffs, herr := intGenISISRangeMembershipRows(ringQ, rowsNTT, hashRows, pub.HashInputBound)
+		if structuralV3 {
+			hashRows = append(hashRows, intGenISISViewRowIndices(l.MuSigCarrierStart, l.MuSigCarrierCount)...)
+			hashRows = append(hashRows, intGenISISViewRowIndices(l.X0CarrierStart, l.X0CarrierCount)...)
+			hashRows = append(hashRows, intGenISISViewRowIndices(l.X1CarrierStart, l.X1CarrierCount)...)
+		} else {
+			hashRows = append(hashRows, intGenISISViewRowIndices(l.MuSigViewStart, l.MuSigCount*l.ViewRowsPerPoly)...)
+			hashRows = append(hashRows, intGenISISViewRowIndices(l.X0ViewStart, l.X0Count*l.ViewRowsPerPoly)...)
+			hashRows = append(hashRows, intGenISISViewRowIndices(l.X1ViewStart, l.X1Count*l.ViewRowsPerPoly)...)
+		}
+		var hashPolys []*ring.Poly
+		var hashCoeffs [][]uint64
+		var herr error
+		if structuralV3 {
+			hashPolys, hashCoeffs, herr = intGenISISCompressedCarrierMembershipRows(ringQ, rowsNTT, hashRows, hashCompressionSpec)
+		} else {
+			hashPolys, hashCoeffs, herr = intGenISISRangeMembershipRows(ringQ, rowsNTT, hashRows, pub.HashInputBound)
+		}
 		if herr != nil {
 			return herr
 		}
@@ -2671,6 +3166,36 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 		bridgePolys = append(bridgePolys, prfFullPolys...)
 		bridgeCoeffs = append(bridgeCoeffs, prfFullCoeffs...)
 	}
+	if structuralV3 {
+		var relation *prfInputTraceV3Relation
+		var prfV3Polys []*ring.Poly
+		var prfV3Coeffs [][]uint64
+		if err := stage("showing.constraints.prf_input_trace_v3", func() error {
+			params := (*prf.Params)(nil)
+			if prepared != nil {
+				params = prepared.prfParams
+			}
+			var rerr error
+			relation, rerr = newPRFInputTraceV3RelationForShowing(ringQ, pub, l, omega, params, len(rowsNTT))
+			if rerr != nil {
+				return rerr
+			}
+			var degree int
+			prfV3Polys, prfV3Coeffs, degree, rerr = relation.FormalCoeffs(ringQ, rowCache)
+			if rerr != nil {
+				return rerr
+			}
+			if degree != 3 {
+				return fmt.Errorf("strict v3 PRF compiler degree=%d want 3", degree)
+			}
+			prfDirectFullDegree = degree
+			return nil
+		}); err != nil {
+			return ConstraintSet{}, err
+		}
+		bridgePolys = append(bridgePolys, prfV3Polys...)
+		bridgeCoeffs = append(bridgeCoeffs, prfV3Coeffs...)
+	}
 	if projectedUY {
 		var projectedPolys []*ring.Poly
 		var projectedCoeffs [][]uint64
@@ -2687,7 +3212,7 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 				prepared.storeProjectedBasis(outputCount, sourceBlocks, basis)
 			}
 			var perr error
-			projectedPolys, projectedCoeffs, perr = intGenISISProjectedSignatureFormalCoeffs(ringQ, pub, rowsNTT, rowCache, l, basis, omega, yLinearCache, compressionSpec, phase)
+			projectedPolys, projectedCoeffs, perr = intGenISISProjectedSignatureFormalCoeffs(ringQ, pub, rowsNTT, rowCache, l, basis, omega, yLinearCache, compressionSpec, hashCompressionSpec, phase)
 			return perr
 		}); err != nil {
 			return ConstraintSet{}, err
@@ -2731,17 +3256,51 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 			bridgeCoeffs = append(bridgeCoeffs, coeffs...)
 		}
 	}
-	for _, bridge := range []struct {
+	linearHatBridges := []struct {
 		name       string
 		source     int
 		components int
 		hat        int
+		compressed bool
 	}{
-		{"mu_sig", l.MuSigViewStart, l.MuSigCount, l.MuSigHatStart},
-		{"x0", l.X0ViewStart, l.X0Count, l.X0HatStart},
-		{"x1", l.X1ViewStart, l.X1Count, l.X1HatStart},
-	} {
-		polys, coeffs, berr := intGenISISCoeffToHatBridgeFormalCoeffs(ringQ, rowCache, omega, bridge.source, bridge.components, bridge.hat, l.ViewRowsPerPoly, bridge.name)
+		{"x1", func() int {
+			if structuralV3 {
+				return l.X1CarrierStart
+			}
+			return l.X1ViewStart
+		}(), l.X1Count, l.X1HatStart, structuralV3},
+	}
+	if intGenISISLinearHatSourceMode(l) == intGenISISLinearHatSourceMaterialized {
+		linearHatBridges = append([]struct {
+			name       string
+			source     int
+			components int
+			hat        int
+			compressed bool
+		}{
+			{"mu_sig", func() int {
+				if structuralV3 {
+					return l.MuSigCarrierStart
+				}
+				return l.MuSigViewStart
+			}(), l.MuSigCount, l.MuSigHatStart, structuralV3},
+			{"x0", func() int {
+				if structuralV3 {
+					return l.X0CarrierStart
+				}
+				return l.X0ViewStart
+			}(), l.X0Count, l.X0HatStart, structuralV3},
+		}, linearHatBridges...)
+	}
+	for _, bridge := range linearHatBridges {
+		var polys []*ring.Poly
+		var coeffs [][]uint64
+		var berr error
+		if bridge.compressed {
+			polys, coeffs, berr = intGenISISCompressedCoeffToHatBridgeFormalCoeffs(ringQ, rowsNTT, omega, bridge.source, bridge.components, bridge.hat, l.ViewRowsPerPoly, ternaryCarrierV3PackWidth, hashCompressionSpec.DecodePolys, bridge.name)
+		} else {
+			polys, coeffs, berr = intGenISISCoeffToHatBridgeFormalCoeffs(ringQ, rowCache, omega, bridge.source, bridge.components, bridge.hat, l.ViewRowsPerPoly, bridge.name)
+		}
 		if berr != nil {
 			return ConstraintSet{}, berr
 		}
@@ -2754,14 +3313,24 @@ func buildIntGenISISShowingConstraintSetFromRowsPrepared(ringQ *ring.Ring, pub P
 	}
 	shortDegree = maxInt(shortDegree, intGenISISDirectSignatureRangeDegree(sigBound))
 	return ConstraintSet{
-		FparInt:          fpar,
-		FparIntCoeffs:    coeffs,
-		FparNorm:         boundPolys,
-		FparNormCoeffs:   boundCoeffs,
-		FaggNorm:         bridgePolys,
-		FaggNormCoeffs:   bridgeCoeffs,
-		ParallelAlgDeg:   maxInt(maxInt(maxInt(maxInt(2, intGenISISMembershipDegree(pub.BoundB)), intGenISISMembershipDegree(intGenISISSeedBound)), intGenISISMembershipDegree(pub.HashInputBound)), maxInt(shortDegree, compressionSpec.Descriptor.MembershipDeg)),
-		AggregatedAlgDeg: maxInt(maxInt(2, compressionSpec.Descriptor.DecodeDegree), prfDirectFullDegree),
+		FparInt:        fpar,
+		FparIntCoeffs:  coeffs,
+		FparNorm:       boundPolys,
+		FparNormCoeffs: boundCoeffs,
+		FaggNorm:       bridgePolys,
+		FaggNormCoeffs: bridgeCoeffs,
+		ParallelAlgDeg: maxInt(maxInt(maxInt(maxInt(2, intGenISISMembershipDegree(pub.BoundB)), intGenISISMembershipDegree(intGenISISSeedBound)), func() int {
+			if structuralV3 {
+				return ternaryCarrierV3Alphabet
+			}
+			return intGenISISMembershipDegree(pub.HashInputBound)
+		}()), maxInt(shortDegree, compressionSpec.Descriptor.MembershipDeg)),
+		AggregatedAlgDeg: maxInt(maxInt(maxInt(2, compressionSpec.Descriptor.DecodeDegree), func() int {
+			if structuralV3 {
+				return ternaryCarrierV3Alphabet - 1
+			}
+			return 0
+		}()), prfDirectFullDegree),
 	}, nil
 }
 
@@ -2792,26 +3361,88 @@ func PrepareIntGenISISShowingContext(pub PublicInputs, opts SimOpts) (*IntGenISI
 	if !opts.Credential || !opts.CoeffPacking {
 		return nil, fmt.Errorf("IntGenISIS showing requires credential coeff-packing mode")
 	}
+	ownedPublic, err := clonePublicInputsOwned(pub)
+	if err != nil {
+		return nil, fmt.Errorf("clone prepared IntGenISIS public inputs: %w", err)
+	}
+	pub = ownedPublic
 	pub.IntGenISIS = true
 	opts.EnablePackedPRFWitnessRows = true
-	opts.EnablePRFCompanion = true
-	if normalizePRFCompanionMode(opts.PRFCompanionMode) == "" {
-		opts.PRFCompanionMode = PRFCompanionModeDirectFull
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		// Input-trace v3 is the complete PRF relation for the target path.
+		// Companion controls are legacy-only metadata and must not be revived by
+		// preparation defaults after the preset has deliberately cleared them.
+		opts.EnablePRFCompanion = false
+		opts.PRFCompanionMode = ""
+		opts.PRFGroupRounds = 0
+		opts.PRFCheckpointSamples = 0
+	} else {
+		opts.EnablePRFCompanion = true
+		if normalizePRFCompanionMode(opts.PRFCompanionMode) == "" {
+			opts.PRFCompanionMode = PRFCompanionModeDirectFull
+		}
 	}
-	ringQ, omega, pcsNCols, err := loadParamsAndOmegaForRelation(opts, pub.HashRelation)
-	if err != nil {
-		return nil, fmt.Errorf("load params: %w", err)
+	var (
+		ringQ          *ring.Ring
+		omega          []uint64
+		domainPoints   []uint64
+		preparedDomain *swDomain.Prepared
+		pcsNCols       int
+	)
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		ringQ, err = loadParamsRingForOpts(opts)
+		if err != nil {
+			return nil, fmt.Errorf("load params: %w", err)
+		}
+		witnessNCols := opts.NCols
+		if witnessNCols <= 0 {
+			witnessNCols = int(ringQ.N)
+		}
+		pcsNCols = resolvePCSNCols(opts, witnessNCols)
+		if pcsNCols < witnessNCols {
+			return nil, fmt.Errorf("invalid lvcs ncols=%d (must be >= witness ncols=%d)", pcsNCols, witnessNCols)
+		}
+		nLeaves := opts.NLeaves
+		if nLeaves <= 0 {
+			nLeaves = int(ringQ.N)
+		}
+		domainStart := phaseTimingStart(opts.PhaseRecorder)
+		preparedDomain, _, err = prepareExplicitDomainForRelation(ringQ.Modulus[0], nLeaves, witnessNCols, pcsNCols, opts.Ell, pub.HashRelation)
+		if opts.PhaseRecorder != nil {
+			opts.PhaseRecorder.RecordDuration("showing.domain_preparation", time.Since(domainStart))
+		}
+		if err != nil {
+			return nil, fmt.Errorf("explicit domain: %w", err)
+		}
+		omega = preparedDomain.CopyRange(0, pcsNCols)
+		domainPoints = preparedDomain.CopyPoints()
+	} else {
+		ringQ, omega, pcsNCols, err = loadParamsAndOmegaForRelation(opts, pub.HashRelation)
+		if err != nil {
+			return nil, fmt.Errorf("load params: %w", err)
+		}
 	}
 	pub, err = bindIntGenISISPublicExtrasWithOpts(pub, int(ringQ.N), opts)
 	if err != nil {
 		return nil, err
 	}
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		if err := validateCanonicalTargetPublicBindingsV3(pub, opts, CanonicalProofShowing); err != nil {
+			return nil, fmt.Errorf("PIOP: strict-v3 showing target binding: %w", err)
+		}
+	}
+	var publicBinding []byte
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		publicBinding, err = canonicalPublicInputsBytesV3(pub)
+		if err != nil {
+			return nil, fmt.Errorf("PIOP: canonical prepared public binding: %w", err)
+		}
+	}
 	witnessNCols := opts.NCols
 	if witnessNCols <= 0 {
 		witnessNCols = pcsNCols
 	}
-	var domainPoints []uint64
-	if opts.DomainMode == DomainModeExplicit {
+	if opts.DomainMode == DomainModeExplicit && preparedDomain == nil {
 		nLeaves := opts.NLeaves
 		if nLeaves <= 0 {
 			nLeaves = int(ringQ.N)
@@ -2825,7 +3456,12 @@ func PrepareIntGenISISShowingContext(pub PublicInputs, opts SimOpts) (*IntGenISI
 			return nil, fmt.Errorf("explicit domain: %w", derr)
 		}
 	}
-	params, err := loadPRFParamsForOpts(opts)
+	var params *prf.Params
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		params, _, err = loadTargetPRFParamsForOptsV3(opts)
+	} else {
+		params, err = loadPRFParamsForOpts(opts)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("load prf params: %w", err)
 	}
@@ -2835,15 +3471,19 @@ func PrepareIntGenISISShowingContext(pub PublicInputs, opts SimOpts) (*IntGenISI
 	}
 	storedOpts := opts
 	storedOpts.PhaseRecorder = nil
+	storedOpts.ExecutionPolicy = ExecutionPolicy{}
+	storedOpts.Mutate = nil
 	return &IntGenISISShowingPreparedContext{
-		pub:          pub,
-		opts:         storedOpts,
-		ringQ:        ringQ,
-		omega:        append([]uint64(nil), omega...),
-		domainPoints: append([]uint64(nil), domainPoints...),
-		pcsNCols:     pcsNCols,
-		prfParams:    params,
-		groupRounds:  groupRounds,
+		pub:            pub,
+		opts:           storedOpts,
+		ringQ:          ringQ,
+		omega:          append([]uint64(nil), omega...),
+		domainPoints:   append([]uint64(nil), domainPoints...),
+		preparedDomain: preparedDomain,
+		publicBinding:  append([]byte(nil), publicBinding...),
+		pcsNCols:       pcsNCols,
+		prfParams:      params,
+		groupRounds:    groupRounds,
 	}, nil
 }
 
@@ -2853,6 +3493,62 @@ func BuildIntGenISISShowingCombined(pub PublicInputs, wit WitnessInputs, opts Si
 		return nil, err
 	}
 	return BuildIntGenISISShowingCombinedPrepared(pub, wit, opts, prepared)
+}
+
+func validateIntGenISISShowingPreparedReuse(ctx *IntGenISISShowingPreparedContext, pub PublicInputs, opts SimOpts) error {
+	if ctx == nil || ctx.ringQ == nil {
+		return fmt.Errorf("prepared IntGenISIS showing context is incomplete")
+	}
+	opts.applyDefaults()
+	pub.IntGenISIS = true
+	opts.EnablePackedPRFWitnessRows = true
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		opts.EnablePRFCompanion = false
+		opts.PRFCompanionMode = ""
+		opts.PRFGroupRounds = 0
+		opts.PRFCheckpointSamples = 0
+	} else {
+		opts.EnablePRFCompanion = true
+		if normalizePRFCompanionMode(opts.PRFCompanionMode) == "" {
+			opts.PRFCompanionMode = PRFCompanionModeDirectFull
+		}
+	}
+	ownedPublic, err := clonePublicInputsOwned(pub)
+	if err != nil {
+		return fmt.Errorf("clone IntGenISIS showing public inputs: %w", err)
+	}
+	boundPublic, err := bindIntGenISISPublicExtrasWithOpts(ownedPublic, int(ctx.ringQ.N), opts)
+	if err != nil {
+		return err
+	}
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		if err := validateCanonicalTargetPublicBindingsV3(boundPublic, opts, CanonicalProofShowing); err != nil {
+			return fmt.Errorf("PIOP: strict-v3 showing target binding: %w", err)
+		}
+		binding, err := canonicalPublicInputsBytesV3(boundPublic)
+		if err != nil {
+			return fmt.Errorf("PIOP: canonical prepared public binding: %w", err)
+		}
+		if !bytes.Equal(binding, ctx.publicBinding) {
+			return fmt.Errorf("prepared IntGenISIS showing public-input binding mismatch")
+		}
+		cachedBinding, err := canonicalPublicInputsBytesV3(ctx.pub)
+		if err != nil {
+			return fmt.Errorf("PIOP: cached prepared public binding: %w", err)
+		}
+		if !bytes.Equal(cachedBinding, ctx.publicBinding) {
+			return fmt.Errorf("prepared IntGenISIS showing cached public inputs changed after preparation")
+		}
+	} else if !reflect.DeepEqual(boundPublic, ctx.pub) {
+		return fmt.Errorf("prepared IntGenISIS showing public inputs mismatch")
+	}
+	opts.PhaseRecorder = nil
+	opts.ExecutionPolicy = ExecutionPolicy{}
+	opts.Mutate = nil
+	if !reflect.DeepEqual(opts, ctx.opts) {
+		return fmt.Errorf("prepared IntGenISIS showing proof options mismatch")
+	}
+	return nil
 }
 
 // BuildIntGenISISShowingCombinedPrepared builds an IntGenISIS showing proof
@@ -2874,17 +3570,26 @@ func buildIntGenISISShowingCombinedPreparedWithState(pub PublicInputs, wit Witne
 			return nil, nil, err
 		}
 	}
+	if err := validateIntGenISISShowingPreparedReuse(ctx, pub, opts); err != nil {
+		return nil, nil, err
+	}
 	if wit.CoeffNativeShowing == nil {
 		return nil, nil, fmt.Errorf("IntGenISIS showing requires coeff-native witness")
 	}
 	pub = ctx.pub
 	phaseRecorder := opts.PhaseRecorder
+	executionPolicy := opts.ExecutionPolicy
+	mutationHook := opts.Mutate
 	opts = ctx.opts
 	if err := validateIntGenISISV2TranscriptOpts(opts); err != nil {
 		return nil, nil, err
 	}
 	if phaseRecorder != nil {
 		opts.PhaseRecorder = phaseRecorder
+	}
+	opts.ExecutionPolicy = executionPolicy
+	if mutationHook != nil {
+		opts.Mutate = mutationHook
 	}
 	ringQ := ctx.ringQ
 	if ringQ == nil {
@@ -2903,8 +3608,8 @@ func buildIntGenISISShowingCombinedPreparedWithState(pub PublicInputs, wit Witne
 		if pcsNCols < witnessNCols {
 			return nil, nil, fmt.Errorf("prepared IntGenISIS showing context lvcs ncols=%d < witness ncols=%d", pcsNCols, witnessNCols)
 		}
-		rowsStart := time.Now()
-		rows, rowInputs, layout, prfLayout, prfCompanionLayout, decsParams, maskRowOffset, _, witnessCount, _, builtNCols, err := BuildCredentialRowsShowingIntGenISIS(ringQ, pub, wit, ctx.prfParams.LenKey, ctx.prfParams.LenNonce, ctx.prfParams.RF, ctx.prfParams.RP, ctx.groupRounds, opts)
+		rowsStart := phaseTimingStart(opts.PhaseRecorder)
+		rows, rowInputs, layout, prfLayout, prfCompanionLayout, decsParams, maskRowOffset, _, witnessCount, _, builtNCols, err := buildCredentialRowsShowingIntGenISIS(ringQ, pub, wit, ctx.prfParams.LenKey, ctx.prfParams.LenNonce, ctx.prfParams.RF, ctx.prfParams.RP, ctx.groupRounds, opts, omega[:witnessNCols])
 		if opts.PhaseRecorder != nil {
 			opts.PhaseRecorder.RecordDuration("showing.rows", time.Since(rowsStart))
 		}
@@ -2915,7 +3620,7 @@ func buildIntGenISISShowingCombinedPreparedWithState(pub PublicInputs, wit Witne
 		if requiredPCSNCols > pcsNCols {
 			return nil, nil, fmt.Errorf("prepared explicit PCS width %d is too small for committed row degree; need at least %d", pcsNCols, requiredPCSNCols)
 		}
-		rowsNTTStart := time.Now()
+		rowsNTTStart := phaseTimingStart(opts.PhaseRecorder)
 		rowsNTT := make([]*ring.Poly, len(rows))
 		for i := range rows {
 			rowsNTT[i] = ringQ.NewPoly()
@@ -2944,6 +3649,7 @@ func buildIntGenISISShowingCombinedPreparedWithState(pub PublicInputs, wit Witne
 			PRFCompanionLayout: prfCompanionLayout,
 		}
 		credentialBuild := &preparedCredentialBuild{
+			ringQ:                 ringQ,
 			rows:                  rows,
 			rowInputs:             rowInputs,
 			rowLayout:             layout,
@@ -2954,6 +3660,10 @@ func buildIntGenISISShowingCombinedPreparedWithState(pub PublicInputs, wit Witne
 			omega:                 omega,
 			omegaWitness:          append([]uint64(nil), omega[:builtNCols]...),
 			domainPoints:          append([]uint64(nil), ctx.domainPoints...),
+			preparedDomain:        ctx.preparedDomain,
+			relationIdentity:      pub.HashRelation,
+			strictRowProvenance:   transcriptUsesSmallWood2025V3(opts.TranscriptVersion),
+			showingReplay:         ctx.strictReplayConfig(),
 			skipConstraintRebuild: true,
 		}
 		opts.Credential = true
@@ -2984,6 +3694,11 @@ func VerifyIntGenISISShowing(pub PublicInputs, proof *Proof, opts SimOpts) (bool
 	pub, err = bindIntGenISISPublicExtrasWithOpts(pub, pub.RingDegree, opts)
 	if err != nil {
 		return false, err
+	}
+	if transcriptUsesSmallWood2025V3(opts.TranscriptVersion) {
+		if err := validateCanonicalTargetPublicBindingsV3(pub, opts, CanonicalProofShowing); err != nil {
+			return false, fmt.Errorf("PIOP: strict-v3 showing target binding: %w", err)
+		}
 	}
 	ringQ, err := credential.LoadRingWithDegree(pub.RingDegree)
 	if err != nil {

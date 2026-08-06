@@ -19,15 +19,59 @@ func VerifyNIZKWithReplay(proof *Proof, replay *ConstraintReplay) (okLin, okEq4,
 	return verifyNIZK(proof, replay)
 }
 
+// verifierRowDegreeBound resolves the LVCS row-degree cap. V2 preserves the
+// historical proof-carried fallback. V3 derives the only admissible value from
+// the verifier's relation geometry and treats the serialized field solely as a
+// consistency check; an attacker cannot raise the verifier's degree budget by
+// editing proof metadata.
+func verifierRowDegreeBound(proof *Proof, lvcsNCols, ell int) (int, error) {
+	if proof == nil {
+		return 0, errors.New("nil proof")
+	}
+	if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+		if lvcsNCols <= 0 || ell <= 0 {
+			return 0, fmt.Errorf("invalid trusted row geometry ncols=%d ell=%d", lvcsNCols, ell)
+		}
+		maxInt := int(^uint(0) >> 1)
+		if lvcsNCols > maxInt-ell+1 {
+			return 0, fmt.Errorf("trusted row geometry overflows int: ncols=%d ell=%d", lvcsNCols, ell)
+		}
+		expected := lvcsNCols + ell - 1
+		if proof.RowDegreeBound != expected {
+			return 0, fmt.Errorf("row degree bound=%d want verifier-derived %d", proof.RowDegreeBound, expected)
+		}
+		return expected, nil
+	}
+
+	bound := proof.RowDegreeBound
+	if bound <= 0 {
+		bound = proof.MaskDegreeBound
+	}
+	if bound <= 0 {
+		return 0, errors.New("missing row degree bound")
+	}
+	return bound, nil
+}
+
 func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum bool, err error) {
 	if proof == nil {
 		return false, false, false, errors.New("VerifyNIZK: nil proof")
 	}
-	if proof.SchemaVersion != ProofSchemaVersionV2 {
-		return false, false, false, fmt.Errorf("VerifyNIZK: unsupported proof schema %d; want %d", proof.SchemaVersion, ProofSchemaVersionV2)
+	expectedSchema := proofSchemaVersionForTranscript(proof.TranscriptVersion)
+	if proof.SchemaVersion != expectedSchema {
+		return false, false, false, fmt.Errorf("VerifyNIZK: unsupported proof schema %d; want %d", proof.SchemaVersion, expectedSchema)
+	}
+	strictV3 := transcriptUsesSmallWood2025V3(proof.TranscriptVersion)
+	if strictV3 {
+		if len(proof.Chi) != 0 || len(proof.Zeta) != 0 ||
+			len(proof.MaskCoeffDebug) != 0 || len(proof.FparCoeffDebug) != 0 ||
+			len(proof.FaggCoeffDebug) != 0 || len(proof.QCoeffDebug) != 0 ||
+			len(proof.MKData) != 0 || len(proof.QKData) != 0 {
+			return false, false, false, errors.New("VerifyNIZK: v3 proof carries forbidden field/debug polynomial material")
+		}
 	}
 	intGenISISProof := proof.RowLayout.IntGenISISPreSign != nil || proof.RowLayout.IntGenISISShowing != nil
-	if intGenISISProof && (proof.TranscriptVersion != TranscriptVersionSmallWood2025V2 || proof.TranscriptProtocolMode != TranscriptProtocolSmallField2025V2) {
+	if intGenISISProof && !transcriptUsesStrictSmallField2025(proof.TranscriptVersion, proof.TranscriptProtocolMode) {
 		return false, false, false, fmt.Errorf("VerifyNIZK: unexpected transcript tuple (%q,%q)", proof.TranscriptVersion, proof.TranscriptProtocolMode)
 	}
 	paperQPayloadOnly := proofUsesPaperQPayloadOnly(proof)
@@ -44,6 +88,9 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	}
 	if len(proof.Digests[0]) == 0 || len(proof.Digests[1]) == 0 || len(proof.Digests[3]) == 0 {
 		return false, false, false, errors.New("VerifyNIZK: incomplete transcript digests")
+	}
+	if err := validateProofFSDigestWidths(proof); err != nil {
+		return false, false, false, fmt.Errorf("VerifyNIZK: %w", err)
 	}
 
 	ringQ, err := loadParamsRingForOpts(SimOpts{RingDegree: proof.RingDegree})
@@ -114,21 +161,28 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	unpackUint64Matrix(proof.MvalsEvalBits, proof.MvalsEvalRows, proof.MvalsEvalCols)
 
 	// ----------------------------------------------------------------- FS round 0
-	lambda := proof.Lambda
-	if lambda <= 0 {
-		lambda = 256
+	fs, err := newFSForProof(proof)
+	if err != nil {
+		return false, false, false, fmt.Errorf("VerifyNIZK: Fiat-Shamir policy: %w", err)
 	}
-	fs := NewFS(NewShake256XOF(fsDigestBytes), proof.Salt, FSParams{Lambda: lambda, Kappa: proof.Kappa, TranscriptVersion: proof.TranscriptVersion, TranscriptProtocol: proof.TranscriptProtocolMode})
 	rootBytes := append([]byte(nil), proofRootBytes(proof)...)
 	if !decs.IsSupportedHashBytes(len(rootBytes)) {
 		return false, false, false, fmt.Errorf("VerifyNIZK: invalid full v2 root width %d", len(rootBytes))
 	}
-	mainCtx, err := mainCommitmentContextV2(proof.Salt)
+	mainCtx, err := mainCommitmentContextForTranscript(proof.Salt, proof.TranscriptVersion)
 	if err != nil {
 		return false, false, false, fmt.Errorf("VerifyNIZK: %w", err)
 	}
 	material0 := [][]byte{rootBytes}
-	if len(proof.LabelsDigest) > 0 {
+	if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+		if replay == nil || len(replay.PublicStatementBytes) == 0 {
+			return false, false, false, errors.New("VerifyNIZK: missing verifier-reconstructed v3 public statement")
+		}
+		if len(proof.LabelsDigest) != 0 {
+			return false, false, false, errors.New("VerifyNIZK: v3 proof carries forbidden labels digest")
+		}
+		material0 = append(material0, replay.PublicStatementBytes)
+	} else if len(proof.LabelsDigest) > 0 {
 		material0 = append(material0, proof.LabelsDigest)
 	}
 	if digest, derr := buildSigShortnessBindingDigest(proof.SigShortness, proof.RowLayout, proof.NColsUsed); derr != nil {
@@ -141,7 +195,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		return false, false, false, fmt.Errorf("VerifyNIZK: FS round 0: %w", err)
 	}
 	seed1 := h1
-	gammaRNG := newFSRNG("Gamma", seed1)
+	gammaRNG := newFSRNGForTranscript(proof.TranscriptVersion, "Gamma", seed1)
 	Gamma := sampleFSMatrix(eta, rRows, q, gammaRNG)
 
 	// LVCS degree check binds Γ to Root.
@@ -149,15 +203,9 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		return false, false, false, fmt.Errorf("VerifyNIZK: expected %d R-polynomials, got %d", eta, len(proof.R))
 	}
 
-	rowDegBound := proof.RowDegreeBound
-	if rowDegBound <= 0 {
-		rowDegBound = proof.MaskDegreeBound
-	}
-	if rowDegBound <= 0 {
-		return false, false, false, errors.New("VerifyNIZK: missing row degree bound")
-	}
-	if rowDegBound < 0 {
-		return false, false, false, fmt.Errorf("VerifyNIZK: invalid row degree bound %d (ringN=%d)", rowDegBound, ringQ.N)
+	rowDegBound, err := verifierRowDegreeBound(proof, ncols, ell)
+	if err != nil {
+		return false, false, false, fmt.Errorf("VerifyNIZK: %w", err)
 	}
 	lvcsParams := decs.Params{Degree: rowDegBound, Eta: eta, TapeBytes: pcsOpening.TapeBytes, HashBytes: len(rootBytes)}
 	vrf, err := lvcs.NewVerifierWithParamsAndPointsV2(ringQ, rRows, lvcsParams, ncols, domainPoints, mainCtx)
@@ -174,16 +222,27 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	gammaBytes := bytesFromUint64Matrix(Gamma)
 	rBytes := bytesFromUint64Matrix(proof.R)
 	transcript2 := [][]byte{rootBytes, gammaBytes, rBytes}
-	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025V2 {
+	if proofUsesPaperQPayloadOnly(proof) {
 		transcript2 = [][]byte{rBytes}
 	} else if len(proof.LabelsDigest) > 0 {
 		transcript2 = append(transcript2, proof.LabelsDigest)
 	}
 	if proof.Theta > 1 {
-		if len(proof.Chi) == 0 || len(proof.Zeta) == 0 {
-			return false, false, false, errors.New("VerifyNIZK: missing Chi/Zeta for θ>1")
+		if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			if len(proof.Chi) != 0 || len(proof.Zeta) != 0 {
+				return false, false, false, errors.New("VerifyNIZK: v3 proof transmits Chi/Zeta")
+			}
+			profileBytes, profileErr := smallFieldProfileTranscriptBytesV3(q, proof.Theta)
+			if profileErr != nil {
+				return false, false, false, fmt.Errorf("VerifyNIZK: %w", profileErr)
+			}
+			transcript2 = append(transcript2, profileBytes)
+		} else {
+			if len(proof.Chi) == 0 || len(proof.Zeta) == 0 {
+				return false, false, false, errors.New("VerifyNIZK: missing Chi/Zeta for θ>1")
+			}
+			transcript2 = append(transcript2, encodeUint64Slice(proof.Chi), encodeUint64Slice(proof.Zeta))
 		}
-		transcript2 = append(transcript2, encodeUint64Slice(proof.Chi), encodeUint64Slice(proof.Zeta))
 	}
 	h2, err := verifyRoundDigest(fs, 1, proof.Ctr[1], transcript2, proof.Digests[1], proof.Kappa[1])
 	if err != nil {
@@ -241,7 +300,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if s == 0 {
 			return false, false, false, errors.New("VerifyNIZK: empty witness omega")
 		}
-		fsGammaPrime := sampleFSPolyTensorK(rows, cols, s, proof.Theta, q, newFSRNG("GammaPrime", seed2))
+		fsGammaPrime := sampleFSPolyTensorK(rows, cols, s, proof.Theta, q, newFSRNGForTranscript(proof.TranscriptVersion, "GammaPrime", seed2))
 		if !kTensor3Equal(fsGammaPrime, proof.GammaPrimeK) {
 			return false, false, false, errors.New("VerifyNIZK: GammaPrimeK mismatch")
 		}
@@ -251,7 +310,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if aggRows > 0 {
 			aggCols = len(proof.GammaAggK[0])
 		}
-		fsGammaAgg := sampleFSVectorK(aggRows, aggCols, proof.Theta, q, newFSRNG("GammaPrimeAgg", seed2, []byte{1}))
+		fsGammaAgg := sampleFSVectorK(aggRows, aggCols, proof.Theta, q, newFSRNGForTranscript(proof.TranscriptVersion, "GammaPrimeAgg", seed2, []byte{1}))
 		if !kMatrixEqual(fsGammaAgg, proof.GammaAggK) {
 			return false, false, false, errors.New("VerifyNIZK: GammaAggK mismatch")
 		}
@@ -266,7 +325,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if s == 0 {
 			return false, false, false, errors.New("VerifyNIZK: empty witness omega")
 		}
-		fsGammaPrime := sampleFSPolyTensor(rows, cols, s, q, newFSRNG("GammaPrime", seed2))
+		fsGammaPrime := sampleFSPolyTensor(rows, cols, s, q, newFSRNGForTranscript(proof.TranscriptVersion, "GammaPrime", seed2))
 		if !tensor3Equal(fsGammaPrime, proof.GammaPrime) {
 			return false, false, false, errors.New("VerifyNIZK: GammaPrime mismatch")
 		}
@@ -276,7 +335,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if rowsAgg > 0 {
 			colsAgg = len(proof.GammaAgg[0])
 		}
-		fsGammaAgg := sampleFSMatrix(rowsAgg, colsAgg, q, newFSRNG("GammaPrimeAgg", seed2, []byte{1}))
+		fsGammaAgg := sampleFSMatrix(rowsAgg, colsAgg, q, newFSRNGForTranscript(proof.TranscriptVersion, "GammaPrimeAgg", seed2, []byte{1}))
 		if !matrixEqual(fsGammaAgg, proof.GammaAgg) {
 			return false, false, false, errors.New("VerifyNIZK: GammaAgg mismatch")
 		}
@@ -290,7 +349,19 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 
 	var transcript3 [][]byte
 	if paperQPayloadOnly {
-		transcript3 = [][]byte{proof.QPayloadBytes()}
+		if transcriptUsesSmallWood2025V3(proof.TranscriptVersion) {
+			omegaWitness := omega
+			if witnessNCols > 0 && len(omegaWitness) > witnessNCols {
+				omegaWitness = omegaWitness[:witnessNCols]
+			}
+			qTranscript, qTranscriptErr := canonicalQKernelTranscriptFromFullV5(proof.QPayloadMatrix(), omegaWitness, q)
+			if qTranscriptErr != nil {
+				return false, false, false, fmt.Errorf("VerifyNIZK: frame compact QPayload for FS round 2: %w", qTranscriptErr)
+			}
+			transcript3 = [][]byte{qTranscript}
+		} else {
+			transcript3 = [][]byte{proof.QPayloadBytes()}
+		}
 	} else {
 		transcript3 = [][]byte{
 			rootBytes,
@@ -368,9 +439,9 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if ellPrime == 0 {
 			return false, false, false, errors.New("VerifyNIZK: empty bar sets")
 		}
-		points := sampleDistinctFieldElemsAvoid(ellPrime, q, newFSRNG("EvalPoints", seed3), omega)
+		points := sampleDistinctFieldElemsAvoid(ellPrime, q, newFSRNGForTranscript(proof.TranscriptVersion, "EvalPoints", seed3), omega)
 		coeffMatrix = make([][]uint64, ellPrime)
-		coeffRNG := newFSRNG("EvalCoeffs", seed3, []byte{1})
+		coeffRNG := newFSRNGForTranscript(proof.TranscriptVersion, "EvalCoeffs", seed3, []byte{1})
 		maskStart := proof.MaskRowOffset
 		maskEnd := proof.MaskRowOffset + proof.MaskRowCount
 		if maskStart < 0 || maskEnd < maskStart || maskEnd > rRows {
@@ -382,7 +453,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 				if j >= maskStart && j < maskEnd {
 					row[j] = 0
 				} else {
-					row[j] = coeffRNG.nextU64() % q
+					row[j] = coeffRNG.nextMod(q)
 				}
 			}
 			coeffMatrix[i] = row
@@ -414,7 +485,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		}
 	}
 	transcriptForRound3 := transcript4
-	if normalizeTranscriptVersion(proof.TranscriptVersion) == TranscriptVersionSmallWood2025V2 && len(proof.TailTranscript) > 0 {
+	if proofUsesPaperQPayloadOnly(proof) && len(proof.TailTranscript) > 0 {
 		recomputed := flattenBytes(transcript4)
 		if !bytes.Equal(recomputed, proof.TailTranscript) {
 			return false, false, false, fmt.Errorf("VerifyNIZK: reconstructed tail transcript mismatch (got %d bytes want %d)", len(recomputed), len(proof.TailTranscript))
@@ -422,7 +493,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	} else if len(proof.TailTranscript) > 0 {
 		transcriptForRound3 = [][]byte{proof.TailTranscript}
 	}
-	_, err = verifyRoundDigest(fs, 3, proof.Ctr[3], transcriptForRound3, proof.Digests[3], proof.Kappa[3])
+	h4, err := verifyRoundDigest(fs, 3, proof.Ctr[3], transcriptForRound3, proof.Digests[3], proof.Kappa[3])
 	if err != nil {
 		return false, false, false, fmt.Errorf("VerifyNIZK: FS round 3: %w", err)
 	}
@@ -431,6 +502,9 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	tailLen := tailDomainSize - tailStart
 	if tailLen < ell {
 		return false, false, false, errors.New("VerifyNIZK: insufficient tail region")
+	}
+	if err := verifyTailChallengeV3(proof.TranscriptVersion, h4, proof.Tail, tailStart, tailLen, ell); err != nil {
+		return false, false, false, fmt.Errorf("VerifyNIZK: %w", err)
 	}
 	if err := validateDistinctIndicesInRange(proof.Tail, tailStart, tailStart+tailLen); err != nil {
 		return false, false, false, fmt.Errorf("VerifyNIZK: invalid tail indices: %w", err)
@@ -515,13 +589,13 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		if len(qr) != eta {
 			return okLin, false, false, fmt.Errorf("VerifyNIZK: QR count mismatch: got %d want %d", len(qr), eta)
 		}
-		gammaQRNG := newFSRNG("GammaQ", seed3)
+		gammaQRNG := newFSRNGForTranscript(proof.TranscriptVersion, "GammaQ", seed3)
 		GammaQ := sampleFSMatrix(eta, rhoQ, q, gammaQRNG)
 		qRootBytes := proofQRootBytes(proof)
 		if !decs.IsSupportedHashBytes(len(qRootBytes)) {
 			return okLin, false, false, fmt.Errorf("VerifyNIZK: invalid full Q root width %d", len(qRootBytes))
 		}
-		qCtx, err := qCommitmentContextV2(proof.Salt)
+		qCtx, err := qCommitmentContextForTranscript(proof.Salt, proof.TranscriptVersion)
 		if err != nil {
 			return okLin, false, false, fmt.Errorf("VerifyNIZK: Q context: %w", err)
 		}
@@ -623,16 +697,24 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	var QK []*KPoly
 	var MK []*KPoly
 	if proof.Theta > 1 {
-		if len(proof.Chi) == 0 {
-			return false, false, false, errors.New("VerifyNIZK: missing Chi for θ>1")
+		if strictV3 {
+			params, fieldErr := deriveSmallFieldParamsNoRowsV3(ringQ, omega[:witnessNCols], proof.Theta)
+			if fieldErr != nil {
+				return false, false, false, fmt.Errorf("VerifyNIZK: fixed v3 field profile: %w", fieldErr)
+			}
+			smallFieldK = params.K
+		} else {
+			if len(proof.Chi) == 0 {
+				return false, false, false, errors.New("VerifyNIZK: missing Chi for θ>1")
+			}
+			field, fieldErr := kf.New(q, proof.Theta, proof.Chi)
+			if fieldErr != nil {
+				return false, false, false, fmt.Errorf("VerifyNIZK: kfield.New: %w", fieldErr)
+			}
+			smallFieldK = field
 		}
-		field, fieldErr := kf.New(q, proof.Theta, proof.Chi)
-		if fieldErr != nil {
-			return false, false, false, fmt.Errorf("VerifyNIZK: kfield.New: %w", fieldErr)
-		}
-		smallFieldK = field
 		qRowsForK := qPayload
-		if len(qRowsForK) == 0 {
+		if !strictV3 && len(qRowsForK) == 0 {
 			qRowsForK = proof.QCoeffDebug
 		}
 		if len(qRowsForK) > 0 {
@@ -640,22 +722,25 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 			if len(QK) == 0 {
 				return false, false, false, errors.New("VerifyNIZK: invalid split Q coefficient rows for θ>1")
 			}
-			if len(proof.QKData) > 0 && !equalKPolys(QK, restoreKPolys(proof.QKData), q) {
+			if !strictV3 && len(proof.QKData) > 0 && !equalKPolys(QK, restoreKPolys(proof.QKData), q) {
 				return false, false, false, errors.New("VerifyNIZK: QK data mismatch with split Q coefficient rows")
 			}
-		} else if len(proof.QKData) > 0 {
+		} else if !strictV3 && len(proof.QKData) > 0 {
 			QK = restoreKPolys(proof.QKData)
 		}
-		if len(proof.MaskCoeffDebug) > 0 && len(proof.MaskCoeffDebug)%proof.Theta == 0 {
+		if !strictV3 && len(proof.MaskCoeffDebug) > 0 && len(proof.MaskCoeffDebug)%proof.Theta == 0 {
 			MK = restoreKPolysFromSplitCoeffRows(proof.MaskCoeffDebug, proof.Theta, q)
 			if len(proof.MKData) > 0 && !equalKPolys(MK, restoreKPolys(proof.MKData), q) {
 				return false, false, false, errors.New("VerifyNIZK: MK data mismatch with split mask coefficient rows")
 			}
-		} else if len(proof.MKData) > 0 {
+		} else if !strictV3 && len(proof.MKData) > 0 {
 			MK = restoreKPolys(proof.MKData)
 		}
-		if len(QK) == 0 || len(MK) == 0 {
+		if len(QK) == 0 || (!strictV3 && len(MK) == 0) {
 			return false, false, false, errors.New("VerifyNIZK: missing QK/MK data for θ>1")
+		}
+		if strictV3 && len(qRowsForK) != proof.Theta {
+			return false, false, false, fmt.Errorf("VerifyNIZK: v3 QPayload rows=%d want theta=%d", len(qRowsForK), proof.Theta)
 		}
 	}
 	if replay != nil && replay.Eval != nil {
@@ -693,6 +778,12 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 		}
 		wantPar := len(fparProbe)
 		wantAgg := len(faggProbe)
+		if replay.AggregateDotK != nil {
+			if replay.EvalKParallel == nil || replay.AggregateCount <= 0 {
+				return okLin, false, false, errors.New("VerifyNIZK: incomplete direct aggregate replay")
+			}
+			wantAgg = replay.AggregateCount
+		}
 		rho := len(proof.GammaPrime)
 		if proof.Theta > 1 && len(proof.GammaPrimeK) > 0 {
 			rho = len(proof.GammaPrimeK)
@@ -747,6 +838,7 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 				witnessCount = len(vTargets[0])
 			}
 			vTargetsForK := vTargets
+			var authenticatedMaskValues []kf.Elem
 			if proofUsesSmallField2025LVCS(proof) {
 				maxReplayWitness := proof.SmallField2025.WitnessLayers * ncols
 				if witnessCount > maxReplayWitness {
@@ -757,6 +849,27 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 					return okLin, false, false, fmt.Errorf("VerifyNIZK: invalid smallfield2025 K replay rows=%d vtargets=%d", replayRows, len(vTargets))
 				}
 				vTargetsForK = vTargets[:replayRows]
+				if strictV3 {
+					if len(proof.KPoint) != 1 || len(QK) != 1 {
+						return okLin, false, false, fmt.Errorf("VerifyNIZK: v3 semantic mask path requires ell_prime=rho=1")
+					}
+					shape, shapeErr := deriveSmallFieldMaskShapeV3(proof.MaskDegreeBound, resolveProofPCSNCols(proof, ncols), proof.Theta)
+					if shapeErr != nil {
+						return okLin, false, false, fmt.Errorf("VerifyNIZK: v3 mask shape: %w", shapeErr)
+					}
+					if proof.MaskRowCount != shape.RowsPerMask {
+						return okLin, false, false, fmt.Errorf("VerifyNIZK: v3 mask rows=%d want=%d", proof.MaskRowCount, shape.RowsPerMask)
+					}
+					e := smallFieldK.Phi(proof.KPoint[0])
+					maskValue, maskErr := smallFieldMaskEvalFromVTargetsV3(smallFieldK, e, vTargets, replayRows, shape)
+					if maskErr != nil {
+						return okLin, false, false, fmt.Errorf("VerifyNIZK: reconstruct authenticated M(e): %w", maskErr)
+					}
+					authenticatedMaskValues = []kf.Elem{maskValue}
+				}
+			}
+			if strictV3 && (len(replay.FparOverrideIdxs) != 0 || len(replay.FaggOverrideIdxs) != 0) {
+				return okLin, false, false, errors.New("VerifyNIZK: v3 relation IR forbids formal coefficient overrides")
 			}
 			ok, err := EvaluateConstraintsOnKPoints(replay.EvalK, EvalKInput{
 				K:                smallFieldK,
@@ -764,8 +877,12 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 				VTargets:         vTargetsForK,
 				QK:               QK,
 				MK:               MK,
+				MaskValues:       authenticatedMaskValues,
 				GammaPrimeK:      proof.GammaPrimeK,
 				GammaAggK:        proof.GammaAggK,
+				EvalParallel:     replay.EvalKParallel,
+				AggregateDot:     replay.AggregateDotK,
+				AggregateCount:   replay.AggregateCount,
 				WitnessCount:     witnessCount,
 				Ring:             ringQ,
 				Fpar:             replay.Fpar,
@@ -825,6 +942,36 @@ func verifyNIZK(proof *Proof, replay *ConstraintReplay) (okLin, okEq4, okSum boo
 	return okLin, okEq4, okSum, nil
 }
 
+// verifyTailChallengeV3 binds the opened positions to the fourth Fiat--Shamir
+// digest.  The strict target wire reconstructs Tail rather than transmitting
+// it, but the in-memory verifier must enforce the same derivation so callers
+// cannot bypass random-tail soundness by constructing a Proof directly.
+// Legacy transcripts deliberately retain their historical behavior.
+func verifyTailChallengeV3(version string, h4 []byte, tail []int, start, length, count int) error {
+	if !transcriptUsesSmallWood2025V3(version) {
+		return nil
+	}
+	if normalizeTranscriptVersion(version) == TranscriptVersionSmallWood2025V3 && len(h4) != fsDigestBytes {
+		return fmt.Errorf("invalid Fiat-Shamir round-4 digest width %d", len(h4))
+	}
+	if transcriptUsesPublicationV4(version) && !decsHashWidthSupportedForFS(len(h4)*8) {
+		return fmt.Errorf("invalid publication-v4 Fiat-Shamir round-4 digest width %d", len(h4))
+	}
+	if start < 0 || length < 0 || count < 0 || count > length || len(tail) != count {
+		return fmt.Errorf("invalid trusted tail geometry start=%d length=%d count=%d actual=%d", start, length, count, len(tail))
+	}
+	expected := sampleDistinctIndices(
+		start,
+		length,
+		count,
+		newFSRNGForTranscript(version, "TailPoints", h4),
+	)
+	if !equalIntSlices(tail, expected) {
+		return errors.New("Fiat-Shamir tail challenge mismatch")
+	}
+	return nil
+}
+
 func verifyRoundDigest(fs *FS, round int, ctr uint64, material [][]byte, expected []byte, kappa int) ([]byte, error) {
 	if fs == nil {
 		return nil, errors.New("nil FS state")
@@ -832,11 +979,32 @@ func verifyRoundDigest(fs *FS, round int, ctr uint64, material [][]byte, expecte
 	if round < 0 || round >= len(fs.labels) {
 		return nil, fmt.Errorf("invalid FS round %d", round)
 	}
-	input := fs.roundInput(round)
-	for _, m := range material {
-		input = append(input, m...)
+	if transcriptUsesPublicationV4(fs.params.TranscriptVersion) && len(expected)*8 != fs.params.OutputBits {
+		return nil, fmt.Errorf("round %d digest width=%d bits want=%d", round, len(expected)*8, fs.params.OutputBits)
 	}
-	input = append(input, u64le(ctr)...)
+	var input []byte
+	if transcriptUsesSmallWood2025V3(fs.params.TranscriptVersion) {
+		// The v3 prover frames the round number, chained input, material count,
+		// every material item, and the unchanged uint64 counter. Verification
+		// must replay that exact injective encoding; the legacy concatenation
+		// below is retained only for v2 artifacts.
+		digest := fs.expandRoundV3At(round, material, ctr)
+		if !bytes.Equal(digest, expected) {
+			return nil, fmt.Errorf("digest mismatch in round %d", round)
+		}
+		if !hasZeroPrefix(digest, kappa) {
+			return nil, fmt.Errorf("grinding predicate failed in round %d", round)
+		}
+		fs.h[round] = append([]byte(nil), digest...)
+		fs.ctr[round] = ctr
+		return digest, nil
+	} else {
+		input = fs.roundInput(round)
+		for _, m := range material {
+			input = append(input, m...)
+		}
+		input = append(input, u64le(ctr)...)
+	}
 	digest := fs.xof.Expand(fs.labels[round], input)
 	if !bytes.Equal(digest, expected) {
 		return nil, fmt.Errorf("digest mismatch in round %d", round)
@@ -847,6 +1015,27 @@ func verifyRoundDigest(fs *FS, round int, ctr uint64, material [][]byte, expecte
 	fs.h[round] = append([]byte(nil), digest...)
 	fs.ctr[round] = ctr
 	return digest, nil
+}
+
+func validateProofFSDigestWidths(proof *Proof) error {
+	if proof == nil {
+		return errors.New("nil proof")
+	}
+	wantBits := fsDigestBytes * 8
+	if transcriptUsesPublicationV4(proof.TranscriptVersion) {
+		wantBits = proof.FSOutputBits
+		if !decsHashWidthSupportedForFS(wantBits) {
+			return fmt.Errorf("publication-v4 FS output bits=%d are invalid", wantBits)
+		}
+	} else if proof.FSOutputBits != 0 && proof.FSOutputBits != wantBits {
+		return fmt.Errorf("historical transcript FS output bits=%d want=%d", proof.FSOutputBits, wantBits)
+	}
+	for i, digest := range proof.Digests {
+		if len(digest)*8 != wantBits {
+			return fmt.Errorf("round %d digest width=%d bits want=%d", i, len(digest)*8, wantBits)
+		}
+	}
+	return nil
 }
 
 func prepareQOpeningForVerify(open *decs.DECSOpening, gammaQ, qr [][]uint64, points []uint64, q uint64) (*decs.DECSOpening, error) {

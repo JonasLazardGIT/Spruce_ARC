@@ -122,6 +122,7 @@ type MaskingFSInput struct {
 	LVCSNCols                 int    // LVCS row width; 0 => NCols
 	DecsParams                decs.Params
 	LabelsDigest              []byte // hash of public labels included in FS binding
+	PublicStatementBytes      []byte // complete canonical public labels for v3
 	SigShortnessBindingDigest []byte
 	SigShortness              *SigShortnessProof
 	// Small-field (theta>1) parameters
@@ -129,6 +130,9 @@ type MaskingFSInput struct {
 	SmallFieldOmegaS1 []uint64
 	SmallFieldMuInv   []uint64
 	SmallFieldK       *kf.Field
+	// SemanticKConstraintFactory rebuilds the same relation evaluator used by
+	// the verifier once round-2 public challenges/metadata are available.
+	SemanticKConstraintFactory semanticKRelationFactoryV3
 }
 
 func alignConstraintCoeffOverrides(polys []*ring.Poly, coeffs [][]uint64) [][]uint64 {
@@ -171,6 +175,10 @@ func alignConstraintPolysWithCoeffs(polys []*ring.Poly, coeffs [][]uint64) []*ri
 func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 	o := in.Opts
 	o.applyDefaults()
+	structuralV3 := transcriptUsesSmallWood2025V3(o.TranscriptVersion)
+	if structuralV3 && (in.PRFCompanionLayout != nil || len(in.PRFCompanionRows) != 0) {
+		return nil, fmt.Errorf("strict v3 proof must not carry PRF companion rows or layout")
+	}
 	if in.RingQ == nil {
 		return nil, fmt.Errorf("nil ring")
 	}
@@ -178,7 +186,7 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 		return nil, fmt.Errorf("RunMaskingFS requires a v2 LVCS prover")
 	}
 	defer in.PK.DecsProver.ReleaseTapes()
-	mainCtx, err := mainCommitmentContextV2(in.Salt)
+	mainCtx, err := mainCommitmentContextForTranscript(in.Salt, o.TranscriptVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -258,17 +266,19 @@ func RunMaskingFS(in MaskingFSInput) (*Proof, error) {
 			}
 			return out
 		}(),
-		rowLayout:                 in.RowLayout,
-		oracleLayout:              in.OracleLayout,
-		maskRowOffset:             in.MaskRowOffset,
-		maskRowCount:              in.MaskRowCount,
-		decsParams:                in.DecsParams,
-		ncolsOverride:             in.NCols,
-		labelsDigest:              append([]byte(nil), in.LabelsDigest...),
-		sigShortnessBindingDigest: append([]byte(nil), in.SigShortnessBindingDigest...),
-		sigShortness:              in.SigShortness,
+		rowLayout:                  in.RowLayout,
+		oracleLayout:               in.OracleLayout,
+		maskRowOffset:              in.MaskRowOffset,
+		maskRowCount:               in.MaskRowCount,
+		decsParams:                 in.DecsParams,
+		ncolsOverride:              in.NCols,
+		labelsDigest:               append([]byte(nil), in.LabelsDigest...),
+		publicStatementBytes:       append([]byte(nil), in.PublicStatementBytes...),
+		sigShortnessBindingDigest:  append([]byte(nil), in.SigShortnessBindingDigest...),
+		sigShortness:               in.SigShortness,
+		semanticKConstraintFactory: in.SemanticKConstraintFactory,
 	}
-	if in.PRFCompanionLayout != nil {
+	if !structuralV3 && in.PRFCompanionLayout != nil {
 		args.prfCompanionBridgeChecks = prfCompanionBridgeChecks
 	}
 	if args.witnessNCols <= 0 {
