@@ -1,368 +1,249 @@
-# SmallWood DECS Transcript Alignment
+# Current Work
 
-## Status
+## Hard-v2 Transcript Alignment: Complete
 
-Priority: high before making a complete NIZK or complete anonymous-credential
-security claim.
+The earlier DECS alignment work is implemented in the current hard-v2 epoch.
+The maintained transcript now:
 
-The current implementation supports the SmallWood soundness calculations, but
-two zero-knowledge details do not directly instantiate the construction in
-[SmallWood, ePrint 2025/1085](https://eprint.iacr.org/2025/1085):
+- samples an independent random tape for every DECS leaf;
+- serializes only tapes belonging to opened leaves and no master tape seed;
+- samples the global proof salt before the DECS commitments;
+- binds the salt, transcript version, and commitment role into leaf, internal-
+  node, padding-node, and challenge encodings;
+- uses full-width Merkle roots and indices wider than 16 bits;
+- rejects legacy or mixed tape/seed representations; and
+- reports the measured tape count, tape width, disclosure mode, leaf encoding,
+  and zero-knowledge eligibility.
 
-1. The paper samples an independent tape `rho_j` for every DECS leaf and reveals
-   only the tapes belonging to opened leaves. The implementation derives every
-   leaf nonce from one seed and includes that seed in the opening, allowing all
-   leaf nonces to be reconstructed.
-2. The paper uses the proof's global salt as auxiliary input to DECS leaf
-   hashing and to the first Fiat-Shamir hash. The implementation currently
-   samples the salt after the main DECS commitment, so the salt is used by
-   Fiat-Shamir but is absent from those leaf hashes.
+The corresponding unit and integration tests cover salt/tape tampering,
+indices 65,535 and 65,536, opening merges, serialization, full-width roots,
+and end-to-end replay rejection.
 
-These are theorem-applicability gaps. They should not be described as a known
-forgery, and they do not invalidate the reported algebraic soundness work
-factors by themselves. They do prevent us from citing the paper's complete
-zero-knowledge argument without either correcting the transcript or proving a
-separate seed-compressed variant.
+## BQ128/WF128 Strict-v3 Final Size Optimization: Complete
 
-## Expected Size Of The Change
+The focused strict-v3 path is implemented for
+`poc-n1024-bq128-r128-v3` and `system-n1024-wf128-crom-v2`. It includes:
 
-This is a moderate, cross-package protocol change, not a lattice-backend or
-SmallWood polynomial rewrite.
+- exact SHAKE-256 rejection sampling and direct full-statement transcript
+  binding;
+- trusted field profiles, corrected Eq. (2) mask geometry, randomized witness
+  extra-point values, and one shared semantic relation evaluator;
+- the input-trace Poseidon relation and proved base-9 packing of the bounded
+  `mu_sig`, `x0`, and `x1` sources;
+- direct substitution of the public-linear `mu_sig` and `x0` transforms into
+  the signature aggregate, while retaining the nonlinear `x1`/`Z` chain;
+- a 49-row source-only issuance relation with paired `M`, `S`, and `E`
+  carriers, a raw reserved/seed tail, and all 1,024 full-ring commitment
+  residuals;
+- a challenge-bound aggregate evaluator that is coefficient-for-coefficient
+  identical to complete `Q` from the independent 1,024-residual formal oracle,
+  but does not materialize those residual polynomials in production;
+- a schema-3/codec-6 proof boundary with grouped radix-`q` encoding and one
+  derivable `Q` coordinate per extension-field limb: its constant coefficient
+  is fixed before the evaluation challenge by the support-sum identity;
+- exact-`N` largest-lower-power Merkle commitments, with the exact positional
+  frontier derived from the Fiat–Shamir tail and no transmitted padding;
+- BQ128 R11/L4 shortness, accepted only after compiler-derived degree,
+  mask/query/opening, theorem, ZK, time, and memory gates passed;
+- trusted ragged `VTargets`, reconstructed to the original dense transcript;
+- complete verifier-reconstructed `RowLayout` binding in the v3 public
+  statement;
+- fail-closed schema-3 proof/presentation semantics, proof codec 6, and the
+  state-v8 codec; retired PRF-companion metadata and codec-3/codec-4 target
+  artifacts are rejected;
+- an exact `go list` build-input digest in every raw report and the checked
+  evidence, covering untracked production sources and embedded PRF parameters
+  rather than identifying a dirty tree by its base HEAD alone; and
+- three accepted issuance/showing runs per target, including canonical bytes,
+  paper accounting, theorem terms, wall time, peak RSS, verification, and
+  replay rejection.
 
-- The core correction is local: sample and retain independent tapes, disclose
-  selected tapes, sample the salt earlier, and include it in leaf hashes.
-- The propagation is broad: DECS, LVCS, PIOP proving, PIOP verification,
-  opening packing, transcript accounting, serialization tests, benchmarks, and
-  manifests all depend on the current representation.
-- Expect changes in roughly 8-12 production files and a similar number of test
-  files. A careful implementation will likely be a few hundred lines plus
-  fixture updates.
-- No lattice parameters, witness relations, formal-polynomial backend, or
-  SmallWood tuning parameters need to change.
-- The salt is already transmitted, so binding it to leaves adds no salt bytes.
-  Replacing one disclosed seed with one tape per opened leaf adds hundreds of
-  bytes, not tens of kilobytes, to a typical proof.
+Final measured medians are:
 
-For an opening of `m` distinct leaves with `t`-byte tapes, the direct tape
-payload changes approximately from `t` bytes to `m*t` bytes, a delta of
-`(m-1)*t` bytes per DECS opening. Indicative single-opening deltas for current
-geometries are:
+| Target | State | Issuance proof | Showing proof | Presentation | Issuance/showing paper | Issuance/showing rows |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| BQ128 | 4,926 B | 51,895 B | 84,717 B | 84,750 B | 57,271 / 90,494 B | 49 / 423 |
+| WF128 | 4,894 B | 21,720 B | 37,936 B | 37,977 B | 23,790 / 39,837 B | 49 / 423 |
 
-| Geometry | Opened leaves | Tape bytes | Approximate delta |
-|---|---:|---:|---:|
-| WF-128 | 9 | 16 | +128 bytes |
-| Q64-R128 | 13 | 25 | +300 bytes |
-| Q96-R128 | 16 | 29 | +435 bytes |
-| Q128-R128 | 18 | 33 | +561 bytes |
+Relative to the accepted codec-5 medians, this pass removes 490 B / 2,084 B
+from BQ issuance/showing proof wire and 330 B / 132 B from WF. Presentation
+savings equal showing-proof savings. BQ showing paper falls by 1,262 B; other
+paper totals and persistent state are unchanged. The old
+epochs, including the corrected full-`R`/omitted-`M` accounting, remain frozen
+as historical evidence rather than being rewritten.
 
-These are planning estimates only. A proof may combine or carry more than one
-DECS opening, so issuance and showing totals must be measured from the final
-wire encoding rather than updated from this table.
+WF128 showing adopted `LVCSNCols=41`; BQ128 retained `LVCSNCols=43` because
+the frozen search found no strictly eligible measured improvement. This work
+did not trade size for grinding: the target κ arrays, `NLeaves`, query caps,
+corrected projected work, `NDECS*eta`, cryptographic widths, salt/tape widths,
+and nonce/seed sizes did not increase. The seven non-target presets and all of
+their historical-v2 results remain unchanged.
 
-The prover must retain all independent tapes until opening. A flat tape buffer
-would cost approximately 8 MiB for `524288 * 16`, 21.88 MiB for
-`917504 * 25`, 21.75 MiB for `786432 * 29`, and 24.75 MiB for
-`786432 * 33`. This is material but bounded and avoids the allocation overhead
-of one Go slice per leaf.
+## BQ128/WF128 Proof-Time Optimization: Implemented, Promotion Blocked
 
-## Required Security Invariants
+The strict-v3 issuance/showing optimization is implemented. Retained work
+includes corrected permanent phase instrumentation, exact Fiat--Shamir prefix
+cloning with a generic-XOF fallback, one immutable bound prepared domain,
+trusted strict-row provenance, lazy NTT materialization, a shared formal-degree
+validator, semantic-Q `Into` arithmetic and worker-local arenas, structural
+semantic metadata and cached replay plans, and fused implicit-preorder exact-
+`N` Merkle storage. Production DECS keeps the established combined evaluator.
+The structurally selected row-major candidate remains available only through
+an explicit internal test constructor and is not adopted pending the paired
+gate. Existing tiled DECS modes, fixed frame templates, and DECS-frame SHAKE-
+prefix cloning were measured and rejected. The template R&D preserved exact
+bytes/hashes, but pure framing was 59--107% slower, whole-hash templating had no
+stable cross-target 3% win, and SHAKE cloning added 448 B plus one allocation
+per hash. Its record is at
+`tmp/profiling-v3/time-optimization/_decs-frame-template-prototype/RESULTS.md`.
 
-The corrected transcript must enforce all of the following:
+The fresh three-run medians are:
 
-- Each DECS leaf receives an independently sampled, uniformly random tape of
-  the configured tape width.
-- A proof opening contains exactly one tape for each distinct opened leaf and
-  reveals no seed or state from which unopened tapes can be reconstructed.
-- One global salt is sampled before any transcript-bound DECS commitment.
-- The same global salt is bound to every relevant DECS leaf and to the first
-  Fiat-Shamir invocation for that proof.
-- Issuance and showing verifiers reconstruct exactly the same salted leaf
-  preimage as their corresponding provers.
-- Leaf encodings are canonical and domain separated by protocol version and
-  commitment role.
-- The verifier rejects malformed tape counts, tape widths, duplicate or invalid
-  indices, mixed seed/tape encodings, non-canonical field values, and a salt of
-  the wrong width.
-- Security accounting obtains actual tape entropy from the disclosed tape
-  format. It must never infer paper-aligned tape hiding from the length of a
-  disclosed master seed.
-- Old and corrected transcript formats cannot be confused or verified under
-  the same canonical manifest.
+| Target | Issuance prove | Showing prove | Proving MADs | Peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| BQ128 | 1,349.588 ms (-20.93%) | 2,902.833 ms (-21.39%) | 36.483 / 97.182 ms | 369,393,664 B (-38.62%) |
+| WF128 | 521.758 ms (-28.44%) | 1,256.464 ms (-11.59%) | 4.210 / 8.127 ms | 194,871,296 B (-40.29%) |
 
-## 1. Choose The Construction
+Verification medians are 499.882/273.419 ms for BQ issuance/showing and
+241.098/148.445 ms for WF. Relative to the predecessor medians, all four fresh
+unpaired comparisons are nominally greater than 3%; this does not pass the
+performance/adoption gate. Independent entropy produces different accepted
+Fiat--Shamir counters, whose variability can materially affect top-level
+proving time. Runtime direction remains unestablished until the seven fixed-
+entropy alternating pairs are measured. Kappa, geometry, paper sizes,
+persistent state, randomness, and transcript rules are unchanged. Fresh proof/
+presentation lengths may vary with the challenge-dependent exact frontier and
+minimal-LEB128 counter widths; the fixed-entropy byte-equality tests are
+authoritative.
 
-Implement the paper-aligned construction by default:
+Two promotion blockers remain:
 
-- Sample `N` independent tapes with `crypto/rand`.
-- Keep them private in the prover.
-- Copy only the challenged tapes into the DECS opening.
+1. Generate the seven alternating fixed-entropy baseline/candidate end-to-end
+   pairs and allocation records.
+2. Resolve, without changing the frozen target, manifest, geometry, or
+   accounting, the all-nine functional-gate mismatch: BQ issuance/showing
+   algebraic totals are 131.548362/131.511683 bits, while the manifest-bound
+   engineering high-watermark is 131.540568 bits. Showing misses that
+   engineering target by 0.028885 bits.
 
-A random-access PRF keyed by a private seed could avoid storing all tapes while
-still revealing only selected outputs. That is not the construction proved in
-the paper: it replaces information-theoretically independent tapes with
-pseudorandom tapes and introduces another computational assumption and proof
-obligation. Do not use that optimization for a paper-aligned claim unless a
-separate reduction is written and reviewed.
+The actual required 128-bit phase audit passes: BQ showing retains 3.511683
+bits of slack, and its proof, parameter audit, and replay checks pass. Thus the
+three-run timings remain valid as unpaired measurements, but the runtime
+direction, `gate-functional-presets`, and machine-readable promotion are not
+established. Details are in
+[`docs/PROOF_TIME_OPTIMIZATION.md`](docs/PROOF_TIME_OPTIMIZATION.md) and
+[`docs/PROOF_TIME_PROFILE.md`](docs/PROOF_TIME_PROFILE.md).
 
-## 2. Version The Transcript
+## Current Evidence
 
-Do not silently change the existing transcript under its current identifier.
-
-- Add a new transcript/manifest version for salted leaves and selective tape
-  disclosure.
-- Bind the version into the canonical preset manifest and Fiat-Shamir domain.
-- In the new version, reject `NonceSeed` unconditionally and require explicit
-  per-opening tapes.
-- Decide explicitly whether the old verifier remains available only for
-  historical artifact reproduction or is removed. If retained, label it as a
-  legacy format with no complete NIZK claim.
-- Prevent credentials or proofs produced under the legacy format from being
-  accepted under the corrected preset identity.
-
-Affected areas include the proof transcript constants, preset manifest
-construction, issuance/showing serialization, and replay verification.
-
-## 3. Replace Seed-Derived Nonces With Independent Tapes
-
-The current implementation is centered on `deriveNonce` and `NonceSeed` in
-[`DECS/decs_prover.go`](DECS/decs_prover.go) and
-[`DECS/decs_types.go`](DECS/decs_types.go).
-
-Required changes:
-
-1. Add prover-private storage for a flat `N * TapeBytes` byte buffer. Keep a
-   checked multiplication and a configured allocation limit to avoid integer
-   overflow or accidental unbounded allocation.
-2. Fill the complete buffer from `crypto/rand.Reader` before leaf construction.
-   Propagate entropy-source failures.
-3. During scalar, parallel, tiled, and formal leaf construction, select
-   `tapes[i*TapeBytes:(i+1)*TapeBytes]` directly. Every implementation path must
-   hash byte-identical leaf preimages for fixed inputs.
-4. Change `EvalOpen(E)` to copy only the tapes for indices in `E` into the
-   opening, in exactly the same logical order as `Pvals`, `Mvals`, and paths.
-5. Stop populating `NonceSeed` in the corrected format. Rename internal
-   nonce-oriented symbols to tape-oriented names where doing so does not break
-   legacy decoding.
-6. Make the corrected verifier require `len(open.Nonces) == EntryCount()` (or
-   the equivalent renamed tape field) and require every tape to have exactly
-   `TapeBytes` bytes. Remove its seed-derivation fallback for the new version.
-7. Ensure repeated opening calls either return consistent copies of the same
-   retained tapes or are prohibited after finalization with a clear error.
-8. Release the full private tape buffer when the prover state is no longer
-   needed. Zeroing can be considered for hygiene, although these tapes are not
-   long-term keys.
-
-The opening type already has a `Nonces` field, so this does not require an
-entirely new proof object. It does change which field is populated and therefore
-changes serialized proof bytes.
-
-## 4. Bind The Global Salt To DECS Leaves
-
-The current main root is committed before `runMaskFS` samples the salt in
-[`PIOP/masking_fs_helper.go`](PIOP/masking_fs_helper.go). Move salt creation to
-the beginning of proof construction.
-
-Required changes:
-
-1. Sample the salt once in the top-level PIOP prover before calling
-   `commitRows`.
-2. Pass an internal commitment context containing the salt, transcript version,
-   and commitment-role label through PIOP -> LVCS -> DECS.
-3. Use the same salt for the main row commitment, Q-payload commitment, and any
-   transcript-bound companion/replay commitment that belongs to the proof.
-4. Pass that already sampled salt into `runMaskFS`; it must not silently sample
-   a second value.
-5. On verification, obtain the salt from the proof header and pass the same
-   context to every DECS opening check.
-6. Reject a missing or incorrectly sized salt before performing Merkle-path or
-   Fiat-Shamir verification.
-
-There is no circular dependency: the salt is sampled first, the salted DECS
-root is computed second, and Fiat-Shamir hashes the salt and root third.
-
-## 5. Define One Canonical Leaf Encoding
-
-Replace ad hoc concatenation with a documented encoder used by both prover and
-verifier. At minimum, the encoded/hash input must bind:
+The seven non-target canonical presets retain their accepted three-run
+historical-v2 evidence under:
 
 ```text
-DECS leaf domain label
-transcript version
-commitment role
-global salt
-evaluation-domain point or full leaf index
-canonical P evaluations
-canonical M evaluations
-the independent tape
+artifacts/smallwood-salted-v2/<canonical-id>/
 ```
 
-Use fixed-width or length-prefixed fields so no two tuples have the same byte
-encoding. Validate every field element as a canonical residue below `q` before
-hashing it on the verifier side.
-
-The current leaf encoder writes `uint16(index)`. Current authentication domains
-can contain hundreds of thousands of leaves, so 16 bits do not uniquely encode
-the index. While changing the leaf format, encode either the actual field point
-or an index wide enough for the complete domain, and test values on both sides
-of 65535.
-
-The Merkle implementation exposes a legacy 16-byte `Root()` and a full-width
-`RootHash()`. Corrected wide-hash profiles must bind and verify the full root at
-their declared width. Keep the 16-byte value only as an explicitly legacy API;
-never let it become a fallback for a 264-, 328-, or 392-bit hash profile.
-
-Candidate framing, subject to matching the paper's exact notation during
-implementation, is:
+The accepted focused strict-v3 reports and resource records are under:
 
 ```text
-SHAKE256(
-  "SPRUCE/SmallWood/DECS/leaf/v2" ||
-  encode(role) || encode(salt) || encode(point) ||
-  encode(P(point)) || encode(M(point)) || encode(tape)
-)
+artifacts/smallwood-v3/final-size-optimization-v2/bq128/run-{1,2,3}/
+artifacts/smallwood-v3/final-size-optimization-v2/wf128/run-{1,2,3}/
 ```
 
-Merkle internal-node hashing should retain a separate node domain. Whether the
-salt is also included in internal nodes must follow the selected formalization;
-the paper-alignment requirement here is that the salt is included in every leaf
-hash.
+The fresh proof-time runs are under:
 
-## 6. Propagate The Context Through Every Proof Path
-
-Audit and update at least these layers:
-
-- DECS commitment, optimized/formal leaf builders, opening packing, and
-  verification in `DECS/`.
-- LVCS prover/verifier wrappers and subset-opening helpers in `LVCS/`.
-- Main row commitment setup in
-  [`PIOP/commit_helpers.go`](PIOP/commit_helpers.go) and
-  [`PIOP/generic_builder.go`](PIOP/generic_builder.go).
-- Fiat-Shamir initialization and Q commitments in
-  [`PIOP/masking_fs_helper.go`](PIOP/masking_fs_helper.go).
-- Opening reconstruction and verification in
-  [`PIOP/VerifyNIZK.go`](PIOP/VerifyNIZK.go).
-- Opening clone, combine, pack, and size helpers in
-  [`PIOP/run.go`](PIOP/run.go).
-- PRF companion, pre-sign/post-sign replay, subset-row recovery,
-  sig-shortness, and other auxiliary proof paths that construct or verify a
-  DECS opening.
-
-Opening combination is particularly sensitive. When mask and tail openings are
-merged, merge tapes by logical leaf index, preserve the final `EntryCount()`
-ordering, deduplicate repeated indices, and reject two different tapes claimed
-for the same leaf.
-
-## 7. Correct Reporting And Security Audits
-
-Update [`PIOP/canonical_transcript.go`](PIOP/canonical_transcript.go) and the
-security ledger so reports describe the actual corrected proof:
-
-- Count every serialized opened tape in `tapes_bytes`.
-- Separate tape payload bytes from tape-count/length metadata.
-- Remove `nonce_seed_bytes` from corrected-format reports, or retain it only in
-  a clearly labeled legacy audit section.
-- Derive actual tape width from every opened tape and reject inconsistent
-  widths.
-- Mark seed-compressed openings as incompatible with the paper-aligned profile.
-- Retain the theorem's hidden-tape term only when unopened tapes are not
-  reconstructible from the proof.
-- Continue reporting soundness and zero-knowledge terms separately. Passing the
-  algebraic/full-game soundness calculation alone must not promote a complete
-  NIZK claim.
-
-Do not refresh expected transcript totals until the encoding and verifier have
-passed review. Once fixed, remeasure every executable preset rather than adding
-the estimated deltas above to existing totals.
-
-## 8. Test Matrix
-
-### DECS unit tests
-
-- Inject deterministic tapes and salt through a test-only/internal entropy
-  source and compare scalar, parallel, tiled, ring-backed, and formal roots.
-- Assert that an opening contains exactly the selected tapes and no master
-  seed.
-- Assert that changing the salt changes the root for otherwise identical
-  inputs.
-- Assert that changing one leaf tape changes the root.
-- Reject a changed salt, changed tape, missing tape, extra tape, short/long
-  tape, mixed seed/tape representation, malformed index, and non-canonical
-  field value.
-- Cover indices `65535`, `65536`, and the largest maintained authentication
-  domain index.
-- Verify that duplicate opening indices are either canonicalized once or
-  rejected consistently.
-
-### LVCS/PIOP integration tests
-
-- Prove and verify low-degree and formal high-degree rows with salted DECS
-  leaves.
-- Exercise main, Q-payload, PRF companion, replay, subset-row, and
-  sig-shortness paths.
-- Tampering with `Proof.Salt` must fail both the DECS opening and Fiat-Shamir
-  checks.
-- Combining and packing openings must preserve tape-to-index alignment.
-- Serialization round trips must preserve all selected tapes and the full root.
-- A corrected verifier must reject a legacy seed-compressed opening.
-- Legacy artifact verification, if retained, must dispatch only under the
-  explicit legacy transcript identifier.
-
-### Accounting and end-to-end tests
-
-- Assert exact tape bucket accounting from serialized data.
-- Assert parameter-audit failure when actual tape/salt/root widths differ from
-  the manifest.
-- Benchmark issuance and showing for every executable preset.
-- Run functional gates, replay rejection, manifest binding, and artifact gates.
-- Record memory and prover-time changes caused by random tape generation and
-  the larger salted leaf preimage.
-
-## 9. Acceptance Criteria
-
-The correction is complete only when:
-
-- No corrected proof serializes `NonceSeed` or any equivalent master secret.
-- Only tapes corresponding to opened leaves are serialized.
-- Every corrected DECS root commits to the proof's global salt.
-- Prover and verifier share one canonical, versioned leaf encoder.
-- Large leaf indices and full-width Merkle roots are handled without
-  truncation.
-- All proof paths pass end to end and all salt/tape tampering tests reject.
-- Transcript reports and security audits use measured wire data.
-- Preset manifests bind the corrected transcript version.
-- Exact issuance, showing, and combined bytes are remeasured and documented.
-- The zero-knowledge argument is checked line by line against the paper before
-  changing any preset from `proof_only` or diagnostic status.
-
-Final validation should include:
-
-```bash
-gofmt -l <changed Go files>
-git diff --check
-go test ./DECS ./LVCS ./PIOP -count=1
-go test ./credential ./cmd/issuance ./cmd/showing -count=1
-go test ./... -count=1
-go vet ./...
-go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
-go build ./cmd/issuance ./cmd/showing
+```text
+artifacts/smallwood-v3/time-optimization-v1/bq128/run-{1,2,3}/
+artifacts/smallwood-v3/time-optimization-v1/wf128/run-{1,2,3}/
 ```
 
-Then run one measured issuance/showing proof for every executable preset and the
-functional and historical artifact gates.
+All six reports bind source-input digest
+`c9cf9e245014143c2716aac276498de774ccd0d4af57f4a410f02ac87fb06d56`.
 
-## Suggested Commit Sequence
+Exact sizes, median timings, theorem values, transcript widths, and claim
+status are summarized in [`results.md`](results.md). Focused machine-readable
+metadata is in `evidence/focused-v3-nonresearch-optimization.json`; the
+preceding records remain in `evidence/focused-v3-transcript-reduction.json`
+and `evidence/focused-v3-size-optimization.json`. The time-optimization
+machine-readable successor is intentionally still pending both the seven
+paired fixed-entropy/allocation records and the BQ showing engineering
+high-watermark mismatch in the all-nine functional gate.
 
-1. `decs: disclose independent opening tapes`
-   - Independent tape storage, selective disclosure, strict verifier checks,
-     and DECS unit tests.
-2. `piop: bind global salt to decs leaves`
-   - Early salt sampling, context propagation, canonical leaf encoding, full
-     index/root handling, and all proof-path tests.
-3. `reporting: account for selective decs tapes`
-   - Wire-size accounting, parameter audit, and security-ledger semantics.
-4. `validation: refresh corrected transcript fixtures`
-   - End-to-end measurements, expected byte fixtures, gates, and documentation.
+## Deferred Security Work
 
-Keep parameter retuning out of these commits. First establish a correct and
-paper-aligned transcript, measure its cost, and only then decide whether the
-additional tape bytes justify a new tuning pass.
+Every maintained preset remains `claim_scope=proof_only`. Before promoting any
+preset, the following require written, reviewed arguments and evidence:
+
+1. Prove adaptive multi-proof/simultaneous extraction for issuance and showing
+   under the actual shared random-oracle transcript.
+2. Replace accepted-proof-only composition with an adversarial-attempt and
+   global-query theorem for the declared user, context, proof, and tag scope.
+3. Finalize challenge-bias and random-oracle programming-conflict accounting.
+4. Supply reviewed MSIS-binding and lattice-signature/IntGenISIS security
+   estimates with exact reduction losses and provenance.
+5. Review the zero-knowledge, blindness, soundness, and unlinkability hybrids
+   against the implemented bounded-source relation and context/slot policy.
+6. Keep the security model explicitly CROM. A QROM claim requires a separate
+   theorem.
+
+These tasks remain intentionally deferred. Completing the strict-v3 per-proof
+path does not complete the credential-system game or authorize a stronger
+claim than `proof_only`.
+
+## Optimization Boundary
+
+For the seven historical-v2 presets, safe work without a new theorem remains
+limited to implementation-only changes that preserve byte-identical
+transcripts, relation geometry, manifests, and security inputs. Every such
+change should be checked against the three-run baseline and exact-byte gates.
+
+The reviewed input-trace and base-9 packing arguments apply only to the two
+strict-v3 targets. Extending them to another preset requires a fresh compiled
+relation audit and evidence; their presence here is not a generic license to
+pack or omit witness rows.
+
+The following are research changes and must not be enabled in a canonical
+preset merely to improve a size table:
+
+- changing the strict-v3 carrier encoding, lane decoders, fused public-linear
+  substitutions, or retained `x1`/`Z` bindings without preserving the local
+  implication/extractability proof;
+- omitting independently necessary `VTargets` or any `BarSets` values; only
+  trusted all-zero suffixes are currently absent from the wire;
+- trimming executed `R` or any further `QPayload` coordinate without a
+  separate derivability proof;
+- PRF hole-sharing: only 16 unused source holes exist while the next showing
+  row reduction needs 29, and selector-weighted nonlinear reuse would raise
+  the unaccounted degree;
+- two-round Poseidon folding or other degree-9 cross-lane folds, which are not
+  covered by the current local input-trace lemma or compiler degree audit;
+- using valid-prefix query discounts not covered by the current theorem;
+- changing SmallWood degree, row, opening, or query accounting without a
+  compiler-backed relation audit and updated theorem; or
+- replacing independent leaf tapes with seed-derived pseudorandom tapes.
+
+## Evidence Maintenance
+
+After any protocol, relation, parameter, or transcript change:
+
+1. Run the full Go tests, race checks for affected concurrent code, vet,
+   static analysis, and builds.
+2. Run `gate-functional-presets` for all nine canonical IDs.
+3. Generate exactly three fresh reports for each affected preset using the
+   layout documented in [`evidence/README.md`](evidence/README.md); do not
+   replace the seven historical-v2 sets when they are unaffected.
+4. For a BQ128/WF128 strict-v3 change, run `go run ./cmd/spruce-evidence
+   focused-v3-nonresearch --spruce-dir . --paper-dir
+   ../Better-Lattice-based-Blind-Signatures --measured-on YYYY-MM-DD`; this
+   command audits the paper checkout read-only and validates the complete
+   15-file bundle in each of the six fixed run directories.
+   For a historical-v2 change, run
+   `go run ./cmd/spruce-evidence baseline --spruce-dir .` instead.
+5. Run `gate-artifact-presets` and deliberately update its expected bytes only
+   when the reviewed change is supposed to alter the transcript.
+6. Refresh [`results.md`](results.md), [`README.md`](README.md),
+   [`ARTIFACT.md`](ARTIFACT.md), and [`docs/SECURITY.md`](docs/SECURITY.md) from
+   the canonical reports rather than from estimates.
+
+Do not run the evidence export step unless changes to the separate paper
+repository are explicitly authorized.
