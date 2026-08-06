@@ -5,6 +5,19 @@ out/doc_sync_logs_*/
 # Local cleanup scratch artifacts
 out/repo_cleanup_sift_*.tmp
 
+# Local build, test, profiling, and benchmark scratch output.
+tmp/
+*.tmp
+*.test
+*.prof
+*.pprof
+*.trace
+coverage.out
+coverage-*.out
+/issuance
+/showing
+/spruce-evidence
+
 # Local protocol working docs
 local_docs/
 
